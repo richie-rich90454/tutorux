@@ -1,0 +1,10 @@
+/build/
+/build-*/
+/dist/
+/tmp/
+/cmake-build-*/
+/.cache/
+/.DS_Store
+/Thumbs.db
+*.partial
+*.log
