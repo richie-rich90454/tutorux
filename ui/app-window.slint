@@ -1,0 +1,418 @@
+import { AboutSlint, Button, ComboBox, LineEdit, ScrollView } from "std-widgets.slint";
+
+export component MainWindow inherits Window {
+    title: "Tutorux";
+    preferred-width: 1240px;
+    preferred-height: 820px;
+    min-width: 980px;
+    min-height: 680px;
+    background: #f4f2ee;
+
+    in-out property <string> archive-list;
+    in-out property <[string]> archive-paths;
+    in-out property <string> archive-path;
+    in-out property <string> archive-name;
+    in-out property <string> archive-passphrase;
+    in-out property <string> new-archive-passphrase;
+    in-out property <string> selected-archive;
+    in-out property <string> students-text;
+    in-out property <string> sessions-text;
+    in-out property <string> status-message;
+    in-out property <string> student-name;
+    in-out property <string> session-subject;
+    in-out property <string> session-title;
+    in-out property <string> command-input;
+    in-out property <string> command-output;
+    in-out property <bool> command-running: false;
+    in-out property <bool> about-open: false;
+
+    callback open-archive(string, string);
+    callback forget-passphrase();
+    callback create-archive(string, string);
+    callback create-student(string);
+    callback create-session(string, string);
+    callback run-command(string, string);
+    callback cancel-command();
+
+    Rectangle {
+        background: #f4f2ee;
+
+        HorizontalLayout {
+            spacing: 0px;
+
+            Rectangle {
+                width: 248px;
+                background: #1c2528;
+
+                VerticalLayout {
+                    padding: 24px;
+                    spacing: 18px;
+
+                    HorizontalLayout {
+                        spacing: 11px;
+                        Rectangle {
+                            width: 38px;
+                            height: 38px;
+                            border-radius: 12px;
+                            background: #e6a26a;
+                            Text {
+                                text: "T";
+                                color: #1c2528;
+                                font-size: 22px;
+                                font-weight: 700;
+                                horizontal-alignment: center;
+                                vertical-alignment: center;
+                            }
+                        }
+                        VerticalLayout {
+                            spacing: 1px;
+                            Text {
+                                text: "tutorux";
+                                color: #f6f0e8;
+                                font-size: 20px;
+                                font-weight: 700;
+                            }
+                            Text {
+                                text: "TEACHING, REMEMBERED";
+                                color: #9ba8a4;
+                                font-size: 9px;
+                                letter-spacing: 1px;
+                            }
+                        }
+                    }
+
+                    Rectangle { height: 10px; }
+
+                    Text {
+                        text: "WORKSPACE";
+                        color: #879693;
+                        font-size: 10px;
+                        font-weight: 700;
+                        letter-spacing: 1.2px;
+                    }
+                    Rectangle {
+                        height: 42px;
+                        border-radius: 9px;
+                        background: #303c3d;
+                        HorizontalLayout {
+                            padding-left: 13px;
+                            spacing: 12px;
+                            Text { text: "◈"; color: #efb17d; font-size: 17px; }
+                            Text { text: "Overview"; color: #fff8f0; font-size: 14px; }
+                        }
+                    }
+                    Text { text: "Students"; color: #c4cfca; font-size: 14px; }
+                    Text { text: "Sessions"; color: #c4cfca; font-size: 14px; }
+                    Text { text: "Study guides"; color: #c4cfca; font-size: 14px; }
+
+                    Rectangle { height: 12px; }
+                    Text {
+                        text: "PORTABLE ARCHIVE";
+                        color: #879693;
+                        font-size: 10px;
+                        font-weight: 700;
+                        letter-spacing: 1.2px;
+                    }
+                    Text {
+                        text: root.selected-archive;
+                        color: #f1e9dd;
+                        font-size: 13px;
+                        wrap: word-wrap;
+                    }
+                    Text {
+                        text: "All changes are written directly into this .tux file.";
+                        color: #9ba8a4;
+                        font-size: 11px;
+                        wrap: word-wrap;
+                    }
+
+                    Rectangle { height: 80px; }
+
+                    Rectangle {
+                        border-radius: 12px;
+                        background: #293637;
+                        VerticalLayout {
+                            padding: 14px;
+                            spacing: 8px;
+                            Text { text: "Private by default"; color: #f5eee4; font-size: 13px; font-weight: 600; }
+                            Text {
+                                text: "Your recordings and notes remain in your archive unless you choose to share them.";
+                                color: #aebbb5;
+                                font-size: 11px;
+                                wrap: word-wrap;
+                            }
+                        }
+                    }
+                    Rectangle { }
+                    Text { text: "TUTORUX 1.0  ·  LOCAL WORKSPACE"; color: #75847f; font-size: 9px; }
+                }
+            }
+
+            Rectangle {
+                background: #f4f2ee;
+                ScrollView {
+                    VerticalLayout {
+                        padding: 34px;
+                        padding-left: 42px;
+                        padding-right: 42px;
+                        spacing: 22px;
+
+                    HorizontalLayout {
+                        spacing: 20px;
+                        VerticalLayout {
+                            spacing: 5px;
+                            Text { text: "YOUR TEACHING WORKSPACE"; color: #7f8c83; font-size: 10px; font-weight: 700; letter-spacing: 1.4px; }
+                            Text { text: "Good work starts with good notes."; color: #202c2d; font-size: 27px; font-weight: 700; }
+                        }
+                        Rectangle { }
+                        Button {
+                            text: "+  New session";
+                            clicked => { root.create-session(root.session-subject, root.session-title); }
+                        }
+                        Button {
+                            text: "About";
+                            clicked => { root.about-open = !root.about-open; }
+                        }
+                    }
+
+                    if root.about-open: Rectangle {
+                        border-radius: 14px;
+                        background: #ffffff;
+                        VerticalLayout {
+                            padding: 18px;
+                            spacing: 10px;
+                            Text {
+                                text: "About Tutorux";
+                                color: #263230;
+                                font-size: 15px;
+                                font-weight: 600;
+                            }
+                            Text {
+                                text: "Tutorux keeps teaching sessions in portable .tux archives.";
+                                color: #64716b;
+                                font-size: 12px;
+                            }
+                            AboutSlint { }
+                        }
+                    }
+
+                    Rectangle {
+                        height: 146px;
+                        border-radius: 18px;
+                        background: #dfe9e1;
+                        HorizontalLayout {
+                            padding: 24px;
+                            padding-left: 28px;
+                            padding-right: 28px;
+                            spacing: 18px;
+                            VerticalLayout {
+                                spacing: 9px;
+                                Text { text: "A little progress, captured."; color: #203331; font-size: 21px; font-weight: 650; }
+                                Text {
+                                    text: "Keep each lesson connected to the ideas, questions and next steps that matter.";
+                                    color: #566b64;
+                                    font-size: 13px;
+                                    wrap: word-wrap;
+                                }
+                                Text { text: root.status-message; color: #32584c; font-size: 12px; }
+                            }
+                            Rectangle { }
+                            Rectangle {
+                                width: 104px;
+                                height: 104px;
+                                border-radius: 52px;
+                                background: #c0d4c7;
+                                Text { text: "✳"; color: #527765; font-size: 45px; horizontal-alignment: center; vertical-alignment: center; }
+                            }
+                        }
+                    }
+
+                    HorizontalLayout {
+                        spacing: 14px;
+                        Rectangle {
+                            border-radius: 14px;
+                            background: #ffffff;
+                            VerticalLayout {
+                                padding: 18px;
+                                spacing: 10px;
+                                Text { text: "STUDENTS"; color: #859189; font-size: 10px; font-weight: 700; letter-spacing: 1px; }
+                                Text { text: "Learning histories"; color: #263230; font-size: 15px; font-weight: 600; }
+                                LineEdit { placeholder-text: "Student name"; text <=> root.student-name; }
+                                Button { text: "Add student"; clicked => { root.create-student(root.student-name); } }
+                            }
+                        }
+                        Rectangle {
+                            border-radius: 14px;
+                            background: #ffffff;
+                            VerticalLayout {
+                                padding: 18px;
+                                spacing: 10px;
+                                Text { text: "NEW SESSION"; color: #859189; font-size: 10px; font-weight: 700; letter-spacing: 1px; }
+                                Text { text: "Set up your next lesson"; color: #263230; font-size: 15px; font-weight: 600; }
+                                LineEdit { placeholder-text: "Subject"; text <=> root.session-subject; }
+                                LineEdit { placeholder-text: "Session title"; text <=> root.session-title; }
+                                Button { text: "Create session"; clicked => { root.create-session(root.session-subject, root.session-title); } }
+                            }
+                        }
+                    }
+
+                    HorizontalLayout {
+                        spacing: 14px;
+                        Rectangle {
+                            border-radius: 14px;
+                            background: #ffffff;
+                            VerticalLayout {
+                                padding: 18px;
+                                spacing: 10px;
+                                Text { text: "ARCHIVE"; color: #859189; font-size: 10px; font-weight: 700; letter-spacing: 1px; }
+                                Text { text: "Open an existing workspace"; color: #263230; font-size: 15px; font-weight: 600; }
+                                if root.archive-paths.length > 0: ComboBox {
+                                    model: root.archive-paths;
+                                    current-value <=> root.archive-path;
+                                }
+                                ScrollView {
+                                    height: 112px;
+                                    Text { text: root.archive-list; color: #64716b; font-size: 11px; wrap: word-wrap; }
+                                }
+                                LineEdit { placeholder-text: "Path to a .tux archive"; text <=> root.archive-path; }
+                                LineEdit {
+                                    placeholder-text: "Archive passphrase (if encrypted)";
+                                    input-type: password;
+                                    text <=> root.archive-passphrase;
+                                }
+                                HorizontalLayout {
+                                    spacing: 8px;
+                                    Button {
+                                        text: "Open archive";
+                                        clicked => {
+                                            root.open-archive(root.archive-path, root.archive-passphrase);
+                                            root.archive-passphrase = "";
+                                        }
+                                    }
+                                    Button { text: "Forget passphrase"; clicked => { root.forget-passphrase(); } }
+                                }
+                            }
+                        }
+                        Rectangle {
+                            border-radius: 14px;
+                            background: #ffffff;
+                            VerticalLayout {
+                                padding: 18px;
+                                spacing: 10px;
+                                Text { text: "START FRESH"; color: #859189; font-size: 10px; font-weight: 700; letter-spacing: 1px; }
+                                Text { text: "Create a portable archive"; color: #263230; font-size: 15px; font-weight: 600; }
+                                Text {
+                                    text: "One file holds your students, sessions, recordings, materials and guides.";
+                                    color: #64716b;
+                                    font-size: 12px;
+                                    wrap: word-wrap;
+                                }
+                                LineEdit { placeholder-text: "Tutorux.tux"; text <=> root.archive-name; }
+                                LineEdit {
+                                    placeholder-text: "Optional archive passphrase";
+                                    input-type: password;
+                                    text <=> root.new-archive-passphrase;
+                                }
+                                Button {
+                                    text: "Create workspace";
+                                    clicked => {
+                                        root.create-archive(root.archive-name, root.new-archive-passphrase);
+                                        root.new-archive-passphrase = "";
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    HorizontalLayout {
+                        spacing: 14px;
+                        Rectangle {
+                            border-radius: 14px;
+                            background: #ffffff;
+                            VerticalLayout {
+                                padding: 16px;
+                                spacing: 7px;
+                                Text { text: "STUDENTS IN THIS ARCHIVE"; color: #859189; font-size: 10px; font-weight: 700; letter-spacing: 1px; }
+                                ScrollView { height: 92px; Text { text: root.students-text; color: #53615b; font-size: 11px; wrap: word-wrap; } }
+                            }
+                        }
+                        Rectangle {
+                            border-radius: 14px;
+                            background: #ffffff;
+                            VerticalLayout {
+                                padding: 16px;
+                                spacing: 7px;
+                                Text { text: "RECENT SESSIONS"; color: #859189; font-size: 10px; font-weight: 700; letter-spacing: 1px; }
+                                ScrollView { height: 92px; Text { text: root.sessions-text; color: #53615b; font-size: 11px; wrap: word-wrap; } }
+                            }
+                        }
+                    }
+
+                    Rectangle {
+                        border-radius: 14px;
+                        background: #ffffff;
+                        VerticalLayout {
+                            padding: 18px;
+                            spacing: 10px;
+                            Text {
+                                text: "COMMAND CONSOLE";
+                                color: #859189;
+                                font-size: 10px;
+                                font-weight: 700;
+                                letter-spacing: 1px;
+                            }
+                            Text {
+                                text: "Run Tutorux commands against this archive";
+                                color: #263230;
+                                font-size: 15px;
+                                font-weight: 600;
+                            }
+                            HorizontalLayout {
+                                spacing: 8px;
+                                LineEdit {
+                                    placeholder-text: "annotation add --session ID --type note --at 00:00:00 --text \"...\"";
+                                    text <=> root.command-input;
+                                    accepted => {
+                                        root.run-command(root.command-input, root.new-archive-passphrase);
+                                        root.new-archive-passphrase = "";
+                                    }
+                                }
+                                Button {
+                                    text: "Run";
+                                    clicked => {
+                                        root.run-command(root.command-input, root.new-archive-passphrase);
+                                        root.new-archive-passphrase = "";
+                                    }
+                                }
+                                if root.command-running: Button {
+                                    text: "Cancel";
+                                    clicked => { root.cancel-command(); }
+                                }
+                            }
+                            LineEdit {
+                                placeholder-text: "New passphrase for archive encrypt/change-passphrase";
+                                input-type: password;
+                                text <=> root.new-archive-passphrase;
+                            }
+                            Text {
+                                text: "Arguments are parsed by Tutorux; no shell commands are executed.";
+                                color: #64716b;
+                                font-size: 11px;
+                            }
+                            ScrollView {
+                                height: 150px;
+                                Text {
+                                    text: root.command-output;
+                                    color: #53615b;
+                                    font-size: 11px;
+                                    wrap: word-wrap;
+                                }
+                            }
+                        }
+                    }
+                    }
+                }
+            }
+        }
+    }
+}
