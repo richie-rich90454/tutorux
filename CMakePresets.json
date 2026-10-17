@@ -1,0 +1,213 @@
+{
+    "version": 6,
+    "configurePresets": [
+        {
+            "name": "portable-static-release",
+            "displayName": "Portable static release (Windows)",
+            "generator": "Ninja",
+            "binaryDir": "${sourceDir}/build-static",
+            "condition": {
+                "type": "equals",
+                "lhs": "${hostSystemName}",
+                "rhs": "Windows"
+            },
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Release",
+                "BUILD_SHARED_LIBS": "OFF",
+                "FETCHCONTENT_FULLY_DISCONNECTED": "OFF",
+                "FETCHCONTENT_UPDATES_DISCONNECTED": "ON",
+                "TUTORUX_BUILD_GUI": "ON",
+                "TUTORUX_ENABLE_WHISPER": "ON",
+                "TUTORUX_FETCH_PODOFO": "ON",
+                "TUTORUX_FETCH_SLINT": "ON",
+                "TUTORUX_FETCH_WHISPER": "ON",
+                "TUTORUX_STATIC_RUNTIME": "ON"
+            }
+        },
+        {
+            "name": "portable-static-debug",
+            "displayName": "Portable static debug",
+            "inherits": "portable-static-release",
+            "binaryDir": "${sourceDir}/build-static-debug",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Debug"
+            }
+        },
+        {
+            "name": "portable-static-linux-release",
+            "displayName": "Portable static release (Linux)",
+            "inherits": "portable-static-release",
+            "binaryDir": "${sourceDir}/build-linux-static",
+            "condition": {
+                "type": "equals",
+                "lhs": "${hostSystemName}",
+                "rhs": "Linux"
+            }
+        },
+        {
+            "name": "portable-static-linux-debug",
+            "displayName": "Portable static debug (Linux)",
+            "inherits": "portable-static-linux-release",
+            "binaryDir": "${sourceDir}/build-linux-static-debug",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Debug"
+            }
+        },
+        {
+            "name": "portable-static-macos-release",
+            "displayName": "Portable static release (macOS)",
+            "inherits": "portable-static-release",
+            "binaryDir": "${sourceDir}/build-macos-static",
+            "condition": {
+                "type": "equals",
+                "lhs": "${hostSystemName}",
+                "rhs": "Darwin"
+            }
+        },
+        {
+            "name": "portable-static-macos-debug",
+            "displayName": "Portable static debug (macOS)",
+            "inherits": "portable-static-macos-release",
+            "binaryDir": "${sourceDir}/build-macos-static-debug",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Debug"
+            }
+        }
+    ],
+    "buildPresets": [
+        {
+            "name": "portable-static-release",
+            "configurePreset": "portable-static-release",
+            "jobs": 4,
+            "condition": {
+                "type": "equals",
+                "lhs": "${hostSystemName}",
+                "rhs": "Windows"
+            }
+        },
+        {
+            "name": "portable-static-debug",
+            "configurePreset": "portable-static-debug",
+            "jobs": 4,
+            "condition": {
+                "type": "equals",
+                "lhs": "${hostSystemName}",
+                "rhs": "Windows"
+            }
+        },
+        {
+            "name": "portable-static-linux-release",
+            "configurePreset": "portable-static-linux-release",
+            "jobs": 4,
+            "condition": {
+                "type": "equals",
+                "lhs": "${hostSystemName}",
+                "rhs": "Linux"
+            }
+        },
+        {
+            "name": "portable-static-linux-debug",
+            "configurePreset": "portable-static-linux-debug",
+            "jobs": 4,
+            "condition": {
+                "type": "equals",
+                "lhs": "${hostSystemName}",
+                "rhs": "Linux"
+            }
+        },
+        {
+            "name": "portable-static-macos-release",
+            "configurePreset": "portable-static-macos-release",
+            "jobs": 4,
+            "condition": {
+                "type": "equals",
+                "lhs": "${hostSystemName}",
+                "rhs": "Darwin"
+            }
+        },
+        {
+            "name": "portable-static-macos-debug",
+            "configurePreset": "portable-static-macos-debug",
+            "jobs": 4,
+            "condition": {
+                "type": "equals",
+                "lhs": "${hostSystemName}",
+                "rhs": "Darwin"
+            }
+        }
+    ],
+    "testPresets": [
+        {
+            "name": "portable-static-release",
+            "configurePreset": "portable-static-release",
+            "condition": {
+                "type": "equals",
+                "lhs": "${hostSystemName}",
+                "rhs": "Windows"
+            },
+            "output": {
+                "outputOnFailure": true
+            }
+        },
+        {
+            "name": "portable-static-debug",
+            "configurePreset": "portable-static-debug",
+            "condition": {
+                "type": "equals",
+                "lhs": "${hostSystemName}",
+                "rhs": "Windows"
+            },
+            "output": {
+                "outputOnFailure": true
+            }
+        },
+        {
+            "name": "portable-static-linux-release",
+            "configurePreset": "portable-static-linux-release",
+            "condition": {
+                "type": "equals",
+                "lhs": "${hostSystemName}",
+                "rhs": "Linux"
+            },
+            "output": {
+                "outputOnFailure": true
+            }
+        },
+        {
+            "name": "portable-static-linux-debug",
+            "configurePreset": "portable-static-linux-debug",
+            "condition": {
+                "type": "equals",
+                "lhs": "${hostSystemName}",
+                "rhs": "Linux"
+            },
+            "output": {
+                "outputOnFailure": true
+            }
+        },
+        {
+            "name": "portable-static-macos-release",
+            "configurePreset": "portable-static-macos-release",
+            "condition": {
+                "type": "equals",
+                "lhs": "${hostSystemName}",
+                "rhs": "Darwin"
+            },
+            "output": {
+                "outputOnFailure": true
+            }
+        },
+        {
+            "name": "portable-static-macos-debug",
+            "configurePreset": "portable-static-macos-debug",
+            "condition": {
+                "type": "equals",
+                "lhs": "${hostSystemName}",
+                "rhs": "Darwin"
+            },
+            "output": {
+                "outputOnFailure": true
+            }
+        }
+    ]
+}
