@@ -70,6 +70,26 @@ namespace {
         return true;
     }
 
+    Result<ArchiveHeader> recoverChecksumDamagedHeader(std::span<const std::byte> bytes) {
+        if (bytes.size() < kArchiveHeaderSize || !matches(bytes, std::string_view("TUTORUX\0", 8))) {
+            return std::unexpected(
+                core::error("archive_header_recovery_unavailable", "A checksum-only header repair requires a complete Tutorux header."));
+        }
+        std::size_t cursor = 60;
+        auto storedChecksum = readLittle<std::uint32_t>(bytes, cursor);
+        if (!storedChecksum || *storedChecksum == crc32(bytes.first(60))) {
+            return std::unexpected(core::error("archive_header_recovery_unavailable",
+                                               "The header checksum is valid; this is not a checksum-only repair case."));
+        }
+
+        Bytes repaired(bytes.begin(), bytes.begin() + static_cast<std::ptrdiff_t>(kArchiveHeaderSize));
+        const std::uint32_t checksum = crc32(std::span<const std::byte>(repaired).first(60));
+        for (std::size_t index = 0; index < sizeof(checksum); ++index) {
+            repaired[60 + index] = static_cast<std::byte>((checksum >> (index * 8U)) & 0xffU);
+        }
+        return decodeArchiveHeader(repaired);
+    }
+
     Bytes macInput(std::string_view label, std::span<const std::byte> payload) {
         Bytes input;
         input.reserve(label.size() + payload.size());
@@ -1034,6 +1054,45 @@ core::Result<Archive> Archive::open(const std::filesystem::path& path, bool writ
     Archive archive(std::move(*file), *header, latest->info);
     if (auto status = archive.initializeEncryption(passphrase, allowLocked); !status)
         return std::unexpected(status.error());
+    return archive;
+}
+
+core::Result<Archive> Archive::openWithRecoveredHeader(const std::filesystem::path& path, std::string_view passphrase) {
+    auto file = ArchiveFile::open(path, false);
+    if (!file)
+        return std::unexpected(file.error());
+    auto rawHeader = file->read(0, kArchiveHeaderSize);
+    if (!rawHeader)
+        return std::unexpected(rawHeader.error());
+    auto header = recoverChecksumDamagedHeader(*rawHeader);
+    if (!header)
+        return std::unexpected(header.error());
+
+    auto latest = findLatestConsistentCommit(*file);
+    if (!latest)
+        return std::unexpected(
+            core::error("archive_header_recovery_unavailable",
+                        "No consistent committed generation can be tied to the reconstructed header: " + latest.error().message));
+
+    Archive archive(std::move(*file), *header, latest->info);
+    if (auto status = archive.initializeEncryption(passphrase, false); !status) {
+        return std::unexpected(core::error("archive_header_recovery_unverified",
+                                           "The reconstructed header could not authenticate the archive: " + status.error().message));
+    }
+    auto verification = archive.verify(true);
+    if (!verification)
+        return std::unexpected(verification.error());
+    if (!verification->valid) {
+        return std::unexpected(
+            core::error("archive_header_recovery_unverified",
+                        "The reconstructed header did not pass full archive verification: " + joinStrings(verification->issues, "; ")));
+    }
+    auto manifest = archive.get(RecordType::Settings, header->id);
+    if (!manifest || !*manifest || domain::isDeleted(**manifest) || domain::getField(**manifest, "record_role") != "archive-manifest" ||
+        domain::getField(**manifest, "created_at_us") != std::to_string(header->createdAtUs)) {
+        return std::unexpected(
+            core::error("archive_header_recovery_unverified", "The reconstructed archive identity does not match its verified manifest."));
+    }
     return archive;
 }
 
@@ -2925,9 +2984,45 @@ core::Result<RecoveryReport> Archive::inspectRecovery(const std::filesystem::pat
         RecoveryReport report;
         report.archiveHeaderValid = false;
         report.recoveryAssessmentComplete = false;
-        report.issues.push_back(std::move(diagnostic) +
-                                " Recovery candidates were not scanned because archive identity and encryption state cannot be "
-                                "trusted; no archive bytes were changed.");
+        report.issues.push_back(std::move(diagnostic));
+        auto latest = latestCommitOrEmpty(*file);
+        std::optional<CommitInfo> base;
+        if (latest && *latest) {
+            base = (**latest).info;
+            report.committedGeneration = base->generation;
+            auto end = publicationEnd(*file, *base);
+            if (end)
+                report.trailingBytes = *fileSize > *end ? *fileSize - *end : 0;
+            else
+                report.issues.push_back("The latest commit frame was found, but its publication boundary could not be validated: " +
+                                        end.error().message);
+        } else if (!latest && latest.error().code != "archive_commit_missing" && latest.error().code != "archive_uncommitted") {
+            report.issues.push_back("The commit locator scan could not identify a trusted base generation: " + latest.error().message);
+        }
+        auto frames = scanCommitFrames(*file);
+        if (!frames) {
+            report.issues.push_back("Commit-frame diagnostics could not complete: " + frames.error().message);
+        } else {
+            std::size_t framesAfterBase = 0;
+            for (const DecodedCommit& frame : *frames) {
+                if (base && frame.info.offset <= base->offset)
+                    continue;
+                ++framesAfterBase;
+                report.candidateGeneration = std::max(report.candidateGeneration, frame.info.generation);
+            }
+            report.hasUnpublishedCommit = base.has_value() && framesAfterBase != 0;
+            if (framesAfterBase != 0) {
+                report.issues.push_back(std::to_string(framesAfterBase) +
+                                        " complete commit frame(s) were found after the selected generation; they cannot be "
+                                        "authenticated or safely linked until archive identity and encryption metadata are restored.");
+            } else if (!base && !frames->empty()) {
+                report.issues.push_back(std::to_string(frames->size()) +
+                                        " complete commit frame(s) were found, but no trustworthy published base generation exists.");
+            }
+        }
+        report.issues.push_back("Recovery diagnostics did not change archive bytes. Restore the fixed header from a known-good backup "
+                                "before repair; checksum-only damage can be validated with 'archive recover FILE' and repaired to a "
+                                "separate copy with 'archive repair FILE --output COPY.tux --confirm-sensitive'.");
         return report;
     };
     if (*fileSize < kArchiveHeaderSize) {
@@ -2938,6 +3033,100 @@ core::Result<RecoveryReport> Archive::inspectRecovery(const std::filesystem::pat
     if (!rawHeader)
         return unreadableHeaderReport("Archive header could not be read: " + rawHeader.error().message);
     auto header = decodeArchiveHeader(*rawHeader);
+    if (!header && header.error().code == "archive_header_checksum") {
+        RecoveryReport report;
+        report.archiveHeaderValid = false;
+        report.recoveryAssessmentComplete = false;
+        auto candidateHeader = recoverChecksumDamagedHeader(*rawHeader);
+        if (!candidateHeader) {
+            report.issues.push_back("Archive header checksum is invalid and its fields cannot be reconstructed safely: " +
+                                    candidateHeader.error().message + " The original archive was not changed.");
+            return report;
+        }
+        report.headerRepairCandidate = true;
+        report.encrypted = (candidateHeader->capabilities & kArchiveCapabilityEncrypted) != 0;
+        auto latest = findLatestConsistentCommit(*file);
+        if (!latest) {
+            report.issues.push_back("The header checksum is invalid, but no consistent committed generation was found: " +
+                                    latest.error().message + " The original archive was not changed.");
+            return report;
+        }
+        report.committedGeneration = latest->info.generation;
+        auto committedEnd = publicationEnd(*file, latest->info);
+        if (!committedEnd) {
+            report.issues.push_back("A checksum-only header repair candidate was found, but its commit publication could not be "
+                                    "validated: " +
+                                    committedEnd.error().message + " The original archive was not changed.");
+            return report;
+        }
+        report.trailingBytes = *fileSize > *committedEnd ? *fileSize - *committedEnd : 0;
+        if (report.encrypted && passphrase.empty()) {
+            report.requiresPassphrase = true;
+            report.issues.push_back("A checksum-only header repair candidate and committed generation were found. A passphrase is "
+                                    "required for full verification; provide it, inspect again, then create a separate copy with "
+                                    "'archive repair FILE --output COPY.tux --confirm-sensitive'. The original was not changed.");
+            return report;
+        }
+        auto verified = openWithRecoveredHeader(path, passphrase);
+        if (!verified) {
+            report.issues.push_back("A checksum-only header repair candidate was found at generation " +
+                                    std::to_string(report.committedGeneration) +
+                                    ", but full verification did not prove it safe to repair: " + verified.error().message +
+                                    " The original archive was not changed.");
+            return report;
+        }
+        std::vector<DecodedCommit> scannedFrames;
+        auto unpublished = unpublishedCommitChain(*file, verified->commit_, &scannedFrames);
+        if (!unpublished) {
+            report.issues.push_back("The reconstructed header and committed generation passed full verification, but the trailing "
+                                    "recovery scan did not complete: " +
+                                    unpublished.error().message + " The original archive was not changed.");
+            return report;
+        }
+        for (const DecodedCommit& frame : scannedFrames) {
+            if (frame.info.offset <= verified->commit_.offset)
+                continue;
+            report.hasUnpublishedCommit = true;
+            report.candidateGeneration = std::max(report.candidateGeneration, frame.info.generation);
+            const bool linked = std::any_of(unpublished->begin(), unpublished->end(), [&](const DecodedCommit& candidate) {
+                return candidate.info.offset == frame.info.offset;
+            });
+            if (!linked) {
+                report.issues.push_back("Commit frame for generation " + std::to_string(frame.info.generation) +
+                                        " is not linked to the verified committed chain and will not be included in a repaired copy.");
+            }
+        }
+        if (report.trailingBytes != 0 && !report.hasUnpublishedCommit) {
+            report.issues.push_back("The archive contains " + std::to_string(report.trailingBytes) +
+                                    " trailing bytes without a complete commit frame; they will not be included in a repaired copy.");
+        }
+        for (const auto& candidate : *unpublished) {
+            verified->commit_ = candidate.info;
+            auto candidateVerification = verified->verify(true);
+            if (!candidateVerification || !candidateVerification->valid) {
+                if (!candidateVerification) {
+                    report.issues.push_back("Unpublished generation " + std::to_string(candidate.info.generation) +
+                                            " could not be verified: " + candidateVerification.error().message);
+                } else {
+                    for (const std::string& issue : candidateVerification->issues) {
+                        report.issues.push_back("Unpublished generation " + std::to_string(candidate.info.generation) + ": " + issue);
+                    }
+                }
+                continue;
+            }
+            report.recoverable = true;
+            report.recoverableGeneration = candidate.info.generation;
+        }
+        verified->commit_ = latest->info;
+        report.recoveryAssessmentComplete = true;
+        report.headerRepairAvailable = true;
+        report.headerRepairGeneration = verified->commit_.generation;
+        report.committedGeneration = verified->commit_.generation;
+        report.issues.push_back("The header checksum is damaged, but its reconstructed identity and the complete archive passed "
+                                "full verification. Create a separate repaired copy with 'archive repair FILE --output COPY.tux "
+                                "--confirm-sensitive'; the original will be preserved.");
+        return report;
+    }
     if (!header && header.error().code != "archive_version_unsupported" && header.error().code != "archive_capability_unsupported") {
         return unreadableHeaderReport("Archive header validation failed (" + header.error().code + "): " + header.error().message);
     }
@@ -3276,6 +3465,65 @@ core::Status Archive::repairCopy(const std::filesystem::path& source, const std:
             std::filesystem::remove(path, ignored);
         }
     } temporary{temporaryPath};
+
+    bool checksumDamagedHeader = false;
+    {
+        auto probe = ArchiveFile::open(source, false);
+        if (probe) {
+            auto rawHeader = probe->read(0, kArchiveHeaderSize);
+            if (rawHeader) {
+                auto decodedHeader = decodeArchiveHeader(*rawHeader);
+                checksumDamagedHeader = !decodedHeader && decodedHeader.error().code == "archive_header_checksum";
+            }
+        }
+    }
+    if (checksumDamagedHeader) {
+        const auto correctedSourcePath =
+            parent / (destination.filename().string() + "." + uuidToString(randomUuid()) + ".header-recovery.partial");
+        struct CorrectedSource final {
+            std::filesystem::path path;
+            ~CorrectedSource() {
+                std::error_code ignored;
+                std::filesystem::remove(path, ignored);
+            }
+        } correctedSource{correctedSourcePath};
+        {
+            auto recovered = Archive::openWithRecoveredHeader(source, passphrase);
+            if (!recovered)
+                return std::unexpected(recovered.error());
+            auto encodedHeader = encodeArchiveHeader(recovered->header_);
+            if (!encodedHeader)
+                return std::unexpected(encodedHeader.error());
+            auto sourceSize = recovered->file_.size();
+            if (!sourceSize)
+                return std::unexpected(sourceSize.error());
+            auto correctedFile = ArchiveFile::open(correctedSourcePath, true, true);
+            if (!correctedFile)
+                return std::unexpected(correctedFile.error());
+            constexpr std::size_t kCopyChunkSize = 4U * 1024U * 1024U;
+            for (std::uint64_t offset = 0; offset < *sourceSize;) {
+                const auto length = static_cast<std::size_t>(std::min<std::uint64_t>(kCopyChunkSize, *sourceSize - offset));
+                auto bytes = recovered->file_.read(offset, length);
+                if (!bytes)
+                    return std::unexpected(bytes.error());
+                if (auto status = correctedFile->write(offset, *bytes); !status)
+                    return status;
+                offset += length;
+            }
+            if (auto status = correctedFile->write(0, *encodedHeader); !status)
+                return status;
+            if (auto status = correctedFile->flush(); !status)
+                return status;
+        }
+        auto correctedRecovery = Archive::inspectRecovery(correctedSourcePath, passphrase);
+        if (!correctedRecovery)
+            return std::unexpected(correctedRecovery.error());
+        if (correctedRecovery->recoverable) {
+            if (auto status = Archive::recoverUnpublishedCommit(correctedSourcePath, passphrase); !status)
+                return status;
+        }
+        return Archive::repairCopy(correctedSourcePath, destination, passphrase);
+    }
 
     std::uint64_t selectedLength = 0;
     {
