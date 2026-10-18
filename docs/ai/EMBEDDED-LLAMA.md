@@ -26,3 +26,11 @@ CPU-only build returns an explicit error.
 Local generation uses a local JSON AI package, does not open an HTTP endpoint, and loads the model
 only for the request. The runtime, model, context, and sampler are released after generation or
 failure. Cancellation is checked during token generation. LLM weights remain external files.
+
+Embedded generation consumes the canonical Tutorux content parts. The current embedded adapter is
+text-only: it uses extracted document text and audio/video transcripts when available, and labels
+them when the corresponding source bytes or frames are omitted. It returns a capability error for
+images and for documents or recordings without usable extracted text. It does not infer multimodal
+support from a model name or GGUF metadata. Use Ollama, a compatible server, or a cloud model whose
+discovered capabilities include the required input modality when source media must be sent to a
+model.
