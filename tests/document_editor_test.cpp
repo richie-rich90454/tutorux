@@ -23,7 +23,7 @@ bool expectText(const tutorux::document::PieceTable& document, std::string_view 
                 std::string_view scenario) {
     if (document.text() == expected)
         return true;
-    std::cerr << scenario << ": unexpected document text\n";
+    std::cerr << scenario << ": expected [" << expected << "], got [" << document.text() << "]\n";
     return false;
 }
 
