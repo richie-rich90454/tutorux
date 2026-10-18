@@ -7,18 +7,18 @@
 
 namespace tutorux::audio {
 
-    enum class DeviceKind {
-        microphone,
-        playback
-    };
+enum class DeviceKind {
+    microphone,
+    playback
+};
 
-    struct DeviceInfo final {
-        std::string id;
-        std::string name;
-        DeviceKind kind{DeviceKind::microphone};
-        bool isDefault{};
-    };
+struct DeviceInfo final {
+    std::string id;
+    std::string name;
+    DeviceKind kind{DeviceKind::microphone};
+    bool isDefault{};
+};
 
-    core::Result<std::vector<DeviceInfo>> enumerateDevices();
+core::Result<std::vector<DeviceInfo>> enumerateDevices();
 
 } // namespace tutorux::audio
