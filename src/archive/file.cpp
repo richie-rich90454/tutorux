@@ -2,8 +2,11 @@
 
 #include <algorithm>
 #include <cerrno>
+#include <cstdint>
 #include <limits>
+#include <string>
 #include <system_error>
+#include <utility>
 
 #ifdef _WIN32
 #include <Windows.h>
@@ -28,6 +31,102 @@ namespace {
         return core::error(std::move(code), std::string(operation) + " '" + path.string() + "': " + std::generic_category().message(errno));
 #endif
     }
+
+#ifdef _WIN32
+    class ArchiveHandoffMutex final {
+      public:
+        ArchiveHandoffMutex() = default;
+        ArchiveHandoffMutex(const ArchiveHandoffMutex&) = delete;
+        ArchiveHandoffMutex& operator=(const ArchiveHandoffMutex&) = delete;
+
+        ArchiveHandoffMutex(ArchiveHandoffMutex&& other) noexcept
+            : handle_(std::exchange(other.handle_, nullptr)) {}
+
+        ArchiveHandoffMutex& operator=(ArchiveHandoffMutex&& other) noexcept {
+            if (this != &other) {
+                close();
+                handle_ = std::exchange(other.handle_, nullptr);
+            }
+            return *this;
+        }
+
+        ~ArchiveHandoffMutex() {
+            close();
+        }
+
+        static core::Result<ArchiveHandoffMutex> acquire(const std::filesystem::path& path) {
+            std::error_code pathError;
+            auto canonicalPath = std::filesystem::weakly_canonical(path, pathError);
+            if (pathError) {
+                canonicalPath = std::filesystem::absolute(path, pathError);
+                if (pathError) {
+                    return std::unexpected(core::error(
+                        "archive_lock_path_invalid", "Unable to resolve the archive lock path: " + pathError.message()));
+                }
+            }
+
+            std::wstring pathText = canonicalPath.lexically_normal().native();
+            if (pathText.size() > static_cast<std::size_t>(MAXDWORD)) {
+                return std::unexpected(core::error("archive_lock_path_invalid", "Archive lock path is too long."));
+            }
+            CharLowerBuffW(pathText.data(), static_cast<DWORD>(pathText.size()));
+
+            std::uint64_t hash = 14'695'981'039'346'656'037ULL;
+            for (const wchar_t character : pathText) {
+                const auto codePoint = static_cast<std::uint32_t>(character);
+                for (unsigned int shift = 0; shift < 32; shift += 8) {
+                    hash ^= (codePoint >> shift) & 0xffU;
+                    hash *= 1'099'511'628'211ULL;
+                }
+            }
+
+            const std::wstring mutexName = L"Global\\TutoruxArchiveHandoff-" + std::to_wstring(hash);
+            HANDLE handle = CreateMutexW(nullptr, FALSE, mutexName.c_str());
+            if (!handle) {
+                return std::unexpected(core::error(
+                    "archive_lock_failed", "Unable to create the archive lock handoff (Windows error " +
+                                                std::to_string(GetLastError()) + ")."));
+            }
+
+            const DWORD waitResult = WaitForSingleObject(handle, 0);
+            if (waitResult != WAIT_OBJECT_0 && waitResult != WAIT_ABANDONED) {
+                const bool waitFailed = waitResult == WAIT_FAILED;
+                const DWORD nativeError = waitFailed ? GetLastError() : ERROR_LOCK_VIOLATION;
+                CloseHandle(handle);
+                return std::unexpected(core::error(
+                    waitFailed ? "archive_lock_failed" : "archive_locked",
+                    "Archive has another lock handoff in progress (Windows error " + std::to_string(nativeError) + ")."));
+            }
+
+            ArchiveHandoffMutex result;
+            result.handle_ = handle;
+            return result;
+        }
+
+      private:
+        void close() noexcept {
+            if (!handle_)
+                return;
+            ReleaseMutex(handle_);
+            CloseHandle(handle_);
+            handle_ = nullptr;
+        }
+
+        HANDLE handle_{};
+    };
+
+    core::Status lockArchiveHandle(HANDLE handle, bool writable) {
+        OVERLAPPED range{};
+        const DWORD flags = LOCKFILE_FAIL_IMMEDIATELY | (writable ? LOCKFILE_EXCLUSIVE_LOCK : 0U);
+        if (LockFileEx(handle, flags, 0, MAXDWORD, MAXDWORD, &range))
+            return {};
+
+        const DWORD nativeError = GetLastError();
+        const std::string code = nativeError == ERROR_LOCK_VIOLATION ? "archive_locked" : "archive_lock_failed";
+        return std::unexpected(core::error(
+            code, "Unable to lock archive (Windows error " + std::to_string(nativeError) + ")."));
+    }
+#endif
 
 } // namespace
 
@@ -82,6 +181,9 @@ bool ArchiveFile::canOpenWritable(const std::filesystem::path& path) noexcept {
 
 core::Status ArchiveFile::openDataHandle(bool createNew) {
 #ifdef _WIN32
+    auto handoff = ArchiveHandoffMutex::acquire(path_);
+    if (!handoff)
+        return std::unexpected(handoff.error());
     const DWORD access = writable_ ? (GENERIC_READ | GENERIC_WRITE) : GENERIC_READ;
     const DWORD disposition = createNew ? CREATE_NEW : OPEN_EXISTING;
     const DWORD shareMode = FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE;
@@ -90,12 +192,9 @@ core::Status ArchiveFile::openDataHandle(bool createNew) {
     if (handle == INVALID_HANDLE_VALUE) {
         return std::unexpected(fileError(createNew ? "archive_exists" : "archive_open_failed", path_, "Opening archive"));
     }
-    OVERLAPPED range{};
-    const DWORD lockFlags = LOCKFILE_FAIL_IMMEDIATELY | (writable_ ? LOCKFILE_EXCLUSIVE_LOCK : 0U);
-    if (!LockFileEx(handle, lockFlags, 0, MAXDWORD, MAXDWORD, &range)) {
-        const auto error = fileError("archive_locked", path_, "Locking archive");
+    if (auto status = lockArchiveHandle(handle, writable_); !status) {
         CloseHandle(handle);
-        return std::unexpected(error);
+        return status;
     }
     nativeHandle_ = handle;
 #else
@@ -316,9 +415,29 @@ core::Status ArchiveFile::replaceWith(ArchiveFile&& replacement, const std::file
     }
 
 #ifdef _WIN32
-    if (!MoveFileExW(replacement.path_.c_str(), destinationPath.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
-        return std::unexpected(fileError("compaction_publish_failed", destinationPath, "Atomically replacing archive"));
+    auto handoff = ArchiveHandoffMutex::acquire(destinationPath);
+    if (!handoff)
+        return std::unexpected(handoff.error());
+
+    OVERLAPPED range{};
+    if (!UnlockFileEx(static_cast<HANDLE>(nativeHandle_), 0, MAXDWORD, MAXDWORD, &range)) {
+        return std::unexpected(fileError("archive_unlock_failed", destinationPath, "Releasing archive lock for replacement"));
     }
+    replacement.closeDataHandle();
+    closeDataHandle();
+    if (!ReplaceFileW(destinationPath.c_str(), replacement.path_.c_str(), nullptr, 0, nullptr, nullptr)) {
+        const auto replaceError = fileError("compaction_publish_failed", destinationPath, "Atomically replacing archive");
+        if (auto status = openDataHandle(false); !status) {
+            return std::unexpected(core::error(
+                "archive_lock_reacquire_failed", replaceError.message + " The original archive could not be reopened: " +
+                                                       status.error().message));
+        }
+        return std::unexpected(replaceError);
+    }
+
+    path_ = destinationPath;
+    if (auto status = openDataHandle(false); !status)
+        return status;
 #else
     std::error_code renameError;
     std::filesystem::rename(replacement.path_, destinationPath, renameError);
@@ -327,12 +446,13 @@ core::Status ArchiveFile::replaceWith(ArchiveFile&& replacement, const std::file
     }
 #endif
 
-    // Both inodes stay exclusively locked through rename. Transfer the replacement handle only
-    // after the new inode is published, so no second writer can enter the rename handoff window.
+#ifndef _WIN32
+    // Both inodes stay exclusively locked through rename; transfer the replacement lock afterward.
     closeDataHandle();
     path_ = destinationPath;
     writable_ = replacement.writable_;
     nativeHandle_ = std::exchange(replacement.nativeHandle_, nullptr);
+#endif
     return {};
 }
 
