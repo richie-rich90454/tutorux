@@ -12,6 +12,15 @@ if(DEFINED TUTORUX_RUNTIME_PODOFO_DIRECTORY AND TUTORUX_RUNTIME_PODOFO_DIRECTORY
 endif()
 list(APPEND TUTORUX_RUNTIME_SEARCH_DIRECTORIES "${TUTORUX_RUNTIME_SEARCH_DIRECTORY}")
 
+# The executable's own directory is always searched, so previously copied
+# runtime DLLs there would conflict with the originals in the search
+# directories. Exclude the destination so those copies resolve to their
+# real location.
+file(TO_CMAKE_PATH "${TUTORUX_RUNTIME_DESTINATION}" TUTORUX_RUNTIME_DESTINATION_CMAKE)
+string(REPLACE "/" "[/\\\\]" TUTORUX_RUNTIME_DESTINATION_REGEX
+    "${TUTORUX_RUNTIME_DESTINATION_CMAKE}"
+)
+
 file(GET_RUNTIME_DEPENDENCIES
     EXECUTABLES "${TUTORUX_RUNTIME_EXECUTABLE}"
     DIRECTORIES ${TUTORUX_RUNTIME_SEARCH_DIRECTORIES}
@@ -22,6 +31,7 @@ file(GET_RUNTIME_DEPENDENCIES
         "^ext-ms-"
         "^(AzureAttestManager|AzureAttestNormal|HvsiFileTrust|PdmUtilities|wpaxholder)\\.dll$"
     POST_EXCLUDE_REGEXES
+        "^${TUTORUX_RUNTIME_DESTINATION_REGEX}/.*"
         ".*[Ww][Ii][Nn][Dd][Oo][Ww][Ss]/([Ss][Yy][Ss][Tt][Ee][Mm]32|[Ss][Yy][Ss][Ww][Oo]64)/.*"
 )
 
