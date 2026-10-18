@@ -11,20 +11,31 @@ reopens each supported asset from the active archive, verifies its content hash 
 attaches its bytes to the request. The stored AI package remains small and does not duplicate asset
 blobs.
 
-Current binary input support is:
+Protocol adapters can encode these binary inputs:
 
-| Provider protocol | Supported binary input |
+| Provider protocol | Adapter wire-format support |
 | --- | --- |
 | Gemini GenerateContent | Images, PDF documents, audio, and video |
 | Anthropic Messages | Images and PDF documents |
 | OpenAI Chat Completions compatible | Images |
 | OpenAI Responses | Images and PDF documents |
 | Ollama Chat | Images for models advertising the `vision` capability |
+| Embedded llama.cpp | Extracted document text and transcript text; source media bytes are not sent |
 | Other protocols | Text content; unsupported binary assets stop generation |
 
 Video frames supplied as timestamped images are preserved as image parts with their timestamps.
 Raw video input is currently passed only to Gemini. Audio transcripts are included as text when
 they exist, alongside raw audio when Gemini is selected.
+The embedded llama.cpp adapter accepts transcript and extracted document text through the same
+typed content representation, but it does not currently load a multimodal projector or process
+image, audio, or video bytes. It labels text extracted from media to make clear when the original
+bytes or frames were omitted, and reports a capability error if no usable text is available.
+
+The table describes adapter encoding. A model must also advertise the requested input modality in
+its cached model metadata before Tutorux includes any asset bytes in a generation request. API
+model lists that do not publish per-model input modalities leave those capabilities unknown;
+Tutorux blocks those binary inputs until a refreshed catalog supplies them. This prevents a
+provider protocol's general abilities from being mistaken for a selected model's actual abilities.
 
 ## Capability and privacy checks
 
