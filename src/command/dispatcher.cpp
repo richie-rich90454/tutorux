@@ -1481,6 +1481,11 @@ namespace {
                 json += recovery.archiveHeaderValid ? "true" : "false";
                 json += ",\"recovery_assessment_complete\":";
                 json += recovery.recoveryAssessmentComplete ? "true" : "false";
+                json += ",\"header_repair_candidate\":";
+                json += recovery.headerRepairCandidate ? "true" : "false";
+                json += ",\"header_repair_available\":";
+                json += recovery.headerRepairAvailable ? "true" : "false";
+                json += ",\"header_repair_generation\":" + std::to_string(recovery.headerRepairGeneration);
                 json += ",\"committed_generation\":" + std::to_string(recovery.committedGeneration);
                 json += ",\"candidate_generation\":" + std::to_string(recovery.candidateGeneration);
                 json += ",\"recoverable_generation\":" + std::to_string(recovery.recoverableGeneration);
@@ -1523,10 +1528,19 @@ namespace {
             const auto textReport = [&](std::string_view operation, bool changed, const archive::RecoveryReport* after) {
                 std::string text = "Archive recovery inspection: " + path.string() + "\n";
                 text += std::string("Archive header: ") + (report->archiveHeaderValid ? "valid\n" : "invalid or unreadable\n");
-                text += std::string("Recovery assessment: ") +
-                        (report->recoveryAssessmentComplete ? "complete\n" : "incomplete; no recovery action is available\n");
-                text += report->archiveHeaderValid ? "Committed generation: " + std::to_string(report->committedGeneration) + "\n"
-                                                   : "Committed generation: unknown\n";
+                text += std::string("Recovery assessment: ") + (report->recoveryAssessmentComplete ? "complete\n"
+                                                                : report->headerRepairCandidate ? "candidate found; full verification is "
+                                                                                                  "required\n"
+                                                                                                : "incomplete; see recovery issues\n");
+                if (report->headerRepairCandidate) {
+                    text += report->headerRepairAvailable
+                                ? "Header repair: full verification passed for generation " +
+                                      std::to_string(report->headerRepairGeneration) + "; create a separate copy with 'archive repair'.\n"
+                                : "Header repair: candidate found, but full verification is still required before repair.\n";
+                }
+                text += report->archiveHeaderValid || report->headerRepairCandidate || report->committedGeneration != 0
+                            ? "Committed generation: " + std::to_string(report->committedGeneration) + "\n"
+                            : "Committed generation: unknown\n";
                 text += "Unpublished candidate generation: ";
                 text += report->hasUnpublishedCommit ? std::to_string(report->candidateGeneration) + "\n" : "none\n";
                 text += "Recoverable generation: ";
@@ -1552,6 +1566,21 @@ namespace {
             if (!recoverUnpublished && !discardTail) {
                 return result(context.json ? jsonResult("inspect", false, *report, {}) : textReport("inspect", false, nullptr),
                               context.json);
+            }
+
+            if ((recoverUnpublished || discardTail) && !report->archiveHeaderValid) {
+                const std::string message = report->headerRepairAvailable
+                                                ? "The original header is damaged. Use 'archive repair FILE --output COPY.tux "
+                                                  "--confirm-sensitive' to create a fully verified copy first; any verified "
+                                                  "unpublished generation will be included in that copy. No in-place recovery "
+                                                  "or tail discard was performed."
+                                                : "The archive header is damaged and no safe in-place recovery is available. "
+                                                  "Review the recovery issues and restore a known-good header before repair. No "
+                                                  "archive bytes were changed.";
+                const std::string_view operation = recoverUnpublished ? "recover-unpublished" : "discard-tail";
+                return result(context.json ? jsonResult(operation, false, *report, message)
+                                           : textReport(operation, false, nullptr) + "Recovery was not performed: " + message + "\n",
+                              context.json, 2);
             }
 
             if (recoverUnpublished && !report->recoverable) {
