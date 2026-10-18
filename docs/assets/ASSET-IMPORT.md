@@ -23,3 +23,8 @@ and optional session relationship. `asset verify ID` streams and checks every ch
 SHA-256. `asset extract ID --output FILE` streams verified content to a temporary sibling file and
 publishes it only after validation. Legacy v1 archives containing one-record asset blobs remain
 readable.
+
+The WebAssembly journal offers bounded, user-initiated previews for selected image, PDF, text, audio,
+and video types. Preview bytes are verified, read from temporary worker memory, then removed; see
+[Browser asset previews](ASSET-PREVIEW.md) for formats, limits, and browser support details. Other
+assets remain downloadable without being rendered.
