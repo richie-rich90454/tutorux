@@ -1,5 +1,6 @@
 #pragma once
 
+#include "tutorux/ai/openai_compatible.hpp"
 #include "tutorux/core/result.hpp"
 
 #include <cstdint>
@@ -8,6 +9,7 @@
 #include <memory>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace tutorux::ai {
 
@@ -45,6 +47,7 @@ struct EmbeddedLlamaMemoryEstimate final {
 struct EmbeddedLlamaGenerationRequest final {
     std::string systemPrompt;
     std::string userContent;
+    std::vector<ContentPart> content;
     std::uint32_t maximumOutputTokens{1024};
     std::function<bool()> cancelled;
     std::function<void(std::string_view)> onText;
