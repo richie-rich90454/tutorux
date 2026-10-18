@@ -346,6 +346,8 @@ namespace {
 
     bool isSensitiveSettingKey(std::string_view key) {
         const std::string normalized = canonicalSettingKey(key);
+        if (normalized == "credentialstorage")
+            return false;
         constexpr std::array<std::string_view, 12> markers{"password",   "passwd",  "passphrase",    "secret",
                                                            "credential", "apikey",  "authorization", "privatekey",
                                                            "accesskey",  "authkey", "bearertoken",   "refreshtoken"};
