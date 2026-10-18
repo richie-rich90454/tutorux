@@ -24,8 +24,16 @@ core::Result<CaptureDeviceProbe> probeCaptureDevice(DeviceKind source, std::stri
     return std::unexpected(browserCaptureError());
 }
 
-core::Result<CaptureSummary>
-captureNative(archive::Archive& archive, const archive::Uuid& sessionId, CaptureOptions options) {
+core::Result<CapturePreflightSummary> preflightCaptureInput(CapturePreflightOptions options) {
+    static_cast<void>(options);
+    return std::unexpected(core::error("audio_preflight_browser_only",
+                                       "The browser edition checks microphone access through its "
+                                       "explicit browser permission workflow. "
+                                       "Native microphone checks are unavailable in WebAssembly."));
+}
+
+core::Result<CaptureSummary> captureNative(archive::Archive& archive,
+                                           const archive::Uuid& sessionId, CaptureOptions options) {
     static_cast<void>(archive);
     static_cast<void>(sessionId);
     static_cast<void>(options);
