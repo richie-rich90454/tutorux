@@ -55,6 +55,9 @@ struct Session final {
     std::string objectives;
     std::string sessionType{"notes-only"};
     std::string sessionState{"active"};
+    std::string transcriptionLanguage{"auto"};
+    std::string guideTemplateId;
+    std::string recordingSource{"microphone"};
     std::int64_t startedAtUs{};
     std::int64_t endedAtUs{};
     std::int64_t reviewedAtUs{};
