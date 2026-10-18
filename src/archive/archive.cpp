@@ -109,8 +109,7 @@ namespace {
     }
 
     template <std::size_t Size>
-    Status copyHexField(const Record& record,
-                        std::string_view field,
+    Status copyHexField(const Record& record, std::string_view field,
                         std::array<std::byte, Size>& destination) {
         auto decoded = decodeHex(domain::getField(record, field));
         if (!decoded || decoded->size() != destination.size()) {
@@ -175,8 +174,7 @@ namespace {
         std::uint64_t sequence = 0;
         const auto [end, errorCode] =
             std::from_chars(sequenceField->second.data(),
-                            sequenceField->second.data() + sequenceField->second.size(),
-                            sequence);
+                            sequenceField->second.data() + sequenceField->second.size(), sequence);
         if (!sessionId || !trackId || errorCode != std::errc{} ||
             end != sequenceField->second.data() + sequenceField->second.size()) {
             return std::nullopt;
@@ -221,8 +219,7 @@ namespace {
         return keys;
     }
 
-    void preserveGuideSourceHistory(Record& current,
-                                    const Record& previous,
+    void preserveGuideSourceHistory(Record& current, const Record& previous,
                                     const std::set<std::string, std::less<>>& aliases) {
         if (current.type != RecordType::Guide)
             return;
@@ -367,13 +364,9 @@ namespace {
         return header;
     }
 
-    Bytes encodeFrameHeader(RecordType type,
-                            std::uint64_t payloadLength,
-                            const Uuid& id,
-                            std::uint64_t revision,
-                            std::uint64_t previousOffset,
-                            std::span<const std::byte> payload,
-                            std::uint8_t flags = 0,
+    Bytes encodeFrameHeader(RecordType type, std::uint64_t payloadLength, const Uuid& id,
+                            std::uint64_t revision, std::uint64_t previousOffset,
+                            std::span<const std::byte> payload, std::uint8_t flags = 0,
                             std::uint8_t codec = kUncompressedCodec) {
         Bytes header;
         header.reserve(kRecordHeaderSize);
@@ -394,13 +387,9 @@ namespace {
         return header;
     }
 
-    Result<RecordLocation> appendFrame(ArchiveFile& file,
-                                       RecordType type,
-                                       const Uuid& id,
-                                       std::uint64_t revision,
-                                       std::uint64_t previousOffset,
-                                       std::span<const std::byte> payload,
-                                       std::uint8_t flags = 0,
+    Result<RecordLocation> appendFrame(ArchiveFile& file, RecordType type, const Uuid& id,
+                                       std::uint64_t revision, std::uint64_t previousOffset,
+                                       std::span<const std::byte> payload, std::uint8_t flags = 0,
                                        std::uint8_t codec = kUncompressedCodec) {
         if (!file.writable())
             return std::unexpected(
@@ -418,14 +407,8 @@ namespace {
             return std::unexpected(
                 core::error("archive_size_limit", "Archive offset range was exceeded."));
         }
-        const Bytes header = encodeFrameHeader(type,
-                                               payload.size(),
-                                               id,
-                                               revision,
-                                               previousOffset,
-                                               payload,
-                                               flags,
-                                               codec);
+        const Bytes header = encodeFrameHeader(type, payload.size(), id, revision, previousOffset,
+                                               payload, flags, codec);
         const std::uint64_t offset = *currentSize;
         if (auto status = file.write(offset, header); !status)
             return std::unexpected(status.error());
@@ -442,16 +425,14 @@ namespace {
         return RecordLocation{offset, kRecordHeaderSize + payload.size() + padding};
     }
 
-    Result<std::pair<FrameHeader, Bytes>> readFrame(const ArchiveFile& file,
-                                                    std::uint64_t offset,
+    Result<std::pair<FrameHeader, Bytes>> readFrame(const ArchiveFile& file, std::uint64_t offset,
                                                     std::optional<RecordType> expected = {}) {
         auto fileSize = file.size();
         if (!fileSize)
             return std::unexpected(fileSize.error());
         if (offset % 8U != 0 || offset > *fileSize || *fileSize - offset < kRecordHeaderSize) {
-            return std::unexpected(
-                core::error("record_offset_invalid",
-                            "Record offset is unaligned or outside the archive."));
+            return std::unexpected(core::error(
+                "record_offset_invalid", "Record offset is unaligned or outside the archive."));
         }
         auto rawHeader = file.read(offset, kRecordHeaderSize);
         if (!rawHeader)
@@ -525,12 +506,10 @@ namespace {
         decoded.info.offset = offset;
         decoded.info.previousOffset = *previousOffset;
         decoded.info.rootOffset = *rootOffset;
-        std::copy_n(payload.begin() + static_cast<std::ptrdiff_t>(cursor),
-                    32,
+        std::copy_n(payload.begin() + static_cast<std::ptrdiff_t>(cursor), 32,
                     decoded.info.rootHash.begin());
         cursor += 32;
-        std::copy_n(payload.begin() + static_cast<std::ptrdiff_t>(cursor),
-                    16,
+        std::copy_n(payload.begin() + static_cast<std::ptrdiff_t>(cursor), 16,
                     decoded.info.transactionId.begin());
         cursor += 16;
         auto recordCount = readLittle<std::uint64_t>(payload, cursor);
@@ -623,14 +602,11 @@ namespace {
 
     std::string extensionLower(const std::filesystem::path& path) {
         std::string extension = path.extension().string();
-        std::transform(extension.begin(),
-                       extension.end(),
-                       extension.begin(),
-                       [](unsigned char character) {
-                           return static_cast<char>(character >= 'A' && character <= 'Z'
-                                                        ? character - 'A' + 'a'
-                                                        : character);
-                       });
+        std::transform(
+            extension.begin(), extension.end(), extension.begin(), [](unsigned char character) {
+                return static_cast<char>(
+                    character >= 'A' && character <= 'Z' ? character - 'A' + 'a' : character);
+            });
         return extension;
     }
 
@@ -658,8 +634,7 @@ struct Archive::IndexPage final {
 };
 
 core::Result<Archive> Archive::create(const std::filesystem::path& path,
-                                      std::string_view displayName,
-                                      std::string_view description) {
+                                      std::string_view displayName, std::string_view description) {
     if (extensionLower(path) != ".tux") {
         return std::unexpected(core::error("archive_extension_invalid",
                                            "Portable archives must use the .tux extension."));
@@ -712,10 +687,8 @@ core::Result<Archive> Archive::create(const std::filesystem::path& path,
     return archive;
 }
 
-core::Result<Archive> Archive::open(const std::filesystem::path& path,
-                                    bool writable,
-                                    std::string_view passphrase,
-                                    bool allowLocked) {
+core::Result<Archive> Archive::open(const std::filesystem::path& path, bool writable,
+                                    std::string_view passphrase, bool allowLocked) {
     auto file = ArchiveFile::open(path, writable);
     if (!file)
         return std::unexpected(file.error());
@@ -761,9 +734,8 @@ core::Result<Archive> Archive::open(const std::filesystem::path& path,
         archive.encryptionEnvelope_ = *envelope;
         if (passphrase.empty()) {
             if (!allowLocked) {
-                return std::unexpected(
-                    core::error("archive_locked",
-                                "Archive is encrypted; provide its passphrase to unlock."));
+                return std::unexpected(core::error(
+                    "archive_locked", "Archive is encrypted; provide its passphrase to unlock."));
             }
             return archive;
         }
@@ -810,8 +782,7 @@ core::Result<std::vector<ArchiveInfo>> Archive::discover(const std::filesystem::
             archives.push_back(std::move(invalid));
         }
     }
-    std::sort(archives.begin(),
-              archives.end(),
+    std::sort(archives.begin(), archives.end(),
               [](const ArchiveInfo& left, const ArchiveInfo& right) {
                   return left.path.filename().native() < right.path.filename().native();
               });
@@ -840,11 +811,9 @@ core::Result<ArchiveInfo> inspectArchive(const std::filesystem::path& path,
         info.description = domain::getField(**manifest, "description");
         const auto studentCount = domain::getField(**manifest, "student_count", "0");
         const auto sessionCount = domain::getField(**manifest, "session_count", "0");
-        std::from_chars(studentCount.data(),
-                        studentCount.data() + studentCount.size(),
+        std::from_chars(studentCount.data(), studentCount.data() + studentCount.size(),
                         info.studentCount);
-        std::from_chars(sessionCount.data(),
-                        sessionCount.data() + sessionCount.size(),
+        std::from_chars(sessionCount.data(), sessionCount.data() + sessionCount.size(),
                         info.sessionCount);
     } else {
         info.displayName = path.stem().string();
@@ -874,28 +843,19 @@ core::Result<Record> Archive::readRecordAt(std::uint64_t offset) const {
                                  header.type != RecordType::Commit;
     if (encryptedRecord) {
         if (!encryptionEnabled_ || !dataKey_) {
-            return std::unexpected(
-                core::error("archive_locked",
-                            "Archive record is encrypted and requires its passphrase."));
+            return std::unexpected(core::error(
+                "archive_locked", "Archive record is encrypted and requires its passphrase."));
         }
-        auto plaintext = decryptRecordPayload(framed->second,
-                                              *dataKey_,
-                                              header_.id,
-                                              header.type,
-                                              header.id,
-                                              header.revision,
-                                              header.previousOffset,
-                                              header.codec);
+        auto plaintext =
+            decryptRecordPayload(framed->second, *dataKey_, header_.id, header.type, header.id,
+                                 header.revision, header.previousOffset, header.codec);
         if (!plaintext)
             return std::unexpected(plaintext.error());
         auto decodedPayload =
             decompressRecordPayload(static_cast<RecordCodec>(header.codec), *plaintext);
         if (!decodedPayload)
             return std::unexpected(decodedPayload.error());
-        return decodeRecordPayload(header.type,
-                                   header.id,
-                                   header.revision,
-                                   header.previousOffset,
+        return decodeRecordPayload(header.type, header.id, header.revision, header.previousOffset,
                                    *decodedPayload);
     }
     if (encryptionEnabled_ && protectedRecord) {
@@ -906,11 +866,8 @@ core::Result<Record> Archive::readRecordAt(std::uint64_t offset) const {
         decompressRecordPayload(static_cast<RecordCodec>(header.codec), framed->second);
     if (!decodedPayload)
         return std::unexpected(decodedPayload.error());
-    auto record = decodeRecordPayload(header.type,
-                                      header.id,
-                                      header.revision,
-                                      header.previousOffset,
-                                      *decodedPayload);
+    auto record = decodeRecordPayload(header.type, header.id, header.revision,
+                                      header.previousOffset, *decodedPayload);
     if (!record)
         return std::unexpected(record.error());
     if (encryptionEnabled_ && plaintextManifest && dataKey_) {
@@ -948,9 +905,7 @@ core::Result<std::optional<std::uint64_t>> Archive::findOffset(std::string_view 
             return std::unexpected(page.error());
         if (page->leaf) {
             const auto found =
-                std::lower_bound(page->entries.begin(),
-                                 page->entries.end(),
-                                 key,
+                std::lower_bound(page->entries.begin(), page->entries.end(), key,
                                  [](const IndexPage::LeafEntry& entry, std::string_view target) {
                                      return entry.key < target;
                                  });
@@ -975,8 +930,8 @@ core::Result<std::optional<Record>> Archive::get(RecordType type, const Uuid& id
     return getByIndexKey(indexKey(type, id));
 }
 
-core::Result<std::optional<Record>>
-Archive::getRevision(RecordType type, const Uuid& id, std::size_t revisionIndex) const {
+core::Result<std::optional<Record>> Archive::getRevision(RecordType type, const Uuid& id,
+                                                         std::size_t revisionIndex) const {
     std::lock_guard lock(*mutex_);
     auto current = get(type, id);
     if (!current || !*current)
@@ -1054,12 +1009,12 @@ core::Status Archive::forEachIndexPrefix(std::string_view indexPrefix,
             std::upper_bound(page->separators.begin(), page->separators.end(), indexPrefix) -
             page->separators.begin());
         const std::size_t childEnd =
-            rangeEnd ? static_cast<std::size_t>(std::lower_bound(page->separators.begin(),
-                                                                 page->separators.end(),
-                                                                 *rangeEnd) -
-                                                page->separators.begin()) +
-                           1
-                     : page->children.size();
+            rangeEnd
+                ? static_cast<std::size_t>(std::lower_bound(page->separators.begin(),
+                                                            page->separators.end(), *rangeEnd) -
+                                           page->separators.begin()) +
+                      1
+                : page->children.size();
         for (std::size_t child = firstChild; child < childEnd && child < page->children.size();
              ++child) {
             if (auto status = visit(page->children[child], depth + 1); !status)
@@ -1072,8 +1027,7 @@ core::Status Archive::forEachIndexPrefix(std::string_view indexPrefix,
     return visit(commit_.rootOffset, 0);
 }
 
-core::Status Archive::forEach(RecordType type,
-                              const std::function<bool(Record&&)>& visitor,
+core::Status Archive::forEach(RecordType type, const std::function<bool(Record&&)>& visitor,
                               bool includeDeleted) const {
     std::lock_guard lock(*mutex_);
     if (!visitor)
@@ -1104,8 +1058,7 @@ core::Status Archive::forEach(RecordType type,
     return {};
 }
 
-core::Status Archive::forEachAudioChunk(const Uuid& sessionId,
-                                        const std::optional<Uuid>& trackId,
+core::Status Archive::forEachAudioChunk(const Uuid& sessionId, const std::optional<Uuid>& trackId,
                                         const std::function<bool(Record&&)>& visitor,
                                         bool includeDeleted) const {
     std::lock_guard lock(*mutex_);
@@ -1158,10 +1111,8 @@ core::Status Archive::forEachAudioChunk(const Uuid& sessionId,
                 }
                 std::uint64_t sequence = std::numeric_limits<std::uint64_t>::max();
                 const std::string sequenceText = domain::getField(record, "sequence_number");
-                const auto [end, errorCode] =
-                    std::from_chars(sequenceText.data(),
-                                    sequenceText.data() + sequenceText.size(),
-                                    sequence);
+                const auto [end, errorCode] = std::from_chars(
+                    sequenceText.data(), sequenceText.data() + sequenceText.size(), sequence);
                 if (errorCode != std::errc{} || end != sequenceText.data() + sequenceText.size())
                     sequence = std::numeric_limits<std::uint64_t>::max();
                 references.push_back({sequence, record.id});
@@ -1211,9 +1162,8 @@ core::Result<RecordLocation> Archive::appendRecord(const Record& record) {
     const bool plaintextManifest = record.type == RecordType::Settings && record.id == header_.id;
     if (encryptionEnabled_ && plaintextManifest) {
         if (!dataKey_)
-            return std::unexpected(
-                core::error("archive_locked",
-                            "Archive is locked and cannot authenticate its manifest."));
+            return std::unexpected(core::error(
+                "archive_locked", "Archive is locked and cannot authenticate its manifest."));
         recordToWrite.fields.erase("manifest_auth");
         auto unsignedPayload = encodeRecordPayload(recordToWrite);
         if (!unsignedPayload)
@@ -1241,36 +1191,19 @@ core::Result<RecordLocation> Archive::appendRecord(const Record& record) {
     const bool plaintextEncryptionMetadata =
         record.type == RecordType::Encryption && record.id == header_.id;
     if (!encryptionEnabled_ || plaintextManifest || plaintextEncryptionMetadata)
-        return appendFrame(file_,
-                           record.type,
-                           record.id,
-                           record.revision,
-                           record.previousOffset,
-                           encodedPayload.bytes,
-                           0,
-                           codec);
+        return appendFrame(file_, record.type, record.id, record.revision, record.previousOffset,
+                           encodedPayload.bytes, 0, codec);
     if (!dataKey_) {
         return std::unexpected(
             core::error("archive_locked", "Archive is locked and cannot append records."));
     }
-    auto encryptedPayload = encryptRecordPayload(encodedPayload.bytes,
-                                                 *dataKey_,
-                                                 header_.id,
-                                                 record.type,
-                                                 record.id,
-                                                 record.revision,
-                                                 record.previousOffset,
-                                                 codec);
+    auto encryptedPayload =
+        encryptRecordPayload(encodedPayload.bytes, *dataKey_, header_.id, record.type, record.id,
+                             record.revision, record.previousOffset, codec);
     if (!encryptedPayload)
         return std::unexpected(encryptedPayload.error());
-    return appendFrame(file_,
-                       record.type,
-                       record.id,
-                       record.revision,
-                       record.previousOffset,
-                       *encryptedPayload,
-                       kRecordFlagEncrypted,
-                       codec);
+    return appendFrame(file_, record.type, record.id, record.revision, record.previousOffset,
+                       *encryptedPayload, kRecordFlagEncrypted, codec);
 }
 
 core::Result<Record> Archive::encryptionMetadata() const {
@@ -1308,9 +1241,8 @@ core::Status Archive::writeEncryptionMetadata(const EncryptionEnvelope& envelope
 core::Status Archive::enableEncryption(std::string_view passphrase) {
     std::lock_guard lock(*mutex_);
     if (!writable()) {
-        return std::unexpected(
-            core::error("archive_read_only",
-                        "Archive must be opened for writing to enable encryption."));
+        return std::unexpected(core::error(
+            "archive_read_only", "Archive must be opened for writing to enable encryption."));
     }
     if (encryptionEnabled_) {
         return std::unexpected(
@@ -1332,14 +1264,12 @@ core::Status Archive::enableEncryption(std::string_view passphrase) {
 core::Status Archive::changePassphrase(std::string_view passphrase) {
     std::lock_guard lock(*mutex_);
     if (!writable()) {
-        return std::unexpected(
-            core::error("archive_read_only",
-                        "Archive must be opened for writing to change its passphrase."));
+        return std::unexpected(core::error(
+            "archive_read_only", "Archive must be opened for writing to change its passphrase."));
     }
     if (!encryptionEnabled_ || !dataKey_) {
-        return std::unexpected(
-            core::error("archive_not_unlocked",
-                        "Unlock an encrypted archive before changing its passphrase."));
+        return std::unexpected(core::error(
+            "archive_not_unlocked", "Unlock an encrypted archive before changing its passphrase."));
     }
     if (passphrase.size() < 12) {
         return std::unexpected(core::error("archive_passphrase_too_short",
@@ -1402,9 +1332,8 @@ core::Result<std::uint64_t> Archive::writeIndexPage(const IndexPage& page) {
     }
     if (encryptionEnabled_) {
         if (!dataKey_)
-            return std::unexpected(
-                core::error("archive_locked",
-                            "Archive is locked and cannot authenticate index pages."));
+            return std::unexpected(core::error(
+                "archive_locked", "Archive is locked and cannot authenticate index pages."));
         const Bytes input = macInput("TUTORUX-INDEX-PAGE-V1", payload);
         const auto authentication = authenticateBytes(input, *dataKey_);
         payload.insert(payload.end(), authentication.begin(), authentication.end());
@@ -1435,9 +1364,8 @@ core::Result<Archive::IndexPage> Archive::readIndexPage(std::uint64_t offset) co
                                                    "Encrypted index page authentication failed."));
             }
         } else if (!allowUnverifiedIndexReads_) {
-            return std::unexpected(
-                core::error("archive_locked",
-                            "Archive index is authenticated and requires its passphrase."));
+            return std::unexpected(core::error(
+                "archive_locked", "Archive index is authenticated and requires its passphrase."));
         }
         payload = body;
     }
@@ -1520,9 +1448,7 @@ Archive::insertIndex(std::uint64_t pageOffset, std::string_view key, std::uint64
         return std::unexpected(page.error());
     if (page->leaf) {
         auto entry =
-            std::lower_bound(page->entries.begin(),
-                             page->entries.end(),
-                             key,
+            std::lower_bound(page->entries.begin(), page->entries.end(), key,
                              [](const IndexPage::LeafEntry& candidate, std::string_view target) {
                                  return candidate.key < target;
                              });
@@ -1553,8 +1479,7 @@ Archive::insertIndex(std::uint64_t pageOffset, std::string_view key, std::uint64
         if (!rightOffset)
             return std::unexpected(rightOffset.error());
         return InsertResult{
-            *leftOffset,
-            std::pair{separator, *rightOffset}
+            *leftOffset, std::pair{separator, *rightOffset}
         };
     }
     const auto childIndex = static_cast<std::size_t>(
@@ -1601,8 +1526,7 @@ Archive::insertIndex(std::uint64_t pageOffset, std::string_view key, std::uint64
     if (!rightOffset)
         return std::unexpected(rightOffset.error());
     return InsertResult{
-        *leftOffset,
-        std::pair{promoted, *rightOffset}
+        *leftOffset, std::pair{promoted, *rightOffset}
     };
 }
 
@@ -1674,8 +1598,7 @@ core::Status Archive::putManyInternal(std::vector<Record> records, bool invalida
             const auto found = record.fields.find(key);
             std::uint64_t value = 0;
             if (found != record.fields.end())
-                std::from_chars(found->second.data(),
-                                found->second.data() + found->second.size(),
+                std::from_chars(found->second.data(), found->second.data() + found->second.size(),
                                 value);
             return value;
         };
@@ -1986,8 +1909,7 @@ core::Status Archive::putManyInternal(std::vector<Record> records, bool invalida
     return status;
 }
 
-core::Status Archive::publishCommit(std::uint64_t rootOffset,
-                                    const Uuid& transactionId,
+core::Status Archive::publishCommit(std::uint64_t rootOffset, const Uuid& transactionId,
                                     std::uint64_t recordCount) {
     auto rootPage = readFrame(file_, rootOffset, RecordType::IndexPage);
     if (!rootPage)
@@ -2007,21 +1929,16 @@ core::Status Archive::publishCommit(std::uint64_t rootOffset,
     appendLittle<std::uint32_t>(payload, 1);
     if (encryptionEnabled_) {
         if (!dataKey_) {
-            return std::unexpected(
-                core::error("archive_locked",
-                            "Archive is locked and cannot authenticate a commit."));
+            return std::unexpected(core::error(
+                "archive_locked", "Archive is locked and cannot authenticate a commit."));
         }
         const Bytes input = macInput("TUTORUX-COMMIT-V1", payload);
         const auto authentication = authenticateBytes(input, *dataKey_);
         payload.insert(payload.end(), authentication.begin(), authentication.end());
     }
     Uuid zeroId{};
-    auto location = appendFrame(file_,
-                                RecordType::Commit,
-                                zeroId,
-                                commit_.generation + 1,
-                                commit_.offset,
-                                payload);
+    auto location = appendFrame(file_, RecordType::Commit, zeroId, commit_.generation + 1,
+                                commit_.offset, payload);
     if (!location)
         return std::unexpected(location.error());
     if (auto status = file_.flush(); !status)
@@ -2236,9 +2153,8 @@ core::Result<VerificationReport> Archive::verify(bool full) const {
                 const auto sourceSeparator = key.find(':', prefix.size());
                 const bool sourceIdValid =
                     sourceSeparator != std::string::npos &&
-                    static_cast<bool>(uuidFromString(
-                        std::string_view(key).substr(prefix.size(),
-                                                     sourceSeparator - prefix.size())));
+                    static_cast<bool>(uuidFromString(std::string_view(key).substr(
+                        prefix.size(), sourceSeparator - prefix.size())));
                 const bool guideIdMatches =
                     sourceSeparator != std::string::npos &&
                     key.substr(sourceSeparator + 1) == uuidToString(latest->id);
@@ -2339,10 +2255,9 @@ core::Result<VerificationReport> Archive::verify(bool full) const {
                         const std::string chunkIds = domain::getField(**blob, "chunk_ids");
                         std::uint64_t expectedChunkCount = 0;
                         const std::string chunkCount = domain::getField(**blob, "chunk_count");
-                        const auto [countEnd, countError] =
-                            std::from_chars(chunkCount.data(),
-                                            chunkCount.data() + chunkCount.size(),
-                                            expectedChunkCount);
+                        const auto [countEnd, countError] = std::from_chars(
+                            chunkCount.data(), chunkCount.data() + chunkCount.size(),
+                            expectedChunkCount);
                         if (countError != std::errc{} ||
                             countEnd != chunkCount.data() + chunkCount.size()) {
                             contentAvailable = false;
@@ -2355,11 +2270,11 @@ core::Result<VerificationReport> Archive::verify(bool full) const {
                                     end == std::string::npos ? chunkIds.size() : end;
                                 auto chunkId = uuidFromString(
                                     std::string_view(chunkIds.data() + start, itemEnd - start));
-                                auto chunk = chunkId
-                                                 ? get(RecordType::AssetBlob, *chunkId)
-                                                 : Result<std::optional<Record>>(std::unexpected(
-                                                       core::error("id_invalid",
-                                                                   "Invalid asset chunk ID.")));
+                                auto chunk =
+                                    chunkId
+                                        ? get(RecordType::AssetBlob, *chunkId)
+                                        : Result<std::optional<Record>>(std::unexpected(core::error(
+                                              "id_invalid", "Invalid asset chunk ID.")));
                                 if (!chunk || !*chunk || domain::isDeleted(**chunk) ||
                                     domain::getField(**chunk, "record_role") !=
                                         "asset-blob-chunk" ||
@@ -2385,10 +2300,9 @@ core::Result<VerificationReport> Archive::verify(bool full) const {
                     }
                     const std::string expectedBytes = domain::getField(record, "byte_size");
                     std::uint64_t expectedByteCount = 0;
-                    const auto [sizeEnd, sizeError] =
-                        std::from_chars(expectedBytes.data(),
-                                        expectedBytes.data() + expectedBytes.size(),
-                                        expectedByteCount);
+                    const auto [sizeEnd, sizeError] = std::from_chars(
+                        expectedBytes.data(), expectedBytes.data() + expectedBytes.size(),
+                        expectedByteCount);
                     if (sizeError != std::errc{} ||
                         sizeEnd != expectedBytes.data() + expectedBytes.size() ||
                         byteCount != expectedByteCount || !contentAvailable ||
@@ -2431,9 +2345,7 @@ core::Status Archive::backup(const std::filesystem::path& destination) const {
             core::error("backup_same_path", "Backup destination must differ from the archive."));
     }
     std::error_code errorCode;
-    if (!std::filesystem::copy_file(path(),
-                                    destination,
-                                    std::filesystem::copy_options::none,
+    if (!std::filesystem::copy_file(path(), destination, std::filesystem::copy_options::none,
                                     errorCode)) {
         return std::unexpected(core::error("backup_failed", errorCode.message()));
     }
@@ -2546,8 +2458,8 @@ core::Status Archive::compact() {
     return rewrite(encryptionEnabled_, encryptionEnvelope_, dataKey_ ? &*dataKey_ : nullptr);
 }
 
-core::Status
-Archive::rewrite(bool encrypted, std::optional<EncryptionEnvelope> envelope, const SecretKey* key) {
+core::Status Archive::rewrite(bool encrypted, std::optional<EncryptionEnvelope> envelope,
+                              const SecretKey* key) {
     if (!writable())
         return std::unexpected(
             core::error("archive_read_only", "Archive must be opened for writing to compact."));
@@ -2787,8 +2699,7 @@ Archive::rewrite(bool encrypted, std::optional<EncryptionEnvelope> envelope, con
     compacted.file_ = ArchiveFile{};
     file_ = ArchiveFile{};
 #ifdef _WIN32
-    if (!MoveFileExW(temporaryPath.c_str(),
-                     archivePath.c_str(),
+    if (!MoveFileExW(temporaryPath.c_str(), archivePath.c_str(),
                      MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
         const auto nativeError = GetLastError();
         std::filesystem::remove(temporaryPath, cleanupError);
