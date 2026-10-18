@@ -54,8 +54,8 @@ For example, on Linux:
 cmake --preset portable-static-linux-x64-release
 cmake --build --preset portable-static-linux-x64-release
 ctest --preset portable-static-linux-x64-release
-cmake --install build-linux-static --config Release --component Runtime --prefix dist/tutorux-linux
-cmake --install build-linux-static --config Release --component Development --prefix dist/tutorux-linux
+cmake --install build/linux-static --config Release --component Runtime --prefix dist/tutorux-linux
+cmake --install build/linux-static --config Release --component Development --prefix dist/tutorux-linux
 ```
 
 The `Development` component contains FFmpeg's LGPL source, applied security patch, static archives,
