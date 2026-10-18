@@ -23,6 +23,10 @@
         [
             "archive-file",
             "archive-label",
+            "archive-recovery",
+            "archive-recovery-message",
+            "archive-recover-unpublished",
+            "archive-discard-tail",
             "archive-state",
             "command-form",
             "command-input",
@@ -30,6 +34,8 @@
             "create-archive",
             "guides-list",
             "notice",
+            "notice-message",
+            "notice-dismiss",
             "open-archive",
             "recent-sessions",
             "save-archive",
@@ -67,6 +73,12 @@
             "annotation-save",
             "annotation-cancel",
             "annotations-list",
+            "annotation-marker-select",
+            "annotation-marker-jump",
+            "annotation-merge-form",
+            "annotation-merge-select",
+            "annotation-merge-separator",
+            "annotation-merge-submit",
             "transcript-import-form",
             "transcript-file",
             "transcript-format",
@@ -80,6 +92,9 @@
             "browser-recording-start",
             "browser-recording-stop",
             "browser-recording-status",
+            "browser-recording-recover",
+            "recording-track-select",
+            "recording-tracks-list",
             "browser-playback-stop",
             "asset-import-form",
             "asset-files",
@@ -91,7 +106,9 @@
             "ai-response-file",
             "ai-response-title",
             "guide-create-form",
+            "guide-source-scope",
             "guide-session",
+            "guide-entry-scope",
             "guide-editor",
             "active-guide",
             "guide-title-form",
@@ -116,6 +133,8 @@
     const workerRequests = new Map<number, WorkerRequest>();
     let activeArchivePath = "";
     let activeArchiveName = "";
+    let archiveRecoveryNeedsReview = false;
+    let archiveRecoveryReport: any = null;
     let sourceFileHandle = null;
     let dirty = false;
     let noticeTimer = 0;
@@ -125,13 +144,34 @@
     let sessionRecords: any[] = [];
     let guideRecords: any[] = [];
     let activeSessionId = "";
+    let activeSessionHasAudio = false;
+    let activeSessionAssets: any[] = [];
+    let activeSessionEvidence: any[] = [];
+    let activeSessionTracks: any[] = [];
     let activeGuideId = "";
     let recoveryArchive: any = null;
-    let browserRecordingRecorder: MediaRecorder | null = null;
+    let browserRecordingContext: AudioContext | null = null;
+    let browserRecordingSource: MediaStreamAudioSourceNode | null = null;
+    let browserRecordingNode: AudioWorkletNode | null = null;
     let browserRecordingStream: MediaStream | null = null;
-    let browserRecordingChunks: Blob[] = [];
     let browserRecordingBytes = 0;
+    let browserRecordingPath = "";
+    let browserRecordingRecoveryPaths: string[] = [];
+    let browserRecordingWriteChain: Promise<void> = Promise.resolve();
+    let browserRecordingPendingWrites = 0;
+    let browserRecordingPendingFrames = 0;
+    let browserRecordingSegmentFrames = 0;
+    let browserRecordingTotalFrames = 0;
+    let browserRecordingSampleRateHz = 0;
+    let browserRecordingSegmentIndex = 0;
+    let browserRecordingImportedSegments = 0;
+    let browserRecordingToken = 0;
+    let browserRecordingStopping = false;
+    let browserRecordingFlushed = false;
+    let browserRecordingFailure: Error | null = null;
+    let browserRecordingWriteFailure: Error | null = null;
     let browserRecordingSessionId = "";
+    let browserRecordingStartedAt = 0;
     let browserRecordingConsentAtUs = 0;
     let browserRecordingSaving = false;
     let browserPlaybackContext: AudioContext | null = null;
@@ -139,16 +179,22 @@
     let browserPlaybackPort: MessagePort | null = null;
     let browserPlaybackCancelled = false;
 
-    const maximumBrowserRecordingBytes = 64 * 1024 * 1024;
+    const browserRecordingCheckpointSeconds = 20;
+    const maximumPendingBrowserRecordingSeconds = 7;
 
     function showNotice(message, isError = false) {
         window.clearTimeout(noticeTimer);
-        elements.notice.textContent = message;
+        elements["notice-message"].textContent = message;
         elements.notice.classList.toggle("is-error", isError);
+        elements.notice.setAttribute("role", isError ? "alert" : "status");
+        elements.notice.setAttribute("aria-live", isError ? "assertive" : "polite");
+        elements["notice-dismiss"].hidden = !isError;
         elements.notice.hidden = false;
-        noticeTimer = window.setTimeout(() => {
-            elements.notice.hidden = true;
-        }, 4800);
+        if (!isError) {
+            noticeTimer = window.setTimeout(() => {
+                elements.notice.hidden = true;
+            }, 4800);
+        }
     }
 
     function primeBrowserPlayback(): void {
@@ -234,11 +280,17 @@
     }
 
     function setWorkspaceAvailability(enabled: boolean): void {
+        const available = enabled && !archiveRecoveryNeedsReview;
         for (const requirement of document.querySelectorAll<HTMLElement>("[data-requires-archive]")) {
             const controls = requirement.matches("input, button, select, textarea")
                 ? [requirement as HTMLInputElement | HTMLButtonElement | HTMLSelectElement | HTMLTextAreaElement]
                 : [...requirement.querySelectorAll<HTMLInputElement | HTMLButtonElement | HTMLSelectElement | HTMLTextAreaElement>("input, button, select, textarea")];
-            for (const control of controls) control.disabled = !enabled;
+            for (const control of controls) control.disabled = !available;
+        }
+        if (elements["command-form"]) {
+            for (const control of elements["command-form"].querySelectorAll("input, button")) {
+                control.disabled = !available;
+            }
         }
         updateBrowserRecordingControls();
     }
@@ -247,80 +299,245 @@
         const supported = Boolean(
             window.isSecureContext &&
             navigator.mediaDevices?.getUserMedia &&
-            typeof MediaRecorder !== "undefined",
+            window.AudioContext &&
+            typeof AudioWorkletNode !== "undefined",
         );
-        const recording = Boolean(browserRecordingRecorder && browserRecordingRecorder.state !== "inactive");
-        elements["browser-recording-consent"].disabled = !activeArchivePath || recording || browserRecordingSaving;
+        const captureActive = Boolean(browserRecordingNode);
+        const recording = captureActive && !browserRecordingStopping;
+        elements["browser-recording-consent"].disabled = !activeArchivePath || captureActive || browserRecordingSaving;
         elements["browser-recording-start"].disabled =
-            !activeArchivePath || !activeSessionId || !supported || recording || browserRecordingSaving ||
+            !activeArchivePath || !activeSessionId || !supported || captureActive || browserRecordingSaving ||
+            browserRecordingRecoveryPaths.length > 0 ||
             !elements["browser-recording-consent"].checked;
         elements["browser-recording-stop"].disabled = !recording || browserRecordingSaving;
         if (!supported && elements["browser-recording-status"]) {
             elements["browser-recording-status"].textContent =
-                "Microphone capture requires a secure browser with MediaRecorder support. System audio is not captured.";
+                "Microphone capture requires a secure browser with AudioWorklet support. System audio is not captured.";
         }
     }
 
-    async function saveBrowserRecording(recorder: MediaRecorder): Promise<void> {
-        const sessionId = browserRecordingSessionId;
-        const consentAtUs = browserRecordingConsentAtUs;
-        const mimeType = recorder.mimeType || browserRecordingChunks[0]?.type || "audio/webm";
-        const chunks = browserRecordingChunks;
-        browserRecordingChunks = [];
-        browserRecordingRecorder = null;
-        browserRecordingSaving = true;
-        browserRecordingBytes = 0;
-        browserRecordingSessionId = "";
-        browserRecordingConsentAtUs = 0;
+    function stopBrowserRecording(): void {
+        if (!browserRecordingNode || browserRecordingStopping) return;
+        browserRecordingStopping = true;
         browserRecordingStream?.getTracks().forEach((track) => track.stop());
-        browserRecordingStream = null;
+        browserRecordingSource?.disconnect();
+        browserRecordingNode.port.postMessage({ type: "flush" });
+        elements["browser-recording-status"].textContent = "Stopping and saving the microphone recording…";
+        updateBrowserRecordingControls();
+    }
+
+    async function importBrowserRecordingSegment(path: string): Promise<void> {
+        await runWriteCommand([
+            "record", "import",
+            "--session", browserRecordingSessionId,
+            "--input", path,
+            "--additional-track",
+            "--capture-source", "browser-microphone",
+            "--capture-consent-at-us", String(browserRecordingConsentAtUs),
+            "--consent",
+        ], { showSuccessNotice: false, requireBrowserPersistence: true });
+        browserRecordingImportedSegments += 1;
+    }
+
+    async function preserveBrowserRecordingWav(path: string, filename: string): Promise<boolean> {
+        try {
+            const recovery = await requestWorker("read-file", { path });
+            downloadFileBytes(recovery.bytes, filename, "audio/wav");
+            await requestWorker("remove-file", { path });
+            return true;
+        } catch {
+            if (!browserRecordingRecoveryPaths.includes(path)) {
+                browserRecordingRecoveryPaths.push(path);
+            }
+            elements["browser-recording-recover"].hidden = false;
+            elements["browser-recording-recover"].disabled = false;
+            return false;
+        }
+    }
+
+    async function checkpointBrowserRecordingSegment(): Promise<void> {
+        const completedPath = browserRecordingPath;
+        if (!completedPath || browserRecordingSegmentFrames === 0) return;
+        const nextIndex = browserRecordingSegmentIndex + 1;
+        const nextPath =
+            `/workspace/tutorux-browser-recording-${browserRecordingToken}-segment-${nextIndex}.wav`;
+        await requestWorker("begin-pcm-recording", {
+            path: nextPath,
+            sampleRateHz: browserRecordingSampleRateHz,
+        });
+        await requestWorker("finish-pcm-recording", { path: completedPath });
+        browserRecordingPath = nextPath;
+        browserRecordingSegmentIndex = nextIndex;
+        browserRecordingSegmentFrames = 0;
+        browserRecordingBytes = 0;
+        try {
+            await importBrowserRecordingSegment(completedPath);
+            await requestWorker("remove-file", { path: completedPath });
+            const savedSeconds = Math.floor(browserRecordingTotalFrames / browserRecordingSampleRateHz);
+            elements["browser-recording-status"].textContent =
+                `Saved ${browserRecordingImportedSegments} audio segment(s) · ${savedSeconds.toLocaleString()} seconds archived. Recording continues.`;
+        } catch (error) {
+            browserRecordingFailure = error;
+            const recovered = await preserveBrowserRecordingWav(
+                completedPath,
+                `tutorux-browser-recording-segment-${nextIndex - 1}-recovery.wav`,
+            );
+            const recoveryMessage = recovered
+                ? " A WAV copy of the unsaved segment was downloaded."
+                : " Download the retained WAV recovery before closing this page.";
+            elements["browser-recording-status"].textContent = `${error.message}${recoveryMessage}`;
+            stopBrowserRecording();
+        }
+    }
+
+    function receiveBrowserRecordingMessage(event: MessageEvent): void {
+        const message = event.data;
+        if (message?.type === "pcm" && message.samples instanceof ArrayBuffer) {
+            const frameCount = message.samples.byteLength / 2;
+            if (browserRecordingPendingFrames + frameCount >
+                browserRecordingSampleRateHz * maximumPendingBrowserRecordingSeconds) {
+                browserRecordingFailure = new Error(
+                    "Archive saving could not keep up with microphone capture. Recording stopped after preserving the saved segments.",
+                );
+                stopBrowserRecording();
+                return;
+            }
+            browserRecordingPendingWrites += 1;
+            browserRecordingPendingFrames += frameCount;
+            const samples = message.samples as ArrayBuffer;
+            browserRecordingWriteChain = browserRecordingWriteChain
+                .then(async () => {
+                    if (browserRecordingWriteFailure) return;
+                    const path = browserRecordingPath;
+                    const response = await requestWorker(
+                        "append-pcm-recording",
+                        { path, samples },
+                        [samples],
+                    );
+                    browserRecordingBytes = Number(response.result?.dataBytes || browserRecordingBytes);
+                    browserRecordingSegmentFrames += frameCount;
+                    browserRecordingTotalFrames += frameCount;
+                    elements["browser-recording-status"].textContent =
+                        `Recording microphone audio · ${browserRecordingBytes.toLocaleString()} bytes in the current archive segment.`;
+                    if (browserRecordingSegmentFrames >=
+                        browserRecordingSampleRateHz * browserRecordingCheckpointSeconds) {
+                        await checkpointBrowserRecordingSegment();
+                    }
+                })
+                .catch((error: Error) => {
+                    browserRecordingWriteFailure = error;
+                    browserRecordingFailure = error;
+                    elements["browser-recording-status"].textContent =
+                        "Microphone storage stopped unexpectedly. Recovering the audio already saved.";
+                    stopBrowserRecording();
+                })
+                .finally(() => {
+                    browserRecordingPendingWrites -= 1;
+                    browserRecordingPendingFrames -= frameCount;
+                });
+            return;
+        }
+        if (message?.type === "flushed") {
+            browserRecordingFlushed = true;
+            window.dispatchEvent(new CustomEvent("tutorux:recording-state", {
+                detail: {
+                    active: false,
+                    sessionId: browserRecordingSessionId,
+                    startedAt: browserRecordingStartedAt,
+                    stoppedAt: Date.now(),
+                },
+            }));
+            void saveBrowserRecording();
+        }
+    }
+
+    async function saveBrowserRecording(): Promise<void> {
+        if (!browserRecordingFlushed || browserRecordingSaving) return;
+        browserRecordingSaving = true;
         updateBrowserRecordingControls();
 
+        let finalized = false;
         let inputPath = "";
-        let capturedBlob: Blob | null = null;
         let fallbackFilename = "";
         try {
-            const recording = new Blob(chunks, { type: mimeType });
-            capturedBlob = recording;
-            chunks.length = 0;
-            if (recording.size === 0) {
-                throw new Error("The browser did not capture any microphone audio.");
+            await browserRecordingWriteChain;
+            if (browserRecordingPendingWrites !== 0 || browserRecordingPendingFrames !== 0) {
+                throw new Error("The browser microphone still has audio blocks waiting to be saved.");
             }
-            if (recording.size > maximumBrowserRecordingBytes) {
-                throw new Error("Browser microphone recordings are limited to 64 MiB.");
+            inputPath = browserRecordingPath;
+            fallbackFilename = `tutorux-browser-recording-segment-${browserRecordingSegmentIndex}-recovery.wav`;
+            if (browserRecordingBytes > 0) {
+                await requestWorker("finish-pcm-recording", { path: inputPath });
+                finalized = true;
+                if (browserRecordingWriteFailure) throw browserRecordingWriteFailure;
+                await importBrowserRecordingSegment(inputPath);
+            } else if (browserRecordingImportedSegments === 0) {
+                throw browserRecordingFailure || new Error("The browser did not capture any microphone audio.");
             }
-            const extension = mimeType.includes("mp4")
-                ? "m4a"
-                : mimeType.includes("ogg")
-                  ? "ogg"
-                  : "webm";
-            fallbackFilename = `tutorux-browser-recording-${Date.now()}.${extension}`;
-            inputPath = `/workspace/${fallbackFilename}`;
-            const bytes = await recording.arrayBuffer();
-            await requestWorker("write-file", { path: inputPath, bytes }, [bytes]);
-            const response = await runWriteCommand([
-                "asset", "add", inputPath,
-                "--session", sessionId,
-                "--capture-source", "browser-microphone",
-                "--capture-consent-at-us", String(consentAtUs),
-                "--consent",
-            ]);
-            const asset = parseRecord(response.output);
-            elements["browser-recording-status"].textContent =
-                `Microphone capture saved in this session as ${asset?.filename || fallbackFilename}. ` +
-                `The browser stored ${recording.size.toLocaleString()} bytes of ${mimeType} audio.`;
+            const recoveryNotice = browserRecordingFailure
+                ? " Capture stopped early after preserving the completed audio segments."
+                : "";
+            elements["browser-recording-status"].textContent = browserRecordingImportedSegments > 0
+                ? `Microphone capture saved as ${browserRecordingImportedSegments} archive-native audio segment(s).${recoveryNotice}`
+                : `Microphone capture saved as an archive-native audio segment.${recoveryNotice}`;
             elements["browser-recording-consent"].checked = false;
-            showNotice("Browser microphone recording saved into the selected archive.");
+            showNotice("Browser microphone audio is saved as archive-native audio chunks.");
         } catch (error) {
-            if (capturedBlob && capturedBlob.size > 0 && fallbackFilename) {
-                const fallbackBytes = await capturedBlob.arrayBuffer();
-                downloadFileBytes(fallbackBytes, fallbackFilename, mimeType);
-                throw new Error(`${error.message} A separate audio copy was downloaded for recovery.`);
+            let recoveryMessage = "";
+            inputPath ||= browserRecordingPath;
+            fallbackFilename ||= `tutorux-browser-recording-segment-${browserRecordingSegmentIndex}-recovery.wav`;
+            if (inputPath && browserRecordingBytes > 0) {
+                try {
+                    if (!finalized) {
+                        await requestWorker("finish-pcm-recording", { path: inputPath });
+                        finalized = true;
+                    }
+                    const recovery = await requestWorker("read-file", { path: inputPath });
+                    downloadFileBytes(recovery.bytes, fallbackFilename, "audio/wav");
+                    recoveryMessage = " A WAV copy was downloaded for recovery.";
+                    await requestWorker("remove-file", { path: inputPath });
+                } catch {
+                    if (finalized && !browserRecordingRecoveryPaths.includes(inputPath)) {
+                        browserRecordingRecoveryPaths.push(inputPath);
+                    }
+                    recoveryMessage = finalized
+                        ? " The WAV remains available here; download recovery audio before closing this page."
+                        : " The temporary capture could not be finalized for recovery.";
+                }
             }
-            throw error;
+            elements["browser-recording-status"].textContent = `${error.message}${recoveryMessage}`;
+            showNotice(`${error.message}${recoveryMessage}`, true);
         } finally {
             browserRecordingSaving = false;
-            if (inputPath) requestWorker("remove-file", { path: inputPath }).catch(() => {});
+            if (inputPath && !browserRecordingRecoveryPaths.includes(inputPath)) {
+                requestWorker("remove-file", { path: inputPath }).catch(() => {});
+            }
+            if (browserRecordingRecoveryPaths.length > 0) {
+                elements["browser-recording-recover"].hidden = false;
+                elements["browser-recording-recover"].disabled = false;
+            }
+            browserRecordingNode?.disconnect();
+            browserRecordingNode = null;
+            browserRecordingSource = null;
+            browserRecordingStream?.getTracks().forEach((track) => track.stop());
+            browserRecordingStream = null;
+            if (browserRecordingContext) await browserRecordingContext.close().catch(() => {});
+            browserRecordingContext = null;
+            browserRecordingPath = "";
+            browserRecordingSegmentFrames = 0;
+            browserRecordingSampleRateHz = 0;
+            browserRecordingPendingFrames = 0;
+            browserRecordingTotalFrames = 0;
+            browserRecordingSegmentIndex = 0;
+            browserRecordingImportedSegments = 0;
+            browserRecordingWriteFailure = null;
+            browserRecordingSessionId = "";
+            browserRecordingConsentAtUs = 0;
+            browserRecordingStopping = false;
+            browserRecordingFlushed = false;
+            browserRecordingFailure = null;
+            browserRecordingBytes = 0;
+            elements["browser-recording-consent"].checked = false;
             updateBrowserRecordingControls();
         }
     }
@@ -332,56 +549,102 @@
         if (!elements["browser-recording-consent"].checked) {
             throw new Error("Confirm permission to record microphone audio before starting.");
         }
-        if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
+        if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia ||
+            !window.AudioContext || typeof AudioWorkletNode === "undefined") {
             throw new Error("This browser does not support secure microphone recording.");
         }
 
-        const stream = await navigator.mediaDevices.getUserMedia({
+        const pendingStream = (window as any).tutoruxPendingRecordingStream as MediaStream | null;
+        const stream = pendingStream ?? await navigator.mediaDevices.getUserMedia({
             audio: {
                 echoCancellation: false,
                 noiseSuppression: false,
                 autoGainControl: false,
             },
         });
+        (window as any).tutoruxPendingRecordingStream = null;
         browserRecordingStream = stream;
         browserRecordingSessionId = activeSessionId;
         browserRecordingConsentAtUs = Date.now() * 1000;
-        browserRecordingChunks = [];
         browserRecordingBytes = 0;
-        const supportedType = ["audio/webm;codecs=opus", "audio/mp4", "audio/webm"]
-            .find((type) => MediaRecorder.isTypeSupported(type));
-        const recorder = new MediaRecorder(stream, {
-            ...(supportedType ? { mimeType: supportedType } : {}),
-            audioBitsPerSecond: 48_000,
-        });
-        browserRecordingRecorder = recorder;
-        recorder.addEventListener("dataavailable", (event) => {
-            if (event.data.size > 0) {
-                browserRecordingChunks.push(event.data);
-                browserRecordingBytes += event.data.size;
-            }
-            elements["browser-recording-status"].textContent =
-                `Recording microphone audio · ${browserRecordingBytes.toLocaleString()} bytes captured.`;
-            if (browserRecordingBytes > maximumBrowserRecordingBytes && recorder.state === "recording") {
-                elements["browser-recording-status"].textContent =
-                    "The 64 MiB capture limit was reached. Stopping the microphone recording.";
-                recorder.stop();
-            }
-        });
-        recorder.addEventListener("error", () => {
-            elements["browser-recording-status"].textContent =
-                "The browser stopped microphone capture after an error.";
-            if (recorder.state === "recording") recorder.stop();
-        });
-        recorder.addEventListener("stop", () => {
-            saveBrowserRecording(recorder).catch((error) => {
-                elements["browser-recording-status"].textContent = error.message;
-                showNotice(error.message, true);
+        browserRecordingToken = Date.now();
+        browserRecordingSegmentIndex = 1;
+        browserRecordingImportedSegments = 0;
+        browserRecordingSegmentFrames = 0;
+        browserRecordingTotalFrames = 0;
+        browserRecordingPendingFrames = 0;
+        browserRecordingWriteFailure = null;
+        browserRecordingPath =
+            `/workspace/tutorux-browser-recording-${browserRecordingToken}-segment-1.wav`;
+        browserRecordingWriteChain = Promise.resolve();
+        browserRecordingPendingWrites = 0;
+        browserRecordingStopping = false;
+        browserRecordingFlushed = false;
+        browserRecordingFailure = null;
+        try {
+            browserRecordingContext = new AudioContext();
+            await browserRecordingContext.resume();
+            await browserRecordingContext.audioWorklet.addModule(
+                new URL("./tutorux-recorder-worklet.js", window.location.href),
+            );
+            browserRecordingSampleRateHz = browserRecordingContext.sampleRate;
+            await requestWorker("begin-pcm-recording", {
+                path: browserRecordingPath,
+                sampleRateHz: browserRecordingSampleRateHz,
             });
-        }, { once: true });
-        recorder.start(1000);
+            browserRecordingSource = browserRecordingContext.createMediaStreamSource(stream);
+            browserRecordingNode = new AudioWorkletNode(browserRecordingContext, "tutorux-pcm-recorder", {
+                numberOfInputs: 1,
+                numberOfOutputs: 1,
+                outputChannelCount: [1],
+                channelCountMode: "max",
+                channelInterpretation: "speakers",
+            });
+            browserRecordingNode.port.addEventListener("message", receiveBrowserRecordingMessage);
+            browserRecordingNode.port.start();
+            browserRecordingNode.addEventListener("processorerror", () => {
+                browserRecordingFailure = new Error("The browser audio processor stopped unexpectedly.");
+                stopBrowserRecording();
+            }, { once: true });
+            for (const track of stream.getAudioTracks()) {
+                track.addEventListener("ended", () => {
+                    if (browserRecordingStopping) return;
+                    browserRecordingFailure = new Error("The microphone disconnected during recording.");
+                    stopBrowserRecording();
+                }, { once: true });
+            }
+            browserRecordingSource.connect(browserRecordingNode);
+            browserRecordingNode.connect(browserRecordingContext.destination);
+        } catch (error) {
+            browserRecordingStream?.getTracks().forEach((track) => track.stop());
+            browserRecordingStream = null;
+            browserRecordingNode?.disconnect();
+            browserRecordingNode = null;
+            browserRecordingSource?.disconnect();
+            browserRecordingSource = null;
+            if (browserRecordingContext) await browserRecordingContext.close().catch(() => {});
+            browserRecordingContext = null;
+            if (browserRecordingPath) requestWorker("remove-file", { path: browserRecordingPath }).catch(() => {});
+            browserRecordingPath = "";
+            browserRecordingSampleRateHz = 0;
+            browserRecordingSegmentFrames = 0;
+            browserRecordingPendingFrames = 0;
+            browserRecordingTotalFrames = 0;
+            browserRecordingSegmentIndex = 0;
+            browserRecordingImportedSegments = 0;
+            browserRecordingWriteFailure = null;
+            browserRecordingSessionId = "";
+            browserRecordingConsentAtUs = 0;
+            elements["browser-recording-consent"].checked = false;
+            throw error;
+        }
+        browserRecordingStartedAt = Date.now();
+        window.dispatchEvent(new CustomEvent("tutorux:recording-state", {
+            detail: { active: true, sessionId: browserRecordingSessionId, startedAt: browserRecordingStartedAt },
+        }));
         elements["browser-recording-status"].textContent =
-            "Recording microphone audio locally. Keep this page open until you stop and save.";
+            `Recording microphone audio at ${browserRecordingContext.sampleRate.toLocaleString()} Hz. ` +
+            "Audio is checkpointed into the archive every 20 seconds. Keep this page open until it is saved.";
         updateBrowserRecordingControls();
     }
 
@@ -392,11 +655,18 @@
         elements["browser-storage"].classList.toggle("is-warning", !canDownload && Boolean(activeArchivePath));
     }
 
-    function setArchive(path, name, handle = null) {
+    function setArchive(path, name, handle = null, notify = true) {
         activeArchivePath = path;
         activeArchiveName = name;
         sourceFileHandle = handle;
+        archiveRecoveryNeedsReview = false;
+        archiveRecoveryReport = null;
+        elements["archive-recovery"].hidden = true;
         activeSessionId = "";
+        activeSessionHasAudio = false;
+        activeSessionAssets = [];
+        activeSessionEvidence = [];
+        activeSessionTracks = [];
         activeGuideId = "";
         elements.setPassphrase.disabled = !path;
         elements.archiveState.classList.toggle("is-open", Boolean(path));
@@ -405,6 +675,9 @@
         elements.studentCount.textContent = "0";
         elements.sessionCount.textContent = "0";
         updateBrowserRecordingControls();
+        renderAnnotations([]);
+        renderRecordingTracks([]);
+        if (notify) window.dispatchEvent(new CustomEvent("tutorux:archive-open"));
     }
 
     function startWebWorker(): Promise<void> {
@@ -474,6 +747,82 @@
             throw new Error("Open or create a Tutorux archive first.");
         }
         return ["--archive", activeArchivePath, ...commandArguments, "--json"];
+    }
+
+    function updateArchiveRecovery(report: any): void {
+        archiveRecoveryReport = report;
+        archiveRecoveryNeedsReview = Number(report?.trailing_bytes || 0) > 0;
+        elements["archive-recovery"].hidden = !archiveRecoveryNeedsReview;
+        elements["archive-recover-unpublished"].hidden =
+            !archiveRecoveryNeedsReview || !Boolean(report?.recoverable);
+        elements["archive-discard-tail"].hidden = !archiveRecoveryNeedsReview;
+        if (!archiveRecoveryNeedsReview) {
+            elements["archive-recovery-message"].textContent = "";
+            setWorkspaceAvailability(Boolean(activeArchivePath));
+            return;
+        }
+
+        const details = [
+            `Committed generation ${Number(report?.committed_generation || 0)}; ` +
+                `${Number(report?.trailing_bytes || 0).toLocaleString()} trailing bytes.`,
+        ];
+        if (report?.has_unpublished_commit) {
+            details.push(`Unpublished generation ${Number(report?.candidate_generation || 0)} was found.`);
+            if (report?.recoverable) {
+                details.push("Full integrity verification passed. You can publish this generation.");
+            } else if (report?.requires_passphrase) {
+                details.push("Enter the archive passphrase before Tutorux can verify it for recovery.");
+            } else {
+                details.push("The candidate did not pass full integrity verification and cannot be recovered.");
+            }
+        } else {
+            details.push("No complete unpublished generation is available.");
+        }
+        if (Array.isArray(report?.issues)) details.push(...report.issues.map(String));
+        elements["archive-recovery-message"].textContent = details.join(" ");
+        setWorkspaceAvailability(Boolean(activeArchivePath));
+    }
+
+    async function refreshArchiveRecovery(): Promise<any> {
+        const response = await responseFrom(
+            archiveArguments(["archive", "recover"]),
+            { synchronizeArchive: false },
+        );
+        let report: any;
+        try {
+            report = JSON.parse(String(response.output || ""));
+        } catch {
+            throw new Error("The archive recovery inspection returned invalid JSON.");
+        }
+        updateArchiveRecovery(report);
+        return report;
+    }
+
+    async function performArchiveRecovery(action: "recover-unpublished" | "discard-tail") {
+        if (!archiveRecoveryNeedsReview || !archiveRecoveryReport) {
+            throw new Error("This archive does not need recovery.");
+        }
+        if (action === "recover-unpublished" && !archiveRecoveryReport.recoverable) {
+            throw new Error("No unpublished generation passed full integrity verification.");
+        }
+        const buttons = [elements["archive-recover-unpublished"], elements["archive-discard-tail"]];
+        for (const button of buttons) button.disabled = true;
+        try {
+            await responseFrom(archiveArguments(["archive", "recover", `--${action}`]));
+            setDirty(true);
+            await refreshArchiveRecovery();
+            await refreshWorkspace();
+            await persistBrowserArchive();
+            window.dispatchEvent(new CustomEvent("tutorux:archive-change"));
+            showNotice(action === "recover-unpublished"
+                ? "The verified archive generation is now committed. Download the updated archive to keep the recovery."
+                : "The incomplete archive tail was discarded. Download the updated archive to keep this copy.");
+        } catch (error) {
+            showNotice(error.message, true);
+        } finally {
+            for (const button of buttons) button.disabled = false;
+            setWorkspaceAvailability(Boolean(activeArchivePath));
+        }
     }
 
     async function readArchiveBytes() {
@@ -621,15 +970,20 @@
         }
         elements.archiveState.classList.add("is-open");
         elements.setPassphrase.disabled = false;
-        setWorkspaceAvailability(true);
         setDirty(false);
+        await refreshArchiveRecovery();
         await refreshWorkspace();
+        setWorkspaceAvailability(true);
+        window.dispatchEvent(new CustomEvent("tutorux:archive-open"));
         setStorageStatus(
             "Browser recovery copy restored",
             `Restored ${safeName} from ${new Date(stored.savedAt || 0).toLocaleString()}. This copy remains subject to browser storage policies; download a portable .tux archive for independent safekeeping.`,
             true,
         );
         showNotice(`${safeName} restored from this browser's recovery copy.`);
+        if (archiveRecoveryNeedsReview) {
+            showNotice("The restored archive needs recovery review before editing. Choose a verified recovery or explicitly discard the incomplete tail.", true);
+        }
         return true;
     }
 
@@ -827,16 +1181,295 @@
         elements["annotation-content"].focus();
     }
 
+    function annotationManageButton(
+        label: string,
+        handler: () => void | Promise<void>,
+        disabled = false,
+    ): HTMLButtonElement {
+        const button = document.createElement("button");
+        button.className = "text-button";
+        button.type = "button";
+        button.textContent = label;
+        button.disabled = disabled;
+        button.addEventListener("click", handler);
+        return button;
+    }
+
+    function targetRecordLabel(record: any, fallback: string): string {
+        const title = record.filename || record.title || record.name ||
+            (record.record_role === "audio-track" ? `${record.source || "Audio"} recording track` : "") ||
+            record.content || record.type || record.id || fallback;
+        const concise = String(title).replace(/\s+/g, " ").trim();
+        return concise.length > 72 ? `${concise.slice(0, 69)}…` : concise;
+    }
+
+    function annotationManagementPanel(record: any): HTMLDetailsElement {
+        const panel = document.createElement("details");
+        panel.className = "annotation-management annotation-row-tools";
+        const summary = document.createElement("summary");
+        summary.textContent = "History and links";
+        panel.append(summary);
+
+        const history = document.createElement("div");
+        history.className = "annotation-history-list";
+        history.setAttribute("aria-live", "polite");
+        const historyButton = annotationManageButton("Load revision history", async () => {
+            historyButton.disabled = true;
+            history.replaceChildren(makeEmptyRow("Loading annotation history…"));
+            try {
+                const response = await responseFrom(archiveArguments([
+                    "annotation", "history", String(record.id),
+                ]));
+                const revisions = parseRows(response.output);
+                history.replaceChildren();
+                if (revisions.length === 0) {
+                    history.append(makeEmptyRow("No saved revisions are available."));
+                    return;
+                }
+                for (const revision of revisions) {
+                    const row = document.createElement("div");
+                    row.className = "annotation-history-row";
+                    const description = document.createElement("span");
+                    const revisedAt = Number(revision.updated_at_us || revision.created_at_us || 0);
+                    const date = Number.isFinite(revisedAt) && revisedAt > 0
+                        ? new Date(revisedAt / 1000).toLocaleString()
+                        : "Time unavailable";
+                    description.textContent = `Revision ${revision.revision || "?"} · ${date} · ${revision.title || revision.type || "Tutor note"}`;
+                    const restore = annotationManageButton(
+                        `Restore ${revision.revision || "revision"}`,
+                        async () => {
+                            try {
+                                await runWriteCommand([
+                                    "annotation", "restore", String(record.id),
+                                    "--revision", String(revision.revision),
+                                ]);
+                            } catch (error: any) {
+                                showNotice(error.message, true);
+                            }
+                        },
+                        archiveRecoveryNeedsReview,
+                    );
+                    row.append(description, restore);
+                    history.append(row);
+                }
+            } catch (error: any) {
+                history.replaceChildren(makeEmptyRow(error.message));
+            } finally {
+                historyButton.disabled = false;
+            }
+        }, archiveRecoveryNeedsReview);
+        panel.append(historyButton, history);
+
+        const linkedAssets = String(record.linked_asset_ids || "").split(",").filter(Boolean);
+        const linkedEvidence = String(record.linked_evidence_ids || "").split(",").filter(Boolean);
+        const linkedSummary = document.createElement("p");
+        linkedSummary.className = "form-help";
+        linkedSummary.textContent = `${linkedAssets.length} linked file(s) · ${linkedEvidence.length} linked evidence item(s)`;
+        panel.append(linkedSummary);
+
+        const linkForm = document.createElement("form");
+        linkForm.className = "annotation-link-form";
+        const typeLabel = document.createElement("label");
+        typeLabel.textContent = "Source type";
+        const typeSelect = document.createElement("select");
+        typeSelect.setAttribute("aria-label", "Source type to link");
+        typeSelect.append(new Option("Session files", "asset"), new Option("Evidence", "evidence"));
+        typeLabel.append(typeSelect);
+        const linkTarget = document.createElement("select");
+        linkTarget.setAttribute("aria-label", "Source to link to this note");
+        const unlinkTarget = document.createElement("select");
+        unlinkTarget.setAttribute("aria-label", "Existing source link to remove");
+        const linkTargetLabel = document.createElement("label");
+        linkTargetLabel.textContent = "Source to link";
+        linkTargetLabel.append(linkTarget);
+        const unlinkTargetLabel = document.createElement("label");
+        unlinkTargetLabel.textContent = "Existing link to remove";
+        unlinkTargetLabel.append(unlinkTarget);
+        const linkButton = annotationManageButton("Link selected source", async () => {
+            try {
+                await runWriteCommand([
+                    "annotation", "link", String(record.id), "--to", typeSelect.value,
+                    "--target-id", linkTarget.value,
+                ]);
+            } catch (error: any) {
+                showNotice(error.message, true);
+            }
+        }, true);
+        const unlinkButton = annotationManageButton("Remove selected link", async () => {
+            try {
+                await runWriteCommand([
+                    "annotation", "unlink", String(record.id), "--to", typeSelect.value,
+                    "--target-id", unlinkTarget.value,
+                ]);
+            } catch (error: any) {
+                showNotice(error.message, true);
+            }
+        }, true);
+        function updateLinkButtons(): void {
+            linkButton.disabled = archiveRecoveryNeedsReview || !linkTarget.value;
+            unlinkButton.disabled = archiveRecoveryNeedsReview || !unlinkTarget.value;
+        }
+        function refreshLinkTargets(): void {
+            const evidenceTarget = typeSelect.value === "evidence";
+            const targets = evidenceTarget ? activeSessionEvidence : activeSessionAssets;
+            const linkedIds = new Set(evidenceTarget ? linkedEvidence : linkedAssets);
+            const available = targets.filter((target) => !linkedIds.has(String(target.id || "")));
+            const linked = targets.filter((target) => linkedIds.has(String(target.id || "")));
+            linkTarget.replaceChildren(new Option(
+                available.length ? "Choose a source to link" : "No unlinked sources available", "",
+            ));
+            for (const target of available)
+                linkTarget.append(new Option(targetRecordLabel(target, "Untitled source"), String(target.id || "")));
+            unlinkTarget.replaceChildren(new Option(
+                linked.length ? "Choose an existing link" : "No links to remove", "",
+            ));
+            for (const target of linked)
+                unlinkTarget.append(new Option(targetRecordLabel(target, "Untitled source"), String(target.id || "")));
+            updateLinkButtons();
+        }
+        linkForm.append(typeLabel, linkTargetLabel, linkButton, unlinkTargetLabel, unlinkButton);
+        typeSelect.addEventListener("change", refreshLinkTargets);
+        linkTarget.addEventListener("change", updateLinkButtons);
+        unlinkTarget.addEventListener("change", updateLinkButtons);
+        linkForm.addEventListener("submit", (event) => event.preventDefault());
+        refreshLinkTargets();
+        panel.append(linkForm);
+
+        const characters = Array.from(String(record.content || ""));
+        if (characters.length > 1) {
+            const splitForm = document.createElement("form");
+            splitForm.className = "annotation-split-form";
+            const splitLabel = document.createElement("label");
+            splitLabel.textContent = "Split note after character";
+            const splitPosition = document.createElement("input");
+            splitPosition.type = "number";
+            splitPosition.min = "1";
+            splitPosition.max = String(characters.length - 1);
+            splitPosition.step = "1";
+            splitPosition.required = true;
+            splitPosition.value = String(Math.max(1, Math.floor(characters.length / 2)));
+            splitPosition.setAttribute("aria-label", "Character boundary for splitting this note");
+            splitLabel.append(splitPosition);
+            const startUs = Number(record.start_time_us || 0);
+            const endUs = Number(record.end_time_us || startUs);
+            let splitTime: HTMLInputElement | null = null;
+            if (endUs > startUs) {
+                const timeLabel = document.createElement("label");
+                timeLabel.textContent = "Split timestamp within this note's time range";
+                splitTime = document.createElement("input");
+                splitTime.type = "text";
+                splitTime.inputMode = "numeric";
+                splitTime.required = true;
+                splitTime.value = formatTimestamp(Math.floor((startUs + endUs) / 2));
+                splitTime.setAttribute("aria-label", "Split timestamp");
+                timeLabel.append(splitTime);
+                splitForm.append(timeLabel);
+            }
+            const preview = document.createElement("p");
+            preview.className = "form-help annotation-split-preview";
+            function updateSplitPreview(): void {
+                const boundary = Number(splitPosition.value);
+                const before = characters.slice(0, boundary).join("");
+                const after = characters.slice(boundary).join("");
+                preview.textContent = `First note: ${before.slice(0, 56)}${before.length > 56 ? "…" : ""} · Second note: ${after.slice(0, 56)}${after.length > 56 ? "…" : ""}`;
+            }
+            splitPosition.addEventListener("input", updateSplitPreview);
+            updateSplitPreview();
+            const splitButton = annotationManageButton("Split note", async () => {
+                const boundary = Number(splitPosition.value);
+                if (!Number.isInteger(boundary) || boundary < 1 || boundary >= characters.length) {
+                    showNotice("Choose a split point inside the note text.", true);
+                    return;
+                }
+                const command = [
+                    "annotation", "split", String(record.id),
+                    "--before", characters.slice(0, boundary).join(""),
+                    "--after", characters.slice(boundary).join(""),
+                ];
+                if (splitTime) command.push("--at", splitTime.value.trim());
+                try {
+                    await runWriteCommand(command);
+                } catch (error: any) {
+                    showNotice(error.message, true);
+                }
+            }, archiveRecoveryNeedsReview);
+            splitForm.append(splitLabel, preview, splitButton);
+            splitForm.addEventListener("submit", (event) => event.preventDefault());
+            panel.append(splitForm);
+        }
+        return panel;
+    }
+
+    function renderAnnotationMergeOptions(records: any[]): void {
+        const select = elements["annotation-merge-select"] as HTMLSelectElement;
+        const submit = elements["annotation-merge-submit"] as HTMLButtonElement;
+        if (!select || !submit) return;
+        select.replaceChildren();
+        for (const record of records) {
+            const option = new Option(
+                `${formatTimestamp(record.start_time_us).split(".")[0]} · ${record.title || record.type || "Tutor note"}`,
+                String(record.id || ""),
+            );
+            option.dataset.annotationType = record.type || "";
+            option.dataset.priority = record.priority || "normal";
+            select.append(option);
+        }
+        select.disabled = !activeArchivePath || archiveRecoveryNeedsReview || records.length < 2;
+        (elements["annotation-merge-separator"] as HTMLSelectElement).disabled = select.disabled;
+        updateAnnotationMergeSubmit();
+    }
+
+    function updateAnnotationMergeSubmit(): void {
+        const select = elements["annotation-merge-select"] as HTMLSelectElement;
+        const submit = elements["annotation-merge-submit"] as HTMLButtonElement;
+        if (!select || !submit) return;
+        const selected = [...select.selectedOptions];
+        const compatible = selected.length >= 2 && selected.every((option) =>
+            option.dataset.annotationType === selected[0].dataset.annotationType &&
+            option.dataset.priority === selected[0].dataset.priority,
+        );
+        submit.disabled = select.disabled || !compatible;
+    }
+
     function renderAnnotations(records: any[]): void {
         const container = elements["annotations-list"] as HTMLElement;
         container.replaceChildren();
+        const markerSelect = elements["annotation-marker-select"] as HTMLSelectElement;
+        const markerJump = elements["annotation-marker-jump"] as HTMLButtonElement;
+        const sessionId = activeSessionId;
+        const orderedRecords = [...records].sort((left, right) =>
+            Number(left.start_time_us || 0) - Number(right.start_time_us || 0),
+        );
+        renderAnnotationMergeOptions(orderedRecords);
+        markerSelect.replaceChildren(new Option(
+            orderedRecords.length ? "Choose a marker" : "No markers yet",
+            "",
+        ));
+        for (const record of orderedRecords) {
+            const markerId = String(record.id || "");
+            if (!markerId) continue;
+            const title = record.title || record.type || "Session marker";
+            markerSelect.append(new Option(
+                `${formatTimestamp(record.start_time_us).split(".")[0]} · ${title}`,
+                markerId,
+            ));
+        }
+        markerSelect.disabled = !activeArchivePath || archiveRecoveryNeedsReview ||
+            markerSelect.options.length < 2;
+        markerJump.disabled = !activeArchivePath || archiveRecoveryNeedsReview || !markerSelect.value;
         if (records.length === 0) {
             container.append(makeEmptyRow("No tutor notes have been added to this session."));
             return;
         }
-        for (const record of records) {
+        for (const record of orderedRecords) {
             const row = document.createElement("article");
             row.className = "material-row annotation-row";
+            row.dataset.annotationId = String(record.id || "");
+            row.tabIndex = -1;
+            row.setAttribute(
+                "aria-label",
+                `${record.title || record.type || "Session marker"} at ${formatTimestamp(record.start_time_us)}`,
+            );
             const heading = document.createElement("div");
             heading.className = "material-row-heading";
             const title = document.createElement("strong");
@@ -854,13 +1487,33 @@
             edit.type = "button";
             edit.textContent = "Edit note";
             edit.addEventListener("click", () => beginAnnotationEdit(record));
-            row.append(heading, content, detail, edit);
+            const play = document.createElement("button");
+            play.className = "text-button";
+            play.type = "button";
+            play.textContent = "Play from marker";
+            play.setAttribute(
+                "aria-label",
+                `Play ${record.title || record.type || "session marker"} from ${formatTimestamp(record.start_time_us)}`,
+            );
+            play.disabled = !activeArchivePath || archiveRecoveryNeedsReview || !activeSessionHasAudio;
+            play.addEventListener("click", () => {
+                void playSessionFromTimestamp(
+                    sessionId,
+                    record.start_time_us,
+                    `${record.title || record.type || "the marker"} at ${formatTimestamp(record.start_time_us)}`,
+                );
+            });
+            const actions = document.createElement("div");
+            actions.className = "form-actions marker-actions";
+            actions.append(play, edit);
+            row.append(heading, content, detail, actions, annotationManagementPanel(record));
             container.append(row);
         }
     }
 
     function renderTranscript(records: any[]): void {
         const container = elements["transcript-list"] as HTMLElement;
+        const sessionId = activeSessionId;
         container.replaceChildren();
         if (records.length === 0) {
             container.append(makeEmptyRow("No transcript segments are linked to this session."));
@@ -970,21 +1623,31 @@
             playAudio.className = "text-button";
             playAudio.type = "button";
             playAudio.textContent = "Play from timestamp";
+            playAudio.disabled = !activeArchivePath || archiveRecoveryNeedsReview || !activeSessionHasAudio;
             playAudio.addEventListener("click", async () => {
-                primeBrowserPlayback();
-                try {
-                    await responseFrom(archiveArguments([
-                        "record", "play", "--session", activeSessionId,
-                        "--start-us", String(record.start_time_us || 0),
-                        "--duration-us", "30000000",
-                    ]));
-                    showNotice("Audio playback finished.");
-                } catch (error) {
-                    showNotice(error.message, true);
-                }
+                await playSessionFromTimestamp(
+                    sessionId,
+                    record.start_time_us,
+                    "this transcript timestamp",
+                );
             });
 
-            row.append(heading, playAudio, textForm, timestampForm, speakerForm, verify);
+            const addToNotes = document.createElement("button");
+            addToNotes.className = "text-button";
+            addToNotes.type = "button";
+            addToNotes.textContent = "Add passage to entry notes";
+            addToNotes.addEventListener("click", () => {
+                const selected = text.value.slice(text.selectionStart, text.selectionEnd).trim();
+                window.dispatchEvent(new CustomEvent("tutorux:add-passage", {
+                    detail: {
+                        text: selected || text.value,
+                        speaker: record.speaker_label || record.speaker_name || "",
+                        timestamp: formatTimestamp(record.start_time_us),
+                    },
+                }));
+            });
+
+            row.append(heading, playAudio, addToNotes, textForm, timestampForm, speakerForm, verify);
             container.append(row);
         }
     }
@@ -1055,25 +1718,98 @@
         }
     }
 
+    function renderRecordingTracks(tracks: any[]): void {
+        const select = elements["recording-track-select"] as HTMLSelectElement;
+        const list = elements["recording-tracks-list"] as HTMLElement;
+        if (!select || !list) return;
+        const previousSelection = select.value;
+        select.replaceChildren(new Option("Automatic track selection", ""));
+        list.replaceChildren();
+        activeSessionTracks = tracks.filter((track) => track.record_role === "audio-track" && track.id);
+        for (const track of activeSessionTracks) {
+            const trackId = String(track.id);
+            const source = track.source || "audio";
+            const label = `${source[0].toUpperCase()}${source.slice(1)} · ${track.state || "saved"}`;
+            select.append(new Option(label, trackId));
+            const row = document.createElement("article");
+            row.className = "recording-track-row";
+            const title = document.createElement("strong");
+            title.textContent = label;
+            const detail = document.createElement("span");
+            const chunks = Number(track.chunk_count || 0);
+            const duration = Number(track.duration_us || 0);
+            const bytes = Number(track.byte_count || 0);
+            const parts: string[] = [];
+            if (Number.isFinite(chunks) && chunks > 0) parts.push(`${chunks.toLocaleString()} audio chunk(s)`);
+            if (Number.isFinite(duration) && duration > 0) {
+                parts.push(`${(duration / 1_000_000).toLocaleString(undefined, { maximumFractionDigits: 1 })} seconds`);
+            }
+            if (Number.isFinite(bytes) && bytes > 0) parts.push(`${bytes.toLocaleString()} bytes`);
+            detail.textContent = parts.length ? parts.join(" · ") : `Track ${trackId}`;
+            const play = document.createElement("button");
+            play.className = "text-button";
+            play.type = "button";
+            play.textContent = "Play this track";
+            play.setAttribute("aria-label", `Play ${label} from the beginning`);
+            play.disabled = !activeArchivePath || archiveRecoveryNeedsReview;
+            play.addEventListener("click", () => {
+                void playSessionFromTimestamp(activeSessionId, 0, `${label} from the beginning`, trackId);
+            });
+            row.append(title, detail, play);
+            list.append(row);
+        }
+        if (activeSessionTracks.length === 0)
+            list.append(makeEmptyRow("No individual recording tracks are stored in this session."));
+        select.value = activeSessionTracks.some((track) => String(track.id) === previousSelection)
+            ? previousSelection
+            : "";
+        select.disabled = !activeArchivePath || archiveRecoveryNeedsReview || activeSessionTracks.length < 2;
+    }
+
     async function loadSessionWorkspace(sessionId: string): Promise<void> {
+        const sessionChanged = activeSessionId !== sessionId;
         activeSessionId = sessionId;
+        activeSessionHasAudio = false;
         updateBrowserRecordingControls();
         if (!sessionId) {
             renderAnnotations([]);
+            activeSessionAssets = [];
+            activeSessionEvidence = [];
+            activeSessionTracks = [];
             elements["transcript-list"].replaceChildren(makeEmptyRow("Choose a session to view transcript segments."));
             elements["recording-import-status"].textContent =
                 "Choose a session to view or import its recording.";
+            elements["recording-tracks-list"].replaceChildren(makeEmptyRow("Choose a session to view its recording tracks."));
+            elements["recording-track-select"].replaceChildren(new Option("Automatic track selection", ""));
+            elements["recording-track-select"].disabled = true;
             elements["edit-session-title"].value = "";
             elements["edit-session-subject"].value = "";
             return;
         }
-        const [sessionResponse, annotationsResponse, transcriptResponse, assetsResponse] = await Promise.all([
+        if (sessionChanged) elements["recording-track-select"].value = "";
+        const [sessionResponse, annotationsResponse, transcriptResponse, assetsResponse, evidenceResponse, tracksResponse] = await Promise.all([
             responseFrom(archiveArguments(["session", "show", sessionId])),
             responseFrom(archiveArguments(["annotation", "list", "--session", sessionId])),
             responseFrom(archiveArguments(["transcript", "show", "--session", sessionId])),
             responseFrom(archiveArguments(["asset", "list", "--session", sessionId])),
+            responseFrom(archiveArguments(["evidence", "list", "--session", sessionId])),
+            responseFrom(archiveArguments(["record", "status", "--session", sessionId])),
         ]);
         const session = parseRecord(sessionResponse.output);
+        const trackReport = parseRecord(tracksResponse.output);
+        const recordingTracks = Array.isArray(trackReport?.tracks) ? trackReport.tracks : [];
+        const sessionAssets = parseRows(assetsResponse.output);
+        activeSessionAssets = [
+            ...sessionAssets,
+            ...recordingTracks.filter((track: any) => track.record_role === "audio-track"),
+        ];
+        activeSessionEvidence = parseRows(evidenceResponse.output);
+        activeSessionHasAudio = session?.has_audio === true ||
+            String(session?.has_audio || "").toLowerCase() === "true" ||
+            Number(session?.audio_chunks_imported || 0) > 0 ||
+            Number(session?.recording_audio_chunks || 0) > 0 ||
+            Number(session?.recording_duration_us || 0) > 0 ||
+            Number(session?.audio_duration_us || 0) > 0 || recordingTracks.length > 0;
         elements["edit-session-title"].value = session?.title || "";
         elements["edit-session-subject"].value = session?.subject || "";
         const audioImportState = session?.audio_import_state || "not-imported";
@@ -1082,9 +1818,40 @@
         elements["recording-import-status"].textContent = audioImportState === "not-imported"
             ? "No WAV recording has been imported into this session."
             : `Imported audio: ${audioImportState} · ${audioChunks} chunk(s) · ${Number.isFinite(audioBytes) ? audioBytes.toLocaleString() : "0"} bytes.`;
+        renderRecordingTracks(recordingTracks);
         renderAnnotations(parseRows(annotationsResponse.output));
         renderTranscript(parseRows(transcriptResponse.output));
-        renderAssets(parseRows(assetsResponse.output));
+        renderAssets(sessionAssets);
+    }
+
+    async function playSessionFromTimestamp(
+        sessionId: string,
+        startTimeUs: string | number,
+        description: string,
+        trackId = "",
+    ): Promise<void> {
+        if (!sessionId) {
+            showNotice("Choose a session before playing a marker.", true);
+            return;
+        }
+        if (!activeSessionHasAudio) {
+            showNotice("This session has no recorded audio to play.", true);
+            return;
+        }
+        primeBrowserPlayback();
+        try {
+            const command = [
+                "record", "play", "--session", sessionId,
+                "--start-us", String(startTimeUs || 0),
+                "--duration-us", "30000000",
+            ];
+            const selectedTrackId = trackId || elements["recording-track-select"]?.value || "";
+            if (selectedTrackId) command.push("--track", selectedTrackId);
+            await responseFrom(archiveArguments(command));
+            showNotice(`Audio playback finished from ${description}.`);
+        } catch (error) {
+            showNotice(error.message, true);
+        }
     }
 
     function guideSectionValues(guide: any): any[] {
@@ -1245,6 +2012,12 @@
         renderRows(elements.sessionsList, sessionRecords, "No tutoring sessions have been created yet.", (record) => {
             return `${record.subject || "Tutoring session"} · ${record.id || ""}`;
         }, "Open", (record) => {
+            if (record.entry_id) {
+                window.dispatchEvent(new CustomEvent("tutorux:open-entry", {
+                    detail: { entryId: String(record.entry_id), sessionId: String(record.id || "") },
+                }));
+                return;
+            }
             elements["active-session"].value = String(record.id || "");
             switchView("sessions");
             loadSessionWorkspace(String(record.id || "")).catch((error) => showNotice(error.message, true));
@@ -1252,6 +2025,12 @@
         renderRows(elements.recentSessions, sessionRecords.slice(0, 5), "No recent sessions.", (record) => {
             return `${record.subject || "Tutoring session"} · ${record.id || ""}`;
         }, "Open", (record) => {
+            if (record.entry_id) {
+                window.dispatchEvent(new CustomEvent("tutorux:open-entry", {
+                    detail: { entryId: String(record.entry_id), sessionId: String(record.id || "") },
+                }));
+                return;
+            }
             switchView("sessions");
             elements["active-session"].value = String(record.id || "");
             loadSessionWorkspace(String(record.id || "")).catch((error) => showNotice(error.message, true));
@@ -1276,17 +2055,27 @@
         }
     }
 
-    async function runWriteCommand(commandArguments) {
+    async function runWriteCommand(
+        commandArguments,
+        { showSuccessNotice = true, requireBrowserPersistence = false } = {},
+    ) {
+        if (archiveRecoveryNeedsReview) {
+            throw new Error("Review archive recovery before editing this workspace.");
+        }
         const response = await responseFrom(archiveArguments(commandArguments));
         setDirty(true);
         await refreshWorkspace();
         if (activeSessionId) await loadSessionWorkspace(activeSessionId);
         try {
             await persistBrowserArchive();
-            showNotice(response.output || "Changes saved to this browser's archive copy.");
+            if (showSuccessNotice) {
+                showNotice(response.output || "Changes saved to this browser's archive copy.");
+            }
         } catch (error) {
+            if (requireBrowserPersistence) throw error;
             showNotice(`Changes are in memory but browser storage failed: ${error.message}`, true);
         }
+        window.dispatchEvent(new CustomEvent("tutorux:archive-change"));
         return response;
     }
 
@@ -1301,6 +2090,9 @@
     }
 
     async function createArchive(name: string): Promise<void> {
+        if (browserRecordingNode || browserRecordingSaving || browserRecordingRecoveryPaths.length > 0) {
+            throw new Error("Save or download the active microphone recovery before creating another archive.");
+        }
         const displayName = name.trim().replace(/[\\/\0]/g, "_").replace(/\.tux$/i, "") || "Tutorux";
         const archiveName = `${displayName}.tux`;
         const path = `/workspace/${archiveName}`;
@@ -1308,10 +2100,12 @@
             ["archive", "init", path, "--name", displayName, "--json"],
             { synchronizeArchive: false },
         );
-        setArchive(path, archiveName);
+        setArchive(path, archiveName, null, false);
         activeSessionId = "";
         activeGuideId = "";
+        await refreshArchiveRecovery();
         await refreshWorkspace();
+        window.dispatchEvent(new CustomEvent("tutorux:archive-open"));
         setDirty(true);
         try {
             await persistBrowserArchive();
@@ -1323,6 +2117,9 @@
     }
 
     async function openArchive(file, handle = null) {
+        if (browserRecordingNode || browserRecordingSaving || browserRecordingRecoveryPaths.length > 0) {
+            throw new Error("Save or download the active microphone recovery before opening another archive.");
+        }
         if (dirty) {
             throw new Error("Save or download the current archive before opening another one.");
         }
@@ -1348,13 +2145,18 @@
                 { synchronizeArchive: false },
             );
         }
-        setArchive(path, safeName, handle);
+        setArchive(path, safeName, handle, false);
         activeSessionId = "";
         activeGuideId = "";
+        await refreshArchiveRecovery();
         setDirty(false);
         await refreshWorkspace();
+        window.dispatchEvent(new CustomEvent("tutorux:archive-open"));
         await persistBrowserArchive();
         showNotice(`Opened ${safeName}. Changes are retained by this browser; download the .tux archive for independent storage.`);
+        if (archiveRecoveryNeedsReview) {
+            showNotice("The archive needs recovery review before editing. Choose a verified recovery or explicitly discard the incomplete tail.", true);
+        }
     }
 
     function switchView(viewName: string): void {
@@ -1367,8 +2169,8 @@
     }
 
     async function chooseArchive() {
-        if (browserRecordingRecorder || browserRecordingSaving) {
-            showNotice("Stop and save the microphone recording before opening another archive.", true);
+        if (browserRecordingNode || browserRecordingSaving || browserRecordingRecoveryPaths.length > 0) {
+            showNotice("Stop and save the microphone recording or download its recovery before opening another archive.", true);
             return;
         }
         if (dirty) {
@@ -1449,6 +2251,12 @@
             if (error.name !== "AbortError") showNotice(error.message, true);
         });
     });
+    elements["archive-recover-unpublished"].addEventListener("click", () => {
+        void performArchiveRecovery("recover-unpublished");
+    });
+    elements["archive-discard-tail"].addEventListener("click", () => {
+        void performArchiveRecovery("discard-tail");
+    });
     document.getElementById("welcome-open").addEventListener("click", () => {
         chooseArchive().catch((error) => {
             if (error.name !== "AbortError") showNotice(error.message, true);
@@ -1524,28 +2332,75 @@
     });
 
     elements["browser-recording-consent"].addEventListener("change", updateBrowserRecordingControls);
+    elements["notice-dismiss"].addEventListener("click", () => {
+        window.clearTimeout(noticeTimer);
+        elements.notice.hidden = true;
+    });
     elements["browser-recording-start"].addEventListener("click", () => {
         startBrowserRecording().catch((error) => {
-            browserRecordingRecorder = null;
             browserRecordingStream?.getTracks().forEach((track) => track.stop());
             browserRecordingStream = null;
-            browserRecordingChunks = [];
+            browserRecordingNode?.disconnect();
+            browserRecordingNode = null;
+            browserRecordingSource?.disconnect();
+            browserRecordingSource = null;
+            if (browserRecordingContext) void browserRecordingContext.close().catch(() => {});
+            browserRecordingContext = null;
+            if (browserRecordingPath) requestWorker("remove-file", { path: browserRecordingPath }).catch(() => {});
+            browserRecordingPath = "";
             browserRecordingBytes = 0;
+            browserRecordingSampleRateHz = 0;
+            browserRecordingSegmentFrames = 0;
+            browserRecordingPendingFrames = 0;
+            browserRecordingTotalFrames = 0;
+            browserRecordingSegmentIndex = 0;
+            browserRecordingImportedSegments = 0;
+            browserRecordingWriteFailure = null;
             browserRecordingSessionId = "";
             browserRecordingConsentAtUs = 0;
+            elements["browser-recording-consent"].checked = false;
             elements["browser-recording-status"].textContent = error.message;
             updateBrowserRecordingControls();
             showNotice(error.message, true);
         });
     });
     elements["browser-recording-stop"].addEventListener("click", () => {
-        if (!browserRecordingRecorder || browserRecordingRecorder.state !== "recording") return;
-        elements["browser-recording-status"].textContent = "Stopping and saving the microphone recording…";
-        browserRecordingRecorder.stop();
+        stopBrowserRecording();
+    });
+    elements["browser-recording-recover"].addEventListener("click", async () => {
+        if (browserRecordingRecoveryPaths.length === 0) return;
+        try {
+            while (browserRecordingRecoveryPaths.length > 0) {
+                const path = browserRecordingRecoveryPaths[0];
+                const recovery = await requestWorker("read-file", { path });
+                const name = path.split("/").pop() || `tutorux-recording-recovery-${Date.now()}.wav`;
+                downloadFileBytes(recovery.bytes, name, "audio/wav");
+                await requestWorker("remove-file", { path });
+                browserRecordingRecoveryPaths.shift();
+            }
+            elements["browser-recording-recover"].hidden = true;
+            updateBrowserRecordingControls();
+            showNotice("Downloaded the recovered WAV microphone recording segments.");
+        } catch (error) {
+            showNotice(`Recovery WAVs are still available in this page: ${error.message}`, true);
+        }
     });
     elements["browser-playback-stop"].addEventListener("click", stopBrowserPlayback);
+    elements["annotation-marker-select"].addEventListener("change", () => {
+        elements["annotation-marker-jump"].disabled =
+            !activeArchivePath || archiveRecoveryNeedsReview ||
+            !elements["annotation-marker-select"].value;
+    });
+    elements["annotation-marker-jump"].addEventListener("click", () => {
+        const markerId = elements["annotation-marker-select"].value;
+        const marker = [...elements["annotations-list"].querySelectorAll<HTMLElement>("[data-annotation-id]")]
+            .find((row) => row.dataset.annotationId === markerId);
+        if (!marker) return;
+        marker.scrollIntoView({ block: "center", behavior: "smooth" });
+        marker.focus({ preventScroll: true });
+    });
     window.addEventListener("beforeunload", (event) => {
-        if (!browserRecordingRecorder && !browserRecordingSaving) return;
+        if (!browserRecordingNode && !browserRecordingSaving && browserRecordingRecoveryPaths.length === 0) return;
         event.preventDefault();
         event.returnValue = "";
     });
@@ -1608,6 +2463,32 @@
     }
 
     elements["annotation-cancel"].addEventListener("click", resetAnnotationForm);
+    elements["annotation-merge-select"].addEventListener("change", updateAnnotationMergeSubmit);
+    elements["annotation-merge-form"].addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const select = elements["annotation-merge-select"] as HTMLSelectElement;
+        const submit = elements["annotation-merge-submit"] as HTMLButtonElement;
+        const selectedOptions = [...select.selectedOptions];
+        if (selectedOptions.length < 2 || submit.disabled) {
+            showNotice("Choose two or more notes with matching type and priority to merge.", true);
+            return;
+        }
+        const separatorChoice = (elements["annotation-merge-separator"] as HTMLSelectElement).value;
+        const separator = separatorChoice === "paragraph"
+            ? "\n\n"
+            : separatorChoice === "line" ? "\n" : " ";
+        try {
+            await runWriteCommand([
+                "annotation", "merge",
+                ...selectedOptions.map((option) => option.value),
+                "--separator", separator,
+            ]);
+            select.selectedIndex = -1;
+            updateAnnotationMergeSubmit();
+        } catch (error: any) {
+            showNotice(error.message, true);
+        }
+    });
 
     elements["transcript-import-form"].addEventListener("submit", async (event) => {
         event.preventDefault();
@@ -1850,10 +2731,18 @@
 
     elements["guide-create-form"].addEventListener("submit", async (event) => {
         event.preventDefault();
-        const sessionId = elements["guide-session"].value;
-        if (!sessionId) return;
+        const sourceScope = elements["guide-source-scope"].value;
+        const sourceId = sourceScope === "entry"
+            ? elements["guide-entry-scope"].value
+            : elements["guide-session"].value;
+        if (!sourceId) return;
         try {
-            const response = await runWriteCommand(["guide", "generate", "--session", sessionId]);
+            const response = await runWriteCommand([
+                "guide",
+                "generate",
+                sourceScope === "entry" ? "--entry-id" : "--session",
+                sourceId,
+            ]);
             const guide = parseRecord(response.output);
             if (guide?.id) {
                 activeGuideId = guide.id;
@@ -1862,6 +2751,11 @@
             }
             showNotice("Evidence-linked guide draft created. Review the sources and edit before approval.");
         } catch (error) {
+            if (sourceScope === "entry") {
+                window.dispatchEvent(new CustomEvent("tutorux:entry-guide-error", {
+                    detail: { message: error.message },
+                }));
+            }
             showNotice(error.message, true);
         }
     });
@@ -1960,6 +2854,7 @@
             const readOnlyCommands = new Set([
                 "student list", "student show", "session list", "session show",
                 "guide list", "guide show", "guide validate", "asset list",
+                "annotation history", "evidence list", "record status",
                 "transcript list", "transcript show", "settings list", "settings get",
                 "archive verify", "archive status", "record devices", "help", "--version",
             ]);
@@ -2029,4 +2924,23 @@
         event.preventDefault();
         event.returnValue = "";
     });
+
+    (window as any).tutoruxJournalBridge = {
+        read: (commandArguments: string[]) =>
+            responseFrom(archiveArguments(commandArguments)),
+        write: (commandArguments: string[]) => runWriteCommand(commandArguments),
+        refresh: () => refreshWorkspace(),
+        archiveOpen: () => Boolean(activeArchivePath) && !archiveRecoveryNeedsReview,
+        setDirty: (value: boolean) => setDirty(value),
+        selectSession: (sessionId: string) => {
+            activeSessionId = sessionId;
+            elements["active-session"].value = sessionId;
+            elements["active-session"].dispatchEvent(new Event("change", { bubbles: true }));
+        },
+        startRecording: () => startBrowserRecording(),
+        writeFile: (path: string, bytes: ArrayBuffer) =>
+            requestWorker("write-file", { path, bytes }, [bytes]),
+        removeFile: (path: string) => requestWorker("remove-file", { path }),
+        notice: (message: string, isError = false) => showNotice(message, isError),
+    };
 })();
