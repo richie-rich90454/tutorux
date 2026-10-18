@@ -79,9 +79,13 @@ the sample encoding.
 
 Record types are stable 16-bit values: student `1`, session `2`, audio chunk `3`, transcript
 segment `4`, annotation `5`, asset metadata `6`, asset blob `7`, evidence node `8`, evidence edge
-`9`, guide `10`, settings `11`, AI job `12`, encryption metadata `13`, index page `250`, and commit
-`251`. Unknown record types are skipped when framing is valid and are preserved by compaction when
-reachable.
+`9`, guide `10`, settings `11`, AI job `12`, encryption metadata `13`, waveform index `14`, index
+page `250`, and commit `251`. Unknown record types are skipped when framing is valid and are
+preserved by compaction when reachable.
+
+`WaveformIndex` records (`14`) store a discardable min/max cache for one session track. The cache
+includes a fingerprint of its source audio chunk revisions; stale or invalid caches are rebuilt
+from committed audio. It is an internal index record and never an asset-blob reference.
 
 Domain metadata payloads begin with a 4-byte schema magic, a 16-bit schema version, a 16-bit field
 count, then fields sorted by key. Each field is a 16-bit key length, a 32-bit value length, UTF-8
