@@ -11,7 +11,10 @@
 #include "tutorux/audio/capture.hpp"
 #include "tutorux/audio/devices.hpp"
 #include "tutorux/audio/recording_control.hpp"
+#include "tutorux/audio/playback.hpp"
 #include "tutorux/audio/wav_import.hpp"
+#include "tutorux/audio/wav_export.hpp"
+#include "tutorux/audio/waveform.hpp"
 #include "tutorux/command/json.hpp"
 #include "tutorux/command/session_package.hpp"
 #include "tutorux/command/zip.hpp"
@@ -198,8 +201,8 @@ namespace {
         return found->second;
     }
 
-    std::string
-    optionOr(const ParsedOptions& options, std::string_view name, std::string_view fallback = {}) {
+    std::string optionOr(const ParsedOptions& options, std::string_view name,
+                         std::string_view fallback = {}) {
         const auto found = options.values.find(name);
         return found == options.values.end() ? std::string(fallback) : found->second;
     }
@@ -218,8 +221,8 @@ namespace {
         return found->second;
     }
 
-    Result<std::string>
-    requiredPositional(const ParsedOptions& options, std::size_t index, std::string_view label) {
+    Result<std::string> requiredPositional(const ParsedOptions& options, std::size_t index,
+                                           std::string_view label) {
         if (index >= options.positional.size() || options.positional[index].empty()) {
             return std::unexpected(
                 core::error("argument_required", std::string(label) + " is required."));
@@ -247,8 +250,8 @@ namespace {
 
     std::vector<std::string> splitCommaList(std::string_view value);
 
-    Result<std::vector<Record>>
-    recordHistory(const Archive& archive, RecordType type, const Uuid& id, std::size_t limit) {
+    Result<std::vector<Record>> recordHistory(const Archive& archive, RecordType type,
+                                              const Uuid& id, std::size_t limit) {
         std::vector<Record> history;
         history.reserve(limit);
         for (std::size_t revision = 0; revision < limit; ++revision) {
@@ -369,8 +372,8 @@ namespace {
                  command == "models" || command == "generate"));
     }
 
-    Result<std::filesystem::path>
-    resolveArchivePath(const Context& context, std::string_view group, std::string_view command) {
+    Result<std::filesystem::path> resolveArchivePath(const Context& context, std::string_view group,
+                                                     std::string_view command) {
         if (context.archivePath) {
             const auto path = context.archivePath->is_absolute()
                                   ? *context.archivePath
@@ -435,10 +438,8 @@ namespace {
         secret.clear();
     }
 
-    Result<Archive> openArchiveAt(const std::filesystem::path& path,
-                                  bool writable,
-                                  const Context& context,
-                                  bool allowLocked = false) {
+    Result<Archive> openArchiveAt(const std::filesystem::path& path, bool writable,
+                                  const Context& context, bool allowLocked = false) {
         auto passphrase = resolveSecret(context.archivePassphrase, context.passphraseEnvironment);
         if (!passphrase)
             return std::unexpected(passphrase.error());
@@ -447,10 +448,8 @@ namespace {
         return opened;
     }
 
-    Result<Archive> openArchive(const Context& context,
-                                std::string_view group,
-                                std::string_view command,
-                                bool writable) {
+    Result<Archive> openArchive(const Context& context, std::string_view group,
+                                std::string_view command, bool writable) {
         auto path = resolveArchivePath(context, group, command);
         if (!path)
             return std::unexpected(path.error());
@@ -476,35 +475,25 @@ namespace {
 
     std::string normalize(const std::string& value) {
         std::string normalized = value;
-        std::transform(normalized.begin(),
-                       normalized.end(),
-                       normalized.begin(),
-                       [](unsigned char character) {
-                           return static_cast<char>(character >= 'A' && character <= 'Z'
-                                                        ? character - 'A' + 'a'
-                                                        : character);
-                       });
+        std::transform(
+            normalized.begin(), normalized.end(), normalized.begin(), [](unsigned char character) {
+                return static_cast<char>(
+                    character >= 'A' && character <= 'Z' ? character - 'A' + 'a' : character);
+            });
         return normalized;
     }
 
     bool hasInstructionCue(std::string_view text) {
         std::string normalized(text);
-        std::transform(normalized.begin(),
-                       normalized.end(),
-                       normalized.begin(),
-                       [](unsigned char character) {
-                           return static_cast<char>(character >= 'A' && character <= 'Z'
-                                                        ? character - 'A' + 'a'
-                                                        : character);
-                       });
-        static constexpr std::array<std::string_view, 8> cues{"remember to",
-                                                              "this is the mistake",
-                                                              "mistake you should avoid",
-                                                              "next time",
-                                                              "make sure",
-                                                              "you should",
-                                                              "you need to",
-                                                              "don't forget"};
+        std::transform(
+            normalized.begin(), normalized.end(), normalized.begin(), [](unsigned char character) {
+                return static_cast<char>(
+                    character >= 'A' && character <= 'Z' ? character - 'A' + 'a' : character);
+            });
+        static constexpr std::array<std::string_view, 8> cues{
+            "remember to", "this is the mistake", "mistake you should avoid",
+            "next time",   "make sure",           "you should",
+            "you need to", "don't forget"};
         return std::any_of(cues.begin(), cues.end(), [&](std::string_view cue) {
             return normalized.find(cue) != std::string::npos;
         });
@@ -522,8 +511,8 @@ namespace {
                                               .count());
     }
 
-    std::int64_t
-    integerField(const Record& record, std::string_view key, std::int64_t fallback = 0) {
+    std::int64_t integerField(const Record& record, std::string_view key,
+                              std::int64_t fallback = 0) {
         const std::string value = domain::getField(record, key);
         std::int64_t parsed = fallback;
         const auto [end, errorCode] =
@@ -629,13 +618,8 @@ namespace {
         temporaryName += ".partial";
         const auto temp = parent / temporaryName;
 #ifdef _WIN32
-        HANDLE file = CreateFileW(temp.c_str(),
-                                  GENERIC_WRITE,
-                                  0,
-                                  nullptr,
-                                  CREATE_NEW,
-                                  FILE_ATTRIBUTE_NORMAL,
-                                  nullptr);
+        HANDLE file = CreateFileW(temp.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_NEW,
+                                  FILE_ATTRIBUTE_NORMAL, nullptr);
         if (file == INVALID_HANDLE_VALUE) {
             return std::unexpected(
                 core::error("export_write_failed", "Unable to create temporary export."));
@@ -661,8 +645,7 @@ namespace {
             return std::unexpected(
                 core::error("export_flush_failed", "Unable to flush the complete export."));
         }
-        if (!MoveFileExW(temp.c_str(),
-                         destination.c_str(),
+        if (!MoveFileExW(temp.c_str(), destination.c_str(),
                          MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
             DeleteFileW(temp.c_str());
             return std::unexpected(
@@ -768,9 +751,7 @@ namespace {
         return result(output.str(), false);
     }
 
-    Result<Record> getRequiredRecord(Archive& archive,
-                                     RecordType type,
-                                     std::string_view idValue,
+    Result<Record> getRequiredRecord(Archive& archive, RecordType type, std::string_view idValue,
                                      std::string_view label) {
         auto id = parseId(idValue);
         if (!id)
@@ -891,8 +872,7 @@ namespace {
             if (!report->valid)
                 return result(context.json ? toJson(object)
                                            : "Verification failed: " + join(report->issues, "\n"),
-                              context.json,
-                              2);
+                              context.json, 2);
             return result(context.json ? toJson(object)
                                        : "Archive is valid at generation " +
                                              std::to_string(report->generation) + ".\n",
@@ -928,11 +908,12 @@ namespace {
                 return failed(archive.error());
             if (auto status = archive->backup(destination); !status)
                 return failed(status.error());
-            return result(context.json ? toJson({
-                                             {"output", destination.string()},
-                                             {"status", "created"           }
+            return result(context.json
+                              ? toJson({
+                                    {"output", destination.string()},
+                                    {"status", "created"           }
             })
-                                       : "Backup created at " + destination.string() + ".\n",
+                              : "Backup created at " + destination.string() + ".\n",
                           context.json);
         }
         if (action == "repair") {
@@ -1012,8 +993,7 @@ namespace {
             return result(context.json ? toJson(object)
                                        : "Opened the newest consistent generation " +
                                              std::to_string(report->generation) + ".\n",
-                          context.json,
-                          report->valid ? 0 : 2);
+                          context.json, report->valid ? 0 : 2);
         }
         if (action == "encrypt" || action == "unlock" || action == "change-passphrase") {
             std::filesystem::path path;
@@ -1336,9 +1316,7 @@ namespace {
             std::filesystem::path outputPath(*outputValue);
             if (outputPath.is_relative())
                 outputPath = context.directory / outputPath;
-            if (auto status = exportSessionPackage(*archive,
-                                                   *sessionId,
-                                                   outputPath,
+            if (auto status = exportSessionPackage(*archive, *sessionId, outputPath,
                                                    hasFlag(*options, "force"));
                 !status) {
                 return failed(status.error());
@@ -1476,16 +1454,15 @@ namespace {
                     });
                 }
                 JsonObject report{
-                    {"session_id",   *sessionValue                         },
-                    {"state",
-                     recovered->completed        ? "completed"
-                     : recovered->chunkCount > 0 ? "partial"
-                                                 : "failed"                },
-                    {"duration_us",  std::to_string(recovered->durationUs) },
-                    {"sample_count", std::to_string(recovered->sampleCount)},
-                    {"chunk_count",  std::to_string(recovered->chunkCount) },
-                    {"byte_count",   std::to_string(recovered->byteCount)  },
-                    {"tracks",       toJsonArray(trackRows)                }
+                    {"session_id",   *sessionValue                                               },
+                    {"state",        recovered->completed        ? "completed"
+                              : recovered->chunkCount > 0 ? "partial"
+                                                          : "failed"},
+                    {"duration_us",  std::to_string(recovered->durationUs)                       },
+                    {"sample_count", std::to_string(recovered->sampleCount)                      },
+                    {"chunk_count",  std::to_string(recovered->chunkCount)                       },
+                    {"byte_count",   std::to_string(recovered->byteCount)                        },
+                    {"tracks",       toJsonArray(trackRows)                                      }
                 };
                 return result(
                     context.json
@@ -1498,8 +1475,7 @@ namespace {
                                  "partial or interrupted.\n"
                                : "No valid committed native audio was available; recording "
                                  "remains failed.\n"),
-                    context.json,
-                    recovered->completed ? 0 : 2);
+                    context.json, recovered->completed ? 0 : 2);
             }
             auto recovered = audio::recoverWaveImport(*archive, *sessionId);
             if (!recovered)
@@ -1519,8 +1495,7 @@ namespace {
                                      ? "Audio import verified and marked completed.\n"
                                      : "Partial audio chunks were preserved; import remains "
                                        "interrupted.\n"),
-                          context.json,
-                          recovered->completed ? 0 : 2);
+                          context.json, recovered->completed ? 0 : 2);
         }
         return failed(core::error("command_unknown", "Unknown session command '" + action + "'."));
     }
@@ -1580,9 +1555,8 @@ namespace {
                 !status)
                 return failed(status.error());
             if (const auto workers = option(*options, "threads")) {
-                const auto [end, errorCode] = std::from_chars(workers->data(),
-                                                              workers->data() + workers->size(),
-                                                              budget.maximumWorkers);
+                const auto [end, errorCode] = std::from_chars(
+                    workers->data(), workers->data() + workers->size(), budget.maximumWorkers);
                 if (errorCode != std::errc{} || end != workers->data() + workers->size() ||
                     budget.maximumWorkers == 0 || budget.maximumWorkers > 64) {
                     return failed(core::error("transcription_thread_count_invalid",
@@ -2001,10 +1975,8 @@ namespace {
             const auto firstId = parseId(options->positional.front());
             if (!firstId)
                 return failed(firstId.error());
-            auto firstAnnotation = getRequiredRecord(*archive,
-                                                     RecordType::Annotation,
-                                                     options->positional.front(),
-                                                     "Annotation");
+            auto firstAnnotation = getRequiredRecord(*archive, RecordType::Annotation,
+                                                     options->positional.front(), "Annotation");
             if (!firstAnnotation)
                 return failed(firstAnnotation.error());
             const std::string sessionId = domain::getField(*firstAnnotation, "session_id");
@@ -2076,8 +2048,7 @@ namespace {
             merged.fields["content"] = join(contentParts, separator);
             merged.fields["start_time_us"] =
                 std::to_string(integerField(annotations.front(), "start_time_us"));
-            const auto latestEnd = std::max_element(annotations.begin(),
-                                                    annotations.end(),
+            const auto latestEnd = std::max_element(annotations.begin(), annotations.end(),
                                                     [](const Record& left, const Record& right) {
                                                         return integerField(left, "end_time_us") <
                                                                integerField(right, "end_time_us");
@@ -2145,8 +2116,7 @@ namespace {
                     return failed(core::error("asset_directory_invalid",
                                               "Import source must be a directory."));
                 for (std::filesystem::directory_iterator iterator(sourceDirectory, errorCode), end;
-                     iterator != end && !errorCode;
-                     iterator.increment(errorCode)) {
+                     iterator != end && !errorCode; iterator.increment(errorCode)) {
                     const auto status = iterator->symlink_status(errorCode);
                     if (!errorCode && std::filesystem::is_regular_file(status) &&
                         !std::filesystem::is_symlink(status))
@@ -2181,10 +2151,8 @@ namespace {
             std::optional<std::uint64_t> captureConsentAtUs;
             if (const auto consentTime = option(*options, "capture-consent-at-us")) {
                 std::uint64_t parsedTime = 0;
-                const auto [end, errorCode] =
-                    std::from_chars(consentTime->data(),
-                                    consentTime->data() + consentTime->size(),
-                                    parsedTime);
+                const auto [end, errorCode] = std::from_chars(
+                    consentTime->data(), consentTime->data() + consentTime->size(), parsedTime);
                 if (errorCode != std::errc{} || end != consentTime->data() + consentTime->size() ||
                     parsedTime == 0 || !captureSource) {
                     return failed(core::error(
@@ -2214,10 +2182,8 @@ namespace {
                             "A browser microphone capture must contain a recognized audio file."));
                     }
                 }
-                auto importedAsset = assets::importIntoArchive(*archive,
-                                                               source,
-                                                               sessionId.value_or(""),
-                                                               maximumAssetFileBytes);
+                auto importedAsset = assets::importIntoArchive(
+                    *archive, source, sessionId.value_or(""), maximumAssetFileBytes);
                 if (!importedAsset)
                     return failed(importedAsset.error());
                 if (captureSource) {
@@ -2277,12 +2243,10 @@ namespace {
             if (!blobId)
                 return failed(blobId.error());
             if (action == "verify") {
-                auto verification =
-                    assets::visitArchiveAsset(*archive,
-                                              *asset,
-                                              [](std::span<const std::byte>) -> Status {
-                                                  return {};
-                                              });
+                auto verification = assets::visitArchiveAsset(
+                    *archive, *asset, [](std::span<const std::byte>) -> Status {
+                        return {};
+                    });
                 const bool valid = verification.has_value();
                 if (!valid && verification.error().code != "asset_content_integrity_failed")
                     return failed(verification.error());
@@ -2294,8 +2258,7 @@ namespace {
                 return result(context.json ? toJson(object)
                                            : (valid ? "Asset content hash is valid.\n"
                                                     : "Asset content hash mismatch.\n"),
-                              context.json,
-                              valid ? 0 : 2);
+                              context.json, valid ? 0 : 2);
             }
             if (action == "remove") {
                 asset->fields["_deleted"] = "true";
@@ -2322,9 +2285,7 @@ namespace {
                     return failed(
                         core::error("asset_extract_failed", "Unable to create extracted asset."));
                 auto extraction = assets::visitArchiveAsset(
-                    *archive,
-                    *asset,
-                    [&](std::span<const std::byte> bytes) -> Status {
+                    *archive, *asset, [&](std::span<const std::byte> bytes) -> Status {
                         output.write(reinterpret_cast<const char*>(bytes.data()),
                                      static_cast<std::streamsize>(bytes.size()));
                         if (!output)
@@ -2347,8 +2308,7 @@ namespace {
                 }
             }
 #ifdef _WIN32
-            if (!MoveFileExW(tempPath.c_str(),
-                             outputPath.c_str(),
+            if (!MoveFileExW(tempPath.c_str(), outputPath.c_str(),
                              MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
                 std::error_code ignored;
                 std::filesystem::remove(tempPath, ignored);
@@ -2430,9 +2390,7 @@ namespace {
         if (!options)
             return failed(options.error());
         auto archive =
-            openArchive(context,
-                        "transcript",
-                        action,
+            openArchive(context, "transcript", action,
                         action == "import" || action == "generate" || action == "refine" ||
                             action == "correct" || action == "split" || action == "merge" ||
                             action == "speaker" || action == "verify" || action == "timestamp" ||
@@ -2549,9 +2507,8 @@ namespace {
             }
             if (const auto threads = option(*options, "threads")) {
                 std::uint32_t parsedThreads = 0;
-                const auto [end, errorCode] = std::from_chars(threads->data(),
-                                                              threads->data() + threads->size(),
-                                                              parsedThreads);
+                const auto [end, errorCode] = std::from_chars(
+                    threads->data(), threads->data() + threads->size(), parsedThreads);
                 if (errorCode != std::errc{} || end != threads->data() + threads->size() ||
                     parsedThreads == 0 || parsedThreads > 64) {
                     return failed(core::error("transcription_thread_count_invalid",
@@ -2598,9 +2555,7 @@ namespace {
             std::string format = normalize(optionOr(*options, "format", "auto"));
             if (format == "auto") {
                 std::string extension = std::filesystem::path(*inputPath).extension().string();
-                std::transform(extension.begin(),
-                               extension.end(),
-                               extension.begin(),
+                std::transform(extension.begin(), extension.end(), extension.begin(),
                                [](unsigned char character) {
                                    return static_cast<char>(std::tolower(character));
                                });
@@ -2613,8 +2568,7 @@ namespace {
 
             std::uint64_t expectedSegmentCount = 0;
             if (auto status = transcription::visitTranscriptSource(
-                    *inputPath,
-                    format,
+                    *inputPath, format,
                     [&](transcription::TranscriptSourceCue&&) -> Status {
                         ++expectedSegmentCount;
                         return {};
@@ -2642,9 +2596,7 @@ namespace {
                 return status;
             };
             const auto importStatus = transcription::visitTranscriptSource(
-                *inputPath,
-                format,
-                [&](transcription::TranscriptSourceCue&& cue) -> Status {
+                *inputPath, format, [&](transcription::TranscriptSourceCue&& cue) -> Status {
                     Record segment;
                     segment.type = RecordType::TranscriptSegment;
                     segment.id = archive::randomUuid();
@@ -2726,9 +2678,7 @@ namespace {
                 return query && domain::getField(segment, "text").find(*query) == std::string::npos;
             });
             std::sort(
-                segments->begin(),
-                segments->end(),
-                [](const Record& left, const Record& right) {
+                segments->begin(), segments->end(), [](const Record& left, const Record& right) {
                     const bool leftTimestamped =
                         domain::getField(left, "timestamp_state") != "not-timestamped";
                     const bool rightTimestamped =
@@ -2745,11 +2695,9 @@ namespace {
                         if (leftEnd != rightEnd)
                             return leftEnd < rightEnd;
                     }
-                    const auto leftImportTime = integerField(left,
-                                                             "source_imported_at_us",
+                    const auto leftImportTime = integerField(left, "source_imported_at_us",
                                                              integerField(left, "created_at_us"));
-                    const auto rightImportTime = integerField(right,
-                                                              "source_imported_at_us",
+                    const auto rightImportTime = integerField(right, "source_imported_at_us",
                                                               integerField(right, "created_at_us"));
                     if (leftImportTime != rightImportTime)
                         return leftImportTime < rightImportTime;
@@ -2783,9 +2731,7 @@ namespace {
                     const bool subtitle = format == "srt" || format == "vtt";
                     if (subtitle) {
                         const auto untimestamped = std::count_if(
-                            segments->begin(),
-                            segments->end(),
-                            [](const Record& segment) {
+                            segments->begin(), segments->end(), [](const Record& segment) {
                                 const auto startTime = integerField(segment, "start_time_us", -1);
                                 const auto endTime = integerField(segment, "end_time_us", -1);
                                 return domain::getField(segment, "timestamp_state") ==
@@ -2873,9 +2819,7 @@ namespace {
                 return failed(idValue.error());
             if (!text)
                 return failed(text.error());
-            auto segment = getRequiredRecord(*archive,
-                                             RecordType::TranscriptSegment,
-                                             *idValue,
+            auto segment = getRequiredRecord(*archive, RecordType::TranscriptSegment, *idValue,
                                              "Transcript segment");
             if (!segment)
                 return failed(segment.error());
@@ -2908,9 +2852,7 @@ namespace {
                 return failed(core::error("transcript_timestamp_range_invalid",
                                           "Transcript end time precedes its start time."));
             }
-            auto segment = getRequiredRecord(*archive,
-                                             RecordType::TranscriptSegment,
-                                             *idValue,
+            auto segment = getRequiredRecord(*archive, RecordType::TranscriptSegment, *idValue,
                                              "Transcript segment");
             if (!segment)
                 return failed(segment.error());
@@ -2928,9 +2870,7 @@ namespace {
             auto idValue = requiredPositional(*options, 0, "Transcript segment ID");
             if (!idValue)
                 return failed(idValue.error());
-            auto segment = getRequiredRecord(*archive,
-                                             RecordType::TranscriptSegment,
-                                             *idValue,
+            auto segment = getRequiredRecord(*archive, RecordType::TranscriptSegment, *idValue,
                                              "Transcript segment");
             if (!segment)
                 return failed(segment.error());
@@ -2972,9 +2912,7 @@ namespace {
                 return failed(beforeText.error());
             if (!afterText)
                 return failed(afterText.error());
-            auto segment = getRequiredRecord(*archive,
-                                             RecordType::TranscriptSegment,
-                                             *idValue,
+            auto segment = getRequiredRecord(*archive, RecordType::TranscriptSegment, *idValue,
                                              "Transcript segment");
             if (!segment)
                 return failed(segment.error());
@@ -3030,10 +2968,9 @@ namespace {
                 return failed(core::error("transcript_merge_arguments_required",
                                           "Provide at least two transcript segment IDs to merge."));
             }
-            auto firstSegment = getRequiredRecord(*archive,
-                                                  RecordType::TranscriptSegment,
-                                                  options->positional.front(),
-                                                  "Transcript segment");
+            auto firstSegment =
+                getRequiredRecord(*archive, RecordType::TranscriptSegment,
+                                  options->positional.front(), "Transcript segment");
             if (!firstSegment)
                 return failed(firstSegment.error());
             std::vector<Record> segments;
@@ -3041,9 +2978,7 @@ namespace {
             const std::string sessionId = domain::getField(*firstSegment, "session_id");
             const std::string speakerLabel = domain::getField(*firstSegment, "speaker_label");
             for (const auto& idValue : options->positional) {
-                auto segment = getRequiredRecord(*archive,
-                                                 RecordType::TranscriptSegment,
-                                                 idValue,
+                auto segment = getRequiredRecord(*archive, RecordType::TranscriptSegment, idValue,
                                                  "Transcript segment");
                 if (!segment)
                     return failed(segment.error());
@@ -3405,8 +3340,7 @@ namespace {
                 return result(context.json ? toJson(verification)
                                            : (valid ? "Evidence source reference is valid.\n"
                                                     : "Evidence source reference is missing.\n"),
-                              context.json,
-                              valid ? 0 : 2);
+                              context.json, valid ? 0 : 2);
             }
             node->fields["reviewed_at_us"] = std::to_string(nowUnixMicroseconds());
             if (auto status = archive->put(*node); !status)
@@ -3436,16 +3370,9 @@ namespace {
             if (!from || !to || !*from || !*to)
                 return failed(
                     core::error("evidence_node_missing", "Both evidence nodes must exist."));
-            static constexpr std::array relationships{"explains",
-                                                      "corrects",
-                                                      "demonstrates",
-                                                      "supports",
-                                                      "contradicts",
-                                                      "references",
-                                                      "depends-on",
-                                                      "reinforces",
-                                                      "recommends",
-                                                      "derived-from"};
+            static constexpr std::array relationships{
+                "explains",   "corrects",   "demonstrates", "supports",   "contradicts",
+                "references", "depends-on", "reinforces",   "recommends", "derived-from"};
             const auto normalizedRelationship = normalize(*relationship);
             if (std::find(relationships.begin(), relationships.end(), normalizedRelationship) ==
                 relationships.end())
@@ -3472,8 +3399,8 @@ namespace {
         return failed(core::error("command_unknown", "Unknown evidence command '" + action + "'."));
     }
 
-    GuideDocument
-    buildGuide(Archive& archive, std::string_view sessionId, std::string_view templateId) {
+    GuideDocument buildGuide(Archive& archive, std::string_view sessionId,
+                             std::string_view templateId) {
         GuideDocument guide;
         guide.id = archive::randomUuid();
         guide.sessionId = std::string(sessionId);
@@ -3526,8 +3453,7 @@ namespace {
             std::erase_if(*annotations, [&](const Record& annotation) {
                 return domain::getField(annotation, "session_id") != sessionId;
             });
-            std::sort(annotations->begin(),
-                      annotations->end(),
+            std::sort(annotations->begin(), annotations->end(),
                       [](const Record& left, const Record& right) {
                           return integerField(left, "start_time_us") <
                                  integerField(right, "start_time_us");
@@ -3575,16 +3501,14 @@ namespace {
             std::erase_if(*segments, [&](const Record& segment) {
                 return domain::getField(segment, "session_id") != sessionId;
             });
-            std::sort(segments->begin(),
-                      segments->end(),
+            std::sort(segments->begin(), segments->end(),
                       [](const Record& left, const Record& right) {
                           return integerField(left, "start_time_us") <
                                  integerField(right, "start_time_us");
                       });
             if (!segments->empty()) {
-                GuideSection transcript{"transcript-excerpts",
-                                        "Transcript excerpts — verbatim, review required",
-                                        {}};
+                GuideSection transcript{
+                    "transcript-excerpts", "Transcript excerpts — verbatim, review required", {}};
                 for (const auto& segment : *segments) {
                     transcript.blocks.push_back({"quote",
                                                  "[" + transcriptTimeRange(segment) + "] " +
@@ -3603,9 +3527,8 @@ namespace {
                        domain::getField(node, "verification_state") != "human-verified";
             });
             if (!evidenceNodes->empty()) {
-                GuideSection spokenInstructions{"verified-spoken-instructions",
-                                                "Tutor-verified spoken instructions",
-                                                {}};
+                GuideSection spokenInstructions{
+                    "verified-spoken-instructions", "Tutor-verified spoken instructions", {}};
                 for (const auto& node : *evidenceNodes) {
                     std::vector<std::string> sources{uuid(node.id)};
                     const auto segmentIds =
@@ -3614,8 +3537,7 @@ namespace {
                     const auto timestamp =
                         domain::formatTimestampUs(integerField(node, "start_time_us"));
                     spokenInstructions.blocks.push_back(
-                        {"list-item",
-                         "[" + timestamp + "] " + domain::getField(node, "content"),
+                        {"list-item", "[" + timestamp + "] " + domain::getField(node, "content"),
                          std::move(sources)});
                 }
                 guide.sections.push_back(std::move(spokenInstructions));
@@ -3760,8 +3682,8 @@ namespace {
         return output.str();
     }
 
-    Result<GuideDocument>
-    getGuide(Archive& archive, std::string_view idValue, std::size_t revisionIndex = 0) {
+    Result<GuideDocument> getGuide(Archive& archive, std::string_view idValue,
+                                   std::size_t revisionIndex = 0) {
         auto id = parseId(idValue);
         if (!id)
             return std::unexpected(id.error());
@@ -3873,9 +3795,8 @@ namespace {
                 return failed(idValue.error());
             std::size_t revisionIndex = 0;
             if (const auto revision = option(*options, "revision")) {
-                const auto [end, errorCode] = std::from_chars(revision->data(),
-                                                              revision->data() + revision->size(),
-                                                              revisionIndex);
+                const auto [end, errorCode] = std::from_chars(
+                    revision->data(), revision->data() + revision->size(), revisionIndex);
                 if (errorCode != std::errc{} || end != revision->data() + revision->size())
                     return failed(core::error("revision_invalid",
                                               "Revision must be a non-negative integer."));
@@ -3895,8 +3816,7 @@ namespace {
                         ? toJson(report)
                         : (status ? "Guide structure and source references are valid.\n"
                                   : "Guide validation failed: " + status.error().message + "\n"),
-                    context.json,
-                    status ? 0 : 2);
+                    context.json, status ? 0 : 2);
             }
             if (action == "show")
                 return result(domain::renderGuideMarkdown(*guide), false);
@@ -3967,8 +3887,7 @@ namespace {
                 return failed(guideResult.error());
             GuideDocument guide = std::move(*guideResult);
             if (action == "regenerate") {
-                auto generated = buildGuide(*archive,
-                                            guide.sessionId,
+                auto generated = buildGuide(*archive, guide.sessionId,
                                             optionOr(*options, "template", guide.templateId));
                 const bool preserveApproved = guide.approvalState == "approved";
                 if (!preserveApproved)
@@ -4015,8 +3934,7 @@ namespace {
                 GuideSection section;
                 section.id = archive::uuidToString(archive::randomUuid());
                 section.heading = *heading;
-                section.blocks.push_back({optionOr(*options, "kind", "paragraph"),
-                                          *text,
+                section.blocks.push_back({optionOr(*options, "kind", "paragraph"), *text,
                                           splitCommaList(optionOr(*options, "sources"))});
                 guide.sections.push_back(std::move(section));
             } else {
@@ -4031,8 +3949,7 @@ namespace {
                     std::size_t sectionIndex = 0;
                     const auto [end, errorCode] =
                         std::from_chars(sectionValue->data(),
-                                        sectionValue->data() + sectionValue->size(),
-                                        sectionIndex);
+                                        sectionValue->data() + sectionValue->size(), sectionIndex);
                     if (errorCode != std::errc{} ||
                         end != sectionValue->data() + sectionValue->size() ||
                         sectionIndex >= guide.sections.size())
@@ -4049,8 +3966,7 @@ namespace {
                     std::size_t sectionIndex = 0;
                     const auto [end, errorCode] =
                         std::from_chars(sectionValue->data(),
-                                        sectionValue->data() + sectionValue->size(),
-                                        sectionIndex);
+                                        sectionValue->data() + sectionValue->size(), sectionIndex);
                     if (errorCode != std::errc{} ||
                         end != sectionValue->data() + sectionValue->size() ||
                         sectionIndex >= guide.sections.size())
@@ -4061,8 +3977,7 @@ namespace {
                         std::size_t blockIndex = 0;
                         const auto [blockEnd, blockError] =
                             std::from_chars(blockValue->data(),
-                                            blockValue->data() + blockValue->size(),
-                                            blockIndex);
+                                            blockValue->data() + blockValue->size(), blockIndex);
                         if (blockError != std::errc{} ||
                             blockEnd != blockValue->data() + blockValue->size() ||
                             blockIndex >= guide.sections[sectionIndex].blocks.size())
@@ -4088,12 +4003,9 @@ namespace {
                     std::size_t blockIndex = 0;
                     const auto [sectionEnd, sectionError] =
                         std::from_chars(sectionValue->data(),
-                                        sectionValue->data() + sectionValue->size(),
-                                        sectionIndex);
-                    const auto [blockEnd, blockError] =
-                        std::from_chars(blockValue->data(),
-                                        blockValue->data() + blockValue->size(),
-                                        blockIndex);
+                                        sectionValue->data() + sectionValue->size(), sectionIndex);
+                    const auto [blockEnd, blockError] = std::from_chars(
+                        blockValue->data(), blockValue->data() + blockValue->size(), blockIndex);
                     if (sectionError != std::errc{} ||
                         sectionEnd != sectionValue->data() + sectionValue->size() ||
                         sectionIndex >= guide.sections.size() || blockError != std::errc{} ||
@@ -4118,12 +4030,9 @@ namespace {
                     std::size_t blockIndex = 0;
                     const auto [sectionEnd, sectionError] =
                         std::from_chars(sectionValue->data(),
-                                        sectionValue->data() + sectionValue->size(),
-                                        sectionIndex);
-                    const auto [blockEnd, blockError] =
-                        std::from_chars(blockValue->data(),
-                                        blockValue->data() + blockValue->size(),
-                                        blockIndex);
+                                        sectionValue->data() + sectionValue->size(), sectionIndex);
+                    const auto [blockEnd, blockError] = std::from_chars(
+                        blockValue->data(), blockValue->data() + blockValue->size(), blockIndex);
                     if (sectionError != std::errc{} ||
                         sectionEnd != sectionValue->data() + sectionValue->size() ||
                         sectionIndex >= guide.sections.size() || blockError != std::errc{} ||
@@ -4146,12 +4055,9 @@ namespace {
                     std::size_t blockIndex = 0;
                     const auto [sectionEnd, sectionError] =
                         std::from_chars(sectionValue->data(),
-                                        sectionValue->data() + sectionValue->size(),
-                                        sectionIndex);
-                    const auto [blockEnd, blockError] =
-                        std::from_chars(blockValue->data(),
-                                        blockValue->data() + blockValue->size(),
-                                        blockIndex);
+                                        sectionValue->data() + sectionValue->size(), sectionIndex);
+                    const auto [blockEnd, blockError] = std::from_chars(
+                        blockValue->data(), blockValue->data() + blockValue->size(), blockIndex);
                     if (sectionError != std::errc{} ||
                         sectionEnd != sectionValue->data() + sectionValue->size() ||
                         sectionIndex >= guide.sections.size() || blockError != std::errc{} ||
@@ -4203,9 +4109,8 @@ namespace {
     }
 
     Uuid deterministicUuid(std::string_view seed) {
-        const auto bytes =
-            std::span<const std::byte>(reinterpret_cast<const std::byte*>(seed.data()),
-                                       seed.size());
+        const auto bytes = std::span<const std::byte>(
+            reinterpret_cast<const std::byte*>(seed.data()), seed.size());
         const auto hash = domain::sha256(bytes);
         Uuid id{};
         std::copy_n(hash.begin(), id.size(), id.begin());
@@ -4271,13 +4176,9 @@ namespace {
         guide.approvalState = "proposed";
         guide.sections.reserve(sectionsValue->asArray()->size());
         std::size_t totalBlocks = 0;
-        static constexpr std::array supportedBlockKinds{"paragraph",
-                                                        "list-item",
-                                                        "quote",
-                                                        "code",
-                                                        "instruction",
-                                                        "recommendation",
-                                                        "worked-example"};
+        static constexpr std::array supportedBlockKinds{
+            "paragraph",   "list-item",      "quote",         "code",
+            "instruction", "recommendation", "worked-example"};
         for (const JsonValue& sectionValue : *sectionsValue->asArray()) {
             const JsonValue::Object* sectionObject = sectionValue.asObject();
             if (!sectionObject) {
@@ -4348,8 +4249,7 @@ namespace {
         std::vector<std::string> warnings;
     };
 
-    Result<PreparedAiGuide> prepareAiGuide(Archive& archive,
-                                           std::string_view sessionId,
+    Result<PreparedAiGuide> prepareAiGuide(Archive& archive, std::string_view sessionId,
                                            std::string_view response,
                                            std::optional<std::string_view> titleOverride) {
         PreparedAiGuide prepared;
@@ -4386,11 +4286,9 @@ namespace {
         }
 
         const bool hasSourceReferences =
-            std::any_of(prepared.guide.sections.begin(),
-                        prepared.guide.sections.end(),
+            std::any_of(prepared.guide.sections.begin(), prepared.guide.sections.end(),
                         [](const GuideSection& section) {
-                            return std::any_of(section.blocks.begin(),
-                                               section.blocks.end(),
+                            return std::any_of(section.blocks.begin(), section.blocks.end(),
                                                [](const GuideBlock& block) {
                                                    return !block.sourceIds.empty();
                                                });
@@ -4454,8 +4352,7 @@ namespace {
         return true;
     }
 
-    Result<std::string> createAiPackage(Archive& archive,
-                                        std::string_view sessionId,
+    Result<std::string> createAiPackage(Archive& archive, std::string_view sessionId,
                                         std::size_t maximumBytes = maximumAiPackageBytes) {
         auto session = getRequiredRecord(archive, RecordType::Session, sessionId, "Session");
         if (!session)
@@ -4585,9 +4482,8 @@ namespace {
             root && root->contains("assets_manifest") ? &root->at("assets_manifest") : nullptr;
         const JsonValue::Array* assetRows = assetsValue ? assetsValue->asArray() : nullptr;
         if (!root || !packageSessionId || packageSessionId->empty() || !assetRows) {
-            return std::unexpected(
-                core::error("ai_package_invalid",
-                            "The stored AI package has no valid asset manifest."));
+            return std::unexpected(core::error(
+                "ai_package_invalid", "The stored AI package has no valid asset manifest."));
         }
 
         std::vector<ai::ContentPart> content;
@@ -4640,10 +4536,8 @@ namespace {
             }
             const std::string byteSizeText = domain::getField(**stored, "byte_size");
             std::uint64_t byteSize{};
-            const auto [sizeEnd, sizeError] =
-                std::from_chars(byteSizeText.data(),
-                                byteSizeText.data() + byteSizeText.size(),
-                                byteSize);
+            const auto [sizeEnd, sizeError] = std::from_chars(
+                byteSizeText.data(), byteSizeText.data() + byteSizeText.size(), byteSize);
             if (sizeError != std::errc{} || sizeEnd != byteSizeText.data() + byteSizeText.size() ||
                 byteSize > maximumAttachedAssetBytes - attachedBytes) {
                 return std::unexpected(core::error(
@@ -4660,9 +4554,7 @@ namespace {
             } bytesWiper{bytes};
             bytes.reserve(static_cast<std::size_t>(byteSize));
             auto visited = assets::visitArchiveAsset(
-                archive,
-                **stored,
-                [&](std::span<const std::byte> chunk) -> Status {
+                archive, **stored, [&](std::span<const std::byte> chunk) -> Status {
                     if (chunk.size() > static_cast<std::size_t>(byteSize) - bytes.size()) {
                         return std::unexpected(core::error(
                             "ai_package_asset_invalid",
@@ -4686,9 +4578,7 @@ namespace {
                     ai::ImageContentPart{std::string(mediaType), fileName, std::move(bytes)});
             } else if (audio) {
                 content.emplace_back(
-                    ai::AudioContentPart{std::string(mediaType),
-                                         fileName,
-                                         std::move(bytes),
+                    ai::AudioContentPart{std::string(mediaType), fileName, std::move(bytes),
                                          domain::getField(**stored, "extracted_text")});
             } else if (video) {
                 content.emplace_back(
@@ -4699,9 +4589,7 @@ namespace {
                                          domain::getField(**stored, "extracted_text")});
             } else {
                 content.emplace_back(
-                    ai::DocumentContentPart{std::string(mediaType),
-                                            fileName,
-                                            std::move(bytes),
+                    ai::DocumentContentPart{std::string(mediaType), fileName, std::move(bytes),
                                             domain::getField(**stored, "extracted_text")});
             }
         }
@@ -4737,8 +4625,8 @@ namespace {
         return safeName;
     }
 
-    Result<std::string>
-    createAiPackageZip(Archive& archive, std::string_view packageData, std::string_view sessionId) {
+    Result<std::string> createAiPackageZip(Archive& archive, std::string_view packageData,
+                                           std::string_view sessionId) {
         constexpr std::size_t maximumAssetBytes = 6U * 1024U * 1024U;
         constexpr std::size_t maximumPartBytes = 4U * 1024U * 1024U;
         if (packageData.size() > maximumManualPackageBytes) {
@@ -4789,9 +4677,8 @@ namespace {
                     --end;
                 }
                 if (end == start) {
-                    return std::unexpected(
-                        core::error("ai_package_split_failed",
-                                    "Unable to split the UTF-8 context safely."));
+                    return std::unexpected(core::error(
+                        "ai_package_split_failed", "Unable to split the UTF-8 context safely."));
                 }
                 std::string partName = std::to_string(partNumber++);
                 partName.insert(0, 4 - std::min<std::size_t>(partName.size(), 4), '0');
@@ -4842,10 +4729,8 @@ namespace {
             }
             const std::string byteSizeText = domain::getField(**stored, "byte_size");
             std::uint64_t byteSize{};
-            const auto [sizeEnd, sizeError] =
-                std::from_chars(byteSizeText.data(),
-                                byteSizeText.data() + byteSizeText.size(),
-                                byteSize);
+            const auto [sizeEnd, sizeError] = std::from_chars(
+                byteSizeText.data(), byteSizeText.data() + byteSizeText.size(), byteSize);
             if (sizeError != std::errc{} || sizeEnd != byteSizeText.data() + byteSizeText.size() ||
                 byteSize > maximumAssetBytes - totalAssetBytes) {
                 return std::unexpected(
@@ -4858,9 +4743,7 @@ namespace {
                 "assets/" + id + "-" + safeZipAssetName(domain::getField(**stored, "filename"));
             entry.contents.reserve(static_cast<std::size_t>(byteSize));
             auto visited = assets::visitArchiveAsset(
-                archive,
-                **stored,
-                [&](std::span<const std::byte> chunk) -> Status {
+                archive, **stored, [&](std::span<const std::byte> chunk) -> Status {
                     if (chunk.size() > static_cast<std::size_t>(byteSize) - entry.contents.size()) {
                         return std::unexpected(core::error(
                             "ai_package_asset_invalid",
@@ -4916,8 +4799,8 @@ namespace {
         return false;
     }
 
-    Result<std::string>
-    settingValueOr(Archive& archive, std::string_view key, std::string fallback) {
+    Result<std::string> settingValueOr(Archive& archive, std::string_view key,
+                                       std::string fallback) {
         auto setting =
             archive.get(RecordType::Settings, deterministicUuid("setting:" + std::string(key)));
         if (!setting)
@@ -4996,44 +4879,43 @@ namespace {
 
     const CloudAiProvider* cloudAiProvider(std::string_view provider) {
         static constexpr std::array providers{
-            CloudAiProvider{"openrouter",            "https://openrouter.ai/api/v1",        "OPENROUTER_API_KEY"      },
-            CloudAiProvider{"fireworks",
-                            "https://api.fireworks.ai/inference/v1",                        "FIREWORKS_API_KEY"       },
-            CloudAiProvider{"groq",                  "https://api.groq.com/openai/v1",      "GROQ_API_KEY"            },
-            CloudAiProvider{"deepseek",              "https://api.deepseek.com",            "DEEPSEEK_API_KEY"        },
-            CloudAiProvider{"mistral",               "https://api.mistral.ai/v1",           "MISTRAL_API_KEY"         },
-            CloudAiProvider{"together",              "https://api.together.ai/v1",          "TOGETHER_API_KEY"        },
-            CloudAiProvider{"xai",                   "https://api.x.ai/v1",                 "XAI_API_KEY"             },
-            CloudAiProvider{"cerebras",              "https://api.cerebras.ai/v1",          "CEREBRAS_API_KEY"        },
-            CloudAiProvider{"sambanova",             "https://api.sambanova.ai/v1",         "SAMBANOVA_API_KEY"       },
-            CloudAiProvider{"nvidia",                "https://integrate.api.nvidia.com/v1", "NVIDIA_API_KEY"          },
-            CloudAiProvider{"deepinfra",
-                            "https://api.deepinfra.com/v1/openai",                          "DEEPINFRA_API_KEY"       },
-            CloudAiProvider{"moonshot",              "https://api.moonshot.ai/v1",          "MOONSHOT_API_KEY"        },
-            CloudAiProvider{"novita",                "https://api.novita.ai/openai/v1",     "NOVITA_API_KEY"          },
-            CloudAiProvider{"nebius",                "https://api.studio.nebius.com/v1",    "NEBIUS_API_KEY"          },
-            CloudAiProvider{"siliconflow",           "https://api.siliconflow.cn/v1",       "SILICONFLOW_API_KEY"     },
-            CloudAiProvider{"minimax",               "https://api.minimax.io/v1",           "MINIMAX_API_KEY"         },
-            CloudAiProvider{"alibaba-cloud",
-                            "https://dashscope.aliyuncs.com/compatible-mode/v1",            "DASHSCOPE_API_KEY"       },
-            CloudAiProvider{"baidu",                 "https://qianfan.baidubce.com/v2",     "BAIDU_API_KEY"           },
-            CloudAiProvider{"tencent-cloud",
-                            "https://tokenhub.tencentmaas.com/v1",                          "TOKENHUB_API_KEY"        },
-            CloudAiProvider{"volcengine",
-                            "https://ark.cn-beijing.volces.com/api/v3",                     "ARK_API_KEY"             },
-            CloudAiProvider{"bedrock",
-                            "https://bedrock-mantle.us-east-1.api.aws/v1",                  "AWS_BEARER_TOKEN_BEDROCK"},
-            CloudAiProvider{"azure-openai",          "",                                    "AZURE_OPENAI_API_KEY"    },
-            CloudAiProvider{"huggingface",           "https://router.huggingface.co/v1",    "HF_TOKEN"                },
-            CloudAiProvider{"cloudflare-workers-ai", "",                                    "CLOUDFLARE_API_TOKEN"    },
-            CloudAiProvider{"ai21",                  "https://api.ai21.com/studio/v1",      "AI21_API_KEY"            },
-            CloudAiProvider{"zai",                   "https://api.z.ai/api/paas/v4",        "ZAI_API_KEY"             },
-            CloudAiProvider{"opencode-go",           "https://opencode.ai/zen/go/v1",       "OPENCODE_GO_API_KEY"     },
-            CloudAiProvider{"opencode-zen",          "https://opencode.ai/inference/v1",    "OPENCODE_API_KEY"        },
-            CloudAiProvider{"replicate",             "https://api.replicate.com/v1",        "REPLICATE_API_TOKEN"     },
+            CloudAiProvider{"openrouter",            "https://openrouter.ai/api/v1",                      "OPENROUTER_API_KEY"  },
+            CloudAiProvider{"fireworks",             "https://api.fireworks.ai/inference/v1",
+                            "FIREWORKS_API_KEY"                                                                                 },
+            CloudAiProvider{"groq",                  "https://api.groq.com/openai/v1",                    "GROQ_API_KEY"        },
+            CloudAiProvider{"deepseek",              "https://api.deepseek.com",                          "DEEPSEEK_API_KEY"    },
+            CloudAiProvider{"mistral",               "https://api.mistral.ai/v1",                         "MISTRAL_API_KEY"     },
+            CloudAiProvider{"together",              "https://api.together.ai/v1",                        "TOGETHER_API_KEY"    },
+            CloudAiProvider{"xai",                   "https://api.x.ai/v1",                               "XAI_API_KEY"         },
+            CloudAiProvider{"cerebras",              "https://api.cerebras.ai/v1",                        "CEREBRAS_API_KEY"    },
+            CloudAiProvider{"sambanova",             "https://api.sambanova.ai/v1",                       "SAMBANOVA_API_KEY"   },
+            CloudAiProvider{"nvidia",                "https://integrate.api.nvidia.com/v1",               "NVIDIA_API_KEY"      },
+            CloudAiProvider{"deepinfra",             "https://api.deepinfra.com/v1/openai",
+                            "DEEPINFRA_API_KEY"                                                                                 },
+            CloudAiProvider{"moonshot",              "https://api.moonshot.ai/v1",                        "MOONSHOT_API_KEY"    },
+            CloudAiProvider{"novita",                "https://api.novita.ai/openai/v1",                   "NOVITA_API_KEY"      },
+            CloudAiProvider{"nebius",                "https://api.studio.nebius.com/v1",                  "NEBIUS_API_KEY"      },
+            CloudAiProvider{"siliconflow",           "https://api.siliconflow.cn/v1",                     "SILICONFLOW_API_KEY" },
+            CloudAiProvider{"minimax",               "https://api.minimax.io/v1",                         "MINIMAX_API_KEY"     },
+            CloudAiProvider{"alibaba-cloud",         "https://dashscope.aliyuncs.com/compatible-mode/v1",
+                            "DASHSCOPE_API_KEY"                                                                                 },
+            CloudAiProvider{"baidu",                 "https://qianfan.baidubce.com/v2",                   "BAIDU_API_KEY"       },
+            CloudAiProvider{"tencent-cloud",         "https://tokenhub.tencentmaas.com/v1",
+                            "TOKENHUB_API_KEY"                                                                                  },
+            CloudAiProvider{"volcengine",            "https://ark.cn-beijing.volces.com/api/v3",
+                            "ARK_API_KEY"                                                                                       },
+            CloudAiProvider{"bedrock",               "https://bedrock-mantle.us-east-1.api.aws/v1",
+                            "AWS_BEARER_TOKEN_BEDROCK"                                                                          },
+            CloudAiProvider{"azure-openai",          "",                                                  "AZURE_OPENAI_API_KEY"},
+            CloudAiProvider{"huggingface",           "https://router.huggingface.co/v1",                  "HF_TOKEN"            },
+            CloudAiProvider{"cloudflare-workers-ai", "",                                                  "CLOUDFLARE_API_TOKEN"},
+            CloudAiProvider{"ai21",                  "https://api.ai21.com/studio/v1",                    "AI21_API_KEY"        },
+            CloudAiProvider{"zai",                   "https://api.z.ai/api/paas/v4",                      "ZAI_API_KEY"         },
+            CloudAiProvider{"opencode-go",           "https://opencode.ai/zen/go/v1",                     "OPENCODE_GO_API_KEY" },
+            CloudAiProvider{"opencode-zen",          "https://opencode.ai/inference/v1",                  "OPENCODE_API_KEY"    },
+            CloudAiProvider{"replicate",             "https://api.replicate.com/v1",                      "REPLICATE_API_TOKEN" },
         };
-        const auto found = std::find_if(providers.begin(),
-                                        providers.end(),
+        const auto found = std::find_if(providers.begin(), providers.end(),
                                         [provider](const CloudAiProvider& candidate) {
                                             return candidate.id == provider;
                                         });
@@ -5214,8 +5096,7 @@ namespace {
         return "ai-model:" + std::string(provider) + ":" + std::string(modelId);
     }
 
-    std::string modelProtocolFamily(std::string_view provider,
-                                    std::string_view modelId,
+    std::string modelProtocolFamily(std::string_view provider, std::string_view modelId,
                                     const ai::ProviderModel& model) {
         if (provider == "opencode-zen")
             return openCodeZenModelFamily(modelId);
@@ -5236,10 +5117,8 @@ namespace {
         return model.protocolFamily;
     }
 
-    Result<CommandResult> dispatchAiModels(Archive& archive,
-                                           const ParsedOptions& options,
-                                           bool asJson,
-                                           std::function<bool()> stopRequested) {
+    Result<CommandResult> dispatchAiModels(Archive& archive, const ParsedOptions& options,
+                                           bool asJson, std::function<bool()> stopRequested) {
         auto providerValue = requiredOption(options, "provider");
         if (!providerValue)
             return failed(providerValue.error());
@@ -5288,10 +5167,8 @@ namespace {
             SensitiveStringWiper secretWiper{secret};
             if (!isLocalAiProvider(provider) && provider != "perplexity" &&
                 !usesModelsDevCatalog(provider)) {
-                const std::string environmentName =
-                    optionOr(options,
-                             "api-key-env",
-                             std::string(defaultAiApiKeyEnvironment(provider)));
+                const std::string environmentName = optionOr(
+                    options, "api-key-env", std::string(defaultAiApiKeyEnvironment(provider)));
                 if (!isEnvironmentVariableName(environmentName)) {
                     return failed(core::error(
                         "ai_api_key_environment_invalid",
@@ -5326,9 +5203,7 @@ namespace {
                     ? ai::listModelsDevProviderModels(provider, stopRequested)
                 : nativeProtocol
                     ? ai::listNativeModels(*nativeProtocol, configuration->first, secret)
-                    : ai::listOpenAiCompatibleModels(configuration->first,
-                                                     secret,
-                                                     {},
+                    : ai::listOpenAiCompatibleModels(configuration->first, secret, {},
                                                      aiApiKeyHeaderName(provider));
             if (!discovered)
                 return failed(discovered.error());
@@ -5463,10 +5338,8 @@ namespace {
         return result(output.str(), false);
     }
 
-    Result<std::uint32_t> boundedUnsignedValue(std::string_view value,
-                                               std::string_view optionName,
-                                               std::uint32_t minimum,
-                                               std::uint32_t maximum) {
+    Result<std::uint32_t> boundedUnsignedValue(std::string_view value, std::string_view optionName,
+                                               std::uint32_t minimum, std::uint32_t maximum) {
         std::uint32_t parsed{};
         const auto [end, errorCode] =
             std::from_chars(value.data(), value.data() + value.size(), parsed);
@@ -5480,10 +5353,8 @@ namespace {
         return parsed;
     }
 
-    Result<std::uint32_t> unsignedOption(const ParsedOptions& options,
-                                         std::string_view name,
-                                         std::uint32_t defaultValue,
-                                         std::uint32_t minimum,
+    Result<std::uint32_t> unsignedOption(const ParsedOptions& options, std::string_view name,
+                                         std::uint32_t defaultValue, std::uint32_t minimum,
                                          std::uint32_t maximum) {
         const auto value = option(options, name);
         if (!value)
@@ -5517,14 +5388,11 @@ namespace {
                "of an asset's contents. Return only the guide JSON object.";
     }
 
-    Result<std::string> aiGenerationRequestBody(std::string_view model,
-                                                std::string_view systemPrompt,
-                                                std::string_view package,
-                                                std::uint32_t maximumOutputTokens,
-                                                bool useMaxCompletionTokens,
-                                                std::span<const ai::ContentPart> content,
-                                                bool enableStreaming,
-                                                bool requireStructuredOutput) {
+    Result<std::string>
+    aiGenerationRequestBody(std::string_view model, std::string_view systemPrompt,
+                            std::string_view package, std::uint32_t maximumOutputTokens,
+                            bool useMaxCompletionTokens, std::span<const ai::ContentPart> content,
+                            bool enableStreaming, bool requireStructuredOutput) {
         auto serializedContent =
             ai::serializeContentParts(content, package, ai::ContentSerialization::openAiChat);
         if (!serializedContent)
@@ -5540,17 +5408,15 @@ namespace {
         if (requireStructuredOutput) {
             const std::size_t messagesPosition = body.find(",\"messages\":");
             if (messagesPosition == std::string::npos) {
-                return std::unexpected(
-                    core::error("ai_request_invalid",
-                                "Unable to apply the structured-output request format."));
+                return std::unexpected(core::error(
+                    "ai_request_invalid", "Unable to apply the structured-output request format."));
             }
             body.insert(messagesPosition, ",\"response_format\":{\"type\":\"json_object\"}");
         }
         return body;
     }
 
-    Status validateAiInputCapabilities(Archive& archive,
-                                       std::string_view provider,
+    Status validateAiInputCapabilities(Archive& archive, std::string_view provider,
                                        std::string_view model,
                                        std::span<const ai::ContentPart> content,
                                        const std::optional<ai::OllamaModelDetails>& ollamaDetails) {
@@ -5641,8 +5507,8 @@ namespace {
         return {};
     }
 
-    Result<CommandResult>
-    dispatchAiGenerate(const Context& context, Archive& archive, const ParsedOptions& options) {
+    Result<CommandResult> dispatchAiGenerate(const Context& context, Archive& archive,
+                                             const ParsedOptions& options) {
         auto packageJobId = requiredOption(options, "job");
         auto providerValue = requiredOption(options, "provider");
         if (!packageJobId)
@@ -5718,9 +5584,8 @@ namespace {
                     "guide text."));
             }
             nativeProtocol = openCodeZenProtocolForModel(model);
-            generationEndpoint =
-                openCodeZenEndpoint(configuration->first,
-                                    nativeProtocol.value_or(ai::NativeProtocol::openAiResponses));
+            generationEndpoint = openCodeZenEndpoint(
+                configuration->first, nativeProtocol.value_or(ai::NativeProtocol::openAiResponses));
         }
         bool enableStreaming = true;
         auto modelCatalog =
@@ -5753,8 +5618,7 @@ namespace {
             if (!modelDetails)
                 return failed(modelDetails.error());
             if (!modelDetails->capabilities.empty() &&
-                std::find(modelDetails->capabilities.begin(),
-                          modelDetails->capabilities.end(),
+                std::find(modelDetails->capabilities.begin(), modelDetails->capabilities.end(),
                           "completion") == modelDetails->capabilities.end()) {
                 return failed(
                     core::error("ai_model_capability_unsupported",
@@ -5763,9 +5627,8 @@ namespace {
             ollamaModelDetails = std::move(*modelDetails);
         }
 
-        const auto packageData =
-            std::string_view(reinterpret_cast<const char*>(packageJob->blob.data()),
-                             packageJob->blob.size());
+        const auto packageData = std::string_view(
+            reinterpret_cast<const char*>(packageJob->blob.data()), packageJob->blob.size());
         if (packageData.size() > maximumAiPackageBytes) {
             return failed(core::error("ai_package_too_large",
                                       "The session package exceeds the 8 MiB send limit."));
@@ -5780,22 +5643,16 @@ namespace {
         if (!generationContent)
             return failed(generationContent.error());
         if (isEmbeddedLlamaProvider(provider)) {
-            auto textOnly = ai::serializeContentParts(*generationContent,
-                                                      packageData,
+            auto textOnly = ai::serializeContentParts(*generationContent, packageData,
                                                       ai::ContentSerialization::textOnly);
             if (!textOnly)
                 return failed(textOnly.error());
         }
-        const std::size_t attachedAssetCount = static_cast<std::size_t>(
-            std::count_if(generationContent->begin(),
-                          generationContent->end(),
-                          [](const ai::ContentPart& part) {
-                              return !std::holds_alternative<ai::TextContentPart>(part);
-                          }));
-        if (auto status = validateAiInputCapabilities(archive,
-                                                      provider,
-                                                      model,
-                                                      *generationContent,
+        const std::size_t attachedAssetCount = static_cast<std::size_t>(std::count_if(
+            generationContent->begin(), generationContent->end(), [](const ai::ContentPart& part) {
+                return !std::holds_alternative<ai::TextContentPart>(part);
+            }));
+        if (auto status = validateAiInputCapabilities(archive, provider, model, *generationContent,
                                                       ollamaModelDetails);
             !status) {
             return failed(status.error());
@@ -5846,8 +5703,7 @@ namespace {
             preflight.userContent = std::string(packageData);
             preflight.maximumOutputTokens = *tokenLimit;
             preflight.cancelled = context.control.stopRequested;
-            auto textOnly = ai::serializeContentParts(*generationContent,
-                                                      packageData,
+            auto textOnly = ai::serializeContentParts(*generationContent, packageData,
                                                       ai::ContentSerialization::textOnly);
             if (!textOnly)
                 return failed(textOnly.error());
@@ -5860,26 +5716,16 @@ namespace {
         if (replicatePlan) {
             requestBody = replicatePlan->requestBody;
         } else if (nativeProtocol) {
-            auto body = ai::nativeGenerationRequestBody(*nativeProtocol,
-                                                        model,
-                                                        systemPrompt,
-                                                        packageData,
-                                                        *tokenLimit,
-                                                        *generationContent,
-                                                        enableStreaming,
-                                                        requireStructuredOutput);
+            auto body = ai::nativeGenerationRequestBody(
+                *nativeProtocol, model, systemPrompt, packageData, *tokenLimit, *generationContent,
+                enableStreaming, requireStructuredOutput);
             if (!body)
                 return failed(body.error());
             requestBody = std::move(*body);
         } else {
-            auto body = aiGenerationRequestBody(model,
-                                                systemPrompt,
-                                                packageData,
-                                                *tokenLimit,
-                                                useMaxCompletionTokens,
-                                                *generationContent,
-                                                enableStreaming,
-                                                requireStructuredOutput);
+            auto body = aiGenerationRequestBody(model, systemPrompt, packageData, *tokenLimit,
+                                                useMaxCompletionTokens, *generationContent,
+                                                enableStreaming, requireStructuredOutput);
             if (!body)
                 return failed(body.error());
             requestBody = std::move(*body);
@@ -5891,9 +5737,8 @@ namespace {
                 core::error("ai_request_invalid",
                             "The generation request exceeds the 16 MiB limit or is invalid."));
         }
-        const std::string requestBodyHash = domain::hexHash(
-            std::span<const std::byte>(reinterpret_cast<const std::byte*>(requestBody.data()),
-                                       requestBody.size()));
+        const std::string requestBodyHash = domain::hexHash(std::span<const std::byte>(
+            reinterpret_cast<const std::byte*>(requestBody.data()), requestBody.size()));
         std::string environmentName;
         if (localGeneration) {
             if (option(options, "api-key-env") || hasFlag(options, "confirm-outbound") ||
@@ -5916,9 +5761,7 @@ namespace {
             std::string endpoint = replicatePlan ? replicatePlan->endpoint : generationEndpoint;
             std::string authorization = "Bearer from environment variable " + environmentName;
             if (nativeProtocol) {
-                endpoint = ai::nativeGenerationEndpoint(*nativeProtocol,
-                                                        generationEndpoint,
-                                                        model,
+                endpoint = ai::nativeGenerationEndpoint(*nativeProtocol, generationEndpoint, model,
                                                         enableStreaming);
                 if (*nativeProtocol == ai::NativeProtocol::anthropicMessages) {
                     authorization = "x-api-key from environment variable " + environmentName +
@@ -5951,10 +5794,9 @@ namespace {
                 {"attached_asset_count",           std::to_string(attachedAssetCount)        },
                 {"package_bytes",                  std::to_string(packageData.size())        },
                 {"max_output_tokens",              std::to_string(*tokenLimit)               },
-                {"data_sent",
-                 "endpoint, content-type, accept, authentication headers, "
-                 "provider preference headers, the package, and verified "
-                 "attached asset bytes"                                                      },
+                {"data_sent",                      "endpoint, content-type, accept, authentication headers, "
+                              "provider preference headers, the package, and verified "
+                              "attached asset bytes"            },
                 {"request_body",                   requestBody                               },
                 {"confirmation_command",           confirmationCommand                       }
             };
@@ -6058,26 +5900,22 @@ namespace {
                 }
 
                 const auto selectedInteger = [&](std::string_view optionName,
-                                                 std::string_view fieldName,
-                                                 std::uint32_t fallback,
-                                                 std::uint32_t minimum,
-                                                 std::uint32_t maximum) {
+                                                 std::string_view fieldName, std::uint32_t fallback,
+                                                 std::uint32_t minimum, std::uint32_t maximum) {
                     const auto requested = option(options, optionName);
                     const std::string stored = domain::getField(*selectedModelReference, fieldName);
                     return boundedUnsignedValue(requested ? std::string_view(*requested)
                                                 : stored.empty()
                                                     ? std::string_view(std::to_string(fallback))
                                                     : std::string_view(stored),
-                                                optionName,
-                                                minimum,
-                                                maximum);
+                                                optionName, minimum, maximum);
                 };
                 auto modelInfo = ai::inspectEmbeddedGguf(*modelPath);
                 if (!modelInfo)
                     return std::unexpected(modelInfo.error());
-                const std::uint32_t maximumGpuLayers = static_cast<std::uint32_t>(
-                    std::min<std::uint64_t>(modelInfo->layerCount,
-                                            std::numeric_limits<std::uint32_t>::max()));
+                const std::uint32_t maximumGpuLayers =
+                    static_cast<std::uint32_t>(std::min<std::uint64_t>(
+                        modelInfo->layerCount, std::numeric_limits<std::uint32_t>::max()));
                 ai::EmbeddedLlamaConfig embeddedConfig;
                 auto contextTokens =
                     selectedInteger("context-tokens", "context_tokens", 4096, 32, 1'048'576);
@@ -6187,9 +6025,8 @@ namespace {
             {"request_package_sha256", actualPackageHash},
             {"processing_boundary", localGeneration ? "loopback-only" : "remote-provider"},
             {"request_body_sha256",
-             domain::hexHash(
-                 std::span<const std::byte>(reinterpret_cast<const std::byte*>(requestBody.data()),
-             requestBody.size()))},
+             domain::hexHash(std::span<const std::byte>(
+                 reinterpret_cast<const std::byte*>(requestBody.data()), requestBody.size()))},
             {"max_output_tokens", std::to_string(*tokenLimit)},
             {"response_sha256",
              domain::hexHash(std::span<const std::byte>(
@@ -6282,52 +6119,52 @@ namespace {
                 std::string_view status;
             };
             static constexpr std::array providers{
-                ProviderCatalogEntry{"openai",                "OpenAI",         "openai-compatible-protocol"      },
-                ProviderCatalogEntry{"anthropic",             "Anthropic",      "anthropic-messages-protocol"     },
-                ProviderCatalogEntry{"google-gemini",
-                                     "Google Gemini",                           "gemini-generate-content-protocol"},
-                ProviderCatalogEntry{"cohere",                "Cohere",         "cohere-chat-v2-protocol"         },
-                ProviderCatalogEntry{"perplexity",            "Perplexity",     "perplexity-agent-api"            },
-                ProviderCatalogEntry{"xai",                   "xAI",            "openai-compatible-protocol"      },
-                ProviderCatalogEntry{"openrouter",            "OpenRouter",     "openai-compatible-protocol"      },
-                ProviderCatalogEntry{"together",              "Together AI",    "openai-compatible-protocol"      },
-                ProviderCatalogEntry{"fireworks",             "Fireworks AI",   "openai-compatible-protocol"      },
-                ProviderCatalogEntry{"deepinfra",             "DeepInfra",      "openai-compatible-protocol"      },
-                ProviderCatalogEntry{"novita",                "Novita AI",      "openai-compatible-protocol"      },
-                ProviderCatalogEntry{"nebius",                "Nebius",         "openai-compatible-protocol"      },
-                ProviderCatalogEntry{"groq",                  "Groq",           "openai-compatible-protocol"      },
-                ProviderCatalogEntry{"cerebras",              "Cerebras",       "openai-compatible-protocol"      },
-                ProviderCatalogEntry{"sambanova",             "SambaNova",      "openai-compatible-protocol"      },
-                ProviderCatalogEntry{"nvidia",                "NVIDIA NIM",     "openai-compatible-protocol"      },
-                ProviderCatalogEntry{"deepseek",              "DeepSeek",       "openai-compatible-protocol"      },
-                ProviderCatalogEntry{"mistral",               "Mistral",        "openai-compatible-protocol"      },
-                ProviderCatalogEntry{"ai21",                  "AI21",           "models-dev-chat-completions"     },
-                ProviderCatalogEntry{"huggingface",           "Hugging Face",   "openai-compatible-protocol"      },
-                ProviderCatalogEntry{"replicate",             "Replicate",      "replicate-prediction-api"        },
-                ProviderCatalogEntry{"cloudflare-workers-ai",
-                                     "Cloudflare Workers AI",                   "openai-compatible-protocol"      },
-                ProviderCatalogEntry{"moonshot",              "Moonshot AI",    "openai-compatible-protocol"      },
-                ProviderCatalogEntry{"zai",                   "Z.AI",           "models-dev-chat-completions"     },
-                ProviderCatalogEntry{"minimax",               "MiniMax",        "openai-compatible-protocol"      },
-                ProviderCatalogEntry{"siliconflow",           "SiliconFlow",    "openai-compatible-protocol"      },
-                ProviderCatalogEntry{"alibaba-cloud",
-                                     "Alibaba Cloud Model Studio",              "openai-compatible-protocol"      },
-                ProviderCatalogEntry{"baidu",                 "Baidu Qianfan",  "openai-compatible-protocol"      },
-                ProviderCatalogEntry{"tencent-cloud",
-                                     "Tencent Cloud TokenHub",                  "openai-compatible-protocol"      },
-                ProviderCatalogEntry{"volcengine",            "Volcengine Ark", "openai-compatible-protocol"      },
-                ProviderCatalogEntry{"bedrock",               "Amazon Bedrock", "openai-compatible-protocol"      },
-                ProviderCatalogEntry{"azure-openai",          "Azure OpenAI",   "openai-compatible-protocol"      },
-                ProviderCatalogEntry{"opencode-go",           "OpenCode Go",    "coding-agent-use-restricted"     },
-                ProviderCatalogEntry{"opencode-zen",          "OpenCode Zen",   "multi-protocol-model-routes"     },
-                ProviderCatalogEntry{"ollama",                "Ollama",         "native-ollama-api"               },
-                ProviderCatalogEntry{"lm-studio",             "LM Studio",      "local-openai-compatible"         },
-                ProviderCatalogEntry{"llama.cpp-server",
-                                     "llama.cpp server",                        "local-openai-compatible"         },
-                ProviderCatalogEntry{"llama.cpp-embedded",
-                                     "Embedded llama.cpp",                      "embedded-gguf-runtime"           },
-                ProviderCatalogEntry{"openai-compatible",
-                                     "Custom OpenAI-compatible endpoint",       "openai-compatible-protocol"      },
+                ProviderCatalogEntry{"openai",                "OpenAI",                            "openai-compatible-protocol" },
+                ProviderCatalogEntry{"anthropic",             "Anthropic",                         "anthropic-messages-protocol"},
+                ProviderCatalogEntry{"google-gemini",         "Google Gemini",
+                                     "gemini-generate-content-protocol"                                                         },
+                ProviderCatalogEntry{"cohere",                "Cohere",                            "cohere-chat-v2-protocol"    },
+                ProviderCatalogEntry{"perplexity",            "Perplexity",                        "perplexity-agent-api"       },
+                ProviderCatalogEntry{"xai",                   "xAI",                               "openai-compatible-protocol" },
+                ProviderCatalogEntry{"openrouter",            "OpenRouter",                        "openai-compatible-protocol" },
+                ProviderCatalogEntry{"together",              "Together AI",                       "openai-compatible-protocol" },
+                ProviderCatalogEntry{"fireworks",             "Fireworks AI",                      "openai-compatible-protocol" },
+                ProviderCatalogEntry{"deepinfra",             "DeepInfra",                         "openai-compatible-protocol" },
+                ProviderCatalogEntry{"novita",                "Novita AI",                         "openai-compatible-protocol" },
+                ProviderCatalogEntry{"nebius",                "Nebius",                            "openai-compatible-protocol" },
+                ProviderCatalogEntry{"groq",                  "Groq",                              "openai-compatible-protocol" },
+                ProviderCatalogEntry{"cerebras",              "Cerebras",                          "openai-compatible-protocol" },
+                ProviderCatalogEntry{"sambanova",             "SambaNova",                         "openai-compatible-protocol" },
+                ProviderCatalogEntry{"nvidia",                "NVIDIA NIM",                        "openai-compatible-protocol" },
+                ProviderCatalogEntry{"deepseek",              "DeepSeek",                          "openai-compatible-protocol" },
+                ProviderCatalogEntry{"mistral",               "Mistral",                           "openai-compatible-protocol" },
+                ProviderCatalogEntry{"ai21",                  "AI21",                              "models-dev-chat-completions"},
+                ProviderCatalogEntry{"huggingface",           "Hugging Face",                      "openai-compatible-protocol" },
+                ProviderCatalogEntry{"replicate",             "Replicate",                         "replicate-prediction-api"   },
+                ProviderCatalogEntry{"cloudflare-workers-ai", "Cloudflare Workers AI",
+                                     "openai-compatible-protocol"                                                               },
+                ProviderCatalogEntry{"moonshot",              "Moonshot AI",                       "openai-compatible-protocol" },
+                ProviderCatalogEntry{"zai",                   "Z.AI",                              "models-dev-chat-completions"},
+                ProviderCatalogEntry{"minimax",               "MiniMax",                           "openai-compatible-protocol" },
+                ProviderCatalogEntry{"siliconflow",           "SiliconFlow",                       "openai-compatible-protocol" },
+                ProviderCatalogEntry{"alibaba-cloud",         "Alibaba Cloud Model Studio",
+                                     "openai-compatible-protocol"                                                               },
+                ProviderCatalogEntry{"baidu",                 "Baidu Qianfan",                     "openai-compatible-protocol" },
+                ProviderCatalogEntry{"tencent-cloud",         "Tencent Cloud TokenHub",
+                                     "openai-compatible-protocol"                                                               },
+                ProviderCatalogEntry{"volcengine",            "Volcengine Ark",                    "openai-compatible-protocol" },
+                ProviderCatalogEntry{"bedrock",               "Amazon Bedrock",                    "openai-compatible-protocol" },
+                ProviderCatalogEntry{"azure-openai",          "Azure OpenAI",                      "openai-compatible-protocol" },
+                ProviderCatalogEntry{"opencode-go",           "OpenCode Go",                       "coding-agent-use-restricted"},
+                ProviderCatalogEntry{"opencode-zen",          "OpenCode Zen",                      "multi-protocol-model-routes"},
+                ProviderCatalogEntry{"ollama",                "Ollama",                            "native-ollama-api"          },
+                ProviderCatalogEntry{"lm-studio",             "LM Studio",                         "local-openai-compatible"    },
+                ProviderCatalogEntry{"llama.cpp-server",      "llama.cpp server",
+                                     "local-openai-compatible"                                                                  },
+                ProviderCatalogEntry{"llama.cpp-embedded",    "Embedded llama.cpp",
+                                     "embedded-gguf-runtime"                                                                    },
+                ProviderCatalogEntry{"openai-compatible",     "Custom OpenAI-compatible endpoint",
+                                     "openai-compatible-protocol"                                                               },
             };
             std::vector<JsonObject> rows;
             rows.reserve(providers.size());
@@ -6388,10 +6225,8 @@ namespace {
             auto budgetValue = option(*options, "token-budget");
             std::size_t tokenBudget = 8192;
             if (budgetValue) {
-                const auto [end, errorCode] =
-                    std::from_chars(budgetValue->data(),
-                                    budgetValue->data() + budgetValue->size(),
-                                    tokenBudget);
+                const auto [end, errorCode] = std::from_chars(
+                    budgetValue->data(), budgetValue->data() + budgetValue->size(), tokenBudget);
                 if (errorCode != std::errc{} || end != budgetValue->data() + budgetValue->size() ||
                     tokenBudget == 0 || tokenBudget > 10'000'000) {
                     return failed(
@@ -6403,8 +6238,7 @@ namespace {
             packOptions.tokenBudget = tokenBudget;
             if (const auto maximumItem = option(*options, "max-item-tokens")) {
                 const auto [end, errorCode] =
-                    std::from_chars(maximumItem->data(),
-                                    maximumItem->data() + maximumItem->size(),
+                    std::from_chars(maximumItem->data(), maximumItem->data() + maximumItem->size(),
                                     packOptions.maximumItemTokens);
                 if (errorCode != std::errc{} || end != maximumItem->data() + maximumItem->size() ||
                     packOptions.maximumItemTokens == 0 ||
@@ -6427,19 +6261,14 @@ namespace {
                     domain::getField(segment, "session_id") != *sessionId)
                     continue;
                 candidates.push_back(
-                    {uuid(segment.id),
-                     "transcript",
-                     domain::getField(segment, "text"),
-                     integerField(segment, "start_time_us"),
-                     integerField(segment, "end_time_us"),
+                    {uuid(segment.id), "transcript", domain::getField(segment, "text"),
+                     integerField(segment, "start_time_us"), integerField(segment, "end_time_us"),
                      static_cast<std::uint64_t>(
                          std::max<std::int64_t>(0, integerField(segment, "updated_at_us"))),
                      domain::getField(segment, "verification_state") == "human-verified"
                          ? intelligence::EvidencePriority::important
                          : intelligence::EvidencePriority::normal,
-                     0.7,
-                     false,
-                     false});
+                     0.7, false, false});
             }
             for (const auto& annotation : *annotations) {
                 if (domain::isDeleted(annotation) ||
@@ -6454,16 +6283,13 @@ namespace {
                 const std::string title = domain::getField(annotation, "title");
                 const std::string content = domain::getField(annotation, "content");
                 candidates.push_back(
-                    {uuid(annotation.id),
-                     "tutor-annotation",
+                    {uuid(annotation.id), "tutor-annotation",
                      title.empty() ? content : title + "\n" + content,
                      integerField(annotation, "start_time_us"),
                      integerField(annotation, "end_time_us"),
                      static_cast<std::uint64_t>(
                          std::max<std::int64_t>(0, integerField(annotation, "updated_at_us"))),
-                     evidencePriority,
-                     1.0,
-                     true,
+                     evidencePriority, 1.0, true,
                      domain::getField(annotation, "type") == "explicit-instruction"});
             }
             for (const auto& node : *evidence) {
@@ -6478,17 +6304,12 @@ namespace {
                                                   ? intelligence::EvidencePriority::important
                                                   : intelligence::EvidencePriority::normal;
                 candidates.push_back(
-                    {uuid(node.id),
-                     "evidence",
-                     domain::getField(node, "content"),
-                     integerField(node, "start_time_us"),
-                     integerField(node, "end_time_us"),
+                    {uuid(node.id), "evidence", domain::getField(node, "content"),
+                     integerField(node, "start_time_us"), integerField(node, "end_time_us"),
                      static_cast<std::uint64_t>(
                          std::max<std::int64_t>(0, integerField(node, "updated_at_us"))),
-                     evidencePriority,
-                     review == "human-verified" ? 1.0 : 0.5,
-                     domain::getField(node, "origin") == "tutor-authored",
-                     false});
+                     evidencePriority, review == "human-verified" ? 1.0 : 0.5,
+                     domain::getField(node, "origin") == "tutor-authored", false});
             }
             for (const auto& asset : *assets) {
                 if (domain::isDeleted(asset) ||
@@ -6505,17 +6326,11 @@ namespace {
                 if (!extractedText.empty())
                     summary += "\n" + extractedText;
                 candidates.push_back(
-                    {uuid(asset.id),
-                     "asset",
-                     std::move(summary),
-                     integerField(asset, "start_time_us"),
-                     integerField(asset, "end_time_us"),
+                    {uuid(asset.id), "asset", std::move(summary),
+                     integerField(asset, "start_time_us"), integerField(asset, "end_time_us"),
                      static_cast<std::uint64_t>(
                          std::max<std::int64_t>(0, integerField(asset, "updated_at_us"))),
-                     intelligence::EvidencePriority::background,
-                     0.4,
-                     false,
-                     false});
+                     intelligence::EvidencePriority::background, 0.4, false, false});
             }
             auto packed = intelligence::packContext(std::move(candidates), std::move(packOptions));
             if (!packed)
@@ -6567,9 +6382,7 @@ namespace {
             return result(output.str(), false);
         }
         if (action == "models")
-            return dispatchAiModels(*archive,
-                                    *options,
-                                    context.json,
+            return dispatchAiModels(*archive, *options, context.json,
                                     context.control.stopRequested);
         if (action == "generate")
             return dispatchAiGenerate(context, *archive, *options);
@@ -6612,13 +6425,10 @@ namespace {
                 }
                 const std::string storedGpuLayers =
                     domain::getField(*selectedReference, "gpu_layers", "0");
-                auto parsedGpuLayers =
-                    boundedUnsignedValue(storedGpuLayers,
-                                         "gpu-layers",
-                                         0,
-                                         static_cast<std::uint32_t>(std::min<std::uint64_t>(
-                                             inspected->layerCount,
-                                             std::numeric_limits<std::uint32_t>::max())));
+                auto parsedGpuLayers = boundedUnsignedValue(
+                    storedGpuLayers, "gpu-layers", 0,
+                    static_cast<std::uint32_t>(std::min<std::uint64_t>(
+                        inspected->layerCount, std::numeric_limits<std::uint32_t>::max())));
                 if (!parsedGpuLayers)
                     return failed(parsedGpuLayers.error());
                 config.gpuLayers = *parsedGpuLayers;
@@ -6636,10 +6446,9 @@ namespace {
                     {"file_size_bytes", std::to_string(inspected->fileSizeBytes)},
                     {"estimated_memory_bytes_upper_bound",
                      std::to_string(estimate->totalBytesUpperBound)},
-                    {"available_memory_bytes",
-                     system && system->availableMemoryAvailable
-                         ? std::to_string(system->availableMemoryBytes)
-                         : "unknown"}
+                    {"available_memory_bytes", system && system->availableMemoryAvailable
+                                                   ? std::to_string(system->availableMemoryBytes)
+                                                   : "unknown"}
                 };
                 if (context.json)
                     return result(toJson(report), true);
@@ -6692,10 +6501,8 @@ namespace {
                 std::string secret;
                 SensitiveStringWiper secretWiper{secret};
                 if (!isLocalAiProvider(provider) && provider != "perplexity") {
-                    const std::string environmentName =
-                        optionOr(*options,
-                                 "api-key-env",
-                                 std::string(defaultAiApiKeyEnvironment(provider)));
+                    const std::string environmentName = optionOr(
+                        *options, "api-key-env", std::string(defaultAiApiKeyEnvironment(provider)));
                     if (!isEnvironmentVariableName(environmentName)) {
                         return failed(core::error(
                             "ai_api_key_environment_invalid",
@@ -6723,23 +6530,18 @@ namespace {
                 }
                 auto models =
                     provider == "alibaba-cloud"
-                        ? ai::listAlibabaModelStudioModels(configuration->first,
-                                                           secret,
+                        ? ai::listAlibabaModelStudioModels(configuration->first, secret,
                                                            context.control.stopRequested)
                     : provider == "replicate"
                         ? ai::listReplicateModels(secret, context.control.stopRequested)
                     : provider == "cloudflare-workers-ai"
-                        ? ai::listCloudflareWorkersAiModels(configuration->first,
-                                                            secret,
+                        ? ai::listCloudflareWorkersAiModels(configuration->first, secret,
                                                             context.control.stopRequested)
                     : usesModelsDevCatalog(provider)
                         ? ai::listModelsDevProviderModels(provider, context.control.stopRequested)
-                    : nativeProtocol ? ai::listNativeModels(*nativeProtocol,
-                                                            configuration->first,
-                                                            secret,
-                                                            context.control.stopRequested)
-                                     : ai::listOpenAiCompatibleModels(configuration->first,
-                                                                      secret,
+                    : nativeProtocol ? ai::listNativeModels(*nativeProtocol, configuration->first,
+                                                            secret, context.control.stopRequested)
+                                     : ai::listOpenAiCompatibleModels(configuration->first, secret,
                                                                       context.control.stopRequested,
                                                                       aiApiKeyHeaderName(provider));
                 if (!models)
@@ -6768,10 +6570,9 @@ namespace {
             if (!configuration)
                 return failed(configuration.error());
             if (action == "test") {
-                auto models = ai::listNativeModels(ai::NativeProtocol::ollamaChat,
-                                                   configuration->first,
-                                                   {},
-                                                   context.control.stopRequested);
+                auto models =
+                    ai::listNativeModels(ai::NativeProtocol::ollamaChat, configuration->first, {},
+                                         context.control.stopRequested);
                 if (!models)
                     return failed(models.error());
                 if (context.json) {
@@ -6970,12 +6771,10 @@ namespace {
             Record job;
             job.type = RecordType::AiJob;
             job.id = archive::randomUuid();
-            const std::string packageHash = domain::hexHash(
-                std::span<const std::byte>(reinterpret_cast<const std::byte*>(package->data()),
-                                           package->size()));
+            const std::string packageHash = domain::hexHash(std::span<const std::byte>(
+                reinterpret_cast<const std::byte*>(package->data()), package->size()));
             const std::string exportHash = domain::hexHash(std::span<const std::byte>(
-                reinterpret_cast<const std::byte*>(exportContents.data()),
-                exportContents.size()));
+                reinterpret_cast<const std::byte*>(exportContents.data()), exportContents.size()));
             job.fields = {
                 {"session_id",    *sessionId                           },
                 {"mode",          packageMode                          },
@@ -7100,8 +6899,7 @@ namespace {
                 {"original_filename", responsePath.filename().string()},
                 {"content_hash",
                  domain::hexHash(std::span<const std::byte>(
-                     reinterpret_cast<const std::byte*>(response->data()),
-                 response->size()))},
+                     reinterpret_cast<const std::byte*>(response->data()), response->size()))},
                 {"created_at_us", std::to_string(nowUnixMicroseconds())}
             };
             job.blob.assign(
@@ -7433,12 +7231,8 @@ namespace {
         auto options = commandOptions(arguments, 2);
         if (!options)
             return failed(options.error());
-        static constexpr std::array builtInTemplates{"general",
-                                                     "english",
-                                                     "mathematics",
-                                                     "science",
-                                                     "programming",
-                                                     "language-learning"};
+        static constexpr std::array builtInTemplates{"general", "english",     "mathematics",
+                                                     "science", "programming", "language-learning"};
         if (action == "list" && !context.archivePath) {
             auto archives = Archive::discover(context.directory);
             if (!archives)
@@ -7652,9 +7446,8 @@ namespace {
                     unsignedOption(*options, "context-tokens", 4096, 32, 1'048'576);
                 const auto cpuThreads = unsignedOption(*options, "threads", 0, 0, 64);
                 const auto maximumCpuThreads = unsignedOption(*options, "max-threads", 16, 1, 64);
-                const auto maximumGpuLayers = static_cast<std::uint32_t>(
-                    std::min<std::uint64_t>(modelInfo->layerCount,
-                                            std::numeric_limits<std::uint32_t>::max()));
+                const auto maximumGpuLayers = static_cast<std::uint32_t>(std::min<std::uint64_t>(
+                    modelInfo->layerCount, std::numeric_limits<std::uint32_t>::max()));
                 const auto gpuLayers =
                     unsignedOption(*options, "gpu-layers", 0, 0, maximumGpuLayers);
                 if (!contextTokens || !cpuThreads || !maximumCpuThreads || !gpuLayers) {
@@ -7767,8 +7560,7 @@ namespace {
                                              "compatibility has not been inferred.\n"
                                            : "Selected model file is missing or not a regular "
                                              "non-symlink file.\n"),
-                              context.json,
-                              valid ? 0 : 2);
+                              context.json, valid ? 0 : 2);
             }
             if (!valid)
                 return failed(
@@ -8073,6 +7865,290 @@ namespace {
                                              " seconds).\n",
                           context.json);
         }
+        if (action == "export-wav") {
+            auto options = commandOptions(arguments, 2);
+            if (!options)
+                return failed(options.error());
+            auto sessionValue = requiredOption(*options, "session");
+            auto outputValue = requiredOption(*options, "output");
+            if (!sessionValue)
+                return failed(sessionValue.error());
+            if (!outputValue)
+                return failed(outputValue.error());
+            auto sessionId = parseId(*sessionValue);
+            if (!sessionId)
+                return failed(sessionId.error());
+
+            std::optional<archive::Uuid> trackId;
+            if (const auto trackValue = option(*options, "track")) {
+                auto parsedTrackId = parseId(*trackValue);
+                if (!parsedTrackId)
+                    return failed(parsedTrackId.error());
+                trackId = *parsedTrackId;
+            }
+
+            std::filesystem::path destination(*outputValue);
+            if (destination.is_relative())
+                destination = context.directory / destination;
+            auto archive = openArchive(context, "record", action, false);
+            if (!archive)
+                return failed(archive.error());
+            auto exported =
+                audio::exportWave(*archive, *sessionId, destination, trackId,
+                                  hasFlag(*options, "fill-gaps"), hasFlag(*options, "overwrite"));
+            if (!exported)
+                return failed(exported.error());
+
+            JsonObject report{
+                {"session_id",                uuid(*sessionId)                                   },
+                {"track_id",                  uuid(exported->trackId)                            },
+                {"destination",               exported->destination.string()                     },
+                {"sample_rate_hz",            std::to_string(exported->sampleRateHz)             },
+                {"channel_count",             std::to_string(exported->channelCount)             },
+                {"sample_count",              std::to_string(exported->sampleCount)              },
+                {"chunk_count",               std::to_string(exported->chunkCount)               },
+                {"duration_us",               std::to_string(exported->durationUs)               },
+                {"data_bytes",                std::to_string(exported->dataBytes)                },
+                {"container",                 exported->usedRf64 ? "RF64" : "RIFF/WAVE"          },
+                {"inserted_silence_for_gaps", exported->insertedSilenceForGaps ? "true" : "false"}
+            };
+            return result(context.json
+                              ? toJson(report)
+                              : "Exported " + std::to_string(exported->chunkCount) +
+                                    " audio chunk(s) to " + exported->destination.string() +
+                                    (exported->insertedSilenceForGaps
+                                         ? " with explicitly inserted silence for recording gaps.\n"
+                                         : ".\n"),
+                          context.json);
+        }
+        if (action == "waveform") {
+            auto options = commandOptions(arguments, 2);
+            if (!options)
+                return failed(options.error());
+            auto sessionValue = requiredOption(*options, "session");
+            if (!sessionValue)
+                return failed(sessionValue.error());
+            auto sessionId = parseId(*sessionValue);
+            if (!sessionId)
+                return failed(sessionId.error());
+            std::optional<archive::Uuid> trackId;
+            if (const auto trackValue = option(*options, "track")) {
+                auto parsedTrackId = parseId(*trackValue);
+                if (!parsedTrackId)
+                    return failed(parsedTrackId.error());
+                trackId = *parsedTrackId;
+            }
+            std::size_t bucketLimit = 512;
+            if (const auto bucketValue = option(*options, "buckets")) {
+                const auto [end, errorCode] = std::from_chars(
+                    bucketValue->data(), bucketValue->data() + bucketValue->size(), bucketLimit);
+                if (errorCode != std::errc{} || end != bucketValue->data() + bucketValue->size() ||
+                    bucketLimit == 0 || bucketLimit > 8'192) {
+                    return failed(
+                        core::error("audio_waveform_bucket_limit",
+                                    "Waveform resolution must be between 1 and 8,192 buckets."));
+                }
+            }
+            auto archive = openArchive(context, "record", action, true);
+            if (!archive)
+                return failed(archive.error());
+            RecordingSignalHandler signalHandler;
+            auto waveform =
+                audio::buildWaveform(*archive, *sessionId, trackId, bucketLimit, [&context] {
+                    return recordingStopRequested != 0 ||
+                           (context.control.stopRequested && context.control.stopRequested());
+                });
+            if (!waveform && waveform.error().code == "audio_waveform_cancelled") {
+                return result(context.json ? toJson({
+                                                 {"cancelled", "true"}
+                })
+                                           : "Waveform generation cancelled.\n",
+                              context.json, 130);
+            }
+            if (!waveform)
+                return failed(waveform.error());
+
+            std::vector<JsonObject> rows;
+            rows.reserve(waveform->buckets.size());
+            std::ostringstream output;
+            output << "Waveform for track " << uuid(waveform->timeline.trackId) << " ("
+                   << waveform->timeline.sampleRateHz << " Hz, " << waveform->timeline.channelCount
+                   << " channel(s), " << waveform->timeline.durationUs / 1'000'000ULL
+                   << " seconds)\n";
+            constexpr std::string_view amplitudeLevels = " .:-=+*#@";
+            output << "Amplitude: ";
+            for (std::size_t index = 0; index < waveform->buckets.size(); ++index) {
+                const auto& bucket = waveform->buckets[index];
+                const std::int32_t minimum = bucket.minimum;
+                const std::int32_t maximum = bucket.maximum;
+                const std::int32_t magnitude =
+                    std::max(minimum < 0 ? -minimum : minimum, maximum < 0 ? -maximum : maximum);
+                const std::size_t level =
+                    static_cast<std::size_t>(magnitude) * (amplitudeLevels.size() - 1U) / 32'768U;
+                output << amplitudeLevels[level];
+                rows.push_back({
+                    {"track_id",       uuid(waveform->timeline.trackId)               },
+                    {"sample_rate_hz", std::to_string(waveform->timeline.sampleRateHz)},
+                    {"channel_count",  std::to_string(waveform->timeline.channelCount)},
+                    {"bucket",         std::to_string(index)                          },
+                    {"start_frame",    std::to_string(bucket.startFrame)              },
+                    {"end_frame",      std::to_string(bucket.endFrame)                },
+                    {"minimum",        std::to_string(bucket.minimum)                 },
+                    {"maximum",        std::to_string(bucket.maximum)                 },
+                    {"contains_gap",   bucket.containsGap ? "true" : "false"          }
+                });
+            }
+            output << "\nGaps:      ";
+            for (const auto& bucket : waveform->buckets)
+                output << (bucket.containsGap ? '!' : ' ');
+            output << "\nUse --json to inspect each bucket's min/max values and frame range.\n";
+            return result(context.json ? toJsonArray(rows) : output.str(), context.json);
+        }
+        if (action == "play") {
+            auto options = commandOptions(arguments, 2);
+            if (!options)
+                return failed(options.error());
+            auto sessionValue = requiredOption(*options, "session");
+            if (!sessionValue)
+                return failed(sessionValue.error());
+            auto sessionId = parseId(*sessionValue);
+            if (!sessionId)
+                return failed(sessionId.error());
+            auto archive = openArchive(context, "record", action, false);
+            if (!archive)
+                return failed(archive.error());
+
+            audio::PlaybackOptions playbackOptions;
+            if (const auto trackValue = option(*options, "track")) {
+                auto trackId = parseId(*trackValue);
+                if (!trackId)
+                    return failed(trackId.error());
+                playbackOptions.trackId = *trackId;
+            }
+            auto readUnsignedOption = [&](std::string_view name,
+                                          std::uint64_t& destination) -> Status {
+                const auto value = option(*options, name);
+                if (!value)
+                    return {};
+                const auto [end, errorCode] =
+                    std::from_chars(value->data(), value->data() + value->size(), destination);
+                if (errorCode != std::errc{} || end != value->data() + value->size()) {
+                    return std::unexpected(
+                        core::error("audio_playback_option_invalid",
+                                    "--" + std::string(name) + " must be a non-negative integer."));
+                }
+                return {};
+            };
+
+            std::uint64_t startFrame = 0;
+            std::uint64_t startUs = 0;
+            std::uint64_t durationFrames = 0;
+            std::uint64_t durationUs = 0;
+            if (const auto status = readUnsignedOption("start-frame", startFrame); !status)
+                return failed(status.error());
+            if (const auto status = readUnsignedOption("start-us", startUs); !status)
+                return failed(status.error());
+            if (const auto status = readUnsignedOption("duration-frames", durationFrames);
+                !status) {
+                return failed(status.error());
+            }
+            if (const auto status = readUnsignedOption("duration-us", durationUs); !status)
+                return failed(status.error());
+            playbackOptions.startFrame = startFrame;
+            if ((option(*options, "start-frame") && option(*options, "start-us")) ||
+                (option(*options, "duration-frames") && option(*options, "duration-us"))) {
+                return failed(core::error(
+                    "audio_playback_options_conflict",
+                    "Choose either a frame or microsecond value for each playback position."));
+            }
+            if (option(*options, "start-us") || option(*options, "duration-us")) {
+                auto timeline =
+                    audio::AudioTimelineReader::open(*archive, *sessionId, playbackOptions.trackId);
+                if (!timeline)
+                    return failed(timeline.error());
+                const auto toFrames = [&](std::uint64_t microseconds,
+                                          std::uint64_t& frames) -> Status {
+                    const std::uint64_t rate = timeline->info().sampleRateHz;
+                    const std::uint64_t wholeSeconds = microseconds / 1'000'000ULL;
+                    const std::uint64_t remainingUs = microseconds % 1'000'000ULL;
+                    if (wholeSeconds > std::numeric_limits<std::uint64_t>::max() / rate) {
+                        return std::unexpected(core::error(
+                            "audio_playback_option_invalid",
+                            "The requested playback position exceeds the supported timeline."));
+                    }
+                    const std::uint64_t wholeFrames = wholeSeconds * rate;
+                    const std::uint64_t partialFrames = (remainingUs * rate) / 1'000'000ULL;
+                    if (partialFrames > std::numeric_limits<std::uint64_t>::max() - wholeFrames) {
+                        return std::unexpected(core::error(
+                            "audio_playback_option_invalid",
+                            "The requested playback position exceeds the supported timeline."));
+                    }
+                    frames = wholeFrames + partialFrames;
+                    return {};
+                };
+                if (option(*options, "start-us")) {
+                    if (auto status = toFrames(startUs, playbackOptions.startFrame); !status)
+                        return failed(status.error());
+                }
+                if (option(*options, "duration-us")) {
+                    if (auto status = toFrames(durationUs, durationFrames); !status)
+                        return failed(status.error());
+                    if (durationFrames == 0) {
+                        return failed(core::error(
+                            "audio_playback_duration_invalid",
+                            "The requested playback duration is shorter than one audio frame."));
+                    }
+                    playbackOptions.maximumFrames = durationFrames;
+                } else if (option(*options, "duration-frames")) {
+                    if (durationFrames == 0) {
+                        return failed(core::error("audio_playback_duration_invalid",
+                                                  "Playback duration must be greater than zero."));
+                    }
+                    playbackOptions.maximumFrames = durationFrames;
+                }
+            } else {
+                if (option(*options, "duration-frames")) {
+                    if (durationFrames == 0) {
+                        return failed(core::error("audio_playback_duration_invalid",
+                                                  "Playback duration must be greater than zero."));
+                    }
+                    playbackOptions.maximumFrames = durationFrames;
+                }
+            }
+
+            RecordingSignalHandler signalHandler;
+            playbackOptions.stopRequested = [&context] {
+                return recordingStopRequested != 0 ||
+                       (context.control.stopRequested && context.control.stopRequested());
+            };
+            auto summary =
+                audio::playArchiveTrack(*archive, *sessionId, std::move(playbackOptions));
+            if (!summary)
+                return failed(summary.error());
+            JsonObject report{
+                {"session_id",           uuid(*sessionId)                                    },
+                {"track_id",             uuid(summary->timeline.trackId)                     },
+                {"sample_rate_hz",       std::to_string(summary->timeline.sampleRateHz)      },
+                {"channel_count",        std::to_string(summary->timeline.channelCount)      },
+                {"start_frame",          std::to_string(summary->startFrame)                 },
+                {"timeline_frame_count", std::to_string(summary->timeline.timelineFrameCount)},
+                {"played_frames",        std::to_string(summary->playedFrames)               },
+                {"gap_frames_played",    std::to_string(summary->gapFramesPlayed)            },
+                {"duration_us",          std::to_string(summary->durationUs)                 },
+                {"completed",            summary->completed ? "true" : "false"               }
+            };
+            const std::string output =
+                summary->completed
+                    ? "Played " + std::to_string(summary->playedFrames) + " frame(s) from track " +
+                          uuid(summary->timeline.trackId) + ".\n"
+                    : "Playback stopped after " + std::to_string(summary->playedFrames) +
+                          " frame(s).\n";
+            const bool stopWasRequested =
+                recordingStopRequested != 0 ||
+                (context.control.stopRequested && context.control.stopRequested());
+            return result(context.json ? toJson(report) : output, context.json,
+                          stopWasRequested ? 130 : 0);
+        }
         if (action == "devices") {
             auto devices = audio::enumerateDevices();
             if (!devices)
@@ -8101,8 +8177,7 @@ namespace {
             if (!options)
                 return failed(options.error());
             const std::string requestedSource =
-                optionOr(*options,
-                         "source",
+                optionOr(*options, "source",
                          hasFlag(*options, "system-audio") ? "system-audio" : "microphone");
             const bool testBoth = requestedSource == "both" || (requestedSource == "microphone" &&
                                                                 hasFlag(*options, "system-audio"));
@@ -8149,14 +8224,12 @@ namespace {
                     const std::string selectedId = requestedDevice && *requestedDevice != "default"
                                                        ? *requestedDevice
                                                        : std::string{};
-                    const auto selectedDevice =
-                        std::find_if(devices->begin(),
-                                     devices->end(),
-                                     [&](const audio::DeviceInfo& device) {
-                                         return device.kind == sourceKind &&
-                                                (selectedId.empty() ? device.isDefault
-                                                                    : device.id == selectedId);
-                                     });
+                    const auto selectedDevice = std::find_if(
+                        devices->begin(), devices->end(), [&](const audio::DeviceInfo& device) {
+                            return device.kind == sourceKind &&
+                                   (selectedId.empty() ? device.isDefault
+                                                       : device.id == selectedId);
+                        });
                     const std::string sourceName =
                         sourceKind == audio::DeviceKind::microphone ? "microphone" : "system-audio";
                     if (selectedDevice == devices->end()) {
@@ -8194,9 +8267,7 @@ namespace {
                               context.json);
             }
             const auto selected = std::find_if(
-                devices->begin(),
-                devices->end(),
-                [&](const audio::DeviceInfo& device) {
+                devices->begin(), devices->end(), [&](const audio::DeviceInfo& device) {
                     return device.kind == kind &&
                            (deviceId.empty() ? device.isDefault : device.id == deviceId);
                 });
@@ -8306,8 +8377,7 @@ namespace {
                                 "Recording requires an explicit '--consent' confirmation."));
             std::string consentConfirmedBy = optionOr(*options, "confirmed-by", "not-specified");
             if (consentConfirmedBy.size() > 256 ||
-                std::any_of(consentConfirmedBy.begin(),
-                            consentConfirmedBy.end(),
+                std::any_of(consentConfirmedBy.begin(), consentConfirmedBy.end(),
                             [](unsigned char character) {
                                 return character == 0 || character == '\r' || character == '\n';
                             })) {
@@ -8418,10 +8488,8 @@ namespace {
             std::optional<std::chrono::milliseconds> maximumDuration;
             if (const auto durationValue = option(*options, "duration-seconds")) {
                 std::uint64_t seconds = 0;
-                const auto [end, errorCode] =
-                    std::from_chars(durationValue->data(),
-                                    durationValue->data() + durationValue->size(),
-                                    seconds);
+                const auto [end, errorCode] = std::from_chars(
+                    durationValue->data(), durationValue->data() + durationValue->size(), seconds);
                 const auto maximumSeconds =
                     static_cast<std::uint64_t>(std::chrono::milliseconds::max().count() / 1'000);
                 if (errorCode != std::errc{} ||
@@ -8556,8 +8624,7 @@ namespace {
             }
 
             RecordingSignalHandler signalHandler;
-            const auto makeCaptureOptions = [&](audio::DeviceKind trackSource,
-                                                std::string deviceId,
+            const auto makeCaptureOptions = [&](audio::DeviceKind trackSource, std::string deviceId,
                                                 std::string consentLabel) {
                 audio::CaptureOptions captureOptions;
                 captureOptions.source = trackSource;
@@ -8582,8 +8649,7 @@ namespace {
                                               std::to_string(summary.durationUs / 1'000'000ULL) +
                                               " seconds in " + std::to_string(summary.chunkCount) +
                                               " chunks.",
-                                          summary.chunkCount,
-                                          0});
+                                          summary.chunkCount, 0});
                     };
                 }
                 return captureOptions;
@@ -8593,8 +8659,7 @@ namespace {
                     {"warning",
                      "Reduced-write durability may lose recent uncommitted audio after a "
                      "power failure.",
-                     0,
-                     0});
+                     0, 0});
             }
 
             if (requestsMicrophone && requestsSystemAudio) {
@@ -8603,13 +8668,10 @@ namespace {
                         {"recording", "Starting synchronized separate audio tracks.", 0, 0});
                 }
                 auto captured = audio::captureNativeTracks(
-                    *archive,
-                    *sessionId,
+                    *archive, *sessionId,
                     makeCaptureOptions(audio::DeviceKind::microphone,
-                                       std::move(configuredMicrophoneDevice),
-                                       consentConfirmedBy),
-                    makeCaptureOptions(audio::DeviceKind::playback,
-                                       std::move(systemAudioDevice),
+                                       std::move(configuredMicrophoneDevice), consentConfirmedBy),
+                    makeCaptureOptions(audio::DeviceKind::playback, std::move(systemAudioDevice),
                                        std::move(consentConfirmedBy)));
                 if (!captured)
                     return failed(captured.error());
@@ -8668,10 +8730,8 @@ namespace {
                 return result(std::move(output), false);
             }
 
-            audio::CaptureOptions captureOptions =
-                makeCaptureOptions(source,
-                                   std::move(captureDeviceId),
-                                   std::move(consentConfirmedBy));
+            audio::CaptureOptions captureOptions = makeCaptureOptions(
+                source, std::move(captureDeviceId), std::move(consentConfirmedBy));
             if (context.progress) {
                 context.progress({"recording", "Starting " + sourceName + " capture.", 0, 0});
             }
@@ -8746,8 +8806,7 @@ namespace {
         return rows;
     }
 
-    Result<JsonObject> archiveDiagnosticObject(const Context& context,
-                                               const ParsedOptions& options,
+    Result<JsonObject> archiveDiagnosticObject(const Context& context, const ParsedOptions& options,
                                                bool includeSystem) {
         auto archive = openArchive(context, "diagnostics", "archive", false);
         if (!archive)
@@ -8868,8 +8927,7 @@ namespace {
                               : "Archive diagnostics: " + report->at("archive_valid") +
                                     "; generation " + report->at("archive_generation") + "; " +
                                     report->at("records_checked") + " record(s) checked.\n",
-                          context.json,
-                          report->at("archive_valid") == "true" ? 0 : 2);
+                          context.json, report->at("archive_valid") == "true" ? 0 : 2);
         }
         return failed(
             core::error("command_unknown", "Unknown diagnostics command '" + action + "'."));
@@ -8895,13 +8953,10 @@ namespace {
                 return failed(archive.error());
             std::uint64_t indexedRecords = 0;
             const auto indexBegin = std::chrono::steady_clock::now();
-            for (const auto type : {RecordType::Student,
-                                    RecordType::Session,
-                                    RecordType::TranscriptSegment,
-                                    RecordType::Annotation,
-                                    RecordType::AssetMetadata,
-                                    RecordType::EvidenceNode,
-                                    RecordType::Guide}) {
+            for (const auto type :
+                 {RecordType::Student, RecordType::Session, RecordType::TranscriptSegment,
+                  RecordType::Annotation, RecordType::AssetMetadata, RecordType::EvidenceNode,
+                  RecordType::Guide}) {
                 auto records = archive->list(type);
                 if (!records)
                     return failed(records.error());
@@ -9071,6 +9126,10 @@ Template / settings:
 Model / recording:
   model list|inspect|select|verify|remove-reference
   record import --session UUID --input FILE.wav
+  record export-wav --session UUID --output FILE.wav [--track UUID]
+                    [--fill-gaps] [--overwrite]
+  record play --session UUID [--track UUID] [--start-us N] [--duration-us N]
+  record waveform --session UUID [--track UUID] [--buckets N]
   record recover --session UUID
   record devices [--json]
   record test [--source microphone|system-audio|both] [--device ID]
@@ -9103,8 +9162,7 @@ initialize Tutorux.tux when the selected directory contains no .tux candidate.
 }
 
 core::Result<CommandResult> dispatch(const std::vector<std::string>& arguments,
-                                     ProgressCallback progress,
-                                     DispatchControl control) {
+                                     ProgressCallback progress, DispatchControl control) {
     Context context;
     context.directory = std::filesystem::current_path();
     context.progress = std::move(progress);
@@ -9158,9 +9216,8 @@ core::Result<CommandResult> dispatch(const std::vector<std::string>& arguments,
     if (command == "version" || command == "--version" || command == "-v")
         return result(versionText(), context.json);
     if (command == "gui")
-        return failed(
-            core::error("gui_unavailable",
-                        "The Slint native desktop frontend is not built in this checkout."));
+        return failed(core::error(
+            "gui_unavailable", "The Slint native desktop frontend is not built in this checkout."));
     if (command == "archive")
         return dispatchArchiveCommand(context, commandArguments);
     if (command == "student")
