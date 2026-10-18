@@ -453,8 +453,8 @@ int main() {
         if (!created)
             return 1;
         std::vector<archive::Record> students;
-        students.reserve(96);
-        for (std::size_t index = 0; index < 96; ++index) {
+        students.reserve(256);
+        for (std::size_t index = 0; index < 256; ++index) {
             archive::Record student;
             student.type = archive::RecordType::Student;
             student.id = archive::randomUuid();
@@ -468,7 +468,7 @@ int main() {
     {
         auto bytes = readFileBytes(separatorPath);
         const std::size_t payloadOffset = static_cast<std::size_t>(separatorCommit.rootOffset) + archive::kRecordHeaderSize;
-        if (bytes[payloadOffset + 6] != std::byte{1} || readLittle<std::uint16_t>(bytes, payloadOffset + 8) != 1) {
+        if (bytes[payloadOffset + 6] != std::byte{1} || readLittle<std::uint16_t>(bytes, payloadOffset + 8) == 0) {
             std::cerr << "Separator corruption fixture did not produce an internal root page.\n";
             return 1;
         }
