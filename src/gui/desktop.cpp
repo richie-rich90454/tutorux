@@ -49,6 +49,58 @@ namespace {
         std::size_t blockIndex{};
     };
 
+    bool isUtf8Boundary(std::string_view text, std::size_t offset) noexcept {
+        return offset == 0 || offset >= text.size() ||
+               (static_cast<unsigned char>(text[offset]) & 0xc0U) != 0x80U;
+    }
+
+    tutorux::core::Status updateGuideEditorText(ActiveGuideEditor& editor,
+                                                std::string_view updatedText) {
+        const std::string currentText = editor.text.text();
+        if (currentText == updatedText)
+            return {};
+
+        std::size_t prefix = 0;
+        while (prefix < currentText.size() && prefix < updatedText.size() &&
+               currentText[prefix] == updatedText[prefix]) {
+            ++prefix;
+        }
+        while (prefix > 0 &&
+               (!isUtf8Boundary(currentText, prefix) || !isUtf8Boundary(updatedText, prefix))) {
+            --prefix;
+        }
+
+        std::size_t currentSuffix = currentText.size();
+        std::size_t updatedSuffix = updatedText.size();
+        while (currentSuffix > prefix && updatedSuffix > prefix &&
+               currentText[currentSuffix - 1] == updatedText[updatedSuffix - 1]) {
+            --currentSuffix;
+            --updatedSuffix;
+        }
+        while (currentSuffix < currentText.size() && updatedSuffix < updatedText.size() &&
+               (!isUtf8Boundary(currentText, currentSuffix) ||
+                !isUtf8Boundary(updatedText, updatedSuffix))) {
+            ++currentSuffix;
+            ++updatedSuffix;
+        }
+
+        std::string removedText = currentText.substr(prefix, currentSuffix - prefix);
+        std::string insertedText(updatedText.substr(prefix, updatedSuffix - prefix));
+        tutorux::document::DocumentEditTransaction transaction;
+        transaction.documentId = editor.guideId;
+        transaction.expectedRevision = editor.expectedRevision;
+        transaction.selectionBefore = editor.text.selection();
+        const std::size_t cursor = prefix + insertedText.size();
+        transaction.selectionAfter = {cursor, cursor};
+        transaction.origin = "desktop-guide-editor";
+        transaction.coalesceWithPrevious = true;
+        transaction.operations.push_back({prefix, std::move(insertedText), std::move(removedText)});
+        auto result = editor.text.apply(transaction);
+        if (!result)
+            return std::unexpected(result.error());
+        return {};
+    }
+
     struct ActiveTranscriptEditor final {
         std::string sessionId;
         std::string segmentId;
@@ -1424,6 +1476,15 @@ int launchDesktop(std::optional<std::filesystem::path> archivePath,
             toSharedString("Block loaded from the selected archive revision."));
     });
 
+    window->on_guide_edit_input_changed([&, activeGuideEditor](slint::SharedString editedText) {
+        if (!*activeGuideEditor)
+            return;
+        const std::string_view text(editedText.data(), editedText.size());
+        auto status = updateGuideEditorText(**activeGuideEditor, text);
+        if (!status)
+            window->set_guide_output(toSharedString(status.error().message));
+    });
+
     window->on_save_guide_block([&, activeGuideEditor](slint::SharedString selectedGuide,
                                                        slint::SharedString selectedBlock,
                                                        slint::SharedString editedText) {
@@ -1462,15 +1523,9 @@ int launchDesktop(std::optional<std::filesystem::path> archivePath,
 
         const std::string replacement(editedText.data(), editedText.size());
         auto& buffer = (*activeGuideEditor)->text;
-        tutorux::document::DocumentEditTransaction transaction;
-        transaction.documentId = id;
-        transaction.expectedRevision = (*activeGuideEditor)->expectedRevision;
-        transaction.operations.push_back({0, replacement, buffer.text()});
-        transaction.selectionAfter = {replacement.size(), replacement.size()};
-        transaction.origin = "desktop-guide-editor";
-        auto applied = buffer.apply(transaction);
-        if (!applied) {
-            window->set_guide_output(toSharedString(applied.error().message));
+        auto synchronized = updateGuideEditorText(**activeGuideEditor, replacement);
+        if (!synchronized) {
+            window->set_guide_output(toSharedString(synchronized.error().message));
             return;
         }
 
