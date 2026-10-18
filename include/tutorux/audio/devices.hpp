@@ -9,7 +9,8 @@ namespace tutorux::audio {
 
 enum class DeviceKind {
     microphone,
-    playback
+    playback,
+    application
 };
 
 struct DeviceInfo final {
