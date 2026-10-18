@@ -8380,12 +8380,7 @@ namespace {
     }
 
     bool isSensitiveSettingKey(std::string_view key) {
-        const std::string normalizedKey = normalize(std::string(key));
-        for (const auto sensitive : {"password", "secret", "token", "api-key", "credential"}) {
-            if (normalizedKey.find(sensitive) != std::string::npos)
-                return true;
-        }
-        return false;
+        return archive::isSensitiveCredentialFieldName(key);
     }
 
     Result<std::string> settingValueOr(Archive& archive, std::string_view key, std::string fallback) {
