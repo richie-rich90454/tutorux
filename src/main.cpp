@@ -26,37 +26,37 @@
 
 namespace {
 
-    volatile std::sig_atomic_t cliStopRequested = 0;
+volatile std::sig_atomic_t cliStopRequested = 0;
 
-    void requestCliStop(int) {
-        cliStopRequested = 1;
-    }
+void requestCliStop(int) {
+    cliStopRequested = 1;
+}
 
-    std::filesystem::path executableDirectory(const char* executableArgument) {
+std::filesystem::path executableDirectory(const char* executableArgument) {
 #ifdef _WIN32
-        std::vector<wchar_t> buffer(32'768);
-        const DWORD length =
-            GetModuleFileNameW(nullptr, buffer.data(), static_cast<DWORD>(buffer.size()));
-        if (length > 0 && length < buffer.size())
-            return std::filesystem::path(std::wstring(buffer.data(), length)).parent_path();
+    std::vector<wchar_t> buffer(32'768);
+    const DWORD length =
+        GetModuleFileNameW(nullptr, buffer.data(), static_cast<DWORD>(buffer.size()));
+    if (length > 0 && length < buffer.size())
+        return std::filesystem::path(std::wstring(buffer.data(), length)).parent_path();
 #elif defined(__APPLE__)
-        std::uint32_t requiredSize = 0;
-        static_cast<void>(_NSGetExecutablePath(nullptr, &requiredSize));
-        if (requiredSize > 0) {
-            std::vector<char> buffer(requiredSize);
-            if (_NSGetExecutablePath(buffer.data(), &requiredSize) == 0)
-                return std::filesystem::absolute(buffer.data()).parent_path();
-        }
-#elif defined(__linux__)
-        std::error_code errorCode;
-        const auto executable = std::filesystem::read_symlink("/proc/self/exe", errorCode);
-        if (!errorCode)
-            return executable.parent_path();
-#endif
-        std::error_code errorCode;
-        const auto executable = std::filesystem::absolute(executableArgument, errorCode);
-        return errorCode ? std::filesystem::current_path() : executable.parent_path();
+    std::uint32_t requiredSize = 0;
+    static_cast<void>(_NSGetExecutablePath(nullptr, &requiredSize));
+    if (requiredSize > 0) {
+        std::vector<char> buffer(requiredSize);
+        if (_NSGetExecutablePath(buffer.data(), &requiredSize) == 0)
+            return std::filesystem::absolute(buffer.data()).parent_path();
     }
+#elif defined(__linux__)
+    std::error_code errorCode;
+    const auto executable = std::filesystem::read_symlink("/proc/self/exe", errorCode);
+    if (!errorCode)
+        return executable.parent_path();
+#endif
+    std::error_code errorCode;
+    const auto executable = std::filesystem::absolute(executableArgument, errorCode);
+    return errorCode ? std::filesystem::current_path() : executable.parent_path();
+}
 
 } // namespace
 
@@ -70,8 +70,9 @@ int main(int argumentCount, char* argumentValues[]) {
             argumentValues[2],
             [&](const tutorux::audio::RecordingControlCallbacks& callbacks)
                 -> tutorux::core::Status {
-                tutorux::command::DispatchControl control{
-                    callbacks.stopRequested, callbacks.pauseRequested, callbacks.stateChanged};
+                tutorux::command::DispatchControl control{callbacks.stopRequested,
+                                                          callbacks.pauseRequested,
+                                                          callbacks.stateChanged};
                 auto commandResult =
                     tutorux::command::dispatch(workerArguments, {}, std::move(control));
                 if (!commandResult)
@@ -144,18 +145,21 @@ int main(int argumentCount, char* argumentValues[]) {
         cliStopRequested = 0;
         static_cast<void>(std::signal(SIGINT, requestCliStop));
         tutorux::command::DispatchControl control;
-        control.stopRequested = [] { return cliStopRequested != 0; };
+        control.stopRequested = [] {
+            return cliStopRequested != 0;
+        };
         auto commandResult = tutorux::command::dispatch(
             arguments,
             [&](const tutorux::command::ProgressEvent& event) {
                 emittedProgress = true;
                 if (jsonOutput) {
-                    std::cout << tutorux::command::toJson(
-                                     {{"event", "progress"},
-                                      {"phase", event.phase},
-                                      {"message", event.message},
-                                      {"completed", std::to_string(event.completed)},
-                                      {"total", std::to_string(event.total)}})
+                    std::cout << tutorux::command::toJson({
+                                     {"event",     "progress"                     },
+                                     {"phase",     event.phase                    },
+                                     {"message",   event.message                  },
+                                     {"completed", std::to_string(event.completed)},
+                                     {"total",     std::to_string(event.total)    }
+                    })
                               << '\n';
                 } else if (event.phase == "ai-generation-text") {
                     std::cerr << event.message << std::flush;
