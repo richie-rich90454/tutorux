@@ -64,4 +64,5 @@ from the selected archive. `record configure` stores microphone and playback end
 durability policy in the selected archive. `record test` confirms that an endpoint is active; stream
 initialization is probed without starting a capture. Native capture is currently available only on
 Windows; WAV import and the detached-control IPC implementation are portable to supported desktop
-builds. Synchronized microphone-plus-system capture is not implemented yet.
+builds. Use `--source both` to open microphone capture and WASAPI render loopback together as
+synchronized, separately retained tracks; either track continues if its peer fails.
