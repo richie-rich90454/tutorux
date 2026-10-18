@@ -17,40 +17,40 @@
 
 namespace {
 
-    struct TemporaryDirectory final {
-        std::filesystem::path path;
+struct TemporaryDirectory final {
+    std::filesystem::path path;
 
-        ~TemporaryDirectory() {
-            std::error_code ignored;
-            std::filesystem::remove_all(path, ignored);
-        }
-    };
-
-    int reportFailure(std::string_view step, std::string_view detail) {
-        std::cerr << step << ": " << detail << '\n';
-        return 1;
+    ~TemporaryDirectory() {
+        std::error_code ignored;
+        std::filesystem::remove_all(path, ignored);
     }
+};
 
-    bool writeBytes(const std::filesystem::path& path, const std::vector<std::byte>& bytes) {
-        std::ofstream output(path, std::ios::binary | std::ios::trunc);
-        output.write(reinterpret_cast<const char*>(bytes.data()),
-                     static_cast<std::streamsize>(bytes.size()));
-        return static_cast<bool>(output);
-    }
+int reportFailure(std::string_view step, std::string_view detail) {
+    std::cerr << step << ": " << detail << '\n';
+    return 1;
+}
 
-    const std::string* jsonString(const tutorux::command::JsonValue& value, std::string_view key) {
-        const auto* object = value.asObject();
-        if (!object)
-            return nullptr;
-        const auto found = object->find(key);
-        return found == object->end() ? nullptr : found->second.asString();
-    }
+bool writeBytes(const std::filesystem::path& path, const std::vector<std::byte>& bytes) {
+    std::ofstream output(path, std::ios::binary | std::ios::trunc);
+    output.write(reinterpret_cast<const char*>(bytes.data()),
+                 static_cast<std::streamsize>(bytes.size()));
+    return static_cast<bool>(output);
+}
 
-    tutorux::core::Result<tutorux::command::CommandResult>
-    addAsset(const std::filesystem::path& archivePath, const std::filesystem::path& filePath) {
-        return tutorux::command::dispatch(
-            {"--archive", archivePath.string(), "--json", "asset", "add", filePath.string()});
-    }
+const std::string* jsonString(const tutorux::command::JsonValue& value, std::string_view key) {
+    const auto* object = value.asObject();
+    if (!object)
+        return nullptr;
+    const auto found = object->find(key);
+    return found == object->end() ? nullptr : found->second.asString();
+}
+
+tutorux::core::Result<tutorux::command::CommandResult>
+addAsset(const std::filesystem::path& archivePath, const std::filesystem::path& filePath) {
+    return tutorux::command::dispatch(
+        {"--archive", archivePath.string(), "--json", "asset", "add", filePath.string()});
+}
 
 } // namespace
 
@@ -122,17 +122,17 @@ int main() {
 
     auto duplicateImport = addAsset(archivePath, duplicatePath);
     if (!duplicateImport || duplicateImport->exitCode != 0)
-        return reportFailure("duplicate asset import", duplicateImport
-                                                           ? duplicateImport->output
-                                                           : duplicateImport.error().message);
+        return reportFailure("duplicate asset import",
+                             duplicateImport ? duplicateImport->output
+                                             : duplicateImport.error().message);
     auto duplicateSummary = command::parseJson(duplicateImport->output);
     if (!duplicateSummary || !duplicateSummary->asArray() ||
         duplicateSummary->asArray()->size() != 1 ||
         jsonString(duplicateSummary->asArray()->front(), "blob_id") == nullptr ||
         *jsonString(duplicateSummary->asArray()->front(), "blob_id") != firstBlobIdText) {
-        return reportFailure("asset content deduplication", duplicateSummary
-                                                                ? duplicateImport->output
-                                                                : duplicateSummary.error().message);
+        return reportFailure("asset content deduplication",
+                             duplicateSummary ? duplicateImport->output
+                                              : duplicateSummary.error().message);
     }
 
     {
