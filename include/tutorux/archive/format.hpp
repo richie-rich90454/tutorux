@@ -52,6 +52,11 @@ struct ArchiveHeader final {
     std::uint64_t capabilities{};
 };
 
+struct ArchiveVersion final {
+    std::uint16_t major{};
+    std::uint16_t minor{};
+};
+
 struct Record final {
     RecordType type{RecordType::Settings};
     Uuid id{};
@@ -78,6 +83,7 @@ struct CommitInfo final {
 
 std::uint32_t crc32(std::span<const std::byte> data);
 core::Result<Bytes> encodeArchiveHeader(const ArchiveHeader& header);
+core::Result<ArchiveVersion> inspectArchiveVersion(std::span<const std::byte> bytes);
 core::Result<ArchiveHeader> decodeArchiveHeader(std::span<const std::byte> bytes);
 core::Result<Bytes> encodeRecordPayload(const Record& record);
 core::Result<Record> decodeRecordPayload(RecordType type, Uuid id, std::uint64_t revision,
