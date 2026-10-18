@@ -7,8 +7,8 @@ AlignArrayOfStructures: Left
 AlignConsecutiveAssignments: false
 AlignConsecutiveDeclarations: false
 AlignOperands: Align
-AllowAllArgumentsOnNextLine: false
-AllowAllParametersOfDeclarationOnNextLine: false
+AllowAllArgumentsOnNextLine: true
+AllowAllParametersOfDeclarationOnNextLine: true
 AllowShortBlocksOnASingleLine: Never
 AllowShortCaseLabelsOnASingleLine: false
 AllowShortEnumsOnASingleLine: false
@@ -16,8 +16,8 @@ AllowShortFunctionsOnASingleLine: Empty
 AllowShortIfStatementsOnASingleLine: Never
 AllowShortLambdasOnASingleLine: Empty
 AllowShortLoopsOnASingleLine: false
-BinPackArguments: false
-BinPackParameters: false
+BinPackArguments: true
+BinPackParameters: true
 BreakBeforeBraces: Attach
 BreakBeforeBinaryOperators: None
 BreakConstructorInitializers: BeforeComma
