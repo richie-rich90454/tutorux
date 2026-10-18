@@ -96,6 +96,15 @@ namespace {
         return arguments;
     }
 
+    std::vector<std::string> archiveCommand(const std::filesystem::path& path,
+                                            std::vector<std::string> command) {
+        std::vector<std::string> arguments{"--archive", path.string()};
+        arguments.insert(arguments.end(),
+                         std::make_move_iterator(command.begin()),
+                         std::make_move_iterator(command.end()));
+        return arguments;
+    }
+
     void eraseSecret(std::string& secret) {
         if (!secret.empty())
             sodium_memzero(secret.data(), secret.size());
@@ -1188,7 +1197,7 @@ int launchDesktop(std::optional<std::filesystem::path> archivePath,
         window->invoke_run_command(toSharedString(requestedCommand), toSharedString(""));
     });
 
-    window->on_save_marker_shortcuts([&](slint::SharedString concept,
+    window->on_save_marker_shortcuts([&](slint::SharedString conceptShortcut,
                                          slint::SharedString mistake,
                                          slint::SharedString correction,
                                          slint::SharedString instruction,
@@ -1200,13 +1209,14 @@ int launchDesktop(std::optional<std::filesystem::path> archivePath,
             window->set_status_message(toSharedString("Choose an archive first."));
             return;
         }
-        std::array<std::string, 7> shortcuts{std::string(concept.data(), concept.size()),
-                                             std::string(mistake.data(), mistake.size()),
-                                             std::string(correction.data(), correction.size()),
-                                             std::string(instruction.data(), instruction.size()),
-                                             std::string(example.data(), example.size()),
-                                             std::string(followUp.data(), followUp.size()),
-                                             std::string(note.data(), note.size())};
+        std::array<std::string, 7> shortcuts{
+            std::string(conceptShortcut.data(), conceptShortcut.size()),
+            std::string(mistake.data(), mistake.size()),
+            std::string(correction.data(), correction.size()),
+            std::string(instruction.data(), instruction.size()),
+            std::string(example.data(), example.size()),
+            std::string(followUp.data(), followUp.size()),
+            std::string(note.data(), note.size())};
         std::set<char> unique;
         for (auto& shortcut : shortcuts) {
             if (shortcut.size() != 1 || shortcut.front() == ',' ||
