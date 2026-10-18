@@ -18,14 +18,17 @@ class ArchiveFile final {
     ArchiveFile& operator=(ArchiveFile&& other) noexcept;
     ~ArchiveFile();
 
-    static core::Result<ArchiveFile>
-    open(const std::filesystem::path& path, bool writable, bool createNew = false);
+    static core::Result<ArchiveFile> open(const std::filesystem::path& path, bool writable,
+                                          bool createNew = false);
 
     core::Result<Bytes> read(std::uint64_t offset, std::size_t length) const;
     core::Status readInto(std::uint64_t offset, std::span<std::byte> output) const;
     core::Status write(std::uint64_t offset, std::span<const std::byte> bytes);
     core::Status append(std::span<const std::byte> bytes, std::uint64_t& offset);
     core::Status flush();
+    core::Status truncate(std::uint64_t length);
+    void closeDataForAtomicReplace() noexcept;
+    core::Status reopenDataAfterAtomicReplace();
     core::Result<std::uint64_t> size() const;
     const std::filesystem::path& path() const {
         return path_;
@@ -35,10 +38,14 @@ class ArchiveFile final {
     }
 
   private:
+    core::Status openDataHandle(bool createNew);
+    void closeDataHandle() noexcept;
+    void closePathLock() noexcept;
     void close() noexcept;
     std::filesystem::path path_;
     bool writable_{};
     void* nativeHandle_{};
+    void* pathLockHandle_{};
 };
 
 } // namespace tutorux::archive
