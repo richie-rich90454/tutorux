@@ -98,28 +98,7 @@ namespace {
     }
 
     bool sensitiveField(std::string_view name) {
-        std::string normalized;
-        normalized.reserve(name.size());
-        for (const unsigned char character : name) {
-            if (character >= 'A' && character <= 'Z')
-                normalized.push_back(static_cast<char>(character - 'A' + 'a'));
-            else if ((character >= 'a' && character <= 'z') || (character >= '0' && character <= '9'))
-                normalized.push_back(static_cast<char>(character));
-        }
-        constexpr std::array<std::string_view, 12> markers{"password",   "passwd",  "passphrase",    "secret",
-                                                           "credential", "apikey",  "authorization", "privatekey",
-                                                           "accesskey",  "authkey", "bearertoken",   "refreshtoken"};
-        if (std::any_of(markers.begin(), markers.end(), [&](std::string_view marker) {
-                return normalized.find(marker) != std::string::npos;
-            }))
-            return true;
-        if (normalized.find("token") == std::string::npos)
-            return false;
-        constexpr std::array<std::string_view, 8> nonSecretTokenSettings{"tokenbudget", "tokensbudget", "tokencount", "tokenscount",
-                                                                         "tokenlimit",  "tokenslimit",  "tokenusage", "tokensusage"};
-        return std::none_of(nonSecretTokenSettings.begin(), nonSecretTokenSettings.end(), [&](std::string_view suffix) {
-            return normalized.ends_with(suffix);
-        });
+        return isSensitiveCredentialFieldName(name);
     }
 
     bool selectedBy(const Uuid& id, const std::set<Uuid>& include, const std::set<Uuid>& exclude) {
