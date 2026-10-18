@@ -11,6 +11,7 @@
 #include <iterator>
 #include <span>
 #include <string>
+#include <string_view>
 #include <type_traits>
 #include <vector>
 
@@ -399,6 +400,15 @@ int main() {
             return 1;
         }
     }
+    constexpr std::string_view unrecoverableTail = "unlinked-tail-bytes";
+    {
+        std::ofstream file(checksumHeaderPath, std::ios::binary | std::ios::app);
+        file.write(unrecoverableTail.data(), static_cast<std::streamsize>(unrecoverableTail.size()));
+        if (!file) {
+            std::cerr << "Unable to append the unrecoverable-tail fixture.\n";
+            return 1;
+        }
+    }
     const std::string checksumHeaderBytes = readFileContents(checksumHeaderPath);
     auto checksumHeaderReport = archive::Archive::inspectRecovery(checksumHeaderPath);
     if (!checksumHeaderReport || checksumHeaderReport->archiveHeaderValid || !checksumHeaderReport->recoveryAssessmentComplete ||
@@ -409,8 +419,16 @@ int main() {
         return 1;
     }
     const auto repairedHeaderPath = temporary.path / "checksum-header-repaired.tux";
-    if (auto status = archive::Archive::repairCopy(checksumHeaderPath, repairedHeaderPath); !status) {
+    archive::RepairReport checksumRepairReport;
+    if (auto status = archive::Archive::repairCopy(checksumHeaderPath, repairedHeaderPath, {}, &checksumRepairReport); !status) {
         std::cerr << "Checksum-only header repair copy failed: " << status.error().message << '\n';
+        return 1;
+    }
+    if (checksumRepairReport.selectedVerifiedGeneration != checksumHeaderReport->headerRepairGeneration ||
+        checksumRepairReport.discardedBytes != unrecoverableTail.size() || checksumRepairReport.discardedRecordFrames != 0 ||
+        checksumRepairReport.unattributedBytes != unrecoverableTail.size() ||
+        checksumRepairReport.discardedRegionEnd - checksumRepairReport.discardedRegionStart != unrecoverableTail.size()) {
+        std::cerr << "Checksum-only repair did not report the selected generation and discarded tail accurately.\n";
         return 1;
     }
     auto repairedHeader = archive::Archive::open(repairedHeaderPath);
@@ -581,6 +599,216 @@ int main() {
                 return issue.find("historical revision") != std::string::npos && issue.find("Session reference") != std::string::npos;
             })) {
             std::cerr << "Full verification did not validate semantic references in older revisions.\n";
+            return 1;
+        }
+    }
+
+    const auto secondaryIndexPath = temporary.path / "secondary-indexes.tux";
+    {
+        auto indexed = archive::Archive::create(secondaryIndexPath, "Secondary index test");
+        if (!indexed)
+            return 1;
+
+        const archive::Uuid studentAId = archive::randomUuid();
+        const archive::Uuid studentBId = archive::randomUuid();
+        const archive::Uuid sessionId = archive::randomUuid();
+        const archive::Uuid annotationId = archive::randomUuid();
+        const archive::Uuid edgeId = archive::randomUuid();
+        const archive::Uuid nodeAId = archive::randomUuid();
+        const archive::Uuid nodeBId = archive::randomUuid();
+        const archive::Uuid nodeCId = archive::randomUuid();
+
+        std::vector<archive::Record> records;
+        for (const auto& [studentId, name] : {
+                 std::pair{studentAId, "Student A"},
+                 std::pair{studentBId, "Student B"}
+        }) {
+            archive::Record student;
+            student.type = archive::RecordType::Student;
+            student.id = studentId;
+            student.fields["display_name"] = name;
+            records.push_back(std::move(student));
+        }
+        archive::Record session;
+        session.type = archive::RecordType::Session;
+        session.id = sessionId;
+        session.fields["student_id"] = archive::uuidToString(studentAId);
+        records.push_back(std::move(session));
+
+        archive::Record annotation;
+        annotation.type = archive::RecordType::Annotation;
+        annotation.id = annotationId;
+        annotation.fields["session_id"] = archive::uuidToString(sessionId);
+        annotation.fields["start_time_us"] = "100";
+        records.push_back(std::move(annotation));
+
+        for (const archive::Uuid& nodeId : {nodeAId, nodeBId, nodeCId}) {
+            archive::Record node;
+            node.type = archive::RecordType::EvidenceNode;
+            node.id = nodeId;
+            records.push_back(std::move(node));
+        }
+        archive::Record edge;
+        edge.type = archive::RecordType::EvidenceEdge;
+        edge.id = edgeId;
+        edge.fields["from_id"] = archive::uuidToString(nodeAId);
+        edge.fields["to_id"] = archive::uuidToString(nodeBId);
+        records.push_back(std::move(edge));
+        if (auto status = indexed->putMany(std::move(records)); !status)
+            return 1;
+
+        archive::Record updatedSession;
+        updatedSession.type = archive::RecordType::Session;
+        updatedSession.id = sessionId;
+        updatedSession.fields["student_id"] = archive::uuidToString(studentBId);
+        if (auto status = indexed->put(std::move(updatedSession)); !status)
+            return 1;
+
+        archive::Record updatedAnnotation;
+        updatedAnnotation.type = archive::RecordType::Annotation;
+        updatedAnnotation.id = annotationId;
+        updatedAnnotation.fields["session_id"] = archive::uuidToString(sessionId);
+        updatedAnnotation.fields["start_time_us"] = "200";
+        if (auto status = indexed->put(std::move(updatedAnnotation)); !status)
+            return 1;
+
+        archive::Record updatedEdge;
+        updatedEdge.type = archive::RecordType::EvidenceEdge;
+        updatedEdge.id = edgeId;
+        updatedEdge.fields["from_id"] = archive::uuidToString(nodeBId);
+        updatedEdge.fields["to_id"] = archive::uuidToString(nodeCId);
+        if (auto status = indexed->put(std::move(updatedEdge)); !status)
+            return 1;
+
+        const auto collectIds = [](auto&& query, std::vector<archive::Uuid>& ids) {
+            return query([&](archive::Record&& record) {
+                ids.push_back(record.id);
+                return true;
+            });
+        };
+        std::vector<archive::Uuid> ids;
+        if (auto status = collectIds(
+                [&](const auto& visitor) {
+                    return indexed->forEachAnnotationBySessionTime(sessionId, 0, 150, visitor);
+                },
+                ids);
+            !status || !ids.empty()) {
+            std::cerr << "Annotation index returned a stale session/time alias after an update.\n";
+            return 1;
+        }
+        if (auto status = collectIds(
+                [&](const auto& visitor) {
+                    return indexed->forEachAnnotationBySessionTime(sessionId, 150, 250, visitor);
+                },
+                ids);
+            !status || ids != std::vector<archive::Uuid>{annotationId}) {
+            std::cerr << "Annotation session/time index did not return the updated annotation.\n";
+            return 1;
+        }
+        ids.clear();
+        if (auto status = collectIds(
+                [&](const auto& visitor) {
+                    return indexed->forEachSessionForStudent(studentAId, visitor);
+                },
+                ids);
+            !status || !ids.empty()) {
+            std::cerr << "Student/session index returned a stale student alias after an update.\n";
+            return 1;
+        }
+        if (auto status = collectIds(
+                [&](const auto& visitor) {
+                    return indexed->forEachSessionForStudent(studentBId, visitor);
+                },
+                ids);
+            !status || ids != std::vector<archive::Uuid>{sessionId}) {
+            std::cerr << "Student/session index did not return the updated session.\n";
+            return 1;
+        }
+        ids.clear();
+        if (auto status = collectIds(
+                [&](const auto& visitor) {
+                    return indexed->forEachEvidenceAdjacent(nodeAId, visitor);
+                },
+                ids);
+            !status || !ids.empty()) {
+            std::cerr << "Evidence adjacency index returned a stale endpoint alias after an update.\n";
+            return 1;
+        }
+        if (auto status = collectIds(
+                [&](const auto& visitor) {
+                    return indexed->forEachEvidenceAdjacent(nodeCId, visitor);
+                },
+                ids);
+            !status || ids != std::vector<archive::Uuid>{edgeId}) {
+            std::cerr << "Evidence adjacency index did not return the updated edge.\n";
+            return 1;
+        }
+        archive::Record selfLoop;
+        selfLoop.type = archive::RecordType::EvidenceEdge;
+        selfLoop.id = edgeId;
+        selfLoop.fields["from_id"] = archive::uuidToString(nodeCId);
+        selfLoop.fields["to_id"] = archive::uuidToString(nodeCId);
+        if (auto status = indexed->put(std::move(selfLoop)); !status)
+            return 1;
+        ids.clear();
+        if (auto status = collectIds(
+                [&](const auto& visitor) {
+                    return indexed->forEachEvidenceAdjacent(nodeCId, visitor);
+                },
+                ids);
+            !status || ids != std::vector<archive::Uuid>{edgeId}) {
+            std::cerr << "Evidence adjacency index returned a self-loop more than once.\n";
+            return 1;
+        }
+
+        archive::Record deletedAnnotation;
+        deletedAnnotation.type = archive::RecordType::Annotation;
+        deletedAnnotation.id = annotationId;
+        deletedAnnotation.fields["session_id"] = archive::uuidToString(sessionId);
+        deletedAnnotation.fields["start_time_us"] = "200";
+        deletedAnnotation.fields["_deleted"] = "true";
+        if (auto status = indexed->put(std::move(deletedAnnotation)); !status)
+            return 1;
+        ids.clear();
+        if (auto status = collectIds(
+                [&](const auto& visitor) {
+                    return indexed->forEachAnnotationBySessionTime(sessionId, 150, 250, visitor);
+                },
+                ids);
+            !status || !ids.empty()) {
+            std::cerr << "Annotation index returned a tombstone without includeDeleted.\n";
+            return 1;
+        }
+        if (auto status = collectIds(
+                [&](const auto& visitor) {
+                    return indexed->forEachAnnotationBySessionTime(sessionId, 150, 250, visitor, true);
+                },
+                ids);
+            !status || ids != std::vector<archive::Uuid>{annotationId}) {
+            std::cerr << "Annotation index did not retain the tombstone mapping.\n";
+            return 1;
+        }
+
+        auto verification = indexed->verify(true);
+        if (!verification || !verification->valid) {
+            std::cerr << "Secondary indexes failed full verification.\n";
+            return 1;
+        }
+        if (auto status = indexed->compact(); !status)
+            return 1;
+        verification = indexed->verify(true);
+        if (!verification || !verification->valid) {
+            std::cerr << "Compacted secondary indexes failed full verification.\n";
+            return 1;
+        }
+        ids.clear();
+        if (auto status = collectIds(
+                [&](const auto& visitor) {
+                    return indexed->forEachAnnotationBySessionTime(sessionId, 150, 250, visitor, true);
+                },
+                ids);
+            !status || ids != std::vector<archive::Uuid>{annotationId}) {
+            std::cerr << "Compaction failed to preserve the annotation tombstone index.\n";
             return 1;
         }
     }
