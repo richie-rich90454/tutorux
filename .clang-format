@@ -22,7 +22,7 @@ BreakBeforeBraces: Attach
 BreakBeforeBinaryOperators: None
 BreakConstructorInitializers: BeforeComma
 BreakStringLiterals: false
-ColumnLimit: 140
+ColumnLimit: 100
 ContinuationIndentWidth: 4
 Cpp11BracedListStyle: true
 DerivePointerAlignment: false
