@@ -7,6 +7,6 @@
 
 namespace tutorux::document {
 
-    core::Result<std::string> renderGuidePdf(const domain::GuideDocument& guide);
+core::Result<std::string> renderGuidePdf(const domain::GuideDocument& guide);
 
 } // namespace tutorux::document
