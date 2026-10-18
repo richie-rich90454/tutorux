@@ -23,6 +23,9 @@ inline constexpr std::size_t kLocatorSize = 32;
 inline constexpr std::uint64_t kMaximumRecordPayload = 256ULL * 1024ULL * 1024ULL;
 inline constexpr std::uint64_t kRecoveryWindow = 64ULL * 1024ULL * 1024ULL;
 inline constexpr std::uint64_t kArchiveCapabilityEncrypted = 1ULL;
+inline constexpr std::uint16_t kSupportedArchiveMajorVersion = 1;
+inline constexpr std::uint16_t kSupportedArchiveMinorVersion = 0;
+inline constexpr std::uint64_t kKnownArchiveCapabilities = kArchiveCapabilityEncrypted;
 inline constexpr std::uint8_t kRecordFlagEncrypted = 1U;
 
 enum class RecordType : std::uint16_t {
@@ -46,8 +49,8 @@ enum class RecordType : std::uint16_t {
 
 struct ArchiveHeader final {
     Uuid id{};
-    std::uint16_t majorVersion{1};
-    std::uint16_t minorVersion{0};
+    std::uint16_t majorVersion{kSupportedArchiveMajorVersion};
+    std::uint16_t minorVersion{kSupportedArchiveMinorVersion};
     std::uint64_t createdAtUs{};
     std::uint64_t capabilities{};
 };
@@ -86,8 +89,7 @@ core::Result<Bytes> encodeArchiveHeader(const ArchiveHeader& header);
 core::Result<ArchiveVersion> inspectArchiveVersion(std::span<const std::byte> bytes);
 core::Result<ArchiveHeader> decodeArchiveHeader(std::span<const std::byte> bytes);
 core::Result<Bytes> encodeRecordPayload(const Record& record);
-core::Result<Record> decodeRecordPayload(RecordType type, Uuid id, std::uint64_t revision,
-                                         std::uint64_t previousOffset,
+core::Result<Record> decodeRecordPayload(RecordType type, Uuid id, std::uint64_t revision, std::uint64_t previousOffset,
                                          std::span<const std::byte> payload);
 std::string uuidToString(const Uuid& id);
 core::Result<Uuid> uuidFromString(std::string_view value);
