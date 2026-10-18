@@ -87,16 +87,18 @@ release minimum still needs to be selected; without it, the helper does not asse
 
 ## Qualification status
 
-The proposed compatibility baselines are Windows 10 22H2 (x86-64), Windows 11 24H2 (ARM64), macOS
+The declared compatibility baselines are Windows 10 22H2 (x86-64), Windows 11 24H2 (ARM64), macOS
 13 Ventura (both architectures), and Ubuntu 24.04 with glibc 2.39 or newer (x86-64 and ARM64).
-These are release targets, not validation claims. The preset matrix and cross-toolchain hooks have
-not yet been qualified on all six native OS/architecture combinations. Windows ARM64 now has a
-native `windows-11-arm` CLANGARM64 Full and Compact workflow job; it fails unless the output is an
-ARM64 PE executable and the package license tree is present. A configured workflow is not
-qualification evidence until its run passes. The macOS CI artifact is unsigned; signing requires an
-installed Developer ID identity, and notarization is not automated. The separate static WebAssembly
-job records a successful build package when it passes, but does not run CTest or a browser
-compatibility suite.
+The macOS presets and app bundle set the 13.0 deployment target. These baselines describe intended
+support; a configured workflow is not qualification evidence until its run passes. Native CI builds
+Full and Compact for all six OS/architecture targets, runs CTest, installs the runtime, and launches
+the packaged executable with `--version`. Tag builds require the Apple Developer ID certificate and
+credentials, then sign, notarize, staple, and verify macOS bundles. Set the repository secrets
+`APPLE_CODESIGN_IDENTITY`, `APPLE_CERTIFICATE_P12`, `APPLE_CERTIFICATE_PASSWORD`, `APPLE_ID`,
+`APPLE_APP_SPECIFIC_PASSWORD`, and `APPLE_TEAM_ID` before creating a `v*` tag. Non-tag CI artifacts
+remain unsigned and are for qualification only. The separate static WebAssembly job records its
+build package when it passes; browser compatibility automation and end-to-end tests remain a
+qualification gap.
 
 ## Third-party inputs
 
