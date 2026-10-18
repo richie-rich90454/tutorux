@@ -4,6 +4,7 @@
 #include "tutorux/command/json.hpp"
 
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <string>
 #include <string_view>
@@ -86,18 +87,60 @@ namespace {
             return core::error("ai_model_catalog_unavailable",
                                "The models.dev catalog request failed: " + response.transportError);
         }
-        return core::error("ai_model_catalog_unavailable",
-                           "The models.dev catalog returned HTTP " +
-                               std::to_string(response.statusCode) + ".");
+        return core::error("ai_model_catalog_unavailable", "The models.dev catalog returned HTTP " +
+                                                               std::to_string(response.statusCode) +
+                                                               ".");
     }
 
 } // namespace
 
+std::optional<std::string_view> modelsDevProviderCatalogId(std::string_view providerId) noexcept {
+    static constexpr std::array mappings{
+        std::pair<std::string_view, std::string_view>{"openai",                "openai"        },
+        {"anthropic",             "anthropic"     },
+        {"google-gemini",         "google"        },
+        {"xai",                   "xai"           },
+        {"openrouter",            "openrouter"    },
+        {"together",              "togetherai"    },
+        {"fireworks",             "fireworks"     },
+        {"deepinfra",             "deepinfra"     },
+        {"novita",                "novita"        },
+        {"nebius",                "nebius"        },
+        {"groq",                  "groq"          },
+        {"cerebras",              "cerebras"      },
+        {"sambanova",             "sambanova"     },
+        {"nvidia",                "nvidia"        },
+        {"deepseek",              "deepseek"      },
+        {"mistral",               "mistral"       },
+        {"cohere",                "cohere"        },
+        {"perplexity",            "perplexity"    },
+        {"huggingface",           "huggingface"   },
+        {"replicate",             "replicate"     },
+        {"cloudflare-workers-ai", "cloudflare"    },
+        {"moonshot",              "moonshotai"    },
+        {"zai",                   "zai"           },
+        {"minimax",               "minimax"       },
+        {"siliconflow",           "siliconflow"   },
+        {"ai21",                  "ai21"          },
+        {"bedrock",               "amazon-bedrock"},
+        {"azure-openai",          "azure"         },
+        {"alibaba-cloud",         "alibaba"       },
+        {"baidu",                 "baidu"         },
+        {"tencent-cloud",         "tencent"       },
+        {"volcengine",            "volcengine"    },
+        {"opencode-go",           "opencode"      },
+        {"opencode-zen",          "opencode"      },
+    };
+    const auto found = std::find_if(mappings.begin(), mappings.end(), [&](const auto& mapping) {
+        return mapping.first == providerId;
+    });
+    return found == mappings.end() ? std::nullopt : std::optional<std::string_view>{found->second};
+}
+
 core::Result<std::vector<ProviderModel>>
 listModelsDevProviderModels(std::string_view providerId, std::function<bool()> cancelled) {
-    if (providerId.empty() || providerId.size() > 128 ||
-        providerId.find_first_not_of("abcdefghijklmnopqrstuvwxyz0123456789-_") !=
-            std::string_view::npos) {
+    const auto catalogProviderId = modelsDevProviderCatalogId(providerId);
+    if (!catalogProviderId) {
         return std::unexpected(
             core::error("ai_provider_id_invalid", "The models.dev provider ID is invalid."));
     }
@@ -121,7 +164,7 @@ listModelsDevProviderModels(std::string_view providerId, std::function<bool()> c
                                            "models.dev returned an invalid provider catalog."));
     }
     const auto* root = parsed->asObject();
-    const auto* providerValue = root ? member(*root, providerId) : nullptr;
+    const auto* providerValue = root ? member(*root, *catalogProviderId) : nullptr;
     const auto* provider = providerValue ? providerValue->asObject() : nullptr;
     const auto* modelsValue = provider ? member(*provider, "models") : nullptr;
     const auto* providerModels = modelsValue ? modelsValue->asObject() : nullptr;
@@ -129,7 +172,7 @@ listModelsDevProviderModels(std::string_view providerId, std::function<bool()> c
         return std::unexpected(
             core::error("ai_model_catalog_unavailable",
                         "models.dev does not currently publish a model catalog for provider '" +
-                            std::string(providerId) + "'."));
+                            std::string(*catalogProviderId) + "'."));
     }
 
     const std::string owner = stringField(*provider, "name");
@@ -187,8 +230,7 @@ listModelsDevProviderModels(std::string_view providerId, std::function<bool()> c
             descriptor.pricingInformation = "unknown";
         models.push_back(std::move(descriptor));
     }
-    std::sort(models.begin(),
-              models.end(),
+    std::sort(models.begin(), models.end(),
               [](const ProviderModel& left, const ProviderModel& right) {
                   return left.id < right.id;
               });
