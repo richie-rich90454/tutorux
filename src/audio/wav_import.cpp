@@ -62,8 +62,8 @@ namespace {
         return true;
     }
 
-    core::Result<std::vector<unsigned char>>
-    readAt(std::ifstream& input, std::uint64_t offset, std::size_t count) {
+    core::Result<std::vector<unsigned char>> readAt(std::ifstream& input, std::uint64_t offset,
+                                                    std::size_t count) {
         if (offset > static_cast<std::uint64_t>(std::numeric_limits<std::streamoff>::max()) ||
             count > static_cast<std::size_t>(std::numeric_limits<std::streamsize>::max())) {
             return std::unexpected(
@@ -108,15 +108,13 @@ namespace {
             const std::uint64_t payloadOffset = cursor + 8;
             const std::uint32_t chunkSize = readU32(*chunkHeader, 4);
             if (chunkSize > riffEnd - payloadOffset) {
-                return std::unexpected(
-                    core::error("wave_chunk_invalid",
-                                "A RIFF chunk extends beyond the declared file."));
+                return std::unexpected(core::error(
+                    "wave_chunk_invalid", "A RIFF chunk extends beyond the declared file."));
             }
             if (matches(*chunkHeader, "fmt ")) {
                 if (foundFormat || chunkSize < 16 || chunkSize > 1024U * 1024U) {
-                    return std::unexpected(
-                        core::error("wave_format_invalid",
-                                    "WAV format chunk is duplicated or invalid."));
+                    return std::unexpected(core::error(
+                        "wave_format_invalid", "WAV format chunk is duplicated or invalid."));
                 }
                 const auto formatReadSize =
                     static_cast<std::size_t>(std::min<std::uint32_t>(chunkSize, 40));
@@ -132,18 +130,8 @@ namespace {
                 format.blockAlign = readU16(fields, 12);
                 format.bitsPerSample = readU16(fields, 14);
                 if (format.formatTag == 0xfffeU) {
-                    static constexpr std::array<unsigned char, 12> guidTail{0x00,
-                                                                            0x00,
-                                                                            0x10,
-                                                                            0x00,
-                                                                            0x80,
-                                                                            0x00,
-                                                                            0x00,
-                                                                            0xaa,
-                                                                            0x00,
-                                                                            0x38,
-                                                                            0x9b,
-                                                                            0x71};
+                    static constexpr std::array<unsigned char, 12> guidTail{
+                        0x00, 0x00, 0x10, 0x00, 0x80, 0x00, 0x00, 0xaa, 0x00, 0x38, 0x9b, 0x71};
                     if (chunkSize < 40 || readU16(fields, 16) < 22 ||
                         readU16(fields, 18) != format.bitsPerSample ||
                         !std::equal(guidTail.begin(), guidTail.end(), fields.begin() + 28)) {
@@ -172,9 +160,8 @@ namespace {
             const std::uint64_t paddedSize = static_cast<std::uint64_t>(chunkSize) +
                                              (static_cast<std::uint64_t>(chunkSize) & 1U);
             if (paddedSize > riffEnd - payloadOffset) {
-                return std::unexpected(
-                    core::error("wave_chunk_invalid",
-                                "RIFF chunk padding exceeds the declared file."));
+                return std::unexpected(core::error(
+                    "wave_chunk_invalid", "RIFF chunk padding exceeds the declared file."));
             }
             cursor = payloadOffset + paddedSize;
         }
@@ -184,9 +171,8 @@ namespace {
         }
 
         if (!foundFormat || format.data.empty() || format.dataBytes == 0) {
-            return std::unexpected(
-                core::error("wave_content_missing",
-                            "WAV must contain one format and nonempty audio data."));
+            return std::unexpected(core::error(
+                "wave_content_missing", "WAV must contain one format and nonempty audio data."));
         }
         if (format.channelCount == 0 || format.channelCount > 8 || format.sampleRateHz < 8'000 ||
             format.sampleRateHz > 384'000) {
@@ -213,9 +199,8 @@ namespace {
             std::any_of(format.data.begin(), format.data.end(), [&](const DataRange& range) {
                 return range.length % format.blockAlign != 0;
             })) {
-            return std::unexpected(
-                core::error("wave_format_invalid",
-                            "WAV block alignment or byte rate is inconsistent."));
+            return std::unexpected(core::error(
+                "wave_format_invalid", "WAV block alignment or byte rate is inconsistent."));
         }
         if (format.formatTag == 3)
             format.sampleFormat = "pcm_f32le";
@@ -250,12 +235,8 @@ namespace {
                                               .count());
     }
 
-    core::Status updateSession(Archive& archive,
-                               Record& session,
-                               std::string state,
-                               std::string importState,
-                               std::uint64_t chunks,
-                               std::uint64_t samples,
+    core::Status updateSession(Archive& archive, Record& session, std::string state,
+                               std::string importState, std::uint64_t chunks, std::uint64_t samples,
                                std::string errorMessage = {}) {
         session.fields["recording_state"] = std::move(state);
         session.fields["audio_import_state"] = std::move(importState);
@@ -268,8 +249,9 @@ namespace {
 
 } // namespace
 
-core::Result<ImportSummary>
-importWave(Archive& archive, const Uuid& sessionId, const std::filesystem::path& source) {
+core::Result<ImportSummary> importWave(Archive& archive, const Uuid& sessionId,
+                                       const std::filesystem::path& source,
+                                       bool allowAdditionalTrack) {
     std::error_code errorCode;
     const auto status = std::filesystem::symlink_status(source, errorCode);
     if (errorCode || std::filesystem::is_symlink(status) ||
@@ -311,8 +293,7 @@ importWave(Archive& archive, const Uuid& sessionId, const std::filesystem::path&
                                            "Session already has an active recording state."));
     }
     bool sessionAlreadyHasAudio = false;
-    if (auto status = archive.forEachAudioChunk(sessionId,
-                                                std::nullopt,
+    if (auto status = archive.forEachAudioChunk(sessionId, std::nullopt,
                                                 [&](Record&& chunk) {
                                                     if (domain::getField(chunk, "session_id") ==
                                                         archive::uuidToString(sessionId)) {
@@ -324,7 +305,7 @@ importWave(Archive& archive, const Uuid& sessionId, const std::filesystem::path&
         !status) {
         return std::unexpected(status.error());
     }
-    if (sessionAlreadyHasAudio) {
+    if (sessionAlreadyHasAudio && !allowAdditionalTrack) {
         return std::unexpected(core::error(
             "audio_import_already_present",
             "Session already contains audio chunks; merge or replace audio explicitly first."));
@@ -396,18 +377,12 @@ importWave(Archive& archive, const Uuid& sessionId, const std::filesystem::path&
         session.fields.erase("audio_imported_at_us");
         session.fields["audio_import_bytes"] =
             std::to_string(committedSamples * static_cast<std::uint64_t>(format->blockAlign));
-        auto status = updateSession(archive,
-                                    session,
-                                    "interrupted",
-                                    "interrupted",
-                                    committedChunkCount,
-                                    committedSamples,
-                                    failure.message);
+        auto status = updateSession(archive, session, "interrupted", "interrupted",
+                                    committedChunkCount, committedSamples, failure.message);
         if (!status) {
-            return std::unexpected(
-                core::error(failure.code,
-                            failure.message +
-                                " Unable to persist interrupted state: " + status.error().message));
+            return std::unexpected(core::error(
+                failure.code, failure.message + " Unable to persist interrupted state: " +
+                                  status.error().message));
         }
         return std::unexpected(failure);
     };
@@ -484,11 +459,7 @@ importWave(Archive& archive, const Uuid& sessionId, const std::filesystem::path&
         committedSamples = firstSampleIndex;
     }
     session.fields["audio_imported_at_us"] = std::to_string(nowUnixMicroseconds());
-    if (auto status = updateSession(archive,
-                                    session,
-                                    "completed",
-                                    "completed",
-                                    sequenceNumber,
+    if (auto status = updateSession(archive, session, "completed", "completed", sequenceNumber,
                                     summary.sampleCount);
         !status) {
         return failImport(status.error());
@@ -622,13 +593,10 @@ core::Result<ImportSummary> recoverWaveImport(Archive& archive, const Uuid& sess
         session.fields["audio_imported_at_us"] = std::to_string(nowUnixMicroseconds());
     else
         session.fields.erase("audio_imported_at_us");
-    auto status = updateSession(archive,
-                                session,
-                                summary.completed ? "completed" : "interrupted",
-                                summary.completed ? "completed" : "interrupted",
-                                summary.chunkCount,
-                                summary.sampleCount,
-                                summary.completed ? std::string{} : failureReason);
+    auto status =
+        updateSession(archive, session, summary.completed ? "completed" : "interrupted",
+                      summary.completed ? "completed" : "interrupted", summary.chunkCount,
+                      summary.sampleCount, summary.completed ? std::string{} : failureReason);
     if (!status)
         return std::unexpected(status.error());
     return summary;
