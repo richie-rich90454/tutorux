@@ -6,7 +6,9 @@
 #include <thread>
 
 #ifdef _WIN32
+#ifndef NOMINMAX
 #define NOMINMAX
+#endif
 #include <Windows.h>
 #include <Psapi.h>
 #elif defined(__APPLE__)
@@ -52,6 +54,8 @@ namespace {
         return "macOS";
 #elif defined(__linux__)
         return "Linux";
+#elif defined(__EMSCRIPTEN__)
+        return "WebAssembly";
 #elif defined(__FreeBSD__)
         return "FreeBSD";
 #else
@@ -68,6 +72,8 @@ namespace {
         return "x86";
 #elif defined(__arm__) || defined(_M_ARM)
         return "arm";
+#elif defined(__EMSCRIPTEN__)
+        return "wasm32";
 #else
         return "unknown";
 #endif
