@@ -191,6 +191,56 @@ namespace {
         return "AUDIOSESSION:" + uuidToString(*sessionId) + ":" + uuidToString(*trackId) + ":" + sequenceText;
     }
 
+    std::optional<std::int64_t> annotationStartTime(const Record& record) {
+        if (record.type != RecordType::Annotation)
+            return std::nullopt;
+        const std::string value = domain::getField(record, "start_time_us");
+        std::int64_t timestamp = 0;
+        const auto [end, errorCode] = std::from_chars(value.data(), value.data() + value.size(), timestamp);
+        if (value.empty() || errorCode != std::errc{} || end != value.data() + value.size() || timestamp < 0)
+            return std::nullopt;
+        return timestamp;
+    }
+
+    std::set<std::string, std::less<>> annotationSessionTimeIndexKeys(const Record& record) {
+        std::set<std::string, std::less<>> keys;
+        if (record.type != RecordType::Annotation)
+            return keys;
+        auto sessionId = uuidFromString(domain::getField(record, "session_id"));
+        auto timestamp = annotationStartTime(record);
+        if (!sessionId || !timestamp)
+            return keys;
+        std::string timeKey = std::to_string(static_cast<std::uint64_t>(*timestamp));
+        timeKey.insert(0, 20U - timeKey.size(), '0');
+        keys.insert("ANNOTATIONSESSION:" + uuidToString(*sessionId) + ":" + timeKey + ":" + uuidToString(record.id));
+        return keys;
+    }
+
+    std::set<std::string, std::less<>> studentSessionIndexKeys(const Record& record) {
+        std::set<std::string, std::less<>> keys;
+        if (record.type != RecordType::Session)
+            return keys;
+        const std::string studentIdText = domain::getField(record, "student_id");
+        if (studentIdText.empty() || studentIdText == "anonymous")
+            return keys;
+        auto studentId = uuidFromString(studentIdText);
+        if (studentId)
+            keys.insert("STUDENTSESSION:" + uuidToString(*studentId) + ":" + uuidToString(record.id));
+        return keys;
+    }
+
+    std::set<std::string, std::less<>> evidenceAdjacencyIndexKeys(const Record& record) {
+        std::set<std::string, std::less<>> keys;
+        if (record.type != RecordType::EvidenceEdge)
+            return keys;
+        for (const std::string_view field : {"from_id", "to_id"}) {
+            auto nodeId = uuidFromString(domain::getField(record, field));
+            if (nodeId)
+                keys.insert("EVIDENCEADJ:" + uuidToString(*nodeId) + ":" + uuidToString(record.id));
+        }
+        return keys;
+    }
+
     std::set<std::string, std::less<>> guideSourceIndexKeys(const Record& record) {
         std::set<std::string, std::less<>> keys;
         if (record.type != RecordType::Guide)
@@ -551,6 +601,69 @@ namespace {
             }
         }
         return std::pair{*header, std::move(*payload)};
+    }
+
+    struct DiscardedRegionSummary final {
+        std::uint64_t recordFrames{};
+        std::uint64_t recordFrameBytes{};
+        std::uint64_t unattributedBytes{};
+    };
+
+    Result<DiscardedRegionSummary> summarizeDiscardedRegion(const ArchiveFile& file, std::uint64_t start, std::uint64_t end) {
+        if (start > end) {
+            return std::unexpected(
+                core::error("archive_repair_range_invalid", "The selected repair boundary exceeds the source archive size."));
+        }
+
+        DiscardedRegionSummary summary;
+        constexpr std::uint64_t kScanChunkSize = 4U * 1024U * 1024U;
+        constexpr std::uint64_t kHeaderOverlap = kRecordHeaderSize - 8U;
+        for (std::uint64_t offset = start; offset < end;) {
+            const std::uint64_t remaining = end - offset;
+            if (remaining < kRecordHeaderSize) {
+                summary.unattributedBytes += remaining;
+                break;
+            }
+
+            const std::uint64_t scanStartSpan = std::min(kScanChunkSize, remaining);
+            const std::uint64_t readLength = std::min(remaining, scanStartSpan + kHeaderOverlap);
+            auto block = file.read(offset, static_cast<std::size_t>(readLength));
+            if (!block)
+                return std::unexpected(block.error());
+
+            bool foundFrame = false;
+            for (std::uint64_t index = 0; index < scanStartSpan && index + kRecordHeaderSize <= block->size(); index += 8U) {
+                if (!matches(std::span<const std::byte>(*block).subspan(static_cast<std::size_t>(index)), "TXRC"))
+                    continue;
+                auto header = decodeFrameHeader(std::span<const std::byte>(*block).subspan(static_cast<std::size_t>(index)));
+                if (!header)
+                    continue;
+
+                const std::uint64_t padding = (8U - (header->payloadLength % 8U)) % 8U;
+                const std::uint64_t frameBytes = kRecordHeaderSize + header->payloadLength + padding;
+                const std::uint64_t skippedBytes = index;
+                if (frameBytes > remaining - skippedBytes)
+                    continue;
+
+                summary.unattributedBytes += skippedBytes;
+                ++summary.recordFrames;
+                summary.recordFrameBytes += frameBytes;
+                offset += skippedBytes + frameBytes;
+                foundFrame = true;
+                break;
+            }
+
+            if (foundFrame)
+                continue;
+
+            if (remaining <= kScanChunkSize) {
+                summary.unattributedBytes += remaining;
+                break;
+            }
+            summary.unattributedBytes += kScanChunkSize;
+            offset += kScanChunkSize;
+        }
+        return summary;
     }
 
     struct DecodedCommit final {
@@ -1489,6 +1602,166 @@ core::Status Archive::forEachAudioChunk(const Uuid& sessionId, const std::option
     return {};
 }
 
+core::Status Archive::forEachAnnotationBySessionTime(const Uuid& sessionId, std::int64_t startTimeUs, std::int64_t endTimeUs,
+                                                     const std::function<bool(Record&&)>& visitor, bool includeDeleted) const {
+    std::lock_guard lock(*mutex_);
+    if (!visitor)
+        return std::unexpected(core::error("archive_visitor_invalid", "Record visitor is empty."));
+    if (startTimeUs < 0 || endTimeUs < startTimeUs) {
+        return std::unexpected(
+            core::error("annotation_index_range_invalid", "Annotation range must be non-negative and end at or after its start."));
+    }
+
+    const auto inRange = [&](const Record& record) {
+        if (domain::getField(record, "session_id") != uuidToString(sessionId))
+            return false;
+        const auto timestamp = annotationStartTime(record);
+        return timestamp && *timestamp >= startTimeUs && *timestamp < endTimeUs;
+    };
+    auto manifest = get(RecordType::Settings, header_.id);
+    if (!manifest)
+        return std::unexpected(manifest.error());
+    if (!*manifest || domain::getField(**manifest, "annotation_session_time_index_version") != "1") {
+        return forEach(
+            RecordType::Annotation,
+            [&](Record&& record) {
+                return !inRange(record) || visitor(std::move(record));
+            },
+            includeDeleted);
+    }
+
+    const std::string prefix = "ANNOTATIONSESSION:" + uuidToString(sessionId) + ":";
+    std::set<Uuid> visited;
+    bool invalidIndex = false;
+    auto status = forEachIndexPrefix(
+        prefix,
+        [&](Record&& indexedRecord) {
+            if (indexedRecord.type != RecordType::Annotation) {
+                invalidIndex = true;
+                return false;
+            }
+            auto latest = get(RecordType::Annotation, indexedRecord.id);
+            if (!latest || !*latest) {
+                invalidIndex = true;
+                return false;
+            }
+            if (!includeDeleted && domain::isDeleted(**latest))
+                return true;
+            if (!inRange(**latest) || !visited.insert((*latest)->id).second)
+                return true;
+            return visitor(std::move(**latest));
+        },
+        true);
+    if (!status)
+        return status;
+    if (invalidIndex) {
+        return std::unexpected(core::error("annotation_index_invalid", "Annotation session index points to a missing or mistyped record."));
+    }
+    return {};
+}
+
+core::Status Archive::forEachSessionForStudent(const Uuid& studentId, const std::function<bool(Record&&)>& visitor,
+                                               bool includeDeleted) const {
+    std::lock_guard lock(*mutex_);
+    if (!visitor)
+        return std::unexpected(core::error("archive_visitor_invalid", "Record visitor is empty."));
+    auto manifest = get(RecordType::Settings, header_.id);
+    if (!manifest)
+        return std::unexpected(manifest.error());
+    if (!*manifest || domain::getField(**manifest, "student_session_index_version") != "1") {
+        const std::string studentIdText = uuidToString(studentId);
+        return forEach(
+            RecordType::Session,
+            [&](Record&& record) {
+                return domain::getField(record, "student_id") != studentIdText || visitor(std::move(record));
+            },
+            includeDeleted);
+    }
+
+    const std::string prefix = "STUDENTSESSION:" + uuidToString(studentId) + ":";
+    std::set<Uuid> visited;
+    bool invalidIndex = false;
+    auto status = forEachIndexPrefix(
+        prefix,
+        [&](Record&& indexedRecord) {
+            if (indexedRecord.type != RecordType::Session) {
+                invalidIndex = true;
+                return false;
+            }
+            auto latest = get(RecordType::Session, indexedRecord.id);
+            if (!latest || !*latest) {
+                invalidIndex = true;
+                return false;
+            }
+            if (!includeDeleted && domain::isDeleted(**latest))
+                return true;
+            if (domain::getField(**latest, "student_id") != uuidToString(studentId) || !visited.insert((*latest)->id).second) {
+                return true;
+            }
+            return visitor(std::move(**latest));
+        },
+        true);
+    if (!status)
+        return status;
+    if (invalidIndex) {
+        return std::unexpected(
+            core::error("student_session_index_invalid", "Student-to-session index points to a missing or mistyped record."));
+    }
+    return {};
+}
+
+core::Status Archive::forEachEvidenceAdjacent(const Uuid& nodeId, const std::function<bool(Record&&)>& visitor, bool includeDeleted) const {
+    std::lock_guard lock(*mutex_);
+    if (!visitor)
+        return std::unexpected(core::error("archive_visitor_invalid", "Record visitor is empty."));
+    auto manifest = get(RecordType::Settings, header_.id);
+    if (!manifest)
+        return std::unexpected(manifest.error());
+    if (!*manifest || domain::getField(**manifest, "evidence_adjacency_index_version") != "1") {
+        const std::string nodeIdText = uuidToString(nodeId);
+        return forEach(
+            RecordType::EvidenceEdge,
+            [&](Record&& record) {
+                return (domain::getField(record, "from_id") != nodeIdText && domain::getField(record, "to_id") != nodeIdText) ||
+                       visitor(std::move(record));
+            },
+            includeDeleted);
+    }
+
+    const std::string prefix = "EVIDENCEADJ:" + uuidToString(nodeId) + ":";
+    std::set<Uuid> visited;
+    bool invalidIndex = false;
+    auto status = forEachIndexPrefix(
+        prefix,
+        [&](Record&& indexedRecord) {
+            if (indexedRecord.type != RecordType::EvidenceEdge) {
+                invalidIndex = true;
+                return false;
+            }
+            auto latest = get(RecordType::EvidenceEdge, indexedRecord.id);
+            if (!latest || !*latest) {
+                invalidIndex = true;
+                return false;
+            }
+            if (!includeDeleted && domain::isDeleted(**latest))
+                return true;
+            const std::string nodeIdText = uuidToString(nodeId);
+            if ((domain::getField(**latest, "from_id") != nodeIdText && domain::getField(**latest, "to_id") != nodeIdText) ||
+                !visited.insert((*latest)->id).second) {
+                return true;
+            }
+            return visitor(std::move(**latest));
+        },
+        true);
+    if (!status)
+        return status;
+    if (invalidIndex) {
+        return std::unexpected(
+            core::error("evidence_adjacency_index_invalid", "Evidence adjacency index points to a missing or mistyped record."));
+    }
+    return {};
+}
+
 core::Result<std::vector<Record>> Archive::list(RecordType type, bool includeDeleted) const {
     std::lock_guard lock(*mutex_);
     std::vector<Record> records;
@@ -1977,6 +2250,22 @@ core::Status Archive::putManyInternal(std::vector<Record> records, bool invalida
             }
         }
     }
+    const bool migrateAnnotationSessionTimeIndex = !manifest || domain::getField(*manifest, "annotation_session_time_index_version") != "1";
+    const bool migrateStudentSessionIndex = !manifest || domain::getField(*manifest, "student_session_index_version") != "1";
+    const bool migrateEvidenceAdjacencyIndex = !manifest || domain::getField(*manifest, "evidence_adjacency_index_version") != "1";
+    const auto markSecondaryIndexes = [](Record& record) {
+        record.fields["annotation_session_time_index_version"] = "1";
+        record.fields["student_session_index_version"] = "1";
+        record.fields["evidence_adjacency_index_version"] = "1";
+    };
+    if (manifest)
+        markSecondaryIndexes(*manifest);
+    for (auto record = records.rbegin(); record != records.rend(); ++record) {
+        if (record->type == RecordType::Settings && record->id == header_.id) {
+            markSecondaryIndexes(*record);
+            break;
+        }
+    }
     std::set<std::string, std::less<>> changedGuideSourceIds;
     if (hasAudioChunks) {
         std::set<std::string> indexedSessionIds;
@@ -2085,6 +2374,22 @@ core::Status Archive::putManyInternal(std::vector<Record> records, bool invalida
             newRootOffset = *audioRoot;
             commit_.rootOffset = newRootOffset;
         }
+        const auto indexSecondaryKeys = [&](const std::set<std::string, std::less<>>& keys) -> Status {
+            for (const std::string& secondaryKey : keys) {
+                auto secondaryRoot = indexRecord(secondaryKey, location->offset);
+                if (!secondaryRoot)
+                    return std::unexpected(secondaryRoot.error());
+                newRootOffset = *secondaryRoot;
+                commit_.rootOffset = newRootOffset;
+            }
+            return {};
+        };
+        if (auto status = indexSecondaryKeys(annotationSessionTimeIndexKeys(record)); !status)
+            return status;
+        if (auto status = indexSecondaryKeys(studentSessionIndexKeys(record)); !status)
+            return status;
+        if (auto status = indexSecondaryKeys(evidenceAdjacencyIndexKeys(record)); !status)
+            return status;
         if (record.type == RecordType::Guide) {
             const auto currentAliases = guideSourceIndexKeys(record);
             guideSourceAliases.insert(currentAliases.begin(), currentAliases.end());
@@ -2130,6 +2435,53 @@ core::Status Archive::putManyInternal(std::vector<Record> records, bool invalida
             return migrationStatus;
         if (migrationError)
             return std::unexpected(std::move(*migrationError));
+    }
+
+    const auto migrateSecondaryIndex = [&](RecordType type, const auto& keyGenerator, std::string_view indexName) -> Status {
+        std::optional<Error> migrationError;
+        auto migrationStatus = forEach(
+            type,
+            [&](Record&& record) {
+                auto latestOffset = findOffset(indexKey(type, record.id));
+                if (!latestOffset) {
+                    migrationError = latestOffset.error();
+                    return false;
+                }
+                if (!*latestOffset) {
+                    migrationError = core::error("archive_secondary_index_migration_failed",
+                                                 "Record disappeared while initializing the " + std::string(indexName) + " index.");
+                    return false;
+                }
+                for (const std::string& secondaryKey : keyGenerator(record)) {
+                    auto root = indexRecord(secondaryKey, **latestOffset);
+                    if (!root) {
+                        migrationError = root.error();
+                        return false;
+                    }
+                    commit_.rootOffset = *root;
+                    newRootOffset = *root;
+                }
+                return true;
+            },
+            true);
+        if (!migrationStatus)
+            return migrationStatus;
+        if (migrationError)
+            return std::unexpected(std::move(*migrationError));
+        return {};
+    };
+    if (migrateAnnotationSessionTimeIndex) {
+        if (auto status = migrateSecondaryIndex(RecordType::Annotation, annotationSessionTimeIndexKeys, "annotation-by-session-and-time");
+            !status)
+            return status;
+    }
+    if (migrateStudentSessionIndex) {
+        if (auto status = migrateSecondaryIndex(RecordType::Session, studentSessionIndexKeys, "student-to-session"); !status)
+            return status;
+    }
+    if (migrateEvidenceAdjacencyIndex) {
+        if (auto status = migrateSecondaryIndex(RecordType::EvidenceEdge, evidenceAdjacencyIndexKeys, "evidence-adjacency"); !status)
+            return status;
     }
 
     if (invalidateGuides && !changedGuideSourceIds.empty()) {
@@ -2429,6 +2781,12 @@ core::Result<VerificationReport> Archive::verify(bool full) const {
     }
     const bool guideSourceIndexEnabled =
         *manifest && !domain::isDeleted(**manifest) && domain::getField(**manifest, "guide_source_index_version") == "1";
+    const bool annotationSessionTimeIndexEnabled =
+        *manifest && !domain::isDeleted(**manifest) && domain::getField(**manifest, "annotation_session_time_index_version") == "1";
+    const bool studentSessionIndexEnabled =
+        *manifest && !domain::isDeleted(**manifest) && domain::getField(**manifest, "student_session_index_version") == "1";
+    const bool evidenceAdjacencyIndexEnabled =
+        *manifest && !domain::isDeleted(**manifest) && domain::getField(**manifest, "evidence_adjacency_index_version") == "1";
     auto root = readIndexPage(commit_.rootOffset);
     if (!root) {
         report.issues.push_back(root.error().message);
@@ -2542,6 +2900,7 @@ core::Result<VerificationReport> Archive::verify(bool full) const {
         }
 
         std::set<std::uint64_t> checkedRecordOffsets;
+        std::vector<std::pair<std::string, std::uint64_t>> checkedSecondaryIndexOffsets;
         std::vector<Record> currentRecords;
         std::vector<Record> reachableRecords;
         for (const auto& [key, latestOffset] : *entries) {
@@ -2653,6 +3012,21 @@ core::Result<VerificationReport> Archive::verify(bool full) const {
                         }
                     }
                 }
+                const auto checkCurrentSecondaryIndex = [&](const auto& keyGenerator, std::string_view indexName) {
+                    for (const std::string& expectedKey : keyGenerator(*latest)) {
+                        auto indexedOffset = findOffset(expectedKey);
+                        if (!indexedOffset || !*indexedOffset || **indexedOffset != latestOffset) {
+                            report.issues.push_back(std::string(indexName) + " index is missing its current record mapping for " +
+                                                    uuidToString(latest->id) + ".");
+                        }
+                    }
+                };
+                if (latest->type == RecordType::Annotation && annotationSessionTimeIndexEnabled)
+                    checkCurrentSecondaryIndex(annotationSessionTimeIndexKeys, "Annotation session/time");
+                if (latest->type == RecordType::Session && studentSessionIndexEnabled)
+                    checkCurrentSecondaryIndex(studentSessionIndexKeys, "Student-to-session");
+                if (latest->type == RecordType::EvidenceEdge && evidenceAdjacencyIndexEnabled)
+                    checkCurrentSecondaryIndex(evidenceAdjacencyIndexKeys, "Evidence adjacency");
             } else if (key.starts_with("AUDIOSESSION:")) {
                 const auto expectedKey = audioSessionIndexKey(*latest);
                 auto primaryOffset = findOffset(indexKey(latest->type, latest->id));
@@ -2674,6 +3048,27 @@ core::Result<VerificationReport> Archive::verify(bool full) const {
                     !primaryOffset || !*primaryOffset || **primaryOffset != latestOffset) {
                     report.issues.push_back("Guide source index does not reference the current guide revision.");
                 }
+            } else if (key.starts_with("ANNOTATIONSESSION:")) {
+                auto primaryOffset = findOffset(indexKey(RecordType::Annotation, latest->id));
+                if (!annotationSessionTimeIndexEnabled || latest->type != RecordType::Annotation ||
+                    !annotationSessionTimeIndexKeys(*latest).contains(key) || !primaryOffset || !*primaryOffset) {
+                    report.issues.push_back("Annotation session/time index key does not match an annotation revision.");
+                }
+                checkedSecondaryIndexOffsets.emplace_back(key, latestOffset);
+            } else if (key.starts_with("STUDENTSESSION:")) {
+                auto primaryOffset = findOffset(indexKey(RecordType::Session, latest->id));
+                if (!studentSessionIndexEnabled || latest->type != RecordType::Session || !studentSessionIndexKeys(*latest).contains(key) ||
+                    !primaryOffset || !*primaryOffset) {
+                    report.issues.push_back("Student-to-session index key does not match a session revision.");
+                }
+                checkedSecondaryIndexOffsets.emplace_back(key, latestOffset);
+            } else if (key.starts_with("EVIDENCEADJ:")) {
+                auto primaryOffset = findOffset(indexKey(RecordType::EvidenceEdge, latest->id));
+                if (!evidenceAdjacencyIndexEnabled || latest->type != RecordType::EvidenceEdge ||
+                    !evidenceAdjacencyIndexKeys(*latest).contains(key) || !primaryOffset || !*primaryOffset) {
+                    report.issues.push_back("Evidence adjacency index key does not match an evidence-edge revision.");
+                }
+                checkedSecondaryIndexOffsets.emplace_back(key, latestOffset);
             }
             std::uint64_t offset = latestOffset;
             Record current = std::move(*latest);
@@ -2722,6 +3117,12 @@ core::Result<VerificationReport> Archive::verify(bool full) const {
                 }
                 offset = previousOffset;
                 current = std::move(*previous);
+            }
+        }
+
+        for (const auto& [key, offset] : checkedSecondaryIndexOffsets) {
+            if (!checkedRecordOffsets.contains(offset)) {
+                report.issues.push_back("Secondary index key '" + key + "' references a record outside its primary revision chain.");
             }
         }
 
@@ -3427,8 +3828,8 @@ core::Status Archive::backup(const std::filesystem::path& destination) const {
     return {};
 }
 
-core::Status Archive::repairCopy(const std::filesystem::path& source, const std::filesystem::path& destination,
-                                 std::string_view passphrase) {
+core::Status Archive::repairCopy(const std::filesystem::path& source, const std::filesystem::path& destination, std::string_view passphrase,
+                                 RepairReport* repairReport) {
     if (extensionLower(destination) != ".tux") {
         return std::unexpected(core::error("archive_extension_invalid", "Repaired portable archives must use the .tux extension."));
     }
@@ -3522,10 +3923,13 @@ core::Status Archive::repairCopy(const std::filesystem::path& source, const std:
             if (auto status = Archive::recoverUnpublishedCommit(correctedSourcePath, passphrase); !status)
                 return status;
         }
-        return Archive::repairCopy(correctedSourcePath, destination, passphrase);
+        return Archive::repairCopy(correctedSourcePath, destination, passphrase, repairReport);
     }
 
     std::uint64_t selectedLength = 0;
+    std::uint64_t selectedGeneration = 0;
+    std::uint64_t sourceLength = 0;
+    DiscardedRegionSummary discardedRegion;
     {
         auto original = Archive::open(source, false, passphrase);
         if (!original)
@@ -3559,6 +3963,15 @@ core::Status Archive::repairCopy(const std::filesystem::path& source, const std:
         if (!end)
             return std::unexpected(end.error());
         selectedLength = *end;
+        selectedGeneration = original->commit_.generation;
+        auto originalLength = original->file_.size();
+        if (!originalLength)
+            return std::unexpected(originalLength.error());
+        sourceLength = *originalLength;
+        auto regionSummary = summarizeDiscardedRegion(original->file_, selectedLength, sourceLength);
+        if (!regionSummary)
+            return std::unexpected(regionSummary.error());
+        discardedRegion = *regionSummary;
         if (auto status = original->backup(temporaryPath); !status)
             return status;
     }
@@ -3619,6 +4032,15 @@ core::Status Archive::repairCopy(const std::filesystem::path& source, const std:
     }
     ::close(directoryHandle);
 #endif
+    if (repairReport != nullptr) {
+        repairReport->selectedVerifiedGeneration = selectedGeneration;
+        repairReport->discardedRegionStart = selectedLength;
+        repairReport->discardedRegionEnd = sourceLength;
+        repairReport->discardedBytes = sourceLength - selectedLength;
+        repairReport->discardedRecordFrames = discardedRegion.recordFrames;
+        repairReport->discardedRecordFrameBytes = discardedRegion.recordFrameBytes;
+        repairReport->unattributedBytes = discardedRegion.unattributedBytes;
+    }
     return {};
 }
 
