@@ -35,8 +35,7 @@ void requestCliStop(int) {
 std::filesystem::path executableDirectory(const char* executableArgument) {
 #ifdef _WIN32
     std::vector<wchar_t> buffer(32'768);
-    const DWORD length =
-        GetModuleFileNameW(nullptr, buffer.data(), static_cast<DWORD>(buffer.size()));
+    const DWORD length = GetModuleFileNameW(nullptr, buffer.data(), static_cast<DWORD>(buffer.size()));
     if (length > 0 && length < buffer.size())
         return std::filesystem::path(std::wstring(buffer.data(), length)).parent_path();
 #elif defined(__APPLE__)
@@ -44,8 +43,20 @@ std::filesystem::path executableDirectory(const char* executableArgument) {
     static_cast<void>(_NSGetExecutablePath(nullptr, &requiredSize));
     if (requiredSize > 0) {
         std::vector<char> buffer(requiredSize);
-        if (_NSGetExecutablePath(buffer.data(), &requiredSize) == 0)
-            return std::filesystem::absolute(buffer.data()).parent_path();
+        if (_NSGetExecutablePath(buffer.data(), &requiredSize) == 0) {
+            std::error_code errorCode;
+            auto executable = std::filesystem::weakly_canonical(buffer.data(), errorCode);
+            if (errorCode)
+                executable = std::filesystem::absolute(buffer.data(), errorCode);
+            if (!errorCode) {
+                const auto executableDirectory = executable.parent_path();
+                const auto contentsDirectory = executableDirectory.parent_path();
+                const auto applicationBundle = contentsDirectory.parent_path();
+                if (contentsDirectory.filename() == "Contents" && applicationBundle.extension() == ".app")
+                    return applicationBundle;
+                return executableDirectory;
+            }
+        }
     }
 #elif defined(__linux__)
     std::error_code errorCode;
@@ -67,18 +78,13 @@ int main(int argumentCount, char* argumentValues[]) {
         for (int index = 3; index < argumentCount; ++index)
             workerArguments.emplace_back(argumentValues[index]);
         return tutorux::audio::runRecordingWorker(
-            argumentValues[2],
-            [&](const tutorux::audio::RecordingControlCallbacks& callbacks)
-                -> tutorux::core::Status {
-                tutorux::command::DispatchControl control{
-                    callbacks.stopRequested, callbacks.pauseRequested, callbacks.stateChanged};
-                auto commandResult =
-                    tutorux::command::dispatch(workerArguments, {}, std::move(control));
+            argumentValues[2], [&](const tutorux::audio::RecordingControlCallbacks& callbacks) -> tutorux::core::Status {
+                tutorux::command::DispatchControl control{callbacks.stopRequested, callbacks.pauseRequested, callbacks.stateChanged};
+                auto commandResult = tutorux::command::dispatch(workerArguments, {}, std::move(control));
                 if (!commandResult)
                     return std::unexpected(commandResult.error());
                 if (commandResult->exitCode != 0) {
-                    return std::unexpected(
-                        tutorux::core::error("recording_worker_failed", commandResult->output));
+                    return std::unexpected(tutorux::core::error("recording_worker_failed", commandResult->output));
                 }
                 return tutorux::core::Status{};
             });
@@ -116,8 +122,7 @@ int main(int argumentCount, char* argumentValues[]) {
             directoryPath = argument.substr(directoryPrefix.size());
             continue;
         }
-        if (argument == "--json" || argument == "--quiet" || argument == "--verbose" ||
-            argument == "--no-color")
+        if (argument == "--json" || argument == "--quiet" || argument == "--verbose" || argument == "--no-color")
             continue;
         if (argument == "gui") {
             guiCommand = true;
@@ -128,8 +133,7 @@ int main(int argumentCount, char* argumentValues[]) {
     const bool guiRequested = argumentCount == 1 || guiCommand || !hasExplicitCommand;
     if (guiRequested) {
         if (!directoryPath) {
-            directoryPath = guiCommand ? std::filesystem::current_path()
-                                       : executableDirectory(argumentValues[0]);
+            directoryPath = guiCommand ? std::filesystem::current_path() : executableDirectory(argumentValues[0]);
         }
         if (archivePath && archivePath->is_relative())
             archivePath = std::filesystem::absolute(*directoryPath / *archivePath);
@@ -171,11 +175,8 @@ int main(int argumentCount, char* argumentValues[]) {
             std::cerr << '\n';
         if (!commandResult) {
             if (jsonOutput) {
-                std::cout << "{\"error\":{\"code\":\""
-                          << tutorux::command::jsonEscape(commandResult.error().code)
-                          << "\",\"message\":\""
-                          << tutorux::command::jsonEscape(commandResult.error().message)
-                          << "\"}}\n";
+                std::cout << "{\"error\":{\"code\":\"" << tutorux::command::jsonEscape(commandResult.error().code) << "\",\"message\":\""
+                          << tutorux::command::jsonEscape(commandResult.error().message) << "\"}}\n";
             } else {
                 std::cerr << "tutorux: " << commandResult.error().message << "\n";
             }
@@ -187,16 +188,15 @@ int main(int argumentCount, char* argumentValues[]) {
         return commandResult->exitCode;
     } catch (const std::exception& exception) {
         if (jsonOutput) {
-            std::cout << "{\"error\":{\"code\":\"unexpected_error\",\"message\":\""
-                      << tutorux::command::jsonEscape(exception.what()) << "\"}}\n";
+            std::cout << "{\"error\":{\"code\":\"unexpected_error\",\"message\":\"" << tutorux::command::jsonEscape(exception.what())
+                      << "\"}}\n";
         } else {
             std::cerr << "tutorux: unexpected error: " << exception.what() << "\n";
         }
         return 2;
     } catch (...) {
         if (jsonOutput) {
-            std::cout
-                << "{\"error\":{\"code\":\"unexpected_error\",\"message\":\"Unknown failure.\"}}\n";
+            std::cout << "{\"error\":{\"code\":\"unexpected_error\",\"message\":\"Unknown failure.\"}}\n";
         } else {
             std::cerr << "tutorux: unknown failure.\n";
         }
