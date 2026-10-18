@@ -13,6 +13,8 @@
 #include <cstring>
 #include <fstream>
 #include <functional>
+#include <initializer_list>
+#include <iterator>
 #include <limits>
 #include <map>
 #include <set>
@@ -330,15 +332,61 @@ namespace {
         return normalized;
     }
 
+    std::string canonicalSettingKey(std::string_view key) {
+        std::string normalized;
+        normalized.reserve(key.size());
+        for (const unsigned char character : key) {
+            if (character >= 'A' && character <= 'Z')
+                normalized.push_back(static_cast<char>(character - 'A' + 'a'));
+            else if ((character >= 'a' && character <= 'z') || (character >= '0' && character <= '9'))
+                normalized.push_back(static_cast<char>(character));
+        }
+        return normalized;
+    }
+
     bool isSensitiveSettingKey(std::string_view key) {
-        const std::string normalized = lowercaseAscii(key);
-        constexpr std::array<std::string_view, 7> markers{"password", "secret",     "token",        "api-key",
-                                                          "api_key",  "credential", "authorization"};
+        const std::string normalized = canonicalSettingKey(key);
+        constexpr std::array<std::string_view, 12> markers{"password",   "passwd",  "passphrase",    "secret",
+                                                           "credential", "apikey",  "authorization", "privatekey",
+                                                           "accesskey",  "authkey", "bearertoken",   "refreshtoken"};
         for (const std::string_view marker : markers) {
             if (normalized.find(marker) != std::string::npos)
                 return true;
         }
+        if (normalized.find("token") == std::string::npos)
+            return false;
+
+        constexpr std::array<std::string_view, 8> nonSecretTokenSettings{"tokenbudget", "tokensbudget", "tokencount", "tokenscount",
+                                                                         "tokenlimit",  "tokenslimit",  "tokenusage", "tokensusage"};
+        return std::none_of(nonSecretTokenSettings.begin(), nonSecretTokenSettings.end(), [&](std::string_view suffix) {
+            return normalized.ends_with(suffix);
+        });
+    }
+
+    bool hasSensitiveSettingsFields(const Record& record) {
+        if (record.type != RecordType::Settings)
+            return false;
+        for (const auto& [fieldName, value] : record.fields) {
+            if (isSensitiveSettingKey(fieldName))
+                return true;
+            if (canonicalSettingKey(fieldName) == "key" && isSensitiveSettingKey(value))
+                return true;
+        }
         return false;
+    }
+
+    bool declaresCredentialRole(const Record& record) {
+        if (record.type != RecordType::Settings)
+            return false;
+        bool foundRole = false;
+        for (const auto& [fieldName, value] : record.fields) {
+            if (canonicalSettingKey(fieldName) != "recordrole")
+                continue;
+            foundRole = true;
+            if (lowercaseAscii(value) != "credential")
+                return false;
+        }
+        return foundRole;
     }
 
     Result<FrameHeader> decodeFrameHeader(std::span<const std::byte> bytes) {
@@ -864,6 +912,14 @@ namespace {
     }
 
 } // namespace
+
+bool isCredentialSettingsRecord(const Record& record) {
+    return declaresCredentialRole(record);
+}
+
+bool hasSensitiveCredentialMaterial(const Record& record) {
+    return hasSensitiveSettingsFields(record);
+}
 
 struct Archive::IndexPage final {
     struct LeafEntry final {
@@ -1781,14 +1837,15 @@ core::Status Archive::putManyInternal(std::vector<Record> records, bool invalida
     for (const Record& record : records) {
         if (record.type != RecordType::Settings)
             continue;
-        const std::string role = lowercaseAscii(domain::getField(record, "record_role"));
-        if (role == "credential" && !encryptionEnabled_) {
+        const bool credentialRecord = isCredentialSettingsRecord(record);
+        const bool sensitiveMaterial = hasSensitiveCredentialMaterial(record);
+        if (credentialRecord && !encryptionEnabled_) {
             return std::unexpected(
                 core::error("credential_encryption_required", "Credential records can be stored only in an encrypted archive."));
         }
-        if (role == "setting" && isSensitiveSettingKey(domain::getField(record, "key"))) {
+        if (sensitiveMaterial && !credentialRecord) {
             return std::unexpected(core::error("sensitive_setting_key_rejected",
-                                               "Sensitive values must use encrypted credential records, not ordinary settings."));
+                                               "Credential-bearing settings must use the encrypted credential representation."));
         }
     }
     struct Rollback final {
@@ -2318,39 +2375,120 @@ core::Result<VerificationReport> Archive::verify(bool full) const {
         return report;
     }
     if (full) {
-        std::set<std::uint64_t> pageOffsets;
-        std::function<Status(std::uint64_t, std::size_t)> checkPage = [&](std::uint64_t offset, std::size_t depth) -> Status {
-            if (depth > 32 || !pageOffsets.insert(offset).second) {
+        using KeyRange = std::optional<std::pair<std::string, std::string>>;
+        struct PhysicalSpan final {
+            std::uint64_t end{};
+            std::string label;
+        };
+        std::map<std::uint64_t, PhysicalSpan> physicalSpans;
+        const auto includeFrameSpan = [&](std::uint64_t offset, const FrameHeader& header, std::string label) -> Status {
+            const std::uint64_t padding = (8U - (header.payloadLength % 8U)) % 8U;
+            const std::uint64_t length = kRecordHeaderSize + header.payloadLength + padding;
+            if (offset > std::numeric_limits<std::uint64_t>::max() - length) {
+                return std::unexpected(core::error("record_span_invalid", "Record physical span overflows the archive offset range."));
+            }
+            const std::uint64_t end = offset + length;
+            const auto [found, inserted] = physicalSpans.emplace(offset, PhysicalSpan{end, std::move(label)});
+            if (!inserted && found->second.end != end) {
+                return std::unexpected(core::error("record_span_conflict", "One archive offset resolves to inconsistent frame spans."));
+            }
+            return {};
+        };
+
+        std::function<Status(std::uint64_t, std::size_t, std::set<std::uint64_t>&, KeyRange&)> validatePage;
+        validatePage = [&](std::uint64_t offset, std::size_t depth, std::set<std::uint64_t>& visited, KeyRange& range) -> Status {
+            if (depth > 32 || !visited.insert(offset).second) {
                 return std::unexpected(core::error("index_cycle", "B+ tree contains a cycle or excessive depth."));
             }
             auto page = readIndexPage(offset);
             if (!page)
                 return std::unexpected(page.error());
-            if (!page->leaf) {
-                for (const auto child : page->children) {
-                    if (auto status = checkPage(child, depth + 1); !status)
-                        return status;
+            auto frame = readFrame(file_, offset, RecordType::IndexPage);
+            if (!frame)
+                return std::unexpected(frame.error());
+            if (auto status = includeFrameSpan(offset, frame->first, "index page at " + std::to_string(offset)); !status)
+                return status;
+
+            if (page->leaf) {
+                if (!page->entries.empty()) {
+                    range.emplace(page->entries.front().key, page->entries.back().key);
+                }
+                return {};
+            }
+
+            std::vector<KeyRange> childRanges(page->children.size());
+            for (std::size_t childIndex = 0; childIndex < page->children.size(); ++childIndex) {
+                if (auto status = validatePage(page->children[childIndex], depth + 1, visited, childRanges[childIndex]); !status)
+                    return status;
+                if (!childRanges[childIndex]) {
+                    return std::unexpected(core::error("index_child_range_invalid", "Internal B+ tree child has no keys."));
                 }
             }
+            for (std::size_t separatorIndex = 0; separatorIndex < page->separators.size(); ++separatorIndex) {
+                const std::string& separator = page->separators[separatorIndex];
+                if (childRanges[separatorIndex]->second >= separator || childRanges[separatorIndex + 1]->first != separator) {
+                    return std::unexpected(
+                        core::error("index_separator_range_invalid", "B+ tree separator does not match its adjacent child key ranges."));
+                }
+            }
+            range.emplace(childRanges.front()->first, childRanges.back()->second);
             return {};
         };
-        if (auto status = checkPage(commit_.rootOffset, 0); !status)
-            report.issues.push_back(status.error().message);
-        report.indexPagesChecked = pageOffsets.size();
+
+        CommitInfo snapshot = commit_;
+        std::set<std::uint64_t> checkedCommitOffsets;
+        for (std::uint64_t checked = 0; checked < commit_.generation && snapshot.offset != 0; ++checked) {
+            if (!checkedCommitOffsets.insert(snapshot.offset).second) {
+                report.issues.push_back("Commit history contains a cycle while checking physical record spans.");
+                break;
+            }
+            auto commitFrame = readFrame(file_, snapshot.offset, RecordType::Commit);
+            if (!commitFrame) {
+                report.issues.push_back("Commit frame at " + std::to_string(snapshot.offset) + ": " + commitFrame.error().message);
+                break;
+            }
+            if (auto status = includeFrameSpan(snapshot.offset, commitFrame->first, "commit frame at " + std::to_string(snapshot.offset));
+                !status) {
+                report.issues.push_back(status.error().message);
+                break;
+            }
+            auto decoded = decodeCommit(file_, snapshot.offset);
+            if (!decoded) {
+                report.issues.push_back("Commit frame at " + std::to_string(snapshot.offset) + ": " + decoded.error().message);
+                break;
+            }
+            std::set<std::uint64_t> pageOffsets;
+            KeyRange rootRange;
+            if (auto status = validatePage(decoded->info.rootOffset, 0, pageOffsets, rootRange); !status) {
+                report.issues.push_back("Commit generation " + std::to_string(decoded->info.generation) +
+                                        " index: " + status.error().message);
+            }
+            if (snapshot.offset == commit_.offset)
+                report.indexPagesChecked = pageOffsets.size();
+            if (decoded->info.previousOffset == 0)
+                break;
+            snapshot = decoded->info;
+            snapshot.offset = decoded->info.previousOffset;
+        }
 
         std::set<std::uint64_t> checkedRecordOffsets;
         std::vector<Record> currentRecords;
+        std::vector<Record> reachableRecords;
         for (const auto& [key, latestOffset] : *entries) {
             auto latestFrame = readFrame(file_, latestOffset);
             if (!latestFrame) {
                 report.issues.push_back("Index key '" + key + "': " + latestFrame.error().message);
                 continue;
             }
+            if (auto status = includeFrameSpan(latestOffset, latestFrame->first, "record at " + std::to_string(latestOffset)); !status)
+                report.issues.push_back(status.error().message);
             if (isOpaqueRecordType(latestFrame->first.type)) {
                 std::uint64_t offset = latestOffset;
                 auto currentFrame = std::move(*latestFrame);
                 while (offset != 0 && checkedRecordOffsets.insert(offset).second) {
                     const FrameHeader& frameHeader = currentFrame.first;
+                    if (auto status = includeFrameSpan(offset, frameHeader, "opaque record at " + std::to_string(offset)); !status)
+                        report.issues.push_back(status.error().message);
                     if (!isOpaqueRecordType(frameHeader.type)) {
                         report.issues.push_back("Opaque record revision changes record type at " + std::to_string(offset) + ".");
                         break;
@@ -2397,6 +2535,11 @@ core::Result<VerificationReport> Archive::verify(bool full) const {
                         report.issues.push_back("Opaque revision at offset " + std::to_string(previousOffset) +
                                                 " is invalid: " + previousFrame.error().message);
                         break;
+                    }
+                    if (auto status =
+                            includeFrameSpan(previousOffset, previousFrame->first, "opaque record at " + std::to_string(previousOffset));
+                        !status) {
+                        report.issues.push_back(status.error().message);
                     }
                     if (previousFrame->first.type != frameHeader.type || previousFrame->first.id != frameHeader.id ||
                         previousFrame->first.revision >= frameHeader.revision) {
@@ -2466,14 +2609,18 @@ core::Result<VerificationReport> Archive::verify(bool full) const {
             Record current = std::move(*latest);
             while (offset != 0 && checkedRecordOffsets.insert(offset).second) {
                 ++report.recordsChecked;
+                Record semanticRecord = current;
+                semanticRecord.blob.clear();
+                reachableRecords.push_back(std::move(semanticRecord));
                 if (current.type == RecordType::Settings) {
-                    const std::string role = lowercaseAscii(domain::getField(current, "record_role"));
-                    if (role == "credential" && !encryptionEnabled_) {
+                    const bool credentialRecord = isCredentialSettingsRecord(current);
+                    const bool sensitiveMaterial = hasSensitiveCredentialMaterial(current);
+                    if (credentialRecord && !encryptionEnabled_) {
                         report.issues.push_back("Credential record " + uuidToString(current.id) + " is stored in an unencrypted archive.");
                     }
-                    if (role == "setting" && isSensitiveSettingKey(domain::getField(current, "key"))) {
-                        report.issues.push_back("Sensitive setting record " + uuidToString(current.id) +
-                                                " is stored as an ordinary setting.");
+                    if (sensitiveMaterial && !credentialRecord) {
+                        report.issues.push_back("Settings record " + uuidToString(current.id) +
+                                                " contains credential-looking data outside the credential representation.");
                     }
                 }
                 const auto previousOffset = current.previousOffset;
@@ -2482,6 +2629,16 @@ core::Result<VerificationReport> Archive::verify(bool full) const {
                 if (previousOffset >= offset) {
                     report.issues.push_back("Record revision points forward or to itself at offset " + std::to_string(offset) + ".");
                     break;
+                }
+                auto previousFrame = readFrame(file_, previousOffset);
+                if (!previousFrame) {
+                    report.issues.push_back("Revision at offset " + std::to_string(previousOffset) +
+                                            " is invalid: " + previousFrame.error().message);
+                    break;
+                }
+                if (auto status = includeFrameSpan(previousOffset, previousFrame->first, "record at " + std::to_string(previousOffset));
+                    !status) {
+                    report.issues.push_back(status.error().message);
                 }
                 auto previous = readRecordAt(previousOffset);
                 if (!previous) {
@@ -2495,6 +2652,125 @@ core::Result<VerificationReport> Archive::verify(bool full) const {
                 }
                 offset = previousOffset;
                 current = std::move(*previous);
+            }
+        }
+
+        std::map<std::string, std::uint64_t, std::less<>> latestRevisionByKey;
+        for (const Record& record : currentRecords)
+            latestRevisionByKey.emplace(indexKey(record.type, record.id), record.revision);
+        std::map<std::string, std::vector<const Record*>, std::less<>> liveRevisionsByKey;
+        for (const Record& record : reachableRecords) {
+            if (!domain::isDeleted(record))
+                liveRevisionsByKey[indexKey(record.type, record.id)].push_back(&record);
+        }
+        const auto hasLiveRevision = [&](RecordType type, const Uuid& id) {
+            return liveRevisionsByKey.contains(indexKey(type, id));
+        };
+        const auto findLiveRevision = [&](RecordType type, const Uuid& id) -> const Record* {
+            const auto found = liveRevisionsByKey.find(indexKey(type, id));
+            return found == liveRevisionsByKey.end() || found->second.empty() ? nullptr : found->second.front();
+        };
+        const auto hasAnyLiveRevision = [&](const Uuid& id, std::initializer_list<RecordType> types) {
+            return std::any_of(types.begin(), types.end(), [&](RecordType type) {
+                return hasLiveRevision(type, id);
+            });
+        };
+        for (const Record& record : reachableRecords) {
+            const auto latestRevision = latestRevisionByKey.find(indexKey(record.type, record.id));
+            if (latestRevision != latestRevisionByKey.end() && latestRevision->second == record.revision)
+                continue;
+            if (domain::isDeleted(record))
+                continue;
+            const auto checkHistoricalReference = [&](std::string_view fieldName, RecordType targetType, std::string_view description) {
+                const auto field = record.fields.find(fieldName);
+                if (field == record.fields.end() || field->second.empty())
+                    return;
+                auto targetId = uuidFromString(field->second);
+                if (!targetId || !hasLiveRevision(targetType, *targetId)) {
+                    report.issues.push_back(std::string(description) + " in historical revision " + uuidToString(record.id) +
+                                            " does not resolve.");
+                }
+            };
+            if (record.type == RecordType::Session) {
+                const auto student = record.fields.find("student_id");
+                if (student != record.fields.end() && !student->second.empty() && student->second != "anonymous")
+                    checkHistoricalReference("student_id", RecordType::Student, "Student reference");
+            } else if (record.type == RecordType::Annotation || record.type == RecordType::TranscriptSegment ||
+                       record.type == RecordType::AudioChunk || record.type == RecordType::AssetMetadata ||
+                       record.type == RecordType::EvidenceNode || record.type == RecordType::Guide) {
+                checkHistoricalReference("session_id", RecordType::Session, "Session reference");
+            }
+            if (record.type == RecordType::AssetMetadata)
+                checkHistoricalReference("blob_id", RecordType::AssetBlob, "Asset blob reference");
+            if (record.type == RecordType::AssetBlob && domain::getField(record, "record_role") == "asset-blob-manifest") {
+                std::uint64_t expectedChunkCount = 0;
+                const std::string chunkCount = domain::getField(record, "chunk_count");
+                const auto [countEnd, countError] =
+                    std::from_chars(chunkCount.data(), chunkCount.data() + chunkCount.size(), expectedChunkCount);
+                const std::string chunkIds = domain::getField(record, "chunk_ids");
+                std::size_t start = 0;
+                std::uint64_t chunkIndex = 0;
+                bool validChunks = countError == std::errc{} && countEnd == chunkCount.data() + chunkCount.size();
+                while (validChunks && start < chunkIds.size()) {
+                    const std::size_t end = chunkIds.find(',', start);
+                    const std::size_t itemEnd = end == std::string::npos ? chunkIds.size() : end;
+                    auto chunkId = uuidFromString(std::string_view(chunkIds.data() + start, itemEnd - start));
+                    const Record* chunk = chunkId ? findLiveRevision(RecordType::AssetBlob, *chunkId) : nullptr;
+                    if (!chunk || domain::getField(*chunk, "record_role") != "asset-blob-chunk" ||
+                        domain::getField(*chunk, "manifest_id") != uuidToString(record.id) ||
+                        domain::getField(*chunk, "chunk_index") != std::to_string(chunkIndex)) {
+                        validChunks = false;
+                        break;
+                    }
+                    ++chunkIndex;
+                    if (end == std::string::npos)
+                        break;
+                    start = end + 1;
+                }
+                if (!validChunks || chunkIndex != expectedChunkCount) {
+                    report.issues.push_back("Historical asset blob manifest " + uuidToString(record.id) +
+                                            " references missing or inconsistent chunks.");
+                }
+            }
+            if (record.type == RecordType::EvidenceEdge) {
+                checkHistoricalReference("from_id", RecordType::EvidenceNode, "Evidence edge source");
+                checkHistoricalReference("to_id", RecordType::EvidenceNode, "Evidence edge target");
+            }
+            if (record.type == RecordType::Guide) {
+                auto guide = domain::guideFromRecord(record);
+                if (!guide) {
+                    report.issues.push_back("Historical guide " + uuidToString(record.id) + " is invalid: " + guide.error().message);
+                    continue;
+                }
+                for (const auto& section : guide->sections) {
+                    for (const auto& block : section.blocks) {
+                        std::vector<std::string> sourceIds = block.sourceIds;
+                        auto inlineSourceIds = domain::guideInlineSourceIds(block.text);
+                        if (!inlineSourceIds) {
+                            report.issues.push_back("Historical guide " + uuidToString(record.id) +
+                                                    " has invalid inline source references.");
+                        } else {
+                            sourceIds.insert(sourceIds.end(), inlineSourceIds->begin(), inlineSourceIds->end());
+                        }
+                        if (block.kind == "image" || block.kind == "figure" || block.text.starts_with("![")) {
+                            auto image = domain::parseGuideImageReference(block.text);
+                            if (!image) {
+                                report.issues.push_back("Historical guide " + uuidToString(record.id) + " has an invalid image reference.");
+                            } else {
+                                sourceIds.push_back(image->assetId);
+                            }
+                        }
+                        for (const std::string& sourceId : sourceIds) {
+                            auto id = uuidFromString(sourceId);
+                            if (!id ||
+                                !hasAnyLiveRevision(*id, {RecordType::TranscriptSegment, RecordType::Annotation, RecordType::EvidenceNode,
+                                                          RecordType::AssetMetadata, RecordType::Session, RecordType::Student})) {
+                                report.issues.push_back("Historical guide " + uuidToString(record.id) + " references a missing source " +
+                                                        sourceId + ".");
+                            }
+                        }
+                    }
+                }
             }
         }
 
@@ -2608,6 +2884,18 @@ core::Result<VerificationReport> Archive::verify(bool full) const {
                 }
             }
         }
+
+        if (!physicalSpans.empty()) {
+            auto previous = physicalSpans.begin();
+            for (auto current = std::next(previous); current != physicalSpans.end(); ++current) {
+                if (current->first < previous->second.end) {
+                    report.issues.push_back("Physical archive record spans overlap: " + previous->second.label + " and " +
+                                            current->second.label + ".");
+                }
+                if (current->second.end > previous->second.end)
+                    previous = current;
+            }
+        }
     } else {
         report.indexPagesChecked = 1;
     }
@@ -2619,10 +2907,29 @@ core::Result<RecoveryReport> Archive::inspectRecovery(const std::filesystem::pat
     auto file = ArchiveFile::open(path, false);
     if (!file)
         return std::unexpected(file.error());
+    auto fileSize = file->size();
+    if (!fileSize)
+        return std::unexpected(fileSize.error());
+    const auto unreadableHeaderReport = [&](std::string diagnostic) {
+        RecoveryReport report;
+        report.archiveHeaderValid = false;
+        report.recoveryAssessmentComplete = false;
+        report.issues.push_back(std::move(diagnostic) +
+                                " Recovery candidates were not scanned because archive identity and encryption state cannot be "
+                                "trusted; no archive bytes were changed.");
+        return report;
+    };
+    if (*fileSize < kArchiveHeaderSize) {
+        return unreadableHeaderReport("Archive header is truncated: " + std::to_string(*fileSize) + " of " +
+                                      std::to_string(kArchiveHeaderSize) + " required bytes are present.");
+    }
     auto rawHeader = file->read(0, kArchiveHeaderSize);
     if (!rawHeader)
-        return std::unexpected(rawHeader.error());
+        return unreadableHeaderReport("Archive header could not be read: " + rawHeader.error().message);
     auto header = decodeArchiveHeader(*rawHeader);
+    if (!header && header.error().code != "archive_version_unsupported" && header.error().code != "archive_capability_unsupported") {
+        return unreadableHeaderReport("Archive header validation failed (" + header.error().code + "): " + header.error().message);
+    }
     if (!header)
         return std::unexpected(header.error());
 
@@ -2630,10 +2937,6 @@ core::Result<RecoveryReport> Archive::inspectRecovery(const std::filesystem::pat
     if (!baseResult)
         return std::unexpected(baseResult.error());
     const CommitInfo base = *baseResult ? (*baseResult)->info : CommitInfo{};
-    auto fileSize = file->size();
-    if (!fileSize)
-        return std::unexpected(fileSize.error());
-
     RecoveryReport report;
     report.committedGeneration = base.generation;
     report.encrypted = (header->capabilities & kArchiveCapabilityEncrypted) != 0;
