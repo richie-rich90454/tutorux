@@ -24,6 +24,14 @@ SHA-256. `asset extract ID --output FILE` streams verified content to a temporar
 publishes it only after validation. Legacy v1 archives containing one-record asset blobs remain
 readable.
 
+For supported PDF and DOCX files, import also stores bounded extracted text in the asset metadata
+field `extracted_text` for AI context workflows. `text_extraction_status` records `extracted`,
+`no-text`, or `size-limit`. Extraction reads at most 16 MiB of source, stores at most 2 MiB of text,
+limits DOCX main XML to 4 MiB, and limits PDF extraction to 512 pages and 200,000 content operators
+per page. Oversized documents remain importable without extracted text. Malformed supported
+documents fail before asset records are written; other formats remain safely stored as original
+bytes without text extraction.
+
 The WebAssembly journal offers bounded, user-initiated previews for selected image, PDF, text, audio,
 and video types. Preview bytes are verified, read from temporary worker memory, then removed; see
 [Browser asset previews](ASSET-PREVIEW.md) for formats, limits, and browser support details. Other
