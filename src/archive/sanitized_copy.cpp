@@ -94,19 +94,32 @@ namespace {
     }
 
     bool isCredential(const Record& record) {
-        return lower(domain::getField(record, "record_role")) == "credential";
+        return isCredentialSettingsRecord(record);
     }
 
     bool sensitiveField(std::string_view name) {
-        const std::string normalized = lower(name);
-        return normalized.find("password") != std::string::npos || normalized.find("secret") != std::string::npos ||
-               normalized.find("token") != std::string::npos || normalized.find("api-key") != std::string::npos ||
-               normalized.find("api_key") != std::string::npos || normalized.find("credential") != std::string::npos ||
-               normalized == "authorization";
-    }
-
-    bool sensitiveOrdinarySetting(const Record& record) {
-        return lower(domain::getField(record, "record_role")) == "setting" && sensitiveField(domain::getField(record, "key"));
+        std::string normalized;
+        normalized.reserve(name.size());
+        for (const unsigned char character : name) {
+            if (character >= 'A' && character <= 'Z')
+                normalized.push_back(static_cast<char>(character - 'A' + 'a'));
+            else if ((character >= 'a' && character <= 'z') || (character >= '0' && character <= '9'))
+                normalized.push_back(static_cast<char>(character));
+        }
+        constexpr std::array<std::string_view, 12> markers{"password",   "passwd",  "passphrase",    "secret",
+                                                           "credential", "apikey",  "authorization", "privatekey",
+                                                           "accesskey",  "authkey", "bearertoken",   "refreshtoken"};
+        if (std::any_of(markers.begin(), markers.end(), [&](std::string_view marker) {
+                return normalized.find(marker) != std::string::npos;
+            }))
+            return true;
+        if (normalized.find("token") == std::string::npos)
+            return false;
+        constexpr std::array<std::string_view, 8> nonSecretTokenSettings{"tokenbudget", "tokensbudget", "tokencount", "tokenscount",
+                                                                         "tokenlimit",  "tokenslimit",  "tokenusage", "tokensusage"};
+        return std::none_of(nonSecretTokenSettings.begin(), nonSecretTokenSettings.end(), [&](std::string_view suffix) {
+            return normalized.ends_with(suffix);
+        });
     }
 
     bool selectedBy(const Uuid& id, const std::set<Uuid>& include, const std::set<Uuid>& exclude) {
@@ -470,10 +483,11 @@ namespace {
                 continue;
             if (isCredential(record) && !options.includeCredentials)
                 continue;
-            if (sensitiveOrdinarySetting(record)) {
+            if (hasSensitiveCredentialMaterial(record) && !isCredential(record)) {
                 if (options.includeCredentials) {
                     return std::unexpected(core::error("sanitized_copy_plaintext_credential",
-                                                       "A sensitive value is stored as an ordinary setting and cannot be copied. "
+                                                       "A credential-looking value is not stored as an encrypted credential and "
+                                                       "cannot be copied. "
                                                        "Move it into an encrypted credential record first."));
                 }
                 continue;
