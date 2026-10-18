@@ -10890,7 +10890,7 @@ namespace {
                 if (!entry || !*entry || domain::isDeleted(**entry) || domain::getField(**entry, "record_role") != "guide-template") {
                     return failed(core::error("template_not_found", "Template was not found."));
                 }
-                definition = {uuid(**entry),
+                definition = {uuid((**entry).id),
                               domain::getField(**entry, "name"),
                               domain::getField(**entry, "subject"),
                               domain::getField(**entry, "description"),
