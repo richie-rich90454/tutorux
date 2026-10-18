@@ -1,4 +1,4 @@
-import { AboutSlint, Button, CheckBox, ComboBox, LineEdit, ScrollView } from "std-widgets.slint";
+import { Button, CheckBox, ComboBox, LineEdit, NavItem, ScrollArea, ScrollText, Theme } from "./theme.slint";
 
 component GuideDocumentEditor inherits Rectangle {
     in-out property <string> text;
@@ -21,11 +21,11 @@ component GuideDocumentEditor inherits Rectangle {
     }
 
     border-width: 1px;
-    border-color: #111111;
-    border-radius: 5px;
+    border-color: Theme.line;
+    border-radius: 12px;
     background: #ffffff;
 
-    ScrollView {
+    ScrollArea {
         x: 4px;
         y: 4px;
         width: parent.width - 8px;
@@ -40,9 +40,9 @@ component GuideDocumentEditor inherits Rectangle {
             wrap: word-wrap;
             text <=> root.text;
             font-size: 13px;
-            color: #111111;
-            selection-background-color: #e8edff;
-            selection-foreground-color: #111111;
+            color: Theme.ink;
+            selection-background-color: Theme.accent-soft;
+            selection-foreground-color: Theme.ink;
 
             edited => {
                 root.edited(self.text, self.cursor-position-byte-offset,
@@ -80,12 +80,34 @@ component CommandPanel inherits Rectangle {
     callback run-command();
     callback cancel-command();
 
-    border-radius: 5px;
-    background: #ffffff;
+    border-radius: Theme.radius-card;
+    background: Theme.surface;
+    border-width: 1px;
+    border-color: Theme.line;
+
     VerticalLayout {
         padding: 18px;
-        spacing: 10px;
-        Text { text: "Archive command"; color: #111111; font-size: 10px; font-weight: 700; letter-spacing: 1px; }
+        spacing: 12px;
+
+        HorizontalLayout {
+            spacing: 8px;
+            Text {
+                text: "Archive console";
+                color: Theme.ink;
+                font-size: 15px;
+                font-weight: 650;
+                vertical-alignment: center;
+            }
+            Rectangle { }
+            Text {
+                text: "Arguments are parsed by Tutorux; no shell commands are executed.";
+                color: Theme.faint;
+                font-size: 11px;
+                vertical-alignment: center;
+                wrap: word-wrap;
+            }
+        }
+
         HorizontalLayout {
             spacing: 8px;
             LineEdit {
@@ -93,12 +115,25 @@ component CommandPanel inherits Rectangle {
                 text <=> root.command-input;
                 accepted => { root.run-command(); }
             }
-            Button { text: "Run"; clicked => { root.run-command(); } }
-            if root.command-running: Button { text: "Cancel"; clicked => { root.cancel-command(); } }
+            Button { text: "Run"; variant: "primary"; clicked => { root.run-command(); } }
+            if root.command-running: Button { text: "Cancel"; variant: "danger"; clicked => { root.cancel-command(); } }
         }
-        ScrollView {
-            height: 132px;
-            Text { text: root.command-output; color: #111111; font-size: 11px; wrap: word-wrap; }
+
+        Rectangle {
+            border-radius: 10px;
+            background: #0e1626;
+            border-width: 1px;
+            border-color: #1e2b47;
+
+            ScrollText {
+                x: 14px;
+                y: 12px;
+                width: parent.width - 28px;
+                height: 128px;
+                text: root.command-output;
+                text-color: #c7d4ea;
+                font-family: "Consolas";
+            }
         }
     }
 }
@@ -106,11 +141,11 @@ component CommandPanel inherits Rectangle {
 export component MainWindow inherits Window {
     title: "Tutorux";
     preferred-width: 1240px;
-    preferred-height: 820px;
+    preferred-height: 780px;
     min-width: 980px;
-    min-height: 680px;
-    background: #ffffff;
-    default-font-family: "Noto Sans";
+    min-height: 620px;
+    background: Theme.canvas;
+    default-font-family: "Segoe UI";
     default-font-size: 14px;
 
     in-out property <string> archive-list;
@@ -493,10 +528,10 @@ export component MainWindow inherits Window {
             spacing: 0px;
 
             Rectangle {
-                width: 248px;
-                background: #111111;
+                width: 264px;
+                background: Theme.sidebar;
 
-                ScrollView {
+                ScrollArea {
                     width: 100%;
                     height: 100%;
                     content-width: self.visible-width;
@@ -505,73 +540,81 @@ export component MainWindow inherits Window {
 
                     sidebar-content := VerticalLayout {
                     width: parent.visible-width;
-                    padding: 24px;
-                    spacing: 18px;
+                    padding-left: 14px;
+                    padding-right: 14px;
+                    padding-top: 22px;
+                    padding-bottom: 20px;
+                    spacing: 5px;
 
                     HorizontalLayout {
                         spacing: 11px;
-                        Rectangle {
-                            width: 38px;
-                            height: 38px;
-                            border-radius: 5px;
-                            background: #1e40ff;
-                            Text {
-                                text: "T";
-                                color: #ffffff;
-                                font-size: 22px;
-                                font-weight: 700;
-                                horizontal-alignment: center;
-                                vertical-alignment: center;
-                            }
+                        alignment: center;
+                        Image {
+                            width: 40px;
+                            height: 40px;
+                            source: @image-url("assets/logo.svg");
+                            accessible-role: none;
                         }
                         VerticalLayout {
-                            spacing: 1px;
+                            spacing: 0px;
                             Text {
-                                text: "tutorux";
-                                color: #ffffff;
-                                font-size: 20px;
+                                text: "Tutorux";
+                                color: Theme.sidebar-ink;
+                                font-size: 19px;
                                 font-weight: 700;
                             }
                             Text {
-                                text: "TEACHING, REMEMBERED";
-                                color: #ffffff;
-                                font-size: 9px;
-                                letter-spacing: 1px;
+                                text: "Teaching, remembered";
+                                color: Theme.sidebar-faint;
+                                font-size: 10.5px;
+                                letter-spacing: 0.4px;
                             }
                         }
                     }
 
-                    Rectangle { height: 10px; }
+                    Rectangle { height: 18px; }
 
                     Text {
-                        text: "Journal";
-                        color: #ffffff;
-                        font-size: 10px;
+                        text: "Workspace";
+                        color: Theme.sidebar-faint;
+                        font-size: 11px;
                         font-weight: 700;
-                        letter-spacing: 1.2px;
+                        letter-spacing: 1.4px;
                     }
-                    Button {
+                    NavItem {
                         text: "Journal";
+                        icon: @image-url("assets/icons/journal.svg");
+                        selected: root.active-view == "journal" && !root.recording-panel-open;
                         clicked => { root.active-view = "journal"; }
                     }
-                    Button {
+                    NavItem {
                         text: "Archive";
+                        icon: @image-url("assets/icons/archive.svg");
+                        selected: root.active-view == "archive";
                         clicked => { root.active-view = "archive"; }
                     }
-                    Button {
+                    NavItem {
                         text: "Students";
+                        icon: @image-url("assets/icons/students.svg");
+                        selected: root.active-view == "students";
                         clicked => { root.active-view = "students"; }
                     }
-                    Button {
+                    NavItem {
                         text: "Sessions";
+                        icon: @image-url("assets/icons/sessions.svg");
+                        selected: root.active-view == "sessions";
                         clicked => { root.active-view = "sessions"; }
                     }
-                    Button {
+                    NavItem {
                         text: "Materials";
+                        icon: @image-url("assets/icons/materials.svg");
+                        selected: root.active-view == "assets";
                         clicked => { root.active-view = "assets"; }
                     }
-                    Button {
+                    NavItem {
                         text: "Recording";
+                        icon: @image-url("assets/icons/recording.svg");
+                        selected: root.recording-panel-open;
                         clicked => {
                             root.selected-session =
                                 root.journal-session-id == "" ?
@@ -580,361 +623,108 @@ export component MainWindow inherits Window {
                             root.active-view = "journal";
                         }
                     }
-                    Button {
+                    NavItem {
                         text: "Review desk";
+                        icon: @image-url("assets/icons/review.svg");
+                        selected: root.active-view == "review";
                         clicked => { root.active-view = "review"; }
                     }
-                    Button {
+                    NavItem {
                         text: "AI workspace";
+                        icon: @image-url("assets/icons/ai.svg");
+                        selected: root.active-view == "ai";
                         clicked => { root.active-view = "ai"; }
                     }
-                    Button {
+                    NavItem {
                         text: "Study guides";
+                        icon: @image-url("assets/icons/guides.svg");
+                        selected: root.active-view == "guides";
                         clicked => { root.active-view = "guides"; }
                     }
-                    Button {
+                    NavItem {
                         text: "Settings";
+                        icon: @image-url("assets/icons/settings.svg");
+                        selected: root.active-view == "settings";
                         clicked => { root.active-view = "settings"; }
                     }
-                    Rectangle { height: 12px; }
+                    Rectangle { height: 18px; }
                     Text {
                         text: "Portable archive";
-                        color: #ffffff;
-                        font-size: 10px;
-                        font-weight: 700;
-                        letter-spacing: 1.2px;
-                    }
-                    Text {
-                        text: root.selected-archive;
-                        color: #ffffff;
-                        font-size: 13px;
-                        wrap: word-wrap;
-                    }
-                    Text {
-                        text: root.archive-status;
-                        color: #e8edff;
-                        font-size: 10px;
-                        wrap: word-wrap;
-                    }
-                    Text {
-                        text: "All changes are written directly into this .tux file.";
-                        color: #ffffff;
+                        color: Theme.sidebar-faint;
                         font-size: 11px;
-                        wrap: word-wrap;
+                        font-weight: 700;
+                        letter-spacing: 1.4px;
                     }
-
-                    Rectangle { height: 80px; }
-
                     Rectangle {
-                        border-radius: 5px;
-                        background: #1e40ff;
+                        border-radius: 12px;
+                        background: Theme.sidebar-card;
+                        border-width: 1px;
+                        border-color: Theme.sidebar-line;
                         VerticalLayout {
-                            padding: 14px;
-                            spacing: 8px;
-                            Text { text: "Private by default"; color: #ffffff; font-size: 13px; font-weight: 600; }
+                            padding: 13px;
+                            spacing: 5px;
                             Text {
-                                text: "Your recordings and notes remain in your archive unless you choose to share them.";
-                                color: #ffffff;
+                                text: root.selected-archive;
+                                color: Theme.sidebar-ink;
+                                font-size: 13px;
+                                font-weight: 600;
+                                wrap: word-wrap;
+                            }
+                            Text {
+                                text: root.archive-status;
+                                color: Theme.sidebar-muted;
+                                font-size: 11px;
+                                wrap: word-wrap;
+                            }
+                            Text {
+                                text: "All changes are written directly into this .tux file.";
+                                color: Theme.sidebar-faint;
                                 font-size: 11px;
                                 wrap: word-wrap;
                             }
                         }
                     }
+
+                    Rectangle { height: 14px; }
+
+                    HorizontalLayout {
+                        spacing: 8px;
+                        alignment: start;
+                        padding-top: 4px;
+                        Rectangle {
+                            width: 7px;
+                            height: 7px;
+                            border-radius: 999px;
+                            background: #3ecf8e;
+                        }
+                        Text {
+                            text: "Private by default — recordings and notes stay in this archive unless you choose to share them.";
+                            color: Theme.sidebar-faint;
+                            font-size: 11px;
+                            wrap: word-wrap;
+                            horizontal-stretch: 1;
+                        }
+                    }
                     Rectangle { }
-                    Text { text: "TUTORUX 1.0  ·  LOCAL WORKSPACE"; color: #ffffff; font-size: 9px; }
+                    Text {
+                        text: "Tutorux 1.0 · Local workspace";
+                        color: Theme.sidebar-faint;
+                        font-size: 11px;
+                        letter-spacing: 0.6px;
+                    }
                     }
                 }
             }
 
             Rectangle {
-                background: #ffffff;
+                background: Theme.canvas;
                 VerticalLayout {
-                    ScrollView {
+                    ScrollArea {
                     vertical-stretch: 1;
-                    if root.active-view == "legacy-overview": VerticalLayout {
-                        padding: 34px;
-                        padding-left: 42px;
-                        padding-right: 42px;
-                        spacing: 22px;
-
-                    HorizontalLayout {
-                        spacing: 20px;
-                        VerticalLayout {
-                            spacing: 5px;
-                            Text { text: "Your teaching workspace"; color: #111111; font-size: 10px; font-weight: 700; letter-spacing: 1.4px; }
-                            Text { text: "Good work starts with good notes."; color: #111111; font-size: 27px; font-weight: 700; }
-                        }
-                        Rectangle { }
-                        Button {
-                            text: "+  New journal entry";
-                            clicked => {
-                                root.active-view = "journal";
-                                root.status-message = "Choose or create a journal entry before starting a session.";
-                            }
-                        }
-                        Button {
-                            text: "About";
-                            clicked => { root.about-open = !root.about-open; }
-                        }
-                    }
-
-                    if root.about-open: Rectangle {
-                        border-radius: 5px;
-                        background: #ffffff;
-                        VerticalLayout {
-                            padding: 18px;
-                            spacing: 10px;
-                            Text {
-                                text: "About Tutorux";
-                                color: #111111;
-                                font-size: 15px;
-                                font-weight: 600;
-                            }
-                            Text {
-                                text: "Tutorux keeps teaching sessions in portable .tux archives.";
-                                color: #111111;
-                                font-size: 12px;
-                            }
-                            AboutSlint { }
-                        }
-                    }
-
-                    Rectangle {
-                        height: 146px;
-                        border-radius: 5px;
-                        background: #e8edff;
-                        HorizontalLayout {
-                            padding: 24px;
-                            padding-left: 28px;
-                            padding-right: 28px;
-                            spacing: 18px;
-                            VerticalLayout {
-                                spacing: 9px;
-                                Text { text: "A little progress, captured."; color: #111111; font-size: 21px; font-weight: 650; }
-                                Text {
-                                    text: "Keep each lesson connected to the ideas, questions and next steps that matter.";
-                                    color: #111111;
-                                    font-size: 13px;
-                                    wrap: word-wrap;
-                                }
-                                Text { text: root.status-message; color: #1e40ff; font-size: 12px; }
-                            }
-                            Rectangle { }
-                            Rectangle {
-                                width: 104px;
-                                height: 104px;
-                                border-radius: 5px;
-                                background: #e8edff;
-                                Text { text: "✳"; color: #1e40ff; font-size: 45px; horizontal-alignment: center; vertical-alignment: center; }
-                            }
-                        }
-                    }
-
-                    HorizontalLayout {
-                        spacing: 14px;
-                        Rectangle {
-                            border-radius: 5px;
-                            background: #ffffff;
-                            VerticalLayout {
-                                padding: 18px;
-                                spacing: 10px;
-                                Text { text: "Students"; color: #111111; font-size: 10px; font-weight: 700; letter-spacing: 1px; }
-                                Text { text: "Learning histories"; color: #111111; font-size: 15px; font-weight: 600; }
-                                LineEdit { placeholder-text: "Student name"; text <=> root.student-name; }
-                                LineEdit { placeholder-text: "Grade or level"; text <=> root.student-grade; }
-                                LineEdit { placeholder-text: "Subjects"; text <=> root.student-subjects; }
-                                LineEdit { placeholder-text: "Learning objectives"; text <=> root.student-objectives; }
-                                LineEdit { placeholder-text: "Known difficulties"; text <=> root.student-difficulties; }
-                                LineEdit { placeholder-text: "Tutor notes"; text <=> root.student-notes; }
-                                Button {
-                                    text: "Add student";
-                                    clicked => {
-                                        root.create-student(root.student-name, root.student-grade,
-                                            root.student-subjects, root.student-objectives,
-                                            root.student-difficulties, root.student-notes);
-                                    }
-                                }
-                            }
-                        }
-                        Rectangle {
-                            border-radius: 5px;
-                            background: #ffffff;
-                            VerticalLayout {
-                                padding: 18px;
-                                spacing: 10px;
-                                Text { text: "New session"; color: #111111; font-size: 10px; font-weight: 700; letter-spacing: 1px; }
-                                Text { text: "Start from a journal entry"; color: #111111; font-size: 15px; font-weight: 600; }
-                                Text {
-                                    text: "Sessions belong to an entry so lesson notes, recordings and guides stay together.";
-                                    color: #111111;
-                                    font-size: 12px;
-                                    wrap: word-wrap;
-                                }
-                                Button {
-                                    text: "Choose a journal entry";
-                                    clicked => {
-                                        root.active-view = "journal";
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    HorizontalLayout {
-                        spacing: 14px;
-                        Rectangle {
-                            border-radius: 5px;
-                            background: #ffffff;
-                            VerticalLayout {
-                                padding: 18px;
-                                spacing: 10px;
-                                Text { text: "Archive"; color: #111111; font-size: 10px; font-weight: 700; letter-spacing: 1px; }
-                                Text { text: "Open an existing workspace"; color: #111111; font-size: 15px; font-weight: 600; }
-                                if root.archive-paths.length > 0: ComboBox {
-                                    model: root.archive-paths;
-                                    current-value <=> root.archive-path;
-                                }
-                                ScrollView {
-                                    height: 112px;
-                                    Text { text: root.archive-list; color: #111111; font-size: 11px; wrap: word-wrap; }
-                                }
-                                LineEdit { placeholder-text: "Path to a .tux archive"; text <=> root.archive-path; }
-                                LineEdit {
-                                    placeholder-text: "Archive passphrase (if encrypted)";
-                                    input-type: password;
-                                    text <=> root.archive-passphrase;
-                                }
-                                HorizontalLayout {
-                                    spacing: 8px;
-                                    Button {
-                                        text: "Open archive";
-                                        clicked => {
-                                            root.open-archive(root.archive-path, root.archive-passphrase);
-                                            root.archive-passphrase = "";
-                                        }
-                                    }
-                                    Button { text: "Forget passphrase"; clicked => { root.forget-passphrase(); } }
-                                }
-                            }
-                        }
-                        Rectangle {
-                            border-radius: 5px;
-                            background: #ffffff;
-                            VerticalLayout {
-                                padding: 18px;
-                                spacing: 10px;
-                                Text { text: "Start fresh"; color: #111111; font-size: 10px; font-weight: 700; letter-spacing: 1px; }
-                                Text { text: "Create a portable archive"; color: #111111; font-size: 15px; font-weight: 600; }
-                                Text {
-                                    text: "One file holds your students, sessions, recordings, materials and guides.";
-                                    color: #111111;
-                                    font-size: 12px;
-                                    wrap: word-wrap;
-                                }
-                                LineEdit { placeholder-text: "Tutorux.tux"; text <=> root.archive-name; }
-                                LineEdit {
-                                    placeholder-text: "Optional archive passphrase";
-                                    input-type: password;
-                                    text <=> root.new-archive-passphrase;
-                                }
-                                Button {
-                                    text: "Create workspace";
-                                    clicked => {
-                                        root.create-archive(root.archive-name, root.new-archive-passphrase);
-                                        root.new-archive-passphrase = "";
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    HorizontalLayout {
-                        spacing: 14px;
-                        Rectangle {
-                            border-radius: 5px;
-                            background: #ffffff;
-                            VerticalLayout {
-                                padding: 16px;
-                                spacing: 7px;
-                                Text { text: "Students in this archive"; color: #111111; font-size: 10px; font-weight: 700; letter-spacing: 1px; }
-                                ScrollView { height: 92px; Text { text: root.students-text; color: #111111; font-size: 11px; wrap: word-wrap; } }
-                            }
-                        }
-                        Rectangle {
-                            border-radius: 5px;
-                            background: #ffffff;
-                            VerticalLayout {
-                                padding: 16px;
-                                spacing: 7px;
-                                Text { text: "Recent sessions"; color: #111111; font-size: 10px; font-weight: 700; letter-spacing: 1px; }
-                                ScrollView { height: 92px; Text { text: root.sessions-text; color: #111111; font-size: 11px; wrap: word-wrap; } }
-                            }
-                        }
-                    }
-
-                    Rectangle {
-                        border-radius: 5px;
-                        background: #ffffff;
-                        VerticalLayout {
-                            padding: 18px;
-                            spacing: 10px;
-                            Text {
-                                text: "Command console";
-                                color: #111111;
-                                font-size: 10px;
-                                font-weight: 700;
-                                letter-spacing: 1px;
-                            }
-                            Text {
-                                text: "Run Tutorux commands against this archive";
-                                color: #111111;
-                                font-size: 15px;
-                                font-weight: 600;
-                            }
-                            HorizontalLayout {
-                                spacing: 8px;
-                                LineEdit {
-                                    placeholder-text: "annotation add --session ID --type note --at 00:00:00 --text \"...\"";
-                                    text <=> root.command-input;
-                                    accepted => {
-                                        root.run-command(root.command-input, root.new-archive-passphrase);
-                                        root.new-archive-passphrase = "";
-                                    }
-                                }
-                                Button {
-                                    text: "Run";
-                                    clicked => {
-                                        root.run-command(root.command-input, root.new-archive-passphrase);
-                                        root.new-archive-passphrase = "";
-                                    }
-                                }
-                                if root.command-running: Button {
-                                    text: "Cancel";
-                                    clicked => { root.cancel-command(); }
-                                }
-                            }
-                            LineEdit {
-                                placeholder-text: "New passphrase for archive encrypt/change-passphrase";
-                                input-type: password;
-                                text <=> root.new-archive-passphrase;
-                            }
-                            Text {
-                                text: "Arguments are parsed by Tutorux; no shell commands are executed.";
-                                color: #111111;
-                                font-size: 11px;
-                            }
-                            ScrollView {
-                                height: 150px;
-                                Text {
-                                    text: root.command-output;
-                                    color: #111111;
-                                    font-size: 11px;
-                                    wrap: word-wrap;
-                                }
-                            }
-                        }
-                    }
-                    }
+                    content-width: self.visible-width;
+                    content-height: max(self.visible-height, page-content.preferred-height);
+                    page-content := VerticalLayout {
+                    width: parent.visible-width;
                     if root.active-view == "journal": VerticalLayout {
                         padding: 30px;
                         padding-left: 34px;
@@ -947,14 +737,14 @@ export component MainWindow inherits Window {
                                 spacing: 4px;
                                 Text {
                                     text: "Journal";
-                                    color: #111111;
-                                    font-size: 10px;
+                                    color: Theme.ink;
+                                    font-size: 11px;
                                     font-weight: 700;
                                     letter-spacing: 1.2px;
                                 }
                                 Text {
                                     text: "Teaching, remembered.";
-                                    color: #111111;
+                                    color: Theme.ink;
                                     font-size: 30px;
                                     font-weight: 700;
                                 }
@@ -962,6 +752,7 @@ export component MainWindow inherits Window {
                             Rectangle { }
                             Button {
                                 text: "+ New entry";
+                                variant: "primary";
                                 clicked => {
                                     root.journal-entry-title = "";
                                     root.journal-entry-date = "";
@@ -975,15 +766,15 @@ export component MainWindow inherits Window {
 
                         if root.journal-entry-create-open: Rectangle {
                             border-width: 1px;
-                            border-color: #111111;
-                            border-radius: 5px;
+                            border-color: Theme.line;
+                            border-radius: 12px;
                             background: #ffffff;
                             VerticalLayout {
                                 padding: 12px;
                                 spacing: 8px;
                                 Text {
                                     text: "New journal entry";
-                                    color: #111111;
+                                    color: Theme.ink;
                                     font-size: 14px;
                                     font-weight: 600;
                                 }
@@ -1001,6 +792,7 @@ export component MainWindow inherits Window {
                                     }
                                     Button {
                                         text: "Create entry";
+                                        variant: "primary";
                                         enabled: root.journal-entry-title != "";
                                         clicked => {
                                             root.journal-action("entry-create",
@@ -1021,8 +813,8 @@ export component MainWindow inherits Window {
 
                         Rectangle {
                             border-width: 1px;
-                            border-color: #111111;
-                            border-radius: 5px;
+                            border-color: Theme.line;
+                            border-radius: 12px;
                             background: #ffffff;
                             accessible-role: AccessibleRole.region;
                             accessible-label: "Journal search and filters";
@@ -1031,7 +823,7 @@ export component MainWindow inherits Window {
                                 spacing: 10px;
                                 Text {
                                     text: "Find an entry";
-                                    color: #111111;
+                                    color: Theme.ink;
                                     font-size: 15px;
                                     font-weight: 600;
                                 }
@@ -1050,6 +842,7 @@ export component MainWindow inherits Window {
                                     }
                                     Button {
                                         text: "Search";
+                                        variant: "primary";
                                         clicked => { root.run-journal-search(); }
                                         accessible-label: "Search journal entries";
                                     }
@@ -1104,8 +897,8 @@ export component MainWindow inherits Window {
                             Rectangle {
                                 width: 310px;
                                 border-width: 1px;
-                                border-color: #111111;
-                                border-radius: 5px;
+                                border-color: Theme.line;
+                                border-radius: 12px;
                                 background: #ffffff;
                                 accessible-role: AccessibleRole.region;
                                 accessible-label: "Journal entries";
@@ -1114,7 +907,7 @@ export component MainWindow inherits Window {
                                     spacing: 10px;
                                     Text {
                                         text: "Entries";
-                                        color: #111111;
+                                        color: Theme.ink;
                                         font-size: 17px;
                                         font-weight: 600;
                                     }
@@ -1133,21 +926,16 @@ export component MainWindow inherits Window {
                                         }
                                         accessible-label: "Open the selected journal entry";
                                     }
-                                    ScrollView {
+                                    ScrollText {
                                         height: 330px;
-                                        Text {
-                                            text: root.journal-list-output;
-                                            color: #111111;
-                                            font-size: 12px;
-                                            wrap: word-wrap;
-                                            accessible-role: AccessibleRole.text;
-                                            accessible-label: "Journal search results";
-                                            accessible-live-region: AccessibleLiveness.polite;
-                                        }
+                                        text: root.journal-list-output;
+                                        text-color: Theme.ink;
+                                        accessible-label: "Journal search results";
+                                        accessible-live-region: AccessibleLiveness.polite;
                                     }
                                     Text {
                                         text: "Newest entries appear first. Search and filters preserve this journal view.";
-                                        color: #111111;
+                                        color: Theme.ink;
                                         font-size: 11px;
                                         wrap: word-wrap;
                                     }
@@ -1158,8 +946,8 @@ export component MainWindow inherits Window {
                                 spacing: 14px;
                                 Rectangle {
                                     border-width: 1px;
-                                    border-color: #111111;
-                                    border-radius: 5px;
+                                    border-color: Theme.line;
+                                    border-radius: 12px;
                                     background: #ffffff;
                                     accessible-role: AccessibleRole.region;
                                     accessible-label: "Journal entry workspace";
@@ -1168,7 +956,7 @@ export component MainWindow inherits Window {
                                         spacing: 9px;
                                         Text {
                                             text: "Entry workspace";
-                                            color: #111111;
+                                            color: Theme.ink;
                                             font-size: 17px;
                                             font-weight: 600;
                                         }
@@ -1208,6 +996,7 @@ export component MainWindow inherits Window {
                                             }
                                             Button {
                                                 text: "Delete entry";
+                                                variant: "danger";
                                                 clicked => {
                                                     root.journal-action("entry-delete",
                                                         root.journal-entry-id, "", "", "", "", "");
@@ -1254,8 +1043,8 @@ export component MainWindow inherits Window {
 
                                 Rectangle {
                                     border-width: 1px;
-                                    border-color: #111111;
-                                    border-radius: 5px;
+                                    border-color: Theme.line;
+                                    border-radius: 12px;
                                     background: #ffffff;
                                     accessible-role: AccessibleRole.region;
                                     accessible-label: "Journal session timeline and controls";
@@ -1264,7 +1053,7 @@ export component MainWindow inherits Window {
                                         spacing: 9px;
                                         Text {
                                             text: "Session timeline";
-                                            color: #111111;
+                                            color: Theme.ink;
                                             font-size: 17px;
                                             font-weight: 600;
                                         }
@@ -1340,7 +1129,7 @@ export component MainWindow inherits Window {
                                             spacing: 8px;
                                             Text {
                                                 text: "Capture source";
-                                                color: #111111;
+                                                color: Theme.ink;
                                                 font-size: 12px;
                                             }
                                             if root.journal-session-type == "record-audio": ComboBox {
@@ -1372,16 +1161,20 @@ export component MainWindow inherits Window {
                                                 accessible-label: "New student grade or level";
                                             }
                                         }
-                                        if root.journal-session-options.length > 0: ScrollView {
+                                        if root.journal-session-options.length > 0: ScrollArea {
                                             height: 170px;
-                                            VerticalLayout {
+                                            content-width: self.visible-width;
+                                            content-height: max(self.visible-height,
+                                                               session-list.preferred-height);
+                                            session-list := VerticalLayout {
+                                                width: parent.visible-width;
                                                 spacing: 6px;
                                                 for session in root.journal-session-options: Rectangle {
                                                     border-width: 1px;
-                                                    border-color: #111111;
-                                                    border-radius: 5px;
+                                                    border-color: Theme.line;
+                                                    border-radius: 12px;
                                                     background: root.selected-journal-session == session ?
-                                                        #eef2fb : #ffffff;
+                                                Theme.accent-soft : #ffffff;
                                                     VerticalLayout {
                                                         padding: 5px;
                                                         spacing: 4px;
@@ -1432,7 +1225,7 @@ export component MainWindow inherits Window {
                                                         }
                                                         if root.selected-journal-session == session && root.journal-session-expanded: Text {
                                                             text: root.journal-session-detail-output;
-                                                            color: #111111;
+                                                            color: Theme.ink;
                                                             font-size: 11px;
                                                             wrap: word-wrap;
                                                             accessible-role: AccessibleRole.text;
@@ -1445,7 +1238,7 @@ export component MainWindow inherits Window {
                                         }
                                         if root.journal-session-options.length == 0: Text {
                                             text: "No sessions are linked to this entry yet.";
-                                            color: #111111;
+                                            color: Theme.ink;
                                             font-size: 12px;
                                         }
                                         }
@@ -1458,6 +1251,7 @@ export component MainWindow inherits Window {
                                             spacing: 8px;
                                             Button {
                                                 text: "New session";
+                                                variant: "primary";
                                                 clicked => {
                                                     root.journal-session-create(
                                                         root.journal-entry-id,
@@ -1561,14 +1355,10 @@ export component MainWindow inherits Window {
                                                          root.journal-session-id) ==
                                                          root.journal-session-delete-preview-id;
                                         }
-                                        ScrollView {
+                                        ScrollText {
                                             height: 92px;
-                                            Text {
-                                                text: root.journal-session-delete-scope-output;
-                                                color: #111111;
-                                                font-size: 12px;
-                                                wrap: word-wrap;
-                                            }
+                                            text: root.journal-session-delete-scope-output;
+                                            text-color: Theme.ink;
                                         }
                                         HorizontalLayout {
                                             spacing: 8px;
@@ -1587,6 +1377,7 @@ export component MainWindow inherits Window {
                                             }
                                             Button {
                                                 text: "Confirm session deletion";
+                                                variant: "danger";
                                                 enabled: root.journal-session-delete-confirmed &&
                                                     root.journal-session-delete-scope-reviewed &&
                                                     (root.journal-session-id == "" ?
@@ -1606,13 +1397,13 @@ export component MainWindow inherits Window {
                                         }
                                         Text {
                                             text: "Audio starts only after microphone access, input level, and consent are confirmed.";
-                                            color: #111111;
+                                            color: Theme.ink;
                                             font-size: 11px;
                                             wrap: word-wrap;
                                         }
                                         Text {
                                             text: root.journal-timeline-output;
-                                            color: #111111;
+                                            color: Theme.ink;
                                             font-size: 11px;
                                             wrap: word-wrap;
                                             accessible-role: AccessibleRole.text;
@@ -1624,15 +1415,15 @@ export component MainWindow inherits Window {
 
                                 Rectangle {
                                     border-width: 1px;
-                                    border-color: #111111;
-                                    border-radius: 5px;
+                                    border-color: Theme.line;
+                                    border-radius: 12px;
                                     background: #ffffff;
                                     VerticalLayout {
                                         padding: 15px;
                                         spacing: 9px;
                                         Text {
                                             text: "Entry notes";
-                                            color: #111111;
+                                            color: Theme.ink;
                                             font-size: 17px;
                                             font-weight: 600;
                                         }
@@ -1655,19 +1446,19 @@ export component MainWindow inherits Window {
                                         }
                                         Text {
                                             text: "Notes are edited as separate blocks, so each block keeps its type and identity.";
-                                            color: #111111;
+                                            color: Theme.ink;
                                             font-size: 11px;
                                             wrap: word-wrap;
                                         }
                                         HorizontalLayout {
                                             spacing: 8px;
-                                            Text { text: "Block"; color: #111111; font-size: 12px; }
+                                            Text { text: "Block"; color: Theme.ink; font-size: 12px; }
                                             ComboBox {
                                                 model: root.journal-note-block-options;
                                                 current-value <=> root.selected-journal-note-block;
                                                 enabled: root.journal-document-block-count > 0;
                                             }
-                                            Text { text: "Type"; color: #111111; font-size: 12px; }
+                                            Text { text: "Type"; color: Theme.ink; font-size: 12px; }
                                             ComboBox {
                                                 model: ["Paragraph", "Heading", "Bulleted list",
                                                         "Numbered list", "Checklist", "Quote", "Code"];
@@ -1679,7 +1470,7 @@ export component MainWindow inherits Window {
                                             spacing: 6px;
                                             Text {
                                                 text: "Format selection";
-                                                color: #111111;
+                                                color: Theme.ink;
                                                 font-size: 12px;
                                                 vertical-alignment: center;
                                             }
@@ -1736,7 +1527,7 @@ export component MainWindow inherits Window {
                                         }
                                         Text {
                                             text: "Select text to format, or place the cursor to insert a span. Formatting uses portable Markdown; Ctrl+B, Ctrl+I, and Ctrl+K also work. Save the block to keep your edits.";
-                                            color: #111111;
+                                            color: Theme.ink;
                                             font-size: 11px;
                                             wrap: word-wrap;
                                         }
@@ -1746,7 +1537,7 @@ export component MainWindow inherits Window {
                                             wrap: word-wrap;
                                             text <=> root.journal-document-block-text;
                                             font-size: 13px;
-                                            color: #111111;
+                                            color: Theme.ink;
                                             enabled: root.journal-document-block-count > 0;
                                             edited => { root.journal-document-block-text = self.text; }
                                             cursor-position-changed(position) => {
@@ -1826,6 +1617,7 @@ export component MainWindow inherits Window {
                                             }
                                             Button {
                                                 text: "Remove block";
+                                                variant: "danger";
                                                 enabled: root.journal-document-id != "" &&
                                                     root.selected-journal-note-block != "";
                                                 clicked => {
@@ -1838,7 +1630,7 @@ export component MainWindow inherits Window {
                                         }
                                         HorizontalLayout {
                                             spacing: 8px;
-                                            Text { text: "Add a block"; color: #111111; font-size: 12px; }
+                                            Text { text: "Add a block"; color: Theme.ink; font-size: 12px; }
                                             Button {
                                                 text: "Add block";
                                                 enabled: root.journal-document-id != "" &&
@@ -1859,7 +1651,7 @@ export component MainWindow inherits Window {
                                             wrap: word-wrap;
                                             text <=> root.journal-document-new-block-text;
                                             font-size: 13px;
-                                            color: #111111;
+                                            color: Theme.ink;
                                             enabled: root.journal-document-id != "";
                                             edited => {
                                                 root.journal-document-new-block-text = self.text;
@@ -1869,14 +1661,10 @@ export component MainWindow inherits Window {
                                             text: "Show saved notes as a whole document";
                                             checked <=> root.journal-document-show-preview;
                                         }
-                                        if root.journal-document-show-preview: ScrollView {
+                                        if root.journal-document-show-preview: ScrollText {
                                             height: 100px;
-                                            Text {
-                                                text: root.journal-document-text;
-                                                color: #111111;
-                                                font-size: 12px;
-                                                wrap: word-wrap;
-                                            }
+                                            text: root.journal-document-text;
+                                            text-color: Theme.ink;
                                         }
                                         HorizontalLayout {
                                             spacing: 8px;
@@ -1895,7 +1683,7 @@ export component MainWindow inherits Window {
                                         }
                                         Text {
                                             text: root.journal-guide-output;
-                                            color: #111111;
+                                            color: Theme.ink;
                                             font-size: 12px;
                                             wrap: word-wrap;
                                         }
@@ -1904,15 +1692,15 @@ export component MainWindow inherits Window {
 
                                 Rectangle {
                                     border-width: 1px;
-                                    border-color: #111111;
-                                    border-radius: 5px;
+                                    border-color: Theme.line;
+                                    border-radius: 12px;
                                     background: #ffffff;
                                     VerticalLayout {
                                         padding: 15px;
                                         spacing: 9px;
                                         Text {
                                             text: "Organize this journal";
-                                            color: #111111;
+                                            color: Theme.ink;
                                             font-size: 17px;
                                             font-weight: 600;
                                         }
@@ -1984,6 +1772,7 @@ export component MainWindow inherits Window {
                                             spacing: 8px;
                                             Button {
                                                 text: "Delete collection";
+                                                variant: "danger";
                                                 clicked => {
                                                     root.journal-action("collection-delete",
                                                         root.journal-item-id,
@@ -1992,6 +1781,7 @@ export component MainWindow inherits Window {
                                             }
                                             Button {
                                                 text: "Delete tag";
+                                                variant: "danger";
                                                 clicked => {
                                                     root.journal-action("tag-delete",
                                                         root.journal-item-id,
@@ -2010,32 +1800,32 @@ export component MainWindow inherits Window {
                         spacing: 18px;
                         Text {
                             text: "Archive";
-                            color: #111111;
+                            color: Theme.ink;
                             font-size: 28px;
                             font-weight: 700;
                         }
                         Text {
                             text: "Open or create the portable .tux file that holds this journal.";
-                            color: #111111;
+                            color: Theme.ink;
                             font-size: 13px;
                         }
                         if root.archive-recovery-needed: Rectangle {
                             border-width: 1px;
-                            border-color: #b42318;
-                            border-radius: 5px;
-                            background: #fff7f5;
+                            border-color: Theme.danger-line;
+                            border-radius: 12px;
+                            background: Theme.danger-soft;
                             VerticalLayout {
                                 padding: 16px;
                                 spacing: 9px;
                                 Text {
                                     text: "This archive needs recovery review";
-                                    color: #8f1d16;
+                                    color: Theme.danger;
                                     font-size: 15px;
                                     font-weight: 700;
                                 }
                                 Text {
                                     text: root.archive-recovery-status;
-                                    color: #111111;
+                                    color: Theme.ink;
                                     font-size: 12px;
                                     wrap: word-wrap;
                                 }
@@ -2049,6 +1839,7 @@ export component MainWindow inherits Window {
                                     }
                                     if root.archive-recovery-tail-present: Button {
                                         text: "Discard incomplete tail";
+                                        variant: "danger";
                                         clicked => {
                                             root.archive-recovery-action("discard-tail");
                                         }
@@ -2074,15 +1865,15 @@ export component MainWindow inherits Window {
                             spacing: 14px;
                             Rectangle {
                                 border-width: 1px;
-                                border-color: #111111;
-                                border-radius: 5px;
+                                border-color: Theme.line;
+                                border-radius: 12px;
                                 background: #ffffff;
                                 VerticalLayout {
                                     padding: 18px;
                                     spacing: 10px;
                                     Text {
                                         text: "Open an archive";
-                                        color: #111111;
+                                        color: Theme.ink;
                                         font-size: 16px;
                                         font-weight: 600;
                                     }
@@ -2101,6 +1892,7 @@ export component MainWindow inherits Window {
                                     }
                                     Button {
                                         text: "Open archive";
+                                        variant: "primary";
                                         clicked => {
                                             root.open-archive(root.archive-path,
                                                 root.archive-passphrase);
@@ -2115,15 +1907,15 @@ export component MainWindow inherits Window {
                             }
                             Rectangle {
                                 border-width: 1px;
-                                border-color: #111111;
-                                border-radius: 5px;
+                                border-color: Theme.line;
+                                border-radius: 12px;
                                 background: #ffffff;
                                 VerticalLayout {
                                     padding: 18px;
                                     spacing: 10px;
                                     Text {
                                         text: "Create an archive";
-                                        color: #111111;
+                                        color: Theme.ink;
                                         font-size: 16px;
                                         font-weight: 600;
                                     }
@@ -2138,6 +1930,7 @@ export component MainWindow inherits Window {
                                     }
                                     Button {
                                         text: "Create archive";
+                                        variant: "primary";
                                         clicked => {
                                             root.create-archive(root.archive-name,
                                                 root.new-archive-passphrase);
@@ -2149,21 +1942,21 @@ export component MainWindow inherits Window {
                         }
                         Rectangle {
                             border-width: 1px;
-                            border-color: #111111;
-                            border-radius: 5px;
+                            border-color: Theme.line;
+                            border-radius: 12px;
                             background: #ffffff;
                             VerticalLayout {
                                 padding: 18px;
                                 spacing: 10px;
                                 Text {
                                     text: "Create a sanitized copy";
-                                    color: #111111;
+                                    color: Theme.ink;
                                     font-size: 16px;
                                     font-weight: 600;
                                 }
                                 Text {
                                     text: "Preview first. Track filters opt in recordings; other sensitive categories default off.";
-                                    color: #111111;
+                                    color: Theme.ink;
                                     font-size: 12px;
                                     wrap: word-wrap;
                                 }
@@ -2268,20 +2061,16 @@ export component MainWindow inherits Window {
                                 }
                                 Text {
                                     text: root.sanitized-copy-status;
-                                    color: #111111;
+                                    color: Theme.ink;
                                     font-size: 12px;
                                     wrap: word-wrap;
                                 }
                             }
                         }
-                        ScrollView {
+                        ScrollText {
                             height: 160px;
-                            Text {
-                                text: root.archive-list;
-                                color: #111111;
-                                font-size: 12px;
-                                wrap: word-wrap;
-                            }
+                            text: root.archive-list;
+                            text-color: Theme.ink;
                         }
                     }
 
@@ -2304,8 +2093,8 @@ export component MainWindow inherits Window {
                                           root.active-view == "review" ? "Session review" :
                                           root.active-view == "ai" ? "AI workspace" :
                                           root.active-view == "guides" ? "Study guides" : "Archive settings";
-                                    color: #111111;
-                                    font-size: 10px;
+                                    color: Theme.ink;
+                                    font-size: 11px;
                                     font-weight: 700;
                                     letter-spacing: 1.4px;
                                 }
@@ -2317,7 +2106,7 @@ export component MainWindow inherits Window {
                                           root.active-view == "review" ? "Evidence, transcript, and materials" :
                                           root.active-view == "ai" ? "Prepare, review, and generate" :
                                           root.active-view == "guides" ? "Edit and approve learning guides" : "Portable workspace preferences";
-                                    color: #111111;
+                                    color: Theme.ink;
                                     font-size: 27px;
                                     font-weight: 700;
                                 }
@@ -2329,93 +2118,190 @@ export component MainWindow inherits Window {
                             }
                         }
 
-                        if root.active-view == "students": Rectangle {
-                            border-radius: 5px;
-                            background: #ffffff;
-                            VerticalLayout {
-                                padding: 20px;
-                                spacing: 14px;
-                                Text { text: "Students and learning history"; color: #111111; font-size: 16px; font-weight: 600; }
-                                HorizontalLayout {
+                        if root.active-view == "students": HorizontalLayout {
+                            spacing: 14px;
+
+                            Rectangle {
+                                width: 340px;
+                                border-radius: Theme.radius-card;
+                                background: Theme.surface;
+                                border-width: 1px;
+                                border-color: Theme.line;
+                                VerticalLayout {
+                                    padding: 18px;
                                     spacing: 10px;
-                                    ComboBox {
+                                    Text { text: "Roster"; color: Theme.ink; font-size: 15px; font-weight: 650; }
+                                    if root.student-options.length > 0: ComboBox {
                                         model: root.student-options;
                                         current-value <=> root.selected-student;
+                                        accessible-label: "Select a student";
                                     }
                                     Button {
-                                        text: "Load progress";
+                                        text: "Load learning history";
+                                        enabled: root.selected-student != "";
                                         clicked => { root.load-student-progress(root.selected-student); }
                                     }
-                                }
-                                Text { text: "Profile"; color: #111111; font-size: 14px; font-weight: 600; }
-                                HorizontalLayout {
-                                    spacing: 8px;
-                                    LineEdit { placeholder-text: "Name"; text <=> root.student-profile-name; }
-                                    LineEdit { placeholder-text: "Grade or level"; text <=> root.student-profile-grade; }
-                                    LineEdit { placeholder-text: "Subjects"; text <=> root.student-profile-subjects; }
-                                    LineEdit { placeholder-text: "Preferred guide template"; text <=> root.student-profile-template; }
-                                }
-                                HorizontalLayout {
-                                    spacing: 8px;
-                                    LineEdit { placeholder-text: "Learning objectives"; text <=> root.student-profile-objectives; }
-                                    LineEdit { placeholder-text: "Known difficulties"; text <=> root.student-profile-difficulties; }
-                                }
-                                HorizontalLayout {
-                                    spacing: 8px;
-                                    LineEdit { placeholder-text: "Demonstrated improvements"; text <=> root.student-profile-improvements; }
-                                    LineEdit { placeholder-text: "Tutor notes"; text <=> root.student-profile-notes; }
-                                }
-                                Button {
-                                    text: "Save profile";
-                                    clicked => {
-                                        root.save-student-profile(root.selected-student,
-                                            root.student-profile-name, root.student-profile-grade,
-                                            root.student-profile-subjects, root.student-profile-objectives,
-                                            root.student-profile-difficulties, root.student-profile-improvements,
-                                            root.student-profile-template, root.student-profile-notes);
+                                    ScrollText {
+                                        height: 220px;
+                                        text: root.students-text;
+                                        text-color: Theme.ink;
+                                        accessible-label: "Students in this archive";
+                                    }
+                                    Text {
+                                        text: "Learning history";
+                                        color: Theme.ink;
+                                        font-size: 13px;
+                                        font-weight: 600;
+                                    }
+                                    ScrollText {
+                                        height: 260px;
+                                        text: root.student-progress-output;
+                                        text-color: Theme.ink;
+                                        accessible-label: "Learning history for the selected student";
                                     }
                                 }
-                                ScrollView {
-                                    height: 210px;
-                                    Text { text: root.student-progress-output; color: #111111; font-size: 12px; wrap: word-wrap; }
-                                }
-                                Text { text: "Tutor review"; color: #111111; font-size: 14px; font-weight: 600; }
-                                Text { text: "Classifications require source evidence from this student's archive. Mastery requires human-verified evidence."; color: #111111; font-size: 11px; wrap: word-wrap; }
-                                Text { text: "Reviewer names are tutor-entered audit labels; Tutorux does not authenticate identity."; color: #111111; font-size: 11px; wrap: word-wrap; }
-                                HorizontalLayout {
-                                    spacing: 8px;
-                                    LineEdit { placeholder-text: "Skill"; text <=> root.student-progress-skill; }
-                                    ComboBox {
-                                        model: ["newly-observed", "recurring", "partial-improvement", "demonstrated-mastery", "unverified-improvement", "not-revisited"];
-                                        current-value <=> root.student-progress-classification;
+                            }
+
+                            VerticalLayout {
+                                spacing: 14px;
+
+                                Rectangle {
+                                    border-radius: Theme.radius-card;
+                                    background: Theme.surface;
+                                    border-width: 1px;
+                                    border-color: Theme.line;
+                                    VerticalLayout {
+                                        padding: 18px;
+                                        spacing: 10px;
+                                        Text { text: "Profile"; color: Theme.ink; font-size: 15px; font-weight: 650; }
+                                        HorizontalLayout {
+                                            spacing: 8px;
+                                            LineEdit { placeholder-text: "Name"; text <=> root.student-profile-name; }
+                                            LineEdit { placeholder-text: "Grade or level"; text <=> root.student-profile-grade; }
+                                            LineEdit { placeholder-text: "Subjects"; text <=> root.student-profile-subjects; }
+                                            LineEdit { placeholder-text: "Preferred guide template"; text <=> root.student-profile-template; }
+                                        }
+                                        HorizontalLayout {
+                                            spacing: 8px;
+                                            LineEdit { placeholder-text: "Learning objectives"; text <=> root.student-profile-objectives; }
+                                            LineEdit { placeholder-text: "Known difficulties"; text <=> root.student-profile-difficulties; }
+                                        }
+                                        HorizontalLayout {
+                                            spacing: 8px;
+                                            LineEdit { placeholder-text: "Demonstrated improvements"; text <=> root.student-profile-improvements; }
+                                            LineEdit { placeholder-text: "Tutor notes"; text <=> root.student-profile-notes; }
+                                        }
+                                        HorizontalLayout {
+                                            spacing: 8px;
+                                            Button {
+                                                text: "Save profile";
+                                                variant: "primary";
+                                                enabled: root.selected-student != "";
+                                                clicked => {
+                                                    root.save-student-profile(root.selected-student,
+                                                        root.student-profile-name, root.student-profile-grade,
+                                                        root.student-profile-subjects, root.student-profile-objectives,
+                                                        root.student-profile-difficulties, root.student-profile-improvements,
+                                                        root.student-profile-template, root.student-profile-notes);
+                                                }
+                                            }
+                                            Rectangle { }
+                                        }
                                     }
                                 }
-                                LineEdit { placeholder-text: "Evidence node UUIDs, comma separated"; text <=> root.student-progress-evidence-ids; }
-                                HorizontalLayout {
-                                    spacing: 8px;
-                                    LineEdit { placeholder-text: "Reviewed by (tutor-entered label)"; text <=> root.student-progress-reviewer; }
-                                    LineEdit { placeholder-text: "Review note (optional)"; text <=> root.student-progress-note; }
+
+                                Rectangle {
+                                    border-radius: Theme.radius-card;
+                                    background: Theme.surface;
+                                    border-width: 1px;
+                                    border-color: Theme.line;
+                                    VerticalLayout {
+                                        padding: 18px;
+                                        spacing: 10px;
+                                        Text { text: "Add a student"; color: Theme.ink; font-size: 15px; font-weight: 650; }
+                                        HorizontalLayout {
+                                            spacing: 8px;
+                                            LineEdit { placeholder-text: "Name"; text <=> root.student-name; accessible-label: "New student name"; }
+                                            LineEdit { placeholder-text: "Grade or level"; text <=> root.student-grade; }
+                                            LineEdit { placeholder-text: "Subjects"; text <=> root.student-subjects; }
+                                        }
+                                        HorizontalLayout {
+                                            spacing: 8px;
+                                            LineEdit { placeholder-text: "Learning objectives"; text <=> root.student-objectives; }
+                                            LineEdit { placeholder-text: "Known difficulties"; text <=> root.student-difficulties; }
+                                            LineEdit { placeholder-text: "Tutor notes"; text <=> root.student-notes; }
+                                        }
+                                        HorizontalLayout {
+                                            spacing: 8px;
+                                            Button {
+                                                text: "Add student";
+                                                variant: "primary";
+                                                enabled: root.student-name != "";
+                                                clicked => {
+                                                    root.create-student(root.student-name, root.student-grade,
+                                                        root.student-subjects, root.student-objectives,
+                                                        root.student-difficulties, root.student-notes);
+                                                }
+                                            }
+                                            Rectangle { }
+                                        }
+                                    }
                                 }
-                                Button {
-                                    text: "Save reviewed progress";
-                                    clicked => {
-                                        root.review-student-progress(root.selected-student,
-                                            root.student-progress-skill,
-                                            root.student-progress-classification,
-                                            root.student-progress-evidence-ids,
-                                            root.student-progress-reviewer,
-                                            root.student-progress-note);
+
+                                Rectangle {
+                                    border-radius: Theme.radius-card;
+                                    background: Theme.surface;
+                                    border-width: 1px;
+                                    border-color: Theme.line;
+                                    VerticalLayout {
+                                        padding: 18px;
+                                        spacing: 10px;
+                                        Text { text: "Tutor review"; color: Theme.ink; font-size: 15px; font-weight: 650; }
+                                        Text { text: "Classifications require source evidence from this student's archive. Mastery requires human-verified evidence."; color: Theme.muted; font-size: 11px; wrap: word-wrap; }
+                                        Text { text: "Reviewer names are tutor-entered audit labels; Tutorux does not authenticate identity."; color: Theme.muted; font-size: 11px; wrap: word-wrap; }
+                                        HorizontalLayout {
+                                            spacing: 8px;
+                                            LineEdit { placeholder-text: "Skill"; text <=> root.student-progress-skill; }
+                                            ComboBox {
+                                                model: ["newly-observed", "recurring", "partial-improvement", "demonstrated-mastery", "unverified-improvement", "not-revisited"];
+                                                current-value <=> root.student-progress-classification;
+                                                accessible-label: "Classification for this skill";
+                                            }
+                                        }
+                                        LineEdit { placeholder-text: "Evidence node UUIDs, comma separated"; text <=> root.student-progress-evidence-ids; }
+                                        HorizontalLayout {
+                                            spacing: 8px;
+                                            LineEdit { placeholder-text: "Reviewed by (tutor-entered label)"; text <=> root.student-progress-reviewer; }
+                                            LineEdit { placeholder-text: "Review note (optional)"; text <=> root.student-progress-note; }
+                                        }
+                                        HorizontalLayout {
+                                            spacing: 8px;
+                                            Button {
+                                                text: "Save reviewed progress";
+                                                variant: "primary";
+                                                enabled: root.selected-student != "";
+                                                clicked => {
+                                                    root.review-student-progress(root.selected-student,
+                                                        root.student-progress-skill,
+                                                        root.student-progress-classification,
+                                                        root.student-progress-evidence-ids,
+                                                        root.student-progress-reviewer,
+                                                        root.student-progress-note);
+                                                }
+                                            }
+                                            Rectangle { }
+                                        }
                                     }
                                 }
                             }
                         }
                         if root.active-view == "sessions": Rectangle {
-                            border-radius: 5px;
+                            border-radius: 12px;
                             background: #ffffff;
                             VerticalLayout {
                                 padding: 20px;
                                 spacing: 12px;
-                                Text { text: "Session workspace"; color: #111111; font-size: 16px; font-weight: 600; }
+                                Text { text: "Session workspace"; color: Theme.ink; font-size: 16px; font-weight: 600; }
                                 if root.session-options.length > 0: ComboBox {
                                     model: root.session-options;
                                     current-value <=> root.selected-session;
@@ -2474,14 +2360,10 @@ export component MainWindow inherits Window {
                                         }
                                     }
                                 }
-                                ScrollView {
+                                ScrollText {
                                     height: 110px;
-                                    Text {
-                                        text: root.command-output;
-                                        color: #111111;
-                                        font-size: 11px;
-                                        wrap: word-wrap;
-                                    }
+                                    text: root.command-output;
+                                    font-size: 11px;
                                 }
                                 HorizontalLayout {
                                     spacing: 8px;
@@ -2506,14 +2388,14 @@ export component MainWindow inherits Window {
                                     }
                                 }
                                 Text {
-                                    text: "⌘/Ctrl + " + root.shortcut-concept + " concept · " +
+                                    text: "Ctrl/Cmd + " + root.shortcut-concept + " concept · " +
                                           root.shortcut-mistake + " mistake · " +
                                           root.shortcut-correction + " correction · " +
                                           root.shortcut-instruction + " instruction · " +
                                           root.shortcut-example + " example · " +
                                           root.shortcut-follow-up + " follow up · " +
                                           root.shortcut-note + " note";
-                                    color: #111111;
+                                    color: Theme.ink;
                                     font-size: 11px;
                                     wrap: word-wrap;
                                 }
@@ -2568,31 +2450,32 @@ export component MainWindow inherits Window {
                                         }
                                     }
                                 }
-                                ScrollView {
+                                ScrollText {
                                     height: 220px;
-                                    Text { text: root.sessions-text; color: #111111; font-size: 12px; wrap: word-wrap; }
+                                    text: root.sessions-text;
+                                    text-color: Theme.ink;
                                 }
-                                ScrollView {
+                                ScrollText {
                                     height: 180px;
-                                    Text { text: root.command-output; color: #111111; font-size: 12px; wrap: word-wrap; }
+                                    text: root.command-output;
                                 }
                             }
                         }
                         if root.active-view == "assets": Rectangle {
-                            border-radius: 5px;
+                            border-radius: 12px;
                             background: #ffffff;
                             VerticalLayout {
                                 padding: 20px;
                                 spacing: 12px;
                                 Text {
                                     text: "Materials in this archive";
-                                    color: #111111;
+                                    color: Theme.ink;
                                     font-size: 16px;
                                     font-weight: 600;
                                 }
                                 Text {
                                     text: "Drop local files anywhere in this window to add them to this archive. The selected session is attached when one is selected. Files are copied into the archive; they are never extracted.";
-                                    color: #111111;
+                                    color: Theme.ink;
                                     font-size: 12px;
                                     wrap: word-wrap;
                                     accessible-role: AccessibleRole.text;
@@ -2609,6 +2492,7 @@ export component MainWindow inherits Window {
                                     spacing: 8px;
                                     Button {
                                         text: "Import into session";
+                                        variant: "primary";
                                         clicked => {
                                             root.asset-command(root.selected-session, "add",
                                                 root.asset-input-path);
@@ -2639,7 +2523,7 @@ export component MainWindow inherits Window {
                                 }
                                 Text {
                                     text: root.asset-preview-description;
-                                    color: #111111;
+                                    color: Theme.ink;
                                     font-size: 12px;
                                     wrap: word-wrap;
                                     accessible-role: AccessibleRole.text;
@@ -2647,8 +2531,8 @@ export component MainWindow inherits Window {
                                 if root.asset-preview-kind == "image": Rectangle {
                                     height: 340px;
                                     border-width: 1px;
-                                    border-color: #111111;
-                                    border-radius: 5px;
+                                    border-color: Theme.line;
+                                    border-radius: 12px;
                                     background: #ffffff;
                                     Image {
                                         x: 12px;
@@ -2663,45 +2547,39 @@ export component MainWindow inherits Window {
                                 if root.asset-preview-kind == "text": Rectangle {
                                     height: 250px;
                                     border-width: 1px;
-                                    border-color: #111111;
-                                    border-radius: 5px;
+                                    border-color: Theme.line;
+                                    border-radius: 12px;
                                     background: #ffffff;
-                                    ScrollView {
+                                    ScrollText {
                                         x: 12px;
                                         y: 10px;
                                         width: parent.width - 24px;
                                         height: parent.height - 20px;
-                                        Text {
-                                            width: parent.visible-width;
-                                            text: root.asset-preview-body;
-                                            color: #111111;
-                                            font-size: 12px;
-                                            font-family: "monospace";
-                                            wrap: word-wrap;
-                                            accessible-role: AccessibleRole.text;
-                                        }
+                                        text: root.asset-preview-body;
+                                        text-color: Theme.ink;
+                                        font-family: "Consolas";
                                     }
                                 }
                                 if root.asset-preview-kind == "audio": Rectangle {
                                     height: 88px;
                                     border-width: 1px;
-                                    border-color: #111111;
-                                    border-radius: 5px;
+                                    border-color: Theme.line;
+                                    border-radius: 12px;
                                     background: #ffffff;
                                     VerticalLayout {
                                         padding: 12px;
                                         spacing: 4px;
                                         Text {
                                             text: root.asset-preview-waveform;
-                                            color: #1e40ff;
+                                            color: Theme.accent;
                                             font-size: 24px;
-                                            font-family: "monospace";
+                                            font-family: "Consolas";
                                             accessible-role: AccessibleRole.text;
                                             accessible-label: "Audio waveform preview";
                                         }
                                         Text {
                                             text: root.asset-preview-body;
-                                            color: #111111;
+                                            color: Theme.ink;
                                             font-size: 11px;
                                             wrap: word-wrap;
                                         }
@@ -2709,31 +2587,26 @@ export component MainWindow inherits Window {
                                 }
                                 if root.asset-preview-kind == "message": Text {
                                     text: root.asset-preview-body;
-                                    color: #111111;
+                                    color: Theme.ink;
                                     font-size: 12px;
                                     wrap: word-wrap;
                                     accessible-role: AccessibleRole.text;
                                 }
-                                ScrollView {
+                                ScrollText {
                                     height: 260px;
-                                    Text {
-                                        text: root.command-output;
-                                        color: #111111;
-                                        font-size: 12px;
-                                        wrap: word-wrap;
-                                    }
+                                    text: root.command-output;
                                 }
                             }
                         }
                         if root.active-view == "recording": Rectangle {
-                            border-radius: 5px;
+                            border-radius: 12px;
                             background: #ffffff;
                             VerticalLayout {
                                 padding: 20px;
                                 spacing: 12px;
                                 Text {
                                     text: "Archive-backed audio capture";
-                                    color: #111111;
+                                    color: Theme.ink;
                                     font-size: 16px;
                                     font-weight: 600;
                                 }
@@ -2741,7 +2614,7 @@ export component MainWindow inherits Window {
                                     text: "Choose a session, check your microphone, confirm consent, " +
                                           "then start capture. Recorded audio is committed directly " +
                                           "to the selected archive.";
-                                    color: #111111;
+                                    color: Theme.ink;
                                     font-size: 13px;
                                     wrap: word-wrap;
                                 }
@@ -2791,8 +2664,8 @@ export component MainWindow inherits Window {
                                 }
                             Text {
                                 text: "Start both uses this application when an ID is set.";
-                                color: #111111;
-                                font-size: 10px;
+                                color: Theme.ink;
+                                font-size: 11px;
                                 wrap: word-wrap;
                             }
                                 CheckBox {
@@ -2805,14 +2678,14 @@ export component MainWindow inherits Window {
                                 }
                                 Text {
                                     text: "Live transcription needs one source and a local Whisper model. Segments are provisional until reviewed.";
-                                    color: #111111;
-                                    font-size: 10px;
+                                    color: Theme.ink;
+                                    font-size: 11px;
                                     wrap: word-wrap;
                                 }
                                 Text {
                                     text: "Speak naturally during the short microphone check. It is temporary " +
                                           "and is not saved in the archive.";
-                                    color: #111111;
+                                    color: Theme.ink;
                                     font-size: 12px;
                                     wrap: word-wrap;
                                 }
@@ -2829,21 +2702,21 @@ export component MainWindow inherits Window {
                                         width: 240px;
                                         height: 12px;
                                         border-width: 1px;
-                                        border-color: #111111;
-                                        border-radius: 5px;
+                                        border-color: Theme.line;
+                                        border-radius: 12px;
                                         background: #ffffff;
                                         Rectangle {
                                             x: 0px;
                                             y: 0px;
                                             width: parent.width * root.recording-input-level / 100;
                                             height: parent.height;
-                                            border-radius: 5px;
-                                            background: #1e40ff;
+                                            border-radius: 12px;
+                                            background: Theme.accent;
                                         }
                                     }
                                     Text {
                                         text: root.recording-preflight-output;
-                                        color: #111111;
+                                        color: Theme.ink;
                                         font-size: 11px;
                                         wrap: word-wrap;
                                     }
@@ -2856,6 +2729,7 @@ export component MainWindow inherits Window {
                                     spacing: 8px;
                                     Button {
                                         text: "Start selected source";
+                                        variant: "primary";
                                         enabled: root.recording-source != "imported-file" &&
                                             root.recording-consent-confirmed &&
                                             ((root.recording-source == "microphone" || root.recording-source == "both") ?
@@ -2898,33 +2772,28 @@ export component MainWindow inherits Window {
                                         }
                                     }
                                 }
-                                ScrollView {
+                                ScrollText {
                                     height: 180px;
-                                    Text {
-                                        text: root.command-output;
-                                        color: #111111;
-                                        font-size: 12px;
-                                        wrap: word-wrap;
-                                    }
+                                    text: root.command-output;
                                 }
                             }
                         }
                         if root.active-view == "review": Rectangle {
-                            border-radius: 5px;
+                            border-radius: 12px;
                             background: #ffffff;
                             VerticalLayout {
                                 padding: 20px;
                                 spacing: 12px;
                                 Text {
                                     text: "Review the source before approval";
-                                    color: #111111;
+                                    color: Theme.ink;
                                     font-size: 16px;
                                     font-weight: 600;
                                 }
                                 Text {
                                     text: "Correct transcript wording and verify it against the recording. " +
                                           "Human corrections remain revisioned in the archive.";
-                                    color: #111111;
+                                    color: Theme.ink;
                                     font-size: 13px;
                                     wrap: word-wrap;
                                 }
@@ -2966,7 +2835,7 @@ export component MainWindow inherits Window {
                                 }
                                 Text {
                                     text: root.transcript-provenance;
-                                    color: #111111;
+                                    color: Theme.ink;
                                     font-size: 11px;
                                     wrap: word-wrap;
                                 }
@@ -2978,30 +2847,31 @@ export component MainWindow inherits Window {
                                 }
                                 Button {
                                     text: "Save human correction";
+                                    variant: "primary";
                                     clicked => {
                                         root.save-transcript(root.selected-session,
                                             root.selected-transcript, root.transcript-edit-text);
                                     }
                                 }
-                                ScrollView { height: 230px; Text { text: root.command-output; color: #111111; font-size: 12px; wrap: word-wrap; } }
+                                ScrollText { height: 230px; text: root.command-output; }
                             }
                         }
                         if root.active-view == "ai": Rectangle {
-                            border-radius: 5px;
+                            border-radius: 12px;
                             background: #ffffff;
                             VerticalLayout {
                                 padding: 20px;
                                 spacing: 12px;
                                 Text {
                                     text: "Choose a workflow";
-                                    color: #111111;
+                                    color: Theme.ink;
                                     font-size: 16px;
                                     font-weight: 600;
                                 }
                                 Text {
                                     text: "Manual packages need no API key. BYOK sends data only after " +
                                           "you review the exact request and confirm its hash.";
-                                    color: #111111;
+                                    color: Theme.ink;
                                     font-size: 13px;
                                     wrap: word-wrap;
                                 }
@@ -3066,6 +2936,7 @@ export component MainWindow inherits Window {
                                     spacing: 8px;
                                     Button {
                                         text: "Prepare manual chat package";
+                                        variant: "primary";
                                         clicked => {
                                             root.ai-command(root.ai-provider-id, "package",
                                                 root.selected-session, root.ai-package-path);
@@ -3129,33 +3000,28 @@ export component MainWindow inherits Window {
                                         }
                                     }
                                 }
-                                ScrollView {
+                                ScrollText {
                                     height: 220px;
-                                    Text {
-                                        text: root.command-output;
-                                        color: #111111;
-                                        font-size: 12px;
-                                        wrap: word-wrap;
-                                    }
+                                    text: root.command-output;
                                 }
                             }
                         }
                         if root.active-view == "guides": Rectangle {
-                            border-radius: 5px;
+                            border-radius: 12px;
                             background: #ffffff;
                             VerticalLayout {
                                 padding: 20px;
                                 spacing: 12px;
                                 Text {
                                     text: "Guide review and export";
-                                    color: #111111;
+                                    color: Theme.ink;
                                     font-size: 16px;
                                     font-weight: 600;
                                 }
                                 Text {
                                     text: "Review source-linked content, validate it, explicitly approve " +
                                           "the guide, then export a copy.";
-                                    color: #111111;
+                                    color: Theme.ink;
                                     font-size: 13px;
                                     wrap: word-wrap;
                                 }
@@ -3186,7 +3052,7 @@ export component MainWindow inherits Window {
                                 }
                                 Text {
                                     text: root.guide-provenance;
-                                    color: #111111;
+                                    color: Theme.ink;
                                     font-size: 11px;
                                     wrap: word-wrap;
                                 }
@@ -3305,6 +3171,7 @@ export component MainWindow inherits Window {
                                     }
                                     Button {
                                         text: "Approve guide";
+                                        variant: "primary";
                                         clicked => {
                                             root.guide-command(root.selected-guide, "approve", "", "");
                                         }
@@ -3369,35 +3236,32 @@ export component MainWindow inherits Window {
                                     }
                                     Button {
                                         text: "Export";
+                                        variant: "primary";
                                         clicked => {
                                             root.guide-command(root.selected-guide, "export",
                                                 root.guide-export-format, root.guide-export-path);
                                         }
                                     }
                                 }
-                                ScrollView {
+                                ScrollText {
                                     height: 260px;
-                                    Text {
-                                        text: root.guide-output;
-                                        color: #111111;
-                                        font-size: 12px;
-                                        wrap: word-wrap;
-                                    }
+                                    text: root.guide-output;
+                                    text-color: Theme.ink;
                                 }
                             }
                         }
                         if root.active-view == "settings": Rectangle {
-                            border-radius: 5px;
+                            border-radius: 12px;
                             background: #ffffff;
                             VerticalLayout {
                                 padding: 20px;
                                 spacing: 12px;
-                                Text { text: "Archive-specific configuration"; color: #111111; font-size: 16px; font-weight: 600; }
-                                Text { text: "Tutorux stores workspace settings in the selected .tux archive. API keys are read from environment variables unless you explicitly save an encrypted credential record."; color: #111111; font-size: 13px; wrap: word-wrap; }
-                                Text { text: "settings list   ·   settings get KEY   ·   settings set KEY VALUE   ·   archive verify --full"; color: #1e40ff; font-size: 12px; wrap: word-wrap; }
+                                Text { text: "Archive-specific configuration"; color: Theme.ink; font-size: 16px; font-weight: 600; }
+                                Text { text: "Tutorux stores workspace settings in the selected .tux archive. API keys are read from environment variables unless you explicitly save an encrypted credential record."; color: Theme.ink; font-size: 13px; wrap: word-wrap; }
+                                Text { text: "settings list · settings get --key KEY · settings set --key KEY --value VALUE · archive verify --full"; color: Theme.accent; font-size: 12px; wrap: word-wrap; }
                                 Text {
                                     text: "Quick marker keys (Control on Windows/Linux, Command on macOS)";
-                                    color: #111111;
+                                    color: Theme.ink;
                                     font-size: 13px;
                                     font-weight: 600;
                                 }
@@ -3420,6 +3284,7 @@ export component MainWindow inherits Window {
                                 }
                                 Button {
                                     text: "Save marker keys to this archive";
+                                    variant: "primary";
                                     clicked => {
                                         root.save-marker-shortcuts(root.shortcut-concept,
                                             root.shortcut-mistake, root.shortcut-correction,
@@ -3440,21 +3305,53 @@ export component MainWindow inherits Window {
                     }
                     }
 
+                    // Global status line: every controller status message lands here.
+                    if root.status-message != "": Rectangle {
+                        height: 34px;
+                        background: Theme.accent-soft;
+
+                        Rectangle {
+                            x: 0;
+                            y: 0;
+                            width: parent.width;
+                            height: 1px;
+                            background: Theme.line;
+                        }
+
+                        Text {
+                            x: 22px;
+                            width: parent.width - 44px;
+                            height: parent.height;
+                            vertical-alignment: center;
+                            text: root.status-message;
+                            color: Theme.accent;
+                            font-size: 12px;
+                            overflow: elide;
+                            accessible-role: AccessibleRole.text;
+                            accessible-live-region: AccessibleLiveness.polite;
+                        }
+                    }
+
                     if root.recording-panel-open: Rectangle {
                         height: 300px;
                         border-width: 1px;
-                        border-color: #111111;
-                        border-radius: 5px;
+                        border-color: Theme.line;
+                        border-radius: 12px;
                         background: #ffffff;
+
+                        drop-shadow-color: #10182814;
+                        drop-shadow-blur: 18px;
+                        drop-shadow-offset-y: -2px;
+
                         VerticalLayout {
-                            padding: 10px;
-                            spacing: 6px;
+                            padding: 16px;
+                            spacing: 8px;
                             HorizontalLayout {
                                 spacing: 8px;
                                 Text {
                                     text: "Capture controls";
-                                    color: #111111;
-                                    font-size: 10px;
+                                    color: Theme.ink;
+                                    font-size: 11px;
                                     font-weight: 700;
                                     letter-spacing: 1px;
                                 }
@@ -3499,21 +3396,21 @@ export component MainWindow inherits Window {
                                     width: 160px;
                                     height: 12px;
                                     border-width: 1px;
-                                    border-color: #111111;
-                                    border-radius: 5px;
+                                    border-color: Theme.line;
+                                    border-radius: 12px;
                                     background: #ffffff;
                                     Rectangle {
                                         x: 0px;
                                         y: 0px;
                                         width: parent.width * root.recording-input-level / 100;
                                         height: parent.height;
-                                        border-radius: 5px;
-                                        background: #1e40ff;
+                                        border-radius: 12px;
+                                        background: Theme.accent;
                                     }
                                 }
                                 Text {
                                     text: root.recording-preflight-output;
-                                    color: #111111;
+                                    color: Theme.ink;
                                     font-size: 11px;
                                     wrap: word-wrap;
                                 }
@@ -3541,7 +3438,7 @@ export component MainWindow inherits Window {
                             }
                                 Text {
                                     text: "Start both tracks uses this application when an ID is set.";
-                                    color: #111111;
+                                    color: Theme.ink;
                                     font-size: 11px;
                                     wrap: word-wrap;
                                 }
@@ -3571,6 +3468,7 @@ export component MainWindow inherits Window {
                                 }
                                 Button {
                                     text: "Start selected source";
+                                    variant: "primary";
                                     enabled: root.recording-consent-confirmed &&
                                         root.recording-source != "imported-file" &&
                                         ((root.recording-source == "microphone" || root.recording-source == "both") ?
@@ -3640,7 +3538,7 @@ export component MainWindow inherits Window {
                             }
                             Text {
                                 text: root.recording-status-output;
-                                color: #111111;
+                                color: Theme.ink;
                                 font-size: 11px;
                                 wrap: word-wrap;
                             }
@@ -3651,6 +3549,7 @@ export component MainWindow inherits Window {
         }
         }
     }
+    }
 
         if drop-area.has-drag: Rectangle {
             x: 32px;
@@ -3658,8 +3557,8 @@ export component MainWindow inherits Window {
             width: parent.width - 64px;
             height: parent.height - 64px;
             border-width: 2px;
-            border-color: #1e40ff;
-            border-radius: 5px;
+            border-color: Theme.accent;
+            border-radius: 12px;
             background: #ffffff;
             opacity: 0.96;
             accessible-role: AccessibleRole.groupbox;
@@ -3670,7 +3569,7 @@ export component MainWindow inherits Window {
                 spacing: 8px;
                 Text {
                     text: "Drop files to import";
-                    color: #111111;
+                    color: Theme.ink;
                     font-size: 22px;
                     font-weight: 700;
                     horizontal-alignment: center;
@@ -3680,7 +3579,7 @@ export component MainWindow inherits Window {
                     text: root.selected-session == ""
                         ? "Files will be added to this archive without a session."
                         : "Files will be added to the selected session.";
-                    color: #111111;
+                    color: Theme.ink;
                     font-size: 13px;
                     horizontal-alignment: center;
                 }
