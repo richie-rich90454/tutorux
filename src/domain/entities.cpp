@@ -129,22 +129,25 @@ Record toRecord(const Session& session) {
     record.type = RecordType::Session;
     record.id = session.id;
     record.fields = {
-        {"student_id",          session.studentId                                  },
-        {"entry_id",            session.entryId                                    },
-        {"notes_document_id",   session.notesDocumentId                            },
-        {"subject",             session.subject                                    },
-        {"title",               session.title                                      },
-        {"learning_objectives", session.objectives                                 },
-        {"session_type",        session.sessionType                                },
-        {"session_state",       session.sessionState                               },
-        {"started_at_us",       std::to_string(timestampOrNow(session.startedAtUs))},
-        {"ended_at_us",         std::to_string(session.endedAtUs)                  },
-        {"reviewed_at_us",      std::to_string(session.reviewedAtUs)               },
-        {"recording_state",     session.recordingState                             },
-        {"processing_state",    session.processingState                            },
-        {"archived",            booleanString(session.archived)                    },
-        {"created_at_us",       std::to_string(timestampOrNow(session.createdAtUs))},
-        {"updated_at_us",       std::to_string(now)                                }
+        {"student_id",             session.studentId                                  },
+        {"entry_id",               session.entryId                                    },
+        {"notes_document_id",      session.notesDocumentId                            },
+        {"subject",                session.subject                                    },
+        {"title",                  session.title                                      },
+        {"learning_objectives",    session.objectives                                 },
+        {"session_type",           session.sessionType                                },
+        {"session_state",          session.sessionState                               },
+        {"transcription_language", session.transcriptionLanguage                      },
+        {"guide_template_id",      session.guideTemplateId                            },
+        {"recording_source",       session.recordingSource                            },
+        {"started_at_us",          std::to_string(timestampOrNow(session.startedAtUs))},
+        {"ended_at_us",            std::to_string(session.endedAtUs)                  },
+        {"reviewed_at_us",         std::to_string(session.reviewedAtUs)               },
+        {"recording_state",        session.recordingState                             },
+        {"processing_state",       session.processingState                            },
+        {"archived",               booleanString(session.archived)                    },
+        {"created_at_us",          std::to_string(timestampOrNow(session.createdAtUs))},
+        {"updated_at_us",          std::to_string(now)                                }
     };
     return record;
 }
@@ -184,6 +187,9 @@ tutorux::core::Result<Session> sessionFromRecord(const Record& record) {
     session.processingState = getField(record, "processing_state", "not-processed");
     session.sessionType = getField(record, "session_type", session.recordingState == "not-started" ? "notes-only" : "record-audio");
     session.sessionState = getField(record, "session_state", "active");
+    session.transcriptionLanguage = getField(record, "transcription_language", "auto");
+    session.guideTemplateId = getField(record, "guide_template_id");
+    session.recordingSource = getField(record, "recording_source", session.sessionType == "record-audio" ? "microphone" : "none");
     session.archived = getField(record, "archived") == "true";
     const auto parseTimestampField = [&](std::string_view key) -> std::int64_t {
         const auto value = getField(record, key);
