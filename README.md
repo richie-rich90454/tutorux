@@ -4,13 +4,20 @@ Tutorux is a local-first tutoring workspace built around portable, directly muta
 archives. The application core and command-line interface are written in C++23. The archive is
 the authoritative store for students, sessions, notes, assets, evidence, guides, and settings.
 
+Tutorux is licensed under GPL-3.0-only; see [`LICENSE`](LICENSE). The desktop interface uses the
+pinned Slint release under its GPLv3 license. Runtime packages install the product license and
+the license files configured for their build. Only the Windows UCRT64 Runtime currently collects
+license files for its system-package static dependency closure. Linux and macOS release artifacts
+need a platform-specific dependency notice collection before distribution; see
+[`docs/dependencies/STATIC-RELEASE-LICENSE-COLLECTION.md`](docs/dependencies/STATIC-RELEASE-LICENSE-COLLECTION.md).
+
 ## Build
 
 Tutorux requires CMake 3.25 or newer, a C++23 compiler, libsodium 1.0.22, PoDoFo 1.1.2, and
 libcurl 7.85 or newer for verified HTTPS provider requests. Static release builds link libcurl and
 its selected TLS and protocol libraries into the executable.
 
-C++ source formatting is defined in [`.clang-format`](.clang-format): 100-column limit, four-space
+C++ source formatting is defined in [`.clang-format`](.clang-format): 140-column limit, four-space
 indentation, spaces only, and LLVM-derived C++ layout rules. JavaScript-specific Oxfmt options such
 as arrow-parenthesis and trailing-comma policy do not apply to C++.
 Pinned source commits and dependency hashes are recorded in
@@ -45,8 +52,8 @@ the platform inputs and runtime boundary. The Windows UCRT64 package is the only
 verified in this workspace. Each preset pins fetched source tags and verifies their commit hashes.
 Git and Rust are required for the pinned Slint build.
 
-Install the static release as a self-contained application folder with its required notices and
-licenses:
+Install the static release runtime files. Review the platform's dependency notice collection before
+distribution:
 
 ```powershell
 cmake --install build-static --config Release --component Runtime --prefix dist/static-release
@@ -193,7 +200,8 @@ Ollama model discovery, metadata inspection, conservative context estimation, an
 generation use `/api/tags`, `/api/show`, and `/api/chat`.
 
 On Windows, Linux, and macOS, list available capture inputs with `record devices`. Windows also
-lists playback endpoints. Start an explicitly consented foreground capture with
+lists playback endpoints and visible application processes; macOS 14 and newer lists shareable
+applications. Start an explicitly consented foreground capture with
 `record start --session UUID --consent`; add `--source both` to capture synchronized separate
 microphone and system-audio tracks, and add `--detach` to run it
 as a controllable background worker, then use `record status|pause|resume|stop --session UUID` from
@@ -210,9 +218,14 @@ audio and resume continues the same recording timeline. `record configure` saves
 durability settings in the selected archive;
 `record test` validates the selected endpoint format and initializes a stream without starting
 capture. Linux capture uses ALSA; system-audio loopback requires an explicitly selected monitor PCM
-through `--playback ID`. macOS capture uses CoreAudio; output loopback requires a user-configured
-virtual audio input. Both tracks can be selected independently with `--microphone ID` and
-`--playback ID`.
+through `--playback ID`. macOS microphone capture uses CoreAudio. On macOS 13 and newer, system audio
+uses ScreenCaptureKit after the operating-system permission prompt; `record devices` lists the
+`screen-capture-kit` input, which can be selected with `--playback screen-capture-kit`. A virtual
+audio driver is not required. Windows system audio uses WASAPI loopback. Both tracks can be selected
+independently with `--microphone ID` and `--playback ID`. Select a process with
+`--source application --device ID` for one application track, or combine it with the microphone
+using `--source both --application ID`. Per-application capture is available on supported Windows and macOS versions;
+Linux reports it as unsupported.
 
 Replay a committed track directly from the archive with `record play --session UUID`. Use
 `--track UUID` for multi-track sessions and `--start-us N --duration-us N` to select a range. The
@@ -271,4 +284,5 @@ macOS CoreAudio behavior is documented in
 [`docs/audio/COREAUDIO-CAPTURE.md`](docs/audio/COREAUDIO-CAPTURE.md).
 Transcript formats, validation limits, and provenance behavior are documented in
 [`docs/transcription/TRANSCRIPT-IMPORT.md`](docs/transcription/TRANSCRIPT-IMPORT.md).
+Native live local transcription is documented in docs/transcription/LIVE-TRANSCRIPTION.md.
 Safe asset import behavior is documented in [`docs/assets/ASSET-IMPORT.md`](docs/assets/ASSET-IMPORT.md).
