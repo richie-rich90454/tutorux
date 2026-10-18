@@ -63,6 +63,10 @@ if(TUTORUX_BUILD_WASM AND TUTORUX_STATIC_RUNTIME)
     )
 endif()
 
+if(TUTORUX_BUILD_WASM)
+    enable_language(C)
+endif()
+
 if(TUTORUX_LLAMA_METAL AND NOT APPLE)
     message(FATAL_ERROR "TUTORUX_LLAMA_METAL can only be enabled on macOS.")
 endif()
@@ -148,6 +152,7 @@ set(TUTORUX_CORE_SOURCES
     src/archive/crypto.cpp
     src/archive/file.cpp
     src/archive/format.cpp
+    src/archive/sanitized_copy.cpp
     src/command/dispatcher.cpp
     src/command/json.cpp
     src/command/session_package.cpp
@@ -155,6 +160,7 @@ set(TUTORUX_CORE_SOURCES
     src/domain/entities.cpp
     src/domain/guide.cpp
     src/domain/hash.cpp
+    src/domain/journal.cpp
     src/diagnostics/system.cpp
     src/intelligence/pipeline.cpp
     src/assets/import.cpp
@@ -191,6 +197,7 @@ if(TUTORUX_BUILD_WASM)
         src/ai/http_wasm.cpp
         src/audio/platform_wasm.cpp
         src/audio/playback_wasm.cpp
+        src/document/image_decoder.cpp
         src/document/pdf_export_wasm.cpp
     )
 endif()
@@ -204,6 +211,138 @@ endif()
 add_library(tutorux_core STATIC ${TUTORUX_CORE_SOURCES})
 target_include_directories(tutorux_core PUBLIC include)
 target_compile_features(tutorux_core PUBLIC cxx_std_23)
+
+if(TUTORUX_BUILD_WASM)
+    include(FetchContent)
+
+    set(TUTORUX_ZLIB_COMMIT_PIN "da607da739fa6047df13e66a2af6b8bec7c2a498")
+    set(TUTORUX_LIBPNG_COMMIT_PIN "cd952f49f95bb27154ae77dbb103032d95f6e580")
+    set(TUTORUX_GIFLIB_COMMIT_PIN "061605081115bbfd7019bafc119a13b6f17fcf25")
+    set(TUTORUX_LIBWEBP_COMMIT_PIN "4fa21912338357f89e4fd51cf2368325b59e9bd9")
+
+    set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
+    set(ZLIB_BUILD_TESTING OFF CACHE BOOL "" FORCE)
+    set(ZLIB_BUILD_SHARED OFF CACHE BOOL "" FORCE)
+    set(ZLIB_BUILD_STATIC ON CACHE BOOL "" FORCE)
+    set(ZLIB_INSTALL OFF CACHE BOOL "" FORCE)
+    FetchContent_Declare(
+        tutorux_zlib
+        GIT_REPOSITORY https://github.com/madler/zlib.git
+        GIT_TAG ${TUTORUX_ZLIB_COMMIT_PIN}
+        GIT_SHALLOW TRUE
+        GIT_SUBMODULES ""
+    )
+    FetchContent_MakeAvailable(tutorux_zlib)
+    FetchContent_GetProperties(tutorux_zlib SOURCE_DIR TUTORUX_ZLIB_SOURCE_DIR)
+    tutorux_verify_source_pin(
+        zlib "${TUTORUX_ZLIB_SOURCE_DIR}" "${TUTORUX_ZLIB_COMMIT_PIN}"
+    )
+    if(NOT TARGET zlibstatic)
+        message(FATAL_ERROR "The pinned zlib source did not define the static zlib target.")
+    endif()
+
+    add_library(ZLIB::ZLIB ALIAS zlibstatic)
+    set(ZLIB_FOUND TRUE)
+    set(ZLIB_VERSION_STRING "1.3.2")
+    set(ZLIB_INCLUDE_DIR "${TUTORUX_ZLIB_SOURCE_DIR}")
+    set(ZLIB_INCLUDE_DIRS "${TUTORUX_ZLIB_SOURCE_DIR};${tutorux_zlib_BINARY_DIR}")
+    set(ZLIB_LIBRARY zlibstatic)
+    set(ZLIB_LIBRARY_RELEASE zlibstatic)
+    set(ZLIB_LIBRARY_DEBUG zlibstatic)
+
+    set(PNG_SHARED OFF CACHE BOOL "" FORCE)
+    set(PNG_STATIC ON CACHE BOOL "" FORCE)
+    set(PNG_TESTS OFF CACHE BOOL "" FORCE)
+    set(PNG_TOOLS OFF CACHE BOOL "" FORCE)
+    set(PNG_FRAMEWORK OFF CACHE BOOL "" FORCE)
+    set(PNG_HARDWARE_OPTIMIZATIONS OFF CACHE BOOL "" FORCE)
+    FetchContent_Declare(
+        tutorux_libpng
+        GIT_REPOSITORY https://github.com/pnggroup/libpng.git
+        GIT_TAG ${TUTORUX_LIBPNG_COMMIT_PIN}
+        GIT_SHALLOW TRUE
+        GIT_SUBMODULES ""
+    )
+    FetchContent_MakeAvailable(tutorux_libpng)
+    FetchContent_GetProperties(tutorux_libpng SOURCE_DIR TUTORUX_LIBPNG_SOURCE_DIR)
+    tutorux_verify_source_pin(
+        libpng "${TUTORUX_LIBPNG_SOURCE_DIR}" "${TUTORUX_LIBPNG_COMMIT_PIN}"
+    )
+    if(NOT TARGET png_static)
+        message(FATAL_ERROR "The pinned libpng source did not define the static png target.")
+    endif()
+    target_link_libraries(png_static PUBLIC zlibstatic)
+
+    FetchContent_Declare(
+        tutorux_giflib
+        GIT_REPOSITORY https://git.code.sf.net/p/giflib/code
+        GIT_TAG ${TUTORUX_GIFLIB_COMMIT_PIN}
+        GIT_SUBMODULES ""
+    )
+    FetchContent_MakeAvailable(tutorux_giflib)
+    FetchContent_GetProperties(tutorux_giflib SOURCE_DIR TUTORUX_GIFLIB_SOURCE_DIR)
+    tutorux_verify_source_pin(
+        GIFLIB "${TUTORUX_GIFLIB_SOURCE_DIR}" "${TUTORUX_GIFLIB_COMMIT_PIN}"
+    )
+    add_library(tutorux_giflib STATIC
+        "${TUTORUX_GIFLIB_SOURCE_DIR}/dgif_lib.c"
+        "${TUTORUX_GIFLIB_SOURCE_DIR}/gifalloc.c"
+        "${TUTORUX_GIFLIB_SOURCE_DIR}/gif_err.c"
+        "${TUTORUX_GIFLIB_SOURCE_DIR}/gif_hash.c"
+        "${TUTORUX_GIFLIB_SOURCE_DIR}/openbsd-reallocarray.c"
+    )
+    target_include_directories(tutorux_giflib PUBLIC "${TUTORUX_GIFLIB_SOURCE_DIR}")
+
+    set(WEBP_BUILD_ANIM_UTILS OFF CACHE BOOL "" FORCE)
+    set(WEBP_BUILD_CWEBP OFF CACHE BOOL "" FORCE)
+    set(WEBP_BUILD_DWEBP OFF CACHE BOOL "" FORCE)
+    set(WEBP_BUILD_GIF2WEBP OFF CACHE BOOL "" FORCE)
+    set(WEBP_BUILD_IMG2WEBP OFF CACHE BOOL "" FORCE)
+    set(WEBP_BUILD_VWEBP OFF CACHE BOOL "" FORCE)
+    set(WEBP_BUILD_WEBPINFO OFF CACHE BOOL "" FORCE)
+    set(WEBP_BUILD_LIBWEBPMUX OFF CACHE BOOL "" FORCE)
+    set(WEBP_BUILD_WEBPMUX OFF CACHE BOOL "" FORCE)
+    set(WEBP_BUILD_EXTRAS OFF CACHE BOOL "" FORCE)
+    set(WEBP_BUILD_FUZZTEST OFF CACHE BOOL "" FORCE)
+    set(WEBP_ENABLE_SIMD OFF CACHE BOOL "" FORCE)
+    set(WEBP_USE_THREAD OFF CACHE BOOL "" FORCE)
+    FetchContent_Declare(
+        tutorux_libwebp
+        GIT_REPOSITORY https://github.com/webmproject/libwebp.git
+        GIT_TAG ${TUTORUX_LIBWEBP_COMMIT_PIN}
+        GIT_SHALLOW TRUE
+        GIT_SUBMODULES ""
+    )
+    FetchContent_MakeAvailable(tutorux_libwebp)
+    FetchContent_GetProperties(tutorux_libwebp SOURCE_DIR TUTORUX_LIBWEBP_SOURCE_DIR)
+    tutorux_verify_source_pin(
+        libwebp "${TUTORUX_LIBWEBP_SOURCE_DIR}" "${TUTORUX_LIBWEBP_COMMIT_PIN}"
+    )
+    if(NOT TARGET webp OR NOT TARGET webpdemux)
+        message(FATAL_ERROR "The pinned libwebp source did not define the static decoder targets.")
+    endif()
+
+    target_include_directories(tutorux_core PRIVATE
+        "${TUTORUX_LIBPNG_SOURCE_DIR}"
+        "${tutorux_libpng_BINARY_DIR}"
+    )
+    target_link_libraries(tutorux_core PRIVATE png_static tutorux_giflib webpdemux webp)
+
+    install(FILES "${TUTORUX_ZLIB_SOURCE_DIR}/LICENSE"
+        DESTINATION licenses/zlib COMPONENT WebRuntime
+    )
+    install(FILES "${TUTORUX_LIBPNG_SOURCE_DIR}/LICENSE.md"
+        DESTINATION licenses/libpng COMPONENT WebRuntime
+    )
+    install(FILES "${TUTORUX_GIFLIB_SOURCE_DIR}/COPYING"
+        DESTINATION licenses/GIFLIB COMPONENT WebRuntime
+    )
+    install(FILES
+        "${TUTORUX_LIBWEBP_SOURCE_DIR}/COPYING"
+        "${TUTORUX_LIBWEBP_SOURCE_DIR}/PATENTS"
+        DESTINATION licenses/libwebp COMPONENT WebRuntime
+    )
+endif()
 
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     find_package(PkgConfig REQUIRED)
