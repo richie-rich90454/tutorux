@@ -10,29 +10,29 @@
 
 namespace {
 
-    struct TemporaryDirectory final {
-        std::filesystem::path path;
+struct TemporaryDirectory final {
+    std::filesystem::path path;
 
-        ~TemporaryDirectory() {
-            std::error_code ignored;
-            std::filesystem::remove_all(path, ignored);
-        }
-    };
-
-    int reportFailure(std::string_view step, std::string_view detail) {
-        std::cerr << step << ": " << detail << '\n';
-        return 1;
+    ~TemporaryDirectory() {
+        std::error_code ignored;
+        std::filesystem::remove_all(path, ignored);
     }
+};
 
-    std::string verificationIssues(const tutorux::archive::VerificationReport& report) {
-        std::string issues;
-        for (const std::string& issue : report.issues) {
-            if (!issues.empty())
-                issues += "; ";
-            issues += issue;
-        }
-        return issues;
+int reportFailure(std::string_view step, std::string_view detail) {
+    std::cerr << step << ": " << detail << '\n';
+    return 1;
+}
+
+std::string verificationIssues(const tutorux::archive::VerificationReport& report) {
+    std::string issues;
+    for (const std::string& issue : report.issues) {
+        if (!issues.empty())
+            issues += "; ";
+        issues += issue;
     }
+    return issues;
+}
 
 } // namespace
 
@@ -61,8 +61,10 @@ int main() {
         archive::Record student;
         student.type = archive::RecordType::Student;
         student.id = studentId;
-        student.fields = {{"display_name", "Encryption test student"},
-                          {"tutor_notes", privateMarker}};
+        student.fields = {
+            {"display_name", "Encryption test student"},
+            {"tutor_notes",  privateMarker            }
+        };
         if (auto status = created->put(std::move(student)); !status)
             return reportFailure("write plaintext record", status.error().message);
 
@@ -73,9 +75,9 @@ int main() {
     {
         auto inspected = archive::inspectArchive(archivePath);
         if (!inspected || inspected->healthStatus != "locked") {
-            return reportFailure("locked discovery", inspected
-                                                         ? "archive did not report a locked status"
-                                                         : inspected.error().message);
+            return reportFailure("locked discovery",
+                                 inspected ? "archive did not report a locked status"
+                                           : inspected.error().message);
         }
         auto locked = archive::Archive::open(archivePath, false, {}, true);
         if (!locked || !locked->locked())
@@ -102,9 +104,9 @@ int main() {
         }
         auto verification = unlocked->verify(true);
         if (!verification || !verification->valid) {
-            return reportFailure("full verification", verification
-                                                          ? verificationIssues(*verification)
-                                                          : verification.error().message);
+            return reportFailure("full verification",
+                                 verification ? verificationIssues(*verification)
+                                              : verification.error().message);
         }
         if (auto status = unlocked->compact(); !status)
             return reportFailure("encrypted compaction", status.error().message);
@@ -122,9 +124,9 @@ int main() {
             return reportFailure("reopen after compaction", afterCompaction.error().message);
         auto verification = afterCompaction->verify(true);
         if (!verification || !verification->valid) {
-            return reportFailure("verify after compaction", verification
-                                                                ? verificationIssues(*verification)
-                                                                : verification.error().message);
+            return reportFailure("verify after compaction",
+                                 verification ? verificationIssues(*verification)
+                                              : verification.error().message);
         }
     }
 
@@ -152,8 +154,8 @@ int main() {
         return reportFailure("new passphrase", newPassphrase.error().message);
     auto verification = newPassphrase->verify(true);
     if (!verification || !verification->valid)
-        return reportFailure("post-rotation verification", verification
-                                                               ? verificationIssues(*verification)
-                                                               : verification.error().message);
+        return reportFailure("post-rotation verification",
+                             verification ? verificationIssues(*verification)
+                                          : verification.error().message);
     return 0;
 }
