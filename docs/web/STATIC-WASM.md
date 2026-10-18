@@ -87,9 +87,13 @@ The static page currently provides these archive-backed workflows:
 - Add, edit, prioritize, and timestamp tutor notes and lesson markers.
 - Import plain text, SRT, or WebVTT transcript files; correct segment text and timestamps; and
   download transcript exports in plain text, SRT, WebVTT, or JSON.
+- Send one explicitly selected audio upload to a user-configured OpenAI-compatible transcription
+  endpoint, review its timestamped provisional segments, and import them into the selected session.
 - Capture microphone audio in secure browsers with explicit permission and commit it as a sequence
   of individually identifiable audio tracks in the selected session.
 - Import session files and media, list them, verify content hashes, and download extracted copies.
+- Drop lesson files anywhere in the page to add them to the open archive; files link to the selected
+  session when one is active, and each failed file is reported separately.
 - Create and download a manual AI handoff package in Markdown, JSON, multipart text, or ZIP, then import an external
   JSON guide response as a proposed guide for tutor review.
 - Generate a guide draft from archived session evidence, edit its title and blocks, add
@@ -107,7 +111,8 @@ current segment and queued blocks, bounded to roughly 27 seconds at the configur
 backlog limits. If a segment cannot be committed, Tutorux downloads a WAV recovery copy or retains
 the WAV in page memory for the explicit recovery download action. Keep the page open during capture
 and download the archive for an independent backup. System-audio capture and background recording
-are unavailable. User-selected transcript, WAV, and asset files remain limited to 64 MiB each;
+are unavailable. User-selected transcript, WAV, asset, and remote transcription files remain
+limited to 64 MiB each;
 external AI response files are limited to 16 MiB. Browser-side local model provisioning is
 unavailable. Transcript editing works for transcript segments already in the archive or imported
 from supported text formats.
@@ -190,8 +195,41 @@ browser Fetch API through Emscripten Asyncify, so provider calls work only when 
 the page's origin through CORS. Unsupported commands return the command engine's error rather than
 reporting success.
 
-Cloud AI providers may block direct requests from a browser origin through CORS policy. Browser
-credentials are not stored by this page, and passphrases are held in memory only while the page is
-open. Use the manual external-agent package flow when provider requests are blocked. Model-backed
-transcription is not exposed by the browser workflows listed above; importing WAV files, capturing
-microphone audio, editing or importing transcript text, and exporting PDF or DOCX are supported.
+Cloud AI providers may block direct requests from a browser origin through CORS policy. Browser API
+keys remain in page memory only until an upload attempt completes or the page closes, then are
+cleared; they are not stored by this page. Passphrases are held in memory only while the page is
+open. Use manual transcript import or the external AI-package flow when provider requests are
+blocked.
+
+The WebAssembly build does not include whisper.cpp or the embedded llama.cpp runtime, so it cannot
+run local speech recognition. Remote transcription is available for one user-selected MP3, MP4,
+MPEG, MPGA, M4A, WAV, or WebM file at a time through an OpenAI-compatible
+`/audio/transcriptions` endpoint. The endpoint base URL, model, and optional API key are entered in
+the page and held in memory only; they are not saved in the archive, IndexedDB, browser storage, or
+logs. The API key is sent in the request's `Authorization` header. HTTPS is required, except HTTP
+to localhost or an IP loopback address. URL credentials, query strings, and fragments are rejected.
+
+Before each upload, Tutorux shows the selected filename, media type, byte count, endpoint, and model,
+explains that the selected audio and entered key leave the device, and requires a fresh confirmation.
+The request sends only that audio file, the model, and the key header; it does not attach archive
+contents, prior transcripts, tutor notes, or other files. The provider may process or retain the
+upload under its own terms. The request can be canceled. A canceled request may already have
+delivered audio to the provider, but Tutorux does not import its returned transcript. Successful
+responses must contain ordered, timestamped segments and are passed through the existing WebVTT
+transcript-import command as provisional records in the session selected when the request began.
+Review or correct these segments before using them as evidence.
+
+Providers must allow the page's origin through CORS and return the OpenAI-compatible verbose JSON
+segment response. CORS, authentication, endpoint, model, and response-format failures are reported
+without printing the API key or audio. Tutorux recommends manual transcript import or the external
+AI-package workflow when a provider request cannot be completed. The page never requires a hosted
+proxy.
+
+Browser support depends on the APIs available at the deployment origin. Microphone capture and
+service-worker installation require a secure context; in-place archive save is available only in
+browsers that implement the File System Access API, while other browsers use file input and archive
+download. Storage quota, memory, permission prompts, background execution, and file-picker behavior
+vary by browser and operating system. iPadOS applies its own limits. A tested browser-version matrix
+has not yet been published or release-qualified. CI builds the static WebAssembly package and reports
+its size and dependency inventory, but the WASM preset disables CTest and no browser automation is
+currently part of release qualification.
