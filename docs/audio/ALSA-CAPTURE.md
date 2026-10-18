@@ -16,3 +16,7 @@ machine-specific ALSA loopback or PipeWire monitor explicitly with `--playback D
 does not guess that an output device is safe to record or capture every application on the system.
 Linux builds require ALSA development headers and libraries. Static release builds require the
 static ALSA archive and link it into the executable.
+
+The current Linux backend does not support per-application audio capture. It uses ALSA capture
+devices and does not implement PipeWire application stream monitoring. An ALSA or PipeWire monitor
+remains a system-mix source and is never treated as an application source.
