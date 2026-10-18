@@ -13,6 +13,8 @@
 #endif
 
 #if defined(__APPLE__)
+#include "tutorux/audio/screencapturekit_backend.hpp"
+
 #include <CoreAudio/CoreAudio.h>
 #include <CoreFoundation/CoreFoundation.h>
 
@@ -74,8 +76,7 @@ core::Result<std::vector<DeviceInfo>> enumerateAlsaCaptureDevices() {
             return value;
         }();
         std::string normalizedDescription = *description;
-        std::ranges::transform(normalizedDescription,
-                               normalizedDescription.begin(),
+        std::ranges::transform(normalizedDescription, normalizedDescription.begin(),
                                [](unsigned char character) {
                                    return static_cast<char>(std::tolower(character));
                                });
@@ -91,8 +92,7 @@ core::Result<std::vector<DeviceInfo>> enumerateAlsaCaptureDevices() {
                 return device.id == *id;
             });
         if (duplicate == devices.end())
-            devices.push_back({std::move(*id),
-                               std::move(name),
+            devices.push_back({std::move(*id), std::move(name),
                                isMonitor ? DeviceKind::playback : DeviceKind::microphone,
                                isDefault});
     }
@@ -123,15 +123,12 @@ core::Result<std::string> coreAudioDeviceName(AudioDeviceID deviceId) {
                                            "Reading a CoreAudio device name failed (OSStatus " +
                                                std::to_string(status) + ")."));
     }
-    std::string converted(
-        static_cast<std::size_t>(
-            CFStringGetMaximumSizeForEncoding(CFStringGetLength(name), kCFStringEncodingUTF8)) +
-            1,
-        '\0');
-    const bool success = CFStringGetCString(name,
-                                            converted.data(),
-                                            static_cast<CFIndex>(converted.size()),
-                                            kCFStringEncodingUTF8);
+    std::string converted(static_cast<std::size_t>(CFStringGetMaximumSizeForEncoding(
+                              CFStringGetLength(name), kCFStringEncodingUTF8)) +
+                              1,
+                          '\0');
+    const bool success = CFStringGetCString(
+        name, converted.data(), static_cast<CFIndex>(converted.size()), kCFStringEncodingUTF8);
     CFRelease(name);
     if (!success) {
         return std::unexpected(
@@ -184,11 +181,7 @@ core::Result<std::vector<DeviceInfo>> enumerateCoreAudioInputDevices() {
                                                std::to_string(status) + ")."));
     }
     std::vector<AudioDeviceID> deviceIds(byteCount / sizeof(AudioDeviceID));
-    status = AudioObjectGetPropertyData(kAudioObjectSystemObject,
-                                        &address,
-                                        0,
-                                        nullptr,
-                                        &byteCount,
+    status = AudioObjectGetPropertyData(kAudioObjectSystemObject, &address, 0, nullptr, &byteCount,
                                         deviceIds.data());
     if (status != noErr) {
         return std::unexpected(core::error("audio_device_enumeration_failed",
@@ -199,12 +192,8 @@ core::Result<std::vector<DeviceInfo>> enumerateCoreAudioInputDevices() {
     address.mSelector = kAudioHardwarePropertyDefaultInputDevice;
     AudioDeviceID defaultId = kAudioObjectUnknown;
     UInt32 defaultSize = sizeof(defaultId);
-    status = AudioObjectGetPropertyData(kAudioObjectSystemObject,
-                                        &address,
-                                        0,
-                                        nullptr,
-                                        &defaultSize,
-                                        &defaultId);
+    status = AudioObjectGetPropertyData(kAudioObjectSystemObject, &address, 0, nullptr,
+                                        &defaultSize, &defaultId);
     if (status != noErr) {
         return std::unexpected(core::error("audio_default_device_failed",
                                            "Reading the default CoreAudio input failed (OSStatus " +
@@ -221,9 +210,7 @@ core::Result<std::vector<DeviceInfo>> enumerateCoreAudioInputDevices() {
         auto name = coreAudioDeviceName(deviceId);
         if (!name)
             return std::unexpected(name.error());
-        devices.push_back({std::to_string(deviceId),
-                           std::move(*name),
-                           DeviceKind::microphone,
+        devices.push_back({std::to_string(deviceId), std::move(*name), DeviceKind::microphone,
                            deviceId == defaultId});
     }
     return devices;
@@ -285,36 +272,24 @@ namespace {
     };
 
     core::Error windowsAudioError(std::string code, HRESULT result, std::string_view operation) {
-        return core::error(std::move(code),
-                           std::string(operation) + " failed (HRESULT " +
-                               std::to_string(static_cast<unsigned long>(result)) + ").");
+        return core::error(std::move(code), std::string(operation) + " failed (HRESULT " +
+                                                std::to_string(static_cast<unsigned long>(result)) +
+                                                ").");
     }
 
     core::Result<std::string> toUtf8(const wchar_t* value) {
         if (!value)
             return std::string{};
-        const int required = WideCharToMultiByte(CP_UTF8,
-                                                 WC_ERR_INVALID_CHARS,
-                                                 value,
-                                                 -1,
-                                                 nullptr,
-                                                 0,
-                                                 nullptr,
-                                                 nullptr);
+        const int required = WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, value, -1, nullptr,
+                                                 0, nullptr, nullptr);
         if (required <= 0) {
             return std::unexpected(windowsAudioError("audio_device_name_invalid",
                                                      HRESULT_FROM_WIN32(GetLastError()),
                                                      "Converting an audio device name"));
         }
         std::string converted(static_cast<std::size_t>(required), '\0');
-        const int written = WideCharToMultiByte(CP_UTF8,
-                                                WC_ERR_INVALID_CHARS,
-                                                value,
-                                                -1,
-                                                converted.data(),
-                                                required,
-                                                nullptr,
-                                                nullptr);
+        const int written = WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, value, -1,
+                                                converted.data(), required, nullptr, nullptr);
         if (written != required) {
             return std::unexpected(windowsAudioError("audio_device_name_invalid",
                                                      HRESULT_FROM_WIN32(GetLastError()),
@@ -330,14 +305,12 @@ namespace {
         if (result == E_NOTFOUND)
             return std::string{};
         if (FAILED(result))
-            return std::unexpected(windowsAudioError("audio_default_device_failed",
-                                                     result,
+            return std::unexpected(windowsAudioError("audio_default_device_failed", result,
                                                      "Reading the default audio endpoint"));
         LPWSTR identifier = nullptr;
         const HRESULT idResult = device->GetId(&identifier);
         if (FAILED(idResult))
-            return std::unexpected(windowsAudioError("audio_device_id_failed",
-                                                     idResult,
+            return std::unexpected(windowsAudioError("audio_device_id_failed", idResult,
                                                      "Reading the audio endpoint identifier"));
         auto converted = toUtf8(identifier);
         CoTaskMemFree(identifier);
@@ -348,8 +321,7 @@ namespace {
         ComOwner<IPropertyStore> properties;
         HRESULT result = device->OpenPropertyStore(STGM_READ, properties.put());
         if (FAILED(result))
-            return std::unexpected(windowsAudioError("audio_device_properties_failed",
-                                                     result,
+            return std::unexpected(windowsAudioError("audio_device_properties_failed", result,
                                                      "Opening audio endpoint properties"));
 
         PROPVARIANT value;
@@ -357,16 +329,14 @@ namespace {
         result = properties->GetValue(PKEY_Device_FriendlyName, &value);
         if (FAILED(result)) {
             PropVariantClear(&value);
-            return std::unexpected(windowsAudioError("audio_device_name_failed",
-                                                     result,
+            return std::unexpected(windowsAudioError("audio_device_name_failed", result,
                                                      "Reading the audio endpoint name"));
         }
         PWSTR name = nullptr;
         result = PropVariantToStringAlloc(value, &name);
         PropVariantClear(&value);
         if (FAILED(result)) {
-            return std::unexpected(windowsAudioError("audio_device_name_failed",
-                                                     result,
+            return std::unexpected(windowsAudioError("audio_device_name_failed", result,
                                                      "Converting the audio endpoint name"));
         }
         auto converted = toUtf8(name);
@@ -374,37 +344,30 @@ namespace {
         return converted;
     }
 
-    core::Status appendDevices(IMMDeviceEnumerator* enumerator,
-                               EDataFlow flow,
-                               DeviceKind kind,
-                               std::string_view defaultId,
-                               std::vector<DeviceInfo>& devices) {
+    core::Status appendDevices(IMMDeviceEnumerator* enumerator, EDataFlow flow, DeviceKind kind,
+                               std::string_view defaultId, std::vector<DeviceInfo>& devices) {
         ComOwner<IMMDeviceCollection> collection;
         HRESULT result =
             enumerator->EnumAudioEndpoints(flow, DEVICE_STATE_ACTIVE, collection.put());
         if (FAILED(result))
-            return std::unexpected(windowsAudioError("audio_device_enumeration_failed",
-                                                     result,
+            return std::unexpected(windowsAudioError("audio_device_enumeration_failed", result,
                                                      "Enumerating audio endpoints"));
         UINT deviceCount = 0;
         result = collection->GetCount(&deviceCount);
         if (FAILED(result))
-            return std::unexpected(windowsAudioError("audio_device_enumeration_failed",
-                                                     result,
+            return std::unexpected(windowsAudioError("audio_device_enumeration_failed", result,
                                                      "Counting audio endpoints"));
         devices.reserve(devices.size() + deviceCount);
         for (UINT index = 0; index < deviceCount; ++index) {
             ComOwner<IMMDevice> device;
             result = collection->Item(index, device.put());
             if (FAILED(result))
-                return std::unexpected(windowsAudioError("audio_device_enumeration_failed",
-                                                         result,
+                return std::unexpected(windowsAudioError("audio_device_enumeration_failed", result,
                                                          "Reading an audio endpoint"));
             LPWSTR wideIdentifier = nullptr;
             result = device->GetId(&wideIdentifier);
             if (FAILED(result))
-                return std::unexpected(windowsAudioError("audio_device_id_failed",
-                                                         result,
+                return std::unexpected(windowsAudioError("audio_device_id_failed", result,
                                                          "Reading the audio endpoint identifier"));
             auto identifier = toUtf8(wideIdentifier);
             CoTaskMemFree(wideIdentifier);
@@ -432,14 +395,11 @@ core::Result<std::vector<DeviceInfo>> enumerateDevices() {
     }
 
     ComOwner<IMMDeviceEnumerator> enumerator;
-    const HRESULT result = CoCreateInstance(CLSID_MMDeviceEnumerator,
-                                            nullptr,
-                                            CLSCTX_ALL,
-                                            IID_IMMDeviceEnumerator,
-                                            reinterpret_cast<void**>(enumerator.put()));
+    const HRESULT result =
+        CoCreateInstance(CLSID_MMDeviceEnumerator, nullptr, CLSCTX_ALL, IID_IMMDeviceEnumerator,
+                         reinterpret_cast<void**>(enumerator.put()));
     if (FAILED(result))
-        return std::unexpected(windowsAudioError("audio_device_enumeration_failed",
-                                                 result,
+        return std::unexpected(windowsAudioError("audio_device_enumeration_failed", result,
                                                  "Creating the audio device enumerator"));
 
     auto defaultInput = defaultDeviceId(enumerator.get(), eCapture);
@@ -450,11 +410,8 @@ core::Result<std::vector<DeviceInfo>> enumerateDevices() {
         return std::unexpected(defaultOutput.error());
 
     std::vector<DeviceInfo> devices;
-    if (auto status = appendDevices(enumerator.get(),
-                                    eCapture,
-                                    DeviceKind::microphone,
-                                    *defaultInput,
-                                    devices);
+    if (auto status = appendDevices(enumerator.get(), eCapture, DeviceKind::microphone,
+                                    *defaultInput, devices);
         !status) {
         return std::unexpected(status.error());
     }
@@ -467,7 +424,14 @@ core::Result<std::vector<DeviceInfo>> enumerateDevices() {
 #elif defined(__linux__) && defined(TUTORUX_HAS_ALSA)
     return enumerateAlsaCaptureDevices();
 #elif defined(__APPLE__)
-    return enumerateCoreAudioInputDevices();
+    auto devices = enumerateCoreAudioInputDevices();
+    if (!devices)
+        return std::unexpected(devices.error());
+    if (probeScreenCaptureKitDevice("screen-capture-kit")) {
+        devices->push_back(
+            {"screen-capture-kit", "System audio (ScreenCaptureKit)", DeviceKind::playback, false});
+    }
+    return devices;
 #else
     return std::unexpected(
         core::error("audio_backend_unavailable",
