@@ -99,7 +99,7 @@ int main() {
         std::cerr << "Evidence extraction did not return one provisional instruction candidate.\n";
         return 1;
     }
-    const JsonValue& candidate = candidates->front();
+    const command::JsonValue& candidate = candidates->front();
     const std::string* candidateId = jsonString(candidate, "id");
     const std::string* sourceRevision = jsonString(candidate, "source_segment_revision");
     const std::string* reviewState = jsonString(candidate, "verification_state");
