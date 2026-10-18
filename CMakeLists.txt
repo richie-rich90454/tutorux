@@ -6,6 +6,13 @@ endif()
 
 project(Tutorux VERSION 1.0.0 LANGUAGES CXX)
 
+if(APPLE)
+    enable_language(OBJCXX)
+    set(CMAKE_OBJCXX_STANDARD 23)
+    set(CMAKE_OBJCXX_STANDARD_REQUIRED ON)
+    set(CMAKE_OBJCXX_EXTENSIONS OFF)
+endif()
+
 if(POLICY CMP0207)
     cmake_policy(SET CMP0207 NEW)
 endif()
@@ -132,6 +139,10 @@ set(TUTORUX_CORE_SOURCES
     src/audio/devices.cpp
     src/audio/recording_control.cpp
     src/audio/wav_import.cpp
+    src/audio/wav_export.cpp
+    src/audio/timeline.cpp
+    src/audio/waveform.cpp
+    src/audio/playback.cpp
     src/archive/archive.cpp
     src/archive/compression.cpp
     src/archive/crypto.cpp
@@ -155,6 +166,16 @@ set(TUTORUX_CORE_SOURCES
     src/transcription/whisper_backend.cpp
 )
 
+if(APPLE)
+    list(APPEND TUTORUX_CORE_SOURCES
+        src/audio/capture_screencapturekit.mm
+        src/audio/playback_coreaudio.cpp
+    )
+    set_source_files_properties(src/audio/capture_screencapturekit.mm
+        PROPERTIES COMPILE_OPTIONS "-fobjc-arc"
+    )
+endif()
+
 if(TUTORUX_BUILD_WASM)
     list(REMOVE_ITEM TUTORUX_CORE_SOURCES
         src/ai/http.cpp
@@ -169,8 +190,15 @@ if(TUTORUX_BUILD_WASM)
     list(APPEND TUTORUX_CORE_SOURCES
         src/ai/http_wasm.cpp
         src/audio/platform_wasm.cpp
+        src/audio/playback_wasm.cpp
         src/document/pdf_export_wasm.cpp
     )
+endif()
+
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND NOT TUTORUX_BUILD_WASM)
+    list(APPEND TUTORUX_CORE_SOURCES src/audio/playback_alsa.cpp)
+elseif(WIN32)
+    list(APPEND TUTORUX_CORE_SOURCES src/audio/playback_wasapi.cpp)
 endif()
 
 add_library(tutorux_core STATIC ${TUTORUX_CORE_SOURCES})
@@ -191,8 +219,11 @@ endif()
 if(APPLE)
     target_link_libraries(tutorux_core PRIVATE
         "-framework AudioToolbox"
+        "-framework AVFAudio"
         "-framework CoreAudio"
         "-framework CoreFoundation"
+        "-framework CoreMedia"
+        "-framework ScreenCaptureKit"
     )
 endif()
 
