@@ -1,4 +1,5 @@
 #include "tutorux/archive/archive.hpp"
+#include "tutorux/archive/compression.hpp"
 
 #include "tutorux/domain/entities.hpp"
 #include "tutorux/domain/guide.hpp"
@@ -32,7 +33,9 @@ namespace {
 
     constexpr std::size_t kIndexPageTargetSize = 3072;
     constexpr std::uint16_t kRecordVersion = 1;
-    constexpr std::uint8_t kUncompressedCodec = 0;
+    constexpr std::uint8_t kUncompressedCodec =
+        static_cast<std::uint8_t>(RecordCodec::uncompressed);
+    constexpr std::uint8_t kLz4BlockCodec = static_cast<std::uint8_t>(RecordCodec::lz4Block);
 
     template <typename Integer> void appendLittle(Bytes& output, Integer value) {
         using Unsigned = std::make_unsigned_t<Integer>;
@@ -356,7 +359,7 @@ namespace {
         if (!payloadChecksum || !headerChecksum || crc32(bytes.first(60)) != *headerChecksum ||
             !reserved || *reserved != 0 ||
             (header.flags & static_cast<std::uint8_t>(~kRecordFlagEncrypted)) != 0 ||
-            header.codec != kUncompressedCodec) {
+            (header.codec != kUncompressedCodec && header.codec != kLz4BlockCodec)) {
             return std::unexpected(core::error("record_header_checksum",
                                                "Record header checksum or codec is invalid."));
         }
@@ -370,7 +373,8 @@ namespace {
                             std::uint64_t revision,
                             std::uint64_t previousOffset,
                             std::span<const std::byte> payload,
-                            std::uint8_t flags = 0) {
+                            std::uint8_t flags = 0,
+                            std::uint8_t codec = kUncompressedCodec) {
         Bytes header;
         header.reserve(kRecordHeaderSize);
         for (char character : std::string_view("TXRC", 4))
@@ -382,7 +386,7 @@ namespace {
         header.insert(header.end(), id.begin(), id.end());
         appendLittle(header, revision);
         appendLittle(header, previousOffset);
-        header.push_back(static_cast<std::byte>(kUncompressedCodec));
+        header.push_back(static_cast<std::byte>(codec));
         header.push_back(static_cast<std::byte>(flags));
         appendLittle<std::uint16_t>(header, 0);
         appendLittle(header, crc32(payload));
@@ -396,7 +400,8 @@ namespace {
                                        std::uint64_t revision,
                                        std::uint64_t previousOffset,
                                        std::span<const std::byte> payload,
-                                       std::uint8_t flags = 0) {
+                                       std::uint8_t flags = 0,
+                                       std::uint8_t codec = kUncompressedCodec) {
         if (!file.writable())
             return std::unexpected(
                 core::error("archive_read_only", "Archive was opened read-only."));
@@ -413,8 +418,14 @@ namespace {
             return std::unexpected(
                 core::error("archive_size_limit", "Archive offset range was exceeded."));
         }
-        const Bytes header =
-            encodeFrameHeader(type, payload.size(), id, revision, previousOffset, payload, flags);
+        const Bytes header = encodeFrameHeader(type,
+                                               payload.size(),
+                                               id,
+                                               revision,
+                                               previousOffset,
+                                               payload,
+                                               flags,
+                                               codec);
         const std::uint64_t offset = *currentSize;
         if (auto status = file.write(offset, header); !status)
             return std::unexpected(status.error());
@@ -873,24 +884,33 @@ core::Result<Record> Archive::readRecordAt(std::uint64_t offset) const {
                                               header.type,
                                               header.id,
                                               header.revision,
-                                              header.previousOffset);
+                                              header.previousOffset,
+                                              header.codec);
         if (!plaintext)
             return std::unexpected(plaintext.error());
+        auto decodedPayload =
+            decompressRecordPayload(static_cast<RecordCodec>(header.codec), *plaintext);
+        if (!decodedPayload)
+            return std::unexpected(decodedPayload.error());
         return decodeRecordPayload(header.type,
                                    header.id,
                                    header.revision,
                                    header.previousOffset,
-                                   *plaintext);
+                                   *decodedPayload);
     }
     if (encryptionEnabled_ && protectedRecord) {
         return std::unexpected(core::error("archive_record_unencrypted",
                                            "Encrypted archive contains a plaintext data record."));
     }
+    auto decodedPayload =
+        decompressRecordPayload(static_cast<RecordCodec>(header.codec), framed->second);
+    if (!decodedPayload)
+        return std::unexpected(decodedPayload.error());
     auto record = decodeRecordPayload(header.type,
                                       header.id,
                                       header.revision,
                                       header.previousOffset,
-                                      framed->second);
+                                      *decodedPayload);
     if (!record)
         return std::unexpected(record.error());
     if (encryptionEnabled_ && plaintextManifest && dataKey_) {
@@ -1205,6 +1225,19 @@ core::Result<RecordLocation> Archive::appendRecord(const Record& record) {
     auto payload = encodeRecordPayload(recordToWrite);
     if (!payload)
         return std::unexpected(payload.error());
+    EncodedPayload encodedPayload;
+    const bool uncompressedAssetBlob = record.type == RecordType::AssetBlob;
+    const bool losslessPcmAudio =
+        record.type == RecordType::AudioChunk && domain::getField(recordToWrite, "codec") == "none";
+    if (!uncompressedAssetBlob && (record.type != RecordType::AudioChunk || losslessPcmAudio)) {
+        auto compressed = compressRecordPayload(std::move(*payload));
+        if (!compressed)
+            return std::unexpected(compressed.error());
+        encodedPayload = std::move(*compressed);
+    } else {
+        encodedPayload.bytes = std::move(*payload);
+    }
+    const auto codec = static_cast<std::uint8_t>(encodedPayload.codec);
     const bool plaintextEncryptionMetadata =
         record.type == RecordType::Encryption && record.id == header_.id;
     if (!encryptionEnabled_ || plaintextManifest || plaintextEncryptionMetadata)
@@ -1213,18 +1246,21 @@ core::Result<RecordLocation> Archive::appendRecord(const Record& record) {
                            record.id,
                            record.revision,
                            record.previousOffset,
-                           *payload);
+                           encodedPayload.bytes,
+                           0,
+                           codec);
     if (!dataKey_) {
         return std::unexpected(
             core::error("archive_locked", "Archive is locked and cannot append records."));
     }
-    auto encryptedPayload = encryptRecordPayload(*payload,
+    auto encryptedPayload = encryptRecordPayload(encodedPayload.bytes,
                                                  *dataKey_,
                                                  header_.id,
                                                  record.type,
                                                  record.id,
                                                  record.revision,
-                                                 record.previousOffset);
+                                                 record.previousOffset,
+                                                 codec);
     if (!encryptedPayload)
         return std::unexpected(encryptedPayload.error());
     return appendFrame(file_,
@@ -1233,7 +1269,8 @@ core::Result<RecordLocation> Archive::appendRecord(const Record& record) {
                        record.revision,
                        record.previousOffset,
                        *encryptedPayload,
-                       kRecordFlagEncrypted);
+                       kRecordFlagEncrypted,
+                       codec);
 }
 
 core::Result<Record> Archive::encryptionMetadata() const {
