@@ -31,9 +31,8 @@ namespace {
             }
 
             if (length > text.size() - offset) {
-                return std::unexpected(
-                    core::error("document_utf8_invalid",
-                                "Document text ends inside a UTF-8 code point."));
+                return std::unexpected(core::error(
+                    "document_utf8_invalid", "Document text ends inside a UTF-8 code point."));
             }
             for (std::size_t index = 1; index < length; ++index) {
                 const auto continuation = static_cast<unsigned char>(text[offset + index]);
@@ -48,9 +47,8 @@ namespace {
                                   (length == 4 && codePoint < 0x10000U);
             if (overlong || codePoint > 0x10ffffU ||
                 (codePoint >= 0xd800U && codePoint <= 0xdfffU)) {
-                return std::unexpected(
-                    core::error("document_utf8_invalid",
-                                "Document text contains an invalid code point."));
+                return std::unexpected(core::error(
+                    "document_utf8_invalid", "Document text contains an invalid code point."));
             }
             offset += length;
         }
@@ -115,6 +113,7 @@ core::Result<EditResult> PieceTable::apply(const DocumentEditTransaction& transa
     UndoEntry entry;
     entry.before = selection_;
     entry.after = transaction.selectionAfter;
+    entry.origin = transaction.origin;
     entry.operations.reserve(transaction.operations.size());
     TextRange changed{size_, 0};
     for (const auto& operation : transaction.operations) {
@@ -137,7 +136,52 @@ core::Result<EditResult> PieceTable::apply(const DocumentEditTransaction& transa
             core::error("document_selection_invalid", "The selection splits a UTF-8 code point."));
     }
     candidate.selection_ = entry.after;
-    candidate.undo_.push_back(std::move(entry));
+    bool coalesced = false;
+    if (transaction.coalesceWithPrevious && entry.operations.size() == 1 &&
+        !candidate.undo_.empty()) {
+        auto& previous = candidate.undo_.back();
+        if (previous.origin == entry.origin && previous.operations.size() == 1 &&
+            previous.after.anchor == entry.before.anchor &&
+            previous.after.focus == entry.before.focus) {
+            auto& previousOperation = previous.operations.front();
+            const auto& operation = entry.operations.front();
+            const bool previousIsInsertion =
+                previousOperation.removedText.empty() && !previousOperation.insertedText.empty();
+            const bool isInsertion =
+                operation.removedText.empty() && !operation.insertedText.empty();
+            const bool previousIsDeletion =
+                previousOperation.insertedText.empty() && !previousOperation.removedText.empty();
+            const bool isDeletion =
+                operation.insertedText.empty() && !operation.removedText.empty();
+            const bool lineBreakBoundary =
+                previousOperation.insertedText.find_first_of("\r\n") != std::string::npos ||
+                operation.insertedText.find_first_of("\r\n") != std::string::npos ||
+                previousOperation.removedText.find_first_of("\r\n") != std::string::npos ||
+                operation.removedText.find_first_of("\r\n") != std::string::npos;
+
+            if (!lineBreakBoundary && previousIsInsertion && isInsertion &&
+                previousOperation.offset + previousOperation.insertedText.size() ==
+                    operation.offset) {
+                previousOperation.insertedText += operation.insertedText;
+                coalesced = true;
+            } else if (!lineBreakBoundary && previousIsDeletion && isDeletion &&
+                       operation.offset + operation.removedText.size() ==
+                           previousOperation.offset) {
+                previousOperation.offset = operation.offset;
+                previousOperation.removedText.insert(0, operation.removedText);
+                coalesced = true;
+            } else if (!lineBreakBoundary && previousIsDeletion && isDeletion &&
+                       operation.offset == previousOperation.offset) {
+                previousOperation.removedText += operation.removedText;
+                coalesced = true;
+            }
+
+            if (coalesced)
+                previous.after = entry.after;
+        }
+    }
+    if (!coalesced)
+        candidate.undo_.push_back(std::move(entry));
     candidate.redo_.clear();
     const auto invalidated = candidate.expandedParagraphRange(changed);
     *this = std::move(candidate);
@@ -147,9 +191,8 @@ core::Result<EditResult> PieceTable::apply(const DocumentEditTransaction& transa
 core::Result<EditResult> PieceTable::replace(TextRange range, std::string_view replacement) {
     if (range.start > range.end || range.end > size_ || !isBoundary(range.start) ||
         !isBoundary(range.end)) {
-        return std::unexpected(
-            core::error("document_range_invalid",
-                        "The edit range is outside the document or UTF-8 boundary."));
+        return std::unexpected(core::error(
+            "document_range_invalid", "The edit range is outside the document or UTF-8 boundary."));
     }
     DocumentEditTransaction transaction;
     transaction.selectionBefore = selection_;
@@ -235,9 +278,8 @@ core::Result<EditResult> PieceTable::redo() {
 
 core::Result<std::size_t> PieceTable::previousCodePoint(std::size_t offset) const {
     if (offset > size_ || !isBoundary(offset)) {
-        return std::unexpected(
-            core::error("document_cursor_invalid",
-                        "The cursor is outside the document or UTF-8 boundary."));
+        return std::unexpected(core::error(
+            "document_cursor_invalid", "The cursor is outside the document or UTF-8 boundary."));
     }
     if (offset == 0)
         return 0;
@@ -249,9 +291,8 @@ core::Result<std::size_t> PieceTable::previousCodePoint(std::size_t offset) cons
 
 core::Result<std::size_t> PieceTable::nextCodePoint(std::size_t offset) const {
     if (offset > size_ || !isBoundary(offset)) {
-        return std::unexpected(
-            core::error("document_cursor_invalid",
-                        "The cursor is outside the document or UTF-8 boundary."));
+        return std::unexpected(core::error(
+            "document_cursor_invalid", "The cursor is outside the document or UTF-8 boundary."));
     }
     if (offset == size_)
         return size_;
@@ -289,9 +330,8 @@ TextRange PieceTable::paragraphAt(std::size_t offset) const noexcept {
 
 core::Status PieceTable::splitAt(std::size_t offset) {
     if (offset > size_ || !isBoundary(offset)) {
-        return std::unexpected(
-            core::error("document_range_invalid",
-                        "The edit range is outside the document or UTF-8 boundary."));
+        return std::unexpected(core::error(
+            "document_range_invalid", "The edit range is outside the document or UTF-8 boundary."));
     }
     std::size_t position = 0;
     for (auto piece = pieces_.begin(); piece != pieces_.end(); ++piece) {
@@ -300,9 +340,7 @@ core::Status PieceTable::splitAt(std::size_t offset) {
             return {};
         if (offset < pieceEnd) {
             const std::size_t leftLength = offset - position;
-            const Piece right{piece->buffer,
-                              piece->bufferIndex,
-                              piece->start + leftLength,
+            const Piece right{piece->buffer, piece->bufferIndex, piece->start + leftLength,
                               piece->length - leftLength};
             piece->length = leftLength;
             pieces_.insert(piece + 1, right);
@@ -317,9 +355,8 @@ core::Result<std::string> PieceTable::replaceWithoutHistory(TextRange range,
                                                             std::string_view replacement) {
     if (range.start > range.end || range.end > size_ || !isBoundary(range.start) ||
         !isBoundary(range.end)) {
-        return std::unexpected(
-            core::error("document_range_invalid",
-                        "The edit range is outside the document or UTF-8 boundary."));
+        return std::unexpected(core::error(
+            "document_range_invalid", "The edit range is outside the document or UTF-8 boundary."));
     }
     if (auto status = validateUtf8(replacement); !status)
         return std::unexpected(status.error());
