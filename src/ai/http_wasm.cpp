@@ -1,4 +1,5 @@
 #include "tutorux/ai/http.hpp"
+#include "tutorux/ai/http_retry.hpp"
 
 #include <emscripten.h>
 #include <emscripten/fetch.h>
@@ -64,9 +65,8 @@ namespace {
         scheme = url.substr(0, separator);
         const std::size_t hostStart = separator + 3;
         const std::size_t hostEnd = url.find_first_of("/:?#", hostStart);
-        return url.substr(hostStart,
-                          hostEnd == std::string_view::npos ? url.size() - hostStart
-                                                            : hostEnd - hostStart);
+        return url.substr(hostStart, hostEnd == std::string_view::npos ? url.size() - hostStart
+                                                                       : hostEnd - hostStart);
     }
 
     bool validRequestUrl(std::string_view url) {
@@ -129,18 +129,15 @@ namespace {
                 emscripten_fetch_get_response_headers_length(fetch);
             if (responseHeaderBytes > 0 && responseHeaderBytes <= kMaximumHeaderBytes) {
                 std::vector<char> responseHeaders(responseHeaderBytes + 1U, '\0');
-                const std::size_t copiedBytes =
-                    emscripten_fetch_get_response_headers(fetch,
-                                                          responseHeaders.data(),
-                                                          responseHeaders.size());
+                const std::size_t copiedBytes = emscripten_fetch_get_response_headers(
+                    fetch, responseHeaders.data(), responseHeaders.size());
                 std::string_view headers(responseHeaders.data(),
                                          std::min(copiedBytes, responseHeaderBytes));
                 std::size_t lineStart = 0;
                 while (lineStart < headers.size()) {
                     const std::size_t lineEnd = headers.find("\r\n", lineStart);
-                    const std::string_view line = headers.substr(lineStart,
-                                                                 lineEnd == std::string_view::npos
-                                                                     ? headers.size() - lineStart
+                    const std::string_view line = headers.substr(
+                        lineStart, lineEnd == std::string_view::npos ? headers.size() - lineStart
                                                                      : lineEnd - lineStart);
                     const std::size_t separator = line.find(':');
                     if (separator != std::string_view::npos) {
@@ -239,6 +236,59 @@ bool isLoopbackHttpUrl(std::string_view url) {
 
 core::Result<HttpResponse> performHttp(HttpRequest request) {
     SensitiveRequestWiper requestWiper(request);
+    if (request.method == "GET" && !request.onChunk && request.maximumRetries != 0U) {
+        constexpr std::uint8_t maximumAutomaticRetries = 2;
+        const std::uint8_t retries = std::min(request.maximumRetries, maximumAutomaticRetries);
+        request.maximumRetries = 0;
+        for (std::uint8_t attempt = 0;; ++attempt) {
+            if (attempt != 0U) {
+                const auto cancellation = detail::checkCancellation(request.cancelled);
+                if (cancellation.callbackFailed) {
+                    return std::unexpected(
+                        core::error("ai_cancellation_callback_failed",
+                                    "The cancellation callback failed before a provider retry."));
+                }
+                if (cancellation.requested) {
+                    HttpResponse cancelled;
+                    cancelled.cancelled = true;
+                    return cancelled;
+                }
+            }
+            HttpRequest retryRequest = request;
+            auto response = performHttp(std::move(retryRequest));
+            if (!response)
+                return std::unexpected(response.error());
+            if (attempt >= retries || !detail::isTransientHttpFailure(*response))
+                return response;
+
+            const auto delay = detail::retryAfterDelay(response->retryAfter, attempt);
+            if (!delay) {
+                if (!response->body.empty())
+                    sodium_memzero(response->body.data(), response->body.size());
+                return response;
+            }
+            if (!response->body.empty())
+                sodium_memzero(response->body.data(), response->body.size());
+
+            auto remaining = *delay;
+            while (remaining > std::chrono::milliseconds::zero()) {
+                const auto cancellation = detail::checkCancellation(request.cancelled);
+                if (cancellation.callbackFailed) {
+                    return std::unexpected(core::error(
+                        "ai_cancellation_callback_failed",
+                        "The cancellation callback failed during provider retry backoff."));
+                }
+                if (cancellation.requested) {
+                    HttpResponse cancelled;
+                    cancelled.cancelled = true;
+                    return cancelled;
+                }
+                const auto interval = std::min(remaining, std::chrono::milliseconds{25});
+                emscripten_sleep(static_cast<unsigned int>(interval.count()));
+                remaining -= interval;
+            }
+        }
+    }
     if (!validRequestUrl(request.url)) {
         return std::unexpected(core::error(
             "ai_http_url_invalid",
@@ -261,7 +311,13 @@ core::Result<HttpResponse> performHttp(HttpRequest request) {
             "ai_http_limits_invalid",
             "Browser request limits must allow a response and a positive timeout under 16 MiB."));
     }
-    if (request.cancelled && request.cancelled()) {
+    const auto initialCancellation = detail::checkCancellation(request.cancelled);
+    if (initialCancellation.callbackFailed) {
+        return std::unexpected(
+            core::error("ai_cancellation_callback_failed",
+                        "The cancellation callback failed before the browser request started."));
+    }
+    if (initialCancellation.requested) {
         HttpResponse cancelled;
         cancelled.cancelled = true;
         return cancelled;
@@ -327,7 +383,18 @@ core::Result<HttpResponse> performHttp(HttpRequest request) {
             if (state.completed)
                 break;
         }
-        if (request.cancelled && request.cancelled()) {
+        const auto cancellation = detail::checkCancellation(request.cancelled);
+        if (cancellation.callbackFailed) {
+            {
+                std::lock_guard lock(state.mutex);
+                state.closeRequested = true;
+            }
+            emscripten_fetch_close(fetch);
+            return std::unexpected(core::error(
+                "ai_cancellation_callback_failed",
+                "The cancellation callback failed while the browser request was active."));
+        }
+        if (cancellation.requested) {
             {
                 std::lock_guard lock(state.mutex);
                 state.closeRequested = true;
@@ -343,9 +410,8 @@ core::Result<HttpResponse> performHttp(HttpRequest request) {
                 state.closeRequested = true;
             }
             emscripten_fetch_close(fetch);
-            return std::unexpected(
-                core::error("ai_http_timeout",
-                            "The browser network request exceeded its configured timeout."));
+            return std::unexpected(core::error(
+                "ai_http_timeout", "The browser network request exceeded its configured timeout."));
         }
         emscripten_sleep(10);
     }
