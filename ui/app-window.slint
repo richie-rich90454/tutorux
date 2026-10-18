@@ -2171,8 +2171,10 @@ export component MainWindow inherits Window {
                                     font-size: 11px;
                                     wrap: word-wrap;
                                 }
-                                TextEdit {
+                                TextInput {
                                     height: 120px;
+                                    single-line: false;
+                                    wrap: word-wrap;
                                     text <=> root.transcript-edit-text;
                                 }
                                 Button {
