@@ -14,9 +14,10 @@ The package's settings record whose ID matches the archive header ID includes:
 | `source_session_id` | UUID of the session in its source archive |
 
 The package must pass full archive verification and contain exactly one active session. It may
-contain audio chunks, transcript segments, annotations, asset metadata and blobs, evidence nodes and
-edges, guides, and AI jobs associated with that session. Revision chains are retained for each
-included record. The student's profile is intentionally omitted so a transfer cannot silently copy
+contain audio chunks, transcript segments, annotations, asset metadata, asset manifests and their
+content chunks, evidence nodes and edges, guides, and AI jobs associated with that session. Revision
+chains are retained for each included record, and package validation checks that every manifest
+chunk is present. The student's profile is intentionally omitted so a transfer cannot silently copy
 a student's archive-owned profile.
 
 ## Export and import
