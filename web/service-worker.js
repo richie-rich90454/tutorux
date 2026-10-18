@@ -1,4 +1,4 @@
-const CACHE_NAME = "tutorux-web-v3";
+const CACHE_NAME = "tutorux-web-v4";
 const APP_FILES = [
     "./",
     "./index.html",
