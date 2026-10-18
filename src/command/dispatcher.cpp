@@ -25,6 +25,7 @@
 #include "tutorux/domain/guide.hpp"
 #include "tutorux/domain/hash.hpp"
 #include "tutorux/domain/journal.hpp"
+#include "tutorux/intelligence/evidence_extract.hpp"
 #include "tutorux/intelligence/pipeline.hpp"
 #include "tutorux/diagnostics/system.hpp"
 #include "tutorux/transcription/import.hpp"
@@ -857,21 +858,82 @@ namespace {
         return normalized;
     }
 
-    bool hasInstructionCue(std::string_view text) {
-        std::string normalized(text);
-        std::transform(normalized.begin(), normalized.end(), normalized.begin(), [](unsigned char character) {
-            return static_cast<char>(character >= 'A' && character <= 'Z' ? character - 'A' + 'a' : character);
-        });
-        static constexpr std::array<std::string_view, 8> cues{"remember to", "this is the mistake", "mistake you should avoid",
-                                                              "next time",   "make sure",           "you should",
-                                                              "you need to", "don't forget"};
-        return std::any_of(cues.begin(), cues.end(), [&](std::string_view cue) {
-            return normalized.find(cue) != std::string::npos;
-        });
-    }
-
     Result<Uuid> parseId(std::string_view value) {
         return archive::uuidFromString(value);
+    }
+
+    Result<bool> validateEvidenceReferences(Archive& archive, const Record& evidence) {
+        const std::string sessionId = domain::getField(evidence, "session_id");
+        bool valid = true;
+        bool hasSources = false;
+        auto validate = [&](RecordType type, const std::vector<std::string>& sourceIds,
+                            const std::map<std::string, std::uint64_t, std::less<>>& expectedRevisions) -> Status {
+            for (const auto& sourceIdValue : sourceIds) {
+                hasSources = true;
+                auto sourceId = parseId(sourceIdValue);
+                if (!sourceId) {
+                    valid = false;
+                    continue;
+                }
+                auto source = archive.get(type, *sourceId);
+                if (!source)
+                    return std::unexpected(source.error());
+                if (!*source || domain::isDeleted(**source) ||
+                    (!domain::getField(**source, "session_id").empty() && domain::getField(**source, "session_id") != sessionId)) {
+                    valid = false;
+                    continue;
+                }
+                const auto expected = expectedRevisions.find(sourceIdValue);
+                if (expected != expectedRevisions.end() && (**source).revision != expected->second)
+                    valid = false;
+            }
+            return {};
+        };
+
+        auto expectedRevisionMap = [&](std::string_view field) {
+            std::map<std::string, std::uint64_t, std::less<>> revisions;
+            for (const auto& value : splitCommaList(domain::getField(evidence, field))) {
+                const auto separator = value.find('=');
+                if (separator == std::string::npos || separator == 0 || separator + 1U == value.size()) {
+                    valid = false;
+                    continue;
+                }
+                std::uint64_t revision{};
+                const auto revisionText = std::string_view(value).substr(separator + 1U);
+                const auto [end, errorCode] = std::from_chars(revisionText.data(), revisionText.data() + revisionText.size(), revision);
+                if (errorCode != std::errc{} || end != revisionText.data() + revisionText.size() || revision == 0U) {
+                    valid = false;
+                    continue;
+                }
+                revisions.emplace(value.substr(0, separator), revision);
+            }
+            return revisions;
+        };
+
+        const std::string annotationId = domain::getField(evidence, "source_annotation_id");
+        if (!annotationId.empty()) {
+            std::map<std::string, std::uint64_t, std::less<>> revisions;
+            const auto expected = domain::getField(evidence, "source_annotation_revision");
+            if (!expected.empty()) {
+                std::uint64_t revision{};
+                const auto [end, errorCode] = std::from_chars(expected.data(), expected.data() + expected.size(), revision);
+                if (errorCode != std::errc{} || end != expected.data() + expected.size() || revision == 0U)
+                    valid = false;
+                else
+                    revisions.emplace(annotationId, revision);
+            }
+            if (auto status = validate(RecordType::Annotation, {annotationId}, revisions); !status)
+                return std::unexpected(status.error());
+        }
+
+        const auto segmentIds = splitCommaList(domain::getField(evidence, "source_segment_ids"));
+        const auto segmentRevisions = expectedRevisionMap("source_segment_revisions");
+        if (auto status = validate(RecordType::TranscriptSegment, segmentIds, segmentRevisions); !status)
+            return std::unexpected(status.error());
+        const auto assetIds = splitCommaList(domain::getField(evidence, "source_asset_ids"));
+        if (auto status = validate(RecordType::AssetMetadata, assetIds, {}); !status)
+            return std::unexpected(status.error());
+        return valid && hasSources;
     }
 
     std::vector<Record> settingsByRole(Archive& archive, std::string_view role);
@@ -1422,17 +1484,35 @@ namespace {
             auto passphrase = resolveSecret(context.archivePassphrase, context.passphraseEnvironment);
             if (!passphrase)
                 return failed(passphrase.error());
-            auto status = Archive::repairCopy(source, destination, *passphrase);
+            archive::RepairReport repairReport;
+            auto status = Archive::repairCopy(source, destination, *passphrase, &repairReport);
             eraseSecret(*passphrase);
             if (!status)
                 return failed(status.error());
             return result(context.json
                               ? toJson({
-                                    {"output",             destination.string()},
-                                    {"status",             "repaired-copy"     },
-                                    {"original_preserved", "true"              }
+                                    {"output",                       destination.string()                                   },
+                                    {"status",                       "repaired-copy"                                        },
+                                    {"original_preserved",           "true"                                                 },
+                                    {"selected_verified_generation", std::to_string(repairReport.selectedVerifiedGeneration)},
+                                    {"discarded_region_start",       std::to_string(repairReport.discardedRegionStart)      },
+                                    {"discarded_region_end",         std::to_string(repairReport.discardedRegionEnd)        },
+                                    {"discarded_bytes",              std::to_string(repairReport.discardedBytes)            },
+                                    {"discarded_record_frames",      std::to_string(repairReport.discardedRecordFrames)     },
+                                    {"discarded_record_frame_bytes", std::to_string(repairReport.discardedRecordFrameBytes) },
+                                    {"unattributed_bytes",           std::to_string(repairReport.unattributedBytes)         }
             })
-                              : "Validated repair copy created at " + destination.string() + "; the original archive was preserved.\n",
+                              : "Validated repair copy created at " + destination.string() + "; the original archive was preserved.\n" +
+                                    "Selected verified generation: " + std::to_string(repairReport.selectedVerifiedGeneration) + ".\n" +
+                                    "Discarded source region: bytes [" + std::to_string(repairReport.discardedRegionStart) + ", " +
+                                    std::to_string(repairReport.discardedRegionEnd) + ") (" + std::to_string(repairReport.discardedBytes) +
+                                    " bytes).\n" +
+                                    "Structurally complete record frames in that region, not included in the copy "
+                                    "(payload checksums were not rechecked): " +
+                                    std::to_string(repairReport.discardedRecordFrames) + " (" +
+                                    std::to_string(repairReport.discardedRecordFrameBytes) + " bytes).\n" +
+                                    "Bytes not attributable to a complete record frame: " + std::to_string(repairReport.unattributedBytes) +
+                                    ".\n",
                           context.json);
         }
         if (action == "compact") {
@@ -5502,18 +5582,31 @@ namespace {
             if (!nodes)
                 return failed(nodes.error());
             std::set<std::string, std::less<>> existingSources;
+            std::set<std::string, std::less<>> legacySourceContent;
             for (const auto& node : *nodes) {
                 const auto annotationId = domain::getField(node, "source_annotation_id");
-                if (!annotationId.empty())
-                    existingSources.insert("annotation:" + annotationId);
+                if (!annotationId.empty()) {
+                    const std::string revision = domain::getField(node, "source_annotation_revision");
+                    if (revision.empty())
+                        legacySourceContent.insert("annotation:" + annotationId + ":" + domain::getField(node, "content"));
+                    else
+                        existingSources.insert("annotation:" + annotationId + ":" + revision);
+                }
                 for (const auto& segmentId : splitCommaList(domain::getField(node, "source_segment_ids"))) {
-                    existingSources.insert("segment:" + segmentId);
+                    const std::string type = domain::getField(node, "type");
+                    const std::string revision = domain::getField(node, "source_segment_revision");
+                    if (revision.empty())
+                        legacySourceContent.insert("segment:" + segmentId + ":" + type + ":" + domain::getField(node, "content"));
+                    else
+                        existingSources.insert("segment:" + segmentId + ":" + type + ":" + revision);
                 }
             }
             std::vector<JsonObject> extracted;
             for (const auto& annotation : *annotations) {
-                if (domain::getField(annotation, "session_id") != *sessionId ||
-                    existingSources.contains("annotation:" + uuid(annotation.id)))
+                const std::string annotationId = uuid(annotation.id);
+                const std::string annotationKey = "annotation:" + annotationId + ":" + std::to_string(annotation.revision);
+                if (domain::getField(annotation, "session_id") != *sessionId || existingSources.contains(annotationKey) ||
+                    legacySourceContent.contains("annotation:" + annotationId + ":" + domain::getField(annotation, "content")))
                     continue;
                 Record node;
                 node.type = RecordType::EvidenceNode;
@@ -5527,6 +5620,7 @@ namespace {
                     {"priority", domain::getField(annotation, "priority", "normal")},
                     {"origin", "tutor-authored"},
                     {"source_annotation_id", uuid(annotation.id)},
+                    {"source_annotation_revision", std::to_string(annotation.revision)},
                     {"source_segment_ids", ""},
                     {"source_asset_ids", ""},
                     {"start_time_us", domain::getField(annotation, "start_time_us", "0")},
@@ -5537,7 +5631,7 @@ namespace {
                 if (auto status = archive->put(node); !status)
                     return failed(status.error());
                 extracted.push_back(recordObject(node));
-                existingSources.insert("annotation:" + uuid(annotation.id));
+                existingSources.insert(annotationKey);
             }
 
             auto transcript = archive->list(RecordType::TranscriptSegment);
@@ -5546,39 +5640,49 @@ namespace {
             for (const auto& segment : *transcript) {
                 const std::string segmentId = uuid(segment.id);
                 const auto text = domain::getField(segment, "text");
-                if (domain::getField(segment, "session_id") != *sessionId || existingSources.contains("segment:" + segmentId) ||
-                    !hasInstructionCue(text)) {
+                if (domain::getField(segment, "session_id") != *sessionId) {
                     continue;
                 }
-                Record node;
-                node.type = RecordType::EvidenceNode;
-                node.id = archive::randomUuid();
-                node.fields = {
-                    {"session_id", *sessionId},
-                    {"student_id", domain::getField(*session, "student_id")},
-                    {"type", "explicit-instruction-candidate"},
-                    {"title", "Possible spoken tutor instruction"},
-                    {"content", text},
-                    {"priority", "normal"},
-                    {"origin", "transcript-derived-candidate"},
-                    {"source_annotation_id", ""},
-                    {"source_segment_ids", segmentId},
-                    {"source_asset_ids", domain::getField(segment, "linked_asset_ids")},
-                    {"start_time_us", domain::getField(segment, "start_time_us", "0")},
-                    {"end_time_us", domain::getField(segment, "end_time_us", "0")},
-                    {"verification_state", "needs-review"},
-                    {"detection_method", "instruction-phrase-heuristic"},
-                    {"created_at_us", std::to_string(nowUnixMicroseconds())}
-                };
-                if (auto status = archive->put(node); !status)
-                    return failed(status.error());
-                extracted.push_back(recordObject(node));
-                existingSources.insert("segment:" + segmentId);
+                for (const auto& candidate : intelligence::classifyTranscriptEvidence(text)) {
+                    const std::string segmentRevision = std::to_string(segment.revision);
+                    const std::string sourceKey = "segment:" + segmentId + ":" + candidate.type + ":" + segmentRevision;
+                    const std::string legacyKey = "segment:" + segmentId + ":" + candidate.type + ":" + text;
+                    if (existingSources.contains(sourceKey) || legacySourceContent.contains(legacyKey))
+                        continue;
+                    Record node;
+                    node.type = RecordType::EvidenceNode;
+                    node.id = archive::randomUuid();
+                    node.fields = {
+                        {"session_id", *sessionId},
+                        {"student_id", domain::getField(*session, "student_id")},
+                        {"type", candidate.type},
+                        {"title", candidate.title},
+                        {"content", text},
+                        {"priority", "normal"},
+                        {"origin", "transcript-derived-candidate"},
+                        {"source_annotation_id", ""},
+                        {"source_segment_ids", segmentId},
+                        {"source_segment_revision", segmentRevision},
+                        {"source_segment_revisions", segmentId + "=" + segmentRevision},
+                        {"source_asset_ids", domain::getField(segment, "linked_asset_ids")},
+                        {"source_speaker_label", domain::getField(segment, "speaker_label")},
+                        {"start_time_us", domain::getField(segment, "start_time_us", "0")},
+                        {"end_time_us", domain::getField(segment, "end_time_us", "0")},
+                        {"verification_state", "needs-review"},
+                        {"detection_method", candidate.detectionMethod},
+                        {"detection_confidence", std::to_string(candidate.confidence)},
+                        {"created_at_us", std::to_string(nowUnixMicroseconds())}
+                    };
+                    if (auto status = archive->put(node); !status)
+                        return failed(status.error());
+                    extracted.push_back(recordObject(node));
+                    existingSources.insert(sourceKey);
+                }
             }
             return result(context.json ? toJsonArray(extracted)
                                        : "Created " + std::to_string(extracted.size()) +
                                              " evidence node(s) from tutor annotations and "
-                                             "candidate spoken instructions. Candidates need "
+                                             "transcript event cues. Transcript candidates need "
                                              "human review.\n",
                           context.json);
         }
@@ -5694,44 +5798,22 @@ namespace {
                 return failed(node.error());
             if (action == "show")
                 return result(context.json ? toJson(recordObject(*node)) : recordText(*node), context.json);
-            if (action == "approve")
+            if (action == "approve") {
+                auto sourcesValid = validateEvidenceReferences(*archive, *node);
+                if (!sourcesValid)
+                    return failed(sourcesValid.error());
+                if (!*sourcesValid)
+                    return failed(core::error("evidence_source_invalid",
+                                              "Evidence cannot be approved because its sources are missing, stale, or cross-session."));
                 node->fields["verification_state"] = "human-verified";
+            }
             if (action == "reject")
                 node->fields["verification_state"] = "rejected";
             if (action == "verify") {
-                const auto annotationId = domain::getField(*node, "source_annotation_id");
-                const std::string nodeSession = domain::getField(*node, "session_id");
-                bool valid = true;
-                bool hasSources = false;
-                auto validateSources = [&](RecordType type, const std::vector<std::string>& sourceIds) {
-                    for (const auto& sourceIdValue : sourceIds) {
-                        auto sourceId = parseId(sourceIdValue);
-                        if (!sourceId)
-                            return false;
-                        auto source = archive->get(type, *sourceId);
-                        if (!source || !*source || domain::isDeleted(**source))
-                            return false;
-                        const auto sourceSession = domain::getField(**source, "session_id");
-                        if (!sourceSession.empty() && sourceSession != nodeSession)
-                            return false;
-                    }
-                    return true;
-                };
-                if (!annotationId.empty()) {
-                    hasSources = true;
-                    valid = validateSources(RecordType::Annotation, {annotationId});
-                }
-                const auto segmentIds = splitCommaList(domain::getField(*node, "source_segment_ids"));
-                const auto assetIds = splitCommaList(domain::getField(*node, "source_asset_ids"));
-                if (!segmentIds.empty()) {
-                    hasSources = true;
-                    valid = valid && validateSources(RecordType::TranscriptSegment, segmentIds);
-                }
-                if (!assetIds.empty()) {
-                    hasSources = true;
-                    valid = valid && validateSources(RecordType::AssetMetadata, assetIds);
-                }
-                valid = valid && hasSources;
+                auto sourceCheck = validateEvidenceReferences(*archive, *node);
+                if (!sourceCheck)
+                    return failed(sourceCheck.error());
+                const bool valid = *sourceCheck;
                 JsonObject verification{
                     {"evidence_id",  *idValue                },
                     {"source_valid", valid ? "true" : "false"}
@@ -6187,23 +6269,74 @@ namespace {
         }
 
         auto evidenceNodes = archive.list(RecordType::EvidenceNode);
-        if (evidenceNodes) {
-            std::erase_if(*evidenceNodes, [&](const Record& node) {
-                return domain::getField(node, "session_id") != sessionId ||
-                       domain::getField(node, "origin") != "transcript-derived-candidate" ||
-                       domain::getField(node, "verification_state") != "human-verified";
-            });
+        if (!evidenceNodes)
+            return std::unexpected(evidenceNodes.error());
+        std::vector<Record> currentReviewedEvidence;
+        for (const auto& node : *evidenceNodes) {
+            if (domain::getField(node, "session_id") != sessionId || domain::getField(node, "origin") != "transcript-derived-candidate" ||
+                domain::getField(node, "verification_state") != "human-verified")
+                continue;
+            auto sourcesValid = validateEvidenceReferences(archive, node);
+            if (!sourcesValid)
+                return std::unexpected(sourcesValid.error());
+            if (*sourcesValid)
+                currentReviewedEvidence.push_back(node);
+        }
+        *evidenceNodes = std::move(currentReviewedEvidence);
+        {
             if (!evidenceNodes->empty()) {
-                GuideSection spokenInstructions{"verified-spoken-instructions", "Tutor-verified spoken instructions", {}};
+                struct TranscriptEvidenceSection final {
+                    std::string_view type;
+                    std::string_view id;
+                    std::string_view heading;
+                };
+                static constexpr std::array sections{
+                    TranscriptEvidenceSection{"explicit-instruction-candidate", "verified-spoken-instructions",
+                                              "Tutor-verified spoken instructions"                                                               },
+                    TranscriptEvidenceSection{"important-concept-candidate",    "verified-spoken-concepts",        "Verified spoken concepts"    },
+                    TranscriptEvidenceSection{"explanation-candidate",          "verified-spoken-explanations",    "Verified spoken explanations"},
+                    TranscriptEvidenceSection{"tutor-correction-candidate",     "verified-spoken-corrections",     "Verified spoken corrections" },
+                    TranscriptEvidenceSection{"student-mistake-candidate",      "verified-learner-misconceptions",
+                                              "Verified learner misconceptions"                                                                  },
+                    TranscriptEvidenceSection{"worked-example-candidate",       "verified-spoken-examples",        "Verified spoken examples"    },
+                    TranscriptEvidenceSection{"learning-outcome-candidate",     "verified-learning-outcomes",      "Verified learning outcomes"  },
+                    TranscriptEvidenceSection{"follow-up-priority-candidate",   "verified-follow-up-priorities",
+                                              "Verified follow-up priorities"                                                                    },
+                    TranscriptEvidenceSection{"student-question-candidate",     "verified-questions",              "Verified questions"          },
+                };
+                std::map<std::string, std::size_t, std::less<>> sectionIndices;
+                std::vector<GuideSection> transcriptEvidenceSections;
                 for (const auto& node : *evidenceNodes) {
+                    const std::string type = domain::getField(node, "type");
+                    const auto sectionDefinition = std::find_if(sections.begin(), sections.end(), [&](const auto& section) {
+                        return section.type == type;
+                    });
+                    const std::string sectionKey =
+                        sectionDefinition == sections.end() ? "verified-transcript-other" : std::string(sectionDefinition->id);
+                    auto section = sectionIndices.find(sectionKey);
+                    std::size_t sectionIndex{};
+                    if (section == sectionIndices.end()) {
+                        const std::string heading =
+                            sectionDefinition == sections.end() ? "Verified transcript evidence" : std::string(sectionDefinition->heading);
+                        sectionIndex = transcriptEvidenceSections.size();
+                        transcriptEvidenceSections.push_back({sectionKey, heading, {}});
+                        sectionIndices.emplace(sectionKey, sectionIndex);
+                    } else {
+                        sectionIndex = section->second;
+                    }
                     std::vector<std::string> sources{uuid(node.id)};
                     const auto segmentIds = splitCommaList(domain::getField(node, "source_segment_ids"));
                     sources.insert(sources.end(), segmentIds.begin(), segmentIds.end());
-                    const auto timestamp = domain::formatTimestampUs(integerField(node, "start_time_us"));
-                    spokenInstructions.blocks.push_back({"list-item", "[" + timestamp + "] " + domain::getField(node, "content"),
-                                                         std::move(sources), false, "session-evidence"});
+                    std::string attribution = "[" + domain::formatTimestampUs(integerField(node, "start_time_us")) + "]";
+                    const std::string speaker = domain::getField(node, "source_speaker_label");
+                    if (!speaker.empty())
+                        attribution += " [" + speaker + "]";
+                    transcriptEvidenceSections[sectionIndex].blocks.push_back({"list-item",
+                                                                               attribution + " " + domain::getField(node, "content"),
+                                                                               std::move(sources), false, "session-evidence"});
                 }
-                guide.sections.push_back(std::move(spokenInstructions));
+                for (auto& section : transcriptEvidenceSections)
+                    guide.sections.push_back(std::move(section));
             }
         }
 
@@ -9882,6 +10015,14 @@ namespace {
             for (const auto& node : *evidence) {
                 if (domain::isDeleted(node) || domain::getField(node, "session_id") != *sessionId)
                     continue;
+                const bool hasSources = !domain::getField(node, "source_annotation_id").empty() ||
+                                        !domain::getField(node, "source_segment_ids").empty() ||
+                                        !domain::getField(node, "source_asset_ids").empty();
+                auto sourcesValid = validateEvidenceReferences(*archive, node);
+                if (!sourcesValid)
+                    return failed(sourcesValid.error());
+                if (!*sourcesValid && (hasSources || domain::getField(node, "origin") == "transcript-derived-candidate"))
+                    continue;
                 const std::string review = domain::getField(node, "verification_state", "needs-review");
                 const std::string priority = domain::getField(node, "priority", "normal");
                 const auto evidencePriority = review == "human-verified" || priority == "critical"
@@ -11408,6 +11549,18 @@ namespace {
                     output << "Track " << domain::getField(track, "source", "unknown") << ": "
                            << domain::getField(track, "state", "unknown") << ", " << domain::getField(track, "chunk_count", "0")
                            << " chunk(s), " << domain::getField(track, "byte_count", "0") << " bytes\n";
+                    const std::string failureAt = domain::getField(track, "failure_at_unix_us");
+                    if (!failureAt.empty()) {
+                        const std::string failureSource = domain::getField(track, "failure_source", "unknown");
+                        const std::string failureDevice = domain::getField(track, "failure_device_id");
+                        const std::string intervalStart = domain::getField(track, "failure_interval_start_session_us", "0");
+                        const std::string intervalEnd = domain::getField(track, "failure_interval_end_session_us");
+                        output << "  Source failure: " << failureSource;
+                        if (!failureDevice.empty())
+                            output << " (device " << failureDevice << ")";
+                        output << " failed at Unix time " << failureAt << " µs; unrecorded session interval [" << intervalStart << ", ";
+                        output << (intervalEnd.empty() ? "open" : intervalEnd) << ") µs after recording start.\n";
+                    }
                 }
                 return result(context.json ? std::move(jsonReport) : output.str(), context.json);
             }
