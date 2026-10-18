@@ -124,6 +124,9 @@ export component MainWindow inherits Window {
     in-out property <bool> archive-recovery-needed: false;
     in-out property <bool> archive-recovery-recoverable: false;
     in-out property <bool> archive-recovery-tail-present: false;
+    in-out property <bool> archive-header-repair-candidate: false;
+    in-out property <bool> archive-header-repair-available: false;
+    in-out property <string> archive-repair-copy-path;
     in-out property <string> archive-recovery-status;
     in-out property <string> sanitized-copy-output;
     in-out property <string> sanitized-copy-status: "Choose an output path and preview the copy.";
@@ -146,6 +149,7 @@ export component MainWindow inherits Window {
     in-out property <string> recording-microphone-device;
     in-out property <string> recording-playback-device;
     in-out property <string> recording-application-device;
+    in-out property <string> recording-source: "microphone";
     in-out property <bool> recording-live-transcription-enabled: false;
     in-out property <string> recording-live-model-path;
     in-out property <string> recording-import-path;
@@ -334,10 +338,13 @@ export component MainWindow inherits Window {
     changed journal-session-type => {
         if root.journal-session-type == "notes-only" {
             root.journal-session-recording-source = "none";
+            root.recording-source = "microphone";
         } else if root.journal-session-type == "import-recording" {
             root.journal-session-recording-source = "imported-file";
+            root.recording-source = "microphone";
         } else {
             root.journal-session-recording-source = "microphone";
+            root.recording-source = "microphone";
         }
     }
     changed selected-journal-note-block => {
@@ -1974,6 +1981,20 @@ export component MainWindow inherits Window {
                                         }
                                     }
                                 }
+                                if root.archive-header-repair-candidate: HorizontalLayout {
+                                    spacing: 8px;
+                                    LineEdit {
+                                        placeholder-text: "Path for a separate repaired .tux copy";
+                                        text <=> root.archive-repair-copy-path;
+                                    }
+                                    Button {
+                                        text: "Create verified repaired copy";
+                                        enabled: root.archive-header-repair-available && root.archive-repair-copy-path != "";
+                                        clicked => {
+                                            root.archive-recovery-action("repair-copy");
+                                        }
+                                    }
+                                }
                             }
                         }
                         HorizontalLayout {
@@ -2655,6 +2676,10 @@ export component MainWindow inherits Window {
                                     model: root.session-options;
                                     current-value <=> root.selected-session;
                                 }
+                                ComboBox {
+                                    model: ["microphone", "system-audio", "both", "application", "imported-file"];
+                                    current-value <=> root.recording-source;
+                                }
                                 HorizontalLayout {
                                     spacing: 8px;
                                     LineEdit {
@@ -2672,6 +2697,10 @@ export component MainWindow inherits Window {
                                 LineEdit {
                                     placeholder-text: "Microphone device ID (optional)";
                                     text <=> root.recording-microphone-device;
+                                }
+                                LineEdit {
+                                    placeholder-text: "System-audio monitor / loopback ID (optional)";
+                                    text <=> root.recording-playback-device;
                                 }
                                 HorizontalLayout {
                                     spacing: 8px;
@@ -2753,55 +2782,18 @@ export component MainWindow inherits Window {
                                 HorizontalLayout {
                                     spacing: 8px;
                                     Button {
-                                        text: "Start microphone";
-                                        enabled: root.recording-preflight-ready &&
+                                        text: "Start selected source";
+                                        enabled: root.recording-source != "imported-file" &&
+                                            root.recording-consent-confirmed &&
+                                            ((root.recording-source == "microphone" || root.recording-source == "both") ?
+                                                (root.recording-preflight-ready &&
                                                  root.recording-preflight-requested-device-id ==
-                                                     root.recording-microphone-device &&
-                                                 root.recording-consent-confirmed;
-                                        clicked => {
-                                            if (root.recording-consent-confirmed) {
-                                                root.recording-command(root.selected-session,
-                                                    "start", "microphone");
-                                            } else {
-                                                root.status-message = "Confirm participant consent before recording.";
-                                            }
-                                        }
-                                    }
-                                    Button {
-                                        text: "Start system audio";
-                                        enabled: root.recording-consent-confirmed;
-                                        clicked => {
-                                            if (root.recording-consent-confirmed) {
-                                                root.recording-command(root.selected-session,
-                                                    "start", "system-audio");
-                                            } else {
-                                                root.status-message = "Confirm participant consent before recording.";
-                                            }
-                                        }
-                                    }
-                                    Button {
-                                        text: "Start both tracks";
-                                        enabled: root.recording-preflight-ready &&
-                                                 root.recording-preflight-requested-device-id ==
-                                                     root.recording-microphone-device &&
-                                                 root.recording-consent-confirmed &&
-                                                 !root.recording-live-transcription-enabled;
-                                        clicked => {
-                                            if (root.recording-consent-confirmed) {
-                                                root.recording-command(root.selected-session,
-                                                    "start", "both");
-                                            } else {
-                                                root.status-message = "Confirm participant consent before recording.";
-                                            }
-                                        }
-                                    }
-                                    Button {
-                                        text: "Start application";
-                                        enabled: root.recording-consent-confirmed &&
-                                                 root.recording-application-device != "";
+                                                     root.recording-microphone-device) :
+                                                (root.recording-source != "application" ||
+                                                 root.recording-application-device != ""));
                                         clicked => {
                                             root.recording-command(root.selected-session,
-                                                "start", "application");
+                                                "start", root.recording-source);
                                         }
                                     }
                                     Button {
@@ -2823,6 +2815,13 @@ export component MainWindow inherits Window {
                                         clicked => {
                                             root.recording-command(root.selected-session,
                                                 "stop", "");
+                                        }
+                                    }
+                                    Button {
+                                        text: "Status";
+                                        clicked => {
+                                            root.recording-command(root.selected-session,
+                                                "status", "");
                                         }
                                     }
                                 }
@@ -3362,7 +3361,7 @@ export component MainWindow inherits Window {
                     }
 
                     if root.recording-panel-open: Rectangle {
-                        height: 210px;
+                        height: 300px;
                         border-width: 1px;
                         border-color: #111111;
                         border-radius: 5px;
@@ -3401,6 +3400,10 @@ export component MainWindow inherits Window {
                             }
                             HorizontalLayout {
                                 spacing: 8px;
+                                ComboBox {
+                                    model: ["microphone", "system-audio", "both", "application", "imported-file"];
+                                    current-value <=> root.recording-source;
+                                }
                                 LineEdit {
                                     placeholder-text: "Microphone device ID (optional)";
                                     text <=> root.recording-microphone-device;
@@ -3435,6 +3438,10 @@ export component MainWindow inherits Window {
                                     wrap: word-wrap;
                                 }
                             }
+                            LineEdit {
+                                placeholder-text: "System-audio monitor / loopback ID (optional)";
+                                text <=> root.recording-playback-device;
+                            }
                             HorizontalLayout {
                                 spacing: 8px;
                                 LineEdit {
@@ -3458,6 +3465,24 @@ export component MainWindow inherits Window {
                                     font-size: 11px;
                                     wrap: word-wrap;
                                 }
+                            if root.recording-source == "imported-file": HorizontalLayout {
+                                spacing: 8px;
+                                LineEdit {
+                                    placeholder-text: "WAV recording to import";
+                                    text <=> root.recording-import-path;
+                                }
+                                Button {
+                                    text: "Import recording";
+                                    enabled: root.recording-import-path != "";
+                                    clicked => {
+                                        root.recording-command(
+                                            root.journal-session-id == "" ?
+                                                root.selected-journal-session :
+                                                root.journal-session-id,
+                                            "import", root.recording-import-path);
+                                    }
+                                }
+                            }
                             HorizontalLayout {
                                 spacing: 8px;
                                 CheckBox {
@@ -3465,62 +3490,23 @@ export component MainWindow inherits Window {
                                     checked <=> root.recording-consent-confirmed;
                                 }
                                 Button {
-                                    text: "Start microphone";
-                                    enabled: root.recording-preflight-ready &&
-                                             root.recording-preflight-requested-device-id ==
-                                                 root.recording-microphone-device &&
-                                             root.recording-consent-confirmed &&
-                                             (root.journal-session-id != "" ||
-                                              root.selected-journal-session != "");
-                                    clicked => {
-                                        root.recording-command(
-                                            root.journal-session-id == "" ?
-                                                root.selected-journal-session :
-                                                root.journal-session-id,
-                                            "start", "microphone");
-                                    }
-                                }
-                                Button {
-                                    text: "Start system audio";
+                                    text: "Start selected source";
                                     enabled: root.recording-consent-confirmed &&
-                                             (root.journal-session-id != "" ||
-                                              root.selected-journal-session != "");
-                                    clicked => {
-                                        root.recording-command(
-                                            root.journal-session-id == "" ?
-                                                root.selected-journal-session :
-                                                root.journal-session-id,
-                                            "start", "system-audio");
-                                    }
-                                }
-                                Button {
-                                    text: "Start both";
-                                    enabled: root.recording-preflight-ready &&
+                                        root.recording-source != "imported-file" &&
+                                        ((root.recording-source == "microphone" || root.recording-source == "both") ?
+                                            (root.recording-preflight-ready &&
                                              root.recording-preflight-requested-device-id ==
-                                                 root.recording-microphone-device &&
-                                             root.recording-consent-confirmed &&
-                                             (root.journal-session-id != "" ||
-                                              root.selected-journal-session != "");
+                                                 root.recording-microphone-device) :
+                                            (root.recording-source != "application" ||
+                                             root.recording-application-device != "")) &&
+                                        (root.journal-session-id != "" ||
+                                         root.selected-journal-session != "");
                                     clicked => {
                                         root.recording-command(
                                             root.journal-session-id == "" ?
                                                 root.selected-journal-session :
                                                 root.journal-session-id,
-                                            "start", "both");
-                                    }
-                                }
-                                Button {
-                                    text: "Start application";
-                                    enabled: root.recording-consent-confirmed &&
-                                             root.recording-application-device != "" &&
-                                             (root.journal-session-id != "" ||
-                                              root.selected-journal-session != "");
-                                    clicked => {
-                                        root.recording-command(
-                                            root.journal-session-id == "" ?
-                                                root.selected-journal-session :
-                                                root.journal-session-id,
-                                            "start", "application");
+                                            "start", root.recording-source);
                                     }
                                 }
                                 Button {
