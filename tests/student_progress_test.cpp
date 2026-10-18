@@ -106,7 +106,7 @@ int main() {
     std::string needsReviewEvidenceId;
     std::string foreignEvidenceId;
     {
-        auto opened = archive::Archive::open(archivePath);
+        auto opened = archive::Archive::open(archivePath, true);
         if (!opened)
             return fail(opened.error().message);
         const auto parsedStudentId = archive::uuidFromString(studentId);
