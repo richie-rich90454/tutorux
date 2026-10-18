@@ -1208,25 +1208,37 @@ namespace {
             window.set_archive_recovery_needed(true);
             window.set_archive_recovery_recoverable(false);
             window.set_archive_recovery_tail_present(false);
+            window.set_archive_header_repair_candidate(false);
+            window.set_archive_header_repair_available(false);
             window.set_archive_status(toSharedString("Recovery inspection failed"));
             window.set_archive_recovery_status(toSharedString("Recovery inspection failed: " + report.error().message));
             return;
         }
 
+        window.set_archive_header_repair_candidate(report->headerRepairCandidate);
+        window.set_archive_header_repair_available(report->headerRepairAvailable);
         if (!report->archiveHeaderValid || !report->recoveryAssessmentComplete) {
             window.set_archive_recovery_needed(true);
             window.set_archive_recovery_recoverable(false);
             window.set_archive_recovery_tail_present(false);
+            if (report->headerRepairCandidate && window.get_archive_repair_copy_path().empty()) {
+                const auto destination = path.parent_path() / (path.stem().string() + ".repaired.tux");
+                window.set_archive_repair_copy_path(toSharedString(destination.string()));
+            }
             window.set_archive_status(toSharedString("Recovery assessment unavailable"));
             std::ostringstream status;
             status << (report->archiveHeaderValid ? "Recovery could not safely assess this archive."
-                                                  : "The archive header is invalid or unreadable; recovery is unavailable.");
+                       : report->headerRepairCandidate
+                           ? "The archive header checksum is damaged; use a separate verified copy to repair it."
+                           : "The archive header is invalid or unreadable; recovery is unavailable.");
             for (const auto& issue : report->issues)
                 status << "\n" << issue;
             window.set_archive_recovery_status(toSharedString(status.str()));
             return;
         }
 
+        window.set_archive_header_repair_candidate(false);
+        window.set_archive_header_repair_available(false);
         const bool hasTail = report->trailingBytes != 0;
         window.set_archive_recovery_needed(hasTail);
         window.set_archive_recovery_recoverable(hasTail && report->recoverable);
@@ -1572,6 +1584,24 @@ int launchDesktop(std::optional<std::filesystem::path> archivePath, std::optiona
         std::string passphrase(requestedPassphrase.data(), requestedPassphrase.size());
         auto info = tutorux::archive::inspectArchive(path, passphrase);
         if (!info) {
+            auto recovery = Archive::inspectRecovery(path, passphrase);
+            if (recovery && recovery->headerRepairCandidate) {
+                directory = path.parent_path();
+                window->set_archive_path(toSharedString(std::filesystem::absolute(path).string()));
+                window->set_selected_archive(toSharedString(path.stem().string()));
+                window->set_archive_repair_copy_path(toSharedString(""));
+                refreshArchiveRecoveryState(*window, path, passphrase);
+                eraseSecret(activePassphrase);
+                if (recovery->encrypted && recovery->headerRepairAvailable)
+                    activePassphrase = passphrase;
+                eraseSecret(passphrase);
+                window->set_active_view(toSharedString("archive"));
+                window->set_status_message(toSharedString(
+                    recovery->headerRepairAvailable
+                        ? "Header checksum damage was verified. Create a separate repaired copy from the recovery panel."
+                        : "Header checksum damage was found. Enter the passphrase and open the archive again to verify repair."));
+                return;
+            }
             eraseSecret(passphrase);
             window->set_status_message(toSharedString(info.error().message));
             return;
@@ -1620,6 +1650,17 @@ int launchDesktop(std::optional<std::filesystem::path> archivePath, std::optiona
             return;
         }
         const std::string action(requestedAction.data(), requestedAction.size());
+        if (action == "repair-copy") {
+            const std::filesystem::path destination(window->get_archive_repair_copy_path().data());
+            if (destination.empty()) {
+                window->set_status_message(toSharedString("Choose a destination for the repaired copy."));
+                return;
+            }
+            auto repaired = dispatchWithSecrets(archiveCommand(path, {"repair", "--output", destination.string(), "--confirm-sensitive"}),
+                                                activePassphrase);
+            window->set_status_message(toSharedString(commandOutput(std::move(repaired))));
+            return;
+        }
         std::vector<std::string> arguments{"archive", "recover"};
         if (action == "recover-unpublished")
             arguments.emplace_back("--recover-unpublished");
@@ -4203,15 +4244,30 @@ int launchDesktop(std::optional<std::filesystem::path> archivePath, std::optiona
                             (*strongWindow)->set_journal_session_id(toSharedString(*sessionId));
                             (*strongWindow)->set_selected_session(toSharedString("Session · " + *sessionId));
                             const auto sessionType = jsonStringField(output, "session_type");
+                            const std::string recordingSource =
+                                jsonStringField(output, "recording_source")
+                                    .value_or(sessionType && *sessionType == "import-recording" ? "imported-file"
+                                              : sessionType && *sessionType == "record-audio"   ? "microphone"
+                                                                                                : "none");
                             if (sessionType && (*sessionType == "record-audio" || *sessionType == "import-recording")) {
-                                if (*sessionType == "import-recording") {
+                                (*strongWindow)->set_recording_source(toSharedString(recordingSource));
+                                (*strongWindow)->set_recording_consent_confirmed(false);
+                                (*strongWindow)->set_recording_preflight_ready(false);
+                                (*strongWindow)->set_recording_panel_open(true);
+                                (*strongWindow)
+                                    ->set_status_message(toSharedString(
+                                        *sessionType == "import-recording"
+                                            ? "Session created. Choose its WAV file in the open capture controls."
+                                            : "Session created. Confirm consent in the open capture controls before recording."));
+                                if (*sessionType == "record-audio" && (recordingSource == "microphone" || recordingSource == "both")) {
                                     (*strongWindow)
-                                        ->set_status_message(toSharedString("Session created. Open recording controls to choose its "
-                                                                            "WAV recording."));
-                                } else {
+                                        ->set_recording_preflight_output(
+                                            toSharedString("Checking the selected microphone before recording…"));
+                                    (*strongWindow)->invoke_check_recording_device((*strongWindow)->get_recording_microphone_device());
+                                } else if (*sessionType == "record-audio") {
                                     (*strongWindow)
-                                        ->set_status_message(toSharedString("Session created. Open recording controls to check the "
-                                                                            "microphone and start capture."));
+                                        ->set_recording_preflight_output(
+                                            toSharedString("Selected source: " + recordingSource + ". Confirm consent before recording."));
                                 }
                             }
                         }
