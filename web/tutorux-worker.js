@@ -5,6 +5,8 @@ importScripts("./tutorux-core.js");
 let moduleReady = null;
 let archiveDatabaseReady = null;
 const pendingArchiveKeys = new Set();
+const pcmRecordingWriters = new Map();
+const maximumPcmRecordingBytes = 64 * 1024 * 1024;
 const archiveChannel = typeof BroadcastChannel === "function"
     ? new BroadcastChannel("tutorux-archive-v1")
     : null;
@@ -70,6 +72,124 @@ function initializeModule() {
         });
     }
     return moduleReady;
+}
+
+function pcmWaveHeader(dataBytes, sampleRateHz) {
+    if (!Number.isSafeInteger(dataBytes) || dataBytes <= 0 || dataBytes > maximumPcmRecordingBytes) {
+        throw new Error("The browser microphone recording contains no audio or exceeds 64 MiB.");
+    }
+    const bytes = new Uint8Array(44);
+    const view = new DataView(bytes.buffer);
+    const writeText = (offset, value) => {
+        for (let index = 0; index < value.length; index += 1) {
+            bytes[offset + index] = value.charCodeAt(index);
+        }
+    };
+    writeText(0, "RIFF");
+    view.setUint32(4, 36 + dataBytes, true);
+    writeText(8, "WAVE");
+    writeText(12, "fmt ");
+    view.setUint32(16, 16, true);
+    view.setUint16(20, 1, true);
+    view.setUint16(22, 1, true);
+    view.setUint32(24, sampleRateHz, true);
+    view.setUint32(28, sampleRateHz * 2, true);
+    view.setUint16(32, 2, true);
+    view.setUint16(34, 16, true);
+    writeText(36, "data");
+    view.setUint32(40, dataBytes, true);
+    return bytes;
+}
+
+function beginPcmRecording(module, payload) {
+    if (!payload || !isWorkspacePath(payload.path) || pcmRecordingWriters.size >= 2) {
+        throw new Error("The browser microphone recording writer limit was reached or its path is invalid.");
+    }
+    const sampleRateHz = Number(payload.sampleRateHz);
+    if (!Number.isInteger(sampleRateHz) || sampleRateHz < 8000 || sampleRateHz > 384000) {
+        throw new Error("The browser microphone sample rate is unsupported.");
+    }
+    const descriptor = module.FS.open(payload.path, "w+");
+    try {
+        const placeholder = new Uint8Array(44);
+        const written = module.FS.write(descriptor, placeholder, 0, placeholder.length, 0);
+        if (written !== placeholder.length) {
+            throw new Error("The browser could not initialize the microphone recording file.");
+        }
+        pcmRecordingWriters.set(payload.path, { descriptor, dataBytes: 0, sampleRateHz });
+    } catch (error) {
+        try {
+            module.FS.close(descriptor);
+        } catch {
+            // Preserve the original file initialization error.
+        }
+        try {
+            module.FS.unlink(payload.path);
+        } catch {
+            // The file may not have been created.
+        }
+        throw error;
+    }
+}
+
+function appendPcmRecording(module, payload) {
+    const writer = payload && pcmRecordingWriters.get(payload.path);
+    if (!writer || !(payload.samples instanceof ArrayBuffer)) {
+        throw new Error("The browser microphone recording stream is not open.");
+    }
+    const samples = new Uint8Array(payload.samples);
+    if (samples.byteLength === 0 || samples.byteLength % 2 !== 0) {
+        throw new Error("The browser microphone supplied an incomplete PCM sample block.");
+    }
+    if (samples.byteLength > maximumPcmRecordingBytes - writer.dataBytes) {
+        throw new Error("The browser microphone recording reached its 64 MiB limit.");
+    }
+    const written = module.FS.write(
+        writer.descriptor,
+        samples,
+        0,
+        samples.byteLength,
+        44 + writer.dataBytes,
+    );
+    if (written !== samples.byteLength) {
+        throw new Error("The browser could not persist a complete microphone audio block.");
+    }
+    writer.dataBytes += written;
+    return writer.dataBytes;
+}
+
+function finishPcmRecording(module, payload) {
+    const writer = payload && pcmRecordingWriters.get(payload.path);
+    if (!writer) throw new Error("The browser microphone recording stream is not open.");
+    try {
+        const header = pcmWaveHeader(writer.dataBytes, writer.sampleRateHz);
+        const written = module.FS.write(writer.descriptor, header, 0, header.length, 0);
+        if (written !== header.length) {
+            throw new Error("The browser could not finish the microphone WAV header.");
+        }
+        module.FS.close(writer.descriptor);
+        pcmRecordingWriters.delete(payload.path);
+        return { dataBytes: writer.dataBytes, fileBytes: writer.dataBytes + 44 };
+    } catch (error) {
+        try {
+            module.FS.close(writer.descriptor);
+        } catch {
+            // Preserve the original finalization error.
+        }
+        pcmRecordingWriters.delete(payload.path);
+        throw error;
+    }
+}
+
+function abortPcmRecording(module, path) {
+    const writer = pcmRecordingWriters.get(path);
+    if (!writer) return;
+    try {
+        module.FS.close(writer.descriptor);
+    } catch {
+        // The descriptor may have been closed during a failed finalization.
+    }
+    pcmRecordingWriters.delete(path);
 }
 
 function archiveStorageKey(bytes) {
@@ -270,6 +390,21 @@ async function handleMessage(event) {
             self.postMessage({ id, ok: true, bytes: copy }, [copy]);
             return;
         }
+        if (type === "begin-pcm-recording") {
+            beginPcmRecording(module, payload);
+            self.postMessage({ id, ok: true });
+            return;
+        }
+        if (type === "append-pcm-recording") {
+            const dataBytes = appendPcmRecording(module, payload);
+            self.postMessage({ id, ok: true, result: { dataBytes } });
+            return;
+        }
+        if (type === "finish-pcm-recording") {
+            const result = finishPcmRecording(module, payload);
+            self.postMessage({ id, ok: true, result });
+            return;
+        }
         if (type === "read-archive") {
             if (!payload || !isWorkspacePath(payload.path)) {
                 throw new Error("Browser worker file operations are limited to the active workspace.");
@@ -311,6 +446,7 @@ async function handleMessage(event) {
             if (!payload || !isWorkspacePath(payload.path)) {
                 throw new Error("Browser worker file operations are limited to the active workspace.");
             }
+            abortPcmRecording(module, payload.path);
             try {
                 module.FS.unlink(payload.path);
             } catch (error) {
