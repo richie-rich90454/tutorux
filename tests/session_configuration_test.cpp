@@ -3,10 +3,13 @@
 #include "tutorux/domain/entities.hpp"
 #include "tutorux/domain/journal.hpp"
 
+#include <algorithm>
 #include <chrono>
 #include <filesystem>
 #include <iostream>
+#include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace {
