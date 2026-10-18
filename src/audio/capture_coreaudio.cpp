@@ -1,6 +1,7 @@
 #include "tutorux/audio/coreaudio_backend.hpp"
 
 #include "tutorux/domain/entities.hpp"
+#include "preflight_metrics.hpp"
 
 #if defined(__APPLE__)
 #include <AudioToolbox/AudioQueue.h>
@@ -35,9 +36,8 @@ namespace {
     constexpr std::size_t kMaximumQueueBufferBytes = 1U << 20U;
 
     core::Error coreAudioError(std::string code, std::string_view operation, OSStatus status) {
-        return core::error(std::move(code),
-                           std::string(operation) + " failed (OSStatus " + std::to_string(status) +
-                               ").");
+        return core::error(std::move(code), std::string(operation) + " failed (OSStatus " +
+                                                std::to_string(status) + ").");
     }
 
     std::uint64_t samplesToMicroseconds(std::uint64_t samples) {
@@ -52,12 +52,9 @@ namespace {
                                               .count());
     }
 
-    core::Status updateRecordingSession(archive::Archive& archive,
-                                        archive::Record& session,
-                                        std::string state,
-                                        std::uint64_t chunks,
-                                        std::uint64_t samples,
-                                        std::uint64_t bytes,
+    core::Status updateRecordingSession(archive::Archive& archive, archive::Record& session,
+                                        std::string state, std::uint64_t chunks,
+                                        std::uint64_t samples, std::uint64_t bytes,
                                         std::string error = {}) {
         session.fields["recording_state"] = std::move(state);
         session.fields["recording_audio_chunks"] = std::to_string(chunks);
@@ -76,16 +73,11 @@ namespace {
         };
         AudioDeviceID deviceId = kAudioObjectUnknown;
         UInt32 size = sizeof(deviceId);
-        const OSStatus status = AudioObjectGetPropertyData(kAudioObjectSystemObject,
-                                                           &address,
-                                                           0,
-                                                           nullptr,
-                                                           &size,
-                                                           &deviceId);
+        const OSStatus status = AudioObjectGetPropertyData(kAudioObjectSystemObject, &address, 0,
+                                                           nullptr, &size, &deviceId);
         if (status != noErr || deviceId == kAudioObjectUnknown) {
             return std::unexpected(coreAudioError("audio_default_device_failed",
-                                                  "Reading the default CoreAudio input",
-                                                  status));
+                                                  "Reading the default CoreAudio input", status));
         }
         return deviceId;
     }
@@ -120,11 +112,8 @@ namespace {
         OSStatus callbackError{noErr};
     };
 
-    void inputCallback(void* userData,
-                       AudioQueueRef queue,
-                       AudioQueueBufferRef buffer,
-                       const AudioTimeStamp*,
-                       UInt32,
+    void inputCallback(void* userData, AudioQueueRef queue, AudioQueueBufferRef buffer,
+                       const AudioTimeStamp*, UInt32,
                        const AudioStreamPacketDescription*) noexcept {
         auto& context = *static_cast<AudioQueueContext*>(userData);
         bool shouldRequeue = false;
@@ -154,12 +143,55 @@ namespace {
         context.condition.notify_one();
     }
 
-    void discardInputCallback(void*,
-                              AudioQueueRef,
-                              AudioQueueBufferRef,
-                              const AudioTimeStamp*,
-                              UInt32,
-                              const AudioStreamPacketDescription*) noexcept {}
+    void discardInputCallback(void*, AudioQueueRef, AudioQueueBufferRef, const AudioTimeStamp*,
+                              UInt32, const AudioStreamPacketDescription*) noexcept {}
+
+    struct PreflightAudioQueueContext final {
+        std::mutex mutex;
+        std::condition_variable condition;
+        detail::LevelAccumulator levels;
+        std::uint64_t framesMeasured{};
+        OSStatus callbackError{noErr};
+        bool stopping{};
+    };
+
+    void preflightInputCallback(void* userData, AudioQueueRef queue, AudioQueueBufferRef buffer,
+                                const AudioTimeStamp*, UInt32,
+                                const AudioStreamPacketDescription*) noexcept {
+        auto& context = *static_cast<PreflightAudioQueueContext*>(userData);
+        bool shouldRequeue = false;
+        {
+            std::lock_guard lock(context.mutex);
+            if (!context.stopping) {
+                if (buffer->mAudioDataByteSize % sizeof(std::int16_t) != 0 ||
+                    buffer->mAudioDataByteSize > buffer->mAudioDataBytesCapacity) {
+                    context.callbackError = kAudio_ParamError;
+                } else {
+                    const auto frameCount = static_cast<std::uint64_t>(buffer->mAudioDataByteSize /
+                                                                       sizeof(std::int16_t));
+                    if (frameCount >
+                        std::numeric_limits<std::uint64_t>::max() - context.framesMeasured) {
+                        context.callbackError = kAudio_ParamError;
+                    } else {
+                        const auto* samples = static_cast<const std::int16_t*>(buffer->mAudioData);
+                        for (std::uint64_t index = 0; index < frameCount; ++index) {
+                            context.levels.add(static_cast<double>(samples[index]) / 32'768.0);
+                        }
+                        context.framesMeasured += frameCount;
+                        shouldRequeue = true;
+                    }
+                }
+            }
+        }
+        if (shouldRequeue) {
+            const OSStatus status = AudioQueueEnqueueBuffer(queue, buffer, 0, nullptr);
+            if (status != noErr) {
+                std::lock_guard lock(context.mutex);
+                context.callbackError = status;
+            }
+        }
+        context.condition.notify_one();
+    }
 
     class AudioQueueOwner final {
       public:
@@ -196,31 +228,20 @@ namespace {
         return format;
     }
 
-    core::Status createInputQueue(AudioQueueOwner& owner,
-                                  AudioDeviceID deviceId,
-                                  AudioQueueInputCallback callback,
-                                  void* context,
+    core::Status createInputQueue(AudioQueueOwner& owner, AudioDeviceID deviceId,
+                                  AudioQueueInputCallback callback, void* context,
                                   std::size_t bufferBytes) {
         const auto format = captureFormat();
-        OSStatus status = AudioQueueNewInput(&format,
-                                             callback,
-                                             context,
-                                             nullptr,
-                                             kCFRunLoopCommonModes,
-                                             0,
-                                             owner.put());
+        OSStatus status = AudioQueueNewInput(&format, callback, context, nullptr,
+                                             kCFRunLoopCommonModes, 0, owner.put());
         if (status != noErr)
             return std::unexpected(coreAudioError("audio_queue_create_failed",
-                                                  "Creating a CoreAudio input queue",
-                                                  status));
-        status = AudioQueueSetProperty(owner.get(),
-                                       kAudioQueueProperty_CurrentDevice,
-                                       &deviceId,
+                                                  "Creating a CoreAudio input queue", status));
+        status = AudioQueueSetProperty(owner.get(), kAudioQueueProperty_CurrentDevice, &deviceId,
                                        sizeof(deviceId));
         if (status != noErr)
             return std::unexpected(coreAudioError("audio_device_open_failed",
-                                                  "Selecting the CoreAudio input device",
-                                                  status));
+                                                  "Selecting the CoreAudio input device", status));
 
         if (context) {
             auto& queueContext = *static_cast<AudioQueueContext*>(context);
@@ -237,9 +258,8 @@ namespace {
             const OSStatus status =
                 AudioQueueAllocateBuffer(queue, static_cast<UInt32>(bufferBytes), &buffer);
             if (status != noErr)
-                return std::unexpected(coreAudioError("audio_buffer_allocate_failed",
-                                                      "Allocating a CoreAudio input buffer",
-                                                      status));
+                return std::unexpected(coreAudioError(
+                    "audio_buffer_allocate_failed", "Allocating a CoreAudio input buffer", status));
             const OSStatus enqueueStatus = AudioQueueEnqueueBuffer(queue, buffer, 0, nullptr);
             if (enqueueStatus != noErr)
                 return std::unexpected(coreAudioError("audio_buffer_enqueue_failed",
@@ -249,16 +269,11 @@ namespace {
         return {};
     }
 
-    core::Status appendCapturedChunk(archive::Archive& archive,
-                                     archive::Record& session,
-                                     const archive::Uuid& sessionId,
-                                     const archive::Uuid& trackId,
-                                     std::uint64_t sequence,
-                                     std::uint64_t firstSample,
-                                     std::uint64_t frameCount,
-                                     std::uint64_t totalStoredSamples,
-                                     std::uint64_t totalStoredBytes,
-                                     bool containsDiscontinuity,
+    core::Status appendCapturedChunk(archive::Archive& archive, archive::Record& session,
+                                     const archive::Uuid& sessionId, const archive::Uuid& trackId,
+                                     std::uint64_t sequence, std::uint64_t firstSample,
+                                     std::uint64_t frameCount, std::uint64_t totalStoredSamples,
+                                     std::uint64_t totalStoredBytes, bool containsDiscontinuity,
                                      archive::Bytes payload) {
         if (firstSample > std::numeric_limits<std::uint64_t>::max() - frameCount ||
             totalStoredSamples > std::numeric_limits<std::uint64_t>::max() - frameCount ||
@@ -310,18 +325,131 @@ core::Result<CaptureDeviceProbe> probeCoreAudioCaptureDevice(std::string deviceI
     if (!parsedDeviceId)
         return std::unexpected(parsedDeviceId.error());
     AudioQueueOwner queue;
-    if (auto status = createInputQueue(queue,
-                                       *parsedDeviceId,
-                                       discardInputCallback,
-                                       nullptr,
+    if (auto status = createInputQueue(queue, *parsedDeviceId, discardInputCallback, nullptr,
                                        4'800 * sizeof(std::int16_t));
         !status) {
         return std::unexpected(status.error());
     }
-    return CaptureDeviceProbe{std::to_string(*parsedDeviceId),
-                              "pcm_s16le",
-                              kSampleRateHz,
+    return CaptureDeviceProbe{std::to_string(*parsedDeviceId), "pcm_s16le", kSampleRateHz,
                               kChannelCount};
+}
+
+core::Result<CapturePreflightSummary>
+preflightCoreAudioCaptureDevice(CapturePreflightOptions options) {
+    if (auto status = detail::validatePreflightOptions(options); !status)
+        return std::unexpected(status.error());
+    auto parsedDeviceId = parseDeviceId(options.deviceId);
+    if (!parsedDeviceId)
+        return std::unexpected(parsedDeviceId.error());
+
+    PreflightAudioQueueContext callbackContext;
+    AudioQueueOwner queue;
+    const auto format = captureFormat();
+    OSStatus audioStatus = AudioQueueNewInput(&format, preflightInputCallback, &callbackContext,
+                                              nullptr, kCFRunLoopCommonModes, 0, queue.put());
+    if (audioStatus != noErr) {
+        return std::unexpected(coreAudioError(
+            "audio_queue_create_failed", "Creating a microphone check input queue", audioStatus));
+    }
+    audioStatus = AudioQueueSetProperty(queue.get(), kAudioQueueProperty_CurrentDevice,
+                                        &*parsedDeviceId, sizeof(*parsedDeviceId));
+    if (audioStatus != noErr) {
+        return std::unexpected(coreAudioError(
+            "audio_device_open_failed", "Selecting the microphone check device", audioStatus));
+    }
+
+    constexpr std::size_t kPreflightBufferBytes = 4'800 * sizeof(std::int16_t);
+    if (auto status = allocateAndEnqueueBuffers(queue.get(), kPreflightBufferBytes); !status)
+        return std::unexpected(status.error());
+    audioStatus = AudioQueueStart(queue.get(), nullptr);
+    if (audioStatus != noErr) {
+        return std::unexpected(coreAudioError("audio_preflight_start_failed",
+                                              "Starting the microphone access check", audioStatus));
+    }
+
+    const auto startedAt = std::chrono::steady_clock::now();
+    auto nextNotification = startedAt + options.levelInterval;
+    const auto deadline = startedAt + options.duration;
+    while (std::chrono::steady_clock::now() < deadline) {
+        detail::LevelMeasurement window;
+        std::uint64_t framesMeasured = 0;
+        OSStatus callbackError = noErr;
+        {
+            std::unique_lock lock(callbackContext.mutex);
+            callbackContext.condition.wait_until(lock, nextNotification, [&] {
+                return callbackContext.callbackError != noErr;
+            });
+            callbackError = callbackContext.callbackError;
+            if (callbackError == noErr) {
+                window = callbackContext.levels.takeWindow();
+                framesMeasured = callbackContext.framesMeasured;
+            }
+        }
+        if (callbackError != noErr) {
+            AudioQueueStop(queue.get(), true);
+            return std::unexpected(coreAudioError("audio_preflight_callback_failed",
+                                                  "Receiving microphone check samples",
+                                                  callbackError));
+        }
+
+        const auto now = std::chrono::steady_clock::now();
+        const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - startedAt);
+        if (window.sampleValueCount != 0) {
+            auto level = detail::makeCaptureInputLevel(window, kChannelCount, elapsed);
+            level.framesMeasured = framesMeasured;
+            if (auto status = detail::notifyPreflightLevel(options, level); !status) {
+                AudioQueueStop(queue.get(), true);
+                return std::unexpected(status.error());
+            }
+        }
+        nextNotification += options.levelInterval;
+        if (nextNotification <= now)
+            nextNotification = now + options.levelInterval;
+    }
+
+    audioStatus = AudioQueueStop(queue.get(), true);
+    if (audioStatus != noErr) {
+        return std::unexpected(coreAudioError("audio_preflight_stop_failed",
+                                              "Stopping the microphone access check", audioStatus));
+    }
+
+    detail::LevelMeasurement finalWindow;
+    detail::LevelMeasurement total;
+    std::uint64_t framesMeasured = 0;
+    OSStatus callbackError = noErr;
+    {
+        std::lock_guard lock(callbackContext.mutex);
+        callbackContext.stopping = true;
+        callbackError = callbackContext.callbackError;
+        finalWindow = callbackContext.levels.takeWindow();
+        total = callbackContext.levels.total();
+        framesMeasured = callbackContext.framesMeasured;
+    }
+    if (callbackError != noErr) {
+        return std::unexpected(coreAudioError("audio_preflight_callback_failed",
+                                              "Receiving microphone check samples", callbackError));
+    }
+    if (framesMeasured == 0) {
+        return std::unexpected(core::error(
+            "audio_preflight_no_samples",
+            "The selected microphone opened, but it produced no samples during the check."));
+    }
+
+    if (finalWindow.sampleValueCount != 0) {
+        const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now() - startedAt);
+        auto level = detail::makeCaptureInputLevel(finalWindow, kChannelCount, elapsed);
+        level.framesMeasured = framesMeasured;
+        if (auto status = detail::notifyPreflightLevel(options, level); !status)
+            return std::unexpected(status.error());
+    }
+
+    CaptureDeviceProbe device{std::to_string(*parsedDeviceId), "pcm_s16le", kSampleRateHz,
+                              kChannelCount};
+    return detail::makeCapturePreflightSummary(
+        std::move(device), total,
+        std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() -
+                                                              startedAt));
 }
 
 core::Result<CaptureSummary> captureCoreAudio(archive::Archive& archive,
@@ -351,8 +479,7 @@ core::Result<CaptureSummary> captureCoreAudio(archive::Archive& archive,
             core::error("audio_capture_session_busy", "Session already has an active recording."));
     }
     bool sessionHasAudio = false;
-    if (auto status = archive.forEachAudioChunk(sessionId,
-                                                options.trackId,
+    if (auto status = archive.forEachAudioChunk(sessionId, options.trackId,
                                                 [&](archive::Record&&) {
                                                     sessionHasAudio = true;
                                                     return false;
@@ -372,10 +499,7 @@ core::Result<CaptureSummary> captureCoreAudio(archive::Archive& archive,
     constexpr std::size_t kQueueBufferBytes = 4'800 * sizeof(std::int16_t);
     AudioQueueContext callbackContext;
     AudioQueueOwner queue;
-    if (auto status = createInputQueue(queue,
-                                       *parsedDeviceId,
-                                       inputCallback,
-                                       &callbackContext,
+    if (auto status = createInputQueue(queue, *parsedDeviceId, inputCallback, &callbackContext,
                                        kQueueBufferBytes);
         !status) {
         return std::unexpected(status.error());
@@ -480,17 +604,9 @@ core::Result<CaptureSummary> captureCoreAudio(archive::Archive& archive,
         const std::uint64_t frames = pending.size() / bytesPerFrame;
         archive::Bytes payload = std::move(pending);
         pending.clear();
-        auto status = appendCapturedChunk(archive,
-                                          session,
-                                          sessionId,
-                                          summary.trackId,
-                                          sequence,
-                                          timelineEndSample,
-                                          frames,
-                                          storedSamples,
-                                          storedBytes,
-                                          pendingDiscontinuity,
-                                          std::move(payload));
+        auto status = appendCapturedChunk(archive, session, sessionId, summary.trackId, sequence,
+                                          timelineEndSample, frames, storedSamples, storedBytes,
+                                          pendingDiscontinuity, std::move(payload));
         if (!status)
             return status;
         ++sequence;
@@ -515,9 +631,9 @@ core::Result<CaptureSummary> captureCoreAudio(archive::Archive& archive,
                    callbackContext.stopping;
         });
         if (callbackContext.callbackError != noErr) {
-            streamFailure = coreAudioError("audio_capture_callback_failed",
-                                           "Receiving CoreAudio input",
-                                           callbackContext.callbackError);
+            streamFailure =
+                coreAudioError("audio_capture_callback_failed", "Receiving CoreAudio input",
+                               callbackContext.callbackError);
             callbackContext.callbackError = noErr;
             return false;
         }
@@ -560,16 +676,11 @@ core::Result<CaptureSummary> captureCoreAudio(archive::Archive& archive,
             audioStatus = AudioQueuePause(queue.get());
             if (audioStatus != noErr) {
                 streamFailure = coreAudioError("audio_capture_pause_failed",
-                                               "Pausing CoreAudio input",
-                                               audioStatus);
+                                               "Pausing CoreAudio input", audioStatus);
                 break;
             }
-            if (auto status = updateRecordingSession(archive,
-                                                     session,
-                                                     "paused",
-                                                     sequence,
-                                                     storedSamples,
-                                                     storedBytes);
+            if (auto status = updateRecordingSession(archive, session, "paused", sequence,
+                                                     storedSamples, storedBytes);
                 !status) {
                 streamFailure = status.error();
                 break;
@@ -586,19 +697,14 @@ core::Result<CaptureSummary> captureCoreAudio(archive::Archive& archive,
                 audioStatus = AudioQueueStart(queue.get(), nullptr);
                 if (audioStatus != noErr) {
                     streamFailure = coreAudioError("audio_capture_resume_failed",
-                                                   "Resuming CoreAudio input",
-                                                   audioStatus);
+                                                   "Resuming CoreAudio input", audioStatus);
                     break;
                 }
                 const auto resumedAt = std::chrono::steady_clock::now();
                 totalPause += resumedAt - pausedAt;
                 paused = false;
-                if (auto status = updateRecordingSession(archive,
-                                                         session,
-                                                         "recording",
-                                                         sequence,
-                                                         storedSamples,
-                                                         storedBytes);
+                if (auto status = updateRecordingSession(archive, session, "recording", sequence,
+                                                         storedSamples, storedBytes);
                     !status) {
                     streamFailure = status.error();
                     break;
@@ -638,13 +744,8 @@ core::Result<CaptureSummary> captureCoreAudio(archive::Archive& archive,
     }
     if (streamFailure) {
         const std::string state = sequence == 0 ? "failed" : "interrupted";
-        auto status = updateRecordingSession(archive,
-                                             session,
-                                             state,
-                                             sequence,
-                                             storedSamples,
-                                             storedBytes,
-                                             streamFailure->message);
+        auto status = updateRecordingSession(archive, session, state, sequence, storedSamples,
+                                             storedBytes, streamFailure->message);
         if (!status) {
             return std::unexpected(core::error(
                 streamFailure->code,
@@ -657,11 +758,7 @@ core::Result<CaptureSummary> captureCoreAudio(archive::Archive& archive,
     }
 
     session.fields["recording_stopped_at_us"] = std::to_string(nowUnixMicroseconds());
-    if (auto status = updateRecordingSession(archive,
-                                             session,
-                                             "completed",
-                                             sequence,
-                                             storedSamples,
+    if (auto status = updateRecordingSession(archive, session, "completed", sequence, storedSamples,
                                              storedBytes);
         !status) {
         return std::unexpected(status.error());
@@ -680,8 +777,13 @@ core::Result<CaptureDeviceProbe> probeCoreAudioCaptureDevice(std::string) {
                                        "This build does not include the CoreAudio backend."));
 }
 
-core::Result<CaptureSummary>
-captureCoreAudio(archive::Archive&, const archive::Uuid&, CaptureOptions) {
+core::Result<CapturePreflightSummary> preflightCoreAudioCaptureDevice(CapturePreflightOptions) {
+    return std::unexpected(core::error("audio_backend_unavailable",
+                                       "This build does not include the CoreAudio backend."));
+}
+
+core::Result<CaptureSummary> captureCoreAudio(archive::Archive&, const archive::Uuid&,
+                                              CaptureOptions) {
     return std::unexpected(core::error("audio_backend_unavailable",
                                        "This build does not include the CoreAudio backend."));
 }
