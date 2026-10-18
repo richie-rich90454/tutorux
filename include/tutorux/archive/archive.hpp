@@ -48,6 +48,9 @@ struct RecoveryReport final {
     std::uint64_t trailingBytes{};
     bool archiveHeaderValid{true};
     bool recoveryAssessmentComplete{true};
+    bool headerRepairCandidate{};
+    bool headerRepairAvailable{};
+    std::uint64_t headerRepairGeneration{};
     bool hasUnpublishedCommit{};
     bool encrypted{};
     bool requiresPassphrase{};
@@ -124,6 +127,8 @@ class Archive final {
         : file_(std::move(file))
         , header_(header)
         , commit_(commit) {}
+
+    static core::Result<Archive> openWithRecoveredHeader(const std::filesystem::path& path, std::string_view passphrase);
 
     core::Result<std::optional<std::uint64_t>> findOffset(std::string_view key) const;
     core::Result<RecordLocation> appendRecord(const Record& record);
