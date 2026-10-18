@@ -279,7 +279,7 @@ int main() {
     archive::Record pdfMetadata;
     archive::Record docxMetadata;
     {
-        auto opened = archive::Archive::open(documentArchivePath);
+        auto opened = archive::Archive::open(documentArchivePath, true);
         if (!opened)
             return reportFailure("document archive open", opened.error().message);
         auto imported = assets::importIntoArchive(*opened, pdfPath);
@@ -292,7 +292,7 @@ int main() {
         return reportFailure("PDF text metadata", "Extracted PDF text was not persisted.");
     }
     {
-        auto opened = archive::Archive::open(documentArchivePath);
+        auto opened = archive::Archive::open(documentArchivePath, true);
         if (!opened)
             return reportFailure("document archive reopen", opened.error().message);
         auto imported = assets::importIntoArchive(*opened, docxPath);
@@ -309,7 +309,7 @@ int main() {
         return reportFailure("malformed document fixtures", "Unable to write malformed fixtures.");
     }
     for (const auto& malformedPath : {malformedPdfPath, malformedDocxPath}) {
-        auto opened = archive::Archive::open(documentArchivePath);
+        auto opened = archive::Archive::open(documentArchivePath, true);
         if (!opened)
             return reportFailure("malformed-document archive open", opened.error().message);
         auto rejectedDocument = assets::importIntoArchive(*opened, malformedPath);
