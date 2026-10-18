@@ -25,6 +25,10 @@
     entryDate: byId("entry-date"),
     entryTaxonomy: byId("entry-taxonomy"),
     notes: byId("entry-notes"),
+    richNotes: byId("entry-notes-editor"),
+    notesToolbar: byId("notes-toolbar"),
+    notesSourceToggle: byId("notes-markdown-toggle"),
+    notesEditorMode: byId("notes-editor-mode"),
     notesStatus: byId("notes-save-status"),
     notesRevision: byId("notes-revision"),
     saveState: byId("entry-save-state"),
@@ -44,6 +48,17 @@
     newEntryDate: byId("new-entry-date"),
     sessionDialog: byId("session-start-dialog"),
     sessionStartForm: byId("session-start-form"),
+    sessionStartStudent: byId("session-start-student"),
+    newSessionStudentPanel: byId("session-new-student-panel"),
+    newSessionStudentName: byId("session-new-student-name"),
+    newSessionStudentGrade: byId("session-new-student-grade"),
+    sessionStartSubject: byId("session-start-subject"),
+    sessionStartName: byId("session-start-name"),
+    sessionStartObjectives: byId("session-start-objectives"),
+    sessionDeleteDialog: byId("session-delete-dialog"),
+    sessionDeleteScope: byId("session-delete-scope"),
+    sessionDeleteWarning: byId("session-delete-warning"),
+    sessionDeleteConfirm: byId("session-delete-confirm"),
     recordingConsent: byId("session-recording-consent"),
     recordingCheckPanel: byId("recording-check-panel"),
     recordingImportPanel: byId("recording-import-panel"),
@@ -56,6 +71,25 @@
     taxonomyDialog: byId("taxonomy-dialog"),
     entryCollections: byId("entry-collections"),
     entryTags: byId("entry-tags"),
+    studentProgressStudent: byId("student-progress-student"),
+    studentProgressStatus: byId("student-progress-status"),
+    studentProgressSessions: byId("student-progress-sessions"),
+    studentProgressHistory: byId("student-progress-history"),
+    studentProfileForm: byId("student-profile-form"),
+    studentProfileName: byId("student-profile-name"),
+    studentProfileGrade: byId("student-profile-grade"),
+    studentProfileSubjects: byId("student-profile-subjects"),
+    studentProfileTemplate: byId("student-profile-template"),
+    studentProfileObjectives: byId("student-profile-objectives"),
+    studentProfileDifficulties: byId("student-profile-difficulties"),
+    studentProfileImprovements: byId("student-profile-improvements"),
+    studentProfileNotes: byId("student-profile-notes"),
+    studentProgressForm: byId("student-progress-form"),
+    studentProgressSkill: byId("student-progress-skill"),
+    studentProgressClassification: byId("student-progress-classification"),
+    studentProgressEvidence: byId("student-progress-evidence"),
+    studentProgressReviewer: byId("student-progress-reviewer"),
+    studentProgressNote: byId("student-progress-note"),
     managedCollections: byId("managed-collections"),
     managedTags: byId("managed-tags"),
     palette: byId("command-palette"),
@@ -75,6 +109,9 @@
     entry: null,
     documentId: "",
     lastNotes: "",
+    notesDraftMarkdown: "",
+    richNotesDirty: false,
+    notesSourceMode: false,
     noteTimer: 0,
     saveInFlight: false,
     searchTimer: 0,
@@ -95,6 +132,13 @@
     microphoneAnimation: 0,
     microphoneReady: false,
     errorReturnFocus: null,
+    studentProgressStudents: [],
+    studentProgressEvidenceRows: [],
+    studentProgressSessions: new Map(),
+    studentProgressSelectedId: "",
+    studentProgressRequest: 0,
+    sessionDeleteTarget: "",
+    sessionDeleteScopeToken: "",
   };
 
   const quickMarkerTypes = [
@@ -977,6 +1021,7 @@
     const complete = byId("session-complete");
     const review = byId("session-review");
     const resume = byId("session-resume");
+    const remove = byId("session-delete-open");
     if (stateLabel) stateLabel.textContent = `${lifecycle[0]?.toUpperCase()}${lifecycle.slice(1)} session`;
     if (recordingLabel) {
       recordingLabel.textContent = state.recordingSessionId === id ? "Recording · microphone audio" : recordingSummary(session);
@@ -985,6 +1030,7 @@
     if (complete) complete.hidden = lifecycle === "completed" || lifecycle === "reviewed";
     if (review) review.hidden = lifecycle !== "completed";
     if (resume) resume.hidden = !["completed", "reviewed"].includes(lifecycle);
+    if (remove) remove.disabled = !id || state.recordingSessionId === id;
   }
 
   async function loadEntry(entryId, preserveNotes = false) {
@@ -1021,6 +1067,10 @@
         state.lastNotes = "";
         ui.notesRevision.textContent = "Notes document unavailable";
       }
+      state.notesDraftMarkdown = ui.notes.value;
+      state.richNotesDirty = false;
+      renderMarkdownEditor(state.notesDraftMarkdown);
+      updateNotesEditingState();
       const [sessionsResponse, guidesResponse] = await Promise.all([
         readCommand(["session", "list", "--entry-id", entryId]),
         readCommand(["guide", "list"]),
@@ -1313,6 +1363,18 @@
     }
     releasePendingStream();
     ui.sessionStartForm.reset();
+    ui.sessionStartStudent.replaceChildren(new Option("Anonymous session", ""));
+    for (const student of state.studentProgressStudents) {
+      const studentId = String(field(student, "id", "uuid"));
+      const option = new Option(
+        titleOf(student, "Unnamed student"),
+        studentId,
+      );
+      ui.sessionStartStudent.append(option);
+    }
+    ui.sessionStartStudent.append(new Option("Create a new student…", "__new__"));
+    ui.newSessionStudentPanel.hidden = true;
+    ui.sessionStartSubject.value = String(field(state.entry, "subject") || "");
     selectSessionKind("notes-only");
     ui.microphoneStatus.textContent = "Microphone access is not checked.";
     ui.createNotesSession.hidden = false;
@@ -1340,9 +1402,35 @@
 
   async function createSession(kind) {
     if (!state.entryId) throw new Error("Open a journal entry before creating a session.");
-    const title = `${titleOf(state.entry)} · Session ${state.sessions.length + 1}`;
+    let studentId = ui.sessionStartStudent.value;
+    if (studentId === "__new__") {
+      const studentName = ui.newSessionStudentName.value.trim();
+      if (!studentName) {
+        ui.newSessionStudentName.focus();
+        throw new Error("Enter a name for the new student before creating the session.");
+      }
+      const studentArgs = ["student", "create", "--name", studentName];
+      if (ui.newSessionStudentGrade.value.trim()) {
+        studentArgs.push("--grade", ui.newSessionStudentGrade.value.trim());
+      }
+      const studentResponse = await writeCommand(studentArgs);
+      studentId = parseCreatedId(studentResponse);
+      if (!studentId) throw new Error("The archive created the student but did not return an ID.");
+    }
+    const title = ui.sessionStartName.value.trim() ||
+      `${titleOf(state.entry)} · Session ${state.sessions.length + 1}`;
     const response = await writeCommand([
-      "session", "create", "--entry-id", state.entryId, "--type", kind, "--title", title,
+      "session", "create", "--entry-id", state.entryId, "--type", kind,
+      "--title", title,
+      ...(studentId
+        ? ["--student-id", studentId]
+        : []),
+      ...(ui.sessionStartSubject.value.trim()
+        ? ["--subject", ui.sessionStartSubject.value.trim()]
+        : []),
+      ...(ui.sessionStartObjectives.value.trim()
+        ? ["--objectives", ui.sessionStartObjectives.value.trim()]
+        : []),
     ]);
     let sessionId = parseCreatedId(response);
     if (!sessionId) {
@@ -1449,6 +1537,87 @@
     }
   }
 
+  async function openSessionDeleteDialog() {
+    const sessionId = state.expandedSessionId;
+    if (!sessionId) {
+      showJournalError("Expand a session in the timeline before deleting it.");
+      return;
+    }
+    if (sessionId === state.recordingSessionId) {
+      showJournalError("Stop recording before deleting the session.");
+      return;
+    }
+    state.sessionDeleteTarget = sessionId;
+    state.sessionDeleteScopeToken = "";
+    ui.sessionDeleteScope.textContent = "Inspecting linked recordings, notes, transcripts, guides, and references…";
+    ui.sessionDeleteWarning.hidden = true;
+    ui.sessionDeleteWarning.textContent = "";
+    ui.sessionDeleteConfirm.disabled = true;
+    ui.sessionDeleteDialog.showModal();
+    try {
+      const response = await readCommand(["session", "delete", sessionId, "--dry-run"]);
+      if (state.sessionDeleteTarget !== sessionId || !ui.sessionDeleteDialog.open) return;
+      const scope = responseRecord(response);
+      const total = Number(field(scope, "total_records"));
+      const linked = [
+        ["audio_chunks", "audio chunks"],
+        ["session_notes", "session notes"],
+        ["transcript_segments", "transcript segments"],
+        ["annotations", "annotations"],
+        ["evidence_nodes", "evidence records"],
+        ["guides", "study guides"],
+        ["assets", "attachments"],
+        ["entries_updated", "journal entries updated"],
+      ].map(([key, label]) => `${Number(field(scope, key) || 0)} ${label}`);
+      const session = state.sessions.find((item) => String(field(item, "id", "uuid")) === sessionId);
+      ui.sessionDeleteScope.textContent = [
+        `Session: ${titleOf(session, "Tutoring session")}`,
+        `Total records affected: ${Number.isFinite(total) ? total : "unknown"}.`,
+        ...linked,
+      ].join("\n");
+      state.sessionDeleteScopeToken = String(field(scope, "scope_token"));
+      if (!state.sessionDeleteScopeToken) {
+        throw new Error("The archive did not return a deletion confirmation token.");
+      }
+      ui.sessionDeleteConfirm.disabled = false;
+    } catch (error) {
+      if (!ui.sessionDeleteDialog.open) return;
+      ui.sessionDeleteWarning.textContent = error.message;
+      ui.sessionDeleteWarning.hidden = false;
+      ui.sessionDeleteScope.textContent = "Tutorux could not prepare a safe deletion preview.";
+    }
+  }
+
+  async function confirmSessionDelete() {
+    const sessionId = state.sessionDeleteTarget;
+    const scopeToken = state.sessionDeleteScopeToken;
+    if (!sessionId || !scopeToken || sessionId === state.recordingSessionId) return;
+    ui.sessionDeleteConfirm.disabled = true;
+    ui.sessionDeleteWarning.hidden = true;
+    ui.sessionDeleteScope.textContent = "Deleting the reviewed records…";
+    try {
+      await writeCommand([
+        "session", "delete", sessionId,
+        "--confirm-scope", "--scope-token", scopeToken,
+      ]);
+      ui.sessionDeleteDialog.close();
+      state.expandedSessionId = "";
+      bridge.selectSession("");
+      await loadEntry(state.entryId, true);
+      bridge.notice("The session and its reviewed linked records were deleted.");
+    } catch (error) {
+      const message = error.message;
+      ui.sessionDeleteWarning.textContent = error.message;
+      ui.sessionDeleteWarning.hidden = false;
+      ui.sessionDeleteConfirm.disabled = true;
+      state.sessionDeleteScopeToken = "";
+      await openSessionDeleteDialog();
+      ui.sessionDeleteWarning.textContent =
+        `Deletion was not completed: ${message}. Review the refreshed scope before trying again.`;
+      ui.sessionDeleteWarning.hidden = false;
+    }
+  }
+
   function timestampForRecording() {
     if (!state.recordingStartedAt) return "00:00:00";
     const seconds = Math.max(0, Math.floor((Date.now() - state.recordingStartedAt) / 1000));
@@ -1495,24 +1664,470 @@
     }
   }
 
-  function insertMarkdown(before, after = before) {
+  function safeNotesHref(value) {
+    const href = String(value || "").trim();
+    if (!href) return "";
+    try {
+      const parsed = new URL(href, window.location.href);
+      return ["http:", "https:", "mailto:"].includes(parsed.protocol) ? href : "";
+    } catch {
+      return "";
+    }
+  }
+
+  function appendTextWithBreaks(parent, value) {
+    const lines = String(value).split("\n");
+    lines.forEach((line, index) => {
+      if (index) parent.append(document.createElement("br"));
+      if (line) parent.append(document.createTextNode(line));
+    });
+  }
+
+  function appendInlineMarkdown(parent, markdown) {
+    const source = String(markdown || "");
+    const tokenPattern = /\\(.)|(\*\*|__)(.+?)\2|([*_])(.+?)\4|`([^`]+)`|\[([^\]]+)\]\(([^)\s]+)\)/g;
+    let cursor = 0;
+    let match;
+    while ((match = tokenPattern.exec(source))) {
+      appendTextWithBreaks(parent, source.slice(cursor, match.index));
+      if (match[1]) {
+        parent.append(document.createTextNode(match[1]));
+      } else if (match[2]) {
+        const strong = document.createElement("strong");
+        appendInlineMarkdown(strong, match[3]);
+        parent.append(strong);
+      } else if (match[4]) {
+        const emphasis = document.createElement("em");
+        appendInlineMarkdown(emphasis, match[5]);
+        parent.append(emphasis);
+      } else if (match[6] !== undefined) {
+        const code = document.createElement("code");
+        code.textContent = match[6];
+        parent.append(code);
+      } else if (match[7] !== undefined) {
+        const href = safeNotesHref(match[8]);
+        if (!href) {
+          appendInlineMarkdown(parent, match[7]);
+        } else {
+          const link = document.createElement("a");
+          link.href = href;
+          link.target = "_blank";
+          link.rel = "noopener noreferrer";
+          appendInlineMarkdown(link, match[7]);
+          parent.append(link);
+        }
+      }
+      cursor = tokenPattern.lastIndex;
+    }
+    appendTextWithBreaks(parent, source.slice(cursor));
+  }
+
+  function createTaskToggle(checked = false) {
+    const toggle = document.createElement("button");
+    toggle.type = "button";
+    toggle.className = "note-task-toggle";
+    toggle.dataset.noteTaskToggle = "true";
+    toggle.contentEditable = "false";
+    toggle.setAttribute("role", "checkbox");
+    toggle.setAttribute("aria-checked", String(checked));
+    toggle.setAttribute("aria-label", checked ? "Mark task incomplete" : "Mark task complete");
+    toggle.textContent = checked ? "✓" : "";
+    return toggle;
+  }
+
+  function markdownBlockStart(line) {
+    return /^\s*```/.test(line) || /^#{1,6}\s+/.test(line) ||
+      /^\s*>/.test(line) || /^\s*(?:[-+*]|\d+[.)])\s+/.test(line) ||
+      /^\s*(?:---+|___+|\*\*\*+)\s*$/.test(line);
+  }
+
+  function renderMarkdownBlocks(markdown, parent) {
+    const lines = String(markdown || "").replace(/\r\n?/g, "\n").split("\n");
+    let index = 0;
+    while (index < lines.length) {
+      const line = lines[index];
+      if (!line.trim()) {
+        index += 1;
+        continue;
+      }
+
+      const heading = line.match(/^(#{1,6})\s+(.*)$/);
+      if (heading) {
+        const block = document.createElement(`h${heading[1].length}`);
+        appendInlineMarkdown(block, heading[2]);
+        parent.append(block);
+        index += 1;
+        continue;
+      }
+
+      if (/^\s*(?:---+|___+|\*\*\*+)\s*$/.test(line)) {
+        parent.append(document.createElement("hr"));
+        index += 1;
+        continue;
+      }
+
+      const fence = line.match(/^\s*(```+)([^`]*)$/);
+      if (fence) {
+        const codeLines = [];
+        index += 1;
+        while (index < lines.length && !/^\s*```+\s*$/.test(lines[index])) {
+          codeLines.push(lines[index]);
+          index += 1;
+        }
+        if (index < lines.length) index += 1;
+        const pre = document.createElement("pre");
+        const code = document.createElement("code");
+        const language = fence[2].trim().split(/\s+/)[0];
+        if (/^[a-zA-Z0-9_-]{1,32}$/.test(language)) code.dataset.language = language;
+        code.textContent = codeLines.join("\n");
+        pre.append(code);
+        parent.append(pre);
+        continue;
+      }
+
+      if (/^\s*>/.test(line)) {
+        const quotedLines = [];
+        while (index < lines.length && /^\s*>/.test(lines[index])) {
+          quotedLines.push(lines[index].replace(/^\s*> ?/, ""));
+          index += 1;
+        }
+        const quote = document.createElement("blockquote");
+        renderMarkdownBlocks(quotedLines.join("\n"), quote);
+        parent.append(quote);
+        continue;
+      }
+
+      const firstList = line.match(/^(\s*)([-+*]|\d+[.)])\s+(.*)$/);
+      if (firstList) {
+        const ordered = /^\d/.test(firstList[2]);
+        const list = document.createElement(ordered ? "ol" : "ul");
+        if (ordered) {
+          const start = Number.parseInt(firstList[2], 10);
+          if (Number.isFinite(start) && start > 1) list.start = start;
+        }
+        const indent = firstList[1].length;
+        while (index < lines.length) {
+          const itemMatch = lines[index].match(/^(\s*)([-+*]|\d+[.)])\s+(.*)$/);
+          if (!itemMatch || itemMatch[1].length !== indent || /^\d/.test(itemMatch[2]) !== ordered) break;
+          const item = document.createElement("li");
+          const task = itemMatch[3].match(/^\[([ xX])\]\s*(.*)$/);
+          if (task) {
+            item.append(createTaskToggle(task[1].toLowerCase() === "x"));
+            appendInlineMarkdown(item, task[2]);
+          } else {
+            appendInlineMarkdown(item, itemMatch[3]);
+          }
+          list.append(item);
+          index += 1;
+        }
+        parent.append(list);
+        continue;
+      }
+
+      const paragraphLines = [line];
+      index += 1;
+      while (index < lines.length && lines[index].trim() && !markdownBlockStart(lines[index])) {
+        paragraphLines.push(lines[index]);
+        index += 1;
+      }
+      const paragraph = document.createElement("p");
+      paragraphLines.forEach((paragraphLine, lineIndex) => {
+        if (lineIndex) paragraph.append(document.createElement("br"));
+        appendInlineMarkdown(paragraph, paragraphLine);
+      });
+      parent.append(paragraph);
+    }
+  }
+
+  function renderMarkdownEditor(markdown) {
+    if (!ui.richNotes) return;
+    ui.richNotes.replaceChildren();
+    renderMarkdownBlocks(markdown, ui.richNotes);
+  }
+
+  function escapeMarkdownText(value) {
+    return String(value).replace(/\\/g, "\\\\").replace(/([*_`\[\]{}#+.!|>])/g, "\\$1");
+  }
+
+  function serializeInlineMarkdown(node) {
+    if (node.nodeType === Node.TEXT_NODE) {
+      return escapeMarkdownText(node.nodeValue || "").replace(/\n/g, "  \n");
+    }
+    if (node.nodeType !== Node.ELEMENT_NODE) return "";
+    const element = node;
+    if (element.matches(".note-task-toggle")) return "";
+    const tag = element.tagName;
+    if (tag === "BR") return "  \n";
+    const content = Array.from(element.childNodes).map(serializeInlineMarkdown).join("");
+    if (tag === "STRONG" || tag === "B") return `**${content}**`;
+    if (tag === "EM" || tag === "I") return `*${content}*`;
+    if (tag === "CODE" && element.parentElement?.tagName !== "PRE") {
+      return `\`${(element.textContent || "").replace(/`/g, "\\`")}\``;
+    }
+    if (tag === "A") {
+      const href = safeNotesHref(element.getAttribute("href"));
+      return href ? `[${content}](${href})` : content;
+    }
+    return content;
+  }
+
+  function serializeList(list, indent = "") {
+    const ordered = list.tagName === "OL";
+    const base = ordered && Number(list.start) > 1 ? Number(list.start) : 1;
+    return Array.from(list.children).filter((item) => item.tagName === "LI").map((item, itemIndex) => {
+      const taskToggle = Array.from(item.children).find((child) => child.matches(".note-task-toggle"));
+      const nestedList = Array.from(item.children).find((child) => child.tagName === "UL" || child.tagName === "OL");
+      const content = Array.from(item.childNodes)
+        .filter((child) => child !== taskToggle && child !== nestedList)
+        .map(serializeInlineMarkdown).join("").trim();
+      const checked = taskToggle?.getAttribute("aria-checked") === "true";
+      const marker = taskToggle ? `- [${checked ? "x" : " "}] ` : ordered ? `${base + itemIndex}. ` : "- ";
+      const ownLine = `${indent}${marker}${content}`;
+      if (!nestedList) return ownLine;
+      return `${ownLine}\n${serializeList(nestedList, `${indent}  `)}`;
+    }).join("\n");
+  }
+
+  function serializeMarkdownBlock(node) {
+    if (node.nodeType === Node.TEXT_NODE) return escapeMarkdownText(node.nodeValue || "");
+    if (node.nodeType !== Node.ELEMENT_NODE) return "";
+    const element = node;
+    const tag = element.tagName;
+    if (tag === "HR") return "---";
+    if (tag === "PRE") {
+      const code = element.querySelector("code");
+      const text = (code?.textContent ?? element.textContent ?? "").replace(/\n$/, "");
+      let fence = "```";
+      while (text.includes(fence)) fence += "`";
+      const language = /^[a-zA-Z0-9_-]{1,32}$/.test(code?.dataset.language || "") ? code.dataset.language : "";
+      return `${fence}${language}\n${text}\n${fence}`;
+    }
+    if (tag === "UL" || tag === "OL") return serializeList(element);
+    if (tag === "BLOCKQUOTE") {
+      const quoted = serializeMarkdownChildren(element);
+      return quoted.split("\n").map((line) => line ? `> ${line}` : "> ").join("\n");
+    }
+    if (/^H[1-6]$/.test(tag)) {
+      const level = Number(tag.slice(1));
+      return `${"#".repeat(level)} ${Array.from(element.childNodes).map(serializeInlineMarkdown).join("").trim()}`;
+    }
+    if (tag === "P" || tag === "DIV") {
+      if (Array.from(element.children).some((child) => /^(?:P|DIV|UL|OL|BLOCKQUOTE|PRE|H[1-6])$/.test(child.tagName))) {
+        return serializeMarkdownChildren(element);
+      }
+      return Array.from(element.childNodes).map(serializeInlineMarkdown).join("").trim();
+    }
+    return Array.from(element.childNodes).map(serializeInlineMarkdown).join("").trim();
+  }
+
+  function serializeMarkdownChildren(parent) {
+    return Array.from(parent.childNodes).map(serializeMarkdownBlock).filter((block) => block !== "").join("\n\n");
+  }
+
+  function serializeMarkdownEditor() {
+    return serializeMarkdownChildren(ui.richNotes).replace(/^\n+|\n+$/g, "");
+  }
+
+  function placeCaretAtEnd(element) {
+    const selection = window.getSelection();
+    if (!selection) return;
+    const range = document.createRange();
+    range.selectNodeContents(element);
+    range.collapse(false);
+    selection.removeAllRanges();
+    selection.addRange(range);
+  }
+
+  function currentNotesBlock() {
+    const selection = window.getSelection();
+    let node = selection?.anchorNode || null;
+    if (node?.nodeType === Node.TEXT_NODE) node = node.parentElement;
+    if (!(node instanceof Element) || !ui.richNotes.contains(node)) return null;
+    return node.closest("p,div,h1,h2,h3,h4,h5,h6,blockquote,li,pre") || null;
+  }
+
+  function currentNotesList() {
+    const block = currentNotesBlock();
+    return block?.closest("ul,ol") || null;
+  }
+
+  function addTaskToggles(list) {
+    for (const item of list.querySelectorAll("li")) {
+      if (!Array.from(item.children).some((child) => child.matches(".note-task-toggle"))) {
+        item.prepend(createTaskToggle(false));
+      }
+    }
+  }
+
+  function updateNotesToolbarState() {
+    if (state.notesSourceMode || !ui.richNotes || !ui.notesToolbar) return;
+    const selection = window.getSelection();
+    const anchor = selection?.anchorNode;
+    const inside = anchor && (anchor === ui.richNotes || ui.richNotes.contains(anchor));
+    if (!inside) return;
+    for (const action of ["bold", "italic"]) {
+      const button = ui.notesToolbar.querySelector(`[data-note-action="${action}"]`);
+      try {
+        button?.setAttribute("aria-pressed", String(document.queryCommandState(action)));
+      } catch {
+        button?.setAttribute("aria-pressed", "false");
+      }
+    }
+  }
+
+  function updateNotesEditingState() {
+    const editable = Boolean(bridge.archiveOpen() && state.entryId && state.documentId);
+    ui.notes.disabled = !editable;
+    ui.notes.hidden = !state.notesSourceMode;
+    ui.richNotes.hidden = state.notesSourceMode;
+    ui.richNotes.contentEditable = String(editable && !state.notesSourceMode);
+    ui.richNotes.setAttribute("aria-disabled", String(!editable || state.notesSourceMode));
+    ui.notesSourceToggle.disabled = !editable;
+    ui.notesSourceToggle.setAttribute("aria-pressed", String(state.notesSourceMode));
+    ui.notesSourceToggle.textContent = state.notesSourceMode ? "Use visual editor" : "Show Markdown";
+    ui.notesEditorMode.textContent = state.notesSourceMode ? "Markdown source" : "Visual notes";
+    ui.notesToolbar.classList.toggle("is-source-mode", state.notesSourceMode);
+    for (const button of ui.notesToolbar.querySelectorAll("[data-note-action]")) {
+      button.disabled = !editable;
+    }
+  }
+
+  function handleRichNotesInput() {
+    const markdown = serializeMarkdownEditor();
+    if (markdown.length > ui.notes.maxLength) {
+      renderMarkdownEditor(state.notesDraftMarkdown);
+      placeCaretAtEnd(ui.richNotes);
+      ui.notesStatus.textContent = `Notes are limited to ${ui.notes.maxLength.toLocaleString()} characters.`;
+      return;
+    }
+    ui.notes.value = markdown;
+    state.notesDraftMarkdown = markdown;
+    state.richNotesDirty = true;
+    scheduleNotesSave();
+  }
+
+  function handleMarkdownSourceInput() {
+    state.notesDraftMarkdown = ui.notes.value;
+    scheduleNotesSave();
+  }
+
+  function setNotesSourceMode(sourceMode) {
+    if (state.notesSourceMode === sourceMode) return;
+    if (sourceMode) {
+      if (state.richNotesDirty) {
+        const markdown = serializeMarkdownEditor();
+        ui.notes.value = markdown;
+        state.notesDraftMarkdown = markdown;
+        state.richNotesDirty = false;
+        scheduleNotesSave();
+      }
+    } else {
+      state.notesDraftMarkdown = ui.notes.value;
+      renderMarkdownEditor(ui.notes.value);
+      state.richNotesDirty = false;
+    }
+    state.notesSourceMode = sourceMode;
+    updateNotesEditingState();
+    (sourceMode ? ui.notes : ui.richNotes).focus();
+  }
+
+  function sourceInsertMarkdown(before, after = before) {
     const area = ui.notes;
     const start = area.selectionStart;
     const end = area.selectionEnd;
     const selected = area.value.slice(start, end) || "text";
-    const replacement = `${before}${selected}${after}`;
-    area.setRangeText(replacement, start, end, "select");
+    area.setRangeText(`${before}${selected}${after}`, start, end, "select");
+    state.notesDraftMarkdown = area.value;
     area.focus();
     scheduleNotesSave();
   }
 
-  function prependMarkdown(prefix) {
+  function sourcePrependMarkdown(prefix) {
     const area = ui.notes;
     const start = area.selectionStart;
     const lineStart = area.value.lastIndexOf("\n", Math.max(0, start - 1)) + 1;
     area.setRangeText(prefix, lineStart, lineStart, "end");
+    state.notesDraftMarkdown = area.value;
     area.focus();
     scheduleNotesSave();
+  }
+
+  function applyNotesAction(action) {
+    if (state.notesSourceMode) {
+      if (action === "bold") sourceInsertMarkdown("**");
+      else if (action === "italic") sourceInsertMarkdown("*");
+      else sourcePrependMarkdown({ heading: "## ", list: "- ", quote: "> ", checklist: "- [ ] " }[action] || "");
+      return;
+    }
+    ui.richNotes.focus();
+    const selection = window.getSelection();
+    const anchor = selection?.anchorNode;
+    if (!selection?.rangeCount || !anchor || (anchor !== ui.richNotes && !ui.richNotes.contains(anchor))) {
+      placeCaretAtEnd(ui.richNotes);
+    }
+    if (action === "bold" || action === "italic") {
+      document.execCommand(action, false);
+    } else if (action === "heading") {
+      const block = currentNotesBlock();
+      document.execCommand("formatBlock", false, /^H[1-6]$/.test(block?.tagName || "") ? "p" : "h2");
+    } else if (action === "quote") {
+      const block = currentNotesBlock();
+      document.execCommand("formatBlock", false, block?.closest("blockquote") ? "p" : "blockquote");
+    } else if (action === "list") {
+      document.execCommand("insertUnorderedList", false);
+    } else if (action === "checklist") {
+      document.execCommand("insertUnorderedList", false);
+      const list = currentNotesList();
+      if (list) addTaskToggles(list);
+    }
+    handleRichNotesInput();
+    updateNotesToolbarState();
+  }
+
+  function insertQuoteIntoRichNotes(text, citation) {
+    const quote = document.createElement("blockquote");
+    const paragraphs = String(text).split("\n");
+    paragraphs.forEach((line) => {
+      const paragraph = document.createElement("p");
+      paragraph.textContent = line;
+      quote.append(paragraph);
+    });
+    if (citation) {
+      const source = document.createElement("p");
+      source.textContent = `— ${citation}`;
+      quote.append(source);
+    }
+    const selection = window.getSelection();
+    const anchor = selection?.anchorNode;
+    const block = anchor && (anchor === ui.richNotes || ui.richNotes.contains(anchor)) ? currentNotesBlock() : null;
+    let topBlock = block;
+    while (topBlock && topBlock.parentElement !== ui.richNotes) topBlock = topBlock.parentElement;
+    if (topBlock?.parentElement === ui.richNotes) topBlock.after(quote);
+    else ui.richNotes.append(quote);
+    placeCaretAtEnd(quote);
+    handleRichNotesInput();
+  }
+
+  function insertTextAtSelection(text) {
+    if (document.execCommand("insertText", false, text)) return;
+    let selection = window.getSelection();
+    const anchor = selection?.anchorNode;
+    const range = selection?.rangeCount && anchor && (anchor === ui.richNotes || ui.richNotes.contains(anchor))
+      ? selection.getRangeAt(0)
+      : (() => {
+          placeCaretAtEnd(ui.richNotes);
+          selection = window.getSelection();
+          return selection?.rangeCount ? selection.getRangeAt(0) : null;
+        })();
+    if (!range) return;
+    range.deleteContents();
+    const textNode = document.createTextNode(text);
+    range.insertNode(textNode);
+    range.setStartAfter(textNode);
+    range.collapse(true);
+    selection?.removeAllRanges();
+    selection?.addRange(range);
+    handleRichNotesInput();
   }
 
   function addPassageToNotes(event) {
@@ -1523,12 +2138,18 @@
       return;
     }
     const citation = [speaker, timestamp].filter(Boolean).join(" · ");
-    const quote = passage.split("\n").map((line) => `> ${line}`).join("\n");
-    const addition = `\n\n${quote}${citation ? `\n> — ${citation}` : ""}`;
-    const at = ui.notes.selectionStart === ui.notes.selectionEnd ? ui.notes.value.length : ui.notes.selectionStart;
-    ui.notes.setRangeText(addition, at, at, "end");
-    ui.notes.focus();
-    scheduleNotesSave();
+    if (state.notesSourceMode) {
+      const quote = passage.split("\n").map((line) => `> ${line}`).join("\n");
+      const addition = `\n\n${quote}${citation ? `\n> — ${citation}` : ""}`;
+      const at = ui.notes.selectionStart === ui.notes.selectionEnd ? ui.notes.value.length : ui.notes.selectionStart;
+      ui.notes.setRangeText(addition, at, at, "end");
+      state.notesDraftMarkdown = ui.notes.value;
+      ui.notes.focus();
+      scheduleNotesSave();
+    } else {
+      insertQuoteIntoRichNotes(passage, citation);
+      ui.richNotes.focus();
+    }
     bridge.notice("Transcript passage added to the entry notes. Review the citation before sharing.");
   }
 
@@ -1547,6 +2168,387 @@
     const query = ui.paletteSearch.value.trim().toLocaleLowerCase();
     for (const action of ui.paletteActions.querySelectorAll("button")) {
       action.hidden = query && !action.textContent.toLocaleLowerCase().includes(query);
+    }
+  }
+
+  function studentProgressLabel(classification) {
+    return ({
+      "newly-observed": "Newly observed",
+      recurring: "Recurring",
+      "partial-improvement": "Partial improvement",
+      "demonstrated-mastery": "Demonstrated mastery",
+      "unverified-improvement": "Unverified improvement",
+      "not-revisited": "Not revisited",
+    })[classification] || String(classification || "Unclassified");
+  }
+
+  function setStudentProgressStatus(message) {
+    if (ui.studentProgressStatus) ui.studentProgressStatus.textContent = message;
+  }
+
+  function populateStudentProfile(studentId) {
+    const student = state.studentProgressStudents.find((item) =>
+      String(field(item, "id", "uuid")) === studentId,
+    );
+    if (!student) {
+      ui.studentProfileForm.hidden = true;
+      return;
+    }
+    ui.studentProfileName.value = String(field(student, "display_name", "name") || "");
+    ui.studentProfileGrade.value = String(field(student, "grade") || "");
+    ui.studentProfileSubjects.value = String(field(student, "subjects") || "");
+    ui.studentProfileTemplate.value = String(field(student, "preferred_guide_template") || "");
+    ui.studentProfileObjectives.value = String(field(student, "learning_objectives", "objectives") || "");
+    ui.studentProfileDifficulties.value = String(field(student, "known_difficulties", "difficulties") || "");
+    ui.studentProfileImprovements.value = String(field(student, "demonstrated_improvements") || "");
+    ui.studentProfileNotes.value = String(field(student, "tutor_notes", "notes") || "");
+    ui.studentProfileForm.hidden = false;
+  }
+
+  function studentProgressEvidenceFor(studentProgress) {
+    const sessions = new Map(
+      (Array.isArray(studentProgress?.sessions) ? studentProgress.sessions : []).map((session) => [
+        String(field(session, "id", "uuid")), session,
+      ]),
+    );
+    return state.studentProgressEvidenceRows
+      .filter((evidence) => {
+        const evidenceStudentId = String(field(evidence, "student_id"));
+        return sessions.has(String(field(evidence, "session_id"))) &&
+          (!evidenceStudentId || evidenceStudentId === ui.studentProgressStudent.value);
+      })
+      .sort((left, right) => sortTime(right) - sortTime(left));
+  }
+
+  function renderStudentProgressEvidenceOptions(progress) {
+    const sessions = new Map(
+      (Array.isArray(progress?.sessions) ? progress.sessions : []).map((session) => [
+        String(field(session, "id", "uuid")), session,
+      ]),
+    );
+    const evidence = studentProgressEvidenceFor(progress);
+    ui.studentProgressEvidence.replaceChildren();
+    if (!evidence.length) {
+      const option = document.createElement("option");
+      option.disabled = true;
+      option.value = "";
+      option.textContent = "No evidence records are available for this student's sessions.";
+      ui.studentProgressEvidence.append(option);
+      return;
+    }
+    const groups = new Map();
+    for (const item of evidence) {
+      const sessionId = String(field(item, "session_id"));
+      if (!groups.has(sessionId)) groups.set(sessionId, []);
+      groups.get(sessionId).push(item);
+    }
+    for (const [sessionId, records] of groups) {
+      const session = sessions.get(sessionId);
+      const group = document.createElement("optgroup");
+      group.label = `${field(session, "subject") || "Session"} · ${titleOf(session, "Untitled session")}`;
+      for (const item of records) {
+        const option = document.createElement("option");
+        option.value = String(field(item, "id", "uuid"));
+        const verification = field(item, "verification_state", "needs-review");
+        const title = field(item, "title") || field(item, "type") || "Evidence record";
+        const content = String(field(item, "content") || "").replace(/\s+/g, " ").trim();
+        option.textContent = `${title} · ${verification}${content ? ` · ${content.slice(0, 110)}` : ""}`;
+        group.append(option);
+      }
+      ui.studentProgressEvidence.append(group);
+    }
+  }
+
+  function renderProgressCitation(evidenceId, evidenceById) {
+    const item = evidenceById.get(evidenceId);
+    const citation = document.createElement("li");
+    citation.className = "student-progress-citation";
+    const sessionId = String(field(item, "session_id"));
+    const evidenceStudentId = String(field(item, "student_id"));
+    if (!item || !state.studentProgressSessions.has(sessionId) ||
+        (evidenceStudentId && evidenceStudentId !== ui.studentProgressStudent.value)) {
+      citation.classList.add("is-unavailable");
+      citation.textContent = `Unavailable or invalid evidence source · ${evidenceId}`;
+      return citation;
+    }
+    const summary = document.createElement("strong");
+    summary.textContent = `${field(item, "type") || "Evidence"} · ${field(item, "title") || "Untitled record"}`;
+    const review = document.createElement("span");
+    const verification = String(field(item, "verification_state", "needs-review"));
+    review.className = verification === "human-verified" ? "student-progress-verified" : "student-progress-unverified-source";
+    review.textContent = verification === "human-verified" ? "Evidence marked human verified" : `Evidence status: ${verification}`;
+    const content = document.createElement("p");
+    content.textContent = String(field(item, "content") || "No evidence text recorded.");
+    citation.append(summary, review, content);
+    if (sessionId) {
+      const session = state.studentProgressSessions?.get(sessionId);
+      if (session) {
+        const open = document.createElement("button");
+        open.className = "text-button student-progress-open-session";
+        open.type = "button";
+        open.textContent = `Open ${titleOf(session, "session")}`;
+        open.addEventListener("click", () => {
+          showView("sessions");
+          bridge.selectSession(sessionId);
+        });
+        citation.append(open);
+      }
+    }
+    return citation;
+  }
+
+  function renderStudentProgress(progress) {
+    const sessionRows = Array.isArray(progress?.sessions) ? progress.sessions : [];
+    state.studentProgressSessions = new Map(sessionRows.map((session) => [
+      String(field(session, "id", "uuid")), session,
+    ]));
+    ui.studentProgressSessions.replaceChildren();
+    const sortedSessions = [...sessionRows].sort((left, right) => sortTime(right) - sortTime(left));
+    if (!sortedSessions.length) {
+      const empty = document.createElement("li");
+      empty.className = "student-progress-session-empty";
+      empty.textContent = "No sessions recorded for this student.";
+      ui.studentProgressSessions.append(empty);
+    }
+    for (const session of sortedSessions) {
+      const item = document.createElement("li");
+      const title = document.createElement("strong");
+      title.textContent = titleOf(session, "Untitled session");
+      const meta = document.createElement("span");
+      const sessionDate = createdValue(session);
+      meta.textContent = [field(session, "subject"), sessionDate ? prettyDate(sessionDate, { year: true }) : "Date not set"]
+        .filter(Boolean).join(" · ");
+      const open = document.createElement("button");
+      open.className = "text-button student-progress-open-session";
+      open.type = "button";
+      open.textContent = "Open session";
+      const sessionId = String(field(session, "id", "uuid"));
+      open.addEventListener("click", () => {
+        showView("sessions");
+        bridge.selectSession(sessionId);
+      });
+      item.append(title, meta, open);
+      ui.studentProgressSessions.append(item);
+    }
+    renderStudentProgressEvidenceOptions(progress);
+    const classifications = Array.isArray(progress?.classifications) ? progress.classifications : [];
+    ui.studentProgressHistory.replaceChildren();
+    if (!classifications.length) {
+      const empty = document.createElement("p");
+      empty.className = "student-progress-empty";
+      empty.textContent = "No tutor-reviewed classifications yet. Use the form below to record a skill with its supporting evidence.";
+      ui.studentProgressHistory.append(empty);
+    }
+    const evidenceById = new Map(state.studentProgressEvidenceRows.map((item) => [
+      String(field(item, "id", "uuid")), item,
+    ]));
+    for (const item of classifications) {
+      const row = document.createElement("article");
+      const isUnverified = field(item, "classification") === "unverified-improvement";
+      row.className = `student-progress-record${isUnverified ? " is-unverified-claim" : ""}`;
+      const heading = document.createElement("div");
+      heading.className = "student-progress-record-heading";
+      const skill = document.createElement("h3");
+      skill.textContent = String(field(item, "skill") || "Unnamed skill");
+      const badge = document.createElement("span");
+      badge.className = "student-progress-classification";
+      badge.textContent = studentProgressLabel(field(item, "classification"));
+      heading.append(skill, badge);
+      row.append(heading);
+      if (isUnverified) {
+        const claim = document.createElement("p");
+        claim.className = "student-progress-claim-warning";
+        claim.textContent = String(field(item, "claim_label") || "Unverified claim: improvement is not established");
+        row.append(claim);
+      }
+      const sourceStatus = String(field(item, "source_status"));
+      const evidenceIds = idList(field(item, "evidence_source_ids"));
+      if ((sourceStatus && sourceStatus !== "valid") || evidenceIds.some((id) => !evidenceById.has(id))) {
+        const warning = document.createElement("p");
+        warning.className = "student-progress-source-warning";
+        warning.textContent = "Source references are invalid or unavailable in this archive. Review the cited IDs before relying on this classification.";
+        row.append(warning);
+      }
+      const audit = document.createElement("p");
+      audit.className = "student-progress-audit";
+      audit.textContent = `Reviewer label: ${field(item, "reviewed_by") || "Not recorded"} · ${prettyDateTime(field(item, "reviewed_at_us"))}`;
+      row.append(audit);
+      const evidenceDetails = document.createElement("details");
+      evidenceDetails.className = "student-progress-citations";
+      const evidenceSummary = document.createElement("summary");
+      evidenceSummary.textContent = `Evidence (${evidenceIds.length})`;
+      const citations = document.createElement("ul");
+      for (const id of evidenceIds) citations.append(renderProgressCitation(id, evidenceById));
+      evidenceDetails.append(evidenceSummary, citations);
+      row.append(evidenceDetails);
+      const noteText = String(field(item, "note") || "");
+      if (noteText) {
+        const note = document.createElement("p");
+        note.className = "student-progress-note-text";
+        note.textContent = noteText;
+        row.append(note);
+      }
+      ui.studentProgressHistory.append(row);
+    }
+    ui.studentProgressForm.hidden = false;
+  }
+
+  async function refreshStudentProgress() {
+    if (!ui.studentProgressStudent || !ui.studentProgressHistory) return;
+    const requestId = ++state.studentProgressRequest;
+    if (!bridge.archiveOpen()) {
+      state.studentProgressStudents = [];
+      state.studentProgressEvidenceRows = [];
+      state.studentProgressSelectedId = "";
+      ui.studentProgressStudent.replaceChildren(new Option("Choose a student", ""));
+      ui.studentProgressHistory.replaceChildren();
+      ui.studentProgressSessions.replaceChildren();
+      ui.studentProgressEvidence.replaceChildren();
+      ui.studentProgressForm.hidden = true;
+      ui.studentProfileForm.hidden = true;
+      setStudentProgressStatus("Open an archive to review learning history.");
+      return;
+    }
+    setStudentProgressStatus("Loading students…");
+    try {
+      const response = await readCommand(["student", "list"]);
+      if (requestId !== state.studentProgressRequest || !bridge.archiveOpen()) return;
+      state.studentProgressStudents = responseRows(response, ["students"]);
+      const priorId = state.studentProgressSelectedId;
+      const selectedExists = state.studentProgressStudents.some((student) =>
+        String(field(student, "id", "uuid")) === priorId,
+      );
+      state.studentProgressSelectedId = selectedExists
+        ? priorId
+        : String(field(state.studentProgressStudents[0], "id", "uuid") || "");
+      ui.studentProgressStudent.replaceChildren(new Option("Choose a student", ""));
+      for (const student of state.studentProgressStudents) {
+        const option = document.createElement("option");
+        option.value = String(field(student, "id", "uuid"));
+        option.textContent = `${titleOf(student, "Unnamed student")}${field(student, "grade") ? ` · ${field(student, "grade")}` : ""}`;
+        option.selected = option.value === state.studentProgressSelectedId;
+        ui.studentProgressStudent.append(option);
+      }
+      if (!state.studentProgressSelectedId) {
+        state.studentProgressEvidenceRows = [];
+        ui.studentProgressHistory.replaceChildren();
+        ui.studentProgressSessions.replaceChildren();
+        ui.studentProgressEvidence.replaceChildren();
+        ui.studentProgressForm.hidden = true;
+        ui.studentProfileForm.hidden = true;
+        setStudentProgressStatus("Add a student to start a learning history.");
+        return;
+      }
+      ui.studentProgressStudent.value = state.studentProgressSelectedId;
+      await loadSelectedStudentProgress(requestId);
+    } catch (error) {
+      if (requestId !== state.studentProgressRequest) return;
+      ui.studentProgressHistory.replaceChildren();
+      ui.studentProgressSessions.replaceChildren();
+      ui.studentProgressEvidence.replaceChildren();
+      state.studentProgressEvidenceRows = [];
+      ui.studentProgressForm.hidden = true;
+      setStudentProgressStatus(`Learning history could not be loaded: ${error.message}`);
+    }
+  }
+
+  async function loadSelectedStudentProgress(parentRequest = ++state.studentProgressRequest) {
+    const studentId = ui.studentProgressStudent.value;
+    state.studentProgressSelectedId = studentId;
+    ui.studentProgressHistory.replaceChildren();
+    ui.studentProgressSessions.replaceChildren();
+    ui.studentProgressEvidence.replaceChildren();
+    ui.studentProgressForm.hidden = true;
+    if (!studentId) {
+      ui.studentProfileForm.hidden = true;
+      setStudentProgressStatus("Choose a student to view their learning history.");
+      return;
+    }
+    populateStudentProfile(studentId);
+    setStudentProgressStatus("Loading evidence-linked history…");
+    try {
+      const [progressResponse, evidenceResponse] = await Promise.all([
+        readCommand(["student", "progress", studentId]),
+        readCommand(["evidence", "list"]),
+      ]);
+      if (parentRequest !== state.studentProgressRequest || studentId !== ui.studentProgressStudent.value || !bridge.archiveOpen()) return;
+      const progress = responseRecord(progressResponse);
+      if (!progress || String(field(progress, "student_id")) !== studentId) {
+        throw new Error("The archive returned an invalid student progress record.");
+      }
+      state.studentProgressEvidenceRows = responseRows(evidenceResponse, ["evidence"]);
+      renderStudentProgress(progress);
+      const sessionCount = Array.isArray(progress.sessions) ? progress.sessions.length : 0;
+      const itemCount = Array.isArray(progress.classifications) ? progress.classifications.length : 0;
+      setStudentProgressStatus(`${itemCount} reviewed ${itemCount === 1 ? "skill" : "skills"} · ${sessionCount} ${sessionCount === 1 ? "session" : "sessions"}.`);
+    } catch (error) {
+      if (parentRequest !== state.studentProgressRequest) return;
+      ui.studentProgressSessions.replaceChildren();
+      ui.studentProgressEvidence.replaceChildren();
+      state.studentProgressEvidenceRows = [];
+      ui.studentProgressForm.hidden = true;
+      setStudentProgressStatus(`Learning history could not be loaded: ${error.message}`);
+    }
+  }
+
+  async function reviewStudentProgress(event) {
+    event.preventDefault();
+    const studentId = ui.studentProgressStudent.value;
+    const evidenceIds = selectedIds(ui.studentProgressEvidence);
+    if (!studentId || !evidenceIds.length) {
+      setStudentProgressStatus("Choose a student and at least one evidence record before saving.");
+      return;
+    }
+    const skill = ui.studentProgressSkill.value.trim();
+    const reviewer = ui.studentProgressReviewer.value.trim();
+    const note = ui.studentProgressNote.value.trim();
+    if (!skill || !reviewer) return;
+    setStudentProgressStatus("Saving tutor review…");
+    try {
+      await writeCommand([
+        "student", "progress-review", studentId,
+        "--skill", skill,
+        "--classification", ui.studentProgressClassification.value,
+        "--evidence-ids", evidenceIds.join(","),
+        "--reviewed-by", reviewer,
+        ...(note ? ["--note", note] : []),
+      ]);
+      ui.studentProgressSkill.value = "";
+      ui.studentProgressNote.value = "";
+      for (const option of ui.studentProgressEvidence.options) option.selected = false;
+      await refreshStudentProgress();
+    } catch (error) {
+      setStudentProgressStatus(`Review was not saved: ${error.message}`);
+      showJournalError(error.message);
+    }
+  }
+
+  async function saveStudentProfile(event) {
+    event.preventDefault();
+    const studentId = ui.studentProgressStudent.value;
+    const name = ui.studentProfileName.value.trim();
+    if (!studentId || !name) {
+      setStudentProgressStatus("Choose a student and enter a name before saving.");
+      return;
+    }
+    setStudentProgressStatus("Saving student profile…");
+    try {
+      await writeCommand([
+        "student", "update", studentId,
+        "--name", name,
+        "--grade", ui.studentProfileGrade.value.trim(),
+        "--subjects", ui.studentProfileSubjects.value.trim(),
+        "--objectives", ui.studentProfileObjectives.value.trim(),
+        "--difficulties", ui.studentProfileDifficulties.value.trim(),
+        "--demonstrated-improvements", ui.studentProfileImprovements.value.trim(),
+        "--preferred-guide-template", ui.studentProfileTemplate.value.trim(),
+        "--notes", ui.studentProfileNotes.value.trim(),
+      ]);
+      await refreshStudentProgress();
+      setStudentProgressStatus("Student profile saved in the selected archive.");
+    } catch (error) {
+      setStudentProgressStatus("Profile was not saved: " + error.message);
+      showJournalError(error.message);
     }
   }
 
@@ -1593,6 +2595,14 @@
       }
     });
     ui.entryCreateForm.addEventListener("submit", createEntry);
+    ui.studentProgressStudent?.addEventListener("change", () => {
+      state.studentProgressSelectedId = ui.studentProgressStudent.value;
+      ui.studentProgressSkill.value = "";
+      ui.studentProgressNote.value = "";
+      void loadSelectedStudentProgress();
+    });
+    ui.studentProgressForm?.addEventListener("submit", (event) => void reviewStudentProgress(event));
+    ui.studentProfileForm?.addEventListener("submit", (event) => void saveStudentProfile(event));
     byId("new-entry").addEventListener("click", openNewEntry);
     byId("back-to-journal").addEventListener("click", returnToJournal);
     byId("entry-title-form").addEventListener("submit", saveEntryTitle);
@@ -1601,7 +2611,7 @@
       window.clearTimeout(state.noteTimer);
       void saveNotes();
     });
-    ui.notes.addEventListener("input", scheduleNotesSave);
+    ui.notes.addEventListener("input", handleMarkdownSourceInput);
     ui.notes.addEventListener("keydown", (event) => {
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s") {
         event.preventDefault();
@@ -1609,12 +2619,40 @@
         void saveNotes();
       }
     });
-    document.querySelectorAll("[data-note-wrap]").forEach((button) => {
-      button.addEventListener("click", () => insertMarkdown(button.dataset.noteWrap, button.dataset.noteWrap));
+    ui.richNotes.addEventListener("input", handleRichNotesInput);
+    ui.richNotes.addEventListener("keydown", (event) => {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s") {
+        event.preventDefault();
+        window.clearTimeout(state.noteTimer);
+        void saveNotes();
+      }
     });
-    document.querySelectorAll("[data-note-prefix]").forEach((button) => {
-      button.addEventListener("click", () => prependMarkdown(button.dataset.notePrefix));
+    ui.richNotes.addEventListener("paste", (event) => {
+      event.preventDefault();
+      const text = event.clipboardData?.getData("text/plain") || "";
+      if (text) insertTextAtSelection(text);
     });
+    ui.richNotes.addEventListener("dragover", (event) => event.preventDefault());
+    ui.richNotes.addEventListener("drop", (event) => {
+      event.preventDefault();
+      const text = event.dataTransfer?.getData("text/plain") || "";
+      if (text) insertTextAtSelection(text);
+    });
+    ui.richNotes.addEventListener("click", (event) => {
+      const toggle = event.target instanceof Element ? event.target.closest(".note-task-toggle") : null;
+      if (!toggle || !ui.richNotes.contains(toggle)) return;
+      const checked = toggle.getAttribute("aria-checked") !== "true";
+      toggle.setAttribute("aria-checked", String(checked));
+      toggle.setAttribute("aria-label", checked ? "Mark task incomplete" : "Mark task complete");
+      toggle.textContent = checked ? "✓" : "";
+      handleRichNotesInput();
+    });
+    ui.notesSourceToggle.addEventListener("click", () => setNotesSourceMode(!state.notesSourceMode));
+    for (const button of ui.notesToolbar.querySelectorAll("[data-note-action]")) {
+      button.addEventListener("mousedown", (event) => event.preventDefault());
+      button.addEventListener("click", () => applyNotesAction(button.dataset.noteAction));
+    }
+    document.addEventListener("selectionchange", updateNotesToolbarState);
     byId("new-session").addEventListener("click", openSessionDialog);
     byId("manage-collections").addEventListener("click", openEntryTaxonomy);
     byId("edit-entry-taxonomy").addEventListener("click", openEntryTaxonomy);
@@ -1632,6 +2670,16 @@
     });
     ui.sessionStartForm.querySelectorAll('input[name="session-kind"]').forEach((radio) => {
       radio.addEventListener("change", () => selectSessionKind(radio.value));
+    });
+    ui.sessionStartStudent.addEventListener("change", () => {
+      ui.newSessionStudentPanel.hidden = ui.sessionStartStudent.value !== "__new__";
+      if (!ui.newSessionStudentPanel.hidden) ui.newSessionStudentName.focus();
+      const student = state.studentProgressStudents.find((item) =>
+        String(field(item, "id", "uuid")) === ui.sessionStartStudent.value,
+      );
+      if (student && !ui.sessionStartSubject.value.trim()) {
+        ui.sessionStartSubject.value = String(field(student, "subjects") || "");
+      }
     });
     ui.guideSourceScope.addEventListener("change", updateGuideSourceControls);
     ui.createNotesSession.addEventListener("click", () => void createNotesSession());
@@ -1676,6 +2724,14 @@
     byId("session-complete").addEventListener("click", () => void transitionSession("complete"));
     byId("session-review").addEventListener("click", () => void transitionSession("review"));
     byId("session-resume").addEventListener("click", () => void transitionSession("resume"));
+    byId("session-delete-open").addEventListener("click", () => void openSessionDeleteDialog());
+    byId("session-delete-cancel").addEventListener("click", () => ui.sessionDeleteDialog.close());
+    ui.sessionDeleteConfirm.addEventListener("click", () => void confirmSessionDelete());
+    ui.sessionDeleteDialog.addEventListener("close", () => {
+      state.sessionDeleteTarget = "";
+      state.sessionDeleteScopeToken = "";
+      ui.sessionDeleteConfirm.disabled = true;
+    });
     byId("quick-marker").addEventListener("click", () => void addQuickMarker());
     byId("active-session").addEventListener("change", updateQuickMarkerAvailability);
     window.addEventListener("tutorux:add-passage", addPassageToNotes);
@@ -1709,6 +2765,7 @@
     });
     window.addEventListener("tutorux:archive-change", () => {
       window.clearTimeout(state.refreshTimer);
+      void refreshStudentProgress();
       state.refreshTimer = window.setTimeout(() => {
         void refreshJournal();
         if (state.entryId && state.currentView === "entry") void loadEntry(state.entryId, true);
@@ -1784,6 +2841,7 @@
       if (!control) continue;
       control.disabled = !enabled || (["new-session", "edit-entry-taxonomy"].includes(id) && !state.entryId);
     }
+    updateNotesEditingState();
     updateQuickMarkerAvailability();
     updateGuideSourceControls();
   }
@@ -1811,6 +2869,7 @@
     updateQuickMarkerAvailability();
     updateGuideSourceControls();
     void loadQuickMarkerShortcuts();
+    void refreshStudentProgress();
     void refreshJournal();
   });
   void loadQuickMarkerShortcuts();
