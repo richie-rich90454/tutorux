@@ -5,7 +5,10 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <iterator>
 #include <limits>
+#include <map>
+#include <optional>
 #include <span>
 #include <string_view>
 #include <vector>
@@ -140,8 +143,8 @@ namespace {
         return runs;
     }
 
-    core::Result<std::string>
-    paragraph(std::string_view text, std::string_view style, std::string_view prefix = {}) {
+    core::Result<std::string> paragraph(std::string_view text, std::string_view style,
+                                        std::string_view prefix = {}) {
         std::string completeText(prefix);
         completeText.append(text);
         auto runs = textRuns(completeText);
@@ -158,13 +161,237 @@ namespace {
         return result;
     }
 
-    core::Result<std::string> makeDocumentXml(const domain::GuideDocument& guide) {
+    core::Result<std::string> tableXml(const domain::GuideTable& table) {
+        if (table.empty() || table.front().empty()) {
+            return std::unexpected(
+                core::error("docx_table_invalid", "Cannot export an empty guide table."));
+        }
+        std::string xml = "<w:tbl><w:tblPr><w:tblW w:w=\"0\" w:type=\"auto\"/>"
+                          "<w:tblBorders><w:top w:val=\"single\" w:sz=\"4\" w:color=\"CBD5E1\"/>"
+                          "<w:left w:val=\"single\" w:sz=\"4\" w:color=\"CBD5E1\"/>"
+                          "<w:bottom w:val=\"single\" w:sz=\"4\" w:color=\"CBD5E1\"/>"
+                          "<w:right w:val=\"single\" w:sz=\"4\" w:color=\"CBD5E1\"/>"
+                          "<w:insideH w:val=\"single\" w:sz=\"4\" w:color=\"CBD5E1\"/>"
+                          "<w:insideV w:val=\"single\" w:sz=\"4\" w:color=\"CBD5E1\"/>"
+                          "</w:tblBorders></w:tblPr>";
+        for (std::size_t rowIndex = 0; rowIndex < table.size(); ++rowIndex) {
+            if (table[rowIndex].size() != table.front().size()) {
+                return std::unexpected(core::error(
+                    "docx_table_invalid", "Guide table rows must have matching cell counts."));
+            }
+            xml += "<w:tr>";
+            for (const auto& cell : table[rowIndex]) {
+                std::string cellProperties = "<w:tcPr>";
+                if (rowIndex == 0)
+                    cellProperties += "<w:shd w:fill=\"E8EEF5\"/>";
+                cellProperties += "</w:tcPr>";
+                auto cellParagraph = paragraph(domain::renderGuideInlineText(cell), "");
+                if (!cellParagraph)
+                    return std::unexpected(cellParagraph.error());
+                xml += "<w:tc>" + cellProperties + *cellParagraph + "</w:tc>";
+            }
+            xml += "</w:tr>";
+        }
+        xml += "</w:tbl>";
+        return xml;
+    }
+
+    std::uint16_t readLittleEndian16(std::span<const std::byte> bytes, std::size_t offset) {
+        return static_cast<std::uint16_t>(std::to_integer<std::uint8_t>(bytes[offset])) |
+               static_cast<std::uint16_t>(std::to_integer<std::uint8_t>(bytes[offset + 1U]) << 8U);
+    }
+
+    std::uint32_t readBigEndian32(std::span<const std::byte> bytes, std::size_t offset) {
+        return (static_cast<std::uint32_t>(std::to_integer<std::uint8_t>(bytes[offset])) << 24U) |
+               (static_cast<std::uint32_t>(std::to_integer<std::uint8_t>(bytes[offset + 1U]))
+                << 16U) |
+               (static_cast<std::uint32_t>(std::to_integer<std::uint8_t>(bytes[offset + 2U]))
+                << 8U) |
+               static_cast<std::uint32_t>(std::to_integer<std::uint8_t>(bytes[offset + 3U]));
+    }
+
+    core::Result<std::pair<std::uint32_t, std::uint32_t>>
+    imagePixelDimensions(const GuideImageAsset& image) {
+        const std::span<const std::byte> bytes(image.bytes);
+        if (image.mimeType == "image/png" && bytes.size() >= 24 &&
+            std::to_integer<std::uint8_t>(bytes[0]) == 0x89U &&
+            std::to_integer<std::uint8_t>(bytes[1]) == 'P' &&
+            std::to_integer<std::uint8_t>(bytes[2]) == 'N' &&
+            std::to_integer<std::uint8_t>(bytes[3]) == 'G') {
+            const auto width = readBigEndian32(bytes, 16);
+            const auto height = readBigEndian32(bytes, 20);
+            if (width != 0 && height != 0)
+                return std::pair{width, height};
+        } else if (image.mimeType == "image/gif" && bytes.size() >= 10 &&
+                   std::to_integer<std::uint8_t>(bytes[0]) == 'G' &&
+                   std::to_integer<std::uint8_t>(bytes[1]) == 'I' &&
+                   std::to_integer<std::uint8_t>(bytes[2]) == 'F') {
+            const auto width = readLittleEndian16(bytes, 6);
+            const auto height = readLittleEndian16(bytes, 8);
+            if (width != 0 && height != 0)
+                return std::pair{static_cast<std::uint32_t>(width),
+                                 static_cast<std::uint32_t>(height)};
+        } else if (image.mimeType == "image/webp" && bytes.size() >= 30) {
+            const auto byteAt = [&](std::size_t offset) {
+                return std::to_integer<std::uint8_t>(bytes[offset]);
+            };
+            if (byteAt(12) == 'V' && byteAt(13) == 'P' && byteAt(14) == '8' && byteAt(15) == 'X') {
+                const std::uint32_t width = 1U + static_cast<std::uint32_t>(byteAt(24)) +
+                                            (static_cast<std::uint32_t>(byteAt(25)) << 8U) +
+                                            (static_cast<std::uint32_t>(byteAt(26)) << 16U);
+                const std::uint32_t height = 1U + static_cast<std::uint32_t>(byteAt(27)) +
+                                             (static_cast<std::uint32_t>(byteAt(28)) << 8U) +
+                                             (static_cast<std::uint32_t>(byteAt(29)) << 16U);
+                return std::pair{width, height};
+            }
+            if (bytes.size() >= 25 && byteAt(12) == 'V' && byteAt(13) == 'P' && byteAt(14) == '8' &&
+                byteAt(15) == 'L' && byteAt(20) == 0x2fU) {
+                const std::uint32_t bits = static_cast<std::uint32_t>(byteAt(21)) |
+                                           (static_cast<std::uint32_t>(byteAt(22)) << 8U) |
+                                           (static_cast<std::uint32_t>(byteAt(23)) << 16U) |
+                                           (static_cast<std::uint32_t>(byteAt(24)) << 24U);
+                const std::uint32_t width = 1U + (bits & 0x3fffU);
+                const std::uint32_t height = 1U + ((bits >> 14U) & 0x3fffU);
+                return std::pair{width, height};
+            }
+            if (bytes.size() >= 30 && byteAt(12) == 'V' && byteAt(13) == 'P' && byteAt(14) == '8' &&
+                byteAt(15) == ' ') {
+                const std::uint32_t width = (static_cast<std::uint32_t>(byteAt(26)) |
+                                             (static_cast<std::uint32_t>(byteAt(27)) << 8U)) &
+                                            0x3fffU;
+                const std::uint32_t height = (static_cast<std::uint32_t>(byteAt(28)) |
+                                              (static_cast<std::uint32_t>(byteAt(29)) << 8U)) &
+                                             0x3fffU;
+                if (width != 0 && height != 0)
+                    return std::pair{width, height};
+            }
+        } else if ((image.mimeType == "image/jpeg" || image.mimeType == "image/jpg") &&
+                   bytes.size() >= 4 && std::to_integer<std::uint8_t>(bytes[0]) == 0xffU &&
+                   std::to_integer<std::uint8_t>(bytes[1]) == 0xd8U) {
+            std::size_t offset = 2;
+            while (offset + 4U <= bytes.size()) {
+                if (std::to_integer<std::uint8_t>(bytes[offset]) != 0xffU) {
+                    ++offset;
+                    continue;
+                }
+                while (offset < bytes.size() &&
+                       std::to_integer<std::uint8_t>(bytes[offset]) == 0xffU) {
+                    ++offset;
+                }
+                if (offset >= bytes.size())
+                    break;
+                const std::uint8_t marker = std::to_integer<std::uint8_t>(bytes[offset++]);
+                if (marker == 0xd8U || marker == 0xd9U || marker == 0x01U ||
+                    (marker >= 0xd0U && marker <= 0xd7U)) {
+                    continue;
+                }
+                if (offset + 2U > bytes.size())
+                    break;
+                const std::uint16_t segmentLength = static_cast<std::uint16_t>(
+                    (std::to_integer<std::uint8_t>(bytes[offset]) << 8U) |
+                    std::to_integer<std::uint8_t>(bytes[offset + 1U]));
+                if (segmentLength < 2 || segmentLength > bytes.size() - offset)
+                    break;
+                const bool startOfFrame = marker == 0xc0U || marker == 0xc1U || marker == 0xc2U ||
+                                          marker == 0xc3U || marker == 0xc5U || marker == 0xc6U ||
+                                          marker == 0xc7U || marker == 0xc9U || marker == 0xcaU ||
+                                          marker == 0xcbU || marker == 0xcdU || marker == 0xceU ||
+                                          marker == 0xcfU;
+                if (startOfFrame && segmentLength >= 7) {
+                    const std::uint32_t height = static_cast<std::uint32_t>(
+                        (std::to_integer<std::uint8_t>(bytes[offset + 3U]) << 8U) |
+                        std::to_integer<std::uint8_t>(bytes[offset + 4U]));
+                    const std::uint32_t width = static_cast<std::uint32_t>(
+                        (std::to_integer<std::uint8_t>(bytes[offset + 5U]) << 8U) |
+                        std::to_integer<std::uint8_t>(bytes[offset + 6U]));
+                    if (width != 0 && height != 0)
+                        return std::pair{width, height};
+                    break;
+                }
+                offset += segmentLength;
+            }
+        }
+        return std::unexpected(core::error("docx_image_dimensions_invalid",
+                                           "The guide image dimensions could not be read."));
+    }
+
+    std::string imageFileExtension(std::string_view mimeType) {
+        if (mimeType == "image/png")
+            return "png";
+        if (mimeType == "image/jpeg" || mimeType == "image/jpg")
+            return "jpeg";
+        if (mimeType == "image/gif")
+            return "gif";
+        if (mimeType == "image/webp")
+            return "webp";
+        return {};
+    }
+
+    core::Result<std::string> imageDrawingXml(const GuideImageAsset& image,
+                                              std::string_view alternativeText,
+                                              std::string_view relationshipId,
+                                              std::uint32_t drawingId) {
+        auto dimensions = imagePixelDimensions(image);
+        if (!dimensions)
+            return std::unexpected(dimensions.error());
+        auto escapedAlternativeText = escapeXml(alternativeText);
+        if (!escapedAlternativeText)
+            return std::unexpected(escapedAlternativeText.error());
+
+        constexpr std::uint64_t maximumWidthEmu = 4'572'000;
+        constexpr std::uint64_t maximumHeightEmu = 5'486'400;
+        constexpr std::uint64_t emuPerPixelAt96Dpi = 9'525;
+        const std::uint64_t pixelWidth = dimensions->first;
+        const std::uint64_t pixelHeight = dimensions->second;
+        std::uint64_t widthEmu = pixelWidth * emuPerPixelAt96Dpi;
+        std::uint64_t heightEmu = pixelHeight * emuPerPixelAt96Dpi;
+        if (widthEmu > maximumWidthEmu || heightEmu > maximumHeightEmu) {
+            if (maximumWidthEmu * pixelHeight <= maximumHeightEmu * pixelWidth) {
+                widthEmu = maximumWidthEmu;
+                heightEmu = maximumWidthEmu * pixelHeight / pixelWidth;
+            } else {
+                heightEmu = maximumHeightEmu;
+                widthEmu = maximumHeightEmu * pixelWidth / pixelHeight;
+            }
+        }
+
+        const std::string id = std::to_string(drawingId);
+        std::string xml = "<w:p><w:r><w:drawing><wp:inline distT=\"0\" distB=\"0\" "
+                          "distL=\"0\" distR=\"0\"><wp:extent cx=\"";
+        xml += std::to_string(widthEmu);
+        xml += "\" cy=\"" + std::to_string(heightEmu) + "\"/><wp:docPr id=\"" + id +
+               "\" name=\"Tutorux image " + id + "\" descr=\"" + *escapedAlternativeText +
+               "\"/><wp:cNvGraphicFramePr><a:graphicFrameLocks noChangeAspect=\"1\"/>"
+               "</wp:cNvGraphicFramePr><a:graphic><a:graphicData "
+               "uri=\"http://schemas.openxmlformats.org/drawingml/2006/picture\">"
+               "<pic:pic><pic:nvPicPr><pic:cNvPr id=\"" +
+               id + "\" name=\"Tutorux image " + id +
+               "\"/><pic:cNvPicPr/></pic:nvPicPr><pic:blipFill><a:blip r:embed=\"" +
+               std::string(relationshipId) +
+               "\"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill><pic:spPr><a:xfrm>"
+               "<a:off x=\"0\" y=\"0\"/><a:ext cx=\"" +
+               std::to_string(widthEmu) + "\" cy=\"" + std::to_string(heightEmu) +
+               "\"/></a:xfrm><a:prstGeom prst=\"rect\"><a:avLst/></a:prstGeom></pic:spPr>"
+               "</pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing></w:r></w:p>";
+        return xml;
+    }
+
+    core::Result<std::string> makeDocumentXml(const domain::GuideDocument& guide,
+                                              std::span<const GuideImageAsset> images,
+                                              std::string& imageRelationships,
+                                              std::vector<ZipEntry>& imageEntries) {
         std::string xml =
             "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>"
             "<w:document "
             "xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" "
-            "xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\">"
+            "xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\" "
+            "xmlns:wp=\"http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing\" "
+            "xmlns:a=\"http://schemas.openxmlformats.org/drawingml/2006/main\" "
+            "xmlns:pic=\"http://schemas.openxmlformats.org/drawingml/2006/picture\">"
             "<w:body>";
+        std::map<std::string, std::string, std::less<>> relationshipByAsset;
+        std::uint32_t nextRelationshipId = 2;
+        std::uint32_t nextDrawingId = 1;
         auto title = paragraph(guide.title, "Title");
         auto subtitle = paragraph("Tutorux study guide · " + guide.templateId + " template · " +
                                       guide.approvalState,
@@ -179,6 +406,98 @@ namespace {
                 return std::unexpected(heading.error());
             xml += *heading;
             for (const auto& block : section.blocks) {
+                if (block.kind == "image" || block.kind == "figure" ||
+                    block.text.starts_with("![")) {
+                    auto imageReference = domain::parseGuideImageReference(block.text);
+                    if (!imageReference)
+                        return std::unexpected(imageReference.error());
+                    const auto image = std::find_if(
+                        images.begin(), images.end(), [&](const GuideImageAsset& candidate) {
+                            return candidate.assetId == imageReference->assetId;
+                        });
+                    if (image == images.end()) {
+                        return std::unexpected(core::error(
+                            "docx_image_missing", "An embedded guide image was not loaded."));
+                    }
+                    const std::string label = domain::guideBlockLabel(block);
+                    if (!label.empty()) {
+                        auto labelParagraph = paragraph(label, "Source");
+                        if (!labelParagraph)
+                            return std::unexpected(labelParagraph.error());
+                        xml += *labelParagraph;
+                    }
+                    auto relationship = relationshipByAsset.find(image->assetId);
+                    if (relationship == relationshipByAsset.end()) {
+                        const std::string extension = imageFileExtension(image->mimeType);
+                        if (extension.empty()) {
+                            return std::unexpected(
+                                core::error("docx_image_type_unsupported",
+                                            "This image format cannot be embedded in DOCX."));
+                        }
+                        const std::string relationshipId =
+                            "rId" + std::to_string(nextRelationshipId++);
+                        const std::string fileName = image->assetId + "." + extension;
+                        imageRelationships +=
+                            "<Relationship Id=\"" + relationshipId +
+                            "\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/"
+                            "relationships/image\" Target=\"media/" +
+                            fileName + "\"/>";
+                        std::string binaryContents(
+                            reinterpret_cast<const char*>(image->bytes.data()),
+                            image->bytes.size());
+                        imageEntries.push_back(
+                            {"word/media/" + fileName, std::move(binaryContents)});
+                        relationship =
+                            relationshipByAsset.emplace(image->assetId, relationshipId).first;
+                    }
+                    auto drawing = imageDrawingXml(*image, imageReference->alternativeText,
+                                                   relationship->second, nextDrawingId++);
+                    if (!drawing)
+                        return std::unexpected(drawing.error());
+                    xml += *drawing;
+                    if (!block.sourceIds.empty()) {
+                        std::string sourceText = "Source: ";
+                        for (std::size_t index = 0; index < block.sourceIds.size(); ++index) {
+                            if (index > 0)
+                                sourceText += ", ";
+                            sourceText += block.sourceIds[index];
+                        }
+                        auto sourceParagraph = paragraph(sourceText, "Source");
+                        if (!sourceParagraph)
+                            return std::unexpected(sourceParagraph.error());
+                        xml += *sourceParagraph;
+                    }
+                    continue;
+                }
+                if (block.kind == "table") {
+                    auto parsedTable = domain::parseGuideTable(block.text);
+                    if (!parsedTable)
+                        return std::unexpected(parsedTable.error());
+                    const std::string label = domain::guideBlockLabel(block);
+                    if (!label.empty()) {
+                        auto labelParagraph = paragraph(label, "Source");
+                        if (!labelParagraph)
+                            return std::unexpected(labelParagraph.error());
+                        xml += *labelParagraph;
+                    }
+                    auto blockTable = tableXml(*parsedTable);
+                    if (!blockTable)
+                        return std::unexpected(blockTable.error());
+                    xml += *blockTable;
+                    if (!block.sourceIds.empty()) {
+                        std::string sourceText = "Source: ";
+                        for (std::size_t index = 0; index < block.sourceIds.size(); ++index) {
+                            if (index > 0)
+                                sourceText += ", ";
+                            sourceText += block.sourceIds[index];
+                        }
+                        auto sourceParagraph = paragraph(sourceText, "Source");
+                        if (!sourceParagraph)
+                            return std::unexpected(sourceParagraph.error());
+                        xml += *sourceParagraph;
+                    }
+                    continue;
+                }
                 std::string_view style;
                 std::string_view prefix;
                 std::string labeledPrefix;
@@ -188,12 +507,13 @@ namespace {
                     style = "Code";
                 else if (block.kind == "list-item")
                     prefix = "• ";
-                const std::string_view label = domain::guideBlockLabel(block.kind);
+                const std::string label = domain::guideBlockLabel(block);
                 if (!label.empty()) {
-                    labeledPrefix = std::string(label) + ": ";
+                    labeledPrefix = label + ": ";
                     prefix = labeledPrefix;
                 }
-                auto blockParagraph = paragraph(block.text, style, prefix);
+                auto blockParagraph =
+                    paragraph(domain::renderGuideInlineText(block.text), style, prefix);
                 if (!blockParagraph)
                     return std::unexpected(blockParagraph.error());
                 xml += *blockParagraph;
@@ -256,14 +576,27 @@ namespace {
                "</w:rPr></w:style></w:styles>";
     }
 
-    std::vector<ZipEntry> makeEntries(std::string documentXml) {
-        return {
+    std::vector<ZipEntry> makeEntries(std::string documentXml, std::string imageRelationships,
+                                      std::vector<ZipEntry> imageEntries) {
+        std::string documentRelationships =
+            "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>"
+            "<Relationships "
+            "xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">"
+            "<Relationship Id=\"rId1\" "
+            "Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/"
+            "styles\" Target=\"styles.xml\"/>" +
+            imageRelationships + "</Relationships>";
+        std::vector<ZipEntry> entries{
             {"[Content_Types].xml",
              "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>"
              "<Types xmlns=\"http://schemas.openxmlformats.org/package/2006/content-types\">"
              "<Default Extension=\"rels\" "
              "ContentType=\"application/vnd.openxmlformats-package.relationships+xml\"/>"
              "<Default Extension=\"xml\" ContentType=\"application/xml\"/>"
+             "<Default Extension=\"png\" ContentType=\"image/png\"/>"
+             "<Default Extension=\"jpeg\" ContentType=\"image/jpeg\"/>"
+             "<Default Extension=\"gif\" ContentType=\"image/gif\"/>"
+             "<Default Extension=\"webp\" ContentType=\"image/webp\"/>"
              "<Override PartName=\"/word/document.xml\" "
              "ContentType=\"application/"
              "vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml\"/>"
@@ -272,7 +605,7 @@ namespace {
              "vnd.openxmlformats-officedocument.wordprocessingml.styles+xml\"/>"
              "<Override PartName=\"/docProps/core.xml\" "
              "ContentType=\"application/vnd.openxmlformats-package.core-properties+xml\"/>"
-             "</Types>"                                            },
+             "</Types>"                                                      },
             {"_rels/.rels",
              "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>"
              "<Relationships "
@@ -283,17 +616,10 @@ namespace {
              "<Relationship Id=\"rId2\" "
              "Type=\"http://schemas.openxmlformats.org/package/2006/relationships/metadata/"
              "core-properties\" Target=\"docProps/core.xml\"/>"
-             "</Relationships>"                                    },
-            {"word/document.xml",            std::move(documentXml)},
-            {"word/styles.xml",              stylesXml()           },
-            {"word/_rels/document.xml.rels",
-             "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>"
-             "<Relationships "
-             "xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">"
-             "<Relationship Id=\"rId1\" "
-             "Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/"
-             "styles\" Target=\"styles.xml\"/>"
-             "</Relationships>"                                    },
+             "</Relationships>"                                              },
+            {"word/document.xml",            std::move(documentXml)          },
+            {"word/styles.xml",              stylesXml()                     },
+            {"word/_rels/document.xml.rels", std::move(documentRelationships)},
             {"docProps/core.xml",
              "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>"
              "<cp:coreProperties "
@@ -303,8 +629,11 @@ namespace {
              "xmlns:dcterms=\"http://purl.org/dc/terms/\" "
              "xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\">"
              "<dc:creator>Tutorux</dc:creator><cp:lastModifiedBy>Tutorux</cp:lastModifiedBy>"
-             "</cp:coreProperties>"                                },
+             "</cp:coreProperties>"                                          },
         };
+        entries.insert(entries.end(), std::make_move_iterator(imageEntries.begin()),
+                       std::make_move_iterator(imageEntries.end()));
+        return entries;
     }
 
     core::Result<std::string> makeZip(std::vector<ZipEntry> entries) {
@@ -389,15 +718,19 @@ namespace {
 
 } // namespace
 
-core::Result<std::string> renderGuideDocx(const domain::GuideDocument& guide) {
+core::Result<std::string> renderGuideDocx(const domain::GuideDocument& guide,
+                                          std::span<const GuideImageAsset> images) {
     if (guide.title.empty()) {
         return std::unexpected(
             core::error("docx_guide_invalid", "Cannot export a guide without a title."));
     }
-    auto documentXml = makeDocumentXml(guide);
+    std::string imageRelationships;
+    std::vector<ZipEntry> imageEntries;
+    auto documentXml = makeDocumentXml(guide, images, imageRelationships, imageEntries);
     if (!documentXml)
         return std::unexpected(documentXml.error());
-    return makeZip(makeEntries(std::move(*documentXml)));
+    return makeZip(makeEntries(std::move(*documentXml), std::move(imageRelationships),
+                               std::move(imageEntries)));
 }
 
 } // namespace tutorux::document
