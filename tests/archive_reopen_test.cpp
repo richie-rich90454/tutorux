@@ -7,14 +7,14 @@
 
 namespace {
 
-    struct TemporaryDirectory final {
-        std::filesystem::path path;
+struct TemporaryDirectory final {
+    std::filesystem::path path;
 
-        ~TemporaryDirectory() {
-            std::error_code ignored;
-            std::filesystem::remove_all(path, ignored);
-        }
-    };
+    ~TemporaryDirectory() {
+        std::error_code ignored;
+        std::filesystem::remove_all(path, ignored);
+    }
+};
 
 } // namespace
 
