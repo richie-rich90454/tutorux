@@ -41,10 +41,6 @@ namespace {
         return {reinterpret_cast<const char*>(encoded.data()), encoded.size()};
     }
 
-    std::string pathForMessage(const std::filesystem::path& path) {
-        return pathUtf8(path);
-    }
-
     std::uint32_t resolvedCpuThreads(const EmbeddedLlamaConfig& config) {
         const unsigned int detected = std::thread::hardware_concurrency();
         const std::uint32_t available = detected == 0U ? 1U : detected;
@@ -529,8 +525,15 @@ core::Status EmbeddedLlama::load(const std::filesystem::path& modelPath,
         impl_->backendLease = true;
         llama_model_params modelParameters = llama_model_default_params();
         modelParameters.n_gpu_layers = static_cast<std::int32_t>(config.gpuLayers);
-        modelParameters.use_mmap = config.useMemoryMapping;
-        modelParameters.use_mlock = config.lockModelPages;
+        if (config.useMemoryMapping && config.lockModelPages) {
+            modelParameters.load_mode = LLAMA_LOAD_MODE_MMAP_MLOCK;
+        } else if (config.useMemoryMapping) {
+            modelParameters.load_mode = LLAMA_LOAD_MODE_MMAP;
+        } else if (config.lockModelPages) {
+            modelParameters.load_mode = LLAMA_LOAD_MODE_MLOCK;
+        } else {
+            modelParameters.load_mode = LLAMA_LOAD_MODE_NONE;
+        }
 
         const std::string encodedPath = pathUtf8(modelPath);
         impl_->model = llama_model_load_from_file(encodedPath.c_str(), modelParameters);
@@ -730,7 +733,7 @@ EmbeddedLlama::generate(EmbeddedLlamaGenerationRequest request) {
                                 "The cancellation callback raised an exception."));
             }
 
-            const llama_token token = llama_sampler_sample(sampler, context, -1);
+            llama_token token = llama_sampler_sample(sampler, context, -1);
             if (llama_vocab_is_eog(vocabulary, token))
                 break;
             llama_sampler_accept(sampler, token);
