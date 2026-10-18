@@ -1479,12 +1479,25 @@ if(TARGET tutorux AND WIN32 AND MINGW)
             set(TUTORUX_LICENSE_SOURCE
                 "${TUTORUX_SODIUM_PREFIX}/share/licenses/${TUTORUX_LICENSE_NAME}"
             )
-            if(EXISTS "${TUTORUX_LICENSE_SOURCE}")
+            if(IS_DIRECTORY "${TUTORUX_LICENSE_SOURCE}")
+                file(GLOB_RECURSE TUTORUX_LICENSE_FILES
+                    LIST_DIRECTORIES false
+                    "${TUTORUX_LICENSE_SOURCE}/*"
+                )
+                if(NOT TUTORUX_LICENSE_FILES)
+                    message(FATAL_ERROR
+                        "Windows x64 Runtime packaging requires non-empty third-party license "
+                        "notices under ${TUTORUX_LICENSE_SOURCE}."
+                    )
+                endif()
                 install(DIRECTORY "${TUTORUX_LICENSE_SOURCE}/"
                     DESTINATION "licenses/${TUTORUX_LICENSE_NAME}" COMPONENT Runtime
                 )
             else()
-                message(WARNING "No license directory found for ${TUTORUX_LICENSE_NAME}.")
+                message(FATAL_ERROR
+                    "Windows x64 Runtime packaging requires the ${TUTORUX_LICENSE_NAME} "
+                    "third-party license directory at ${TUTORUX_LICENSE_SOURCE}."
+                )
             endif()
         endforeach()
         if("idn2" IN_LIST TUTORUX_STATIC_CURL_STATIC_LIBRARIES)
@@ -1531,6 +1544,53 @@ if(TARGET tutorux)
     )
 endif()
 if(TUTORUX_BUILD_WASM)
+    find_file(TUTORUX_WASM_SODIUM_LICENSE_FILE
+        NAMES LICENSE COPYING LICENSE.txt COPYING.txt
+        PATHS
+            "${TUTORUX_SODIUM_PREFIX}/share/licenses/libsodium"
+            "${TUTORUX_SODIUM_PREFIX}/share/licenses/sodium"
+            "${TUTORUX_SODIUM_PREFIX}/share/doc/libsodium"
+            "${TUTORUX_SODIUM_PREFIX}/share/licenses"
+            "${TUTORUX_SODIUM_PREFIX}"
+        NO_DEFAULT_PATH
+    )
+    if(NOT TUTORUX_WASM_SODIUM_LICENSE_FILE)
+        message(FATAL_ERROR
+            "The WebRuntime package requires the upstream libsodium license notice under "
+            "TUTORUX_SODIUM_PREFIX."
+        )
+    endif()
+    file(SHA256 "${TUTORUX_SODIUM_LINK_LIBRARY}" TUTORUX_WASM_SODIUM_ARCHIVE_SHA256)
+    file(SHA256 "${TUTORUX_WASM_SODIUM_LICENSE_FILE}" TUTORUX_WASM_SODIUM_LICENSE_SHA256)
+    set(TUTORUX_WASM_SBOM_FILE "${CMAKE_CURRENT_BINARY_DIR}/TUTORUX-WASM-SBOM.md")
+    file(WRITE "${TUTORUX_WASM_SBOM_FILE}"
+        "# Tutorux WebAssembly Static Dependency Manifest\n\n"
+        "- Product: Tutorux ${PROJECT_VERSION}, GPL-3.0-only\n"
+        "- Target: wasm32-unknown-emscripten\n"
+        "- Compiler: ${CMAKE_CXX_COMPILER_ID} ${CMAKE_CXX_COMPILER_VERSION}\n"
+        "- libsodium: ${TUTORUX_SODIUM_VERSION_PIN}, source commit "
+        "${TUTORUX_SODIUM_SOURCE_COMMIT}\n"
+        "- libsodium archive SHA-256: ${TUTORUX_WASM_SODIUM_ARCHIVE_SHA256}\n"
+        "- libsodium license SHA-256: ${TUTORUX_WASM_SODIUM_LICENSE_SHA256}\n"
+        "- zlib source commit: ${TUTORUX_ZLIB_COMMIT_PIN}\n"
+        "- libpng source commit: ${TUTORUX_LIBPNG_COMMIT_PIN}\n"
+        "- GIFLIB source commit: ${TUTORUX_GIFLIB_COMMIT_PIN}\n"
+        "- libwebp source commit: ${TUTORUX_LIBWEBP_COMMIT_PIN}\n\n"
+        "## Bundled license notices\n\n"
+        "- libsodium: `licenses/libsodium/LICENSE`\n"
+        "- zlib: `licenses/zlib/LICENSE`\n"
+        "- libpng: `licenses/libpng/LICENSE.md`\n"
+        "- GIFLIB: `licenses/GIFLIB/COPYING`\n"
+        "- libwebp: `licenses/libwebp/COPYING` and `licenses/libwebp/PATENTS`\n"
+        "- Tutorux: `licenses/Tutorux/LICENSE`\n"
+    )
+    install(FILES "${TUTORUX_WASM_SODIUM_LICENSE_FILE}"
+        DESTINATION licenses/libsodium COMPONENT WebRuntime
+        RENAME LICENSE
+    )
+    install(FILES "${TUTORUX_WASM_SBOM_FILE}"
+        DESTINATION . COMPONENT WebRuntime
+    )
     install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/LICENSE"
         DESTINATION licenses/Tutorux COMPONENT WebRuntime
     )
