@@ -119,6 +119,25 @@ encountering older sessions without the marker scan the primary audio-chunk inde
 chunk references before validating payloads. The secondary index is rebuilt during compaction and is
 covered by full archive verification.
 
+The manifest's `annotation_session_time_index_version=1`, `student_session_index_version=1`, and
+`evidence_adjacency_index_version=1` flags enable three additional secondary indexes:
+
+- `ANNOTATIONSESSION:<session-uuid>:<20-digit-zero-padded-start_time_us>:<annotation-uuid>` orders
+  annotations by their non-negative `start_time_us` within a session. Range lookups include the
+  start time and exclude the end time.
+- `STUDENTSESSION:<student-uuid>:<session-uuid>` maps a non-anonymous student to each session.
+- `EVIDENCEADJ:<node-uuid>:<edge-uuid>` maps each distinct endpoint of an evidence edge to that edge;
+  a self-loop has one entry.
+
+Each index value points to a structurally valid primary record revision. When indexed fields change,
+the new key points to the new revision and historical keys can continue to point to older revisions.
+Readers resolve each result through the primary index and filter against the latest field values, so
+stale historical aliases do not produce stale query results. Tombstone revisions are indexed when
+they retain the indexed fields; queries omit deleted records unless requested. Older v1 archives
+without these manifest flags use primary-index scans until a write initializes and backfills the
+indexes. Compaction rebuilds these indexes from retained record revisions, and full verification
+checks each key against its referenced revision and primary revision chain.
+
 Asset blob records may store legacy opaque content directly or use `record_role` values
 `asset-blob-manifest` and `asset-blob-chunk`. A manifest stores the SHA-256 `content_hash`, total
 `byte_size`, `chunk_count`, and comma-separated ordered `chunk_ids`. Each referenced chunk stores
