@@ -983,10 +983,12 @@ export component MainWindow inherits Window {
                                     journal-entry-title-input := LineEdit {
                                         placeholder-text: "Entry title";
                                         text <=> root.journal-entry-title;
+                                        accessible-label: "New journal entry title";
                                     }
                                     LineEdit {
                                         placeholder-text: "Date YYYY-MM-DD (optional)";
                                         text <=> root.journal-entry-date;
+                                        accessible-label: "New journal entry date";
                                     }
                                     Button {
                                         text: "Create entry";
@@ -1013,6 +1015,8 @@ export component MainWindow inherits Window {
                             border-color: #111111;
                             border-radius: 5px;
                             background: #ffffff;
+                            accessible-role: AccessibleRole.region;
+                            accessible-label: "Journal search and filters";
                             VerticalLayout {
                                 padding: 14px;
                                 spacing: 10px;
@@ -1028,26 +1032,31 @@ export component MainWindow inherits Window {
                                         placeholder-text: "Search titles, notes, transcripts, and guides";
                                         text <=> root.journal-query;
                                         accepted => { root.run-journal-search(); }
+                                        accessible-label: "Search journal entries by title, notes, transcripts, and guides";
                                     }
                                     ComboBox {
                                         model: ["all", "with sessions", "without sessions"];
                                         current-value <=> root.journal-session-filter;
+                                        accessible-label: "Filter entries by session presence";
                                     }
                                     Button {
                                         text: "Search";
                                         clicked => { root.run-journal-search(); }
+                                        accessible-label: "Search journal entries";
                                     }
                                     Button {
                                         text: "Collections";
                                         clicked => {
                                             root.journal-action("collection-list", "", "", "", "", "", "");
                                         }
+                                        accessible-label: "Manage journal collections";
                                     }
                                     Button {
                                         text: "Tags";
                                         clicked => {
                                             root.journal-action("tag-list", "", "", "", "", "", "");
                                         }
+                                        accessible-label: "Manage journal tags";
                                     }
                                 }
                                 HorizontalLayout {
@@ -1055,22 +1064,27 @@ export component MainWindow inherits Window {
                                     ComboBox {
                                         model: ["Newest first", "Oldest first", "Title"];
                                         current-value <=> root.journal-sort;
+                                        accessible-label: "Sort journal entries";
                                     }
                                     ComboBox {
                                         model: root.journal-collection-options;
                                         current-value <=> root.journal-collection-filter;
+                                        accessible-label: "Filter entries by collection";
                                     }
                                     ComboBox {
                                         model: root.journal-tag-options;
                                         current-value <=> root.journal-tag-filter;
+                                        accessible-label: "Filter entries by tag";
                                     }
                                     LineEdit {
                                         placeholder-text: "From YYYY-MM-DD";
                                         text <=> root.journal-date-from;
+                                        accessible-label: "Filter entries from date";
                                     }
                                     LineEdit {
                                         placeholder-text: "To YYYY-MM-DD";
                                         text <=> root.journal-date-to;
+                                        accessible-label: "Filter entries through date";
                                     }
                                 }
                             }
@@ -1084,6 +1098,8 @@ export component MainWindow inherits Window {
                                 border-color: #111111;
                                 border-radius: 5px;
                                 background: #ffffff;
+                                accessible-role: AccessibleRole.region;
+                                accessible-label: "Journal entries";
                                 VerticalLayout {
                                     padding: 15px;
                                     spacing: 10px;
@@ -1096,6 +1112,7 @@ export component MainWindow inherits Window {
                                     if root.journal-entry-options.length > 0: ComboBox {
                                         model: root.journal-entry-options;
                                         current-value <=> root.selected-journal-entry;
+                                        accessible-label: "Select a journal entry";
                                     }
                                     Button {
                                         text: "Open selected entry";
@@ -1105,6 +1122,7 @@ export component MainWindow inherits Window {
                                                 root.selected-journal-entry,
                                                 "", "", "", "", "");
                                         }
+                                        accessible-label: "Open the selected journal entry";
                                     }
                                     ScrollView {
                                         height: 330px;
@@ -1113,6 +1131,9 @@ export component MainWindow inherits Window {
                                             color: #111111;
                                             font-size: 12px;
                                             wrap: word-wrap;
+                                            accessible-role: AccessibleRole.text;
+                                            accessible-label: "Journal search results";
+                                            accessible-live-region: AccessibleLiveness.polite;
                                         }
                                     }
                                     Text {
@@ -1131,6 +1152,8 @@ export component MainWindow inherits Window {
                                     border-color: #111111;
                                     border-radius: 5px;
                                     background: #ffffff;
+                                    accessible-role: AccessibleRole.region;
+                                    accessible-label: "Journal entry workspace";
                                     VerticalLayout {
                                         padding: 15px;
                                         spacing: 9px;
@@ -1143,6 +1166,7 @@ export component MainWindow inherits Window {
                                         LineEdit {
                                             placeholder-text: "Entry ID";
                                             text <=> root.journal-entry-id;
+                                            accessible-label: "Journal entry identifier";
                                         }
                                         HorizontalLayout {
                                             spacing: 8px;
@@ -1186,10 +1210,12 @@ export component MainWindow inherits Window {
                                             LineEdit {
                                                 placeholder-text: "Title";
                                                 text <=> root.journal-entry-title;
+                                                accessible-label: "Journal entry title";
                                             }
                                             LineEdit {
                                                 placeholder-text: "Entry date YYYY-MM-DD";
                                                 text <=> root.journal-entry-date;
+                                                accessible-label: "Journal entry date";
                                             }
                                         }
                                         HorizontalLayout {
@@ -1222,6 +1248,8 @@ export component MainWindow inherits Window {
                                     border-color: #111111;
                                     border-radius: 5px;
                                     background: #ffffff;
+                                    accessible-role: AccessibleRole.region;
+                                    accessible-label: "Journal session timeline and controls";
                                     VerticalLayout {
                                         padding: 15px;
                                         spacing: 9px;
@@ -1236,6 +1264,7 @@ export component MainWindow inherits Window {
                                             LineEdit {
                                                 placeholder-text: "Session date YYYY-MM-DD";
                                                 text <=> root.journal-timeline-date;
+                                                accessible-label: "Session timeline date";
                                             }
                                             Button {
                                                 text: "Jump to date";
@@ -1244,6 +1273,7 @@ export component MainWindow inherits Window {
                                                         root.journal-timeline-date, root.journal-timeline-date,
                                                         "", "", "");
                                                 }
+                                                accessible-label: "Show sessions on the selected date";
                                             }
                                             Button {
                                                 text: "All dates";
@@ -1252,6 +1282,7 @@ export component MainWindow inherits Window {
                                                     root.journal-action("session-list", root.journal-entry-id,
                                                         "", "", "", "", "");
                                                 }
+                                                accessible-label: "Show sessions from all dates";
                                             }
                                         }
                                         HorizontalLayout {
@@ -1259,10 +1290,12 @@ export component MainWindow inherits Window {
                                             LineEdit {
                                                 placeholder-text: "Session title";
                                                 text <=> root.journal-session-title;
+                                                accessible-label: "Session title";
                                             }
                                             ComboBox {
                                                 model: ["notes-only", "record-audio", "import-recording"];
                                                 current-value <=> root.journal-session-type;
+                                                accessible-label: "New session mode";
                                             }
                                         }
                                         HorizontalLayout {
@@ -1281,14 +1314,17 @@ export component MainWindow inherits Window {
                                             ComboBox {
                                                 model: root.journal-session-student-options;
                                                 current-value <=> root.journal-session-student;
+                                                accessible-label: "Student for the new session";
                                             }
                                             LineEdit {
                                                 placeholder-text: "Language code, for example en or zh";
                                                 text <=> root.journal-session-language;
+                                                accessible-label: "Session language code";
                                             }
                                             ComboBox {
                                                 model: root.journal-guide-template-options;
                                                 current-value <=> root.journal-session-template;
+                                                accessible-label: "Guide template for the new session";
                                             }
                                         }
                                         HorizontalLayout {
@@ -1301,14 +1337,17 @@ export component MainWindow inherits Window {
                                             if root.journal-session-type == "record-audio": ComboBox {
                                                 model: ["microphone", "system-audio", "both", "application"];
                                                 current-value <=> root.journal-session-recording-source;
+                                                accessible-label: "Audio capture source for the new session";
                                             }
                                             if root.journal-session-type == "import-recording": ComboBox {
                                                 model: ["imported-file"];
                                                 current-value <=> root.journal-session-recording-source;
+                                                accessible-label: "Recording source for the new session";
                                             }
                                             if root.journal-session-type == "notes-only": ComboBox {
                                                 model: ["none"];
                                                 current-value <=> root.journal-session-recording-source;
+                                                accessible-label: "Recording source for the new session";
                                             }
                                         }
                                         if root.journal-session-student == "Create a new student": HorizontalLayout {
@@ -1316,10 +1355,12 @@ export component MainWindow inherits Window {
                                             LineEdit {
                                                 placeholder-text: "New student name";
                                                 text <=> root.journal-session-new-student-name;
+                                                accessible-label: "New student name";
                                             }
                                             LineEdit {
                                                 placeholder-text: "Grade or level";
                                                 text <=> root.journal-session-new-student-grade;
+                                                accessible-label: "New student grade or level";
                                             }
                                         }
                                         if root.journal-session-options.length > 0: ScrollView {
@@ -1340,6 +1381,7 @@ export component MainWindow inherits Window {
                                                             clicked => {
                                                                 root.selected-journal-session = session;
                                                             }
+                                                            accessible-label: "Select session " + session;
                                                         }
                                                         if root.selected-journal-session == session: HorizontalLayout {
                                                             spacing: 6px;
@@ -1352,18 +1394,23 @@ export component MainWindow inherits Window {
                                                                             "", "", "", "", "");
                                                                     }
                                                                 }
+                                                                accessible-label: (root.journal-session-expanded ?
+                                                                    "Hide details for session " :
+                                                                    "Show details for session ") + session;
                                                             }
                                                             Button {
                                                                 text: "Open session";
                                                                 clicked => {
                                                                     root.open-session("Session · " + session);
                                                                 }
+                                                                accessible-label: "Open session " + session;
                                                             }
                                                             Button {
                                                                 text: "Review transcript";
                                                                 clicked => {
                                                                     root.review-transcript("Session · " + session);
                                                                 }
+                                                                accessible-label: "Review transcript for session " + session;
                                                             }
                                                             Button {
                                                                 text: "Recording controls";
@@ -1371,6 +1418,7 @@ export component MainWindow inherits Window {
                                                                     root.selected-session = session;
                                                                     root.recording-panel-open = true;
                                                                 }
+                                                                accessible-label: "Open recording controls for session " + session;
                                                             }
                                                         }
                                                         if root.selected-journal-session == session && root.journal-session-expanded: Text {
@@ -1378,6 +1426,9 @@ export component MainWindow inherits Window {
                                                             color: #111111;
                                                             font-size: 11px;
                                                             wrap: word-wrap;
+                                                            accessible-role: AccessibleRole.text;
+                                                            accessible-label: "Expanded session details";
+                                                            accessible-live-region: AccessibleLiveness.polite;
                                                         }
                                                     }
                                                 }
@@ -1392,6 +1443,7 @@ export component MainWindow inherits Window {
                                         LineEdit {
                                             placeholder-text: "Session ID";
                                             text <=> root.journal-session-id;
+                                            accessible-label: "Session identifier";
                                         }
                                         HorizontalLayout {
                                             spacing: 8px;
@@ -1411,6 +1463,7 @@ export component MainWindow inherits Window {
                                                         root.journal-session-new-student-grade,
                                                         root.journal-session-recording-source);
                                                 }
+                                                accessible-label: "Create a new session in this journal entry";
                                             }
                                             Button {
                                                 text: "Show timeline";
@@ -1419,6 +1472,7 @@ export component MainWindow inherits Window {
                                                         root.journal-entry-id, root.journal-timeline-date,
                                                         root.journal-timeline-date, "", "", "");
                                                 }
+                                                accessible-label: "Refresh the session timeline";
                                             }
                                             Button {
                                                 text: "Open session";
@@ -1428,6 +1482,7 @@ export component MainWindow inherits Window {
                                                             root.selected-journal-session :
                                                             root.journal-session-id));
                                                 }
+                                                accessible-label: "Open the selected session";
                                             }
                                             Button {
                                                 text: "Review transcript";
@@ -1437,6 +1492,7 @@ export component MainWindow inherits Window {
                                                             root.selected-journal-session :
                                                             root.journal-session-id));
                                                 }
+                                                accessible-label: "Review the selected session transcript";
                                             }
                                             Button {
                                                 text: "Recording / import controls";
@@ -1447,6 +1503,8 @@ export component MainWindow inherits Window {
                                                             root.journal-session-id;
                                                     root.recording-panel-open = true;
                                                 }
+                                                accessible-label:
+                                                    "Open recording or import controls for the selected session";
                                             }
                                         }
                                         HorizontalLayout {
@@ -1460,6 +1518,7 @@ export component MainWindow inherits Window {
                                                             root.journal-session-id,
                                                         "", "", "", "", "");
                                                 }
+                                                accessible-label: "Resume the selected session";
                                             }
                                             Button {
                                                 text: "Complete session";
@@ -1470,6 +1529,7 @@ export component MainWindow inherits Window {
                                                             root.journal-session-id,
                                                         "", "", "", "", "");
                                                 }
+                                                accessible-label: "Complete the selected session";
                                             }
                                             Button {
                                                 text: "Mark reviewed";
@@ -1480,6 +1540,7 @@ export component MainWindow inherits Window {
                                                             root.journal-session-id,
                                                         "", "", "", "", "");
                                                 }
+                                                accessible-label: "Mark the selected session as reviewed";
                                             }
                                         }
                                         CheckBox {
@@ -1545,6 +1606,9 @@ export component MainWindow inherits Window {
                                             color: #111111;
                                             font-size: 11px;
                                             wrap: word-wrap;
+                                            accessible-role: AccessibleRole.text;
+                                            accessible-label: "Session timeline results";
+                                            accessible-live-region: AccessibleLiveness.polite;
                                         }
                                     }
                                 }
