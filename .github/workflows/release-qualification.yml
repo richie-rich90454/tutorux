@@ -25,7 +25,7 @@ jobs:
             profile: Full
             runner: windows-2025
             preset: portable-static-windows-x64-release
-            build_dir: build-windows-x64-static
+            build_dir: build/windows-x64-static
             runtime_dir: dist/windows-x64
             executable: dist/windows-x64/tutorux.exe
             artifact: dist/windows-x64
@@ -34,7 +34,7 @@ jobs:
             profile: Full
             runner: windows-11-arm
             preset: portable-static-windows-arm64-release
-            build_dir: build-windows-arm64-static
+            build_dir: build/windows-arm64-static
             runtime_dir: dist/windows-arm64
             executable: dist/windows-arm64/tutorux.exe
             artifact: dist/windows-arm64
@@ -43,7 +43,7 @@ jobs:
             profile: Full
             runner: ubuntu-24.04
             preset: portable-static-linux-x64-release
-            build_dir: build-linux-x64-static
+            build_dir: build/linux-x64-static
             runtime_dir: dist/linux-x64
             executable: dist/linux-x64/tutorux
             artifact: dist/linux-x64
@@ -51,7 +51,7 @@ jobs:
             profile: Full
             runner: ubuntu-24.04-arm
             preset: portable-static-linux-arm64-release
-            build_dir: build-linux-arm64-static
+            build_dir: build/linux-arm64-static
             runtime_dir: dist/linux-arm64
             executable: dist/linux-arm64/tutorux
             artifact: dist/linux-arm64
@@ -59,7 +59,7 @@ jobs:
             profile: Full
             runner: macos-15-intel
             preset: portable-static-macos-x64-release
-            build_dir: build-macos-x64-static
+            build_dir: build/macos-x64-static
             runtime_dir: dist/macos-intel-runtime
             executable: dist/Tutorux-macos-intel-Full.app/Contents/MacOS/tutorux
             artifact: dist/Tutorux-macos-intel-Full.app
@@ -68,7 +68,7 @@ jobs:
             profile: Full
             runner: macos-15
             preset: portable-static-macos-arm64-release
-            build_dir: build-macos-arm64-static
+            build_dir: build/macos-arm64-static
             runtime_dir: dist/macos-apple-silicon-runtime
             executable: dist/Tutorux-macos-apple-silicon-Full.app/Contents/MacOS/tutorux
             artifact: dist/Tutorux-macos-apple-silicon-Full.app
@@ -77,7 +77,7 @@ jobs:
             profile: Compact
             runner: windows-2025
             preset: portable-compact-windows-x64-release
-            build_dir: build-windows-x64-compact
+            build_dir: build/windows-x64-compact
             runtime_dir: dist/windows-x64-compact
             executable: dist/windows-x64-compact/tutorux.exe
             artifact: dist/windows-x64-compact
@@ -86,7 +86,7 @@ jobs:
             profile: Compact
             runner: windows-11-arm
             preset: portable-compact-windows-arm64-release
-            build_dir: build-windows-arm64-compact
+            build_dir: build/windows-arm64-compact
             runtime_dir: dist/windows-arm64-compact
             executable: dist/windows-arm64-compact/tutorux.exe
             artifact: dist/windows-arm64-compact
@@ -95,7 +95,7 @@ jobs:
             profile: Compact
             runner: ubuntu-24.04
             preset: portable-compact-linux-x64-release
-            build_dir: build-linux-x64-compact
+            build_dir: build/linux-x64-compact
             runtime_dir: dist/linux-x64-compact
             executable: dist/linux-x64-compact/tutorux
             artifact: dist/linux-x64-compact
@@ -103,7 +103,7 @@ jobs:
             profile: Compact
             runner: ubuntu-24.04-arm
             preset: portable-compact-linux-arm64-release
-            build_dir: build-linux-arm64-compact
+            build_dir: build/linux-arm64-compact
             runtime_dir: dist/linux-arm64-compact
             executable: dist/linux-arm64-compact/tutorux
             artifact: dist/linux-arm64-compact
@@ -111,7 +111,7 @@ jobs:
             profile: Compact
             runner: macos-15-intel
             preset: portable-compact-macos-x64-release
-            build_dir: build-macos-x64-compact
+            build_dir: build/macos-x64-compact
             runtime_dir: dist/macos-intel-compact-runtime
             executable: dist/Tutorux-macos-intel-Compact.app/Contents/MacOS/tutorux
             artifact: dist/Tutorux-macos-intel-Compact.app
@@ -120,7 +120,7 @@ jobs:
             profile: Compact
             runner: macos-15
             preset: portable-compact-macos-arm64-release
-            build_dir: build-macos-arm64-compact
+            build_dir: build/macos-arm64-compact
             runtime_dir: dist/macos-apple-silicon-compact-runtime
             executable: dist/Tutorux-macos-apple-silicon-Compact.app/Contents/MacOS/tutorux
             artifact: dist/Tutorux-macos-apple-silicon-Compact.app
@@ -458,7 +458,7 @@ jobs:
             -DTUTORUX_SODIUM_PREFIX="$RUNNER_TEMP/tutorux-sodium-wasm" \
             -DTUTORUX_SODIUM_SOURCE_COMMIT="$TUTORUX_SODIUM_SOURCE_COMMIT"
           cmake --build --preset portable-wasm-release --parallel 2
-          cmake --install build-wasm --component WebRuntime --prefix dist/tutorux-web
+          cmake --install build/wasm --component WebRuntime --prefix dist/tutorux-web
           dpkg-query -W -f='${binary:Package}=${Version}\n' > "$RUNNER_TEMP/wasm-package-inventory.txt"
           cat "$RUNNER_TEMP/wasm-dependency-inventory.txt" >> "$RUNNER_TEMP/wasm-package-inventory.txt"
           cp "$RUNNER_TEMP/wasm-package-inventory.txt" dist/tutorux-web/WASM-build-inventory.txt
