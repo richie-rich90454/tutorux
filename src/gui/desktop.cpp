@@ -99,8 +99,7 @@ namespace {
     std::vector<std::string> archiveCommand(const std::filesystem::path& path,
                                             std::vector<std::string> command) {
         std::vector<std::string> arguments{"--archive", path.string()};
-        arguments.insert(arguments.end(),
-                         std::make_move_iterator(command.begin()),
+        arguments.insert(arguments.end(), std::make_move_iterator(command.begin()),
                          std::make_move_iterator(command.end()));
         return arguments;
     }
@@ -169,9 +168,8 @@ namespace {
         if (escaped)
             token.push_back('\\');
         if (quote != 0) {
-            return std::unexpected(
-                tutorux::core::error("command_quote_unclosed",
-                                     "Close the quoted command argument before running it."));
+            return std::unexpected(tutorux::core::error(
+                "command_quote_unclosed", "Close the quoted command argument before running it."));
         }
         finishToken();
         if (!arguments.empty() && arguments.front() == "tutorux")
@@ -246,9 +244,8 @@ namespace {
         if (value == record.fields.end())
             return "00:00:00";
         std::int64_t timestamp = 0;
-        const auto [end, error] = std::from_chars(value->second.data(),
-                                                  value->second.data() + value->second.size(),
-                                                  timestamp);
+        const auto [end, error] = std::from_chars(
+            value->second.data(), value->second.data() + value->second.size(), timestamp);
         if (error != std::errc{} || end != value->second.data() + value->second.size() ||
             timestamp < 0) {
             return "Unknown time";
@@ -304,9 +301,8 @@ namespace {
         const std::string value(selection.data(), selection.size());
         constexpr std::string_view labelSeparator = " · ";
         const auto labelPosition = value.find(labelSeparator);
-        const std::string_view label(value.data(),
-                                     labelPosition == std::string::npos ? value.size()
-                                                                        : labelPosition);
+        const std::string_view label(
+            value.data(), labelPosition == std::string::npos ? value.size() : labelPosition);
         const auto identitySeparator = label.find('|');
         if (identitySeparator == std::string_view::npos)
             return std::nullopt;
@@ -321,9 +317,8 @@ namespace {
         std::size_t blockIndex = 0;
         const auto [sectionEnd, sectionError] =
             std::from_chars(indexes.data(), indexes.data() + colon, sectionIndex);
-        const auto [blockEnd, blockError] = std::from_chars(indexes.data() + colon + 1,
-                                                            indexes.data() + indexes.size(),
-                                                            blockIndex);
+        const auto [blockEnd, blockError] = std::from_chars(
+            indexes.data() + colon + 1, indexes.data() + indexes.size(), blockIndex);
         if (sectionError != std::errc{} || sectionEnd != indexes.data() + colon ||
             blockError != std::errc{} || blockEnd != indexes.data() + indexes.size()) {
             return std::nullopt;
@@ -331,8 +326,8 @@ namespace {
         return GuideBlockSelection{guideId, sectionIndex, blockIndex};
     }
 
-    std::string
-    populateGuideBlockOptions(MainWindow& window, Archive& archive, std::string_view guideIdText) {
+    std::string populateGuideBlockOptions(MainWindow& window, Archive& archive,
+                                          std::string_view guideIdText) {
         auto guideId = tutorux::archive::uuidFromString(guideIdText);
         if (!guideId)
             return guideId.error().message;
@@ -367,8 +362,7 @@ namespace {
         return {};
     }
 
-    void refreshWorkspace(MainWindow& window,
-                          const std::filesystem::path& path,
+    void refreshWorkspace(MainWindow& window, const std::filesystem::path& path,
                           std::string_view passphrase = {}) {
         window.set_archive_path(toSharedString(path.string()));
         auto info = Archive::discover(path.parent_path());
@@ -628,9 +622,7 @@ int launchDesktop(std::optional<std::filesystem::path> archivePath,
             name = "Tutorux.tux";
         std::filesystem::path path(name);
         std::string extension = path.extension().string();
-        std::transform(extension.begin(),
-                       extension.end(),
-                       extension.begin(),
+        std::transform(extension.begin(), extension.end(), extension.begin(),
                        [](unsigned char character) {
                            return static_cast<char>(std::tolower(character));
                        });
@@ -662,51 +654,46 @@ int launchDesktop(std::optional<std::filesystem::path> archivePath,
         window->set_status_message(toSharedString("Archive created and selected."));
     });
 
-    window->on_create_student([&](slint::SharedString requestedName,
-                                  slint::SharedString requestedGrade,
-                                  slint::SharedString requestedSubjects,
-                                  slint::SharedString requestedObjectives,
-                                  slint::SharedString requestedDifficulties,
-                                  slint::SharedString requestedNotes) {
-        if (requestedName.empty()) {
-            window->set_status_message(toSharedString("Enter a student name first."));
-            return;
-        }
-        const std::filesystem::path path(window->get_archive_path().data());
-        if (path.empty()) {
-            window->set_status_message(
-                toSharedString("Choose an archive before adding a student."));
-            return;
-        }
-        auto arguments =
-            archiveCommand(path,
-                           {"student", "create", "--name", std::string(requestedName.data())});
-        const auto appendOption = [&](std::string_view name, const slint::SharedString& value) {
-            if (value.empty())
+    window->on_create_student(
+        [&](slint::SharedString requestedName, slint::SharedString requestedGrade,
+            slint::SharedString requestedSubjects, slint::SharedString requestedObjectives,
+            slint::SharedString requestedDifficulties, slint::SharedString requestedNotes) {
+            if (requestedName.empty()) {
+                window->set_status_message(toSharedString("Enter a student name first."));
                 return;
-            arguments.emplace_back("--" + std::string(name));
-            arguments.emplace_back(value.data(), value.size());
-        };
-        appendOption("grade", requestedGrade);
-        appendOption("subjects", requestedSubjects);
-        appendOption("objectives", requestedObjectives);
-        appendOption("difficulties", requestedDifficulties);
-        appendOption("notes", requestedNotes);
-        auto created = dispatchWithSecrets(arguments, activePassphrase);
-        window->set_status_message(toSharedString(commandOutput(std::move(created))));
-        refreshWorkspace(*window, path, activePassphrase);
-        window->set_student_name(toSharedString(""));
-        window->set_student_grade(toSharedString(""));
-        window->set_student_subjects(toSharedString(""));
-        window->set_student_objectives(toSharedString(""));
-        window->set_student_difficulties(toSharedString(""));
-        window->set_student_notes(toSharedString(""));
-    });
+            }
+            const std::filesystem::path path(window->get_archive_path().data());
+            if (path.empty()) {
+                window->set_status_message(
+                    toSharedString("Choose an archive before adding a student."));
+                return;
+            }
+            auto arguments = archiveCommand(
+                path, {"student", "create", "--name", std::string(requestedName.data())});
+            const auto appendOption = [&](std::string_view name, const slint::SharedString& value) {
+                if (value.empty())
+                    return;
+                arguments.emplace_back("--" + std::string(name));
+                arguments.emplace_back(value.data(), value.size());
+            };
+            appendOption("grade", requestedGrade);
+            appendOption("subjects", requestedSubjects);
+            appendOption("objectives", requestedObjectives);
+            appendOption("difficulties", requestedDifficulties);
+            appendOption("notes", requestedNotes);
+            auto created = dispatchWithSecrets(arguments, activePassphrase);
+            window->set_status_message(toSharedString(commandOutput(std::move(created))));
+            refreshWorkspace(*window, path, activePassphrase);
+            window->set_student_name(toSharedString(""));
+            window->set_student_grade(toSharedString(""));
+            window->set_student_subjects(toSharedString(""));
+            window->set_student_objectives(toSharedString(""));
+            window->set_student_difficulties(toSharedString(""));
+            window->set_student_notes(toSharedString(""));
+        });
 
-    window->on_create_session([&](slint::SharedString selectedStudent,
-                                  slint::SharedString subject,
-                                  slint::SharedString title,
-                                  slint::SharedString objectives) {
+    window->on_create_session([&](slint::SharedString selectedStudent, slint::SharedString subject,
+                                  slint::SharedString title, slint::SharedString objectives) {
         const std::filesystem::path path(window->get_archive_path().data());
         if (path.empty()) {
             window->set_status_message(
@@ -734,15 +721,9 @@ int launchDesktop(std::optional<std::filesystem::path> archivePath,
                 return;
             }
         }
-        auto arguments = archiveCommand(path,
-                                        {"session",
-                                         "create",
-                                         "--student-id",
-                                         studentId,
-                                         "--subject",
-                                         std::string(subject.data()),
-                                         "--title",
-                                         std::string(title.data())});
+        auto arguments = archiveCommand(path, {"session", "create", "--student-id", studentId,
+                                               "--subject", std::string(subject.data()), "--title",
+                                               std::string(title.data())});
         if (!objectives.empty()) {
             arguments.emplace_back("--objectives");
             arguments.emplace_back(objectives.data(), objectives.size());
@@ -775,9 +756,8 @@ int launchDesktop(std::optional<std::filesystem::path> archivePath,
             window->set_command_output(toSharedString("Select a session from this archive."));
             return;
         }
-        auto command =
-            dispatchWithSecrets(archiveCommand(path, {"transcript", "list", "--session", id}),
-                                activePassphrase);
+        auto command = dispatchWithSecrets(
+            archiveCommand(path, {"transcript", "list", "--session", id}), activePassphrase);
         window->set_command_output(toSharedString(commandOutput(std::move(command))));
         auto archive = Archive::open(path, false, activePassphrase);
         if (!archive) {
@@ -890,14 +870,10 @@ int launchDesktop(std::optional<std::filesystem::path> archivePath,
                 "This transcript segment changed after it was loaded. Reload it before saving."));
             return;
         }
-        auto command =
-            dispatchWithSecrets(archiveCommand(path,
-                                               {"transcript",
-                                                "correct",
-                                                segmentId,
-                                                "--text",
-                                                std::string(editedText.data(), editedText.size())}),
-                                activePassphrase);
+        auto command = dispatchWithSecrets(
+            archiveCommand(path, {"transcript", "correct", segmentId, "--text",
+                                  std::string(editedText.data(), editedText.size())}),
+            activePassphrase);
         const std::string output = commandOutput(std::move(command));
         window->set_command_output(toSharedString(output));
         window->set_status_message(toSharedString(output));
@@ -914,54 +890,208 @@ int launchDesktop(std::optional<std::filesystem::path> archivePath,
         }
     });
 
-    window->on_quick_marker([&](slint::SharedString selectedSession,
-                                slint::SharedString type,
-                                slint::SharedString timestamp,
-                                slint::SharedString note) {
+    window->on_quick_marker([&](slint::SharedString selectedSession, slint::SharedString type,
+                                slint::SharedString timestamp, slint::SharedString note) {
         const std::filesystem::path path(window->get_archive_path().data());
         const std::string id = selectionId(selectedSession);
         if (path.empty() || id.empty()) {
             window->set_command_output(toSharedString("Select a session from this archive."));
             return;
         }
-        auto command =
-            dispatchWithSecrets(archiveCommand(path,
-                                               {"annotation",
-                                                "add",
-                                                "--session",
-                                                id,
-                                                "--type",
-                                                std::string(type.data(), type.size()),
-                                                "--at",
-                                                std::string(timestamp.data(), timestamp.size()),
-                                                "--text",
-                                                std::string(note.data(), note.size())}),
-                                activePassphrase);
+        auto command = dispatchWithSecrets(
+            archiveCommand(path, {"annotation", "add", "--session", id, "--type",
+                                  std::string(type.data(), type.size()), "--at",
+                                  std::string(timestamp.data(), timestamp.size()), "--text",
+                                  std::string(note.data(), note.size())}),
+            activePassphrase);
         const std::string output = commandOutput(std::move(command));
         window->set_command_output(toSharedString(output));
         window->set_status_message(toSharedString(output));
     });
 
-    window->on_recording_command([&](slint::SharedString selectedSession,
-                                     slint::SharedString action,
-                                     slint::SharedString source) {
+    const auto playbackThreads = std::make_shared<std::vector<std::thread>>();
+    const auto playbackThreadsMutex = std::make_shared<std::mutex>();
+    std::shared_ptr<std::atomic_bool> playbackStop;
+    std::shared_ptr<std::atomic_bool> waveformStop;
+    const slint::ComponentWeakHandle<MainWindow> playbackWeakWindow(window);
+    window->on_recording_command([&, playbackThreads, playbackThreadsMutex](
+                                     slint::SharedString selectedSession,
+                                     slint::SharedString action, slint::SharedString source) {
         const std::filesystem::path path(window->get_archive_path().data());
         const std::string id = selectionId(selectedSession);
         const std::string commandAction(action.data(), action.size());
+        if (commandAction == "stop-playback") {
+            if (playbackStop)
+                playbackStop->store(true);
+            window->set_status_message(toSharedString("Audio playback is stopping."));
+            return;
+        }
+        if (commandAction == "stop-waveform") {
+            if (waveformStop)
+                waveformStop->store(true);
+            window->set_status_message(toSharedString("Waveform generation is stopping."));
+            return;
+        }
         if (path.empty() || id.empty()) {
             window->set_command_output(toSharedString("Select a session from this archive."));
             return;
         }
-        std::vector<std::string> arguments{"record", commandAction, "--session", id};
-        if (commandAction == "start") {
+        if (commandAction == "play-transcript") {
+            const std::string segmentId = selectionId(window->get_selected_transcript());
+            const auto segmentUuid = tutorux::archive::uuidFromString(segmentId);
+            if (!segmentUuid) {
+                window->set_transcript_provenance(
+                    toSharedString("Select a transcript timestamp before playing audio."));
+                return;
+            }
+            auto archive = Archive::open(path, false, activePassphrase);
+            if (!archive) {
+                window->set_transcript_provenance(toSharedString(archive.error().message));
+                return;
+            }
+            auto segment =
+                archive->get(tutorux::archive::RecordType::TranscriptSegment, *segmentUuid);
+            if (!segment || !*segment) {
+                window->set_transcript_provenance(
+                    toSharedString(segment ? "The selected transcript segment was not found."
+                                           : segment.error().message));
+                return;
+            }
+            const auto sessionField = (**segment).fields.find("session_id");
+            const auto startField = (**segment).fields.find("start_time_us");
+            if (sessionField == (**segment).fields.end() || sessionField->second != id ||
+                startField == (**segment).fields.end()) {
+                window->set_transcript_provenance(toSharedString(
+                    "The selected transcript timestamp is invalid for this session."));
+                return;
+            }
+            std::uint64_t startUs = 0;
+            const auto [end, parseError] =
+                std::from_chars(startField->second.data(),
+                                startField->second.data() + startField->second.size(), startUs);
+            if (parseError != std::errc{} ||
+                end != startField->second.data() + startField->second.size()) {
+                window->set_transcript_provenance(
+                    toSharedString("The selected transcript timestamp is malformed."));
+                return;
+            }
+
+            std::vector<std::string> arguments{
+                "record",        "play",    "--session", id, "--start-us", std::to_string(startUs),
+                "--duration-us", "30000000"};
+            const std::string trackId(window->get_recording_export_track().data(),
+                                      window->get_recording_export_track().size());
+            if (!trackId.empty())
+                arguments.insert(arguments.end(), {"--track", trackId});
+            const auto stopRequested = std::make_shared<std::atomic_bool>(false);
+            if (playbackStop)
+                playbackStop->store(true);
+            playbackStop = stopRequested;
+            std::string passphrase = activePassphrase;
+            window->set_command_output(
+                toSharedString("Playing 30 seconds from the selected transcript timestamp…"));
+            window->set_status_message(toSharedString("Playing archive audio."));
+            std::thread worker([playbackWeakWindow, selectedPath = path, stopRequested,
+                                passphrase = std::move(passphrase),
+                                arguments = std::move(arguments)]() mutable {
+                std::string output;
+                try {
+                    auto command =
+                        dispatchWithSecrets(archiveCommand(selectedPath, std::move(arguments)),
+                                            passphrase, {}, {}, [stopRequested] {
+                                                return stopRequested->load();
+                                            });
+                    output = commandOutput(std::move(command));
+                } catch (const std::exception& exception) {
+                    output = std::string("Playback failed: ") + exception.what();
+                } catch (...) {
+                    output = "Playback failed with an unknown error.";
+                }
+                eraseSecret(passphrase);
+                static_cast<void>(slint::invoke_from_event_loop([playbackWeakWindow,
+                                                                 output =
+                                                                     std::move(output)]() mutable {
+                    if (auto strongWindow = playbackWeakWindow.lock()) {
+                        (*strongWindow)->set_command_output(toSharedString(output));
+                        (*strongWindow)->set_status_message(toSharedString("Playback finished."));
+                    }
+                }));
+            });
+            {
+                const std::scoped_lock lock(*playbackThreadsMutex);
+                playbackThreads->push_back(std::move(worker));
+            }
+            return;
+        }
+        if (commandAction == "waveform") {
+            std::vector<std::string> arguments{"record", "waveform",  "--session",
+                                               id,       "--buckets", "72"};
+            const std::string trackId(window->get_recording_export_track().data(),
+                                      window->get_recording_export_track().size());
+            if (!trackId.empty())
+                arguments.insert(arguments.end(), {"--track", trackId});
+            const auto stopRequested = std::make_shared<std::atomic_bool>(false);
+            if (waveformStop)
+                waveformStop->store(true);
+            waveformStop = stopRequested;
+            std::string passphrase = activePassphrase;
+            window->set_command_output(toSharedString("Building the archive waveform index…"));
+            window->set_status_message(toSharedString("Reading audio in bounded buffers."));
+            std::thread worker([playbackWeakWindow, selectedPath = path, stopRequested,
+                                passphrase = std::move(passphrase),
+                                arguments = std::move(arguments)]() mutable {
+                std::string output;
+                try {
+                    auto command =
+                        dispatchWithSecrets(archiveCommand(selectedPath, std::move(arguments)),
+                                            passphrase, {}, {}, [stopRequested] {
+                                                return stopRequested->load();
+                                            });
+                    output = commandOutput(std::move(command));
+                } catch (const std::exception& exception) {
+                    output = std::string("Waveform generation failed: ") + exception.what();
+                } catch (...) {
+                    output = "Waveform generation failed with an unknown error.";
+                }
+                eraseSecret(passphrase);
+                static_cast<void>(slint::invoke_from_event_loop(
+                    [playbackWeakWindow, output = std::move(output)]() mutable {
+                        if (auto strongWindow = playbackWeakWindow.lock()) {
+                            (*strongWindow)->set_command_output(toSharedString(output));
+                            (*strongWindow)
+                                ->set_status_message(toSharedString("Waveform command finished."));
+                        }
+                    }));
+            });
+            {
+                const std::scoped_lock lock(*playbackThreadsMutex);
+                playbackThreads->push_back(std::move(worker));
+            }
+            return;
+        }
+        const bool fillAudioGaps = commandAction == "export-wav-fill-gaps";
+        const std::string dispatchedAction = fillAudioGaps ? "export-wav" : commandAction;
+        std::vector<std::string> arguments{"record", dispatchedAction, "--session", id};
+        if (commandAction == "export-wav" || fillAudioGaps) {
+            const std::string outputValue(source.data(), source.size());
+            if (outputValue.empty()) {
+                window->set_command_output(toSharedString("Choose a WAV export path."));
+                return;
+            }
+            std::filesystem::path outputPath(outputValue);
+            if (outputPath.is_relative())
+                outputPath = path.parent_path() / outputPath;
+            arguments.insert(arguments.end(), {"--output", outputPath.string()});
+            if (fillAudioGaps)
+                arguments.push_back("--fill-gaps");
+            const std::string trackId(window->get_recording_export_track().data(),
+                                      window->get_recording_export_track().size());
+            if (!trackId.empty())
+                arguments.insert(arguments.end(), {"--track", trackId});
+        } else if (commandAction == "start") {
             const std::string requestedSource(source.data(), source.size());
-            arguments.insert(arguments.end(),
-                             {"--source",
-                              requestedSource,
-                              "--consent",
-                              "--confirmed-by",
-                              "Tutorux desktop",
-                              "--detach"});
+            arguments.insert(arguments.end(), {"--source", requestedSource, "--consent",
+                                               "--confirmed-by", "Tutorux desktop", "--detach"});
             const std::string microphoneDevice(window->get_recording_microphone_device().data(),
                                                window->get_recording_microphone_device().size());
             const std::string playbackDevice(window->get_recording_playback_device().data(),
@@ -986,10 +1116,8 @@ int launchDesktop(std::optional<std::filesystem::path> archivePath,
         window->set_status_message(toSharedString(output));
     });
 
-    window->on_guide_command([&](slint::SharedString selectedGuide,
-                                 slint::SharedString action,
-                                 slint::SharedString format,
-                                 slint::SharedString outputPath) {
+    window->on_guide_command([&](slint::SharedString selectedGuide, slint::SharedString action,
+                                 slint::SharedString format, slint::SharedString outputPath) {
         const std::filesystem::path path(window->get_archive_path().data());
         const std::string id = selectionId(selectedGuide);
         const std::string commandAction(action.data(), action.size());
@@ -1015,9 +1143,7 @@ int launchDesktop(std::optional<std::filesystem::path> archivePath,
                 return;
             }
             arguments.insert(arguments.end(),
-                             {"--format",
-                              std::string(format.data(), format.size()),
-                              "--output",
+                             {"--format", std::string(format.data(), format.size()), "--output",
                               std::string(outputPath.data(), outputPath.size())});
         } else if (commandAction != "show" && commandAction != "validate" &&
                    commandAction != "approve") {
@@ -1031,8 +1157,7 @@ int launchDesktop(std::optional<std::filesystem::path> archivePath,
         window->set_status_message(toSharedString(output));
     });
 
-    window->on_asset_command([&](slint::SharedString selectedSession,
-                                 slint::SharedString action,
+    window->on_asset_command([&](slint::SharedString selectedSession, slint::SharedString action,
                                  slint::SharedString inputPath) {
         const std::filesystem::path path(window->get_archive_path().data());
         const std::string id = selectionId(selectedSession);
@@ -1060,10 +1185,8 @@ int launchDesktop(std::optional<std::filesystem::path> archivePath,
         window->set_status_message(toSharedString(output));
     });
 
-    window->on_ai_command([&](slint::SharedString provider,
-                              slint::SharedString action,
-                              slint::SharedString selectedSession,
-                              slint::SharedString outputPath) {
+    window->on_ai_command([&](slint::SharedString provider, slint::SharedString action,
+                              slint::SharedString selectedSession, slint::SharedString outputPath) {
         const std::filesystem::path path(window->get_archive_path().data());
         if (path.empty()) {
             window->set_command_output(toSharedString("Choose an archive first."));
@@ -1102,14 +1225,8 @@ int launchDesktop(std::optional<std::filesystem::path> archivePath,
                     "Enter provider llama.cpp-embedded, a model ID, and an explicit GGUF path."));
                 return;
             }
-            arguments = {"model",
-                         "select",
-                         "--provider",
-                         providerId,
-                         "--model",
-                         modelId,
-                         "--path",
-                         modelPath};
+            arguments = {"model",   "select", "--provider", providerId,
+                         "--model", modelId,  "--path",     modelPath};
         } else if (commandAction == "package" || commandAction == "zip-package") {
             const std::string sessionId = selectionId(selectedSession);
             if (sessionId.empty()) {
@@ -1118,12 +1235,7 @@ int launchDesktop(std::optional<std::filesystem::path> archivePath,
                 return;
             }
             arguments.insert(arguments.end(),
-                             {"package",
-                              "--session",
-                              sessionId,
-                              "--mode",
-                              "manual",
-                              "--format",
+                             {"package", "--session", sessionId, "--mode", "manual", "--format",
                               commandAction == "zip-package" ? "zip" : "markdown"});
             if (commandAction == "zip-package")
                 arguments.emplace_back("--confirm-sensitive");
@@ -1138,9 +1250,8 @@ int launchDesktop(std::optional<std::filesystem::path> archivePath,
                     toSharedString("Select a session before preparing a local package."));
                 return;
             }
-            arguments.insert(
-                arguments.end(),
-                {"package", "--session", sessionId, "--mode", "local", "--format", "json"});
+            arguments.insert(arguments.end(), {"package", "--session", sessionId, "--mode", "local",
+                                               "--format", "json"});
             if (!outputPath.empty()) {
                 arguments.emplace_back("--output");
                 arguments.emplace_back(outputPath.data(), outputPath.size());
@@ -1182,12 +1293,8 @@ int launchDesktop(std::optional<std::filesystem::path> archivePath,
                     "Select a session and enter the structured external response file path."));
                 return;
             }
-            arguments = {"ai",
-                         "import",
-                         "--session",
-                         sessionId,
-                         "--input",
-                         std::string(outputPath.data(), outputPath.size())};
+            arguments = {"ai",      "import",  "--session",
+                         sessionId, "--input", std::string(outputPath.data(), outputPath.size())};
         } else {
             window->set_command_output(toSharedString("Unsupported AI workspace action."));
             return;
@@ -1197,70 +1304,67 @@ int launchDesktop(std::optional<std::filesystem::path> archivePath,
         window->invoke_run_command(toSharedString(requestedCommand), toSharedString(""));
     });
 
-    window->on_save_marker_shortcuts([&](slint::SharedString conceptShortcut,
-                                         slint::SharedString mistake,
-                                         slint::SharedString correction,
-                                         slint::SharedString instruction,
-                                         slint::SharedString example,
-                                         slint::SharedString followUp,
-                                         slint::SharedString note) {
-        const std::filesystem::path path(window->get_archive_path().data());
-        if (path.empty()) {
-            window->set_status_message(toSharedString("Choose an archive first."));
-            return;
-        }
-        std::array<std::string, 7> shortcuts{
-            std::string(conceptShortcut.data(), conceptShortcut.size()),
-            std::string(mistake.data(), mistake.size()),
-            std::string(correction.data(), correction.size()),
-            std::string(instruction.data(), instruction.size()),
-            std::string(example.data(), example.size()),
-            std::string(followUp.data(), followUp.size()),
-            std::string(note.data(), note.size())};
-        std::set<char> unique;
-        for (auto& shortcut : shortcuts) {
-            if (shortcut.size() != 1 || shortcut.front() == ',' ||
-                static_cast<unsigned char>(shortcut.front()) < 0x21U ||
-                static_cast<unsigned char>(shortcut.front()) > 0x7eU) {
-                window->set_status_message(toSharedString(
-                    "Each shortcut must be one printable ASCII character other than comma."));
+    window->on_save_marker_shortcuts(
+        [&](slint::SharedString conceptShortcut, slint::SharedString mistake,
+            slint::SharedString correction, slint::SharedString instruction,
+            slint::SharedString example, slint::SharedString followUp, slint::SharedString note) {
+            const std::filesystem::path path(window->get_archive_path().data());
+            if (path.empty()) {
+                window->set_status_message(toSharedString("Choose an archive first."));
                 return;
             }
-            char key = shortcut.front();
-            if (std::isalpha(static_cast<unsigned char>(key))) {
-                key = static_cast<char>(std::tolower(static_cast<unsigned char>(key)));
-                shortcut.front() = key;
+            std::array<std::string, 7> shortcuts{
+                std::string(conceptShortcut.data(), conceptShortcut.size()),
+                std::string(mistake.data(), mistake.size()),
+                std::string(correction.data(), correction.size()),
+                std::string(instruction.data(), instruction.size()),
+                std::string(example.data(), example.size()),
+                std::string(followUp.data(), followUp.size()),
+                std::string(note.data(), note.size())};
+            std::set<char> unique;
+            for (auto& shortcut : shortcuts) {
+                if (shortcut.size() != 1 || shortcut.front() == ',' ||
+                    static_cast<unsigned char>(shortcut.front()) < 0x21U ||
+                    static_cast<unsigned char>(shortcut.front()) > 0x7eU) {
+                    window->set_status_message(toSharedString(
+                        "Each shortcut must be one printable ASCII character other than comma."));
+                    return;
+                }
+                char key = shortcut.front();
+                if (std::isalpha(static_cast<unsigned char>(key))) {
+                    key = static_cast<char>(std::tolower(static_cast<unsigned char>(key)));
+                    shortcut.front() = key;
+                }
+                if (!unique.insert(key).second) {
+                    window->set_status_message(
+                        toSharedString("Quick marker shortcuts must be unique."));
+                    return;
+                }
             }
-            if (!unique.insert(key).second) {
-                window->set_status_message(
-                    toSharedString("Quick marker shortcuts must be unique."));
-                return;
+            std::string serialized;
+            for (const auto& shortcut : shortcuts) {
+                if (!serialized.empty())
+                    serialized.push_back(',');
+                serialized += shortcut;
             }
-        }
-        std::string serialized;
-        for (const auto& shortcut : shortcuts) {
-            if (!serialized.empty())
-                serialized.push_back(',');
-            serialized += shortcut;
-        }
-        auto command = dispatchWithSecrets(
-            archiveCommand(path,
-                           {"settings", "set", "annotation.quick_marker_shortcuts", serialized}),
-            activePassphrase);
-        const bool saved = command && command->exitCode == 0;
-        const std::string output = commandOutput(std::move(command));
-        if (saved) {
-            window->set_shortcut_concept(toSharedString(shortcuts[0]));
-            window->set_shortcut_mistake(toSharedString(shortcuts[1]));
-            window->set_shortcut_correction(toSharedString(shortcuts[2]));
-            window->set_shortcut_instruction(toSharedString(shortcuts[3]));
-            window->set_shortcut_example(toSharedString(shortcuts[4]));
-            window->set_shortcut_follow_up(toSharedString(shortcuts[5]));
-            window->set_shortcut_note(toSharedString(shortcuts[6]));
-        }
-        window->set_status_message(toSharedString(output));
-        window->set_command_output(toSharedString(output));
-    });
+            auto command = dispatchWithSecrets(
+                archiveCommand(
+                    path, {"settings", "set", "annotation.quick_marker_shortcuts", serialized}),
+                activePassphrase);
+            const bool saved = command && command->exitCode == 0;
+            const std::string output = commandOutput(std::move(command));
+            if (saved) {
+                window->set_shortcut_concept(toSharedString(shortcuts[0]));
+                window->set_shortcut_mistake(toSharedString(shortcuts[1]));
+                window->set_shortcut_correction(toSharedString(shortcuts[2]));
+                window->set_shortcut_instruction(toSharedString(shortcuts[3]));
+                window->set_shortcut_example(toSharedString(shortcuts[4]));
+                window->set_shortcut_follow_up(toSharedString(shortcuts[5]));
+                window->set_shortcut_note(toSharedString(shortcuts[6]));
+            }
+            window->set_status_message(toSharedString(output));
+            window->set_command_output(toSharedString(output));
+        });
 
     const auto activeGuideEditor = std::make_shared<std::optional<ActiveGuideEditor>>();
     window->on_load_guide_block([&, activeGuideEditor](slint::SharedString selectedGuide,
@@ -1298,11 +1402,8 @@ int launchDesktop(std::optional<std::filesystem::path> archivePath,
             window->set_guide_provenance(toSharedString(buffer.error().message));
             return;
         }
-        *activeGuideEditor = ActiveGuideEditor{id,
-                                               indexes->sectionIndex,
-                                               indexes->blockIndex,
-                                               (**record).revision,
-                                               std::move(*buffer)};
+        *activeGuideEditor = ActiveGuideEditor{id, indexes->sectionIndex, indexes->blockIndex,
+                                               (**record).revision, std::move(*buffer)};
         window->set_guide_edit_text(toSharedString(block.text));
         std::ostringstream provenance;
         provenance << guide->sections[indexes->sectionIndex].heading << " · " << block.kind;
@@ -1373,16 +1474,9 @@ int launchDesktop(std::optional<std::filesystem::path> archivePath,
             return;
         }
 
-        auto arguments = archiveCommand(path,
-                                        {"guide",
-                                         "edit",
-                                         id,
-                                         "--section-index",
-                                         std::to_string(indexes->sectionIndex),
-                                         "--block-index",
-                                         std::to_string(indexes->blockIndex),
-                                         "--text",
-                                         buffer.text()});
+        auto arguments = archiveCommand(
+            path, {"guide", "edit", id, "--section-index", std::to_string(indexes->sectionIndex),
+                   "--block-index", std::to_string(indexes->blockIndex), "--text", buffer.text()});
         auto saved = dispatchWithSecrets(arguments, activePassphrase);
         const std::string output = commandOutput(std::move(saved));
         window->set_guide_output(toSharedString(output));
@@ -1426,10 +1520,7 @@ int launchDesktop(std::optional<std::filesystem::path> archivePath,
                     toSharedString("Cancellation requested. Saving any received response."));
         }
     });
-    window->on_run_command([weakWindow,
-                            commandBusy,
-                            commandStopRequested,
-                            commandThreads,
+    window->on_run_command([weakWindow, commandBusy, commandStopRequested, commandThreads,
                             commandThreadsMutex,
                             &activePassphrase](slint::SharedString requestedCommand,
                                                slint::SharedString requestedNewPassphrase) {
@@ -1492,12 +1583,9 @@ int launchDesktop(std::optional<std::filesystem::path> archivePath,
             return;
         }
 
-        std::vector<std::string> arguments{"--archive",
-                                           selectedPath.string(),
-                                           "--directory",
+        std::vector<std::string> arguments{"--archive", selectedPath.string(), "--directory",
                                            selectedPath.parent_path().string()};
-        arguments.insert(arguments.end(),
-                         std::make_move_iterator(parsed->begin()),
+        arguments.insert(arguments.end(), std::make_move_iterator(parsed->begin()),
                          std::make_move_iterator(parsed->end()));
         if (auto strongWindow = weakWindow.lock()) {
             (*strongWindow)->set_command_output(toSharedString("Running command…"));
@@ -1523,12 +1611,8 @@ int launchDesktop(std::optional<std::filesystem::path> archivePath,
         if (auto strongWindow = weakWindow.lock())
             (*strongWindow)->set_new_archive_passphrase(toSharedString(""));
 
-        std::thread worker([weakWindow,
-                            commandBusy,
-                            commandStopRequested,
-                            selectedPath,
-                            &activePassphrase,
-                            changesPassphrase,
+        std::thread worker([weakWindow, commandBusy, commandStopRequested, selectedPath,
+                            &activePassphrase, changesPassphrase,
                             commandPassphrase = std::move(commandPassphrase),
                             newPassphrase = std::move(newPassphrase),
                             arguments = std::move(arguments)]() mutable {
@@ -1536,9 +1620,7 @@ int launchDesktop(std::optional<std::filesystem::path> archivePath,
             int exitCode = 2;
             try {
                 auto command = dispatchWithSecrets(
-                    arguments,
-                    commandPassphrase,
-                    newPassphrase,
+                    arguments, commandPassphrase, newPassphrase,
                     [weakWindow, liveOutputTruncated = std::make_shared<std::atomic_bool>(false)](
                         const tutorux::command::ProgressEvent& event) {
                         if (event.phase != "ai-generation-text")
@@ -1589,14 +1671,10 @@ int launchDesktop(std::optional<std::filesystem::path> archivePath,
             eraseSecret(newPassphrase);
 
             commandBusy->store(false);
-            static_cast<void>(
-                slint::invoke_from_event_loop([weakWindow,
-                                               selectedPath,
-                                               exitCode,
-                                               changesPassphrase,
-                                               &activePassphrase,
-                                               refreshPassphrase = std::move(refreshPassphrase),
-                                               output = std::move(output)]() mutable {
+            static_cast<void>(slint::invoke_from_event_loop(
+                [weakWindow, selectedPath, exitCode, changesPassphrase, &activePassphrase,
+                 refreshPassphrase = std::move(refreshPassphrase),
+                 output = std::move(output)]() mutable {
                     auto strongWindow = weakWindow.lock();
                     if (!strongWindow) {
                         eraseSecret(refreshPassphrase);
@@ -1636,6 +1714,14 @@ int launchDesktop(std::optional<std::filesystem::path> archivePath,
     });
 
     window->run();
+    if (playbackStop)
+        playbackStop->store(true);
+    if (waveformStop)
+        waveformStop->store(true);
+    for (auto& playbackThread : *playbackThreads) {
+        if (playbackThread.joinable())
+            playbackThread.join();
+    }
     for (auto& commandThread : *commandThreads) {
         if (commandThread.joinable())
             commandThread.join();
