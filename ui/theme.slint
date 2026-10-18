@@ -1,0 +1,893 @@
+// Tutorux design system: tokens plus the widget set used across the app.
+//
+// These widgets intentionally replace the std-widgets ones: the standard
+// fluent widgets follow the OS color scheme, and on a light application
+// surface the dark scheme made scrollbar thumbs, placeholder text and
+// control borders invisible. Everything here is scheme-independent.
+
+export global Theme {
+    // Surfaces
+    out property <color> canvas: #f2f4f8;
+    out property <color> surface: #ffffff;
+    out property <color> surface-inset: #f7f9fc;
+    out property <color> surface-hover: #f6f8fb;
+
+    // Text
+    out property <color> ink: #101828;
+    out property <color> muted: #5f6b7c;
+    out property <color> faint: #98a2b3;
+
+    // Hairlines
+    out property <color> line: #e3e7ee;
+    out property <color> line-strong: #cfd6e0;
+
+    // Accent
+    out property <color> accent: #4f5bf0;
+    out property <color> accent-hover: #414ce0;
+    out property <color> accent-press: #3742cc;
+    out property <color> accent-soft: #eef0ff;
+    out property <color> accent-bright: #8590ff;
+
+    // Semantic
+    out property <color> danger: #d92d20;
+    out property <color> danger-soft: #fef3f2;
+    out property <color> danger-soft-hover: #fee4e2;
+    out property <color> danger-line: #fda29b;
+    out property <color> success: #067647;
+    out property <color> warning: #b54708;
+
+    // Sidebar
+    out property <color> sidebar: #0c1120;
+    out property <color> sidebar-hover: #161e31;
+    out property <color> sidebar-active: #1d2846;
+    out property <color> sidebar-line: #222c46;
+    out property <color> sidebar-card: #121a30;
+    out property <color> sidebar-ink: #eef2fb;
+    out property <color> sidebar-muted: #9aa6c0;
+    out property <color> sidebar-faint: #66738f;
+
+    // Scrollbars
+    out property <color> scrollbar: #c3cad8;
+    out property <color> scrollbar-hover: #94a0b5;
+
+    // Geometry
+    out property <length> radius-card: 12px;
+    out property <length> radius-input: 9px;
+    out property <length> radius-pill: 999px;
+    out property <length> control-height: 36px;
+}
+
+// Accent halo drawn on the focused control.
+export component FocusRing inherits Rectangle {
+    in property <length> radius: Theme.radius-input;
+
+    width: 100%;
+    height: 100%;
+    border-width: 2px;
+    border-color: Theme.accent.with-alpha(0.4);
+    border-radius: root.radius;
+    accessible-role: none;
+}
+
+export component Button inherits Rectangle {
+    in property <string> text;
+    // "primary" | "secondary" | "ghost" | "danger"
+    in property <string> variant: "secondary";
+    in property <bool> enabled <=> i-touch-area.enabled;
+    out property <bool> has-focus: i-focus-scope.has-focus;
+    out property <bool> pressed: self.enabled && i-touch-area.pressed;
+
+    callback clicked;
+
+    pure function resting-color() -> brush {
+        if (root.variant == "primary") {
+            return Theme.accent;
+        }
+        if (root.variant == "danger") {
+            return Theme.danger-soft;
+        }
+        if (root.variant == "ghost") {
+            return transparent;
+        }
+        return Theme.surface;
+    }
+
+    pure function hover-color() -> brush {
+        if (root.variant == "primary") {
+            return Theme.accent-hover;
+        }
+        if (root.variant == "danger") {
+            return Theme.danger-soft-hover;
+        }
+        if (root.variant == "ghost") {
+            return Theme.ink.with-alpha(0.06);
+        }
+        return Theme.surface-hover;
+    }
+
+    pure function label-color() -> brush {
+        if (root.variant == "primary") {
+            return #ffffff;
+        }
+        if (root.variant == "danger") {
+            return Theme.danger;
+        }
+        if (root.variant == "ghost") {
+            return Theme.muted;
+        }
+        return Theme.ink;
+    }
+
+    min-width: max(60px, i-layout.min-width);
+    min-height: max(Theme.control-height, i-layout.min-height);
+    horizontal-stretch: 0;
+    vertical-stretch: 0;
+    forward-focus: i-focus-scope;
+
+    accessible-role: button;
+    accessible-enabled: root.enabled;
+    accessible-label: root.text;
+    accessible-action-default => { i-touch-area.clicked(); }
+
+    states [
+        disabled when !root.enabled : {
+            i-background.background: Theme.surface-inset;
+            i-background.border-color: Theme.line;
+            i-label.color: Theme.faint;
+        }
+        pressed when root.pressed : {
+            i-background.background: root.hover-color();
+            i-label.color: root.label-color();
+        }
+        hover when i-touch-area.has-hover : {
+            i-background.background: root.hover-color();
+        }
+    ]
+
+    i-background := Rectangle {
+        border-radius: Theme.radius-input;
+        background: root.resting-color();
+        border-width: root.variant == "ghost" ? 0px : 1px;
+        border-color: root.variant == "primary" ? transparent :
+                      root.variant == "danger" ? Theme.danger-line : Theme.line;
+
+        drop-shadow-color: #10182812;
+        drop-shadow-blur: 6px;
+        drop-shadow-offset-y: 1px;
+
+        animate background, border-color { duration: 120ms; }
+
+        i-layout := HorizontalLayout {
+            padding-left: 14px;
+            padding-right: 14px;
+            padding-top: 6px;
+            padding-bottom: 6px;
+            spacing: 6px;
+            alignment: center;
+
+            i-label := Text {
+                horizontal-alignment: center;
+                vertical-alignment: center;
+                text: root.text;
+                color: root.label-color();
+                font-weight: 550;
+                overflow: elide;
+                accessible-role: none;
+                animate color { duration: 120ms; }
+            }
+        }
+    }
+
+    i-touch-area := TouchArea {
+        clicked => { root.clicked(); }
+    }
+
+    i-focus-scope := FocusScope {
+        x: 0;
+        width: 0; // Keyboard focus only; clicks are handled by the touch area.
+        enabled <=> root.enabled;
+
+        key-pressed(event) => {
+            if (event.text == Key.Space || event.text == Key.Return) {
+                i-touch-area.clicked();
+                return accept;
+            }
+            return reject;
+        }
+    }
+
+    if root.has-focus && root.enabled : FocusRing { }
+}
+
+export component LineEdit inherits Rectangle {
+    in-out property <string> text <=> input.text;
+    in property <string> placeholder-text;
+    in property <InputType> input-type <=> input.input-type;
+    in property <bool> read-only <=> input.read-only;
+    out property <bool> has-focus: input.has-focus;
+    in property <bool> enabled <=> input.enabled;
+
+    callback accepted(text: string);
+    callback edited(text: string);
+
+    min-width: 120px;
+    min-height: max(Theme.control-height, input.preferred-height);
+    horizontal-stretch: 1;
+    vertical-stretch: 0;
+    border-radius: Theme.radius-input;
+    border-width: 1px;
+    border-color: input.has-focus && root.enabled ? Theme.accent : Theme.line;
+    background: root.enabled ? Theme.surface : Theme.surface-inset;
+    clip: true;
+    forward-focus: input;
+
+    accessible-role: text-input;
+    accessible-enabled: root.enabled;
+    accessible-value <=> root.text;
+    accessible-placeholder-text: root.placeholder-text;
+    accessible-read-only: root.read-only;
+
+    animate border-color { duration: 120ms; }
+
+    placeholder := Text {
+        x: 12px;
+        width: parent.width - 24px;
+        height: parent.height;
+        vertical-alignment: center;
+        horizontal-alignment: left;
+        text: (root.text == "" && input.preedit-text == "") ? root.placeholder-text : "";
+        color: Theme.faint;
+        overflow: elide;
+        accessible-role: none;
+    }
+
+    field := Rectangle {
+        x: 12px;
+        y: 0px;
+        width: parent.width - 24px;
+        height: parent.height;
+
+        input := TextInput {
+            property <length> computed-x;
+
+            x: min(0px, max(parent.width - self.width - self.text-cursor-width,
+                            self.computed-x));
+            width: max(parent.width - self.text-cursor-width, self.preferred-width);
+            height: 100%;
+            vertical-alignment: center;
+            single-line: true;
+            color: root.enabled ? Theme.ink : Theme.faint;
+            selection-background-color: Theme.accent;
+            selection-foreground-color: #ffffff;
+            // The widget root exposes the accessibility information.
+            accessible-role: none;
+
+            cursor-position-changed(cursor-position) => {
+                if (cursor-position.x + self.computed_x < 2px) {
+                    self.computed_x = -cursor-position.x + 2px;
+                } else if (cursor-position.x + self.computed_x >
+                           parent.width - 2px - self.text-cursor-width) {
+                    self.computed_x =
+                        parent.width - cursor-position.x - 2px - self.text-cursor-width;
+                }
+            }
+
+            accepted => {
+                root.accepted(input.text);
+            }
+
+            edited => {
+                root.edited(input.text);
+            }
+        }
+    }
+
+    if input.has-focus && root.enabled : FocusRing { radius: Theme.radius-input; }
+}
+
+export component CheckBox inherits Rectangle {
+    in property <string> text;
+    in property <bool> enabled <=> touch-area.enabled;
+    in property <length> font-size;
+    in property <int> font-weight;
+    out property <bool> has-focus: focus-scope.has-focus;
+    in-out property <bool> checked;
+
+    callback toggled;
+
+    private property <color> text-color: root.enabled ? Theme.ink : Theme.faint;
+
+    min-height: 22px;
+    horizontal-stretch: 0;
+    vertical-stretch: 0;
+    forward-focus: focus-scope;
+
+    accessible-checkable: true;
+    accessible-enabled: root.enabled;
+    accessible-label: root.text;
+    accessible-checked <=> root.checked;
+    accessible-role: checkbox;
+    accessible-action-default => {
+        if (root.enabled) {
+            root.checked = !root.checked;
+            root.toggled();
+        }
+    }
+
+    states [
+        pressed when touch-area.pressed : {
+            background.background: root.checked ? Theme.accent-press : Theme.surface-hover;
+        }
+        hover when touch-area.has-hover : {
+            background.background: root.checked ? Theme.accent-hover : Theme.accent-soft;
+        }
+    ]
+
+    animate text-color { duration: 150ms; }
+
+    layout := HorizontalLayout {
+        spacing: 9px;
+        alignment: center;
+
+        background := Rectangle {
+            width: 18px;
+            height: 18px;
+            y: (parent.height - self.height) / 2;
+            background: root.checked ? Theme.accent : Theme.surface;
+            border-width: root.checked ? 0px : 1px;
+            border-color: Theme.line-strong;
+            border-radius: 5px;
+            accessible-role: none;
+
+            animate background, border-color { duration: 150ms; }
+
+            icon := Image {
+                image-fit: contain;
+                width: 12px;
+                height: 12px;
+                x: (parent.width - self.width) / 2;
+                y: (parent.height - self.height) / 2;
+                visible: root.checked;
+                source: @image-url("assets/icons/check.svg");
+                colorize: #ffffff;
+                accessible-role: none;
+            }
+        }
+
+        if root.text != "" : Text {
+            text: root.text;
+            color: root.text-color;
+            font-size: root.font-size;
+            font-weight: root.font-weight;
+            vertical-alignment: center;
+            horizontal-alignment: left;
+            accessible-role: none;
+        }
+    }
+
+    touch-area := TouchArea {
+        clicked => {
+            if (root.enabled) {
+                root.checked = !root.checked;
+                root.toggled();
+            }
+        }
+    }
+
+    focus-scope := FocusScope {
+        x: 0;
+        width: 0;
+        enabled <=> root.enabled;
+
+        key-pressed(event) => {
+            if (event.text == Key.Space || event.text == Key.Return) {
+                touch-area.clicked();
+                return accept;
+            }
+            return reject;
+        }
+    }
+
+    if root.has-focus && root.enabled : FocusRing { radius: 5px; }
+}
+
+// Scrollbar replicating the std-widgets geometry, with our own visuals so the
+// thumb stays visible on light surfaces regardless of the OS color scheme.
+component ScrollBar inherits Rectangle {
+    in property <ScrollBarPolicy> policy: ScrollBarPolicy.as-needed;
+    in property <bool> horizontal: false;
+    in property <bool> enabled <=> i-touch-area.enabled;
+    in-out property <length> maximum;
+    in-out property <length> page-size;
+    in-out property <length> value;
+
+    callback scrolled();
+
+    clip: true;
+    visible: (root.policy == ScrollBarPolicy.always-on) ||
+             (root.policy == ScrollBarPolicy.as-needed && root.maximum > 0);
+
+    property <length> inset: 4px;
+    property <length> track-size:
+        root.horizontal ? root.width - 2 * root.inset : root.height - 2 * root.inset;
+    property <length> step-size: 24px;
+
+    thumb := Rectangle {
+        width: root.horizontal ?
+            (root.maximum <= 0px ? 0px : max(min(24px, root.width),
+                root.track-size * root.page-size / (root.maximum + root.page-size))) : 6px;
+        height: root.horizontal ? 6px :
+            (root.maximum <= 0px ? 0px : max(min(24px, root.height),
+                root.track-size * root.page-size / (root.maximum + root.page-size)));
+        x: root.horizontal ?
+            (root.inset + (root.track-size - self.width) * (-root.value / root.maximum)) :
+            (root.width - self.width) / 2;
+        y: root.horizontal ? (root.height - self.height) / 2 :
+            (root.inset + (root.track-size - self.height) * (-root.value / root.maximum));
+        border-radius: (root.horizontal ? self.height : self.width) / 2;
+        background: i-touch-area.has-hover || i-touch-area.pressed ?
+            Theme.scrollbar-hover : Theme.scrollbar;
+        accessible-role: none;
+
+        animate background { duration: 120ms; }
+    }
+
+    i-touch-area := TouchArea {
+        width: 100%;
+        height: 100%;
+
+        property <{ pressed-value: length, maximum: length, x: length, y: length }> saved-values;
+
+        function update-saved-values() {
+            self.saved-values = { pressed-value: -root.value, maximum: root.maximum,
+                                  x: self.mouse-x, y: self.mouse-y };
+        }
+
+        pointer-event(event) => {
+            if (event.button == PointerEventButton.left && event.kind == PointerEventKind.down) {
+                self.update-saved-values();
+            }
+        }
+
+        moved => {
+            if (self.enabled && self.pressed) {
+                // Re-anchor when the content size changes mid-drag to avoid jumps.
+                if (self.saved-values.maximum != root.maximum) {
+                    self.update-saved-values();
+                }
+
+                root.value = -max(0px, min(root.maximum, self.saved-values.pressed-value +
+                    (root.horizontal ?
+                        (self.mouse-x - self.saved-values.x) *
+                            (root.maximum / (root.track-size - thumb.width)) :
+                        (self.mouse-y - self.saved-values.y) *
+                            (root.maximum / (root.track-size - thumb.height)))));
+                root.scrolled();
+            }
+        }
+
+        scroll-event(event) => {
+            if (root.horizontal && event.delta-x != 0) {
+                root.value = max(-root.maximum, min(0px, root.value + event.delta-x));
+                return accept;
+            } else if (!root.horizontal && event.delta-y != 0) {
+                root.value = max(-root.maximum, min(0px, root.value + event.delta-y));
+                return accept;
+            }
+            reject
+        }
+    }
+}
+
+export component ScrollArea inherits Rectangle {
+    in property <bool> enabled: true;
+    in property <ScrollBarPolicy> vertical-scrollbar-policy <=> vbar.policy;
+    in property <ScrollBarPolicy> horizontal-scrollbar-policy <=> hbar.policy;
+    in property <bool> mouse-drag-pan-enabled <=> flick.mouse-drag-pan-enabled;
+
+    out property <length> visible-width <=> flick.width;
+    out property <length> visible-height <=> flick.height;
+    in-out property <length> content-width <=> flick.content-width;
+    in-out property <length> content-height <=> flick.content-height;
+    in-out property <length> content-x <=> flick.content-x;
+    in-out property <length> content-y <=> flick.content-y;
+    // Kept for API parity with the standard ScrollView (used by list views).
+    in-out property <bool> has-focus;
+
+    callback scrolled <=> flick.flicked;
+
+    // As in the standard ScrollView: the default content size follows the
+    // preferred size of the child layouts, so most usages need no bindings.
+    min-height: 50px;
+    min-width: 50px;
+    horizontal-stretch: 1;
+    vertical-stretch: 1;
+    preferred-height: 100%;
+    preferred-width: 100%;
+
+    flick := Flickable {
+        mouse-drag-pan-enabled: false;
+        content-y <=> vbar.value;
+        content-x <=> hbar.value;
+        width: parent.width;
+        height: parent.height;
+
+        @children
+    }
+
+    vbar := ScrollBar {
+        enabled: root.enabled;
+        width: 14px;
+        x: flick.width + flick.x - self.width;
+        y: flick.y;
+        height: hbar.visible ? parent.height - hbar.height : parent.height;
+        horizontal: false;
+        maximum: flick.content-height - flick.height;
+        page-size: flick.height;
+
+        scrolled => { root.scrolled(); }
+    }
+
+    hbar := ScrollBar {
+        enabled: root.enabled;
+        width: vbar.visible ? parent.width - vbar.width : parent.width;
+        height: 14px;
+        y: flick.height + flick.y - self.height;
+        x: flick.x;
+        horizontal: true;
+        maximum: flick.content-width - flick.width;
+        page-size: flick.width;
+
+        scrolled => { root.scrolled(); }
+    }
+}
+
+// Scrollable block of wrapped text that always sizes its content to the full
+// text height, so long output is readable and its scrollbar is visible.
+export component ScrollText inherits Rectangle {
+    in property <string> text;
+    in property <color> text-color: Theme.muted;
+    in property <length> font-size: 12px;
+    in property <string> font-family;
+
+    accessible-role: AccessibleRole.text;
+    accessible-label: root.text;
+
+    ScrollArea {
+        width: 100%;
+        height: 100%;
+        content-width: self.visible-width;
+        content-height: max(self.visible-height, body.preferred-height);
+        vertical-scrollbar-policy: as-needed;
+
+        body := Text {
+            width: parent.visible-width - 14px;
+            text: root.text;
+            color: root.text-color;
+            font-size: root.font-size;
+            font-family: root.font-family;
+            wrap: word-wrap;
+            accessible-role: none;
+        }
+    }
+}
+
+export component ComboBox inherits Rectangle {
+    in property <[string]> model;
+    in property <bool> enabled: true;
+    out property <bool> has-focus: (i-focus-scope.has-focus || popup-has-focus) && root.enabled;
+    in-out property <int> current-index: 0;
+    in-out property <string> current-value: root.model[root.current-index];
+    in-out property <bool> popup-has-focus;
+
+    callback selected(current-value: string);
+    callback show-popup();
+    callback close-popup();
+
+    property <length> item-height: 34px;
+    property <length> popup-padding: 5px;
+    property <int> visible-items: min(8, root.model.length);
+    property <length> popup-scroll-y:
+        -max(0, root.current-index - root.visible-items + 1) * root.item-height;
+
+    public function select(index: int) {
+        if (!root.enabled || index < 0 || index >= root.model.length) {
+            return;
+        }
+        root.current-index = index;
+        if root.current-value != root.model[index] {
+            root.current-value = root.model[index];
+        }
+        root.selected(root.current-value);
+    }
+
+    public function move-selection-up() {
+        root.select(max(root.current-index - 1, 0));
+    }
+
+    public function move-selection-down() {
+        root.select(min(root.current-index + 1, root.model.length - 1));
+    }
+
+    function reset-current() {
+        if (root.model.length == 0) {
+            root.current-index = 0;
+        } else {
+            root.current-index = root.current-index.clamp(0, root.model.length - 1);
+        }
+    }
+
+    // `current-value` is the state the host reads and writes; `current-index`
+    // is only the navigation cursor. The popup highlights the row whose value
+    // matches `current-value`, so an externally set value always shows
+    // correctly even when its index is unknown.
+    changed model => { root.reset-current(); }
+
+    min-width: 160px;
+    min-height: max(Theme.control-height, i-layout.min-height);
+    horizontal-stretch: 1;
+    vertical-stretch: 0;
+    border-radius: Theme.radius-input;
+    border-width: 1px;
+    border-color: i-focus-scope.has-focus && root.enabled ? Theme.accent : Theme.line;
+    background: root.enabled ? Theme.surface : Theme.surface-inset;
+    forward-focus: i-focus-scope;
+
+    accessible-role: combobox;
+    accessible-enabled: root.enabled;
+    accessible-expandable: true;
+    accessible-expanded: root.popup-has-focus;
+    accessible-value <=> root.current-value;
+    accessible-action-expand => { root.show-popup(); }
+
+    animate border-color { duration: 120ms; }
+
+    i-layout := HorizontalLayout {
+        padding-left: 12px;
+        padding-right: 10px;
+        spacing: 8px;
+
+        i-value := Text {
+            horizontal-stretch: 1;
+            horizontal-alignment: left;
+            vertical-alignment: center;
+            color: root.enabled ? Theme.ink : Theme.faint;
+            text: root.current-value;
+            overflow: elide;
+            accessible-role: none;
+        }
+
+        i-chevron := Image {
+            width: 14px;
+            height: 14px;
+            vertical-alignment: center;
+            source: @image-url("assets/icons/chevron-down.svg");
+            colorize: Theme.faint;
+            accessible-role: none;
+        }
+    }
+
+    i-focus-scope := FocusScope {
+        changed has-focus => {
+            if self.has-focus {
+                root.popup-has-focus = false;
+            }
+        }
+
+        key-pressed(event) => {
+            if (!self.enabled) {
+                return reject;
+            }
+            if (event.text == Key.UpArrow) {
+                root.move-selection-up();
+                return accept;
+            } else if (event.text == Key.DownArrow) {
+                root.move-selection-down();
+                return accept;
+            } else if (event.text == Key.Return) {
+                root.show-popup();
+            }
+            return reject;
+        }
+
+        i-touch-area := TouchArea {
+            enabled: root.enabled;
+
+            clicked => {
+                root.focus();
+                root.show-popup();
+            }
+
+            scroll-event(event) => {
+                if (!root.has-focus) {
+                    return reject;
+                }
+                if (event.delta-y < -2px) {
+                    root.move-selection-down();
+                    return accept;
+                }
+                if (event.delta-y > 2px) {
+                    root.move-selection-up();
+                    return accept;
+                }
+                reject
+            }
+        }
+    }
+
+    if i-focus-scope.has-focus && root.enabled : FocusRing { radius: Theme.radius-input; }
+
+    popup := PopupWindow {
+        x: 0;
+        y: root.height + 6px;
+        width: root.width;
+        height: root.visible-items * root.item-height + 2 * root.popup-padding;
+        close-policy: close-on-click-outside;
+        forward-focus: inner-focus;
+
+        inner-focus := FocusScope {
+            width: 100%;
+            height: 100%;
+
+            focus-changed-event => {
+                root.popup-has-focus = self.has-focus;
+            }
+
+            key-pressed(event) => {
+                if (event.text == Key.UpArrow) {
+                    root.move-selection-up();
+                    return accept;
+                } else if (event.text == Key.DownArrow) {
+                    root.move-selection-down();
+                    return accept;
+                } else if (event.text == Key.Return || event.text == Key.Escape) {
+                    root.close-popup();
+                    return accept;
+                }
+                return reject;
+            }
+
+            panel := Rectangle {
+                width: 100%;
+                height: 100%;
+                border-radius: Theme.radius-card;
+                background: Theme.surface;
+                border-width: 1px;
+                border-color: Theme.line-strong;
+                clip: true;
+
+                ScrollArea {
+                    width: 100%;
+                    height: 100%;
+                    content-width: self.visible-width;
+                    content-height: max(self.visible-height, options.preferred-height);
+                    content-y: root.popup-scroll-y;
+
+                    options := VerticalLayout {
+                        width: parent.visible-width;
+                        padding: root.popup-padding;
+
+                        for value[index] in root.model : Rectangle {
+                            height: root.item-height;
+                            border-radius: 8px;
+                            background: value == root.current-value ? Theme.accent-soft :
+                                        option-touch.has-hover ? Theme.surface-hover : transparent;
+
+                            Text {
+                                x: 10px;
+                                width: parent.width - 20px;
+                                height: parent.height;
+                                vertical-alignment: center;
+                                horizontal-alignment: left;
+                                text: value;
+                                color: value == root.current-value ? Theme.accent : Theme.ink;
+                                font-weight: value == root.current-value ? 550 : 400;
+                                overflow: elide;
+                                accessible-role: none;
+                            }
+
+                            option-touch := TouchArea {
+                                clicked => {
+                                    root.select(index);
+                                    popup.close();
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+export component NavItem inherits Rectangle {
+    in property <string> text;
+    in property <image> icon;
+    in property <bool> selected: false;
+    in property <bool> enabled <=> i-touch-area.enabled;
+
+    callback clicked;
+
+    height: 38px;
+    border-radius: 9px;
+    background: transparent;
+    forward-focus: i-focus-scope;
+
+    accessible-role: button;
+    accessible-enabled: root.enabled;
+    accessible-label: root.text;
+    accessible-action-default => { i-touch-area.clicked(); }
+
+    states [
+        disabled when !root.enabled : {
+            i-label.color: Theme.sidebar-faint;
+            i-icon.colorize: Theme.sidebar-faint;
+            i-indicator.background: transparent;
+        }
+        selected when root.selected : {
+            background: Theme.sidebar-active;
+            i-indicator.background: Theme.accent-bright;
+            i-icon.colorize: #ffffff;
+            i-label.color: Theme.sidebar-ink;
+        }
+        hover when i-touch-area.has-hover : {
+            background: Theme.sidebar-hover;
+            i-label.color: Theme.sidebar-ink;
+        }
+    ]
+
+    animate background { duration: 110ms; }
+
+    i-layout := HorizontalLayout {
+        padding-left: 9px;
+        padding-right: 10px;
+        spacing: 10px;
+        alignment: center;
+
+        i-indicator := Rectangle {
+            width: 3px;
+            height: 18px;
+            border-radius: Theme.radius-pill;
+            background: transparent;
+        }
+
+        i-icon := Image {
+            width: 18px;
+            height: 18px;
+            source: root.icon;
+            colorize: Theme.sidebar-muted;
+            accessible-role: none;
+        }
+
+        i-label := Text {
+            horizontal-stretch: 1;
+            vertical-alignment: center;
+            horizontal-alignment: left;
+            text: root.text;
+            color: Theme.sidebar-muted;
+            font-size: 13.5px;
+            font-weight: root.selected ? 600 : 500;
+            overflow: elide;
+            accessible-role: none;
+        }
+    }
+
+    i-touch-area := TouchArea {
+        clicked => { root.clicked(); }
+    }
+
+    i-focus-scope := FocusScope {
+        x: 0;
+        width: 0;
+        enabled <=> root.enabled;
+
+        key-pressed(event) => {
+            if (event.text == Key.Space || event.text == Key.Return) {
+                i-touch-area.clicked();
+                return accept;
+            }
+            return reject;
+        }
+    }
+}
+
