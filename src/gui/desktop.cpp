@@ -1557,7 +1557,7 @@ namespace {
             static_cast<void>(slint::invoke_from_event_loop(
                 [weakWindow, &backgroundTasks, path, generation, snapshot = std::move(snapshot),
                  completion = std::move(completion)]() mutable {
-                    const auto completedWindow = weakWindow.lock();
+                    auto completedWindow = weakWindow.lock();
                     if (!completedWindow || backgroundTasks.recoveryGeneration.load() != generation)
                         return;
                     const auto currentPath = (*completedWindow)->get_archive_path();
@@ -2284,7 +2284,7 @@ int launchDesktop(std::optional<std::filesystem::path> archivePath,
             static_cast<void>(slint::invoke_from_event_loop(
                 [weakWindow, &backgroundTasks, path, generation, info = std::move(info),
                  recovery = std::move(recovery)]() mutable {
-                    const auto strongWindow = weakWindow.lock();
+                    auto strongWindow = weakWindow.lock();
                     if (!strongWindow || backgroundTasks.recoveryGeneration.load() != generation)
                         return;
                     const auto currentPath = (*strongWindow)->get_archive_path();
@@ -4262,7 +4262,7 @@ int launchDesktop(std::optional<std::filesystem::path> archivePath,
                                                                              std::move(choices),
                                                                          output = std::move(
                                                                              output)]() mutable {
-                            const auto strongWindow = weakWindow.lock();
+                            auto strongWindow = weakWindow.lock();
                             if (!strongWindow)
                                 return;
                             const auto currentPath = (*strongWindow)->get_archive_path();
@@ -5683,7 +5683,7 @@ int launchDesktop(std::optional<std::filesystem::path> archivePath,
                             journalSessionDeleteId, journalEntryGuideResponse,
                             commandPassphrase = std::move(commandPassphrase),
                             newPassphrase = std::move(newPassphrase),
-                            arguments = std::move(arguments)]() mutable {
+                            arguments = std::move(arguments), &backgroundTasks]() mutable {
             std::string output;
             int exitCode = 2;
             try {
