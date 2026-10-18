@@ -88,7 +88,7 @@ core::Result<Bytes> encodeArchiveHeader(const ArchiveHeader& header) {
     return bytes;
 }
 
-core::Result<ArchiveHeader> decodeArchiveHeader(std::span<const std::byte> bytes) {
+core::Result<ArchiveVersion> inspectArchiveVersion(std::span<const std::byte> bytes) {
     if (bytes.size() < kArchiveHeaderSize || !hasMagic(bytes, std::string_view("TUTORUX\0", 8))) {
         return std::unexpected(
             core::error("archive_magic_invalid", "File is not a Tutorux archive."));
@@ -102,7 +102,6 @@ core::Result<ArchiveHeader> decodeArchiveHeader(std::span<const std::byte> bytes
             core::error("archive_header_checksum", "Archive header checksum is invalid."));
     }
     std::size_t cursor = 8;
-    ArchiveHeader header;
     auto major = readLittle<std::uint16_t>(bytes, cursor);
     auto minor = readLittle<std::uint16_t>(bytes, cursor);
     auto length = readLittle<std::uint32_t>(bytes, cursor);
@@ -110,8 +109,17 @@ core::Result<ArchiveHeader> decodeArchiveHeader(std::span<const std::byte> bytes
         return std::unexpected(
             core::error("archive_header_invalid", "Archive header fields are invalid."));
     }
-    header.majorVersion = *major;
-    header.minorVersion = *minor;
+    return ArchiveVersion{*major, *minor};
+}
+
+core::Result<ArchiveHeader> decodeArchiveHeader(std::span<const std::byte> bytes) {
+    auto version = inspectArchiveVersion(bytes);
+    if (!version)
+        return std::unexpected(version.error());
+    ArchiveHeader header;
+    std::size_t cursor = 16;
+    header.majorVersion = version->major;
+    header.minorVersion = version->minor;
     if (header.majorVersion > 1) {
         return std::unexpected(core::error("archive_version_unsupported",
                                            "This archive uses a newer major format version."));
