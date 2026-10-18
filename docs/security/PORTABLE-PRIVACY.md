@@ -75,7 +75,9 @@ Credentials remain memory-only by default. A user may explicitly store a sensiti
 `settings set --key provider-api-key --value-env API_KEY --store-credential`, and only in an
 encrypted archive. Credential values are not returned by settings list/get commands; credential-list
 returns stored key names only. Remove a saved value with
-`settings credential-remove --key provider-api-key`. Plaintext settings imports and raw command-line
+`settings credential-remove --key provider-api-key`. The archive writer rejects credential records
+unless encryption is enabled and rejects sensitive keys stored as ordinary settings; full
+verification also reports historical violations. Plaintext settings imports and raw command-line
 credential values are rejected.
 
 ## Imported files and AI data
