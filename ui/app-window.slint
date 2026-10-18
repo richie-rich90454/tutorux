@@ -1,4 +1,34 @@
-import { AboutSlint, Button, ComboBox, LineEdit, ScrollView } from "std-widgets.slint";
+import { AboutSlint, Button, ComboBox, LineEdit, ScrollView, TextEdit } from "std-widgets.slint";
+
+component CommandPanel inherits Rectangle {
+    in-out property <string> command-input;
+    in-out property <string> command-output;
+    in-out property <bool> command-running: false;
+    callback run-command();
+    callback cancel-command();
+
+    border-radius: 14px;
+    background: #ffffff;
+    VerticalLayout {
+        padding: 18px;
+        spacing: 10px;
+        Text { text: "ARCHIVE COMMAND"; color: #859189; font-size: 10px; font-weight: 700; letter-spacing: 1px; }
+        HorizontalLayout {
+            spacing: 8px;
+            LineEdit {
+                placeholder-text: "Enter a Tutorux command, for example: session list";
+                text <=> root.command-input;
+                accepted => { root.run-command(); }
+            }
+            Button { text: "Run"; clicked => { root.run-command(); } }
+            if root.command-running: Button { text: "Cancel"; clicked => { root.cancel-command(); } }
+        }
+        ScrollView {
+            height: 132px;
+            Text { text: root.command-output; color: #53615b; font-size: 11px; wrap: word-wrap; }
+        }
+    }
+}
 
 export component MainWindow inherits Window {
     title: "Tutorux";
@@ -15,26 +45,125 @@ export component MainWindow inherits Window {
     in-out property <string> archive-passphrase;
     in-out property <string> new-archive-passphrase;
     in-out property <string> selected-archive;
+    in-out property <string> archive-status;
     in-out property <string> students-text;
     in-out property <string> sessions-text;
+    in-out property <[string]> session-options;
+    in-out property <string> selected-session;
+    in-out property <string> recording-microphone-device;
+    in-out property <string> recording-playback-device;
+    in-out property <[string]> guide-options;
+    in-out property <string> selected-guide;
+    in-out property <[string]> guide-block-options;
+    in-out property <string> selected-guide-block;
+    in-out property <string> guide-edit-text;
+    in-out property <string> guide-provenance;
+    in-out property <string> guide-export-path;
+    in-out property <string> guide-export-format: "markdown";
+    in-out property <string> guide-output;
+    in-out property <string> annotation-time: "00:00:00";
+    in-out property <string> annotation-note;
+    in-out property <string> asset-input-path;
+    in-out property <string> ai-provider-id: "openai";
+    in-out property <string> ai-endpoint;
+    in-out property <string> ai-model-id;
+    in-out property <string> ai-model-path;
+    in-out property <string> ai-package-job-id;
+    in-out property <string> ai-api-key-environment: "OPENAI_API_KEY";
+    in-out property <string> ai-confirmation-hash;
+    in-out property <string> ai-package-path;
+    in-out property <string> ai-response-path;
+    in-out property <[string]> transcript-options;
+    in-out property <string> selected-transcript;
+    in-out property <string> transcript-edit-text;
+    in-out property <string> transcript-provenance;
+    in-out property <string> shortcut-concept: "1";
+    in-out property <string> shortcut-mistake: "2";
+    in-out property <string> shortcut-correction: "3";
+    in-out property <string> shortcut-instruction: "4";
+    in-out property <string> shortcut-example: "5";
+    in-out property <string> shortcut-follow-up: "6";
+    in-out property <string> shortcut-note: "m";
     in-out property <string> status-message;
     in-out property <string> student-name;
+    in-out property <string> student-grade;
+    in-out property <string> student-subjects;
+    in-out property <string> student-objectives;
+    in-out property <string> student-difficulties;
+    in-out property <string> student-notes;
+    in-out property <[string]> student-options;
+    in-out property <string> selected-student;
     in-out property <string> session-subject;
     in-out property <string> session-title;
+    in-out property <string> session-objectives;
     in-out property <string> command-input;
     in-out property <string> command-output;
     in-out property <bool> command-running: false;
     in-out property <bool> about-open: false;
+    in-out property <string> active-view: "overview";
+    forward-focus: marker-shortcuts;
 
     callback open-archive(string, string);
     callback forget-passphrase();
     callback create-archive(string, string);
-    callback create-student(string);
-    callback create-session(string, string);
+    callback create-student(string, string, string, string, string, string);
+    callback create-session(string, string, string, string);
+    callback open-session(string);
+    callback review-transcript(string);
+    callback load-transcript(string, string);
+    callback save-transcript(string, string, string);
+    callback quick-marker(string, string, string, string);
+    callback recording-command(string, string, string);
+    callback guide-command(string, string, string, string);
+    callback asset-command(string, string, string);
+    callback ai-command(string, string, string, string);
+    callback load-guide-block(string, string);
+    callback save-guide-block(string, string, string);
+    callback save-marker-shortcuts(string, string, string, string, string, string, string);
     callback run-command(string, string);
     callback cancel-command();
 
-    Rectangle {
+    marker-shortcuts := FocusScope {
+        capture-key-pressed(event) => {
+            if event.modifiers.control && !event.repeat &&
+                    (root.active-view == "sessions" || root.active-view == "recording") {
+                if (event.text == root.shortcut-concept) {
+                    root.quick-marker(root.selected-session, "important-concept",
+                        root.annotation-time, root.annotation-note);
+                    accept
+                } else if (event.text == root.shortcut-mistake) {
+                    root.quick-marker(root.selected-session, "student-mistake",
+                        root.annotation-time, root.annotation-note);
+                    accept
+                } else if (event.text == root.shortcut-correction) {
+                    root.quick-marker(root.selected-session, "tutor-correction",
+                        root.annotation-time, root.annotation-note);
+                    accept
+                } else if (event.text == root.shortcut-instruction) {
+                    root.quick-marker(root.selected-session, "explicit-instruction",
+                        root.annotation-time, root.annotation-note);
+                    accept
+                } else if (event.text == root.shortcut-example) {
+                    root.quick-marker(root.selected-session, "worked-example",
+                        root.annotation-time, root.annotation-note);
+                    accept
+                } else if (event.text == root.shortcut-follow-up) {
+                    root.quick-marker(root.selected-session, "follow-up-priority",
+                        root.annotation-time, root.annotation-note);
+                    accept
+                } else if (event.text == root.shortcut-note) {
+                    root.quick-marker(root.selected-session, "general-note", root.annotation-time,
+                        root.annotation-note);
+                    accept
+                } else {
+                    reject
+                }
+            } else {
+                reject
+            }
+        }
+
+        Rectangle {
         background: #f4f2ee;
 
         HorizontalLayout {
@@ -90,21 +219,42 @@ export component MainWindow inherits Window {
                         font-weight: 700;
                         letter-spacing: 1.2px;
                     }
-                    Rectangle {
-                        height: 42px;
-                        border-radius: 9px;
-                        background: #303c3d;
-                        HorizontalLayout {
-                            padding-left: 13px;
-                            spacing: 12px;
-                            Text { text: "◈"; color: #efb17d; font-size: 17px; }
-                            Text { text: "Overview"; color: #fff8f0; font-size: 14px; }
-                        }
+                    Button {
+                        text: "◈  Overview";
+                        clicked => { root.active-view = "overview"; }
                     }
-                    Text { text: "Students"; color: #c4cfca; font-size: 14px; }
-                    Text { text: "Sessions"; color: #c4cfca; font-size: 14px; }
-                    Text { text: "Study guides"; color: #c4cfca; font-size: 14px; }
-
+                    Button {
+                        text: "Students";
+                        clicked => { root.active-view = "students"; }
+                    }
+                    Button {
+                        text: "Sessions";
+                        clicked => { root.active-view = "sessions"; }
+                    }
+                    Button {
+                        text: "Materials";
+                        clicked => { root.active-view = "assets"; }
+                    }
+                    Button {
+                        text: "Recording";
+                        clicked => { root.active-view = "recording"; }
+                    }
+                    Button {
+                        text: "Review desk";
+                        clicked => { root.active-view = "review"; }
+                    }
+                    Button {
+                        text: "AI workspace";
+                        clicked => { root.active-view = "ai"; }
+                    }
+                    Button {
+                        text: "Study guides";
+                        clicked => { root.active-view = "guides"; }
+                    }
+                    Button {
+                        text: "Settings";
+                        clicked => { root.active-view = "settings"; }
+                    }
                     Rectangle { height: 12px; }
                     Text {
                         text: "PORTABLE ARCHIVE";
@@ -117,6 +267,12 @@ export component MainWindow inherits Window {
                         text: root.selected-archive;
                         color: #f1e9dd;
                         font-size: 13px;
+                        wrap: word-wrap;
+                    }
+                    Text {
+                        text: root.archive-status;
+                        color: #c7d6ce;
+                        font-size: 10px;
                         wrap: word-wrap;
                     }
                     Text {
@@ -151,7 +307,7 @@ export component MainWindow inherits Window {
             Rectangle {
                 background: #f4f2ee;
                 ScrollView {
-                    VerticalLayout {
+                    if root.active-view == "overview": VerticalLayout {
                         padding: 34px;
                         padding-left: 42px;
                         padding-right: 42px;
@@ -167,7 +323,10 @@ export component MainWindow inherits Window {
                         Rectangle { }
                         Button {
                             text: "+  New session";
-                            clicked => { root.create-session(root.session-subject, root.session-title); }
+                            clicked => {
+                                root.create-session(root.selected-student, root.session-subject,
+                                    root.session-title, root.session-objectives);
+                            }
                         }
                         Button {
                             text: "About";
@@ -238,7 +397,19 @@ export component MainWindow inherits Window {
                                 Text { text: "STUDENTS"; color: #859189; font-size: 10px; font-weight: 700; letter-spacing: 1px; }
                                 Text { text: "Learning histories"; color: #263230; font-size: 15px; font-weight: 600; }
                                 LineEdit { placeholder-text: "Student name"; text <=> root.student-name; }
-                                Button { text: "Add student"; clicked => { root.create-student(root.student-name); } }
+                                LineEdit { placeholder-text: "Grade or level"; text <=> root.student-grade; }
+                                LineEdit { placeholder-text: "Subjects"; text <=> root.student-subjects; }
+                                LineEdit { placeholder-text: "Learning objectives"; text <=> root.student-objectives; }
+                                LineEdit { placeholder-text: "Known difficulties"; text <=> root.student-difficulties; }
+                                LineEdit { placeholder-text: "Tutor notes"; text <=> root.student-notes; }
+                                Button {
+                                    text: "Add student";
+                                    clicked => {
+                                        root.create-student(root.student-name, root.student-grade,
+                                            root.student-subjects, root.student-objectives,
+                                            root.student-difficulties, root.student-notes);
+                                    }
+                                }
                             }
                         }
                         Rectangle {
@@ -249,9 +420,20 @@ export component MainWindow inherits Window {
                                 spacing: 10px;
                                 Text { text: "NEW SESSION"; color: #859189; font-size: 10px; font-weight: 700; letter-spacing: 1px; }
                                 Text { text: "Set up your next lesson"; color: #263230; font-size: 15px; font-weight: 600; }
+                                ComboBox {
+                                    model: root.student-options;
+                                    current-value <=> root.selected-student;
+                                }
                                 LineEdit { placeholder-text: "Subject"; text <=> root.session-subject; }
                                 LineEdit { placeholder-text: "Session title"; text <=> root.session-title; }
-                                Button { text: "Create session"; clicked => { root.create-session(root.session-subject, root.session-title); } }
+                                LineEdit { placeholder-text: "Learning objectives"; text <=> root.session-objectives; }
+                                Button {
+                                    text: "Create session";
+                                    clicked => {
+                                        root.create-session(root.selected-student, root.session-subject,
+                                            root.session-title, root.session-objectives);
+                                    }
+                                }
                             }
                         }
                     }
@@ -411,8 +593,670 @@ export component MainWindow inherits Window {
                         }
                     }
                     }
+                    if root.active-view != "overview": VerticalLayout {
+                        padding: 34px;
+                        padding-left: 42px;
+                        padding-right: 42px;
+                        spacing: 22px;
+
+                        HorizontalLayout {
+                            spacing: 16px;
+                            VerticalLayout {
+                                spacing: 5px;
+                                Text {
+                                    text: root.active-view == "students" ? "STUDENT RECORDS" :
+                                          root.active-view == "sessions" ? "SESSION WORKSPACE" :
+                                          root.active-view == "assets" ? "SESSION MATERIALS" :
+                                          root.active-view == "recording" ? "RECORDING STUDIO" :
+                                          root.active-view == "review" ? "SESSION REVIEW" :
+                                          root.active-view == "ai" ? "AI WORKSPACE" :
+                                          root.active-view == "guides" ? "STUDY GUIDES" : "ARCHIVE SETTINGS";
+                                    color: #7f8c83;
+                                    font-size: 10px;
+                                    font-weight: 700;
+                                    letter-spacing: 1.4px;
+                                }
+                                Text {
+                                    text: root.active-view == "students" ? "Learning histories" :
+                                          root.active-view == "sessions" ? "Every lesson, in context" :
+                                          root.active-view == "assets" ? "Keep lesson materials with the archive" :
+                                          root.active-view == "recording" ? "Capture directly into the archive" :
+                                          root.active-view == "review" ? "Evidence, transcript, and materials" :
+                                          root.active-view == "ai" ? "Prepare, review, and generate" :
+                                          root.active-view == "guides" ? "Edit and approve learning guides" : "Portable workspace preferences";
+                                    color: #202c2d;
+                                    font-size: 27px;
+                                    font-weight: 700;
+                                }
+                            }
+                            Rectangle { }
+                            Button {
+                                text: "Back to overview";
+                                clicked => { root.active-view = "overview"; }
+                            }
+                        }
+
+                        if root.active-view == "students": Rectangle {
+                            border-radius: 14px;
+                            background: #ffffff;
+                            VerticalLayout {
+                                padding: 20px;
+                                spacing: 12px;
+                                Text { text: "Students in this archive"; color: #263230; font-size: 16px; font-weight: 600; }
+                                ScrollView { height: 270px; Text { text: root.students-text; color: #53615b; font-size: 12px; wrap: word-wrap; } }
+                                Text { text: "Use the archive command panel below to create, inspect, update, or remove a student."; color: #64716b; font-size: 12px; wrap: word-wrap; }
+                            }
+                        }
+                        if root.active-view == "sessions": Rectangle {
+                            border-radius: 14px;
+                            background: #ffffff;
+                            VerticalLayout {
+                                padding: 20px;
+                                spacing: 12px;
+                                Text { text: "Session workspace"; color: #263230; font-size: 16px; font-weight: 600; }
+                                if root.session-options.length > 0: ComboBox {
+                                    model: root.session-options;
+                                    current-value <=> root.selected-session;
+                                }
+                                HorizontalLayout {
+                                    spacing: 8px;
+                                    LineEdit {
+                                        placeholder-text: "Microphone device ID (optional)";
+                                        text <=> root.recording-microphone-device;
+                                    }
+                                    LineEdit {
+                                        placeholder-text: "System-audio monitor / loopback ID";
+                                        text <=> root.recording-playback-device;
+                                    }
+                                }
+                                HorizontalLayout {
+                                    spacing: 8px;
+                                    Button {
+                                        text: "Open session details";
+                                        clicked => { root.open-session(root.selected-session); }
+                                    }
+                                    Button {
+                                        text: "Review transcript";
+                                        clicked => { root.review-transcript(root.selected-session); }
+                                    }
+                                }
+                                HorizontalLayout {
+                                    spacing: 8px;
+                                    LineEdit {
+                                        placeholder-text: "Time (HH:MM:SS)";
+                                        text <=> root.annotation-time;
+                                    }
+                                    LineEdit {
+                                        placeholder-text: "Optional note";
+                                        text <=> root.annotation-note;
+                                    }
+                                }
+                                Text {
+                                    text: "⌘/Ctrl + " + root.shortcut-concept + " concept · " +
+                                          root.shortcut-mistake + " mistake · " +
+                                          root.shortcut-correction + " correction · " +
+                                          root.shortcut-instruction + " instruction · " +
+                                          root.shortcut-example + " example · " +
+                                          root.shortcut-follow-up + " follow up · " +
+                                          root.shortcut-note + " note";
+                                    color: #64716b;
+                                    font-size: 11px;
+                                    wrap: word-wrap;
+                                }
+                                HorizontalLayout {
+                                    spacing: 8px;
+                                    Button {
+                                        text: "Concept";
+                                        clicked => {
+                                            root.quick-marker(root.selected-session,
+                                                "important-concept", root.annotation-time,
+                                                root.annotation-note);
+                                        }
+                                    }
+                                    Button {
+                                        text: "Mistake";
+                                        clicked => {
+                                            root.quick-marker(root.selected-session,
+                                                "student-mistake", root.annotation-time,
+                                                root.annotation-note);
+                                        }
+                                    }
+                                    Button {
+                                        text: "Correction";
+                                        clicked => {
+                                            root.quick-marker(root.selected-session,
+                                                "tutor-correction", root.annotation-time,
+                                                root.annotation-note);
+                                        }
+                                    }
+                                    Button {
+                                        text: "Instruction";
+                                        clicked => {
+                                            root.quick-marker(root.selected-session,
+                                                "explicit-instruction", root.annotation-time,
+                                                root.annotation-note);
+                                        }
+                                    }
+                                    Button {
+                                        text: "Worked example";
+                                        clicked => {
+                                            root.quick-marker(root.selected-session,
+                                                "worked-example", root.annotation-time,
+                                                root.annotation-note);
+                                        }
+                                    }
+                                    Button {
+                                        text: "Follow up";
+                                        clicked => {
+                                            root.quick-marker(root.selected-session,
+                                                "follow-up-priority", root.annotation-time,
+                                                root.annotation-note);
+                                        }
+                                    }
+                                }
+                                ScrollView {
+                                    height: 220px;
+                                    Text { text: root.sessions-text; color: #53615b; font-size: 12px; wrap: word-wrap; }
+                                }
+                                ScrollView {
+                                    height: 180px;
+                                    Text { text: root.command-output; color: #53615b; font-size: 12px; wrap: word-wrap; }
+                                }
+                            }
+                        }
+                        if root.active-view == "assets": Rectangle {
+                            border-radius: 14px;
+                            background: #ffffff;
+                            VerticalLayout {
+                                padding: 20px;
+                                spacing: 12px;
+                                Text {
+                                    text: "Materials in this archive";
+                                    color: #263230;
+                                    font-size: 16px;
+                                    font-weight: 600;
+                                }
+                                if root.session-options.length > 0: ComboBox {
+                                    model: root.session-options;
+                                    current-value <=> root.selected-session;
+                                }
+                                LineEdit {
+                                    placeholder-text: "File path to import";
+                                    text <=> root.asset-input-path;
+                                }
+                                HorizontalLayout {
+                                    spacing: 8px;
+                                    Button {
+                                        text: "Import into session";
+                                        clicked => {
+                                            root.asset-command(root.selected-session, "add",
+                                                root.asset-input-path);
+                                        }
+                                    }
+                                    Button {
+                                        text: "List session materials";
+                                        clicked => {
+                                            root.asset-command(root.selected-session, "list", "");
+                                        }
+                                    }
+                                }
+                                ScrollView {
+                                    height: 260px;
+                                    Text {
+                                        text: root.command-output;
+                                        color: #53615b;
+                                        font-size: 12px;
+                                        wrap: word-wrap;
+                                    }
+                                }
+                            }
+                        }
+                        if root.active-view == "recording": Rectangle {
+                            border-radius: 14px;
+                            background: #ffffff;
+                            VerticalLayout {
+                                padding: 20px;
+                                spacing: 12px;
+                                Text {
+                                    text: "Archive-backed audio capture";
+                                    color: #263230;
+                                    font-size: 16px;
+                                    font-weight: 600;
+                                }
+                                Text {
+                                    text: "Choose a session and source. Starting capture confirms consent; " +
+                                          "audio is committed directly to the selected archive.";
+                                    color: #64716b;
+                                    font-size: 13px;
+                                    wrap: word-wrap;
+                                }
+                                if root.session-options.length > 0: ComboBox {
+                                    model: root.session-options;
+                                    current-value <=> root.selected-session;
+                                }
+                                HorizontalLayout {
+                                    spacing: 8px;
+                                    Button {
+                                        text: "Start microphone";
+                                        clicked => {
+                                            root.recording-command(root.selected-session,
+                                                "start", "microphone");
+                                        }
+                                    }
+                                    Button {
+                                        text: "Start system audio";
+                                        clicked => {
+                                            root.recording-command(root.selected-session,
+                                                "start", "system-audio");
+                                        }
+                                    }
+                                    Button {
+                                        text: "Start both tracks";
+                                        clicked => {
+                                            root.recording-command(root.selected-session,
+                                                "start", "both");
+                                        }
+                                    }
+                                    Button {
+                                        text: "Pause";
+                                        clicked => {
+                                            root.recording-command(root.selected-session,
+                                                "pause", "");
+                                        }
+                                    }
+                                    Button {
+                                        text: "Resume";
+                                        clicked => {
+                                            root.recording-command(root.selected-session,
+                                                "resume", "");
+                                        }
+                                    }
+                                    Button {
+                                        text: "Stop";
+                                        clicked => {
+                                            root.recording-command(root.selected-session,
+                                                "stop", "");
+                                        }
+                                    }
+                                }
+                                ScrollView {
+                                    height: 180px;
+                                    Text {
+                                        text: root.command-output;
+                                        color: #53615b;
+                                        font-size: 12px;
+                                        wrap: word-wrap;
+                                    }
+                                }
+                            }
+                        }
+                        if root.active-view == "review": Rectangle {
+                            border-radius: 14px;
+                            background: #ffffff;
+                            VerticalLayout {
+                                padding: 20px;
+                                spacing: 12px;
+                                Text {
+                                    text: "Review the source before approval";
+                                    color: #263230;
+                                    font-size: 16px;
+                                    font-weight: 600;
+                                }
+                                Text {
+                                    text: "Correct transcript wording and verify it against the recording. " +
+                                          "Human corrections remain revisioned in the archive.";
+                                    color: #64716b;
+                                    font-size: 13px;
+                                    wrap: word-wrap;
+                                }
+                                if root.session-options.length > 0: ComboBox {
+                                    model: root.session-options;
+                                    current-value <=> root.selected-session;
+                                }
+                                HorizontalLayout {
+                                    spacing: 8px;
+                                    if root.transcript-options.length > 0: ComboBox {
+                                        model: root.transcript-options;
+                                        current-value <=> root.selected-transcript;
+                                    }
+                                    Button {
+                                        text: "Refresh transcript";
+                                        clicked => { root.review-transcript(root.selected-session); }
+                                    }
+                                    Button {
+                                        text: "Load segment";
+                                        clicked => {
+                                            root.load-transcript(root.selected-session,
+                                                root.selected-transcript);
+                                        }
+                                    }
+                                }
+                                Text {
+                                    text: root.transcript-provenance;
+                                    color: #64716b;
+                                    font-size: 11px;
+                                    wrap: word-wrap;
+                                }
+                                TextEdit {
+                                    height: 120px;
+                                    text <=> root.transcript-edit-text;
+                                }
+                                Button {
+                                    text: "Save human correction";
+                                    clicked => {
+                                        root.save-transcript(root.selected-session,
+                                            root.selected-transcript, root.transcript-edit-text);
+                                    }
+                                }
+                                ScrollView { height: 230px; Text { text: root.command-output; color: #53615b; font-size: 12px; wrap: word-wrap; } }
+                            }
+                        }
+                        if root.active-view == "ai": Rectangle {
+                            border-radius: 14px;
+                            background: #ffffff;
+                            VerticalLayout {
+                                padding: 20px;
+                                spacing: 12px;
+                                Text {
+                                    text: "Choose a workflow";
+                                    color: #263230;
+                                    font-size: 16px;
+                                    font-weight: 600;
+                                }
+                                Text {
+                                    text: "Manual packages need no API key. BYOK sends data only after " +
+                                          "you review the exact request and confirm its hash.";
+                                    color: #64716b;
+                                    font-size: 13px;
+                                    wrap: word-wrap;
+                                }
+                                LineEdit {
+                                    placeholder-text: "Provider ID, such as openai, ollama, llama.cpp-embedded";
+                                    text <=> root.ai-provider-id;
+                                }
+                                HorizontalLayout {
+                                    spacing: 8px;
+                                    LineEdit {
+                                        placeholder-text: "Optional provider endpoint";
+                                        text <=> root.ai-endpoint;
+                                    }
+                                    LineEdit {
+                                        placeholder-text: "Model ID";
+                                        text <=> root.ai-model-id;
+                                    }
+                                    LineEdit {
+                                        placeholder-text: "GGUF model path (embedded llama.cpp)";
+                                        text <=> root.ai-model-path;
+                                    }
+                                    Button {
+                                        text: "Configure";
+                                        clicked => {
+                                            root.ai-command(root.ai-provider-id, "configure",
+                                                root.selected-session, "");
+                                        }
+                                    }
+                                    Button {
+                                        text: "Select GGUF";
+                                        clicked => {
+                                            root.ai-command(root.ai-provider-id, "select-embedded",
+                                                root.selected-session, "");
+                                        }
+                                    }
+                                }
+                                HorizontalLayout {
+                                    spacing: 8px;
+                                    Button {
+                                        text: "Provider integrations";
+                                        clicked => {
+                                            root.ai-command(root.ai-provider-id, "providers",
+                                                "", "");
+                                        }
+                                    }
+                                    Button {
+                                        text: "Refresh model catalog";
+                                        clicked => {
+                                            root.ai-command(root.ai-provider-id, "models", "", "");
+                                        }
+                                    }
+                                }
+                                if root.session-options.length > 0: ComboBox {
+                                    model: root.session-options;
+                                    current-value <=> root.selected-session;
+                                }
+                                LineEdit {
+                                    placeholder-text: "Optional manual package export path";
+                                    text <=> root.ai-package-path;
+                                }
+                                HorizontalLayout {
+                                    spacing: 8px;
+                                    Button {
+                                        text: "Prepare manual chat package";
+                                        clicked => {
+                                            root.ai-command(root.ai-provider-id, "package",
+                                                root.selected-session, root.ai-package-path);
+                                        }
+                                    }
+                                    Button {
+                                        text: "Prepare ZIP handoff with assets";
+                                        clicked => {
+                                            root.ai-command(root.ai-provider-id, "zip-package",
+                                                root.selected-session, root.ai-package-path);
+                                        }
+                                    }
+                                    Button {
+                                        text: "Prepare local package";
+                                        clicked => {
+                                            root.ai-command(root.ai-provider-id, "local-package",
+                                                root.selected-session, root.ai-package-path);
+                                        }
+                                    }
+                                }
+                                HorizontalLayout {
+                                    spacing: 8px;
+                                    LineEdit {
+                                        placeholder-text: "AI package job ID";
+                                        text <=> root.ai-package-job-id;
+                                    }
+                                    LineEdit {
+                                        placeholder-text: "API key environment variable";
+                                        text <=> root.ai-api-key-environment;
+                                    }
+                                    Button {
+                                        text: "Preview / run locally";
+                                        clicked => {
+                                            root.ai-command(root.ai-provider-id, "generate",
+                                                root.selected-session, "");
+                                        }
+                                    }
+                                }
+                                LineEdit {
+                                    placeholder-text: "Review the request, then paste its exact body SHA-256 here";
+                                    text <=> root.ai-confirmation-hash;
+                                }
+                                Button {
+                                    text: "Confirm outbound request";
+                                    clicked => {
+                                        root.ai-command(root.ai-provider-id, "confirm-send",
+                                            root.selected-session, "");
+                                    }
+                                }
+                                HorizontalLayout {
+                                    spacing: 8px;
+                                    LineEdit {
+                                        placeholder-text: "External response JSON file path";
+                                        text <=> root.ai-response-path;
+                                    }
+                                    Button {
+                                        text: "Import external response";
+                                        clicked => {
+                                            root.ai-command(root.ai-provider-id, "import",
+                                                root.selected-session, root.ai-response-path);
+                                        }
+                                    }
+                                }
+                                ScrollView {
+                                    height: 220px;
+                                    Text {
+                                        text: root.command-output;
+                                        color: #53615b;
+                                        font-size: 12px;
+                                        wrap: word-wrap;
+                                    }
+                                }
+                            }
+                        }
+                        if root.active-view == "guides": Rectangle {
+                            border-radius: 14px;
+                            background: #ffffff;
+                            VerticalLayout {
+                                padding: 20px;
+                                spacing: 12px;
+                                Text {
+                                    text: "Guide review and export";
+                                    color: #263230;
+                                    font-size: 16px;
+                                    font-weight: 600;
+                                }
+                                Text {
+                                    text: "Review source-linked content, validate it, explicitly approve " +
+                                          "the guide, then export a copy.";
+                                    color: #64716b;
+                                    font-size: 13px;
+                                    wrap: word-wrap;
+                                }
+                                if root.guide-options.length > 0: ComboBox {
+                                    model: root.guide-options;
+                                    current-value <=> root.selected-guide;
+                                }
+                                HorizontalLayout {
+                                    spacing: 8px;
+                                    if root.guide-block-options.length > 0: ComboBox {
+                                        model: root.guide-block-options;
+                                        current-value <=> root.selected-guide-block;
+                                    }
+                                    Button {
+                                        text: "Load block";
+                                        clicked => {
+                                            root.load-guide-block(root.selected-guide,
+                                                root.selected-guide-block);
+                                        }
+                                    }
+                                    Button {
+                                        text: "Save reviewed block";
+                                        clicked => {
+                                            root.save-guide-block(root.selected-guide,
+                                                root.selected-guide-block, root.guide-edit-text);
+                                        }
+                                    }
+                                }
+                                Text {
+                                    text: root.guide-provenance;
+                                    color: #64716b;
+                                    font-size: 11px;
+                                    wrap: word-wrap;
+                                }
+                                TextEdit {
+                                    height: 170px;
+                                    text <=> root.guide-edit-text;
+                                }
+                                HorizontalLayout {
+                                    spacing: 8px;
+                                    Button {
+                                        text: "Open guide";
+                                        clicked => {
+                                            root.guide-command(root.selected-guide, "show", "", "");
+                                        }
+                                    }
+                                    Button {
+                                        text: "Validate sources";
+                                        clicked => {
+                                            root.guide-command(root.selected-guide, "validate", "", "");
+                                        }
+                                    }
+                                    Button {
+                                        text: "Approve guide";
+                                        clicked => {
+                                            root.guide-command(root.selected-guide, "approve", "", "");
+                                        }
+                                    }
+                                }
+                                HorizontalLayout {
+                                    spacing: 8px;
+                                    ComboBox {
+                                        model: ["markdown", "html", "pdf", "docx"];
+                                        current-value <=> root.guide-export-format;
+                                    }
+                                    LineEdit {
+                                        placeholder-text: "Export file path";
+                                        text <=> root.guide-export-path;
+                                    }
+                                    Button {
+                                        text: "Export";
+                                        clicked => {
+                                            root.guide-command(root.selected-guide, "export",
+                                                root.guide-export-format, root.guide-export-path);
+                                        }
+                                    }
+                                }
+                                ScrollView {
+                                    height: 260px;
+                                    Text {
+                                        text: root.guide-output;
+                                        color: #53615b;
+                                        font-size: 12px;
+                                        wrap: word-wrap;
+                                    }
+                                }
+                            }
+                        }
+                        if root.active-view == "settings": Rectangle {
+                            border-radius: 14px;
+                            background: #ffffff;
+                            VerticalLayout {
+                                padding: 20px;
+                                spacing: 12px;
+                                Text { text: "Archive-specific configuration"; color: #263230; font-size: 16px; font-weight: 600; }
+                                Text { text: "Tutorux stores workspace settings in the selected .tux archive. API keys are read from environment variables unless you explicitly save an encrypted credential record."; color: #64716b; font-size: 13px; wrap: word-wrap; }
+                                Text { text: "settings list   ·   settings get KEY   ·   settings set KEY VALUE   ·   archive verify --full"; color: #32584c; font-size: 12px; wrap: word-wrap; }
+                                Text {
+                                    text: "Quick marker keys (Control on Windows/Linux, Command on macOS)";
+                                    color: #263230;
+                                    font-size: 13px;
+                                    font-weight: 600;
+                                }
+                                HorizontalLayout {
+                                    spacing: 6px;
+                                    LineEdit { placeholder-text: "Concept"; text <=> root.shortcut-concept; }
+                                    LineEdit { placeholder-text: "Mistake"; text <=> root.shortcut-mistake; }
+                                    LineEdit { placeholder-text: "Correction"; text <=> root.shortcut-correction; }
+                                    LineEdit { placeholder-text: "Instruction"; text <=> root.shortcut-instruction; }
+                                    LineEdit { placeholder-text: "Example"; text <=> root.shortcut-example; }
+                                    LineEdit { placeholder-text: "Follow up"; text <=> root.shortcut-follow-up; }
+                                    LineEdit { placeholder-text: "Note"; text <=> root.shortcut-note; }
+                                }
+                                Button {
+                                    text: "Save marker keys to this archive";
+                                    clicked => {
+                                        root.save-marker-shortcuts(root.shortcut-concept,
+                                            root.shortcut-mistake, root.shortcut-correction,
+                                            root.shortcut-instruction, root.shortcut-example,
+                                            root.shortcut-follow-up, root.shortcut-note);
+                                    }
+                                }
+                            }
+                        }
+
+                        CommandPanel {
+                            command-input <=> root.command-input;
+                            command-output <=> root.command-output;
+                            command-running <=> root.command-running;
+                            run-command => { root.run-command(root.command-input, root.new-archive-passphrase); }
+                            cancel-command => { root.cancel-command(); }
+                        }
+                    }
                 }
             }
+        }
         }
     }
 }
