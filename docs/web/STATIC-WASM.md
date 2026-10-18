@@ -35,8 +35,10 @@ browser file handles.
 
 The browser edition opens and creates the same `.tux` archive format as the C++ command engine. It
 does not create a separate browser database of students, sessions, notes, transcripts, or guides.
-Edits go through the shared archive commands and are committed to the selected archive in the
-WebAssembly filesystem.
+Journal entries, student profiles, tutoring sessions, notes, transcripts, and guides go through the
+shared command dispatcher and are committed to the selected archive in the WebAssembly filesystem.
+The browser API is a thin transport over those commands; it does not define a second data model or
+archive format.
 
 When a browser supports the File System Access API, opening a selected archive retains its file
 handle and Save archive writes the changed bytes back to that file. Other browsers use a file input
@@ -53,25 +55,42 @@ persistent-storage permission. IndexedDB is a recovery aid; a downloaded `.tux` 
 independent portable copy. If a retained archive cannot be opened, Tutorux leaves the entry in place
 and offers the original bytes for download.
 
+The appearance control follows the operating-system theme until the tutor chooses light or dark. A
+chosen theme is saved as the archive-specific `ui.theme` setting; without an open archive, the
+choice applies for the current page session only. Tutorux does not keep a global appearance setting.
+
+When recovery inspection finds bytes after the latest committed generation, the browser shows the
+committed generation, trailing byte count, candidate generation, and verification issues. Editing is
+disabled until the tutor publishes a fully verified unpublished generation or explicitly discards
+the incomplete tail. Encrypted candidates are verified only after the archive passphrase is supplied.
+Inspection does not change archive bytes, and the browser keeps the resulting archive snapshot in
+IndexedDB after an explicit recovery action.
+
 Archive contents are loaded into the browser's WebAssembly filesystem and browser storage. The web
 edition therefore depends on available memory and origin storage quota; very large archives may
 exceed browser limits. The current browser file imports limit each transcript, WAV recording, or
-asset file to 64 MiB to bound temporary memory use. Native archive workflows do not use this
-browser-specific limit.
+asset file to 64 MiB to bound temporary memory use. Live microphone capture writes short WAV
+segments in the worker and imports each segment into the active session as a separate
+archive-native audio track. Native archive workflows do not use this browser-specific import limit.
 
 ## Browser workflows
 
 The static page currently provides these archive-backed workflows:
 
 - Create, open, save, download, and recover a portable `.tux` archive.
-- Create students and sessions, select a session, and edit its title and subject.
+- Follow the operating-system light or dark theme, or save an archive-specific appearance choice.
+- Create student profiles and sessions, select a session, and edit its title and subject.
+- Browse journal entries newest first, create and edit entries, filter them through the shared
+  journal commands, and open an entry with its associated sessions.
+- Create a notes-only, audio-recording, or imported-recording session for an entry, then review its
+  chronological session timeline and lifecycle state.
 - Add, edit, prioritize, and timestamp tutor notes and lesson markers.
 - Import plain text, SRT, or WebVTT transcript files; correct segment text and timestamps; and
   download transcript exports in plain text, SRT, WebVTT, or JSON.
-- Capture microphone audio in secure browsers with explicit permission, and import WAV recordings
-  into a selected session's durable audio track.
+- Capture microphone audio in secure browsers with explicit permission and commit it as a sequence
+  of individually identifiable audio tracks in the selected session.
 - Import session files and media, list them, verify content hashes, and download extracted copies.
-- Create and download a manual AI handoff package in Markdown, JSON, or ZIP, then import an external
+- Create and download a manual AI handoff package in Markdown, JSON, multipart text, or ZIP, then import an external
   JSON guide response as a proposed guide for tutor review.
 - Generate a guide draft from archived session evidence, edit its title and blocks, add
   tutor-written sections, inspect source IDs, validate through approval, and download Markdown,
@@ -79,14 +98,19 @@ The static page currently provides these archive-backed workflows:
 - Run shared CLI commands from the command console without invoking a shell.
 
 Transcript, WAV recording, and asset imports pass user-selected files through the WebAssembly worker
-to the shared C++ import commands. Browser microphone capture uses `MediaRecorder`, requires a
-secure origin and an explicit permission confirmation, and saves the compressed audio as a
-session-linked asset when stopped. Keep the page open during capture. Captures are limited to
-64 MiB; if saving to the archive fails, the browser offers a separate audio download for recovery.
-System-audio capture and background recording are unavailable. Other browser file imports are
-limited to 64 MiB; external AI response files are limited to 16 MiB. Browser-side local model
-provisioning is unavailable. Transcript editing works for transcript segments already in the
-archive or imported from supported text formats.
+to the shared C++ import commands. Browser microphone capture uses AudioWorklet PCM blocks, requires
+a secure origin and explicit permission confirmation, and checkpoints a new archive-native audio
+track every 20 seconds. A seven-second pending-PCM limit stops capture if archive persistence falls
+behind. Each completed segment is imported and removed from temporary worker storage before capture
+continues; stopping capture imports the remaining segment. A tab or worker crash can still lose the
+current segment and queued blocks, bounded to roughly 27 seconds at the configured checkpoint and
+backlog limits. If a segment cannot be committed, Tutorux downloads a WAV recovery copy or retains
+the WAV in page memory for the explicit recovery download action. Keep the page open during capture
+and download the archive for an independent backup. System-audio capture and background recording
+are unavailable. User-selected transcript, WAV, and asset files remain limited to 64 MiB each;
+external AI response files are limited to 16 MiB. Browser-side local model provisioning is
+unavailable. Transcript editing works for transcript segments already in the archive or imported
+from supported text formats.
 
 The manual AI package is stored as an archive job and downloaded for use with an external agent.
 ZIP packages contain verified session asset bytes; large ZIP handoffs use ordered UTF-8-safe JSON
@@ -100,6 +124,56 @@ Guide approval uses the shared archive validator. A guide with invalid or stale 
 must be reviewed and corrected before approval. The browser editor preserves the archive's
 structured sections, blocks, source IDs, and revision history; exported files are user-requested
 outputs, while the guide record remains in `.tux`.
+
+Portable PDF export embeds 8-bit grayscale/RGB JPEG, PNG, GIF, and WebP guide images. PNG uses the
+first image in the file and supports alpha, indexed color, and Adam7 interlacing. GIF and animated
+WebP export their first frame. Decoded image alpha is preserved with a PDF soft mask. Decoding is
+limited to 64 MiB of encoded data and 16 million output pixels per image; JPEG and the common opaque
+8-bit RGB/grayscale PNG path are embedded directly without pixel decoding. Combined PDF image
+streams are capped at 128 MiB.
+
+The WebAssembly binary statically includes zlib 1.3.2, libpng 1.6.59, GIFLIB at the pinned commit
+`061605081115bbfd7019bafc119a13b6f17fcf25` (including the upstream GIF control-extension bounds
+fix), and libwebp 1.6.0. Their license notices are installed under `licenses/` with the WebRuntime
+component; the WebP patent grant is included with its license.
+
+### Journal WebAssembly command API
+
+The WebAssembly module exposes the existing generic dispatcher and scoped entry points for browser
+clients. All entry points accept the same JSON payload and call the same C++ command dispatcher:
+
+```json
+{
+  "api": "journal.v1",
+  "arguments": ["journal", "entry", "list", "--json"]
+}
+```
+
+The generic `tutorux_web_dispatch_json` entry point accepts any supported command. Its object form
+may include `api` to request a scoped API version. The scoped C exports are
+`tutorux_web_journal_dispatch_json`, `tutorux_web_profile_dispatch_json`, and
+`tutorux_web_session_dispatch_json`. Each accepts the same JSON string; scoped entry points reject
+commands outside their group. Profile operations use the shared `student` command group because a
+student profile is the archive's profile record. Every API also accepts the legacy top-level JSON
+array of command strings.
+
+The journal scope accepts `journal entry`, `journal collection`, and `journal tag` commands. For
+example, an entry list may pass `--query`, `--collection-id`, `--tag-id`, `--from`, `--to`, or
+`--has-sessions`; entry creation may pass `--title`, `--date`, `--collection-ids`, and `--tag-ids`.
+The profile scope accepts `student` commands. The session scope accepts `session` commands,
+including `session create --entry-id ID --type notes-only|record-audio|import-recording`,
+`session list --entry-id ID`, and the start, complete, review, and resume lifecycle operations.
+Command arrays use the same names and option rules as the native CLI; they are never interpreted by
+a shell. Include `--json` in the command arguments when the client needs structured command output.
+
+The result is JSON with `ok`, `exit_code`, and `output` on normal dispatcher completion, or
+`ok`, `exit_code`, `error_code`, and `error` for a bridge-level error. Archive passphrases, when
+needed, remain top-level JSON strings named `passphrase` and `newPassphrase`; the bridge bounds and
+clears those in-memory copies after dispatch. Browser clients should invoke the API from the worker
+so the existing path validation, cross-tab locking, archive synchronization, and IndexedDB
+recovery snapshot remain in effect. A successful command response is followed by the worker's
+existing archive snapshot persistence; a browser-storage failure is reported as
+`archive_persistence_error` and the user should download the current archive before closing.
 
 ## Touch and iPad behavior
 
