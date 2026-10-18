@@ -56,6 +56,7 @@ struct RecoveryReport final {
 };
 
 bool isCredentialSettingsRecord(const Record& record);
+bool isSensitiveCredentialFieldName(std::string_view fieldName);
 bool hasSensitiveCredentialMaterial(const Record& record);
 
 class Archive final {
