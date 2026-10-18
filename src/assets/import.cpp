@@ -33,6 +33,25 @@ namespace {
         return core::error(std::move(code), std::move(message));
     }
 
+    core::Status validateImportSource(const std::filesystem::path& path) {
+        std::error_code errorCode;
+        const auto status = std::filesystem::symlink_status(path, errorCode);
+        if (errorCode) {
+            return std::unexpected(
+                fileError("asset_read_failed", "Unable to inspect the selected asset file."));
+        }
+        if (std::filesystem::is_symlink(status)) {
+            return std::unexpected(
+                fileError("asset_symbolic_link_rejected",
+                          "Symbolic links cannot be imported. Select the regular file directly."));
+        }
+        if (!std::filesystem::is_regular_file(status)) {
+            return std::unexpected(
+                fileError("asset_not_regular_file", "The selected asset must be a regular file."));
+        }
+        return {};
+    }
+
     core::Result<std::uint64_t> parseUnsigned(std::string_view value, std::string_view fieldName) {
         std::uint64_t parsed = 0;
         const auto [end, errorCode] =
@@ -71,6 +90,9 @@ namespace {
 
 core::Result<FileInspection> inspectFile(const std::filesystem::path& path,
                                          std::uint64_t maximumBytes) {
+    if (auto status = validateImportSource(path); !status)
+        return std::unexpected(status.error());
+
     std::error_code errorCode;
     const std::uint64_t expectedSize = std::filesystem::file_size(path, errorCode);
     if (errorCode) {
@@ -103,9 +125,8 @@ core::Result<FileInspection> inspectFile(const std::filesystem::path& path,
         }
         const std::size_t chunkSize = static_cast<std::size_t>(count);
         if (chunkSize > maximumBytes - byteSize) {
-            return std::unexpected(
-                fileError("asset_size_limit",
-                          "The selected asset grew beyond the configured size limit."));
+            return std::unexpected(fileError(
+                "asset_size_limit", "The selected asset grew beyond the configured size limit."));
         }
         const auto chunk = std::span<const std::byte>(buffer.data(), chunkSize);
         hash.update(chunk);
@@ -119,9 +140,8 @@ core::Result<FileInspection> inspectFile(const std::filesystem::path& path,
         }
     }
     if (byteSize != expectedSize) {
-        return std::unexpected(
-            fileError("asset_source_changed",
-                      "The selected asset changed while it was being inspected."));
+        return std::unexpected(fileError(
+            "asset_source_changed", "The selected asset changed while it was being inspected."));
     }
 
     const auto prefixSpan = std::span<const std::byte>(prefix.data(), prefixSize);
@@ -134,6 +154,9 @@ core::Result<FileInspection> inspectFile(const std::filesystem::path& path,
 
 core::Result<std::vector<std::byte>> readVerifiedFile(const std::filesystem::path& path,
                                                       const FileInspection& inspection) {
+    if (auto status = validateImportSource(path); !status)
+        return std::unexpected(status.error());
+
     if (inspection.byteSize > std::numeric_limits<std::size_t>::max() ||
         inspection.byteSize >
             static_cast<std::uint64_t>(std::numeric_limits<std::streamsize>::max())) {
@@ -151,9 +174,8 @@ core::Result<std::vector<std::byte>> readVerifiedFile(const std::filesystem::pat
         input.read(reinterpret_cast<char*>(content.data()),
                    static_cast<std::streamsize>(content.size()));
         if (input.gcount() != static_cast<std::streamsize>(content.size())) {
-            return std::unexpected(
-                fileError("asset_source_changed",
-                          "The selected asset changed while it was being imported."));
+            return std::unexpected(fileError(
+                "asset_source_changed", "The selected asset changed while it was being imported."));
         }
     }
     char extraByte{};
@@ -169,9 +191,8 @@ core::Result<std::vector<std::byte>> readVerifiedFile(const std::filesystem::pat
     domain::Sha256Builder hash;
     hash.update(content);
     if (domain::hexHash(hash.finish()) != inspection.sha256) {
-        return std::unexpected(
-            fileError("asset_source_changed",
-                      "The selected asset changed while it was being imported."));
+        return std::unexpected(fileError(
+            "asset_source_changed", "The selected asset changed while it was being imported."));
     }
     return content;
 }
@@ -194,9 +215,8 @@ core::Result<ArchiveAssetImport> importIntoArchive(archive::Archive& archive,
         const archive::Record& existing = **existingBlob;
         if (existing.type != archive::RecordType::AssetBlob ||
             domain::getField(existing, "content_hash") != inspection->sha256) {
-            return std::unexpected(
-                fileError("asset_blob_index_invalid",
-                          "Content hash index points to an invalid asset blob."));
+            return std::unexpected(fileError(
+                "asset_blob_index_invalid", "Content hash index points to an invalid asset blob."));
         }
         archive::Record candidate;
         candidate.type = archive::RecordType::AssetMetadata;
@@ -205,8 +225,7 @@ core::Result<ArchiveAssetImport> importIntoArchive(archive::Archive& archive,
             {"content_hash", inspection->sha256                  },
             {"byte_size",    std::to_string(inspection->byteSize)}
         };
-        if (auto status = visitArchiveAsset(archive,
-                                            candidate,
+        if (auto status = visitArchiveAsset(archive, candidate,
                                             [](std::span<const std::byte>) -> core::Status {
                                                 return {};
                                             });
@@ -228,6 +247,9 @@ core::Result<ArchiveAssetImport> importIntoArchive(archive::Archive& archive,
             chunkCount = 1;
         }
     } else {
+        if (auto status = validateImportSource(path); !status)
+            return std::unexpected(status.error());
+
         std::ifstream input(path, std::ios::binary);
         if (!input)
             return std::unexpected(
@@ -256,9 +278,8 @@ core::Result<ArchiveAssetImport> importIntoArchive(archive::Archive& archive,
             input.read(reinterpret_cast<char*>(chunk.blob.data()),
                        static_cast<std::streamsize>(chunkSize));
             if (input.gcount() != static_cast<std::streamsize>(chunkSize))
-                return std::unexpected(
-                    fileError("asset_source_changed",
-                              "The selected asset changed during archive import."));
+                return std::unexpected(fileError(
+                    "asset_source_changed", "The selected asset changed during archive import."));
 
             sourceHash.update(chunk.blob);
             chunkIds.push_back(archive::uuidToString(chunk.id));
@@ -344,8 +365,7 @@ core::Result<ArchiveAssetImport> importIntoArchive(archive::Archive& archive,
 }
 
 core::Status
-visitArchiveAsset(const archive::Archive& archive,
-                  const archive::Record& metadata,
+visitArchiveAsset(const archive::Archive& archive, const archive::Record& metadata,
                   const std::function<core::Status(std::span<const std::byte>)>& visitor) {
     if (!visitor)
         return std::unexpected(fileError("asset_visitor_invalid", "Asset visitor is required."));
@@ -386,9 +406,8 @@ visitArchiveAsset(const archive::Archive& archive,
                                                  "An asset chunk is missing or out of sequence."));
             }
             if ((*chunk)->blob.size() > std::numeric_limits<std::uint64_t>::max() - byteCount)
-                return std::unexpected(
-                    fileError("asset_size_invalid",
-                              "Asset content size exceeds the supported range."));
+                return std::unexpected(fileError(
+                    "asset_size_invalid", "Asset content size exceeds the supported range."));
             byteCount += static_cast<std::uint64_t>((*chunk)->blob.size());
             hash.update((*chunk)->blob);
             if (auto status = visitor((*chunk)->blob); !status)
