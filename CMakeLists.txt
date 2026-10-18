@@ -1647,6 +1647,10 @@ if(BUILD_TESTING AND NOT TUTORUX_BUILD_WASM)
     target_link_libraries(tutorux_credential_storage_test PRIVATE tutorux_core)
     add_test(NAME encrypted_credential_storage_policy COMMAND tutorux_credential_storage_test)
 
+    add_executable(tutorux_session_configuration_test tests/session_configuration_test.cpp)
+    target_link_libraries(tutorux_session_configuration_test PRIVATE tutorux_core)
+    add_test(NAME journal_session_configuration COMMAND tutorux_session_configuration_test)
+
     add_executable(tutorux_pdf_export_test tests/pdf_export_test.cpp)
     target_link_libraries(tutorux_pdf_export_test PRIVATE tutorux_core podofo::podofo)
     if(TUTORUX_FETCH_PODOFO)
