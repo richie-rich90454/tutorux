@@ -36,13 +36,9 @@ int reportFailure(std::string_view step, std::string_view detail) {
     return 1;
 }
 
-tutorux::core::Result<tutorux::command::CommandResult>
-dispatchSettings(const std::filesystem::path& archivePath,
-                 const std::vector<std::string>& command) {
-    std::vector<std::string> arguments{"--archive",
-                                       archivePath.string(),
-                                       "--passphrase-env",
-                                       "TUTORUX_TEST_PASSPHRASE"};
+tutorux::core::Result<tutorux::command::CommandResult> dispatchSettings(const std::filesystem::path& archivePath,
+                                                                        const std::vector<std::string>& command) {
+    std::vector<std::string> arguments{"--archive", archivePath.string(), "--passphrase-env", "TUTORUX_TEST_PASSPHRASE"};
     arguments.insert(arguments.end(), command.begin(), command.end());
     return tutorux::command::dispatch(arguments);
 }
@@ -56,14 +52,12 @@ int main() {
     constexpr std::string_view replacementPassphrase = "new command line passphrase";
     constexpr std::string_view credentialMarker = "credential plaintext marker 9341";
     const auto uniqueSuffix = std::chrono::steady_clock::now().time_since_epoch().count();
-    TemporaryDirectory temporary{std::filesystem::current_path() /
-                                 ("tutorux-credential-storage-" + std::to_string(uniqueSuffix))};
+    TemporaryDirectory temporary{std::filesystem::current_path() / ("tutorux-credential-storage-" + std::to_string(uniqueSuffix))};
     std::error_code errorCode;
     std::filesystem::create_directories(temporary.path, errorCode);
     if (errorCode)
         return reportFailure("temporary directory", errorCode.message());
-    if (!setEnvironment("TUTORUX_TEST_PASSPHRASE", passphrase) ||
-        !setEnvironment("TUTORUX_TEST_NEW_PASSPHRASE", replacementPassphrase) ||
+    if (!setEnvironment("TUTORUX_TEST_PASSPHRASE", passphrase) || !setEnvironment("TUTORUX_TEST_NEW_PASSPHRASE", replacementPassphrase) ||
         !setEnvironment("TUTORUX_TEST_API_KEY", credentialMarker)) {
         return reportFailure("environment setup", "Could not set test environment variables.");
     }
@@ -77,38 +71,37 @@ int main() {
             return reportFailure("encrypt archive", status.error().message);
     }
 
-    auto noOptIn = dispatchSettings(
-        encryptedPath,
-        {"settings", "set", "--key", "provider-api-key", "--value-env", "TUTORUX_TEST_API_KEY"});
+    {
+        auto encrypted = archive::Archive::open(encryptedPath, true, passphrase);
+        if (!encrypted)
+            return reportFailure("open encrypted archive for policy checks", encrypted.error().message);
+        archive::Record misplacedCredential;
+        misplacedCredential.type = archive::RecordType::Settings;
+        misplacedCredential.id = archive::randomUuid();
+        misplacedCredential.fields = {
+            {"record_role", "setting"                    },
+            {"key",         "OpenAI.API-Key"             },
+            {"value",       std::string(credentialMarker)}
+        };
+        auto rejected = encrypted->put(std::move(misplacedCredential));
+        if (rejected || rejected.error().code != "sensitive_setting_key_rejected") {
+            return reportFailure("credential representation enforcement", "Encrypted archives accepted credentials in ordinary settings.");
+        }
+    }
+
+    auto noOptIn = dispatchSettings(encryptedPath, {"settings", "set", "--key", "provider-api-key", "--value-env", "TUTORUX_TEST_API_KEY"});
     if (noOptIn || noOptIn.error().code != "credential_storage_requires_opt_in")
-        return reportFailure("credential opt-in",
-                             "Sensitive setting was accepted without explicit opt-in.");
+        return reportFailure("credential opt-in", "Sensitive setting was accepted without explicit opt-in.");
 
-    auto rawValue = dispatchSettings(encryptedPath,
-                                     {"settings",
-                                      "set",
-                                      "--key",
-                                      "provider-api-key",
-                                      "--value",
-                                      std::string(credentialMarker),
-                                      "--store-credential"});
+    auto rawValue = dispatchSettings(
+        encryptedPath, {"settings", "set", "--key", "provider-api-key", "--value", std::string(credentialMarker), "--store-credential"});
     if (rawValue || rawValue.error().code != "credential_environment_required")
-        return reportFailure("raw credential rejection",
-                             "Raw command-line credential value was accepted.");
+        return reportFailure("raw credential rejection", "Raw command-line credential value was accepted.");
 
-    auto stored = dispatchSettings(encryptedPath,
-                                   {"settings",
-                                    "set",
-                                    "--key",
-                                    "provider-api-key",
-                                    "--value-env",
-                                    "TUTORUX_TEST_API_KEY",
-                                    "--store-credential"});
-    if (!stored || stored->exitCode != 0 ||
-        stored->output.find(credentialMarker) != std::string::npos)
-        return reportFailure("encrypted credential write",
-                             stored ? "Credential output leaked its value"
-                                    : stored.error().message);
+    auto stored = dispatchSettings(
+        encryptedPath, {"settings", "set", "--key", "provider-api-key", "--value-env", "TUTORUX_TEST_API_KEY", "--store-credential"});
+    if (!stored || stored->exitCode != 0 || stored->output.find(credentialMarker) != std::string::npos)
+        return reportFailure("encrypted credential write", stored ? "Credential output leaked its value" : stored.error().message);
 
     {
         auto opened = archive::Archive::open(encryptedPath, false, passphrase);
@@ -119,8 +112,7 @@ int main() {
             return reportFailure("list credential records", settings.error().message);
         bool foundCredential = false;
         for (const auto& setting : *settings) {
-            if (domain::getField(setting, "record_role") == "credential" &&
-                domain::getField(setting, "key") == "provider-api-key" &&
+            if (domain::getField(setting, "record_role") == "credential" && domain::getField(setting, "key") == "provider-api-key" &&
                 domain::getField(setting, "value") == credentialMarker) {
                 foundCredential = true;
             }
@@ -136,12 +128,10 @@ int main() {
     auto credentialList = dispatchSettings(encryptedPath, {"settings", "credential-list"});
     if (!credentialList || credentialList->output.find("provider-api-key") == std::string::npos ||
         credentialList->output.find(credentialMarker) != std::string::npos) {
-        return reportFailure("credential listing",
-                             "Credential listing exposed a value or hid its key.");
+        return reportFailure("credential listing", "Credential listing exposed a value or hid its key.");
     }
 
-    auto removed = dispatchSettings(encryptedPath,
-                                    {"settings", "credential-remove", "--key", "provider-api-key"});
+    auto removed = dispatchSettings(encryptedPath, {"settings", "credential-remove", "--key", "provider-api-key"});
     if (!removed || removed->output.find(credentialMarker) != std::string::npos)
         return reportFailure("credential removal", "Could not remove the saved credential.");
     credentialList = dispatchSettings(encryptedPath, {"settings", "credential-list"});
@@ -154,21 +144,78 @@ int main() {
         if (!created)
             return reportFailure("create plaintext archive", created.error().message);
     }
-    auto plaintextStore = dispatchSettings(plaintextPath,
-                                           {"settings",
-                                            "set",
-                                            "--key",
-                                            "provider-api-key",
-                                            "--value-env",
-                                            "TUTORUX_TEST_API_KEY",
-                                            "--store-credential"});
+
+    {
+        auto plaintext = archive::Archive::open(plaintextPath, true);
+        if (!plaintext)
+            return reportFailure("open plaintext archive for policy checks", plaintext.error().message);
+
+        std::vector<archive::Record> sensitiveRecords;
+        archive::Record missingRole;
+        missingRole.type = archive::RecordType::Settings;
+        missingRole.id = archive::randomUuid();
+        missingRole.fields = {
+            {"key",   "OpenAI.API-Key"             },
+            {"value", std::string(credentialMarker)}
+        };
+        sensitiveRecords.push_back(std::move(missingRole));
+
+        archive::Record alternateRole;
+        alternateRole.type = archive::RecordType::Settings;
+        alternateRole.id = archive::randomUuid();
+        alternateRole.fields = {
+            {"record_role", "preferences"                },
+            {"key",         "HTTP Authorization Header"  },
+            {"value",       std::string(credentialMarker)}
+        };
+        sensitiveRecords.push_back(std::move(alternateRole));
+
+        archive::Record directSecretField;
+        directSecretField.type = archive::RecordType::Settings;
+        directSecretField.id = archive::randomUuid();
+        directSecretField.fields = {
+            {"API Key", std::string(credentialMarker)}
+        };
+        sensitiveRecords.push_back(std::move(directSecretField));
+
+        for (auto& record : sensitiveRecords) {
+            auto rejected = plaintext->put(std::move(record));
+            if (rejected || rejected.error().code != "sensitive_setting_key_rejected") {
+                return reportFailure("direct credential rejection",
+                                     "A secret-looking Settings key bypassed the encrypted credential policy.");
+            }
+        }
+
+        archive::Record themeSetting;
+        themeSetting.type = archive::RecordType::Settings;
+        themeSetting.id = archive::randomUuid();
+        themeSetting.fields = {
+            {"record_role", "setting"},
+            {"key",         "theme"  },
+            {"value",       "paper"  }
+        };
+        if (auto status = plaintext->put(std::move(themeSetting)); !status)
+            return reportFailure("nonsecret setting preservation", status.error().message);
+
+        archive::Record tokenBudgetSetting;
+        tokenBudgetSetting.type = archive::RecordType::Settings;
+        tokenBudgetSetting.id = archive::randomUuid();
+        tokenBudgetSetting.fields = {
+            {"record_role", "setting"        },
+            {"key",         "ai-token-budget"},
+            {"value",       "8192"           }
+        };
+        if (auto status = plaintext->put(std::move(tokenBudgetSetting)); !status)
+            return reportFailure("token budget setting preservation", status.error().message);
+    }
+
+    auto plaintextStore = dispatchSettings(
+        plaintextPath, {"settings", "set", "--key", "provider-api-key", "--value-env", "TUTORUX_TEST_API_KEY", "--store-credential"});
     if (plaintextStore || plaintextStore.error().code != "credential_archive_not_encrypted") {
-        return reportFailure("plaintext credential rejection",
-                             "Credential was accepted by a plaintext archive.");
+        return reportFailure("plaintext credential rejection", "Credential was accepted by a plaintext archive.");
     }
     std::ifstream archiveBytes(plaintextPath, std::ios::binary);
-    const std::string bytes((std::istreambuf_iterator<char>(archiveBytes)),
-                            std::istreambuf_iterator<char>());
+    const std::string bytes((std::istreambuf_iterator<char>(archiveBytes)), std::istreambuf_iterator<char>());
     if (bytes.find(credentialMarker) != std::string::npos)
         return reportFailure("plaintext scan", "Credential bytes reached a plaintext archive.");
 
@@ -180,19 +227,15 @@ int main() {
     }
     auto encrypted = dispatchSettings(cliEncryptionPath, {"archive", "encrypt"});
     if (!encrypted || encrypted->exitCode != 0)
-        return reportFailure("CLI archive encryption",
-                             encrypted ? encrypted->output : encrypted.error().message);
-    auto rotated = dispatchSettings(
-        cliEncryptionPath,
-        {"archive", "change-passphrase", "--new-passphrase-env", "TUTORUX_TEST_NEW_PASSPHRASE"});
+        return reportFailure("CLI archive encryption", encrypted ? encrypted->output : encrypted.error().message);
+    auto rotated =
+        dispatchSettings(cliEncryptionPath, {"archive", "change-passphrase", "--new-passphrase-env", "TUTORUX_TEST_NEW_PASSPHRASE"});
     if (!rotated || rotated->exitCode != 0)
-        return reportFailure("CLI passphrase rotation",
-                             rotated ? rotated->output : rotated.error().message);
+        return reportFailure("CLI passphrase rotation", rotated ? rotated->output : rotated.error().message);
     auto oldPassphraseOpen = archive::Archive::open(cliEncryptionPath, false, passphrase);
     if (oldPassphraseOpen)
         return reportFailure("CLI passphrase rotation", "Old passphrase still opens the archive.");
-    auto newPassphraseOpen =
-        archive::Archive::open(cliEncryptionPath, false, replacementPassphrase);
+    auto newPassphraseOpen = archive::Archive::open(cliEncryptionPath, false, replacementPassphrase);
     if (!newPassphraseOpen)
         return reportFailure("CLI passphrase rotation", newPassphraseOpen.error().message);
 
