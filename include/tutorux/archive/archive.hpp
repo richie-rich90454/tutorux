@@ -46,12 +46,17 @@ struct RecoveryReport final {
     std::uint64_t candidateGeneration{};
     std::uint64_t recoverableGeneration{};
     std::uint64_t trailingBytes{};
+    bool archiveHeaderValid{true};
+    bool recoveryAssessmentComplete{true};
     bool hasUnpublishedCommit{};
     bool encrypted{};
     bool requiresPassphrase{};
     bool recoverable{};
     std::vector<std::string> issues;
 };
+
+bool isCredentialSettingsRecord(const Record& record);
+bool hasSensitiveCredentialMaterial(const Record& record);
 
 class Archive final {
   public:
