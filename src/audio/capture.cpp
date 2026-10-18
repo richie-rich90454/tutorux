@@ -1072,16 +1072,17 @@ core::Result<CaptureSummary> recoverNativeCapture(archive::Archive& archive,
     }
 
     archive::Record session = std::move(**sessionResult);
-    auto trackId = requestedTrackId
-                       ? requestedTrackId
-                       : archive::uuidFromString(domain::getField(session, "recording_track_id"));
-    if (!trackId) {
+    auto trackIdResult =
+        requestedTrackId ? core::Result<archive::Uuid>(*requestedTrackId)
+                         : archive::uuidFromString(domain::getField(session, "recording_track_id"));
+    if (!trackIdResult) {
         return std::unexpected(core::error("audio_recording_not_found",
                                            "Session does not contain a native recording."));
     }
+    const archive::Uuid trackId = *trackIdResult;
     std::optional<archive::Record> trackMetadata;
     if (requestedTrackId) {
-        auto storedTrack = archive.get(archive::RecordType::AssetMetadata, *trackId);
+        auto storedTrack = archive.get(archive::RecordType::AssetMetadata, trackId);
         if (!storedTrack)
             return std::unexpected(storedTrack.error());
         if (!*storedTrack || domain::getField(**storedTrack, "record_role") != "audio-track" ||
@@ -1134,7 +1135,7 @@ core::Result<CaptureSummary> recoverNativeCapture(archive::Archive& archive,
     }
 
     CaptureSummary summary;
-    summary.trackId = *trackId;
+    summary.trackId = trackId;
     summary.deviceId =
         domain::getField(formatRecord, trackMetadata ? "device_id" : "recording_device_id");
     summary.sampleFormat = sampleFormat;
@@ -1148,7 +1149,7 @@ core::Result<CaptureSummary> recoverNativeCapture(archive::Archive& archive,
     std::uint64_t timelineEndSample = 0;
     std::uint64_t discontinuities = 0;
     std::string failureReason;
-    auto chunkStatus = archive.forEachAudioChunk(sessionId, *trackId, [&](archive::Record&& chunk) {
+    auto chunkStatus = archive.forEachAudioChunk(sessionId, trackId, [&](archive::Record&& chunk) {
         std::uint64_t sequence = 0;
         std::uint64_t firstSample = 0;
         std::uint64_t frameCount = 0;
