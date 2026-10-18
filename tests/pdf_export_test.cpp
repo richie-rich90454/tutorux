@@ -9,39 +9,40 @@
 
 namespace {
 
-    int reportFailure(std::string_view step, std::string_view detail) {
-        std::cerr << step << ": " << detail << '\n';
-        return 1;
-    }
+int reportFailure(std::string_view step, std::string_view detail) {
+    std::cerr << step << ": " << detail << '\n';
+    return 1;
+}
 
-    tutorux::domain::GuideDocument sampleGuide() {
-        using namespace tutorux;
-        domain::GuideDocument guide;
-        guide.id = archive::randomUuid();
-        guide.sessionId = archive::uuidToString(archive::randomUuid());
-        guide.title = "Learning Guide | 数学复习";
-        guide.templateId = "exam-review";
-        guide.approvalState = "approved";
-        guide.sections.push_back({"section-1",
-                                  "Learning goals",
-                                  {{"paragraph",
-                                    "Review the core ideas and explain "
-                                    "why each step is valid.",
-                                    {}}}});
-        guide.sections.push_back(
-            {"section-2",
-             "练习与反思",
-             {{"quote", "先观察规律，再验证结论。", {"source-1"}},
-              {"list-item", "Show each step and check the result.", {"source-2"}}}});
-        for (unsigned index = 0; index < 70; ++index) {
-            guide.sections.back().blocks.push_back(
-                {"paragraph",
-                 "Use a worked example, explain the reasoning in complete sentences, and connect "
-                 "the final answer to the evidence. 这是一个用于验证换行和字体嵌入的中文段落。",
-                 {"source-" + std::to_string(index + 3)}});
-        }
-        return guide;
+tutorux::domain::GuideDocument sampleGuide() {
+    using namespace tutorux;
+    domain::GuideDocument guide;
+    guide.id = archive::randomUuid();
+    guide.sessionId = archive::uuidToString(archive::randomUuid());
+    guide.title = "Learning Guide | 数学复习";
+    guide.templateId = "exam-review";
+    guide.approvalState = "approved";
+    guide.sections.push_back({"section-1",
+                              "Learning goals",
+                              {{"paragraph",
+                                "Review the core ideas and explain "
+                                "why each step is valid.",
+                                {}}}});
+    guide.sections.push_back({
+        "section-2",
+        "练习与反思",
+        {{"quote", "先观察规律，再验证结论。", {"source-1"}},
+          {"list-item", "Show each step and check the result.", {"source-2"}}}
+    });
+    for (unsigned index = 0; index < 70; ++index) {
+        guide.sections.back().blocks.push_back(
+            {"paragraph",
+             "Use a worked example, explain the reasoning in complete sentences, and connect "
+             "the final answer to the evidence. 这是一个用于验证换行和字体嵌入的中文段落。",
+             {"source-" + std::to_string(index + 3)}});
     }
+    return guide;
+}
 
 } // namespace
 
