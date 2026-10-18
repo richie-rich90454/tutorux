@@ -11,16 +11,17 @@
 
 namespace tutorux::transcription {
 
-    struct TranscriptSourceCue final {
-        std::string text;
-        std::optional<std::int64_t> startTimeUs;
-        std::optional<std::int64_t> endTimeUs;
-        std::uint64_t sourceIndex{};
-        std::string sourceId;
-    };
+struct TranscriptSourceCue final {
+    std::string text;
+    std::optional<std::int64_t> startTimeUs;
+    std::optional<std::int64_t> endTimeUs;
+    std::uint64_t sourceIndex{};
+    std::string sourceId;
+};
 
-    core::Status
-    visitTranscriptSource(const std::filesystem::path& path, std::string_view format,
-                          const std::function<core::Status(TranscriptSourceCue&&)>& visitor);
+core::Status
+visitTranscriptSource(const std::filesystem::path& path,
+                      std::string_view format,
+                      const std::function<core::Status(TranscriptSourceCue&&)>& visitor);
 
 } // namespace tutorux::transcription
