@@ -4711,7 +4711,7 @@ namespace {
                 "contents:\n" +
                 join(metadataOnlyAssets, "\n")});
         }
-        return std::move(content);
+        return content;
     }
 
     std::string safeZipAssetName(std::string_view fileName) {
@@ -4720,7 +4720,8 @@ namespace {
             fileName.remove_prefix(separator + 1);
         std::string safeName;
         safeName.reserve(std::min<std::size_t>(fileName.size(), 128));
-        for (const unsigned char character : fileName) {
+        for (const char rawCharacter : fileName) {
+            const auto character = static_cast<unsigned char>(rawCharacter);
             const bool safe = (character >= 'a' && character <= 'z') ||
                               (character >= 'A' && character <= 'Z') ||
                               (character >= '0' && character <= '9') || character == '.' ||
