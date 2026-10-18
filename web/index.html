@@ -1,0 +1,490 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <meta name="theme-color" content="#f3f0e9" />
+        <meta
+            name="description"
+            content="A portable tutoring workspace that keeps lessons and study guides in one archive."
+        />
+        <link rel="manifest" href="./manifest.webmanifest" />
+        <link rel="icon" href="./assets/tutorux.svg" type="image/svg+xml" />
+        <link rel="stylesheet" href="./tutorux.css" />
+        <title>Tutorux — Learning workspace</title>
+    </head>
+    <body>
+        <main class="app-shell">
+            <header class="topbar">
+                <a class="wordmark" href="#home" aria-label="Tutorux home">
+                    <span class="wordmark-mark" aria-hidden="true">t.</span>
+                    <span>Tutorux</span>
+                </a>
+                <div class="archive-state" id="archive-state" role="status">
+                    <span class="state-dot" aria-hidden="true"></span>
+                    <span id="archive-label">No archive open</span>
+                </div>
+                <button class="button button-outline" id="set-passphrase" disabled>Passphrases</button>
+                <button class="button button-quiet" id="save-archive" disabled>Save archive</button>
+            </header>
+
+            <section class="workspace" id="home" aria-labelledby="welcome-title">
+                <aside class="sidebar">
+                    <div class="sidebar-label">WORKSPACE</div>
+                    <nav class="navigation" aria-label="Workspace sections">
+                        <button class="nav-item is-active" data-view="overview">
+                            <span class="nav-icon" aria-hidden="true">▦</span>Overview
+                        </button>
+                        <button class="nav-item" data-view="students">
+                            <span class="nav-icon" aria-hidden="true">◉</span>Students
+                        </button>
+                        <button class="nav-item" data-view="sessions">
+                            <span class="nav-icon" aria-hidden="true">◷</span>Sessions
+                        </button>
+                        <button class="nav-item" data-view="guides">
+                            <span class="nav-icon" aria-hidden="true">▤</span>Study guides
+                        </button>
+                        <button class="nav-item" data-view="commands">
+                            <span class="nav-icon" aria-hidden="true">⌘</span>Commands
+                        </button>
+                    </nav>
+                    <div class="sidebar-divider"></div>
+                    <div class="sidebar-label">PORTABLE ARCHIVE</div>
+                    <button class="sidebar-action" id="open-archive">
+                        <span aria-hidden="true">↥</span>Open .tux archive
+                    </button>
+                    <button class="sidebar-action" id="create-archive">
+                        <span aria-hidden="true">＋</span>Create archive
+                    </button>
+                    <input id="archive-file" type="file" accept=".tux,application/octet-stream" hidden />
+                    <p class="sidebar-note">
+                        Your workspace is one portable archive. Keep a downloaded copy as a backup.
+                    </p>
+                    <div class="sidebar-footer">
+                        <span class="privacy-mark" aria-hidden="true">◇</span>
+                        <span>Stored on this device</span>
+                    </div>
+                </aside>
+
+                <div class="content">
+                    <aside class="browser-storage" id="browser-storage" role="status">
+                        <div>
+                            <strong id="storage-status-title">Browser archive copy</strong>
+                            <p id="storage-status-detail">
+                                Browser storage is temporary and can be cleared by browser settings. Download
+                                the .tux archive to keep a portable copy.
+                            </p>
+                        </div>
+                        <button class="button button-outline" id="download-browser-copy" type="button" disabled>
+                            Download recovery copy
+                        </button>
+                    </aside>
+
+                    <section class="view is-visible" data-panel="overview">
+                        <div class="eyebrow">TUTORING WORKSPACE</div>
+                        <h1 id="welcome-title">Turn every lesson<br />into lasting knowledge.</h1>
+                        <p class="lede">
+                            Keep session notes, learning history, and student-ready guides together in one
+                            archive you control.
+                        </p>
+                        <div class="welcome-actions">
+                            <button class="button button-primary" id="welcome-create">Create an archive</button>
+                            <button class="button button-outline" id="welcome-open">Open an archive</button>
+                        </div>
+
+                        <div class="section-heading">
+                            <div>
+                                <div class="eyebrow">YOUR LIBRARY</div>
+                                <h2>Workspace overview</h2>
+                            </div>
+                            <span class="connection-pill"><span></span>Local-first</span>
+                        </div>
+                        <div class="overview-grid">
+                            <article class="metric-card">
+                                <div class="metric-icon metric-amber" aria-hidden="true">◉</div>
+                                <div class="metric-label">Students</div>
+                                <div class="metric-value" id="student-count">—</div>
+                                <div class="metric-foot">Across your archive</div>
+                            </article>
+                            <article class="metric-card">
+                                <div class="metric-icon metric-blue" aria-hidden="true">◷</div>
+                                <div class="metric-label">Sessions</div>
+                                <div class="metric-value" id="session-count">—</div>
+                                <div class="metric-foot">Learning history</div>
+                            </article>
+                            <article class="metric-card metric-card-wide">
+                                <div class="metric-copy">
+                                    <div class="metric-label">A portable place for progress</div>
+                                    <p>Open your archive on a supported desktop or keep a working copy in this browser.</p>
+                                </div>
+                                <div class="archive-illustration" aria-hidden="true">
+                                    <span></span><span></span><span></span>
+                                </div>
+                            </article>
+                        </div>
+                        <div class="recent-heading">
+                            <h2>Recent sessions</h2>
+                            <button class="text-button" data-open-view="sessions">View all <span aria-hidden="true">→</span></button>
+                        </div>
+                        <div class="data-panel" id="recent-sessions">
+                            <div class="empty-row">Open an archive to see recent tutoring sessions.</div>
+                        </div>
+                    </section>
+
+                    <section class="view" data-panel="students" aria-labelledby="students-title">
+                        <div class="eyebrow">LEARNING HISTORY</div>
+                        <h1 class="page-title" id="students-title">Students</h1>
+                        <p class="lede">Keep goals and progress connected across tutoring sessions.</p>
+                        <form id="student-form" class="create-form" data-requires-archive>
+                            <label for="student-name">Add a student</label>
+                            <div class="form-row">
+                                <input id="student-name" name="name" maxlength="256" placeholder="Student name" required />
+                                <input id="student-grade" name="grade" maxlength="64" placeholder="Grade or level" />
+                                <button class="button button-primary" type="submit">Add student</button>
+                            </div>
+                        </form>
+                        <div class="data-panel" id="students-list"><div class="empty-row">Open an archive to view students.</div></div>
+                    </section>
+
+                    <section class="view" data-panel="sessions" aria-labelledby="sessions-title">
+                        <div class="eyebrow">LESSON RECORDS</div>
+                        <h1 class="page-title" id="sessions-title">Sessions</h1>
+                        <p class="lede">Create a lesson record, then add notes, recordings, and supporting materials.</p>
+                        <form id="session-form" class="create-form" data-requires-archive>
+                            <label for="session-title">Start a session</label>
+                            <div class="form-row">
+                                <input id="session-title" name="title" maxlength="256" placeholder="Session title" required />
+                                <input id="session-subject" name="subject" maxlength="128" placeholder="Subject" />
+                                <input id="session-student" name="studentId" maxlength="64" placeholder="Student ID" />
+                                <button class="button button-primary" type="submit">Create session</button>
+                            </div>
+                        </form>
+                        <div class="data-panel" id="sessions-list"><div class="empty-row">Open an archive to view sessions.</div></div>
+
+                        <section class="session-workspace" aria-labelledby="session-workspace-title">
+                            <div class="section-heading session-workspace-heading">
+                                <div>
+                                    <div class="eyebrow">SESSION MATERIALS</div>
+                                    <h2 id="session-workspace-title">Session workspace</h2>
+                                </div>
+                                <label class="session-picker-label" for="active-session">Selected session</label>
+                                <select id="active-session" data-requires-archive disabled>
+                                    <option value="">Choose a session</option>
+                                </select>
+                            </div>
+
+                            <form id="session-update-form" class="create-form" data-requires-archive>
+                                <label for="edit-session-title">Session details</label>
+                                <div class="form-row">
+                                    <input id="edit-session-title" maxlength="256" placeholder="Session title" required disabled />
+                                    <input id="edit-session-subject" maxlength="128" placeholder="Subject" disabled />
+                                    <button class="button button-outline" type="submit" disabled>Save session details</button>
+                                </div>
+                            </form>
+
+                            <div class="session-material-grid">
+                                <section class="material-card" aria-labelledby="notes-title">
+                                    <div class="material-heading">
+                                        <div>
+                                            <div class="eyebrow">TUTOR-OWNED EVIDENCE</div>
+                                            <h3 id="notes-title">Notes and markers</h3>
+                                        </div>
+                                    </div>
+                                    <form id="annotation-form" class="material-form" data-requires-archive>
+                                        <input id="annotation-id" type="hidden" />
+                                        <label for="annotation-content">Add or edit a timestamped note</label>
+                                        <div class="form-grid">
+                                            <input id="annotation-title" maxlength="256" placeholder="Short title" disabled />
+                                            <select id="annotation-type" aria-label="Note type" disabled>
+                                                <option value="general-note">Tutor note</option>
+                                                <option value="important-concept">Important concept</option>
+                                                <option value="student-mistake">Student misconception</option>
+                                                <option value="tutor-correction">Tutor correction</option>
+                                                <option value="explicit-instruction">Tutor instruction</option>
+                                                <option value="worked-example">Worked example</option>
+                                                <option value="follow-up-priority">Follow-up priority</option>
+                                                <option value="student-question">Student question</option>
+                                                <option value="learning-outcome">Learning outcome</option>
+                                            </select>
+                                            <input id="annotation-time" inputmode="numeric" placeholder="00:00:00" aria-label="Timestamp" required disabled />
+                                            <select id="annotation-priority" aria-label="Priority" disabled>
+                                                <option value="normal">Normal priority</option>
+                                                <option value="low">Low priority</option>
+                                                <option value="high">High priority</option>
+                                                <option value="critical">Critical priority</option>
+                                            </select>
+                                        </div>
+                                        <textarea id="annotation-content" rows="4" maxlength="20000" placeholder="What happened, what the learner said, or what to revisit…" required disabled></textarea>
+                                        <div class="form-actions">
+                                            <button class="button button-primary" id="annotation-save" type="submit" disabled>Save note</button>
+                                            <button class="button button-quiet" id="annotation-cancel" type="button" hidden>Cancel edit</button>
+                                        </div>
+                                    </form>
+                                    <div class="data-panel material-list" id="annotations-list">
+                                        <div class="empty-row">Choose a session to view its notes.</div>
+                                    </div>
+                                </section>
+
+                                <section class="material-card" aria-labelledby="transcript-title">
+                                    <div class="material-heading">
+                                        <div>
+                                            <div class="eyebrow">EDITABLE SOURCE</div>
+                                            <h3 id="transcript-title">Transcript</h3>
+                                        </div>
+                                    </div>
+                                    <form id="transcript-import-form" class="material-form" data-requires-archive>
+                                        <label for="transcript-file">Import transcript text or subtitles</label>
+                                        <div class="form-grid transcript-import-row">
+                                            <input id="transcript-file" type="file" accept=".txt,.srt,.vtt,text/plain,text/vtt" required disabled />
+                                            <select id="transcript-format" aria-label="Transcript format" disabled>
+                                                <option value="auto">Detect format</option>
+                                                <option value="text">Plain text</option>
+                                                <option value="srt">SRT subtitles</option>
+                                                <option value="vtt">WebVTT subtitles</option>
+                                            </select>
+                                            <button class="button button-outline" type="submit" disabled>Import transcript</button>
+                                        </div>
+                                    </form>
+                                    <form
+                                        id="transcript-export-form"
+                                        class="transcript-export-form"
+                                        data-requires-archive
+                                    >
+                                        <label for="transcript-export-format">
+                                            Download this session transcript
+                                        </label>
+                                        <select id="transcript-export-format" disabled>
+                                            <option value="text">Plain text</option>
+                                            <option value="srt">SRT subtitles</option>
+                                            <option value="vtt">WebVTT subtitles</option>
+                                            <option value="json">JSON</option>
+                                        </select>
+                                        <button class="button button-quiet" type="submit" disabled>
+                                            Download transcript
+                                        </button>
+                                    </form>
+                                    <div class="transcript-list" id="transcript-list">
+                                        <div class="empty-row">Choose a session to view transcript segments.</div>
+                                    </div>
+                                </section>
+                                <section class="material-card" aria-labelledby="recording-import-title">
+                                    <div class="material-heading">
+                                        <div>
+                                            <div class="eyebrow">SESSION AUDIO</div>
+                                            <h3 id="recording-import-title">Recording</h3>
+                                        </div>
+                                    </div>
+                                    <div class="material-form" data-requires-archive>
+                                        <label class="check-label" for="browser-recording-consent">
+                                            <input id="browser-recording-consent" type="checkbox" disabled />
+                                            I have permission to record this session's microphone audio.
+                                        </label>
+                                        <div class="button-row">
+                                            <button id="browser-recording-start" class="button button-outline" type="button" disabled>
+                                                Start microphone recording
+                                            </button>
+                                            <button id="browser-recording-stop" class="button button-outline" type="button" disabled>
+                                                Stop and save
+                                            </button>
+                                        </div>
+                                        <div id="browser-recording-status" class="material-meta" aria-live="polite">
+                                            Microphone recording is available in supported secure browsers. System audio is not captured.
+                                        </div>
+                                    </div>
+                                    <form id="recording-import-form" class="material-form" data-requires-archive>
+                                        <label for="recording-file">Import a WAV recording into this session</label>
+                                        <input
+                                            id="recording-file"
+                                            type="file"
+                                            accept=".wav,audio/wav,audio/x-wav"
+                                            required
+                                            disabled
+                                        />
+                                        <p class="form-help">
+                                            WAV import only; browser imports are limited to 64 MiB per
+                                            file. Browser microphone captures are stored as audio
+                                            assets; imported WAV files are stored as session audio tracks.
+                                        </p>
+                                        <button class="button button-outline" type="submit" disabled>Import WAV recording</button>
+                                    </form>
+                                    <div class="material-meta" id="recording-import-status" aria-live="polite">Choose a session to view or import its recording.</div>
+                                </section>
+                                <section class="material-card" aria-labelledby="assets-title">
+                                    <div class="material-heading">
+                                        <div>
+                                            <div class="eyebrow">SESSION SOURCES</div>
+                                            <h3 id="assets-title">Files and media</h3>
+                                        </div>
+                                    </div>
+                                    <form id="asset-import-form" class="material-form" data-requires-archive>
+                                        <label for="asset-files">Import lesson materials into this archive</label>
+                                        <input id="asset-files" type="file" multiple required disabled />
+                                        <p class="form-help">Each browser import is limited to 64 MiB per file. Originals remain unchanged.</p>
+                                        <button class="button button-outline" type="submit" disabled>Import selected files</button>
+                                    </form>
+                                    <div class="data-panel material-list" id="assets-list">
+                                        <div class="empty-row">Choose a session to view its files and media.</div>
+                                    </div>
+                                </section>
+                            </div>
+                        </section>
+                    </section>
+
+                    <section class="view" data-panel="guides" aria-labelledby="guides-title">
+                        <div class="eyebrow">STUDENT-READY MATERIALS</div>
+                        <h1 class="page-title" id="guides-title">Study guides</h1>
+                        <p class="lede">
+                            Create evidence-linked drafts from a session, revise each section, review
+                            its sources, and keep tutor decisions distinct from recommendations.
+                        </p>
+                        <section class="manual-ai-card" aria-labelledby="manual-ai-title">
+                            <div class="material-heading">
+                                <div>
+                                    <div class="eyebrow">HUMAN-REVIEWED HANDOFF</div>
+                                    <h2 id="manual-ai-title">External AI package</h2>
+                                </div>
+                            </div>
+                            <p class="form-help">
+                                Download a session package, use it with an external agent, then import
+                                its JSON guide response for tutor review. The browser does not send
+                                session data to an AI provider.
+                            </p>
+                            <form id="ai-package-form" class="manual-ai-form" data-requires-archive>
+                                <label for="ai-package-session">Session package</label>
+                                <select id="ai-package-session" required disabled>
+                                    <option value="">Choose a session</option>
+                                </select>
+                                <label for="ai-package-format">Package format</label>
+                                <select id="ai-package-format" disabled>
+                                    <option value="markdown">Markdown handoff</option>
+                                    <option value="json">JSON</option>
+                                    <option value="zip">ZIP with session assets</option>
+                                </select>
+                                <button class="button button-outline" type="submit" disabled>Download AI package</button>
+                            </form>
+                            <form id="ai-response-form" class="manual-ai-form" data-requires-archive>
+                                <label for="ai-response-file">Import external guide response (JSON)</label>
+                                <input
+                                    id="ai-response-file"
+                                    type="file"
+                                    accept=".json,application/json"
+                                    required
+                                    disabled
+                                />
+                                <input
+                                    id="ai-response-title"
+                                    maxlength="512"
+                                    placeholder="Optional guide title"
+                                    aria-label="Optional guide title"
+                                    disabled
+                                />
+                                <button class="button button-outline" type="submit" disabled>Import proposed guide</button>
+                            </form>
+                        </section>
+                        <form id="guide-create-form" class="create-form" data-requires-archive>
+                            <label for="guide-session">Create an evidence-linked draft</label>
+                            <div class="form-row">
+                                <select id="guide-session" required disabled>
+                                    <option value="">Choose a session</option>
+                                </select>
+                                <button class="button button-primary" type="submit" disabled>Generate draft</button>
+                            </div>
+                        </form>
+                        <div class="data-panel" id="guides-list"><div class="empty-row">Open an archive to view study guides.</div></div>
+                        <section class="guide-editor" id="guide-editor" aria-labelledby="guide-editor-title" hidden>
+                            <div class="section-heading guide-editor-heading">
+                                <div>
+                                    <div class="eyebrow">ARCHIVE-BACKED EDITOR</div>
+                                    <h2 id="guide-editor-title">Review guide</h2>
+                                </div>
+                                <select id="active-guide" aria-label="Select guide" data-requires-archive disabled>
+                                    <option value="">Choose a guide</option>
+                                </select>
+                            </div>
+                            <form id="guide-title-form" class="create-form" data-requires-archive>
+                                <label for="guide-title">Guide title</label>
+                                <div class="form-row">
+                                    <input id="guide-title" maxlength="512" required disabled />
+                                    <button class="button button-outline" type="submit" disabled>Save title</button>
+                                    <button class="button button-quiet" id="guide-approve" type="button" disabled>Approve guide</button>
+                                </div>
+                            </form>
+                            <div class="guide-sections" id="guide-sections">
+                                <div class="empty-row">Choose a guide to review its sections and sources.</div>
+                            </div>
+                            <form id="guide-section-form" class="create-form" data-requires-archive>
+                                <label for="guide-section-heading">Add a tutor-written section</label>
+                                <div class="form-row">
+                                    <input id="guide-section-heading" maxlength="256" placeholder="Section heading" required disabled />
+                                </div>
+                                <textarea id="guide-section-text" rows="4" maxlength="20000" placeholder="Write a tutor-reviewed explanation or practice activity." required disabled></textarea>
+                                <button class="button button-outline" type="submit" disabled>Add section</button>
+                            </form>
+                            <form id="guide-export-form" class="export-form" data-requires-archive>
+                                <label for="guide-export-format">Export reviewed guide</label>
+                                <select id="guide-export-format" disabled>
+                                    <option value="markdown">Markdown</option>
+                                    <option value="html">HTML</option>
+                                    <option value="pdf">PDF</option>
+                                    <option value="docx">DOCX</option>
+                                </select>
+                                <button class="button button-outline" type="submit" disabled>Download export</button>
+                            </form>
+                        </section>
+                    </section>
+
+                    <section class="view" data-panel="commands" aria-labelledby="commands-title">
+                        <div class="eyebrow">SHARED COMMAND ENGINE</div>
+                        <h1 class="page-title" id="commands-title">Command console</h1>
+                        <p class="lede">Run any Tutorux CLI operation against the open archive. Arguments are passed directly to Tutorux; no shell is invoked.</p>
+                        <form id="command-form" class="create-form">
+                            <label for="command-input">Command arguments as a JSON string array</label>
+                            <textarea id="command-input" rows="4" spellcheck="false" required>["session", "list"]</textarea>
+                            <button class="button button-primary" type="submit">Run command</button>
+                        </form>
+                        <pre class="command-output" id="command-output" aria-live="polite">Command output will appear here.</pre>
+                    </section>
+
+                    <section class="toast" id="notice" role="status" aria-live="polite" hidden></section>
+                </div>
+            </section>
+        </main>
+        <dialog class="passphrase-dialog" id="passphrase-dialog" aria-labelledby="passphrase-title">
+            <form method="dialog" id="passphrase-form">
+                <div class="eyebrow">ENCRYPTED WORKSPACE</div>
+                <h2 id="passphrase-title">Unlock your archive</h2>
+                <p>Enter the passphrase for this portable archive. It stays in memory only while this page is open.</p>
+                <label for="passphrase-input">Archive passphrase</label>
+                <input id="passphrase-input" type="password" autocomplete="current-password" required />
+                <label for="new-passphrase-input">New passphrase for encrypt or change passphrase</label>
+                <input id="new-passphrase-input" type="password" autocomplete="new-password" />
+                <button class="text-button passphrase-action" id="passphrase-set-action" type="button">Set for archive commands</button>
+                <div class="dialog-actions">
+                    <button class="button button-outline" value="cancel">Cancel</button>
+                    <button class="button button-primary" id="passphrase-submit" value="unlock">Unlock archive</button>
+                </div>
+            </form>
+        </dialog>
+        <dialog class="passphrase-dialog" id="archive-create-dialog" aria-labelledby="archive-create-title">
+            <form method="dialog" id="archive-create-form">
+                <div class="eyebrow">NEW PORTABLE WORKSPACE</div>
+                <h2 id="archive-create-title">Create an archive</h2>
+                <p>The browser will keep one working .tux copy in IndexedDB and offer an explicit download for portability.</p>
+                <label for="new-archive-name">Archive name</label>
+                <input id="new-archive-name" maxlength="128" value="Tutorux" required />
+                <div class="dialog-actions">
+                    <button class="button button-outline" value="cancel">Cancel</button>
+                    <button class="button button-primary" id="archive-create-submit" value="create">Create archive</button>
+                </div>
+            </form>
+        </dialog>
+        <script src="./tutorux.js" defer></script>
+        <script>
+            if ("serviceWorker" in navigator) {
+                window.addEventListener("load", () => {
+                    navigator.serviceWorker.register("./service-worker.js");
+                });
+            }
+        </script>
+    </body>
+</html>
