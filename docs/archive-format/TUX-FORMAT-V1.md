@@ -184,7 +184,9 @@ A commit payload is `TXCM`, version `1`, reserved `0`, generation, previous comm
 root offset, 32-byte SHA-256 of the serialized root page payload, transaction UUID, committed
 domain-record count, and archive version. The enclosing record CRC protects the commit payload.
 
-After flushing the commit record, the writer appends a 32-byte locator:
+The writer flushes all appended data records and copy-on-write index pages before writing a commit.
+It then flushes the commit, appends a 32-byte locator, and flushes the locator before reporting
+durable success:
 
 | Offset | Size | Field |
 | ---: | ---: | --- |
@@ -194,19 +196,48 @@ After flushing the commit record, the writer appends a 32-byte locator:
 | 24 | 4 | CRC-32/IEEE of bytes 0..23 |
 | 28 | 4 | Reserved, zero |
 
-The locator is flushed before success is reported. Readers scan backward in the bounded recovery
-window for valid locators, then validate the referenced commit and root page. If the newest
-candidate is invalid, they follow the previous-commit chain and select the newest valid generation.
-Full recovery may scan the file when no locator in the normal window is usable.
+Readers scan backward in the bounded recovery window for valid locators, then validate the
+referenced commit and root page. If the newest candidate is invalid, they follow the previous-commit
+chain and select the newest valid generation. Full recovery may scan the file when no locator in the
+normal window is usable.
+
+Recovery inspection can scan for a complete commit record after the latest published generation.
+The candidate must extend the generation chain, have a valid root hash, and pass full record,
+reference, and index verification before recovery appends a publication locator. A complete commit
+whose locator write was interrupted can therefore be recovered without rewriting data. A partial
+commit or complete records with no complete commit remain uncommitted; they are reported and left
+untouched because the v1 format has no transaction manifest that can safely infer their intended
+index changes. A locator appended after a damaged tail is aligned so subsequent records retain the
+required eight-byte alignment.
 
 ## Transactions, locking, and forward compatibility
 
 One process holds an OS-backed exclusive archive lock while appending. A shared archive handle also
 serializes in-process reads and writes, including compaction and verification, so worker threads
 cannot publish interleaved transactions. Readers open the last committed root and ignore the
-uncommitted tail. A transaction writes domain records, any new B+ tree pages, the commit, and its
-locator in that order. The commit and locator are both flushed before the writer reports durable
-success.
+uncommitted tail. Writable opens refuse to append while trailing bytes remain, so a recovery action
+cannot be bypassed by the next ordinary edit. Recovery inspection reports the committed generation,
+complete unpublished candidate generation, trailing byte count, encryption/passphrase requirement,
+verification result, and any integrity issues. A tutor can publish a verified complete commit or
+explicitly discard the uncommitted tail. A transaction writes domain records and any new B+ tree
+pages, flushes them, writes and flushes the commit, then writes and flushes the locator.
+
+Cross-process coordination uses a hidden sibling lock file named `.<archive-name>.lock`. It is a
+generated coordination file, not archive content, and is not needed when moving a closed `.tux`
+archive. It is retained after close so another process cannot lock a different file inode during
+atomic compaction replacement; do not remove it while the archive is open. Compaction keeps this
+path lock while it closes the old archive handle, replaces the file, and opens the replacement.
+During compaction, the implementation removes only UUID-named temporary `.partial` files for that
+archive, and only after it has fully verified
+the source archive and established that each candidate is a regular file and is not currently
+locked. Other files, directories, and symbolic links are left alone.
+
+Targets without operating-system file locks, including the Emscripten build, cannot coordinate
+separate processes through these locks; archive access there must remain within one process. Locks
+are advisory, so external tools must not mutate archive files while Tutorux has them open. Different
+hard-link names for the same file do not share a path lock and must not be modified concurrently.
+Cross-process locking and atomic replacement also depend on the filesystem honoring native locks
+and same-directory atomic rename semantics.
 
 An implementation must never rewrite committed records in place. Compaction writes a verified
 replacement archive beside the source and publishes it atomically where the filesystem permits.
