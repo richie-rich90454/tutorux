@@ -14,7 +14,8 @@ presets, CMake also installs the fetched-source notices that are wired into the 
 - whisper.cpp's `LICENSE`;
 - FFmpeg's `COPYING.LGPLv2.1` and the security patch provenance note (the pinned build enables no
   GPL or nonfree components);
-- for Full builds, llama.cpp's `LICENSE` and its `ggml/LICENSE`.
+- for Full builds, llama.cpp's root `LICENSE`, which covers its `ggml` subproject in the pinned
+  source release.
 
 The Windows UCRT64 MinGW Runtime additionally copies the available license directories for the
 static package closure enumerated in `TUTORUX_MINGW_LICENSES` in `CMakeLists.txt`. If libcurl's
