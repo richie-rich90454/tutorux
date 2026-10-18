@@ -11,8 +11,8 @@ Portable native builds provide two separate install components:
 Install both components after building the matching native preset. For example, on Linux:
 
 ```sh
-cmake --install build-linux-static --config Release --component Runtime --prefix dist/tutorux-linux
-cmake --install build-linux-static --config Release --component Development --prefix dist/tutorux-linux
+cmake --install build/linux-static --config Release --component Runtime --prefix dist/tutorux-linux
+cmake --install build/linux-static --config Release --component Development --prefix dist/tutorux-linux
 ```
 
 The Development files are under `dist/tutorux-linux/relink/`. Keep the corresponding full Tutorux
