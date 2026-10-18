@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <array>
+#include <charconv>
 #include <condition_variable>
 #include <exception>
 #include <limits>
@@ -68,13 +69,19 @@ namespace {
         record.type = archive::RecordType::AssetMetadata;
         record.id = trackId;
         record.fields = {
-            {"record_role",   "audio-track"                        },
-            {"session_id",    archive::uuidToString(sessionId)     },
-            {"track_id",      archive::uuidToString(trackId)       },
-            {"source",        sourceName(source)                   },
-            {"state",         std::move(state)                     },
-            {"message",       std::move(message)                   },
-            {"updated_at_us", std::to_string(nowUnixMicroseconds())}
+            {"record_role",                       "audio-track"                        },
+            {"session_id",                        archive::uuidToString(sessionId)     },
+            {"track_id",                          archive::uuidToString(trackId)       },
+            {"source",                            sourceName(source)                   },
+            {"state",                             std::move(state)                     },
+            {"message",                           std::move(message)                   },
+            {"failure_source",                    ""                                   },
+            {"failure_device_id",                 ""                                   },
+            {"failure_at_unix_us",                ""                                   },
+            {"failure_interval_start_session_us", ""                                   },
+            {"failure_interval_end_session_us",   ""                                   },
+            {"failure_interval_state",            "none"                               },
+            {"updated_at_us",                     std::to_string(nowUnixMicroseconds())}
         };
         return record;
     }
@@ -106,6 +113,42 @@ namespace {
             record.fields["duration_us"] = std::to_string(summary->durationUs);
             record.fields["byte_count"] = std::to_string(summary->byteCount);
         }
+        if (record.fields["state"] == "failed" || record.fields["state"] == "interrupted") {
+            if (record.fields["failure_at_unix_us"].empty())
+                record.fields["failure_at_unix_us"] = std::to_string(nowUnixMicroseconds());
+            record.fields["failure_source"] = sourceName(source);
+            record.fields["failure_device_id"] = domain::getField(record, "device_id");
+            record.fields["failure_interval_start_session_us"] =
+                summary ? std::to_string(summary->durationUs) : domain::getField(record, "duration_us", "0");
+            if (record.fields["failure_interval_state"] != "closed")
+                record.fields["failure_interval_state"] = "open";
+        }
+        return archive.put(std::move(record));
+    }
+
+    core::Status closeFailureInterval(archive::Archive& archive, const archive::Uuid& trackId, std::uint64_t sessionDurationUs) {
+        auto stored = archive.get(archive::RecordType::AssetMetadata, trackId);
+        if (!stored)
+            return std::unexpected(stored.error());
+        if (!*stored || domain::getField(**stored, "record_role") != "audio-track") {
+            return std::unexpected(core::error("audio_track_metadata_missing", "A failed recording track could not be updated."));
+        }
+
+        archive::Record record = std::move(**stored);
+        if (domain::getField(record, "failure_at_unix_us").empty())
+            return {};
+
+        std::uint64_t intervalStartUs{};
+        const std::string intervalStart = domain::getField(record, "failure_interval_start_session_us", "0");
+        const auto [end, errorCode] = std::from_chars(intervalStart.data(), intervalStart.data() + intervalStart.size(), intervalStartUs);
+        if (errorCode != std::errc{} || end != intervalStart.data() + intervalStart.size()) {
+            return std::unexpected(
+                core::error("audio_track_failure_interval_invalid", "A failed recording track has an invalid timeline boundary."));
+        }
+
+        record.fields["failure_interval_end_session_us"] = std::to_string(std::max(intervalStartUs, sessionDurationUs));
+        record.fields["failure_interval_state"] = "closed";
+        record.fields["updated_at_us"] = std::to_string(nowUnixMicroseconds());
         return archive.put(std::move(record));
     }
 
@@ -281,10 +324,20 @@ core::Result<MultiTrackCaptureSummary> captureNativeTracks(archive::Archive& arc
                 } catch (const std::exception& exception) {
                     combined.tracks[index].failure =
                         core::error("audio_capture_unhandled_exception", "Capture worker failed: " + std::string(exception.what()));
+                    if (latestSummaries[index]) {
+                        latestSummaries[index]->completed = false;
+                        latestSummaries[index]->state = "interrupted";
+                        combined.tracks[index].summary = latestSummaries[index];
+                    }
                     startGate.releaseForSurvivingPeer();
                 } catch (...) {
                     combined.tracks[index].failure =
                         core::error("audio_capture_unhandled_exception", "Capture worker failed with an unknown exception.");
+                    if (latestSummaries[index]) {
+                        latestSummaries[index]->completed = false;
+                        latestSummaries[index]->state = "interrupted";
+                        combined.tracks[index].summary = latestSummaries[index];
+                    }
                     startGate.releaseForSurvivingPeer();
                 }
 
@@ -332,6 +385,16 @@ core::Result<MultiTrackCaptureSummary> captureNativeTracks(archive::Archive& arc
             if (!failureSummary.empty())
                 failureSummary.push_back('\n');
             failureSummary += sourceName(track.source) + ": " + track.failure->message;
+        }
+    }
+
+    for (std::size_t index = 0; index < combined.tracks.size(); ++index) {
+        const auto& track = combined.tracks[index];
+        const bool failed = track.failure.has_value() || (track.summary && !track.summary->completed);
+        if (failed) {
+            if (auto status = closeFailureInterval(archive, trackIds[index], combined.durationUs); !status && !persistenceFailure) {
+                persistenceFailure = status.error();
+            }
         }
     }
 
