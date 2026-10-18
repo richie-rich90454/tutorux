@@ -23,7 +23,12 @@ struct ArchiveInfo final {
     std::uint64_t studentCount{};
     std::uint64_t sessionCount{};
     std::uint64_t createdAtUs{};
+    std::uint64_t trailingBytes{};
+    std::uint16_t formatMajor{};
+    std::uint16_t formatMinor{};
     bool writable{};
+    bool recoveryNeeded{};
+    bool metadataOnly{};
     std::string healthStatus{"healthy"};
 };
 
@@ -32,6 +37,18 @@ struct VerificationReport final {
     std::uint64_t generation{};
     std::uint64_t recordsChecked{};
     std::uint64_t indexPagesChecked{};
+    std::vector<std::string> issues;
+};
+
+struct RecoveryReport final {
+    std::uint64_t committedGeneration{};
+    std::uint64_t candidateGeneration{};
+    std::uint64_t recoverableGeneration{};
+    std::uint64_t trailingBytes{};
+    bool hasUnpublishedCommit{};
+    bool encrypted{};
+    bool requiresPassphrase{};
+    bool recoverable{};
     std::vector<std::string> issues;
 };
 
@@ -45,10 +62,8 @@ class Archive final {
     static core::Result<Archive> create(const std::filesystem::path& path,
                                         std::string_view displayName,
                                         std::string_view description = {});
-    static core::Result<Archive> open(const std::filesystem::path& path,
-                                      bool writable = false,
-                                      std::string_view passphrase = {},
-                                      bool allowLocked = false);
+    static core::Result<Archive> open(const std::filesystem::path& path, bool writable = false,
+                                      std::string_view passphrase = {}, bool allowLocked = false);
     static core::Result<std::vector<ArchiveInfo>> discover(const std::filesystem::path& directory);
 
     ArchiveHeader header() const {
@@ -77,23 +92,26 @@ class Archive final {
     }
 
     core::Result<std::optional<Record>> get(RecordType type, const Uuid& id) const;
-    core::Result<std::optional<Record>>
-    getRevision(RecordType type, const Uuid& id, std::size_t revisionIndex) const;
+    core::Result<std::optional<Record>> getRevision(RecordType type, const Uuid& id,
+                                                    std::size_t revisionIndex) const;
     core::Result<std::optional<Record>> getByIndexKey(std::string_view key) const;
     core::Status forEachIndexPrefix(std::string_view indexPrefix,
                                     const std::function<bool(Record&&)>& visitor,
                                     bool includeDeleted = false) const;
-    core::Status forEach(RecordType type,
-                         const std::function<bool(Record&&)>& visitor,
+    core::Status forEach(RecordType type, const std::function<bool(Record&&)>& visitor,
                          bool includeDeleted = false) const;
-    core::Status forEachAudioChunk(const Uuid& sessionId,
-                                   const std::optional<Uuid>& trackId,
+    core::Status forEachAudioChunk(const Uuid& sessionId, const std::optional<Uuid>& trackId,
                                    const std::function<bool(Record&&)>& visitor,
                                    bool includeDeleted = false) const;
     core::Result<std::vector<Record>> list(RecordType type, bool includeDeleted = false) const;
     core::Status put(Record record);
     core::Status putMany(std::vector<Record> records);
     core::Result<VerificationReport> verify(bool full) const;
+    static core::Result<RecoveryReport> inspectRecovery(const std::filesystem::path& path,
+                                                        std::string_view passphrase = {});
+    static core::Status recoverUnpublishedCommit(const std::filesystem::path& path,
+                                                 std::string_view passphrase = {});
+    static core::Status discardUncommittedTail(const std::filesystem::path& path);
     core::Status backup(const std::filesystem::path& destination) const;
     static core::Status repairCopy(const std::filesystem::path& source,
                                    const std::filesystem::path& destination,
@@ -120,19 +138,21 @@ class Archive final {
         std::uint64_t leftOffset{};
         std::optional<std::pair<std::string, std::uint64_t>> split;
     };
-    core::Result<InsertResult>
-    insertIndex(std::uint64_t pageOffset, std::string_view key, std::uint64_t valueOffset);
+    core::Result<InsertResult> insertIndex(std::uint64_t pageOffset, std::string_view key,
+                                           std::uint64_t valueOffset);
     core::Result<std::uint64_t> indexRecord(std::string_view key, std::uint64_t valueOffset);
-    core::Status
-    publishCommit(std::uint64_t rootOffset, const Uuid& transactionId, std::uint64_t recordCount);
+    core::Status publishCommit(std::uint64_t rootOffset, const Uuid& transactionId,
+                               std::uint64_t recordCount);
     core::Result<std::vector<std::pair<std::string, std::uint64_t>>> allIndexEntries() const;
     core::Status verifyIndexAuthentication() const;
-    core::Status verifyCommitAuthentication() const;
-    core::Status
-    rewrite(bool encrypted, std::optional<EncryptionEnvelope> envelope, const SecretKey* key);
+    core::Status verifyCommitAuthentication(const CommitInfo& commit) const;
+    core::Status verifyCommitChain(bool full) const;
+    core::Status rewrite(bool encrypted, std::optional<EncryptionEnvelope> envelope,
+                         const SecretKey* key);
     core::Result<Record> encryptionMetadata() const;
     core::Status writeEncryptionMetadata(const EncryptionEnvelope& envelope);
     core::Status putManyInternal(std::vector<Record> records, bool invalidateGuides);
+    core::Status initializeEncryption(std::string_view passphrase, bool allowLocked);
 
     ArchiveFile file_;
     ArchiveHeader header_;
