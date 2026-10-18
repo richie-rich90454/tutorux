@@ -468,6 +468,20 @@ else()
     endif()
 endif()
 
+# DOCX/PDF asset extraction (src/assets/import.cpp) uses zlib directly.
+if(TUTORUX_BUILD_WASM)
+    # The fetched zlib archive is already linked through the PNG/WebP decoders.
+elseif(TUTORUX_STATIC_RUNTIME AND NOT MSVC)
+    find_package(PkgConfig REQUIRED)
+    set(PKG_CONFIG_ARGN --static)
+    pkg_check_modules(TUTORUX_STATIC_ZLIB REQUIRED IMPORTED_TARGET zlib)
+    unset(PKG_CONFIG_ARGN)
+    target_link_libraries(tutorux_core PRIVATE PkgConfig::TUTORUX_STATIC_ZLIB)
+else()
+    find_package(ZLIB REQUIRED)
+    target_link_libraries(tutorux_core PRIVATE ZLIB::ZLIB)
+endif()
+
 set(TUTORUX_SODIUM_PREFIX "$ENV{TUTORUX_SODIUM_PREFIX}" CACHE PATH
     "Prefix containing the pinned target libsodium headers and static library"
 )
@@ -1037,6 +1051,21 @@ if(NOT TUTORUX_BUILD_WASM)
     elseif(UNIX AND NOT APPLE AND TUTORUX_STATIC_RUNTIME)
         target_link_options(tutorux_core INTERFACE -static -static-libgcc -static-libstdc++)
     endif()
+endif()
+
+if(NOT TUTORUX_BUILD_WASM)
+    # Portable handoff artifact: cmake --build <build dir> --target dist
+    set(TUTORUX_DIST_NAME "Tutorux${CMAKE_EXECUTABLE_SUFFIX}")
+    add_custom_target(dist
+        COMMAND "${CMAKE_COMMAND}" -E make_directory "${CMAKE_SOURCE_DIR}/dist"
+        COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+            "$<TARGET_FILE:tutorux>" "${CMAKE_SOURCE_DIR}/dist/${TUTORUX_DIST_NAME}"
+        COMMAND "${CMAKE_COMMAND}" -E echo
+            "Tutorux dist: ${CMAKE_SOURCE_DIR}/dist/${TUTORUX_DIST_NAME}"
+        DEPENDS tutorux
+        VERBATIM
+        COMMENT "Staging ${TUTORUX_DIST_NAME} into dist/"
+    )
 endif()
 
 if(TUTORUX_ENABLE_LTO AND CMAKE_BUILD_TYPE STREQUAL "Release" AND NOT MINGW)
