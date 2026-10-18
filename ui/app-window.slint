@@ -120,6 +120,7 @@ export component MainWindow inherits Window {
     callback asset-command(string, string, string);
     callback ai-command(string, string, string, string);
     callback load-guide-block(string, string);
+    callback guide-edit-input-changed(string);
     callback save-guide-block(string, string, string);
     callback save-marker-shortcuts(string, string, string, string, string, string, string);
     callback run-command(string, string);
@@ -1223,9 +1224,10 @@ export component MainWindow inherits Window {
                                     font-size: 11px;
                                     wrap: word-wrap;
                                 }
-                                TextEdit {
+                                guide-editor-text-input := TextEdit {
                                     height: 170px;
                                     text <=> root.guide-edit-text;
+                                    edited(text) => { root.guide-edit-input-changed(text); }
                                 }
                                 HorizontalLayout {
                                     spacing: 8px;
