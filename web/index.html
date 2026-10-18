@@ -407,15 +407,10 @@
                         <div class="eyebrow">Lesson records</div>
                         <h1 class="page-title" id="sessions-title">Sessions</h1>
                         <p class="lede">Create a lesson record, then add notes, recordings, and supporting materials.</p>
-                        <form id="session-form" class="create-form" data-requires-archive>
-                            <label for="session-title">Start a session</label>
-                            <div class="form-row">
-                                <input id="session-title" name="title" maxlength="256" placeholder="Session title" required />
-                                <input id="session-subject" name="subject" maxlength="128" placeholder="Subject" />
-                                <input id="session-student" name="studentId" maxlength="64" placeholder="Student ID" />
-                                <button class="button button-primary" type="submit">Create session</button>
-                            </div>
-                        </form>
+                        <div class="create-form session-entry-required">
+                            <p>Start sessions from a journal entry so notes and materials stay with the lesson.</p>
+                            <button class="button button-primary" type="button" data-open-view="journal">Choose a journal entry</button>
+                        </div>
                         <div class="data-panel" id="sessions-list"><div class="empty-row">Open an archive to view sessions.</div></div>
 
                         <section class="session-workspace" id="session-workspace" aria-labelledby="session-workspace-title" hidden>
@@ -603,11 +598,11 @@
                                     <div class="material-form" data-requires-archive>
                                         <label class="check-label" for="browser-recording-consent">
                                             <input id="browser-recording-consent" type="checkbox" disabled />
-                                            I have permission to record this session's microphone audio.
+                                            I have permission to record this session's selected audio source.
                                         </label>
                                         <div class="button-row">
                                             <button id="browser-recording-start" class="button button-outline" type="button" disabled>
-                                                Start microphone recording
+                                                Start audio recording
                                             </button>
                                             <button id="browser-recording-stop" class="button button-outline" type="button" disabled>
                                                 Stop and save
@@ -617,7 +612,7 @@
                                             </button>
                                         </div>
                                         <div id="browser-recording-status" class="material-meta" aria-live="polite">
-                                            Secure-browser microphone capture is saved as archive-native audio. System audio is not captured.
+                                            Browser recording uses the source selected when the journal session was created. System audio requires browser tab or screen sharing support.
                                         </div>
                                         <div id="recording-tracks" class="recording-tracks" aria-label="Individual recording tracks">
                                             <label for="recording-track-select">Playback track</label>
@@ -759,8 +754,10 @@
                                     <input id="guide-title" maxlength="512" required disabled />
                                     <button class="button button-outline" type="submit" disabled>Save title</button>
                                     <button class="button button-quiet" id="guide-approve" type="button" disabled>Approve guide</button>
+                                    <button class="button button-outline" id="guide-compare" type="button" disabled>Compare revisions</button>
                                 </div>
                             </form>
+                            <pre class="guide-comparison" id="guide-revision-comparison" aria-live="polite" hidden></pre>
                             <div class="guide-sections" id="guide-sections">
                                 <div class="empty-row">Choose a guide to review its sections and sources.</div>
                             </div>
@@ -840,7 +837,27 @@
                     <label for="session-start-objectives">Learning objectives
                         <textarea id="session-start-objectives" rows="2" maxlength="4096" placeholder="What should the student practice?"></textarea>
                     </label>
+                    <label for="session-start-language">Transcription language
+                        <input id="session-start-language" list="transcription-language-list" value="auto" maxlength="32" autocomplete="off" />
+                        <span class="form-help">Use auto for detection or enter a language code such as en or zh.</span>
+                    </label>
+                    <label for="session-start-template">Guide template
+                        <select id="session-start-template"><option value="">Use the recommended template</option></select>
+                    </label>
+                    <label for="session-start-source" id="session-start-source-control" hidden>Capture source
+                        <select id="session-start-source">
+                            <option value="microphone">Microphone</option>
+                            <option value="system-audio" id="session-system-audio-option" hidden>System audio from a shared tab, window, or screen</option>
+                        </select>
+                        <span class="form-help" id="session-source-capability" role="status">Microphone capture is available.</span>
+                    </label>
                 </div>
+                <datalist id="transcription-language-list">
+                    <option value="auto"></option><option value="en"></option><option value="zh"></option>
+                    <option value="es"></option><option value="fr"></option><option value="de"></option>
+                    <option value="ja"></option><option value="ko"></option><option value="ru"></option>
+                    <option value="ar"></option><option value="pt"></option><option value="it"></option>
+                </datalist>
                 <section class="session-choice-panel session-new-student" id="session-new-student-panel" hidden>
                     <label for="session-new-student-name">New student name
                         <input id="session-new-student-name" maxlength="256" autocomplete="name" />
@@ -868,9 +885,10 @@
                     </label>
                 </fieldset>
                 <section class="session-choice-panel" id="recording-check-panel" hidden>
+                    <p class="form-help" id="session-recording-capability">Browser recording uses the selected audio source; no video is stored.</p>
                     <label class="consent-row" for="session-recording-consent">
                         <input id="session-recording-consent" type="checkbox" />
-                        <span>I have permission to record this tutoring session.</span>
+                        <span>I have permission to record the selected audio source.</span>
                     </label>
                     <div class="microphone-check">
                         <div class="input-meter" aria-hidden="true"><span id="microphone-level"></span></div>
