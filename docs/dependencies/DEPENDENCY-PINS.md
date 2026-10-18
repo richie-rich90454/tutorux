@@ -9,6 +9,11 @@ dependency. A moved or unexpected tag stops configuration.
 | Slint | 1.18.1 | `372cf0ee5577c3dfec309a45e7b778ba4e81b734` |
 | Corrosion | 0.6.1 | `1499b14e4906a2890f5cee1547c8848db261753d` |
 | whisper.cpp | 1.9.5 | `d1be6fde11ac6e0407606b4e42fe72d34add8037` |
+| llama.cpp | 0.6.0 | `d812350` |
+
+Linux audio capture uses ALSA's system PCM library. Dynamic development builds link the selected
+system package; portable static Linux builds require `libasound.a` and use the static package
+dependency metadata where available.
 
 libcurl 7.85 or newer is required for HTTPS requests. The static release links the selected
 platform's static libcurl and its static dependency closure; the exact Windows package version is
