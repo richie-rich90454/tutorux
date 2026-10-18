@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleDevelopmentRegion</key>
+    <string>en</string>
+    <key>CFBundleDisplayName</key>
+    <string>Tutorux</string>
+    <key>CFBundleExecutable</key>
+    <string>tutorux</string>
+    <key>CFBundleIdentifier</key>
+    <string>@TUTORUX_BUNDLE_IDENTIFIER@</string>
+    <key>CFBundleInfoDictionaryVersion</key>
+    <string>6.0</string>
+    <key>CFBundleName</key>
+    <string>Tutorux</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleShortVersionString</key>
+    <string>@TUTORUX_APP_VERSION@</string>
+    <key>CFBundleVersion</key>
+    <string>@TUTORUX_APP_VERSION@</string>
+    <key>LSApplicationCategoryType</key>
+    <string>public.app-category.education</string>
+    <key>NSHighResolutionCapable</key>
+    <true/>
+    <key>NSMicrophoneUsageDescription</key>
+    <string>Tutorux records microphone audio into the selected local archive after you give consent.</string>
+    <key>NSAudioCaptureUsageDescription</key>
+    <string>Tutorux records system audio into the selected local archive after you give consent.</string>
+    @TUTORUX_MIN_MACOS_PLIST_ENTRY@
+</dict>
+</plist>
