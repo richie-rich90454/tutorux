@@ -8,7 +8,7 @@
             const darkTheme = window.matchMedia("(prefers-color-scheme: dark)").matches;
             document.documentElement.dataset.theme = darkTheme ? "dark" : "light";
             document.querySelector('meta[name="theme-color"]').content = darkTheme
-                ? "#111419"
+                ? "#000000"
                 : "#ffffff";
         </script>
         <meta
@@ -230,16 +230,30 @@
                                     </div>
                                     <span id="notes-revision" class="revision-label">Archive document</span>
                                 </div>
-                                <div class="notes-toolbar" role="toolbar" aria-label="Notes formatting">
-                                    <button type="button" data-note-wrap="**" aria-label="Bold selection" title="Bold">B</button>
-                                    <button type="button" data-note-wrap="*" aria-label="Italic selection" title="Italic"><i>I</i></button>
-                                    <button type="button" data-note-prefix="## " aria-label="Heading" title="Heading">H</button>
-                                    <button type="button" data-note-prefix="- " aria-label="Bullet list" title="Bullet list">• List</button>
-                                    <button type="button" data-note-prefix="> " aria-label="Quote" title="Quote">“</button>
-                                    <button type="button" data-note-prefix="- [ ] " aria-label="Checklist" title="Checklist">☐</button>
-                                    <span>Markdown notes</span>
+                                <div class="notes-toolbar" id="notes-toolbar" role="toolbar" aria-label="Notes formatting">
+                                    <button type="button" data-note-action="bold" aria-label="Bold" aria-pressed="false" title="Bold"><strong>B</strong></button>
+                                    <button type="button" data-note-action="italic" aria-label="Italic" aria-pressed="false" title="Italic"><i>I</i></button>
+                                    <button type="button" data-note-action="heading" aria-label="Heading" title="Heading">H</button>
+                                    <button type="button" data-note-action="list" aria-label="Bulleted list" title="Bulleted list">• List</button>
+                                    <button type="button" data-note-action="quote" aria-label="Quote" title="Quote">“</button>
+                                    <button type="button" data-note-action="checklist" aria-label="Checklist" title="Checklist">☐ List</button>
+                                    <span id="notes-editor-mode">Visual notes</span>
+                                    <button class="notes-source-toggle" id="notes-markdown-toggle" type="button" aria-pressed="false" disabled>Show Markdown</button>
                                 </div>
-                                <textarea id="entry-notes" rows="16" maxlength="200000" placeholder="Record observations, questions, and what to revisit…" aria-label="Journal entry notes" disabled></textarea>
+                                <div
+                                    id="entry-notes-editor"
+                                    class="notes-editor"
+                                    contenteditable="false"
+                                    role="textbox"
+                                    aria-multiline="true"
+                                    aria-label="Journal entry notes"
+                                    aria-describedby="notes-save-status"
+                                    aria-disabled="true"
+                                    aria-keyshortcuts="Control+B Control+I Meta+B Meta+I"
+                                    data-placeholder="Record observations, questions, and what to revisit…"
+                                    tabindex="0"
+                                ></div>
+                                <textarea id="entry-notes" rows="16" maxlength="200000" placeholder="Markdown source" aria-label="Journal entry Markdown source" disabled hidden></textarea>
                                 <div class="notes-footer">
                                     <span id="notes-save-status" role="status">Notes are stored in this journal archive.</span>
                                     <button class="button button-outline" id="save-entry-notes" type="button" data-requires-archive disabled>Save notes</button>
@@ -305,6 +319,88 @@
                             </div>
                         </form>
                         <div class="data-panel" id="students-list"><div class="empty-row">Open an archive to view students.</div></div>
+                        <section class="student-progress-panel" id="student-progress-panel" data-requires-archive aria-labelledby="student-progress-title">
+                            <div class="student-progress-heading">
+                                <div>
+                                    <div class="eyebrow">Across sessions</div>
+                                    <h2 id="student-progress-title">Learning history</h2>
+                                </div>
+                                <label for="student-progress-student">Student</label>
+                                <select id="student-progress-student" aria-describedby="student-progress-help" disabled>
+                                    <option value="">Choose a student</option>
+                                </select>
+                            </div>
+                            <p class="student-progress-help" id="student-progress-help">Progress entries cite evidence from this student's sessions. A reviewer name is an audit label entered by the tutor; Tutorux does not verify identity.</p>
+                            <p class="student-progress-status" id="student-progress-status" role="status" aria-live="polite">Open an archive to review learning history.</p>
+                            <form class="student-progress-form student-profile-form" id="student-profile-form" data-requires-archive hidden>
+                                <h3>Student profile</h3>
+                                <div class="student-progress-fields">
+                                    <label>Name
+                                        <input id="student-profile-name" maxlength="256" required disabled />
+                                    </label>
+                                    <label>Grade or level
+                                        <input id="student-profile-grade" maxlength="128" disabled />
+                                    </label>
+                                    <label>Subjects
+                                        <input id="student-profile-subjects" maxlength="2048" disabled />
+                                    </label>
+                                    <label>Preferred guide template
+                                        <input id="student-profile-template" maxlength="128" disabled />
+                                    </label>
+                                    <label>Learning objectives
+                                        <textarea id="student-profile-objectives" rows="2" maxlength="4096" disabled></textarea>
+                                    </label>
+                                    <label>Known difficulties
+                                        <textarea id="student-profile-difficulties" rows="2" maxlength="4096" disabled></textarea>
+                                    </label>
+                                    <label>Demonstrated improvements
+                                        <textarea id="student-profile-improvements" rows="2" maxlength="4096" disabled></textarea>
+                                    </label>
+                                    <label>Tutor notes
+                                        <textarea id="student-profile-notes" rows="3" maxlength="16384" disabled></textarea>
+                                    </label>
+                                </div>
+                                <div class="student-progress-form-actions">
+                                    <button class="button button-primary" type="submit" disabled>Save profile</button>
+                                </div>
+                            </form>
+                            <h3 class="student-progress-subheading">Sessions</h3>
+                            <ol class="student-progress-sessions" id="student-progress-sessions" aria-label="This student's sessions"></ol>
+                            <h3 class="student-progress-subheading">Tutor-reviewed skills</h3>
+                            <div class="student-progress-history" id="student-progress-history" aria-label="Reviewed learning history"></div>
+                            <form class="student-progress-form" id="student-progress-form" data-requires-archive hidden>
+                                <h3>Review a skill</h3>
+                                <div class="student-progress-fields">
+                                    <label>Skill
+                                        <input id="student-progress-skill" maxlength="256" autocomplete="off" placeholder="Equivalent fractions" required disabled />
+                                    </label>
+                                    <label>Classification
+                                        <select id="student-progress-classification" required disabled>
+                                            <option value="newly-observed">Newly observed</option>
+                                            <option value="recurring">Recurring</option>
+                                            <option value="partial-improvement">Partial improvement</option>
+                                            <option value="demonstrated-mastery">Demonstrated mastery</option>
+                                            <option value="unverified-improvement">Unverified improvement</option>
+                                            <option value="not-revisited">Not revisited</option>
+                                        </select>
+                                    </label>
+                                    <label class="student-progress-evidence-field">Evidence from this student
+                                        <select id="student-progress-evidence" multiple size="5" aria-describedby="student-progress-evidence-help" required disabled></select>
+                                        <span class="form-help" id="student-progress-evidence-help">Use Ctrl-click or Command-click to select several records. Recurring, partial improvement, and mastery require evidence from at least two sessions. Mastery requires every cited record to be human verified.</span>
+                                    </label>
+                                    <label>Reviewer label
+                                        <input id="student-progress-reviewer" maxlength="128" autocomplete="name" placeholder="Your name or role" required disabled />
+                                    </label>
+                                    <label class="student-progress-note-field">Review note
+                                        <textarea id="student-progress-note" rows="2" maxlength="4096" placeholder="What the evidence shows, or what remains uncertain" disabled></textarea>
+                                    </label>
+                                </div>
+                                <p class="form-help">Saving a skill with the same name updates its existing classification.</p>
+                                <div class="student-progress-form-actions">
+                                    <button class="button button-primary" type="submit" disabled>Save review</button>
+                                </div>
+                            </form>
+                        </section>
                     </section>
 
                     <section class="view" data-panel="sessions" aria-labelledby="sessions-title">
@@ -337,6 +433,7 @@
                                     <button class="text-button" id="session-resume" type="button" data-requires-archive disabled hidden>Resume work</button>
                                     <button class="text-button" id="session-complete" type="button" data-requires-archive disabled>Complete</button>
                                     <button class="text-button" id="session-review" type="button" data-requires-archive disabled>Mark reviewed</button>
+                                    <button class="text-button destructive-action" id="session-delete-open" type="button" data-requires-archive disabled>Delete session</button>
                                 </div>
                             </div>
 
@@ -440,6 +537,40 @@
                                             <button class="button button-outline" type="submit" disabled>Import transcript</button>
                                         </div>
                                     </form>
+                                    <section class="remote-transcription" aria-labelledby="remote-transcription-title">
+                                        <div class="remote-transcription-heading">
+                                            <div class="eyebrow">Bring your own provider</div>
+                                            <h4 id="remote-transcription-title">Remote transcription</h4>
+                                        </div>
+                                        <p class="form-help" id="remote-transcription-help">
+                                            Send one selected audio file to an OpenAI-compatible transcription endpoint.
+                                            The endpoint, model, and API key stay in page memory; Tutorux has no hosted proxy.
+                                        </p>
+                                        <form id="remote-transcription-form" class="remote-transcription-form" data-requires-archive autocomplete="off">
+                                            <label for="remote-audio-file">Audio file · up to 64 MiB</label>
+                                            <input id="remote-audio-file" type="file" accept=".mp3,.mp4,.mpeg,.mpga,.m4a,.wav,.webm,audio/*,video/mp4,video/webm" required disabled />
+                                            <label for="remote-transcription-endpoint">OpenAI-compatible API base URL</label>
+                                            <input id="remote-transcription-endpoint" type="url" inputmode="url" maxlength="2048" placeholder="https://api.example.com/v1" autocomplete="off" required disabled />
+                                            <label for="remote-transcription-model">Transcription model</label>
+                                            <input id="remote-transcription-model" type="text" maxlength="512" autocomplete="off" required disabled />
+                                            <label for="remote-transcription-key">API key <span class="field-optional">(optional for local endpoints)</span></label>
+                                            <input id="remote-transcription-key" type="password" maxlength="4096" autocomplete="off" spellcheck="false" disabled />
+                                            <div id="remote-transcription-disclosure" class="remote-transcription-disclosure" hidden>
+                                                <strong>Before sending</strong>
+                                                <p id="remote-transcription-disclosure-copy"></p>
+                                                <p>Only the selected audio file and the API key (in the Authorization header, if entered) leave this device. Tutorux does not send archive data, existing transcripts, notes, or other files. The provider may process or retain the upload under its own terms.</p>
+                                            </div>
+                                            <label class="check-label remote-transcription-consent" for="remote-transcription-consent">
+                                                <input id="remote-transcription-consent" type="checkbox" disabled />
+                                                I reviewed this upload disclosure and authorize sending this audio now.
+                                            </label>
+                                            <div class="button-row remote-transcription-actions">
+                                                <button id="remote-transcription-submit" class="button button-outline" type="submit" disabled>Transcribe selected audio</button>
+                                                <button id="remote-transcription-cancel" class="button button-quiet" type="button" hidden>Cancel upload</button>
+                                            </div>
+                                        </form>
+                                        <p id="remote-transcription-status" class="remote-transcription-status" role="status" aria-live="polite">Choose audio to review the per-upload disclosure.</p>
+                                    </section>
                                     <form
                                         id="transcript-export-form"
                                         class="transcript-export-form"
@@ -529,9 +660,10 @@
                                     <form id="asset-import-form" class="material-form" data-requires-archive>
                                         <label for="asset-files">Import lesson materials into this archive</label>
                                         <input id="asset-files" type="file" multiple required disabled />
-                                        <p class="form-help">Each browser import is limited to 64 MiB per file. Originals remain unchanged.</p>
+                                        <p class="form-help">Each browser import is limited to 64 MiB per file. Supported images, PDFs, text, audio, and video can be previewed in the archive with format-specific size limits. Originals remain unchanged. You can also drop files anywhere in Tutorux.</p>
                                         <button class="button button-outline" type="submit" disabled>Import selected files</button>
                                     </form>
+                                    <div class="asset-import-feedback" id="asset-import-feedback" role="status" aria-live="polite" hidden></div>
                                     <div class="data-panel material-list" id="assets-list">
                                         <div class="empty-row">Choose a session to view its files and media.</div>
                                     </div>
@@ -603,6 +735,9 @@
                                 </select>
                                 <select id="guide-entry-scope" required disabled hidden>
                                     <option value="">Choose a journal entry</option>
+                                </select>
+                                <select id="guide-template" aria-label="Guide template" disabled>
+                                    <option value="">Use the recommended template</option>
                                 </select>
                                 <button class="button button-primary" type="submit" disabled>Generate draft</button>
                             </div>
@@ -690,6 +825,30 @@
                 <div class="eyebrow">Add to journal entry</div>
                 <h2 id="session-start-title">New tutoring session</h2>
                 <p id="session-entry-context">Choose how you would like to begin.</p>
+                <div class="session-context-fields">
+                    <label for="session-start-student">Student
+                        <select id="session-start-student">
+                            <option value="">Anonymous session</option>
+                        </select>
+                    </label>
+                    <label for="session-start-subject">Subject
+                        <input id="session-start-subject" maxlength="128" placeholder="English language" />
+                    </label>
+                    <label for="session-start-name">Session title
+                        <input id="session-start-name" maxlength="256" placeholder="Session title" />
+                    </label>
+                    <label for="session-start-objectives">Learning objectives
+                        <textarea id="session-start-objectives" rows="2" maxlength="4096" placeholder="What should the student practice?"></textarea>
+                    </label>
+                </div>
+                <section class="session-choice-panel session-new-student" id="session-new-student-panel" hidden>
+                    <label for="session-new-student-name">New student name
+                        <input id="session-new-student-name" maxlength="256" autocomplete="name" />
+                    </label>
+                    <label for="session-new-student-grade">Grade or level
+                        <input id="session-new-student-grade" maxlength="128" />
+                    </label>
+                </section>
                 <fieldset class="session-choice-grid">
                     <legend class="visually-hidden">Session type</legend>
                     <label class="session-choice">
@@ -731,6 +890,18 @@
                     <button class="button button-primary" id="import-recording-session" type="button" data-requires-archive disabled hidden>Create session and import</button>
                 </div>
             </form>
+        </dialog>
+
+        <dialog class="journal-dialog session-delete-dialog" id="session-delete-dialog" aria-labelledby="session-delete-title">
+            <div class="eyebrow">Review deletion scope</div>
+            <h2 id="session-delete-title">Delete this session?</h2>
+            <p id="session-delete-description">Tutorux will inspect the session and its linked records before enabling deletion.</p>
+            <div class="session-delete-scope" id="session-delete-scope" role="status" aria-live="polite">Preparing a deletion preview…</div>
+            <p class="session-delete-warning" id="session-delete-warning" role="alert" hidden></p>
+            <div class="dialog-actions">
+                <button class="button button-outline" id="session-delete-cancel" type="button">Keep session</button>
+                <button class="button button-primary destructive-button" id="session-delete-confirm" type="button" disabled>Delete session and linked records</button>
+            </div>
         </dialog>
 
         <dialog class="journal-dialog taxonomy-dialog" id="taxonomy-dialog" aria-labelledby="taxonomy-title">
@@ -813,6 +984,10 @@
                 </div>
             </form>
         </dialog>
+        <div class="global-drop-overlay" id="global-drop-overlay" role="status" aria-live="polite" hidden>
+            <span class="global-drop-mark" aria-hidden="true">＋</span>
+            <span><strong>Drop lesson materials</strong><small>Files will be added to the open archive and linked to the selected session when available.</small></span>
+        </div>
         <script src="./tutorux.js" defer></script>
         <script src="./journal-ui.js" defer></script>
         <script src="./tutorux-theme.js" defer></script>
