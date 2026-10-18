@@ -217,15 +217,17 @@ write mode warns that recent uncommitted audio may be lost after power failure. 
 audio and resume continues the same recording timeline. `record configure` saves endpoint choices and
 durability settings in the selected archive;
 `record test` validates the selected endpoint format and initializes a stream without starting
-capture. Linux capture uses ALSA; system-audio loopback requires an explicitly selected monitor PCM
-through `--playback ID`. macOS microphone capture uses CoreAudio. On macOS 13 and newer, system audio
+capture. Linux capture uses ALSA and, when PipeWire development files are available, PipeWire
+microphone, sink-monitor, and active application-output endpoints. Select a PipeWire endpoint with
+`--device ID` or `--playback ID`; ALSA monitor PCM remains available as a fallback. macOS microphone capture uses CoreAudio. On macOS 13 and newer, system audio
 uses ScreenCaptureKit after the operating-system permission prompt; `record devices` lists the
 `screen-capture-kit` input, which can be selected with `--playback screen-capture-kit`. A virtual
 audio driver is not required. Windows system audio uses WASAPI loopback. Both tracks can be selected
 independently with `--microphone ID` and `--playback ID`. Select a process with
 `--source application --device ID` for one application track, or combine it with the microphone
-using `--source both --application ID`. Per-application capture is available on supported Windows and macOS versions;
-Linux reports it as unsupported.
+using `--source both --application ID`. Per-application capture is available on supported Windows,
+macOS, and PipeWire Linux configurations; Linux systems without PipeWire application endpoints report
+it as unsupported.
 
 Replay a committed track directly from the archive with `record play --session UUID`. Use
 `--track UUID` for multi-track sessions and `--start-us N --duration-us N` to select a range. The
@@ -279,7 +281,7 @@ Session packages and WAV chunk import behavior are documented in
 [`docs/audio/WAV-IMPORT.md`](docs/audio/WAV-IMPORT.md).
 Windows WASAPI recording behavior is documented in
 [`docs/audio/WASAPI-CAPTURE.md`](docs/audio/WASAPI-CAPTURE.md).
-Linux ALSA behavior is documented in [`docs/audio/ALSA-CAPTURE.md`](docs/audio/ALSA-CAPTURE.md).
+Linux ALSA and PipeWire behavior is documented in [`docs/audio/ALSA-CAPTURE.md`](docs/audio/ALSA-CAPTURE.md).
 macOS CoreAudio behavior is documented in
 [`docs/audio/COREAUDIO-CAPTURE.md`](docs/audio/COREAUDIO-CAPTURE.md).
 Transcript formats, validation limits, and provenance behavior are documented in
