@@ -10,10 +10,18 @@ tutorux --archive Tutorux.tux record start --session SESSION_ID --source both --
     --microphone default --playback MONITOR_ID
 ```
 
-The recording screen exposes the same three choices: microphone, system audio, or both tracks.
-Device IDs are optional for the microphone when the operating system has a default input. A
-system-audio monitor must be selected explicitly on Linux and macOS. Windows uses the selected
-WASAPI render endpoint in loopback mode.
+Choose a visible application as the second track with `--application APP_DEVICE_ID` instead of
+`--playback MONITOR_ID`. A single application track uses
+`--source application --device APP_DEVICE_ID`. `record devices` lists the available application
+IDs on supported native platforms.
+
+The recording screen exposes microphone, system audio, or a selected application audio source.
+Synchronized capture can retain microphone audio with either a system-audio or application-audio
+track.
+Device IDs are optional for the microphone when the operating system has a default input. Linux
+requires an explicitly selected ALSA/PipeWire monitor for system audio. macOS 13 and newer exposes
+ScreenCaptureKit as the `screen-capture-kit` system-audio device and requests the operating-system
+permission. Windows uses the selected WASAPI render endpoint in loopback mode.
 
 Track IDs are stored on the session and each track has an archive-backed metadata record with its
 source, device, consent label, state, format, counters, and recovery result. Audio chunks remain
