@@ -6,10 +6,10 @@
 
 namespace {
 
-    int reportFailure(std::string_view step, std::string_view detail) {
-        std::cerr << step << ": " << detail << '\n';
-        return 1;
-    }
+int reportFailure(std::string_view step, std::string_view detail) {
+    std::cerr << step << ": " << detail << '\n';
+    return 1;
+}
 
 } // namespace
 
