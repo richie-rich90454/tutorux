@@ -346,7 +346,12 @@ namespace {
 
     bool isSensitiveSettingKey(std::string_view key) {
         const std::string normalized = canonicalSettingKey(key);
-        if (normalized == "credentialstorage")
+        constexpr std::array<std::string_view, 19> nonSecretMetadataFields{
+            "credentialstorage", "apikeyenv",           "tokenbudget",           "tokensbudget",        "tokencount",
+            "tokenscount",       "tokenlimit",          "tokenslimit",           "tokenusage",          "tokensusage",
+            "maxoutputtokens",   "maximumoutputtokens", "tokenizerinformation",  "contexttokens",       "trainingcontexttokens",
+            "usedtokens",        "estimatedtokens",     "requestedoutputtokens", "inputtokenupperbound"};
+        if (std::find(nonSecretMetadataFields.begin(), nonSecretMetadataFields.end(), normalized) != nonSecretMetadataFields.end())
             return false;
         constexpr std::array<std::string_view, 12> markers{"password",   "passwd",  "passphrase",    "secret",
                                                            "credential", "apikey",  "authorization", "privatekey",
@@ -917,6 +922,10 @@ namespace {
 
 bool isCredentialSettingsRecord(const Record& record) {
     return declaresCredentialRole(record);
+}
+
+bool isSensitiveCredentialFieldName(std::string_view fieldName) {
+    return isSensitiveSettingKey(fieldName);
 }
 
 bool hasSensitiveCredentialMaterial(const Record& record) {
