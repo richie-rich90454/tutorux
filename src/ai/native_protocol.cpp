@@ -41,6 +41,17 @@ namespace {
         return value && value->asString() ? *value->asString() : std::string{};
     }
 
+    std::string readScalar(const JsonValue::Object& object, std::string_view name) {
+        const JsonValue* value = member(object, name);
+        if (!value)
+            return {};
+        if (const auto* number = std::get_if<command::JsonNumber>(&value->value))
+            return number->text;
+        if (const auto* text = value->asString())
+            return *text;
+        return {};
+    }
+
     bool readBoolean(const JsonValue::Object& object, std::string_view name) {
         const JsonValue* value = member(object, name);
         const bool* boolean = value ? std::get_if<bool>(&value->value) : nullptr;
@@ -100,8 +111,7 @@ namespace {
         return std::string(modelId);
     }
 
-    core::Status validateEndpoint(std::string_view endpoint,
-                                  std::string_view apiKey,
+    core::Status validateEndpoint(std::string_view endpoint, std::string_view apiKey,
                                   bool allowMissingRemoteKey = false) {
         if (endpoint.empty() || endpoint.find_first_of("?#\r\n") != std::string_view::npos ||
             (apiKey.empty() && !allowMissingRemoteKey && !isLoopbackHttpUrl(endpoint))) {
@@ -139,9 +149,9 @@ namespace {
             return core::error("ai_provider_unavailable",
                                "The provider returned a server error (HTTP " +
                                    std::to_string(response.statusCode) + ").");
-        return core::error("ai_provider_response_invalid",
-                           "The provider returned HTTP " + std::to_string(response.statusCode) +
-                               ".");
+        return core::error("ai_provider_response_invalid", "The provider returned HTTP " +
+                                                               std::to_string(response.statusCode) +
+                                                               ".");
     }
 
     class GenerationInputWiper final {
@@ -178,9 +188,7 @@ namespace {
         return true;
     }
 
-    bool emitText(const GenerationRequest& request,
-                  std::string_view text,
-                  std::string& content,
+    bool emitText(const GenerationRequest& request, std::string_view text, std::string& content,
                   std::string& error) {
         if (text.empty())
             return true;
@@ -197,16 +205,14 @@ namespace {
         return true;
     }
 
-    std::string
-    nestedText(const JsonValue::Object& root, std::string_view first, std::string_view second) {
+    std::string nestedText(const JsonValue::Object& root, std::string_view first,
+                           std::string_view second) {
         const JsonValue::Object* nested = objectAt(member(root, first));
         return nested ? readString(*nested, second) : std::string{};
     }
 
-    bool collectAnthropicContent(const JsonValue::Object& root,
-                                 const GenerationRequest& request,
-                                 GenerationResponse& generated,
-                                 std::string& error) {
+    bool collectAnthropicContent(const JsonValue::Object& root, const GenerationRequest& request,
+                                 GenerationResponse& generated, std::string& error) {
         const JsonValue::Array* blocks = arrayAt(member(root, "content"));
         if (!blocks)
             return true;
@@ -220,10 +226,8 @@ namespace {
         return true;
     }
 
-    bool collectGeminiContent(const JsonValue::Object& root,
-                              const GenerationRequest& request,
-                              GenerationResponse& generated,
-                              std::string& error) {
+    bool collectGeminiContent(const JsonValue::Object& root, const GenerationRequest& request,
+                              GenerationResponse& generated, std::string& error) {
         const JsonValue::Array* candidates = arrayAt(member(root, "candidates"));
         const JsonValue::Object* candidate =
             candidates && !candidates->empty() ? candidates->front().asObject() : nullptr;
@@ -240,10 +244,8 @@ namespace {
         return true;
     }
 
-    bool collectCohereContent(const JsonValue::Object& root,
-                              const GenerationRequest& request,
-                              GenerationResponse& generated,
-                              std::string& error) {
+    bool collectCohereContent(const JsonValue::Object& root, const GenerationRequest& request,
+                              GenerationResponse& generated, std::string& error) {
         const JsonValue::Object* message = objectAt(member(root, "message"));
         const JsonValue::Array* content = message ? arrayAt(member(*message, "content")) : nullptr;
         if (!content)
@@ -258,10 +260,8 @@ namespace {
         return true;
     }
 
-    bool collectPerplexityContent(const JsonValue::Object& root,
-                                  const GenerationRequest& request,
-                                  GenerationResponse& generated,
-                                  std::string& error) {
+    bool collectPerplexityContent(const JsonValue::Object& root, const GenerationRequest& request,
+                                  GenerationResponse& generated, std::string& error) {
         const JsonValue::Array* output = arrayAt(member(root, "output"));
         if (!output)
             return true;
@@ -281,10 +281,8 @@ namespace {
         return true;
     }
 
-    bool collectOllamaContent(const JsonValue::Object& root,
-                              const GenerationRequest& request,
-                              GenerationResponse& generated,
-                              std::string& error) {
+    bool collectOllamaContent(const JsonValue::Object& root, const GenerationRequest& request,
+                              GenerationResponse& generated, std::string& error) {
         if (const JsonValue* failure = member(root, "error")) {
             const std::string* message = failure->asString();
             error =
@@ -303,18 +301,14 @@ namespace {
         return true;
     }
 
-    std::string nestedText(const JsonValue::Object& root,
-                           std::string_view first,
-                           std::string_view second,
-                           std::string_view third) {
+    std::string nestedText(const JsonValue::Object& root, std::string_view first,
+                           std::string_view second, std::string_view third) {
         const JsonValue::Object* nested = objectAt(member(root, first));
         return nested ? nestedText(*nested, second, third) : std::string{};
     }
 
-    std::string nestedText(const JsonValue::Object& root,
-                           std::string_view first,
-                           std::string_view second,
-                           std::string_view third,
+    std::string nestedText(const JsonValue::Object& root, std::string_view first,
+                           std::string_view second, std::string_view third,
                            std::string_view fourth) {
         const JsonValue::Object* nested = objectAt(member(root, first));
         return nested ? nestedText(*nested, second, third, fourth) : std::string{};
@@ -480,9 +474,7 @@ namespace {
                 }
                 const JsonValue::Object* delta = objectAt(member(*root, "delta"));
                 if (delta && readString(*delta, "type") == "text_delta") {
-                    return emitText(request_,
-                                    readString(*delta, "text"),
-                                    generated.content,
+                    return emitText(request_, readString(*delta, "text"), generated.content,
                                     error_);
                 }
                 if (type == "error") {
@@ -505,8 +497,7 @@ namespace {
                 if (type == "content-delta") {
                     return emitText(request_,
                                     nestedText(*root, "delta", "message", "content", "text"),
-                                    generated.content,
-                                    error_);
+                                    generated.content, error_);
                 }
                 return true;
             }
@@ -538,9 +529,7 @@ namespace {
                     return false;
                 }
                 if (type == "response.output_text.delta")
-                    return emitText(request_,
-                                    readString(*root, "delta"),
-                                    generated.content,
+                    return emitText(request_, readString(*root, "delta"), generated.content,
                                     error_);
                 return true;
             }
@@ -605,8 +594,7 @@ namespace {
         bool streamComplete_{};
     };
 
-    core::Result<HttpResponse> sendModelRequest(NativeProtocol protocol,
-                                                std::string url,
+    core::Result<HttpResponse> sendModelRequest(NativeProtocol protocol, std::string url,
                                                 std::string_view apiKey,
                                                 std::function<bool()> cancelled) {
         HttpRequest request;
@@ -645,10 +633,8 @@ namespace {
             std::string url = endpointUrl(endpoint, "/v1/models?limit=1000");
             if (!afterId.empty())
                 url += "&after_id=" + percentEncode(afterId);
-            auto response = sendModelRequest(NativeProtocol::anthropicMessages,
-                                             std::move(url),
-                                             apiKey,
-                                             cancelled);
+            auto response = sendModelRequest(NativeProtocol::anthropicMessages, std::move(url),
+                                             apiKey, cancelled);
             if (!response)
                 return std::unexpected(response.error());
             if (response->cancelled)
@@ -671,15 +657,14 @@ namespace {
                 const JsonValue::Object* object = entry.asObject();
                 const std::string id = object ? readString(*object, "id") : std::string{};
                 if (id.empty() || id.size() > 1024)
-                    return std::unexpected(
-                        core::error("ai_model_catalog_invalid",
-                                    "A provider model entry has an invalid ID."));
+                    return std::unexpected(core::error(
+                        "ai_model_catalog_invalid", "A provider model entry has an invalid ID."));
                 if (seen.insert(id).second) {
                     std::string owner = object ? readString(*object, "display_name") : "";
                     if (owner.empty() && object)
                         owner = readString(*object, "type");
                     ProviderModel model{id, std::move(owner)};
-                    model.inputModalities = "text,image,document";
+                    model.inputModalities = "text,unknown";
                     models.push_back(std::move(model));
                 }
             }
@@ -712,10 +697,8 @@ namespace {
             std::string url = endpointUrl(endpoint, "/models?pageSize=1000");
             if (!pageToken.empty())
                 url += "&pageToken=" + percentEncode(pageToken);
-            auto response = sendModelRequest(NativeProtocol::geminiGenerateContent,
-                                             std::move(url),
-                                             apiKey,
-                                             cancelled);
+            auto response = sendModelRequest(NativeProtocol::geminiGenerateContent, std::move(url),
+                                             apiKey, cancelled);
             if (!response)
                 return std::unexpected(response.error());
             if (response->cancelled)
@@ -755,12 +738,13 @@ namespace {
                 if (!supportsGeneration)
                     continue;
                 if (id.empty() || id.size() > 1024)
-                    return std::unexpected(
-                        core::error("ai_model_catalog_invalid",
-                                    "A provider model entry has an invalid ID."));
+                    return std::unexpected(core::error(
+                        "ai_model_catalog_invalid", "A provider model entry has an invalid ID."));
                 if (seen.insert(id).second) {
                     ProviderModel model{id, readString(*object, "displayName")};
-                    model.inputModalities = "text,image,audio,video,document";
+                    model.contextWindow = readScalar(*object, "inputTokenLimit");
+                    model.maximumOutputTokens = readScalar(*object, "outputTokenLimit");
+                    model.inputModalities = "text,unknown";
                     models.push_back(std::move(model));
                 }
             }
@@ -817,9 +801,8 @@ namespace {
                 const JsonValue::Object* object = entry.asObject();
                 const std::string id = object ? readString(*object, "name") : std::string{};
                 if (id.empty() || id.size() > 1024)
-                    return std::unexpected(
-                        core::error("ai_model_catalog_invalid",
-                                    "A provider model entry has an invalid ID."));
+                    return std::unexpected(core::error(
+                        "ai_model_catalog_invalid", "A provider model entry has an invalid ID."));
                 if (seen.insert(id).second)
                     models.push_back({id, "Cohere"});
             }
@@ -840,17 +823,14 @@ namespace {
     }
 
     core::Result<std::vector<ProviderModel>>
-    parsePerplexityModels(std::string_view endpoint,
-                          std::string_view apiKey,
+    parsePerplexityModels(std::string_view endpoint, std::string_view apiKey,
                           std::function<bool()> cancelled) {
         static_cast<void>(apiKey);
         if (cancelled && cancelled())
             return std::unexpected(
                 core::error("ai_request_cancelled", "Model discovery was cancelled."));
         auto response = sendModelRequest(NativeProtocol::perplexityAgent,
-                                         endpointUrl(endpoint, "/models"),
-                                         {},
-                                         cancelled);
+                                         endpointUrl(endpoint, "/models"), {}, cancelled);
         if (!response)
             return std::unexpected(response.error());
         if (response->cancelled)
@@ -890,8 +870,7 @@ namespace {
     core::Result<std::vector<ProviderModel>> parseOllamaModels(std::string_view endpoint,
                                                                std::function<bool()> cancelled) {
         auto response = sendModelRequest(NativeProtocol::ollamaChat,
-                                         endpointUrl(ollamaBaseEndpoint(endpoint), "/api/tags"),
-                                         {},
+                                         endpointUrl(ollamaBaseEndpoint(endpoint), "/api/tags"), {},
                                          std::move(cancelled));
         if (!response)
             return std::unexpected(response.error());
@@ -943,10 +922,8 @@ namespace {
 
 } // namespace
 
-std::string nativeGenerationEndpoint(NativeProtocol protocol,
-                                     std::string_view endpoint,
-                                     std::string_view modelId,
-                                     bool enableStreaming) {
+std::string nativeGenerationEndpoint(NativeProtocol protocol, std::string_view endpoint,
+                                     std::string_view modelId, bool enableStreaming) {
     if (protocol == NativeProtocol::anthropicMessages)
         return endpointUrl(endpoint, "/v1/messages");
     if (protocol == NativeProtocol::cohereChatV2)
@@ -959,19 +936,15 @@ std::string nativeGenerationEndpoint(NativeProtocol protocol,
         return endpointUrl(ollamaBaseEndpoint(endpoint), "/api/chat");
     const std::string model = normalizedGeminiModel(modelId);
     return endpointUrl(
-        endpoint,
-        "/models/" + percentEncode(model) +
-            (enableStreaming ? ":streamGenerateContent?alt=sse" : ":generateContent"));
+        endpoint, "/models/" + percentEncode(model) +
+                      (enableStreaming ? ":streamGenerateContent?alt=sse" : ":generateContent"));
 }
 
-core::Result<std::string> nativeGenerationRequestBody(NativeProtocol protocol,
-                                                      std::string_view modelId,
-                                                      std::string_view systemPrompt,
-                                                      std::string_view userContent,
-                                                      std::uint32_t outputTokens,
-                                                      std::span<const ContentPart> content,
-                                                      bool enableStreaming,
-                                                      bool requireStructuredOutput) {
+core::Result<std::string>
+nativeGenerationRequestBody(NativeProtocol protocol, std::string_view modelId,
+                            std::string_view systemPrompt, std::string_view userContent,
+                            std::uint32_t outputTokens, std::span<const ContentPart> content,
+                            bool enableStreaming, bool requireStructuredOutput) {
     if (!validModelId(modelId) || outputTokens == 0 || outputTokens > maximumOutputTokens)
         return std::unexpected(core::error(
             "ai_generation_request_invalid",
@@ -1132,9 +1105,8 @@ core::Result<OllamaModelDetails> inspectOllamaModel(std::string_view endpoint,
             if (!number)
                 continue;
             std::uint64_t contextLength{};
-            const auto [end, errorCode] = std::from_chars(number->text.data(),
-                                                          number->text.data() + number->text.size(),
-                                                          contextLength);
+            const auto [end, errorCode] = std::from_chars(
+                number->text.data(), number->text.data() + number->text.size(), contextLength);
             if (errorCode == std::errc{} && end == number->text.data() + number->text.size())
                 details.contextLength = std::max(details.contextLength, contextLength);
         }
@@ -1143,8 +1115,7 @@ core::Result<OllamaModelDetails> inspectOllamaModel(std::string_view endpoint,
 }
 
 core::Result<std::vector<ProviderModel>>
-listAlibabaModelStudioModels(std::string_view compatibleEndpoint,
-                             std::string_view apiKey,
+listAlibabaModelStudioModels(std::string_view compatibleEndpoint, std::string_view apiKey,
                              std::function<bool()> cancelled) {
     if (auto status = validateEndpoint(compatibleEndpoint, apiKey); !status)
         return std::unexpected(status.error());
@@ -1217,8 +1188,7 @@ listAlibabaModelStudioModels(std::string_view compatibleEndpoint,
         if (totalNumber) {
             const auto [end, errorCode] =
                 std::from_chars(totalNumber->text.data(),
-                                totalNumber->text.data() + totalNumber->text.size(),
-                                total);
+                                totalNumber->text.data() + totalNumber->text.size(), total);
             if (errorCode != std::errc{} ||
                 end != totalNumber->text.data() + totalNumber->text.size()) {
                 return std::unexpected(core::error("ai_model_catalog_invalid",
@@ -1246,13 +1216,9 @@ core::Result<GenerationResponse> generateNative(GenerationRequest request,
             "ai_generation_request_invalid",
             "A valid model ID and output-token limit within 1 to 1,000,000 are required."));
     }
-    auto bodyResult = nativeGenerationRequestBody(protocol,
-                                                  request.modelId,
-                                                  request.systemPrompt,
-                                                  request.userContent,
-                                                  request.maximumOutputTokens,
-                                                  request.content,
-                                                  request.enableStreaming,
+    auto bodyResult = nativeGenerationRequestBody(protocol, request.modelId, request.systemPrompt,
+                                                  request.userContent, request.maximumOutputTokens,
+                                                  request.content, request.enableStreaming,
                                                   request.requireStructuredOutput);
     if (!bodyResult)
         return std::unexpected(bodyResult.error());
@@ -1261,9 +1227,7 @@ core::Result<GenerationResponse> generateNative(GenerationRequest request,
 
     NativeStreamDecoder decoder(request, protocol);
     HttpRequest httpRequest;
-    httpRequest.url = nativeGenerationEndpoint(protocol,
-                                               request.endpoint,
-                                               request.modelId,
+    httpRequest.url = nativeGenerationEndpoint(protocol, request.endpoint, request.modelId,
                                                request.enableStreaming);
     httpRequest.method = "POST";
     httpRequest.accept =
