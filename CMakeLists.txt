@@ -214,6 +214,7 @@ set(TUTORUX_CORE_SOURCES
     src/domain/hash.cpp
     src/domain/journal.cpp
     src/diagnostics/system.cpp
+    src/intelligence/evidence_extract.cpp
     src/intelligence/pipeline.cpp
     src/assets/import.cpp
     src/assets/mime.cpp
@@ -1633,6 +1634,14 @@ if(TUTORUX_BUILD_WASM)
 endif()
 
 if(BUILD_TESTING AND NOT TUTORUX_BUILD_WASM)
+    add_executable(tutorux_evidence_extraction_test tests/evidence_extraction_test.cpp)
+    target_link_libraries(tutorux_evidence_extraction_test PRIVATE tutorux_core)
+    add_test(NAME transcript_evidence_candidate_classification COMMAND tutorux_evidence_extraction_test)
+
+    add_executable(tutorux_evidence_workflow_test tests/evidence_workflow_test.cpp)
+    target_link_libraries(tutorux_evidence_workflow_test PRIVATE tutorux_core)
+    add_test(NAME transcript_evidence_revision_workflow COMMAND tutorux_evidence_workflow_test)
+
     add_executable(tutorux_json_test tests/json_test.cpp)
     target_link_libraries(tutorux_json_test PRIVATE tutorux_core)
     add_test(NAME json_strict_parsing COMMAND tutorux_json_test)
@@ -1670,6 +1679,10 @@ if(BUILD_TESTING AND NOT TUTORUX_BUILD_WASM)
     add_executable(tutorux_audio_timeline_test tests/audio_timeline_test.cpp)
     target_link_libraries(tutorux_audio_timeline_test PRIVATE tutorux_core)
     add_test(NAME audio_timeline_waveform_and_wav_export COMMAND tutorux_audio_timeline_test)
+
+    add_executable(tutorux_audio_multitrack_failure_test tests/audio_multitrack_failure_test.cpp)
+    target_link_libraries(tutorux_audio_multitrack_failure_test PRIVATE tutorux_core)
+    add_test(NAME audio_multitrack_failure_interval_persistence COMMAND tutorux_audio_multitrack_failure_test)
 
     add_executable(tutorux_document_editor_test tests/document_editor_test.cpp)
     target_link_libraries(tutorux_document_editor_test PRIVATE tutorux_core)
