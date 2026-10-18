@@ -232,6 +232,15 @@ Full archive backups and copies require `--confirm-sensitive`. They can include 
 recordings, private annotations, and credentials; review the destination before confirming. Use
 session transfer when only one session should leave the archive.
 
+For a privacy-filtered portable archive, run `archive sanitize FILE.tux --output COPY.tux` to preview
+the selected records. By default it omits credentials, recordings, private annotations, and AI
+generation logs. Review the source generation, selection fingerprint, and destination, then confirm
+with `--confirm-sensitive --expected-generation N --expected-selection SHA256 --expected-output
+COPY.tux` from the preview. Student, session, and recording-track UUID include/exclude lists are
+supported; track selection opts in the matching recordings, while `--include-recordings` opts in all
+tracks. Sensitive categories can be opted in individually. See
+[`docs/security/PORTABLE-PRIVACY.md`](docs/security/PORTABLE-PRIVACY.md) for details.
+
 To recover a separate compacted copy while preserving the source, run
 `archive repair FILE.tux --output FILE-repaired.tux --confirm-sensitive`. Tutorux chooses the
 newest consistent generation, validates all reachable records, verifies the compacted output, and
