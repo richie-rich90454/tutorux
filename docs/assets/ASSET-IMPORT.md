@@ -1,10 +1,12 @@
 # Safe asset import
 
-`asset add FILE [--session UUID]` stores a selected file as opaque bytes in the active `.tux`
-archive. `asset import-folder DIR` imports regular files directly inside that folder; it does not
-walk subdirectories. Symbolic links and non-regular entries are skipped. Folder imports stop with
-an error above 10,000 files. Individual files are limited to 1 TiB and stored as bounded archive
-chunks so large source assets do not need to fit in memory or in one archive record.
+`asset add FILE [--session UUID]` stores a selected regular file as opaque bytes in the active
+`.tux` archive. `asset import-folder DIR` imports regular files directly inside that folder; it does
+not walk subdirectories. Symbolic links are rejected by direct imports and skipped during folder
+imports. Other non-regular entries are rejected by direct imports and skipped during folder
+imports. Folder imports stop with an error above 10,000 files. Individual files are limited to
+1 TiB and stored as bounded archive chunks so large source assets do not need to fit in memory or in
+one archive record.
 
 Tutorux identifies common PNG, JPEG, GIF, BMP, TIFF, WebP, PDF, Office Open XML, WAV, MP3, FLAC,
 Ogg, MP4, WebM, Matroska, and text formats from signatures and conservative extension checks. A
