@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace tutorux::domain {
@@ -13,6 +14,24 @@ using tutorux::archive::Record;
 using tutorux::archive::RecordType;
 using tutorux::archive::Uuid;
 
+enum class StudentProgressClassification : std::uint8_t {
+    newlyObserved,
+    recurring,
+    partialImprovement,
+    demonstratedMastery,
+    unverifiedImprovement,
+    notRevisited,
+};
+
+struct StudentProgress final {
+    std::string skill;
+    StudentProgressClassification classification{StudentProgressClassification::newlyObserved};
+    std::vector<std::string> evidenceSourceIds;
+    std::string note;
+    std::string reviewedBy;
+    std::int64_t reviewedAtUs{};
+};
+
 struct Student final {
     Uuid id{};
     std::string name;
@@ -20,6 +39,9 @@ struct Student final {
     std::string subjects;
     std::string objectives;
     std::string difficulties;
+    std::string demonstratedImprovements;
+    std::string preferredGuideTemplate;
+    std::vector<StudentProgress> progressClassifications;
     std::string tutorNotes;
 };
 
@@ -63,6 +85,10 @@ bool isValidSessionType(std::string_view value) noexcept;
 bool isValidSessionState(std::string_view value) noexcept;
 bool isValidAnnotationType(std::string_view value);
 bool isValidPriority(std::string_view value);
+std::string_view studentProgressClassificationName(StudentProgressClassification classification) noexcept;
+std::optional<StudentProgressClassification> parseStudentProgressClassification(std::string_view value) noexcept;
+std::string encodeStudentProgress(const std::vector<StudentProgress>& progress);
+tutorux::core::Result<std::vector<StudentProgress>> decodeStudentProgress(std::string_view value);
 std::string getField(const Record& record, std::string_view key, std::string_view fallback = {});
 bool isDeleted(const Record& record);
 Uuid idFromRecord(const Record& record);
