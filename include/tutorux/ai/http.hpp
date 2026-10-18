@@ -4,6 +4,7 @@
 
 #include <chrono>
 #include <cstddef>
+#include <cstdint>
 #include <functional>
 #include <string>
 #include <string_view>
@@ -21,6 +22,7 @@ struct HttpRequest final {
     std::size_t maximumResponseBytes{16U * 1024U * 1024U};
     std::chrono::milliseconds connectTimeout{15'000};
     std::chrono::milliseconds timeout{300'000};
+    std::uint8_t maximumRetries{2};
     std::function<bool()> cancelled;
     std::function<bool(std::string_view)> onChunk;
 };
