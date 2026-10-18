@@ -514,7 +514,11 @@ namespace {
         cursor += 16;
         auto recordCount = readLittle<std::uint64_t>(payload, cursor);
         auto archiveVersion = readLittle<std::uint32_t>(payload, cursor);
-        if (!recordCount || !archiveVersion || *archiveVersion != 1) {
+        Uuid zeroId{};
+        if (!recordCount || !archiveVersion || *archiveVersion != 1 || framed->first.id != zeroId ||
+            framed->first.revision != *generation ||
+            framed->first.previousOffset != *previousOffset || *rootOffset < kArchiveHeaderSize ||
+            *rootOffset >= offset || *previousOffset >= offset) {
             return std::unexpected(core::error("commit_invalid", "Commit metadata is invalid."));
         }
         decoded.info.recordCount = *recordCount;
@@ -600,6 +604,195 @@ namespace {
                         "No valid commit locator was found after scanning the archive."));
     }
 
+    Result<DecodedCommit> findLatestConsistentCommit(const ArchiveFile& file) {
+        auto latestOffset = findLatestCommitOffset(file);
+        if (!latestOffset)
+            return std::unexpected(latestOffset.error());
+
+        std::uint64_t currentOffset = *latestOffset;
+        for (std::size_t attempt = 0; attempt < 1024 && currentOffset != 0; ++attempt) {
+            auto candidate = decodeCommit(file, currentOffset);
+            if (!candidate)
+                break;
+
+            auto rootFrame = readFrame(file, candidate->info.rootOffset, RecordType::IndexPage);
+            bool chainLinkValid = candidate->info.previousOffset == 0
+                                      ? candidate->info.generation == 1
+                                      : candidate->info.generation > 1;
+            if (chainLinkValid && candidate->info.previousOffset != 0) {
+                auto previous = decodeCommit(file, candidate->info.previousOffset);
+                chainLinkValid =
+                    previous && previous->info.generation + 1 == candidate->info.generation;
+            }
+            if (chainLinkValid && rootFrame &&
+                domain::sha256(rootFrame->second) == candidate->info.rootHash) {
+                return *candidate;
+            }
+            currentOffset = candidate->info.previousOffset;
+        }
+        return std::unexpected(
+            core::error("archive_commit_invalid",
+                        "No consistent committed archive generation could be opened."));
+    }
+
+    Result<std::uint64_t> publicationEnd(const ArchiveFile& file, const CommitInfo& commit) {
+        auto frame = readFrame(file, commit.offset, RecordType::Commit);
+        if (!frame)
+            return std::unexpected(frame.error());
+        const auto& header = frame->first;
+        if (header.revision != commit.generation || header.previousOffset != commit.previousOffset)
+            return std::unexpected(core::error(
+                "commit_invalid", "Commit frame header does not match its commit payload."));
+
+        const std::uint64_t padding = (8U - (header.payloadLength % 8U)) % 8U;
+        const std::uint64_t frameEnd =
+            commit.offset + kRecordHeaderSize + header.payloadLength + padding;
+        auto fileSize = file.size();
+        if (!fileSize)
+            return std::unexpected(fileSize.error());
+
+        constexpr std::uint64_t kChunkSize = 64 * 1024;
+        const auto findLocator =
+            [&](std::uint64_t searchStart) -> Result<std::optional<std::uint64_t>> {
+            std::uint64_t chunkEnd = *fileSize;
+            while (chunkEnd > searchStart) {
+                const std::uint64_t chunkStart =
+                    chunkEnd - searchStart > kChunkSize ? chunkEnd - kChunkSize : searchStart;
+                const std::uint64_t readStart = chunkStart > searchStart + kLocatorSize
+                                                    ? chunkStart - (kLocatorSize - 1)
+                                                    : searchStart;
+                auto bytes = file.read(readStart, static_cast<std::size_t>(chunkEnd - readStart));
+                if (!bytes)
+                    return std::unexpected(bytes.error());
+                if (bytes->size() >= kLocatorSize) {
+                    for (std::size_t index = bytes->size() - kLocatorSize + 1; index-- > 0;) {
+                        const std::uint64_t offset = readStart + index;
+                        if (offset < chunkStart || offset < frameEnd ||
+                            offset + kLocatorSize > *fileSize) {
+                            continue;
+                        }
+                        const auto locator =
+                            std::span<const std::byte>(*bytes).subspan(index, kLocatorSize);
+                        if (!isLocatorValid(locator))
+                            continue;
+                        std::size_t cursor = 8;
+                        auto locatorCommitOffset = readLittle<std::uint64_t>(locator, cursor);
+                        auto locatorGeneration = readLittle<std::uint64_t>(locator, cursor);
+                        if (locatorCommitOffset && locatorGeneration &&
+                            *locatorCommitOffset == commit.offset &&
+                            *locatorGeneration == commit.generation) {
+                            return std::optional<std::uint64_t>(offset + kLocatorSize);
+                        }
+                    }
+                }
+                chunkEnd = chunkStart;
+            }
+            return std::optional<std::uint64_t>{};
+        };
+
+        const std::uint64_t recentStart = std::max<std::uint64_t>(
+            kArchiveHeaderSize,
+            *fileSize > kRecoveryWindow ? *fileSize - kRecoveryWindow : kArchiveHeaderSize);
+        auto recent = findLocator(recentStart);
+        if (!recent)
+            return std::unexpected(recent.error());
+        if (*recent)
+            return **recent;
+        if (recentStart != kArchiveHeaderSize) {
+            auto full = findLocator(kArchiveHeaderSize);
+            if (!full)
+                return std::unexpected(full.error());
+            if (*full)
+                return **full;
+        }
+        return std::unexpected(
+            core::error("commit_locator_missing", "Commit has no valid publication locator."));
+    }
+
+    Result<std::vector<DecodedCommit>> scanCommitFrames(const ArchiveFile& file) {
+        auto fileSize = file.size();
+        if (!fileSize)
+            return std::unexpected(fileSize.error());
+
+        constexpr std::uint64_t kScanChunkSize = 64 * 1024;
+        std::vector<DecodedCommit> candidates;
+        for (std::uint64_t chunkStart = kArchiveHeaderSize; chunkStart < *fileSize;) {
+            const std::uint64_t chunkEnd = std::min(*fileSize, chunkStart + kScanChunkSize);
+            const std::uint64_t readEnd = std::min(*fileSize, chunkEnd + kRecordHeaderSize - 1);
+            auto chunk = file.read(chunkStart, static_cast<std::size_t>(readEnd - chunkStart));
+            if (!chunk)
+                return std::unexpected(chunk.error());
+
+            for (std::size_t index = 0; index + 4 <= chunk->size(); ++index) {
+                const auto offset = chunkStart + index;
+                if (offset >= chunkEnd || offset % 8U != 0 ||
+                    !matches(std::span<const std::byte>(*chunk).subspan(index), "TXRC")) {
+                    continue;
+                }
+                if (chunk->size() - index < kRecordHeaderSize)
+                    continue;
+                auto header = decodeFrameHeader(
+                    std::span<const std::byte>(*chunk).subspan(index, kRecordHeaderSize));
+                if (!header || header->type != RecordType::Commit)
+                    continue;
+                auto candidate = decodeCommit(file, offset);
+                if (candidate)
+                    candidates.push_back(*candidate);
+            }
+            chunkStart = chunkEnd;
+        }
+
+        std::sort(candidates.begin(), candidates.end(), [](const auto& left, const auto& right) {
+            return left.info.offset < right.info.offset;
+        });
+        candidates.erase(std::unique(candidates.begin(), candidates.end(),
+                                     [](const auto& left, const auto& right) {
+                                         return left.info.offset == right.info.offset;
+                                     }),
+                         candidates.end());
+        return candidates;
+    }
+
+    Result<std::optional<DecodedCommit>> latestCommitOrEmpty(const ArchiveFile& file) {
+        auto latest = findLatestConsistentCommit(file);
+        if (latest)
+            return std::optional<DecodedCommit>{*latest};
+        if (latest.error().code == "archive_commit_missing" ||
+            latest.error().code == "archive_uncommitted") {
+            return std::optional<DecodedCommit>{};
+        }
+        return std::unexpected(latest.error());
+    }
+
+    Result<std::vector<DecodedCommit>>
+    unpublishedCommitChain(const ArchiveFile& file, const CommitInfo& base,
+                           std::vector<DecodedCommit>* scannedFrames = nullptr) {
+        auto scanned = scanCommitFrames(file);
+        if (!scanned)
+            return std::unexpected(scanned.error());
+        if (scannedFrames)
+            *scannedFrames = *scanned;
+
+        std::vector<DecodedCommit> chain;
+        std::uint64_t expectedOffset = base.offset;
+        std::uint64_t expectedGeneration = base.generation;
+        for (const DecodedCommit& candidate : *scanned) {
+            const CommitInfo& info = candidate.info;
+            if (info.offset <= base.offset || info.previousOffset != expectedOffset ||
+                info.generation != expectedGeneration + 1) {
+                continue;
+            }
+            auto rootFrame = readFrame(file, info.rootOffset, RecordType::IndexPage);
+            if (!rootFrame || domain::sha256(rootFrame->second) != info.rootHash)
+                continue;
+
+            chain.push_back(candidate);
+            expectedOffset = info.offset;
+            expectedGeneration = info.generation;
+        }
+        return chain;
+    }
+
     std::string extensionLower(const std::filesystem::path& path) {
         std::string extension = path.extension().string();
         std::transform(
@@ -608,6 +801,106 @@ namespace {
                     character >= 'A' && character <= 'Z' ? character - 'A' + 'a' : character);
             });
         return extension;
+    }
+
+    bool isGeneratedPartialName(const std::filesystem::path& name,
+                                const std::filesystem::path& archiveName) {
+        using PathString = std::filesystem::path::string_type;
+        PathString prefix = archiveName.native();
+        prefix += std::filesystem::path(".").native();
+        const PathString suffix = std::filesystem::path(".partial").native();
+        const PathString filename = name.native();
+        if (filename.size() != prefix.size() + 36 + suffix.size() ||
+            filename.compare(0, prefix.size(), prefix) != 0 ||
+            filename.compare(filename.size() - suffix.size(), suffix.size(), suffix) != 0) {
+            return false;
+        }
+
+        for (std::size_t index = prefix.size(); index < prefix.size() + 36; ++index) {
+            const auto character = filename[index];
+            const std::size_t uuidIndex = index - prefix.size();
+            if (uuidIndex == 8 || uuidIndex == 13 || uuidIndex == 18 || uuidIndex == 23) {
+                if (character != static_cast<std::filesystem::path::value_type>('-'))
+                    return false;
+                continue;
+            }
+            const bool digit = character >= static_cast<std::filesystem::path::value_type>('0') &&
+                               character <= static_cast<std::filesystem::path::value_type>('9');
+            const bool lowerHex =
+                character >= static_cast<std::filesystem::path::value_type>('a') &&
+                character <= static_cast<std::filesystem::path::value_type>('f');
+            const bool upperHex =
+                character >= static_cast<std::filesystem::path::value_type>('A') &&
+                character <= static_cast<std::filesystem::path::value_type>('F');
+            if (!digit && !lowerHex && !upperHex)
+                return false;
+        }
+        return true;
+    }
+
+    Status cleanupStaleCompactionPartials(const std::filesystem::path& archivePath) {
+        if (extensionLower(archivePath) != ".tux")
+            return {};
+
+        std::error_code errorCode;
+        const auto canonicalPath = std::filesystem::weakly_canonical(archivePath, errorCode);
+        if (errorCode) {
+            return std::unexpected(core::error(
+                "compaction_partial_scan_failed",
+                "Unable to resolve the archive path while checking stale compaction files: " +
+                    errorCode.message()));
+        }
+        const auto directory = canonicalPath.parent_path();
+        std::filesystem::directory_iterator iterator(directory, errorCode);
+        if (errorCode) {
+            return std::unexpected(
+                core::error("compaction_partial_scan_failed",
+                            "Unable to inspect stale compaction files: " + errorCode.message()));
+        }
+
+        const std::filesystem::directory_iterator end;
+        while (iterator != end) {
+            const auto entry = *iterator;
+            iterator.increment(errorCode);
+            if (errorCode) {
+                return std::unexpected(core::error(
+                    "compaction_partial_scan_failed",
+                    "Unable to continue scanning stale compaction files: " + errorCode.message()));
+            }
+            if (!isGeneratedPartialName(entry.path().filename(), canonicalPath.filename()))
+                continue;
+
+            const auto entryStatus = entry.symlink_status(errorCode);
+            if (errorCode) {
+                return std::unexpected(
+                    core::error("compaction_partial_inspect_failed",
+                                "Unable to inspect stale compaction file: " + errorCode.message()));
+            }
+            if (!std::filesystem::is_regular_file(entryStatus))
+                continue;
+
+            auto partial = ArchiveFile::open(entry.path(), true);
+            if (!partial) {
+                if (partial.error().code == "archive_locked")
+                    continue;
+                return std::unexpected(
+                    core::error("compaction_partial_lock_failed",
+                                "Unable to establish that a stale compaction file is unused: " +
+                                    partial.error().message));
+            }
+            const bool removed = std::filesystem::remove(entry.path(), errorCode);
+            if (errorCode) {
+                return std::unexpected(core::error("compaction_partial_cleanup_failed",
+                                                   "Unable to remove a stale compaction file: " +
+                                                       errorCode.message()));
+            }
+            if (!removed) {
+                return std::unexpected(
+                    core::error("compaction_partial_cleanup_failed",
+                                "A stale compaction file could not be removed."));
+            }
+        }
+        return {};
     }
 
     std::string joinStrings(const std::vector<std::string>& values, std::string_view delimiter) {
@@ -698,55 +991,27 @@ core::Result<Archive> Archive::open(const std::filesystem::path& path, bool writ
     auto header = decodeArchiveHeader(*rawHeader);
     if (!header)
         return std::unexpected(header.error());
-    auto commitOffset = findLatestCommitOffset(*file);
-    if (!commitOffset)
-        return std::unexpected(commitOffset.error());
-    auto currentOffset = *commitOffset;
-    std::optional<DecodedCommit> latest;
-    for (std::size_t attempt = 0; attempt < 1024 && currentOffset != 0; ++attempt) {
-        auto candidate = decodeCommit(*file, currentOffset);
-        if (candidate) {
-            auto rootPage = readFrame(*file, candidate->info.rootOffset, RecordType::IndexPage);
-            if (rootPage && domain::sha256(rootPage->second) == candidate->info.rootHash) {
-                latest = *candidate;
-                break;
-            }
-            currentOffset = candidate->info.previousOffset;
-        } else {
-            break;
+    auto latest = findLatestConsistentCommit(*file);
+    if (!latest)
+        return std::unexpected(latest.error());
+    if (writable) {
+        auto committedEnd = publicationEnd(*file, latest->info);
+        if (!committedEnd)
+            return std::unexpected(committedEnd.error());
+        auto fileSize = file->size();
+        if (!fileSize)
+            return std::unexpected(fileSize.error());
+        if (*fileSize > *committedEnd) {
+            return std::unexpected(core::error(
+                "archive_recovery_required",
+                "Archive has " + std::to_string(*fileSize - *committedEnd) +
+                    " trailing bytes. Inspect recovery, recover a complete commit, or explicitly "
+                    "discard the uncommitted tail before writing."));
         }
-    }
-    if (!latest) {
-        return std::unexpected(
-            core::error("archive_commit_invalid",
-                        "No consistent committed archive generation could be opened."));
     }
     Archive archive(std::move(*file), *header, latest->info);
-    archive.encryptionEnabled_ = (header->capabilities & kArchiveCapabilityEncrypted) != 0;
-    if (archive.encryptionEnabled_) {
-        archive.allowUnverifiedIndexReads_ = true;
-        auto metadata = archive.encryptionMetadata();
-        if (!metadata)
-            return std::unexpected(metadata.error());
-        auto envelope = parseEncryptionEnvelope(*metadata);
-        if (!envelope)
-            return std::unexpected(envelope.error());
-        archive.encryptionEnvelope_ = *envelope;
-        if (passphrase.empty()) {
-            if (!allowLocked) {
-                return std::unexpected(core::error(
-                    "archive_locked", "Archive is encrypted; provide its passphrase to unlock."));
-            }
-            return archive;
-        }
-        auto key = unwrapArchiveKey(passphrase, *envelope, header->id);
-        if (!key)
-            return std::unexpected(key.error());
-        archive.dataKey_.emplace(std::move(*key));
-        archive.allowUnverifiedIndexReads_ = false;
-        if (auto status = archive.verifyIndexAuthentication(); !status)
-            return std::unexpected(status.error());
-    }
+    if (auto status = archive.initializeEncryption(passphrase, allowLocked); !status)
+        return std::unexpected(status.error());
     return archive;
 }
 
@@ -792,19 +1057,58 @@ core::Result<std::vector<ArchiveInfo>> Archive::discover(const std::filesystem::
 core::Result<ArchiveInfo> inspectArchive(const std::filesystem::path& path,
                                          std::string_view passphrase) {
     auto archive = Archive::open(path, false, passphrase, true);
+    if (!archive && archive.error().code == "archive_version_unsupported") {
+        auto file = ArchiveFile::open(path, false);
+        if (!file)
+            return std::unexpected(file.error());
+        auto headerBytes = file->read(0, kArchiveHeaderSize);
+        if (!headerBytes)
+            return std::unexpected(headerBytes.error());
+        auto version = inspectArchiveVersion(*headerBytes);
+        if (!version)
+            return std::unexpected(version.error());
+        std::error_code statError;
+        const auto fileSize = std::filesystem::file_size(path, statError);
+        if (statError)
+            return std::unexpected(core::error("archive_stat_failed", statError.message()));
+        ArchiveInfo info;
+        info.path = std::filesystem::absolute(path);
+        info.displayName = path.stem().string();
+        info.fileSize = fileSize;
+        info.formatMajor = version->major;
+        info.formatMinor = version->minor;
+        info.metadataOnly = true;
+        info.healthStatus = "unsupported-version";
+        return info;
+    }
     if (!archive)
         return std::unexpected(archive.error());
     ArchiveInfo info;
     info.path = std::filesystem::absolute(path);
+    info.formatMajor = archive->header().majorVersion;
+    info.formatMinor = archive->header().minorVersion;
     info.id = archive->header().id;
     info.generation = archive->commitInfo().generation;
     info.createdAtUs = archive->header().createdAtUs;
-    if (archive->locked())
+    const bool archiveLocked = archive->locked();
+    if (archiveLocked)
         info.healthStatus = "locked";
     std::error_code errorCode;
     info.fileSize = std::filesystem::file_size(path, errorCode);
     if (errorCode)
         return std::unexpected(core::error("archive_stat_failed", errorCode.message()));
+    auto archiveFile = ArchiveFile::open(path, false);
+    if (!archiveFile)
+        return std::unexpected(archiveFile.error());
+    auto committedEnd = publicationEnd(*archiveFile, archive->commitInfo());
+    if (!committedEnd)
+        return std::unexpected(committedEnd.error());
+    if (info.fileSize > *committedEnd) {
+        info.trailingBytes = info.fileSize - *committedEnd;
+        info.recoveryNeeded = true;
+        if (!archiveLocked)
+            info.healthStatus = "recovery-required";
+    }
     auto manifest = archive->get(RecordType::Settings, archive->header().id);
     if (manifest && *manifest) {
         info.displayName = domain::getField(**manifest, "display_name", path.stem().string());
@@ -1218,6 +1522,37 @@ core::Result<Record> Archive::encryptionMetadata() const {
     return std::move(**record);
 }
 
+core::Status Archive::initializeEncryption(std::string_view passphrase, bool allowLocked) {
+    encryptionEnabled_ = (header_.capabilities & kArchiveCapabilityEncrypted) != 0;
+    allowUnverifiedIndexReads_ = encryptionEnabled_;
+    dataKey_.reset();
+    encryptionEnvelope_.reset();
+    if (!encryptionEnabled_)
+        return {};
+
+    auto metadata = encryptionMetadata();
+    if (!metadata)
+        return std::unexpected(metadata.error());
+    auto envelope = parseEncryptionEnvelope(*metadata);
+    if (!envelope)
+        return std::unexpected(envelope.error());
+    encryptionEnvelope_ = *envelope;
+    if (passphrase.empty()) {
+        if (!allowLocked) {
+            return std::unexpected(core::error(
+                "archive_locked", "Archive is encrypted; provide its passphrase to unlock."));
+        }
+        return {};
+    }
+
+    auto key = unwrapArchiveKey(passphrase, *envelope, header_.id);
+    if (!key)
+        return std::unexpected(key.error());
+    dataKey_.emplace(std::move(*key));
+    allowUnverifiedIndexReads_ = false;
+    return verifyIndexAuthentication();
+}
+
 core::Status Archive::writeEncryptionMetadata(const EncryptionEnvelope& envelope) {
     Record metadata;
     metadata.type = RecordType::Encryption;
@@ -1338,6 +1673,8 @@ core::Result<std::uint64_t> Archive::writeIndexPage(const IndexPage& page) {
         const auto authentication = authenticateBytes(input, *dataKey_);
         payload.insert(payload.end(), authentication.begin(), authentication.end());
     }
+    if (auto status = file_.flush(); !status)
+        return status;
     Uuid zeroId{};
     auto location = appendFrame(file_, RecordType::IndexPage, zeroId, 1, 0, payload);
     if (!location)
@@ -1936,6 +2273,8 @@ core::Status Archive::publishCommit(std::uint64_t rootOffset, const Uuid& transa
         const auto authentication = authenticateBytes(input, *dataKey_);
         payload.insert(payload.end(), authentication.begin(), authentication.end());
     }
+    if (auto status = file_.flush(); !status)
+        return status;
     Uuid zeroId{};
     auto location = appendFrame(file_, RecordType::Commit, zeroId, commit_.generation + 1,
                                 commit_.offset, payload);
@@ -1995,14 +2334,14 @@ core::Result<std::vector<std::pair<std::string, std::uint64_t>>> Archive::allInd
     return entries;
 }
 
-core::Status Archive::verifyCommitAuthentication() const {
+core::Status Archive::verifyCommitAuthentication(const CommitInfo& commit) const {
     if (!encryptionEnabled_)
         return {};
     if (!dataKey_) {
         return std::unexpected(
             core::error("archive_locked", "Unlock the archive before verifying its commit."));
     }
-    auto framed = readFrame(file_, commit_.offset, RecordType::Commit);
+    auto framed = readFrame(file_, commit.offset, RecordType::Commit);
     if (!framed)
         return std::unexpected(framed.error());
     if (framed->second.size() != 124) {
@@ -2026,7 +2365,7 @@ core::Status Archive::verifyIndexAuthentication() const {
         return std::unexpected(
             core::error("archive_locked", "Unlock the archive before verifying its index."));
     }
-    if (auto status = verifyCommitAuthentication(); !status)
+    if (auto status = verifyCommitAuthentication(commit_); !status)
         return status;
     auto root = readIndexPage(commit_.rootOffset);
     if (!root)
@@ -2037,6 +2376,64 @@ core::Status Archive::verifyIndexAuthentication() const {
     if (!*manifest || domain::isDeleted(**manifest)) {
         return std::unexpected(
             core::error("archive_manifest_missing", "Encrypted archive manifest is missing."));
+    }
+    return {};
+}
+
+core::Status Archive::verifyCommitChain(bool full) const {
+    if (commit_.generation == 0 || commit_.offset == 0) {
+        return std::unexpected(
+            core::error("archive_commit_invalid", "Archive commit generation is empty."));
+    }
+
+    const std::uint64_t maximumCommits = full ? commit_.generation : 16;
+    CommitInfo current = commit_;
+    for (std::uint64_t checked = 0; checked < maximumCommits; ++checked) {
+        auto decoded = decodeCommit(file_, current.offset);
+        if (!decoded)
+            return std::unexpected(decoded.error());
+        if (decoded->info.generation != current.generation ||
+            decoded->info.previousOffset != current.previousOffset ||
+            decoded->info.rootOffset != current.rootOffset ||
+            decoded->info.rootHash != current.rootHash ||
+            decoded->info.transactionId != current.transactionId ||
+            decoded->info.recordCount != current.recordCount) {
+            return std::unexpected(
+                core::error("archive_commit_chain_invalid",
+                            "Commit payload disagrees with the selected chain."));
+        }
+        if (auto status = verifyCommitAuthentication(current); !status)
+            return status;
+        auto rootFrame = readFrame(file_, current.rootOffset, RecordType::IndexPage);
+        if (!rootFrame || domain::sha256(rootFrame->second) != current.rootHash) {
+            return std::unexpected(
+                rootFrame ? core::error("archive_commit_root_invalid",
+                                        "Commit root hash does not match its index page.")
+                          : rootFrame.error());
+        }
+        if (current.previousOffset == 0) {
+            if (current.generation != 1) {
+                return std::unexpected(core::error("archive_commit_chain_invalid",
+                                                   "Commit chain ends before generation one."));
+            }
+            return {};
+        }
+        if (current.generation <= 1) {
+            return std::unexpected(core::error("archive_commit_chain_invalid",
+                                               "Generation one has a previous commit."));
+        }
+        auto previous = decodeCommit(file_, current.previousOffset);
+        if (!previous || previous->info.generation + 1 != current.generation) {
+            return std::unexpected(previous ? core::error("archive_commit_chain_invalid",
+                                                          "Commit generations are not consecutive.")
+                                            : previous.error());
+        }
+        current = previous->info;
+    }
+
+    if (full) {
+        return std::unexpected(core::error("archive_commit_chain_invalid",
+                                           "Commit chain exceeds the selected generation."));
     }
     return {};
 }
@@ -2054,6 +2451,8 @@ core::Result<VerificationReport> Archive::verify(bool full) const {
         report.valid = false;
         return report;
     }
+    if (auto status = verifyCommitChain(full); !status)
+        report.issues.push_back(status.error().message);
     auto manifest = get(RecordType::Settings, header_.id);
     if (!manifest) {
         report.issues.push_back(manifest.error().message);
@@ -2338,6 +2737,244 @@ core::Result<VerificationReport> Archive::verify(bool full) const {
     return report;
 }
 
+core::Result<RecoveryReport> Archive::inspectRecovery(const std::filesystem::path& path,
+                                                      std::string_view passphrase) {
+    auto file = ArchiveFile::open(path, false);
+    if (!file)
+        return std::unexpected(file.error());
+    auto rawHeader = file->read(0, kArchiveHeaderSize);
+    if (!rawHeader)
+        return std::unexpected(rawHeader.error());
+    auto header = decodeArchiveHeader(*rawHeader);
+    if (!header)
+        return std::unexpected(header.error());
+
+    auto baseResult = latestCommitOrEmpty(*file);
+    if (!baseResult)
+        return std::unexpected(baseResult.error());
+    const CommitInfo base = *baseResult ? (*baseResult)->info : CommitInfo{};
+    auto fileSize = file->size();
+    if (!fileSize)
+        return std::unexpected(fileSize.error());
+
+    RecoveryReport report;
+    report.committedGeneration = base.generation;
+    report.encrypted = (header->capabilities & kArchiveCapabilityEncrypted) != 0;
+    std::uint64_t committedEnd = kArchiveHeaderSize;
+    if (*baseResult) {
+        auto end = publicationEnd(*file, base);
+        if (!end)
+            return std::unexpected(end.error());
+        committedEnd = *end;
+    }
+    report.trailingBytes = *fileSize > committedEnd ? *fileSize - committedEnd : 0;
+
+    std::vector<DecodedCommit> scannedFrames;
+    auto candidates = unpublishedCommitChain(*file, base, &scannedFrames);
+    if (!candidates)
+        return std::unexpected(candidates.error());
+    std::vector<DecodedCommit> orphanFrames;
+    for (const auto& candidate : scannedFrames) {
+        if (candidate.info.offset <= base.offset)
+            continue;
+        orphanFrames.push_back(candidate);
+        report.hasUnpublishedCommit = true;
+        report.candidateGeneration =
+            std::max(report.candidateGeneration, candidate.info.generation);
+    }
+    if (candidates->empty()) {
+        for (const auto& candidate : orphanFrames) {
+            if (candidate.info.previousOffset != base.offset ||
+                candidate.info.generation != base.generation + 1) {
+                report.issues.push_back("Generation " + std::to_string(candidate.info.generation) +
+                                        " is a complete commit frame but does not extend the "
+                                        "selected committed generation.");
+                continue;
+            }
+            auto root = readFrame(*file, candidate.info.rootOffset, RecordType::IndexPage);
+            if (!root || domain::sha256(root->second) != candidate.info.rootHash) {
+                report.issues.push_back("Generation " + std::to_string(candidate.info.generation) +
+                                        " is a complete unpublished commit with an invalid root "
+                                        "page or root hash.");
+            } else {
+                report.issues.push_back("Generation " + std::to_string(candidate.info.generation) +
+                                        " could not be linked to the selected committed chain.");
+            }
+        }
+        if (orphanFrames.empty() && report.trailingBytes != 0) {
+            report.issues.push_back(
+                "Trailing archive bytes do not contain a complete unpublished commit; "
+                "they were left untouched.");
+        }
+        return report;
+    }
+
+    report.hasUnpublishedCommit = true;
+    for (const auto& orphan : orphanFrames) {
+        const bool connected = std::any_of(candidates->begin(), candidates->end(),
+                                           [&](const DecodedCommit& candidate) {
+                                               return candidate.info.offset == orphan.info.offset;
+                                           });
+        if (!connected) {
+            report.issues.push_back("Generation " + std::to_string(orphan.info.generation) +
+                                    " is a complete commit frame outside the recoverable chain.");
+        }
+    }
+    if (report.encrypted && passphrase.empty()) {
+        report.requiresPassphrase = true;
+        report.issues.push_back(
+            "A passphrase is required to authenticate and verify the unpublished generation.");
+        return report;
+    }
+
+    Archive archive(std::move(*file), *header, candidates->back().info);
+    for (auto candidate = candidates->rbegin(); candidate != candidates->rend(); ++candidate) {
+        archive.commit_ = candidate->info;
+        auto encryptionStatus = archive.initializeEncryption(passphrase, false);
+        if (!encryptionStatus) {
+            report.issues.push_back("Generation " + std::to_string(candidate->info.generation) +
+                                    ": " + encryptionStatus.error().message);
+            continue;
+        }
+        auto verification = archive.verify(true);
+        if (!verification) {
+            report.issues.push_back("Generation " + std::to_string(candidate->info.generation) +
+                                    ": " + verification.error().message);
+            continue;
+        }
+        if (verification->valid) {
+            report.recoverable = true;
+            report.recoverableGeneration = candidate->info.generation;
+            return report;
+        }
+        for (const auto& issue : verification->issues) {
+            report.issues.push_back("Generation " + std::to_string(candidate->info.generation) +
+                                    ": " + issue);
+        }
+    }
+    return report;
+}
+
+core::Status Archive::recoverUnpublishedCommit(const std::filesystem::path& path,
+                                               std::string_view passphrase) {
+    auto file = ArchiveFile::open(path, true);
+    if (!file)
+        return std::unexpected(file.error());
+    auto rawHeader = file->read(0, kArchiveHeaderSize);
+    if (!rawHeader)
+        return std::unexpected(rawHeader.error());
+    auto header = decodeArchiveHeader(*rawHeader);
+    if (!header)
+        return std::unexpected(header.error());
+
+    auto baseResult = latestCommitOrEmpty(*file);
+    if (!baseResult)
+        return std::unexpected(baseResult.error());
+    const CommitInfo base = *baseResult ? (*baseResult)->info : CommitInfo{};
+    auto candidates = unpublishedCommitChain(*file, base);
+    if (!candidates)
+        return std::unexpected(candidates.error());
+    if (candidates->empty()) {
+        return std::unexpected(
+            core::error("archive_recovery_not_available",
+                        "No complete unpublished commit follows the latest committed generation."));
+    }
+
+    Archive archive(std::move(*file), *header, candidates->back().info);
+    std::optional<CommitInfo> recoveredCommit;
+    std::vector<std::string> failures;
+    for (auto candidate = candidates->rbegin(); candidate != candidates->rend(); ++candidate) {
+        archive.commit_ = candidate->info;
+        auto encryptionStatus = archive.initializeEncryption(passphrase, false);
+        if (!encryptionStatus) {
+            failures.push_back("Generation " + std::to_string(candidate->info.generation) + ": " +
+                               encryptionStatus.error().message);
+            continue;
+        }
+        auto verification = archive.verify(true);
+        if (!verification) {
+            failures.push_back("Generation " + std::to_string(candidate->info.generation) + ": " +
+                               verification.error().message);
+            continue;
+        }
+        if (verification->valid) {
+            recoveredCommit = candidate->info;
+            break;
+        }
+        for (const auto& issue : verification->issues) {
+            failures.push_back("Generation " + std::to_string(candidate->info.generation) + ": " +
+                               issue);
+        }
+    }
+    if (!recoveredCommit) {
+        return std::unexpected(core::error(
+            "archive_recovery_validation_failed",
+            "No complete unpublished generation passed full integrity verification." +
+                (failures.empty() ? std::string{} : " " + joinStrings(failures, "; "))));
+    }
+
+    auto fileSize = archive.file_.size();
+    if (!fileSize)
+        return std::unexpected(fileSize.error());
+    const std::size_t alignmentPadding = static_cast<std::size_t>((8U - (*fileSize % 8U)) % 8U);
+    if (alignmentPadding != 0) {
+        const std::array<std::byte, 8> zeroes{};
+        std::uint64_t paddingOffset = 0;
+        auto paddingStatus = archive.file_.append(
+            std::span<const std::byte>(zeroes).first(alignmentPadding), paddingOffset);
+        if (!paddingStatus)
+            return paddingStatus;
+    }
+
+    Bytes locator;
+    for (char character : std::string_view("TUXLOC1\0", 8))
+        locator.push_back(static_cast<std::byte>(character));
+    appendLittle(locator, recoveredCommit->offset);
+    appendLittle(locator, recoveredCommit->generation);
+    appendLittle(locator, crc32(locator));
+    appendLittle<std::uint32_t>(locator, 0);
+    std::uint64_t locatorOffset = 0;
+    auto locatorStatus = archive.file_.append(locator, locatorOffset);
+    if (!locatorStatus)
+        return locatorStatus;
+    if (auto status = archive.file_.flush(); !status)
+        return status;
+    archive.commit_ = *recoveredCommit;
+    return {};
+}
+
+core::Status Archive::discardUncommittedTail(const std::filesystem::path& path) {
+    auto file = ArchiveFile::open(path, true);
+    if (!file)
+        return std::unexpected(file.error());
+    auto rawHeader = file->read(0, kArchiveHeaderSize);
+    if (!rawHeader)
+        return std::unexpected(rawHeader.error());
+    auto header = decodeArchiveHeader(*rawHeader);
+    if (!header)
+        return std::unexpected(header.error());
+    auto latest = latestCommitOrEmpty(*file);
+    if (!latest)
+        return std::unexpected(latest.error());
+    if (!*latest) {
+        return std::unexpected(
+            core::error("archive_uncommitted", "Archive has no committed generation to preserve."));
+    }
+
+    auto end = publicationEnd(*file, (**latest).info);
+    if (!end)
+        return std::unexpected(end.error());
+    auto fileSize = file->size();
+    if (!fileSize)
+        return std::unexpected(fileSize.error());
+    if (*fileSize <= *end)
+        return {};
+
+    if (auto status = file->truncate(*end); !status)
+        return status;
+    return file->flush();
+}
+
 core::Status Archive::backup(const std::filesystem::path& destination) const {
     std::lock_guard lock(*mutex_);
     if (std::filesystem::absolute(path()) == std::filesystem::absolute(destination)) {
@@ -2349,12 +2986,47 @@ core::Status Archive::backup(const std::filesystem::path& destination) const {
                                     errorCode)) {
         return std::unexpected(core::error("backup_failed", errorCode.message()));
     }
+    {
+        auto backupFile = ArchiveFile::open(destination, true);
+        if (!backupFile) {
+            std::filesystem::remove(destination, errorCode);
+            return std::unexpected(backupFile.error());
+        }
+        if (auto status = backupFile->flush(); !status) {
+            backupFile = ArchiveFile{};
+            std::filesystem::remove(destination, errorCode);
+            return status;
+        }
+    }
+#ifndef _WIN32
+    const auto parent =
+        destination.parent_path().empty() ? std::filesystem::path(".") : destination.parent_path();
+    const int directoryHandle = ::open(parent.c_str(), O_RDONLY);
+    if (directoryHandle < 0) {
+        return std::unexpected(core::error("backup_directory_flush_failed",
+                                           "Backup exists but its directory could not be opened: " +
+                                               std::string(std::strerror(errno))));
+    }
+    if (::fsync(directoryHandle) != 0) {
+        const int flushError = errno;
+        ::close(directoryHandle);
+        return std::unexpected(core::error("backup_directory_flush_failed",
+                                           "Backup exists but its directory flush failed: " +
+                                               std::string(std::strerror(flushError))));
+    }
+    ::close(directoryHandle);
+#endif
     return {};
 }
 
 core::Status Archive::repairCopy(const std::filesystem::path& source,
                                  const std::filesystem::path& destination,
                                  std::string_view passphrase) {
+    if (extensionLower(destination) != ".tux") {
+        return std::unexpected(
+            core::error("archive_extension_invalid",
+                        "Repaired portable archives must use the .tux extension."));
+    }
     std::error_code pathError;
     const auto absoluteSource = std::filesystem::weakly_canonical(source, pathError);
     if (pathError) {
@@ -2395,6 +3067,7 @@ core::Status Archive::repairCopy(const std::filesystem::path& source,
         }
     } temporary{temporaryPath};
 
+    std::uint64_t selectedLength = 0;
     {
         auto original = Archive::open(source, false, passphrase);
         if (!original)
@@ -2402,13 +3075,49 @@ core::Status Archive::repairCopy(const std::filesystem::path& source,
         auto report = original->verify(true);
         if (!report)
             return std::unexpected(report.error());
-        if (!report->valid) {
-            return std::unexpected(
-                core::error("archive_repair_source_invalid",
-                            "The newest consistent generation contains damaged reachable records; "
-                            "preserving the original without producing a misleading repair copy."));
+        while (!report->valid) {
+            const CommitInfo damaged = original->commit_;
+            if (damaged.previousOffset == 0) {
+                return std::unexpected(
+                    core::error("archive_repair_source_invalid",
+                                "No committed generation passed full verification: " +
+                                    joinStrings(report->issues, "; ")));
+            }
+            auto previous = decodeCommit(original->file_, damaged.previousOffset);
+            if (!previous || previous->info.generation + 1 != damaged.generation) {
+                return std::unexpected(
+                    core::error("archive_repair_commit_chain_invalid",
+                                previous ? "Previous commit generation is not consecutive."
+                                         : previous.error().message));
+            }
+            auto root =
+                readFrame(original->file_, previous->info.rootOffset, RecordType::IndexPage);
+            if (!root || domain::sha256(root->second) != previous->info.rootHash) {
+                return std::unexpected(core::error(
+                    "archive_repair_commit_chain_invalid",
+                    root ? "Previous commit index root does not match its recorded hash."
+                         : root.error().message));
+            }
+            original->commit_ = previous->info;
+            report = original->verify(true);
+            if (!report)
+                return std::unexpected(report.error());
         }
+        auto end = publicationEnd(original->file_, original->commit_);
+        if (!end)
+            return std::unexpected(end.error());
+        selectedLength = *end;
         if (auto status = original->backup(temporaryPath); !status)
+            return status;
+    }
+
+    {
+        auto repairedFile = ArchiveFile::open(temporaryPath, true);
+        if (!repairedFile)
+            return std::unexpected(repairedFile.error());
+        if (auto status = repairedFile->truncate(selectedLength); !status)
+            return status;
+        if (auto status = repairedFile->flush(); !status)
             return status;
     }
 
@@ -2445,10 +3154,20 @@ core::Status Archive::repairCopy(const std::filesystem::path& source,
     }
     const auto destinationParent = parent.empty() ? std::filesystem::path(".") : parent;
     const int directoryHandle = ::open(destinationParent.c_str(), O_RDONLY);
-    if (directoryHandle >= 0) {
-        ::fsync(directoryHandle);
-        ::close(directoryHandle);
+    if (directoryHandle < 0) {
+        return std::unexpected(core::error(
+            "archive_repair_directory_flush_failed",
+            "Repair copy exists, but its directory could not be opened for durable flush: " +
+                std::string(std::strerror(errno))));
     }
+    if (::fsync(directoryHandle) != 0) {
+        const int flushError = errno;
+        ::close(directoryHandle);
+        return std::unexpected(core::error("archive_repair_directory_flush_failed",
+                                           "Repair copy exists, but its directory flush failed: " +
+                                               std::string(std::strerror(flushError))));
+    }
+    ::close(directoryHandle);
 #endif
     return {};
 }
@@ -2471,6 +3190,14 @@ core::Status Archive::rewrite(bool encrypted, std::optional<EncryptionEnvelope> 
         return std::unexpected(core::error("archive_encryption_state_invalid",
                                            "Plaintext rewrite received encryption state."));
     }
+    auto sourceVerification = verify(true);
+    if (!sourceVerification)
+        return std::unexpected(sourceVerification.error());
+    if (!sourceVerification->valid) {
+        return std::unexpected(core::error("archive_compaction_source_invalid",
+                                           "Compaction requires a fully verified source archive: " +
+                                               joinStrings(sourceVerification->issues, "; ")));
+    }
     std::optional<SecretKey> replacementKey;
     if (encrypted) {
         auto copiedKey = SecretKey::copyOf(key->bytes());
@@ -2478,16 +3205,26 @@ core::Status Archive::rewrite(bool encrypted, std::optional<EncryptionEnvelope> 
             return std::unexpected(copiedKey.error());
         replacementKey.emplace(std::move(*copiedKey));
     }
-    const auto archivePath = path();
+    std::error_code pathError;
+    const auto archivePath = std::filesystem::weakly_canonical(path(), pathError);
+    if (pathError) {
+        return std::unexpected(core::error("compaction_path_invalid",
+                                           "Unable to resolve the archive path for compaction: " +
+                                               pathError.message()));
+    }
     ArchiveHeader replacementHeader = header_;
     if (encrypted)
         replacementHeader.capabilities |= kArchiveCapabilityEncrypted;
     else
         replacementHeader.capabilities &= ~kArchiveCapabilityEncrypted;
-    const auto temporaryPath =
-        archivePath.parent_path() /
-        (archivePath.filename().string() + "." + uuidToString(randomUuid()) + ".partial");
+    auto temporaryName = archivePath.filename().native();
+    temporaryName += std::filesystem::path(".").native();
+    temporaryName += std::filesystem::path(uuidToString(randomUuid())).native();
+    temporaryName += std::filesystem::path(".partial").native();
+    const auto temporaryPath = archivePath.parent_path() / temporaryName;
     std::error_code cleanupError;
+    if (auto status = cleanupStaleCompactionPartials(archivePath); !status)
+        return status;
     auto temporaryFile = ArchiveFile::open(temporaryPath, true, true);
     if (!temporaryFile)
         return std::unexpected(temporaryFile.error());
@@ -2697,41 +3434,38 @@ core::Status Archive::rewrite(bool encrypted, std::optional<EncryptionEnvelope> 
     }
     const CommitInfo compactedCommit = compacted.commit_;
     compacted.file_ = ArchiveFile{};
-    file_ = ArchiveFile{};
+    file_.closeDataForAtomicReplace();
 #ifdef _WIN32
     if (!MoveFileExW(temporaryPath.c_str(), archivePath.c_str(),
                      MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
         const auto nativeError = GetLastError();
         std::filesystem::remove(temporaryPath, cleanupError);
-        auto restored = ArchiveFile::open(archivePath, true);
-        if (restored)
-            file_ = std::move(*restored);
+        const auto reopened = file_.reopenDataAfterAtomicReplace();
+        const std::string restoreError =
+            reopened ? std::string{}
+                     : " Reopening the original archive also failed: " + reopened.error().message;
         return std::unexpected(core::error("compaction_publish_failed",
                                            "Atomic archive replacement failed (Windows error " +
-                                               std::to_string(nativeError) + ")."));
+                                               std::to_string(nativeError) + ")." + restoreError));
     }
 #else
     std::error_code renameError;
     std::filesystem::rename(temporaryPath, archivePath, renameError);
     if (renameError) {
         std::filesystem::remove(temporaryPath, cleanupError);
-        auto restored = ArchiveFile::open(archivePath, true);
-        if (restored)
-            file_ = std::move(*restored);
-        return std::unexpected(core::error("compaction_publish_failed", renameError.message()));
-    }
-    const auto directory =
-        archivePath.parent_path().empty() ? std::filesystem::path(".") : archivePath.parent_path();
-    const int directoryHandle = ::open(directory.c_str(), O_RDONLY);
-    if (directoryHandle >= 0) {
-        ::fsync(directoryHandle);
-        ::close(directoryHandle);
+        const auto reopened = file_.reopenDataAfterAtomicReplace();
+        const std::string restoreError =
+            reopened ? std::string{}
+                     : " Reopening the original archive also failed: " + reopened.error().message;
+        return std::unexpected(
+            core::error("compaction_publish_failed", renameError.message() + restoreError));
     }
 #endif
-    auto replacement = ArchiveFile::open(archivePath, true);
-    if (!replacement)
-        return std::unexpected(replacement.error());
-    file_ = std::move(*replacement);
+    if (auto status = file_.reopenDataAfterAtomicReplace(); !status)
+        return std::unexpected(
+            core::error("compaction_reopen_failed",
+                        "Replacement is in place, but the archive could not be reopened: " +
+                            status.error().message));
     header_ = replacementHeader;
     commit_ = compactedCommit;
     encryptionEnabled_ = encrypted;
@@ -2739,6 +3473,26 @@ core::Status Archive::rewrite(bool encrypted, std::optional<EncryptionEnvelope> 
     dataKey_.reset();
     if (replacementKey)
         dataKey_.emplace(std::move(*replacementKey));
+#ifndef _WIN32
+    const auto directory =
+        archivePath.parent_path().empty() ? std::filesystem::path(".") : archivePath.parent_path();
+    const int directoryHandle = ::open(directory.c_str(), O_RDONLY);
+    if (directoryHandle < 0) {
+        return std::unexpected(core::error(
+            "compaction_directory_flush_failed",
+            "Replacement is in place, but its directory could not be opened for durable flush: " +
+                std::string(std::strerror(errno))));
+    }
+    if (::fsync(directoryHandle) != 0) {
+        const int flushError = errno;
+        ::close(directoryHandle);
+        return std::unexpected(
+            core::error("compaction_directory_flush_failed",
+                        "Replacement is in place, but its directory flush failed: " +
+                            std::string(std::strerror(flushError))));
+    }
+    ::close(directoryHandle);
+#endif
     return {};
 }
 
