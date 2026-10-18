@@ -58,6 +58,18 @@ struct RecoveryReport final {
     std::vector<std::string> issues;
 };
 
+struct RepairReport final {
+    std::uint64_t selectedVerifiedGeneration{};
+    std::uint64_t discardedRegionStart{};
+    std::uint64_t discardedRegionEnd{};
+    std::uint64_t discardedBytes{};
+    // Structurally complete frames; this count does not recheck each payload checksum.
+    std::uint64_t discardedRecordFrames{};
+    std::uint64_t discardedRecordFrameBytes{};
+    // Bytes not attributable to a complete frame with a valid header.
+    std::uint64_t unattributedBytes{};
+};
+
 bool isCredentialSettingsRecord(const Record& record);
 bool isSensitiveCredentialFieldName(std::string_view fieldName);
 bool hasSensitiveCredentialMaterial(const Record& record);
@@ -105,6 +117,12 @@ class Archive final {
     core::Status forEachIndexPrefix(std::string_view indexPrefix, const std::function<bool(Record&&)>& visitor,
                                     bool includeDeleted = false) const;
     core::Status forEach(RecordType type, const std::function<bool(Record&&)>& visitor, bool includeDeleted = false) const;
+    core::Status forEachAnnotationBySessionTime(const Uuid& sessionId, std::int64_t startTimeUs, std::int64_t endTimeUs,
+                                                const std::function<bool(Record&&)>& visitor, bool includeDeleted = false) const;
+    core::Status forEachSessionForStudent(const Uuid& studentId, const std::function<bool(Record&&)>& visitor,
+                                          bool includeDeleted = false) const;
+    core::Status forEachEvidenceAdjacent(const Uuid& nodeId, const std::function<bool(Record&&)>& visitor,
+                                         bool includeDeleted = false) const;
     core::Status forEachAudioChunk(const Uuid& sessionId, const std::optional<Uuid>& trackId, const std::function<bool(Record&&)>& visitor,
                                    bool includeDeleted = false) const;
     core::Result<std::vector<Record>> list(RecordType type, bool includeDeleted = false) const;
@@ -116,7 +134,7 @@ class Archive final {
     static core::Status discardUncommittedTail(const std::filesystem::path& path);
     core::Status backup(const std::filesystem::path& destination) const;
     static core::Status repairCopy(const std::filesystem::path& source, const std::filesystem::path& destination,
-                                   std::string_view passphrase = {});
+                                   std::string_view passphrase = {}, RepairReport* report = nullptr);
     core::Status compact();
     core::Status enableEncryption(std::string_view passphrase);
     core::Status changePassphrase(std::string_view passphrase);
