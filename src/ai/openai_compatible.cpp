@@ -111,9 +111,9 @@ namespace {
                                "The provider returned a server error (HTTP " +
                                    std::to_string(response.statusCode) + ").");
         }
-        return core::error("ai_provider_response_invalid",
-                           "The provider returned HTTP " + std::to_string(response.statusCode) +
-                               ".");
+        return core::error("ai_provider_response_invalid", "The provider returned HTTP " +
+                                                               std::to_string(response.statusCode) +
+                                                               ".");
     }
 
     const JsonValue::Object* objectAt(const JsonValue* value) {
@@ -380,10 +380,8 @@ namespace {
 } // namespace
 
 core::Result<std::vector<ProviderModel>>
-listOpenAiCompatibleModels(std::string_view endpoint,
-                           std::string_view apiKey,
-                           std::function<bool()> cancelled,
-                           std::string_view apiKeyHeaderName) {
+listOpenAiCompatibleModels(std::string_view endpoint, std::string_view apiKey,
+                           std::function<bool()> cancelled, std::string_view apiKeyHeaderName) {
     if (apiKeyHeaderName != "Authorization" && apiKeyHeaderName != "api-key") {
         return std::unexpected(core::error("ai_provider_configuration_invalid",
                                            "The provider API-key header name is not supported."));
@@ -397,10 +395,9 @@ listOpenAiCompatibleModels(std::string_view endpoint,
     request.timeout = std::chrono::seconds(30);
     request.cancelled = std::move(cancelled);
     if (!apiKey.empty()) {
-        request.headers.emplace_back(apiKeyHeaderName,
-                                     apiKeyHeaderName == "Authorization"
-                                         ? authorizationHeader(apiKey)
-                                         : std::string(apiKey));
+        request.headers.emplace_back(apiKeyHeaderName, apiKeyHeaderName == "Authorization"
+                                                           ? authorizationHeader(apiKey)
+                                                           : std::string(apiKey));
     }
     auto response = performHttp(std::move(request));
     if (!response)
@@ -494,8 +491,7 @@ core::Result<GenerationResponse> generateOpenAiCompatible(GenerationRequest requ
             core::error("ai_generation_request_invalid",
                         "A model ID and output-token limit within 1 to 1,000,000 are required."));
     }
-    auto serializedUserContent = serializeContentParts(request.content,
-                                                       request.userContent,
+    auto serializedUserContent = serializeContentParts(request.content, request.userContent,
                                                        ContentSerialization::openAiChat);
     if (!serializedUserContent)
         return std::unexpected(serializedUserContent.error());
@@ -510,9 +506,8 @@ core::Result<GenerationResponse> generateOpenAiCompatible(GenerationRequest requ
     if (request.requireStructuredOutput) {
         const std::size_t messagesPosition = body.find(",\"messages\":");
         if (messagesPosition == std::string::npos) {
-            return std::unexpected(
-                core::error("ai_request_invalid",
-                            "Unable to apply the structured-output request format."));
+            return std::unexpected(core::error(
+                "ai_request_invalid", "Unable to apply the structured-output request format."));
         }
         body.insert(messagesPosition, ",\"response_format\":{\"type\":\"json_object\"}");
     }
@@ -529,11 +524,12 @@ core::Result<GenerationResponse> generateOpenAiCompatible(GenerationRequest requ
     httpRequest.method = "POST";
     httpRequest.accept = request.enableStreaming ? "text/event-stream" : "application/json";
     if (!request.apiKey.empty()) {
-        const std::string_view headerName =
-            request.apiKeyHeaderName.empty() ? "Authorization" : request.apiKeyHeaderName;
-        httpRequest.headers.emplace_back(
-            headerName,
-            headerName == "Authorization" ? authorizationHeader(request.apiKey) : request.apiKey);
+        const std::string_view headerName = request.apiKeyHeaderName.empty()
+                                                ? std::string_view{"Authorization"}
+                                                : std::string_view{request.apiKeyHeaderName};
+        httpRequest.headers.emplace_back(headerName, headerName == "Authorization"
+                                                         ? authorizationHeader(request.apiKey)
+                                                         : request.apiKey);
     }
     httpRequest.headers.emplace_back("Content-Type", "application/json");
     httpRequest.body = std::move(body);
