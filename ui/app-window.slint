@@ -496,7 +496,15 @@ export component MainWindow inherits Window {
                 width: 248px;
                 background: #111111;
 
-                VerticalLayout {
+                ScrollView {
+                    width: 100%;
+                    height: 100%;
+                    content-width: self.visible-width;
+                    content-height: max(self.visible-height, sidebar-content.preferred-height);
+                    vertical-scrollbar-policy: as-needed;
+
+                    sidebar-content := VerticalLayout {
+                    width: parent.visible-width;
                     padding: 24px;
                     spacing: 18px;
 
@@ -634,6 +642,7 @@ export component MainWindow inherits Window {
                     }
                     Rectangle { }
                     Text { text: "TUTORUX 1.0  ·  LOCAL WORKSPACE"; color: #ffffff; font-size: 9px; }
+                    }
                 }
             }
 
@@ -3397,10 +3406,17 @@ export component MainWindow inherits Window {
                                     LineEdit { placeholder-text: "Concept"; text <=> root.shortcut-concept; }
                                     LineEdit { placeholder-text: "Mistake"; text <=> root.shortcut-mistake; }
                                     LineEdit { placeholder-text: "Correction"; text <=> root.shortcut-correction; }
+                                }
+                                HorizontalLayout {
+                                    spacing: 6px;
                                     LineEdit { placeholder-text: "Instruction"; text <=> root.shortcut-instruction; }
                                     LineEdit { placeholder-text: "Example"; text <=> root.shortcut-example; }
                                     LineEdit { placeholder-text: "Follow up"; text <=> root.shortcut-follow-up; }
+                                }
+                                HorizontalLayout {
+                                    spacing: 6px;
                                     LineEdit { placeholder-text: "Note"; text <=> root.shortcut-note; }
+                                    Rectangle { }
                                 }
                                 Button {
                                     text: "Save marker keys to this archive";
