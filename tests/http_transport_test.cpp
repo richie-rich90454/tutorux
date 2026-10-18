@@ -680,6 +680,11 @@ int main() {
                                               "--provider",
                                               std::string(provider.id),
                                               "--refresh"});
+        if (!cloudModels || cloudModels->exitCode != 0) {
+            return reportFailure("cloud model discovery",
+                                 cloudModels ? cloudModels->output
+                                             : cloudModels.error().message);
+        }
         modelsServer.join();
         const std::string modelRequest = modelsServer.request();
         if (!cloudConfiguration || cloudConfiguration->exitCode != 0 || !cloudModels ||
@@ -750,8 +755,10 @@ int main() {
         auto cloudPreviewValue = command::parseJson(cloudPreview->output);
         const std::string* cloudRequestBody =
             cloudPreviewValue ? jsonString(*cloudPreviewValue, "request_body") : nullptr;
-        const std::string* confirmationHash =
+        const std::string* previewPackageHash =
             cloudPreviewValue ? jsonString(*cloudPreviewValue, "package_sha256") : nullptr;
+        const std::string* confirmationHash =
+            cloudPreviewValue ? jsonString(*cloudPreviewValue, "request_body_sha256") : nullptr;
         const std::string* confirmationCommand =
             cloudPreviewValue ? jsonString(*cloudPreviewValue, "confirmation_command") : nullptr;
         const std::string expectedConfirmation =
@@ -765,7 +772,8 @@ int main() {
             cloudRequestBody->find(usesMaxCompletionTokens
                                        ? "\"max_tokens\""
                                        : "max_completion_tokens") != std::string::npos ||
-            !confirmationHash || *confirmationHash != *cloudPackageHash || !confirmationCommand ||
+            !previewPackageHash || *previewPackageHash != *cloudPackageHash || !confirmationHash ||
+            confirmationHash->empty() || !confirmationCommand ||
             confirmationCommand->find(expectedConfirmation) == std::string::npos) {
             return reportFailure("cloud outbound preview policy", cloudPreview->output);
         }
@@ -783,10 +791,14 @@ int main() {
                                                   "--confirm-outbound",
                                                   "--confirm-hash",
                                                   *confirmationHash});
+        if (!cloudGeneration || cloudGeneration->exitCode != 0) {
+            return reportFailure("cloud chat completion",
+                                 cloudGeneration ? cloudGeneration->output
+                                                 : cloudGeneration.error().message);
+        }
         generationServer.join();
         const std::string generationRequest = generationServer.request();
-        if (!cloudGeneration || cloudGeneration->exitCode != 0 ||
-            generationRequest.find("POST /v1/chat/completions HTTP/1.1") == std::string::npos ||
+        if (generationRequest.find("POST /v1/chat/completions HTTP/1.1") == std::string::npos ||
             generationRequest.find(expectedApiKeyHeader) == std::string::npos ||
             generationRequest.find(usesMaxCompletionTokens
                                        ? "\"max_completion_tokens\":4096"
