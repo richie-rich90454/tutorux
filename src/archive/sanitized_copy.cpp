@@ -6,7 +6,9 @@
 
 #include <algorithm>
 #include <array>
+#include <cerrno>
 #include <cctype>
+#include <cstring>
 #include <map>
 #include <optional>
 #include <set>
@@ -14,6 +16,9 @@
 
 #ifdef _WIN32
 #include <Windows.h>
+#else
+#include <fcntl.h>
+#include <unistd.h>
 #endif
 
 namespace tutorux::archive {
@@ -24,13 +29,10 @@ namespace {
     using RecordSet = std::set<Uuid>;
     using RecordMap = std::map<RecordType, std::vector<Record>>;
 
-    constexpr std::array kCopyTypes{RecordType::Student,      RecordType::Session,
-                                    RecordType::AudioChunk,   RecordType::TranscriptSegment,
-                                    RecordType::Annotation,   RecordType::AssetMetadata,
-                                    RecordType::AssetBlob,    RecordType::EvidenceNode,
-                                    RecordType::EvidenceEdge, RecordType::Guide,
-                                    RecordType::Settings,     RecordType::AiJob,
-                                    RecordType::WaveformIndex};
+    constexpr std::array kCopyTypes{
+        RecordType::Student,       RecordType::Session,   RecordType::AudioChunk,   RecordType::TranscriptSegment, RecordType::Annotation,
+        RecordType::AssetMetadata, RecordType::AssetBlob, RecordType::EvidenceNode, RecordType::EvidenceEdge,      RecordType::Guide,
+        RecordType::Settings,      RecordType::AiJob,     RecordType::WaveformIndex};
 
     std::string lower(std::string_view value) {
         std::string result(value);
@@ -73,13 +75,11 @@ namespace {
     bool privateAnnotation(const Record& record) {
         for (const auto& [field, rawValue] : record.fields) {
             const std::string fieldName = lower(field);
-            if (fieldName.find("private") == std::string::npos &&
-                fieldName.find("privacy") == std::string::npos &&
+            if (fieldName.find("private") == std::string::npos && fieldName.find("privacy") == std::string::npos &&
                 fieldName.find("visibility") == std::string::npos)
                 continue;
             const std::string value = lower(rawValue);
-            if (value == "true" || value == "yes" || value == "1" || value == "private" ||
-                value == "restricted")
+            if (value == "true" || value == "yes" || value == "1" || value == "private" || value == "restricted")
                 return true;
         }
         return false;
@@ -88,10 +88,9 @@ namespace {
     bool recordingAsset(const Record& record) {
         const std::string role = lower(domain::getField(record, "record_role"));
         const std::string mime = lower(domain::getField(record, "mime_type"));
-        return role.find("audio") != std::string::npos ||
-               role.find("waveform") != std::string::npos ||
-               role.find("seek-index") != std::string::npos ||
-               !domain::getField(record, "capture_source").empty() || mime.starts_with("audio/");
+        return role.find("audio") != std::string::npos || role.find("waveform") != std::string::npos ||
+               role.find("seek-index") != std::string::npos || !domain::getField(record, "capture_source").empty() ||
+               mime.starts_with("audio/");
     }
 
     bool isCredential(const Record& record) {
@@ -100,11 +99,14 @@ namespace {
 
     bool sensitiveField(std::string_view name) {
         const std::string normalized = lower(name);
-        return normalized.find("password") != std::string::npos ||
-               normalized.find("secret") != std::string::npos ||
-               normalized.find("token") != std::string::npos ||
-               normalized.find("api_key") != std::string::npos ||
-               normalized.find("credential") != std::string::npos || normalized == "authorization";
+        return normalized.find("password") != std::string::npos || normalized.find("secret") != std::string::npos ||
+               normalized.find("token") != std::string::npos || normalized.find("api-key") != std::string::npos ||
+               normalized.find("api_key") != std::string::npos || normalized.find("credential") != std::string::npos ||
+               normalized == "authorization";
+    }
+
+    bool sensitiveOrdinarySetting(const Record& record) {
+        return lower(domain::getField(record, "record_role")) == "setting" && sensitiveField(domain::getField(record, "key"));
     }
 
     bool selectedBy(const Uuid& id, const std::set<Uuid>& include, const std::set<Uuid>& exclude) {
@@ -112,13 +114,11 @@ namespace {
     }
 
     bool recordingsRequested(const SanitizedCopyOptions& options) {
-        return options.includeRecordings || !options.includeRecordingTracks.empty() ||
-               !options.excludeRecordingTracks.empty();
+        return options.includeRecordings || !options.includeRecordingTracks.empty() || !options.excludeRecordingTracks.empty();
     }
 
     std::string selectionFingerprint(const Archive& source, const SanitizedCopyOptions& options) {
-        std::string canonical = "archive=" + uuidToString(source.header().id) +
-                                ";recordings=" + std::to_string(options.includeRecordings) +
+        std::string canonical = "archive=" + uuidToString(source.header().id) + ";recordings=" + std::to_string(options.includeRecordings) +
                                 ";private=" + std::to_string(options.includePrivateAnnotations) +
                                 ";generation=" + std::to_string(options.includeGenerationLogs) +
                                 ";credentials=" + std::to_string(options.includeCredentials);
@@ -205,50 +205,42 @@ namespace {
         for (const auto& id : options.includeStudents) {
             if (!availableStudents.contains(id))
                 return std::unexpected(
-                    core::error("sanitized_copy_student_missing",
-                                "A selected student does not exist in the source archive."));
+                    core::error("sanitized_copy_student_missing", "A selected student does not exist in the source archive."));
         }
         for (const auto& id : options.includeSessions) {
             if (!availableSessions.contains(id))
                 return std::unexpected(
-                    core::error("sanitized_copy_session_missing",
-                                "A selected session does not exist in the source archive."));
+                    core::error("sanitized_copy_session_missing", "A selected session does not exist in the source archive."));
         }
         for (const auto& id : options.excludeStudents) {
             if (!availableStudents.contains(id))
                 return std::unexpected(
-                    core::error("sanitized_copy_student_missing",
-                                "An excluded student does not exist in the source archive."));
+                    core::error("sanitized_copy_student_missing", "An excluded student does not exist in the source archive."));
         }
         for (const auto& id : options.excludeSessions) {
             if (!availableSessions.contains(id))
                 return std::unexpected(
-                    core::error("sanitized_copy_session_missing",
-                                "An excluded session does not exist in the source archive."));
+                    core::error("sanitized_copy_session_missing", "An excluded session does not exist in the source archive."));
         }
 
         for (const auto& record : plan.metadata[RecordType::Student]) {
-            if (!domain::isDeleted(record) &&
-                selectedBy(record.id, options.includeStudents, options.excludeStudents))
+            if (!domain::isDeleted(record) && selectedBy(record.id, options.includeStudents, options.excludeStudents))
                 keep(plan, RecordType::Student).insert(record.id);
         }
         for (const auto& record : plan.metadata[RecordType::Session]) {
-            if (domain::isDeleted(record) ||
-                !selectedBy(record.id, options.includeSessions, options.excludeSessions))
+            if (domain::isDeleted(record) || !selectedBy(record.id, options.includeSessions, options.excludeSessions))
                 continue;
             const std::string student = domain::getField(record, "student_id");
             auto studentId = uuidFromString(student);
-            if (studentId && availableStudents.contains(*studentId) &&
-                !kept(plan, RecordType::Student).contains(*studentId))
+            if (studentId && availableStudents.contains(*studentId) && !kept(plan, RecordType::Student).contains(*studentId))
                 continue;
-            if (!options.includeStudents.empty() &&
-                (!studentId || !kept(plan, RecordType::Student).contains(*studentId)))
+            if (!options.includeStudents.empty() && (!studentId || !kept(plan, RecordType::Student).contains(*studentId)))
                 continue;
             keep(plan, RecordType::Session).insert(record.id);
         }
 
-        const bool scoped = !options.includeStudents.empty() || !options.excludeStudents.empty() ||
-                            !options.includeSessions.empty() || !options.excludeSessions.empty();
+        const bool scoped = !options.includeStudents.empty() || !options.excludeStudents.empty() || !options.includeSessions.empty() ||
+                            !options.excludeSessions.empty();
 
         RecordSet availableRecordingTracks;
         if (recordingsRequested(options)) {
@@ -260,16 +252,14 @@ namespace {
                 const auto session = uuidFromString(domain::getField(record, "session_id"));
                 if (!track || !session) {
                     invalidChunk =
-                        core::error("sanitized_copy_audio_chunk_invalid",
-                                    "A recording chunk has an invalid session or track reference.");
+                        core::error("sanitized_copy_audio_chunk_invalid", "A recording chunk has an invalid session or track reference.");
                     return false;
                 }
                 if (!sessionIsKept(plan, record))
                     return true;
                 availableRecordingTracks.insert(*track);
                 plan.sourceRecordingTracksBySession[*session].insert(*track);
-                if (selectedBy(*track, options.includeRecordingTracks,
-                               options.excludeRecordingTracks)) {
+                if (selectedBy(*track, options.includeRecordingTracks, options.excludeRecordingTracks)) {
                     keep(plan, RecordType::AudioChunk).insert(record.id);
                     ++plan.recordingChunksBySession[*session];
                     plan.recordingTracksBySession[*session].insert(*track);
@@ -282,27 +272,23 @@ namespace {
                 return std::unexpected(*invalidChunk);
             for (const auto& id : options.includeRecordingTracks) {
                 if (!availableRecordingTracks.contains(id))
-                    return std::unexpected(core::error(
-                        "sanitized_copy_recording_track_missing",
-                        "A selected recording track does not exist in the source archive."));
+                    return std::unexpected(core::error("sanitized_copy_recording_track_missing",
+                                                       "A selected recording track does not exist in the source archive."));
             }
             for (const auto& id : options.excludeRecordingTracks) {
                 if (!availableRecordingTracks.contains(id))
-                    return std::unexpected(core::error(
-                        "sanitized_copy_recording_track_missing",
-                        "An excluded recording track does not exist in the source archive."));
+                    return std::unexpected(core::error("sanitized_copy_recording_track_missing",
+                                                       "An excluded recording track does not exist in the source archive."));
             }
         }
 
         for (const auto& record : plan.metadata[RecordType::Annotation]) {
-            if (!domain::isDeleted(record) && sessionIsKept(plan, record) &&
-                (!scoped || hasKeptSession(plan, record)) &&
+            if (!domain::isDeleted(record) && sessionIsKept(plan, record) && (!scoped || hasKeptSession(plan, record)) &&
                 (options.includePrivateAnnotations || !privateAnnotation(record)))
                 keep(plan, RecordType::Annotation).insert(record.id);
         }
         for (const auto& record : plan.metadata[RecordType::TranscriptSegment]) {
-            if (!domain::isDeleted(record) && sessionIsKept(plan, record) &&
-                (!scoped || hasKeptSession(plan, record)))
+            if (!domain::isDeleted(record) && sessionIsKept(plan, record) && (!scoped || hasKeptSession(plan, record)))
                 keep(plan, RecordType::TranscriptSegment).insert(record.id);
         }
 
@@ -319,15 +305,12 @@ namespace {
             }
         }
         for (const auto& record : plan.metadata[RecordType::Settings]) {
-            if (domain::isDeleted(record) ||
-                lower(domain::getField(record, "record_role")) != "journal-entry")
+            if (domain::isDeleted(record) || lower(domain::getField(record, "record_role")) != "journal-entry")
                 continue;
             const auto sessions = splitIds(domain::getField(record, "session_ids"));
-            const bool inScope =
-                !scoped || (!sessions.empty() &&
-                            std::any_of(sessions.begin(), sessions.end(), [&](const auto& id) {
-                                return contains(kept(plan, RecordType::Session), id);
-                            }));
+            const bool inScope = !scoped || (!sessions.empty() && std::any_of(sessions.begin(), sessions.end(), [&](const auto& id) {
+                return contains(kept(plan, RecordType::Session), id);
+            }));
             if (!inScope)
                 continue;
             keep(plan, RecordType::Settings).insert(record.id);
@@ -346,8 +329,7 @@ namespace {
                 retainedNotes.insert(*notes);
         }
         for (const auto& record : plan.metadata[RecordType::Settings]) {
-            if (!kept(plan, RecordType::Settings).contains(record.id) ||
-                lower(domain::getField(record, "record_role")) != "journal-entry")
+            if (!kept(plan, RecordType::Settings).contains(record.id) || lower(domain::getField(record, "record_role")) != "journal-entry")
                 continue;
             auto notes = uuidFromString(domain::getField(record, "notes_document_id"));
             if (notes)
@@ -360,12 +342,9 @@ namespace {
             if (!guide)
                 continue;
             const std::string entryId = domain::getField(record, "entry_id");
-            if (scoped &&
-                (guide->sessionId.empty() &&
-                 (entryId.empty() || !contains(kept(plan, RecordType::Settings), entryId))))
+            if (scoped && (guide->sessionId.empty() && (entryId.empty() || !contains(kept(plan, RecordType::Settings), entryId))))
                 continue;
-            if (!guide->sessionId.empty() &&
-                !contains(kept(plan, RecordType::Session), guide->sessionId))
+            if (!guide->sessionId.empty() && !contains(kept(plan, RecordType::Session), guide->sessionId))
                 continue;
             for (const auto& section : guide->sections) {
                 for (const auto& block : section.blocks) {
@@ -389,10 +368,8 @@ namespace {
                 if (lower(domain::getField(record, "record_role")) == "audio-track") {
                     const auto session = uuidFromString(domain::getField(record, "session_id"));
                     const auto track = uuidFromString(domain::getField(record, "track_id"));
-                    const auto tracks = session ? plan.recordingTracksBySession.find(*session)
-                                                : plan.recordingTracksBySession.end();
-                    if (!session || !track || tracks == plan.recordingTracksBySession.end() ||
-                        !tracks->second.contains(*track))
+                    const auto tracks = session ? plan.recordingTracksBySession.find(*session) : plan.recordingTracksBySession.end();
+                    if (!session || !track || tracks == plan.recordingTracksBySession.end() || !tracks->second.contains(*track))
                         continue;
                 } else {
                     const auto trackText = domain::getField(record, "track_id");
@@ -400,21 +377,17 @@ namespace {
                     const auto track = uuidFromString(trackText);
                     if (session && track) {
                         const auto tracks = plan.recordingTracksBySession.find(*session);
-                        if (tracks == plan.recordingTracksBySession.end() ||
-                            !tracks->second.contains(*track))
+                        if (tracks == plan.recordingTracksBySession.end() || !tracks->second.contains(*track))
                             continue;
                     }
                 }
             }
             const std::string student = domain::getField(record, "student_id");
             auto studentId = uuidFromString(student);
-            if (studentId && availableStudents.contains(*studentId) &&
-                !kept(plan, RecordType::Student).contains(*studentId))
+            if (studentId && availableStudents.contains(*studentId) && !kept(plan, RecordType::Student).contains(*studentId))
                 continue;
-            const bool associatedStudent =
-                studentId && kept(plan, RecordType::Student).contains(*studentId);
-            if (scoped && domain::getField(record, "session_id").empty() && !associatedStudent &&
-                !requestedAssets.contains(record.id))
+            const bool associatedStudent = studentId && kept(plan, RecordType::Student).contains(*studentId);
+            if (scoped && domain::getField(record, "session_id").empty() && !associatedStudent && !requestedAssets.contains(record.id))
                 continue;
             keep(plan, RecordType::AssetMetadata).insert(record.id);
         }
@@ -424,16 +397,14 @@ namespace {
             if (domain::isDeleted(record) || !sessionIsKept(plan, record))
                 continue;
             auto studentId = uuidFromString(domain::getField(record, "student_id"));
-            if (studentId && availableStudents.contains(*studentId) &&
-                !kept(plan, RecordType::Student).contains(*studentId))
+            if (studentId && availableStudents.contains(*studentId) && !kept(plan, RecordType::Student).contains(*studentId))
                 continue;
             if (scoped && domain::getField(record, "session_id").empty()) {
                 if (!studentId || !kept(plan, RecordType::Student).contains(*studentId))
                     continue;
             }
             const std::string sourceAnnotation = domain::getField(record, "source_annotation_id");
-            if (!sourceAnnotation.empty() &&
-                !contains(kept(plan, RecordType::Annotation), sourceAnnotation))
+            if (!sourceAnnotation.empty() && !contains(kept(plan, RecordType::Annotation), sourceAnnotation))
                 continue;
             bool refsValid = true;
             for (const auto& id : splitIds(domain::getField(record, "source_segment_ids")))
@@ -444,10 +415,8 @@ namespace {
                 keep(plan, RecordType::EvidenceNode).insert(record.id);
         }
         for (const auto& record : plan.metadata[RecordType::EvidenceEdge]) {
-            if (!domain::isDeleted(record) && sessionIsKept(plan, record) &&
-                (!scoped || hasKeptSession(plan, record)) &&
-                contains(kept(plan, RecordType::EvidenceNode),
-                         domain::getField(record, "from_id")) &&
+            if (!domain::isDeleted(record) && sessionIsKept(plan, record) && (!scoped || hasKeptSession(plan, record)) &&
+                contains(kept(plan, RecordType::EvidenceNode), domain::getField(record, "from_id")) &&
                 contains(kept(plan, RecordType::EvidenceNode), domain::getField(record, "to_id")))
                 keep(plan, RecordType::EvidenceEdge).insert(record.id);
         }
@@ -459,18 +428,15 @@ namespace {
             if (!guide)
                 continue;
             const std::string entryId = domain::getField(record, "entry_id");
-            if (scoped && guide->sessionId.empty() &&
-                (entryId.empty() || !contains(kept(plan, RecordType::Settings), entryId)))
+            if (scoped && guide->sessionId.empty() && (entryId.empty() || !contains(kept(plan, RecordType::Settings), entryId)))
                 continue;
             bool refsValid = true;
             for (const auto& section : guide->sections) {
                 for (const auto& block : section.blocks) {
                     for (const auto& id : block.sourceIds) {
-                        const bool found =
-                            contains(kept(plan, RecordType::EvidenceNode), id) ||
-                            contains(kept(plan, RecordType::Annotation), id) ||
-                            contains(kept(plan, RecordType::TranscriptSegment), id) ||
-                            contains(availableAssetIds, id);
+                        const bool found = contains(kept(plan, RecordType::EvidenceNode), id) ||
+                                           contains(kept(plan, RecordType::Annotation), id) ||
+                                           contains(kept(plan, RecordType::TranscriptSegment), id) || contains(availableAssetIds, id);
                         refsValid = refsValid && found;
                     }
                     auto inlineSources = domain::guideInlineSourceIds(block.text);
@@ -478,24 +444,20 @@ namespace {
                         refsValid = false;
                     else {
                         for (const auto& id : *inlineSources) {
-                            const bool found =
-                                contains(kept(plan, RecordType::EvidenceNode), id) ||
-                                contains(kept(plan, RecordType::Annotation), id) ||
-                                contains(kept(plan, RecordType::TranscriptSegment), id) ||
-                                contains(availableAssetIds, id);
+                            const bool found = contains(kept(plan, RecordType::EvidenceNode), id) ||
+                                               contains(kept(plan, RecordType::Annotation), id) ||
+                                               contains(kept(plan, RecordType::TranscriptSegment), id) || contains(availableAssetIds, id);
                             refsValid = refsValid && found;
                         }
                     }
                     if (block.kind == "image") {
                         auto image = domain::parseGuideImageReference(block.text);
-                        refsValid =
-                            refsValid && image && contains(availableAssetIds, image->assetId);
+                        refsValid = refsValid && image && contains(availableAssetIds, image->assetId);
                     }
                 }
             }
             if (!guide->sessionId.empty())
-                refsValid =
-                    refsValid && contains(kept(plan, RecordType::Session), guide->sessionId);
+                refsValid = refsValid && contains(kept(plan, RecordType::Session), guide->sessionId);
             if (refsValid)
                 keep(plan, RecordType::Guide).insert(record.id);
         }
@@ -508,14 +470,21 @@ namespace {
                 continue;
             if (isCredential(record) && !options.includeCredentials)
                 continue;
+            if (sensitiveOrdinarySetting(record)) {
+                if (options.includeCredentials) {
+                    return std::unexpected(core::error("sanitized_copy_plaintext_credential",
+                                                       "A sensitive value is stored as an ordinary setting and cannot be copied. "
+                                                       "Move it into an encrypted credential record first."));
+                }
+                continue;
+            }
             if (role == "journal-entry") {
                 const auto sessions = splitIds(domain::getField(record, "session_ids"));
-                if ((!options.includeSessions.empty() || !options.excludeSessions.empty() ||
-                     !options.includeStudents.empty() || !options.excludeStudents.empty()) &&
+                if ((!options.includeSessions.empty() || !options.excludeSessions.empty() || !options.includeStudents.empty() ||
+                     !options.excludeStudents.empty()) &&
                     sessions.empty())
                     continue;
-                if (!sessions.empty() &&
-                    std::none_of(sessions.begin(), sessions.end(), [&](const auto& id) {
+                if (!sessions.empty() && std::none_of(sessions.begin(), sessions.end(), [&](const auto& id) {
                         return contains(kept(plan, RecordType::Session), id);
                     }))
                     continue;
@@ -530,13 +499,13 @@ namespace {
             keep(plan, RecordType::Settings).insert(record.id);
         }
         for (const auto& record : plan.metadata[RecordType::AiJob]) {
-            if (!domain::isDeleted(record) && sessionIsKept(plan, record) &&
-                (!scoped || hasKeptSession(plan, record)) && options.includeGenerationLogs)
+            if (!domain::isDeleted(record) && sessionIsKept(plan, record) && (!scoped || hasKeptSession(plan, record)) &&
+                options.includeGenerationLogs)
                 keep(plan, RecordType::AiJob).insert(record.id);
         }
         for (const auto& record : plan.metadata[RecordType::WaveformIndex]) {
-            if (domain::isDeleted(record) || !recordingsRequested(options) ||
-                !sessionIsKept(plan, record) || (scoped && !hasKeptSession(plan, record)))
+            if (domain::isDeleted(record) || !recordingsRequested(options) || !sessionIsKept(plan, record) ||
+                (scoped && !hasKeptSession(plan, record)))
                 continue;
             const auto session = uuidFromString(domain::getField(record, "session_id"));
             const auto track = uuidFromString(domain::getField(record, "track_id"));
@@ -557,8 +526,7 @@ namespace {
             auto blobId = uuidFromString(blobText);
             if (!blobId)
                 return std::unexpected(
-                    core::error("sanitized_copy_asset_blob_id_invalid",
-                                "A selected asset has an invalid blob reference."));
+                    core::error("sanitized_copy_asset_blob_id_invalid", "A selected asset has an invalid blob reference."));
             referencedBlobs.insert(*blobId);
         }
         RecordSet referencedChunks;
@@ -569,26 +537,22 @@ namespace {
                 return std::unexpected(blob.error());
             if (!*blob || domain::isDeleted(**blob))
                 return std::unexpected(
-                    core::error("sanitized_copy_asset_blob_missing",
-                                "A selected asset refers to a missing blob record."));
+                    core::error("sanitized_copy_asset_blob_missing", "A selected asset refers to a missing blob record."));
             const std::string role = domain::getField(**blob, "record_role");
             if (role == "asset-blob-chunk")
                 return std::unexpected(
-                    core::error("sanitized_copy_asset_blob_invalid",
-                                "An asset points directly to a chunk instead of a blob manifest."));
+                    core::error("sanitized_copy_asset_blob_invalid", "An asset points directly to a chunk instead of a blob manifest."));
             if (role == "asset-blob-manifest") {
                 for (const auto& id : splitIds(domain::getField(**blob, "chunk_ids"))) {
                     auto chunk = uuidFromString(id);
                     if (!chunk)
-                        return std::unexpected(core::error(
-                            "sanitized_copy_asset_manifest_invalid",
-                            "A selected asset manifest contains an invalid chunk reference."));
+                        return std::unexpected(core::error("sanitized_copy_asset_manifest_invalid",
+                                                           "A selected asset manifest contains an invalid chunk reference."));
                     referencedChunks.insert(*chunk);
                     const auto [owner, inserted] = chunkOwners.emplace(*chunk, blobId);
                     if (!inserted && owner->second != blobId)
                         return std::unexpected(
-                            core::error("sanitized_copy_asset_chunk_shared",
-                                        "A chunk is assigned to multiple asset manifests."));
+                            core::error("sanitized_copy_asset_chunk_shared", "A chunk is assigned to multiple asset manifests."));
                 }
             }
             (**blob).blob = Bytes{};
@@ -599,13 +563,11 @@ namespace {
                 return std::unexpected(chunk.error());
             if (!*chunk || domain::isDeleted(**chunk))
                 return std::unexpected(
-                    core::error("sanitized_copy_asset_chunk_missing",
-                                "A selected asset manifest refers to a missing chunk record."));
+                    core::error("sanitized_copy_asset_chunk_missing", "A selected asset manifest refers to a missing chunk record."));
             if (domain::getField(**chunk, "record_role") != "asset-blob-chunk" ||
                 domain::getField(**chunk, "manifest_id") != uuidToString(chunkOwners.at(chunkId)))
                 return std::unexpected(
-                    core::error("sanitized_copy_asset_chunk_invalid",
-                                "An asset chunk does not match its selected manifest."));
+                    core::error("sanitized_copy_asset_chunk_invalid", "An asset chunk does not match its selected manifest."));
             (**chunk).blob = Bytes{};
         }
         keep(plan, RecordType::AssetBlob) = referencedBlobs;
@@ -624,12 +586,10 @@ namespace {
         plan.summary.generationLogs = kept(plan, RecordType::AiJob).size();
         plan.summary.credentials = 0;
         if (options.includeCredentials)
-            plan.summary.credentials =
-                std::count_if(plan.metadata[RecordType::Settings].begin(),
-                              plan.metadata[RecordType::Settings].end(), [&](const Record& record) {
-                                  return kept(plan, RecordType::Settings).contains(record.id) &&
-                                         isCredential(record);
-                              });
+            plan.summary.credentials = std::count_if(
+                plan.metadata[RecordType::Settings].begin(), plan.metadata[RecordType::Settings].end(), [&](const Record& record) {
+                    return kept(plan, RecordType::Settings).contains(record.id) && isCredential(record);
+                });
         return plan;
     }
 
@@ -643,8 +603,7 @@ namespace {
             record.fields[std::string(field)] = joinIds(retained);
     }
 
-    void sanitizeRecord(Record& record, const CopyPlan& plan, const SanitizedCopyOptions& options,
-                        const Uuid& sourceManifestId) {
+    void sanitizeRecord(Record& record, const CopyPlan& plan, const SanitizedCopyOptions& options, const Uuid& sourceManifestId) {
         record.revision = 1;
         record.previousOffset = 0;
         if (record.type == RecordType::Settings && record.id == sourceManifestId)
@@ -655,8 +614,7 @@ namespace {
                 record.fields["session_type"] = "notes-only";
                 record.fields["recording_state"] = "not-started";
                 for (auto field = record.fields.begin(); field != record.fields.end();) {
-                    if (field->first.starts_with("recording_") ||
-                        field->first.starts_with("audio_import_"))
+                    if (field->first.starts_with("recording_") || field->first.starts_with("audio_import_"))
                         field = record.fields.erase(field);
                     else
                         ++field;
@@ -676,17 +634,13 @@ namespace {
                     }
                 }
                 record.fields["recording_track_count"] = std::to_string(tracks->second.size());
-                record.fields["recording_audio_chunks"] =
-                    std::to_string(plan.recordingChunksBySession.at(record.id));
+                record.fields["recording_audio_chunks"] = std::to_string(plan.recordingChunksBySession.at(record.id));
                 const auto sourceTracks = plan.sourceRecordingTracksBySession.find(record.id);
-                if (sourceTracks != plan.sourceRecordingTracksBySession.end() &&
-                    sourceTracks->second.size() > tracks->second.size()) {
+                if (sourceTracks != plan.sourceRecordingTracksBySession.end() && sourceTracks->second.size() > tracks->second.size()) {
                     for (const std::string_view field :
-                         {"recording_source", "recording_device_id", "recording_durability",
-                          "recording_sample_format", "recording_sample_rate_hz",
-                          "recording_channel_count", "recording_channel_mask", "recording_samples",
-                          "recording_timeline_samples", "recording_bytes",
-                          "recording_discontinuities", "recording_duration_us"})
+                         {"recording_source", "recording_device_id", "recording_durability", "recording_sample_format",
+                          "recording_sample_rate_hz", "recording_channel_count", "recording_channel_mask", "recording_samples",
+                          "recording_timeline_samples", "recording_bytes", "recording_discontinuities", "recording_duration_us"})
                         record.fields.erase(std::string(field));
                 }
             }
@@ -741,110 +695,104 @@ namespace {
         }
     }
 
-    Status publishNoReplace(const std::filesystem::path& temporary,
-                            const std::filesystem::path& destination) {
+    Status publishNoReplace(const std::filesystem::path& temporary, const std::filesystem::path& destination) {
 #ifdef _WIN32
         if (!MoveFileExW(temporary.c_str(), destination.c_str(), MOVEFILE_WRITE_THROUGH)) {
             const DWORD error = GetLastError();
             if (error == ERROR_FILE_EXISTS || error == ERROR_ALREADY_EXISTS)
-                return std::unexpected(
-                    core::error("sanitized_copy_output_exists", "Output already exists."));
-            return std::unexpected(
-                core::error("sanitized_copy_publish_failed",
-                            "Unable to publish the sanitized archive (Windows error " +
-                                std::to_string(error) + ")."));
+                return std::unexpected(core::error("sanitized_copy_output_exists", "Output already exists."));
+            return std::unexpected(core::error("sanitized_copy_publish_failed",
+                                               "Unable to publish the sanitized archive (Windows error " + std::to_string(error) + ")."));
         }
 #else
         std::error_code error;
         std::filesystem::create_hard_link(temporary, destination, error);
         if (error) {
             if (error == std::errc::file_exists)
-                return std::unexpected(
-                    core::error("sanitized_copy_output_exists", "Output already exists."));
+                return std::unexpected(core::error("sanitized_copy_output_exists", "Output already exists."));
             return std::unexpected(core::error("sanitized_copy_publish_failed", error.message()));
         }
+        const bool removedTemporary = std::filesystem::remove(temporary, error);
+        if (error || !removedTemporary) {
+            return std::unexpected(core::error("sanitized_copy_cleanup_failed",
+                                               "Sanitized archive was published, but its staging file could not be removed."));
+        }
+        const auto parent = destination.parent_path().empty() ? std::filesystem::path(".") : destination.parent_path();
+        int directoryFlags = O_RDONLY;
+#ifdef O_CLOEXEC
+        directoryFlags |= O_CLOEXEC;
+#endif
+#ifdef O_DIRECTORY
+        directoryFlags |= O_DIRECTORY;
+#endif
+        const int directoryHandle = ::open(parent.c_str(), directoryFlags);
+        if (directoryHandle < 0) {
+            return std::unexpected(core::error("sanitized_copy_durability_uncertain",
+                                               "Sanitized archive was published, but its directory could not be opened for "
+                                               "synchronization."));
+        }
+        if (::fsync(directoryHandle) != 0) {
+            const int flushError = errno;
+            ::close(directoryHandle);
+            return std::unexpected(core::error("sanitized_copy_durability_uncertain",
+                                               "Sanitized archive was published, but its directory could not be synchronized: " +
+                                                   std::string(std::strerror(flushError))));
+        }
+        ::close(directoryHandle);
 #endif
         return {};
     }
 
-    std::filesystem::path stableLockPath(const std::filesystem::path& path) {
-        std::error_code error;
-        auto canonical = std::filesystem::weakly_canonical(path, error);
-        if (error)
-            canonical = std::filesystem::absolute(path, error);
-        if (error)
-            canonical = path.lexically_normal();
-        auto filename = canonical.filename().native();
-        filename.insert(filename.begin(), static_cast<std::filesystem::path::value_type>('.'));
-        filename += std::filesystem::path(".lock").native();
-        return canonical.parent_path() / std::filesystem::path(filename);
-    }
-
 } // namespace
 
-Result<SanitizedCopySummary> previewSanitizedCopy(const Archive& source,
-                                                  const SanitizedCopyOptions& options) {
+Result<SanitizedCopySummary> previewSanitizedCopy(const Archive& source, const SanitizedCopyOptions& options) {
     auto plan = makePlan(source, options);
     if (!plan)
         return std::unexpected(plan.error());
     return plan->summary;
 }
 
-Status createSanitizedCopy(const Archive& source, const SanitizedCopyOptions& options,
-                           const SanitizedCopySummary& expected,
-                           const std::filesystem::path& destination,
-                           std::string_view destinationPassphrase) {
+Status createSanitizedCopy(const Archive& source, const SanitizedCopyOptions& options, const SanitizedCopySummary& expected,
+                           const std::filesystem::path& destination, std::string_view destinationPassphrase) {
     if (destination.extension() != ".tux")
-        return std::unexpected(core::error("sanitized_copy_extension_invalid",
-                                           "Sanitized archives must use the .tux extension."));
+        return std::unexpected(core::error("sanitized_copy_extension_invalid", "Sanitized archives must use the .tux extension."));
     std::error_code error;
     if (std::filesystem::equivalent(source.path(), destination, error) && !error)
-        return std::unexpected(core::error("sanitized_copy_path_conflict",
-                                           "A sanitized copy cannot replace its source archive."));
+        return std::unexpected(core::error("sanitized_copy_path_conflict", "A sanitized copy cannot replace its source archive."));
     error.clear();
-    const auto parent =
-        destination.has_parent_path() ? destination.parent_path() : std::filesystem::current_path();
+    const auto parent = destination.has_parent_path() ? destination.parent_path() : std::filesystem::current_path();
     if (!std::filesystem::is_directory(parent, error) || error)
-        return std::unexpected(core::error("sanitized_copy_directory_invalid",
-                                           "The output directory must already exist."));
+        return std::unexpected(core::error("sanitized_copy_directory_invalid", "The output directory must already exist."));
     if (source.commitInfo().generation != expected.sourceGeneration)
         return std::unexpected(
-            core::error("sanitized_copy_source_changed",
-                        "The source archive changed after preview; review a new preview."));
+            core::error("sanitized_copy_source_changed", "The source archive changed after preview; review a new preview."));
 
     auto plan = makePlan(source, options);
     if (!plan)
         return std::unexpected(plan.error());
     if (plan->summary.sourceGeneration != expected.sourceGeneration)
         return std::unexpected(
-            core::error("sanitized_copy_source_changed",
-                        "The source archive changed after preview; review a new preview."));
+            core::error("sanitized_copy_source_changed", "The source archive changed after preview; review a new preview."));
     if (plan->summary.selectionFingerprint != expected.selectionFingerprint)
         return std::unexpected(
-            core::error("sanitized_copy_selection_changed",
-                        "The selection differs from the reviewed preview; review it again."));
+            core::error("sanitized_copy_selection_changed", "The selection differs from the reviewed preview; review it again."));
 
     if ((source.encrypted() || options.includeCredentials) && destinationPassphrase.empty())
-        return std::unexpected(core::error("sanitized_copy_encryption_required",
-                                           "An encrypted output is required to preserve source "
-                                           "protection or include credentials."));
+        return std::unexpected(core::error("sanitized_copy_encryption_required", "An encrypted output is required to preserve source "
+                                                                                 "protection or include credentials."));
 
-    auto temporary = parent / ("." + destination.stem().string() + "-" +
-                               uuidToString(randomUuid()) + ".partial.tux");
+    auto temporary = parent / ("." + destination.stem().string() + "-" + uuidToString(randomUuid()) + ".partial.tux");
     struct TemporaryCleanup final {
         std::filesystem::path path;
         ~TemporaryCleanup() {
             std::error_code ignored;
             std::filesystem::remove(path, ignored);
-            std::error_code lockError;
-            std::filesystem::remove(stableLockPath(path), lockError);
         }
     } cleanup{temporary};
     const Uuid sourceManifestId = source.header().id;
     {
-        auto output =
-            Archive::create(temporary, "Sanitized copy of " + source.path().stem().string(),
-                            "Created from an explicitly reviewed privacy selection.");
+        auto output = Archive::create(temporary, "Sanitized copy of " + source.path().stem().string(),
+                                      "Created from an explicitly reviewed privacy selection.");
         if (!output)
             return std::unexpected(output.error());
         if (!destinationPassphrase.empty()) {
@@ -891,8 +839,7 @@ Status createSanitizedCopy(const Archive& source, const SanitizedCopyOptions& op
                         return std::unexpected(record.error());
                     if (!*record)
                         return std::unexpected(
-                            core::error("sanitized_copy_asset_record_missing",
-                                        "A selected asset blob disappeared after preview."));
+                            core::error("sanitized_copy_asset_record_missing", "A selected asset blob disappeared after preview."));
                     if (!appendSelected(std::move(**record), selected))
                         break;
                 }
@@ -913,8 +860,7 @@ Status createSanitizedCopy(const Archive& source, const SanitizedCopyOptions& op
             return std::unexpected(verification.error());
         if (!verification->valid)
             return std::unexpected(
-                core::error("sanitized_copy_verification_failed",
-                            "The generated archive did not pass full verification."));
+                core::error("sanitized_copy_verification_failed", "The generated archive did not pass full verification."));
     }
     if (auto status = publishNoReplace(temporary, destination); !status)
         return status;
