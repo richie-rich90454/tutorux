@@ -44,17 +44,10 @@ std::string readText(const std::filesystem::path& path) {
 }
 
 tutorux::core::Result<tutorux::command::CommandResult>
-importResponse(const std::filesystem::path& archivePath,
-               const std::filesystem::path& inputPath,
+importResponse(const std::filesystem::path& archivePath, const std::filesystem::path& inputPath,
                std::string_view sessionId) {
-    return tutorux::command::dispatch({"--archive",
-                                       archivePath.string(),
-                                       "--json",
-                                       "ai",
-                                       "import",
-                                       "--session",
-                                       std::string(sessionId),
-                                       "--input",
+    return tutorux::command::dispatch({"--archive", archivePath.string(), "--json", "ai", "import",
+                                       "--session", std::string(sessionId), "--input",
                                        inputPath.string()});
 }
 
@@ -70,8 +63,7 @@ bool containsOriginalResponse(const std::vector<tutorux::archive::Record>& jobs,
                               std::string_view response) {
     return std::any_of(jobs.begin(), jobs.end(), [&](const tutorux::archive::Record& job) {
         return job.blob.size() == response.size() &&
-               std::equal(job.blob.begin(),
-                          job.blob.end(),
+               std::equal(job.blob.begin(), job.blob.end(),
                           reinterpret_cast<const std::byte*>(response.data()));
     });
 }
@@ -173,7 +165,7 @@ int main() {
         if (auto status = domain::validateGuide(*guide, *opened); !status)
             return reportFailure("source validation", status.error().message);
         const std::string markdown = domain::renderGuideMarkdown(*guide);
-        if (markdown.find("Tutor instruction:") == std::string::npos ||
+        if (markdown.find("AI-drafted instruction:") == std::string::npos ||
             markdown.find("AI recommendation:") == std::string::npos)
             return reportFailure("guide provenance labels", markdown);
         auto jobs = opened->list(archive::RecordType::AiJob);
@@ -188,28 +180,21 @@ int main() {
         const auto exportPath = temporary.path / ("guide." + std::string(format));
         if (!writeText(exportPath, "previous export"))
             return reportFailure("prepare export destination", "Unable to write existing output.");
-        auto exported = command::dispatch({"--archive",
-                                           archivePath.string(),
-                                           "guide",
-                                           "export",
-                                           *guideId,
-                                           "--format",
-                                           std::string(format),
-                                           "--output",
-                                           exportPath.string()});
+        auto exported =
+            command::dispatch({"--archive", archivePath.string(), "guide", "export", *guideId,
+                               "--format", std::string(format), "--output", exportPath.string()});
         if (!exported || exported->exitCode != 0)
             return reportFailure("guide export",
                                  exported ? exported->output : exported.error().message);
         const std::string document = readText(exportPath);
-        if (document.find("Tutor instruction") == std::string::npos ||
+        if (document.find("AI-drafted instruction") == std::string::npos ||
             document.find("AI recommendation") == std::string::npos) {
             return reportFailure("guide export provenance labels",
                                  "The exported guide omitted tutor or AI provenance labels.");
         }
     }
     for (std::filesystem::directory_iterator iterator(temporary.path, errorCode), end;
-         iterator != end && !errorCode;
-         iterator.increment(errorCode)) {
+         iterator != end && !errorCode; iterator.increment(errorCode)) {
         if (iterator->path().extension() == ".partial")
             return reportFailure("atomic guide export", "A temporary export was left behind.");
     }
@@ -232,9 +217,9 @@ int main() {
         *jsonString(*malformedSummary, "schema_valid") != "false" ||
         !jsonString(*malformedSummary, "warnings") ||
         jsonString(*malformedSummary, "warnings")->empty()) {
-        return reportFailure("malformed response summary",
-                             malformedSummary ? malformedImport->output
-                                              : malformedSummary.error().message);
+        return reportFailure("malformed response summary", malformedSummary
+                                                               ? malformedImport->output
+                                                               : malformedSummary.error().message);
     }
     {
         auto opened = archive::Archive::open(archivePath);
@@ -260,22 +245,13 @@ int main() {
         packageSummary ? jsonString(*packageSummary, "content_hash") : nullptr;
     if (!packageJobId || !packageHash || packageHash->size() != 64 || !packageSummary ||
         !jsonString(*packageSummary, "package_bytes")) {
-        return reportFailure("AI package summary",
-                             packageSummary ? packageResult->output
-                                            : packageSummary.error().message);
+        return reportFailure("AI package summary", packageSummary ? packageResult->output
+                                                                  : packageSummary.error().message);
     }
 
-    auto previewResult = command::dispatch({"--archive",
-                                            archivePath.string(),
-                                            "--json",
-                                            "ai",
-                                            "generate",
-                                            "--job",
-                                            *packageJobId,
-                                            "--provider",
-                                            "openai",
-                                            "--model",
-                                            "fixture-model"});
+    auto previewResult =
+        command::dispatch({"--archive", archivePath.string(), "--json", "ai", "generate", "--job",
+                           *packageJobId, "--provider", "openai", "--model", "fixture-model"});
     if (!previewResult || previewResult->exitCode != 0)
         return reportFailure("AI outbound preview",
                              previewResult ? previewResult->output : previewResult.error().message);
@@ -296,25 +272,15 @@ int main() {
         return reportFailure("AI outbound preview summary",
                              preview ? previewResult->output : preview.error().message);
     }
-    auto mismatchedConfirmation =
-        command::dispatch({"--archive",
-                           archivePath.string(),
-                           "ai",
-                           "generate",
-                           "--job",
-                           *packageJobId,
-                           "--provider",
-                           "openai",
-                           "--model",
-                           "fixture-model",
-                           "--confirm-outbound",
-                           "--confirm-hash",
-                           "0000000000000000000000000000000000000000000000000000000000000000"});
+    auto mismatchedConfirmation = command::dispatch(
+        {"--archive", archivePath.string(), "ai", "generate", "--job", *packageJobId, "--provider",
+         "openai", "--model", "fixture-model", "--confirm-outbound", "--confirm-hash",
+         "0000000000000000000000000000000000000000000000000000000000000000"});
     if (mismatchedConfirmation ||
         mismatchedConfirmation.error().code != "ai_outbound_confirmation_mismatch") {
-        return reportFailure("AI outbound hash gate",
-                             mismatchedConfirmation ? mismatchedConfirmation->output
-                                                    : mismatchedConfirmation.error().message);
+        return reportFailure("AI outbound hash gate", mismatchedConfirmation
+                                                          ? mismatchedConfirmation->output
+                                                          : mismatchedConfirmation.error().message);
     }
 
     auto localProviderConfiguration = command::dispatch(
@@ -445,12 +411,9 @@ int main() {
                              "A configured cloud provider was not marked integrated.");
     }
     for (const auto& provider : cloudProviders) {
-        auto configuredCloudProvider = command::dispatch({"--archive",
-                                                          archivePath.string(),
-                                                          "ai",
-                                                          "configure",
-                                                          "--provider",
-                                                          std::string(provider.id)});
+        auto configuredCloudProvider =
+            command::dispatch({"--archive", archivePath.string(), "ai", "configure", "--provider",
+                               std::string(provider.id)});
         if (!configuredCloudProvider || configuredCloudProvider->exitCode != 0) {
             return reportFailure("cloud provider configuration",
                                  configuredCloudProvider ? configuredCloudProvider->output
@@ -465,13 +428,11 @@ int main() {
         if (!settings)
             return reportFailure("cloud provider settings", settings.error().message);
         for (const auto& provider : cloudProviders) {
-            const auto configuration =
-                std::find_if(settings->begin(),
-                             settings->end(),
-                             [&](const archive::Record& setting) {
-                                 return domain::getField(setting, "record_role") == "ai-provider" &&
-                                        domain::getField(setting, "provider_id") == provider.id;
-                             });
+            const auto configuration = std::find_if(
+                settings->begin(), settings->end(), [&](const archive::Record& setting) {
+                    return domain::getField(setting, "record_role") == "ai-provider" &&
+                           domain::getField(setting, "provider_id") == provider.id;
+                });
             if (configuration == settings->end() ||
                 domain::getField(*configuration, "endpoint") != provider.endpoint) {
                 return reportFailure("cloud provider default endpoint",
@@ -480,14 +441,9 @@ int main() {
             }
         }
     }
-    auto remoteOllamaConfiguration = command::dispatch({"--archive",
-                                                        archivePath.string(),
-                                                        "ai",
-                                                        "configure",
-                                                        "--provider",
-                                                        "ollama",
-                                                        "--endpoint",
-                                                        "https://provider.example/v1"});
+    auto remoteOllamaConfiguration =
+        command::dispatch({"--archive", archivePath.string(), "ai", "configure", "--provider",
+                           "ollama", "--endpoint", "https://provider.example/v1"});
     if (remoteOllamaConfiguration ||
         remoteOllamaConfiguration.error().code != "ai_local_endpoint_invalid") {
         return reportFailure("local provider endpoint restriction",
@@ -495,21 +451,13 @@ int main() {
                                                        : remoteOllamaConfiguration.error().message);
     }
 
-    auto localPackageResult = command::dispatch({"--archive",
-                                                 archivePath.string(),
-                                                 "--json",
-                                                 "ai",
-                                                 "package",
-                                                 "--session",
-                                                 sessionIdText,
-                                                 "--mode",
-                                                 "local",
-                                                 "--format",
-                                                 "json"});
+    auto localPackageResult =
+        command::dispatch({"--archive", archivePath.string(), "--json", "ai", "package",
+                           "--session", sessionIdText, "--mode", "local", "--format", "json"});
     if (!localPackageResult || localPackageResult->exitCode != 0) {
-        return reportFailure("local AI package creation",
-                             localPackageResult ? localPackageResult->output
-                                                : localPackageResult.error().message);
+        return reportFailure("local AI package creation", localPackageResult
+                                                              ? localPackageResult->output
+                                                              : localPackageResult.error().message);
     }
     auto localPackageSummary = command::parseJson(localPackageResult->output);
     const std::string* localPackageJobId =
