@@ -1,10 +1,14 @@
-const CACHE_NAME = "tutorux-web-v5";
+const CACHE_NAME = "tutorux-web-v10";
 const APP_FILES = [
     "./",
     "./index.html",
     "./tutorux.css",
     "./tutorux.js",
+    "./journal-ui.js",
+    "./tutorux-theme.js",
+    "./tutorux-layout.js",
     "./tutorux-worker.js",
+    "./tutorux-recorder-worklet.js",
     "./manifest.webmanifest",
     "./assets/tutorux.svg",
     "./tutorux-core.js",
