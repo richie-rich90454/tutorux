@@ -13,8 +13,30 @@ option(TUTORUX_FETCH_SLINT "Fetch the pinned Slint C++ dependency when building 
 option(TUTORUX_FETCH_PODOFO "Build the pinned PoDoFo dependency from its upstream source" OFF)
 option(TUTORUX_ENABLE_WHISPER "Enable local transcription with whisper.cpp" OFF)
 option(TUTORUX_FETCH_WHISPER "Fetch the pinned whisper.cpp dependency" OFF)
+option(TUTORUX_ENABLE_LLAMA "Enable embedded llama.cpp inference" OFF)
+option(TUTORUX_FETCH_LLAMA "Fetch the pinned llama.cpp dependency" OFF)
+option(TUTORUX_LLAMA_CUDA "Build embedded llama.cpp with CUDA support" OFF)
+option(TUTORUX_LLAMA_VULKAN "Build embedded llama.cpp with Vulkan support" OFF)
+option(TUTORUX_LLAMA_METAL "Build embedded llama.cpp with Metal support" OFF)
 option(TUTORUX_ENABLE_LTO "Enable link-time optimization for release builds" ON)
 option(TUTORUX_STATIC_RUNTIME "Statically link bundled third-party dependencies" OFF)
+option(TUTORUX_BUILD_WASM "Build the static browser edition with Emscripten" OFF)
+
+if(TUTORUX_BUILD_WASM AND NOT EMSCRIPTEN)
+    message(FATAL_ERROR "TUTORUX_BUILD_WASM requires the Emscripten toolchain.")
+endif()
+
+if(TUTORUX_FETCH_LLAMA)
+    set(TUTORUX_ENABLE_LLAMA ON)
+endif()
+
+if(TUTORUX_LLAMA_METAL AND NOT APPLE)
+    message(FATAL_ERROR "TUTORUX_LLAMA_METAL can only be enabled on macOS.")
+endif()
+if((TUTORUX_LLAMA_CUDA OR TUTORUX_LLAMA_VULKAN OR TUTORUX_LLAMA_METAL) AND
+   NOT TUTORUX_ENABLE_LLAMA)
+    message(FATAL_ERROR "llama.cpp acceleration options require TUTORUX_ENABLE_LLAMA=ON.")
+endif()
 
 if(TUTORUX_STATIC_RUNTIME)
     if(NOT TUTORUX_FETCH_PODOFO)
@@ -25,6 +47,9 @@ if(TUTORUX_STATIC_RUNTIME)
     endif()
     if(TUTORUX_ENABLE_WHISPER AND NOT TUTORUX_FETCH_WHISPER)
         message(FATAL_ERROR "Static Whisper builds require TUTORUX_FETCH_WHISPER=ON.")
+    endif()
+    if(TUTORUX_ENABLE_LLAMA AND NOT TUTORUX_FETCH_LLAMA)
+        message(FATAL_ERROR "Static embedded inference requires TUTORUX_FETCH_LLAMA=ON.")
     endif()
 
     set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
@@ -56,9 +81,10 @@ function(tutorux_verify_source_pin dependency source_directory expected_commit)
         RESULT_VARIABLE TUTORUX_GIT_RESULT
         OUTPUT_STRIP_TRAILING_WHITESPACE
     )
-    if(NOT TUTORUX_GIT_RESULT EQUAL 0 OR NOT TUTORUX_ACTUAL_COMMIT STREQUAL expected_commit)
+    string(FIND "${TUTORUX_ACTUAL_COMMIT}" "${expected_commit}" TUTORUX_PIN_POSITION)
+    if(NOT TUTORUX_GIT_RESULT EQUAL 0 OR NOT TUTORUX_PIN_POSITION EQUAL 0)
         message(FATAL_ERROR
-            "${dependency} source must be at commit ${expected_commit}; "
+            "${dependency} source must begin with pinned commit ${expected_commit}; "
             "found '${TUTORUX_ACTUAL_COMMIT}'."
         )
     endif()
@@ -66,9 +92,17 @@ endfunction()
 
 add_library(tutorux_core STATIC
     src/ai/http.cpp
+    src/ai/content.cpp
+    src/ai/cloudflare.cpp
+    src/ai/embedded_llama.cpp
+    src/ai/models_dev.cpp
     src/ai/native_protocol.cpp
     src/ai/openai_compatible.cpp
+    src/ai/replicate.cpp
     src/audio/capture.cpp
+    src/audio/multi_track.cpp
+    src/audio/capture_alsa.cpp
+    src/audio/capture_coreaudio.cpp
     src/audio/devices.cpp
     src/audio/recording_control.cpp
     src/audio/wav_import.cpp
@@ -79,18 +113,41 @@ add_library(tutorux_core STATIC
     src/command/dispatcher.cpp
     src/command/json.cpp
     src/command/session_package.cpp
+    src/command/zip.cpp
     src/domain/entities.cpp
     src/domain/guide.cpp
     src/domain/hash.cpp
+    src/diagnostics/system.cpp
+    src/intelligence/pipeline.cpp
     src/assets/import.cpp
     src/assets/mime.cpp
     src/document/docx_export.cpp
+    src/document/editor.cpp
     src/document/pdf_export.cpp
     src/transcription/import.cpp
     src/transcription/whisper_backend.cpp
 )
 target_include_directories(tutorux_core PUBLIC include)
 target_compile_features(tutorux_core PUBLIC cxx_std_23)
+
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    find_package(PkgConfig REQUIRED)
+    if(TUTORUX_STATIC_RUNTIME)
+        set(PKG_CONFIG_ARGN --static)
+    endif()
+    pkg_check_modules(TUTORUX_ALSA REQUIRED IMPORTED_TARGET alsa)
+    unset(PKG_CONFIG_ARGN)
+    target_link_libraries(tutorux_core PRIVATE PkgConfig::TUTORUX_ALSA)
+    target_compile_definitions(tutorux_core PRIVATE TUTORUX_HAS_ALSA=1)
+endif()
+
+if(APPLE)
+    target_link_libraries(tutorux_core PRIVATE
+        "-framework AudioToolbox"
+        "-framework CoreAudio"
+        "-framework CoreFoundation"
+    )
+endif()
 
 if(TUTORUX_STATIC_RUNTIME AND NOT MSVC)
     find_package(PkgConfig REQUIRED)
@@ -117,6 +174,8 @@ set(TUTORUX_CORROSION_VERSION_PIN "0.6.1")
 set(TUTORUX_CORROSION_COMMIT_PIN "1499b14e4906a2890f5cee1547c8848db261753d")
 set(TUTORUX_WHISPER_VERSION_PIN "1.9.5")
 set(TUTORUX_WHISPER_COMMIT_PIN "d1be6fde11ac6e0407606b4e42fe72d34add8037")
+set(TUTORUX_LLAMA_VERSION_PIN "0.6.0")
+set(TUTORUX_LLAMA_COMMIT_PIN "d812350")
 if(MINGW)
     get_filename_component(TUTORUX_MINGW_BIN "${CMAKE_CXX_COMPILER}" DIRECTORY)
     get_filename_component(TUTORUX_SODIUM_PREFIX "${TUTORUX_MINGW_BIN}" DIRECTORY)
@@ -230,7 +289,7 @@ if(TUTORUX_STATIC_RUNTIME AND NOT MSVC)
 endif()
 
 if(WIN32)
-    target_link_libraries(tutorux_core PUBLIC ole32 propsys uuid advapi32)
+    target_link_libraries(tutorux_core PUBLIC ole32 propsys uuid advapi32 Psapi)
 endif()
 
 if(MSVC)
@@ -243,6 +302,16 @@ endif()
 if(TUTORUX_FETCH_WHISPER)
     set(TUTORUX_ENABLE_WHISPER ON)
 endif()
+if(TUTORUX_FETCH_LLAMA)
+    install(FILES "${TUTORUX_LLAMA_SOURCE_DIR}/LICENSE"
+        DESTINATION licenses/llama.cpp COMPONENT Runtime
+    )
+endif()
+
+target_compile_definitions(tutorux_core PRIVATE
+    TUTORUX_BUILD_GUI=$<BOOL:${TUTORUX_BUILD_GUI}>
+    TUTORUX_ENABLE_WHISPER=$<BOOL:${TUTORUX_ENABLE_WHISPER}>
+)
 
 if(TUTORUX_ENABLE_WHISPER)
     if(TUTORUX_FETCH_WHISPER)
@@ -274,6 +343,44 @@ if(TUTORUX_ENABLE_WHISPER)
     target_compile_definitions(tutorux_core PRIVATE TUTORUX_WITH_WHISPER=1)
 endif()
 
+if(TUTORUX_ENABLE_LLAMA)
+    if(TUTORUX_FETCH_LLAMA)
+        include(FetchContent)
+        set(LLAMA_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+        set(LLAMA_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+        set(LLAMA_BUILD_SERVER OFF CACHE BOOL "" FORCE)
+        set(LLAMA_CURL OFF CACHE BOOL "" FORCE)
+        set(LLAMA_BUILD_COMMON OFF CACHE BOOL "" FORCE)
+        set(GGML_NATIVE OFF CACHE BOOL "" FORCE)
+        set(GGML_CUDA ${TUTORUX_LLAMA_CUDA} CACHE BOOL "" FORCE)
+        set(GGML_VULKAN ${TUTORUX_LLAMA_VULKAN} CACHE BOOL "" FORCE)
+        set(GGML_METAL ${TUTORUX_LLAMA_METAL} CACHE BOOL "" FORCE)
+        set(GGML_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+        set(GGML_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+        FetchContent_Declare(
+            llama_cpp
+            GIT_REPOSITORY https://github.com/ggml-org/llama.cpp.git
+            GIT_TAG v${TUTORUX_LLAMA_VERSION_PIN}
+            GIT_SHALLOW TRUE
+        )
+        FetchContent_MakeAvailable(llama_cpp)
+        FetchContent_GetProperties(llama_cpp SOURCE_DIR TUTORUX_LLAMA_SOURCE_DIR)
+        tutorux_verify_source_pin(
+            llama.cpp "${TUTORUX_LLAMA_SOURCE_DIR}" "${TUTORUX_LLAMA_COMMIT_PIN}"
+        )
+    else()
+        find_package(llama CONFIG REQUIRED)
+    endif()
+    if(NOT TARGET llama)
+        message(FATAL_ERROR "The pinned llama.cpp source must define the 'llama' target.")
+    endif()
+    target_link_libraries(tutorux_core PRIVATE llama)
+    target_compile_definitions(tutorux_core PRIVATE TUTORUX_WITH_LLAMA=1)
+    if(TUTORUX_LLAMA_CUDA OR TUTORUX_LLAMA_VULKAN OR TUTORUX_LLAMA_METAL)
+        target_compile_definitions(tutorux_core PRIVATE TUTORUX_LLAMA_GPU_AVAILABLE=1)
+    endif()
+endif()
+
 add_executable(tutorux src/main.cpp)
 target_link_libraries(tutorux PRIVATE tutorux_core)
 if(MINGW AND TUTORUX_STATIC_RUNTIME)
@@ -281,7 +388,7 @@ if(MINGW AND TUTORUX_STATIC_RUNTIME)
 elseif(MINGW)
     target_link_options(tutorux PRIVATE -static-libgcc -static-libstdc++)
 elseif(UNIX AND NOT APPLE AND TUTORUX_STATIC_RUNTIME)
-    target_link_options(tutorux_core INTERFACE -static-libgcc -static-libstdc++)
+    target_link_options(tutorux_core INTERFACE -static -static-libgcc -static-libstdc++)
 endif()
 
 if(TUTORUX_ENABLE_LTO AND CMAKE_BUILD_TYPE STREQUAL "Release" AND NOT MINGW)
@@ -341,6 +448,46 @@ if(TUTORUX_BUILD_GUI)
     endif()
     slint_target_sources(tutorux ui/app-window.slint)
     target_link_libraries(tutorux PRIVATE Slint::Slint)
+endif()
+
+if(TUTORUX_BUILD_WASM)
+    find_program(TUTORUX_TSC_EXECUTABLE NAMES tsc REQUIRED)
+    add_executable(tutorux_web src/wasm/web_api.cpp)
+    target_link_libraries(tutorux_web PRIVATE tutorux_core)
+    target_compile_features(tutorux_web PRIVATE cxx_std_23)
+    set_target_properties(tutorux_web PROPERTIES
+        OUTPUT_NAME "tutorux-core"
+        RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/web"
+    )
+    target_link_options(tutorux_web PRIVATE
+        "-sMODULARIZE=1"
+        "-sEXPORT_NAME=createTutoruxModule"
+        "-sALLOW_MEMORY_GROWTH=1"
+        "-sEXIT_RUNTIME=0"
+        "-sENVIRONMENT=web,worker"
+        "-sEXPORTED_RUNTIME_METHODS=ccall,FS"
+        "-sEXPORTED_FUNCTIONS=_main,_tutorux_web_dispatch_json"
+    )
+    add_custom_command(TARGET tutorux_web PRE_LINK
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+                "${CMAKE_CURRENT_SOURCE_DIR}/web"
+                "$<TARGET_FILE_DIR:tutorux_web>"
+        COMMAND "${TUTORUX_TSC_EXECUTABLE}"
+                --target ES2022
+                --module none
+                --lib ES2022,DOM
+                --skipLibCheck
+                --outFile "$<TARGET_FILE_DIR:tutorux_web>/tutorux.js"
+                "${CMAKE_CURRENT_SOURCE_DIR}/web/tutorux.ts"
+        VERBATIM
+    )
+    install(TARGETS tutorux_web RUNTIME DESTINATION web COMPONENT WebRuntime)
+    install(DIRECTORY web/ DESTINATION web COMPONENT WebRuntime
+        PATTERN "tutorux.js" EXCLUDE
+    )
+    install(FILES "${CMAKE_CURRENT_BINARY_DIR}/web/tutorux.js"
+        DESTINATION web COMPONENT WebRuntime
+    )
 endif()
 
 if(TUTORUX_BUILD_GUI AND TUTORUX_FETCH_SLINT)
