@@ -25,6 +25,39 @@ struct CaptureDeviceProbe final {
     std::uint16_t channelCount{};
 };
 
+struct CaptureInputLevel final {
+    // Peak and RMS levels describe the most recent interval, normalized to [0, 1].
+    std::chrono::milliseconds elapsed{};
+    std::uint64_t framesInInterval{};
+    // Cumulative frame count since the preflight stream started.
+    std::uint64_t framesMeasured{};
+    double peakLevel{};
+    double rmsLevel{};
+    double peakDbfs{-120.0};
+    double rmsDbfs{-120.0};
+};
+
+struct CapturePreflightOptions final {
+    // An empty ID selects the platform default microphone. Duration must be 200ms–10s and
+    // levelInterval must be 20ms–1s. The callback runs synchronously on the preflight caller's
+    // thread and receives interval levels; it must not retain the reference.
+    std::string deviceId;
+    std::chrono::milliseconds duration{1'800};
+    std::chrono::milliseconds levelInterval{100};
+    std::function<void(const CaptureInputLevel&)> levelChanged;
+};
+
+struct CapturePreflightSummary final {
+    CaptureDeviceProbe device;
+    std::chrono::milliseconds measuredDuration{};
+    std::uint64_t framesMeasured{};
+    double peakLevel{};
+    double rmsLevel{};
+    double peakDbfs{-120.0};
+    double rmsDbfs{-120.0};
+    bool signalDetected{};
+};
+
 struct CaptureOptions final {
     DeviceKind source{DeviceKind::microphone};
     DurabilityPolicy durability{DurabilityPolicy::defaultPolicy};
@@ -70,13 +103,19 @@ struct MultiTrackCaptureSummary final {
     std::uint64_t byteCount{};
 };
 
-core::Result<CaptureSummary>
-captureNative(archive::Archive& archive, const archive::Uuid& sessionId, CaptureOptions options);
+core::Result<CaptureSummary> captureNative(archive::Archive& archive,
+                                           const archive::Uuid& sessionId, CaptureOptions options);
 core::Result<MultiTrackCaptureSummary> captureNativeTracks(archive::Archive& archive,
                                                            const archive::Uuid& sessionId,
                                                            CaptureOptions microphone,
                                                            CaptureOptions systemAudio);
 core::Result<CaptureDeviceProbe> probeCaptureDevice(DeviceKind source, std::string deviceId);
+// Opens and briefly reads the selected microphone to verify access and report levels. The
+// function is blocking and should run on a worker thread. It holds input only long enough to
+// calculate levels; it creates no session, archive, recording track, or audio asset, and does
+// not count as consent to begin a recording. The callback reports interval levels on the caller
+// thread. Digital silence is -120 dBFS; signalDetected uses an aggregate RMS threshold of -60 dBFS.
+core::Result<CapturePreflightSummary> preflightCaptureInput(CapturePreflightOptions options = {});
 core::Result<CaptureSummary> recoverNativeCapture(archive::Archive& archive,
                                                   const archive::Uuid& sessionId,
                                                   std::optional<archive::Uuid> trackId = {});
