@@ -2,6 +2,30 @@
     "version": 6,
     "configurePresets": [
         {
+            "name": "portable-wasm-release",
+            "displayName": "Portable static browser release",
+            "generator": "Ninja",
+            "binaryDir": "${sourceDir}/build-wasm",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Release",
+                "CMAKE_TOOLCHAIN_FILE": "$env{EMSDK}/upstream/emscripten/cmake/Modules/Platform/Emscripten.cmake",
+                "BUILD_TESTING": "OFF",
+                "TUTORUX_BUILD_GUI": "OFF",
+                "TUTORUX_BUILD_WASM": "ON",
+                "TUTORUX_ENABLE_LTO": "ON"
+            }
+        },
+        {
+            "name": "portable-wasm-debug",
+            "displayName": "Portable static browser debug",
+            "inherits": "portable-wasm-release",
+            "binaryDir": "${sourceDir}/build-wasm-debug",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Debug",
+                "TUTORUX_ENABLE_LTO": "OFF"
+            }
+        },
+        {
             "name": "portable-static-release",
             "displayName": "Portable static release (Windows)",
             "generator": "Ninja",
@@ -21,6 +45,8 @@
                 "TUTORUX_FETCH_PODOFO": "ON",
                 "TUTORUX_FETCH_SLINT": "ON",
                 "TUTORUX_FETCH_WHISPER": "ON",
+                "TUTORUX_ENABLE_LLAMA": "ON",
+                "TUTORUX_FETCH_LLAMA": "ON",
                 "TUTORUX_STATIC_RUNTIME": "ON"
             }
         },
@@ -62,6 +88,9 @@
                 "type": "equals",
                 "lhs": "${hostSystemName}",
                 "rhs": "Darwin"
+            },
+            "cacheVariables": {
+                "TUTORUX_LLAMA_METAL": "ON"
             }
         },
         {
@@ -72,9 +101,78 @@
             "cacheVariables": {
                 "CMAKE_BUILD_TYPE": "Debug"
             }
+        },
+        {
+            "name": "portable-compact-release",
+            "displayName": "Portable compact static release (Windows)",
+            "inherits": "portable-static-release",
+            "binaryDir": "${sourceDir}/build-compact",
+            "cacheVariables": {
+                "TUTORUX_ENABLE_LLAMA": "OFF",
+                "TUTORUX_FETCH_LLAMA": "OFF"
+            }
+        },
+        {
+            "name": "portable-compact-debug",
+            "displayName": "Portable compact static debug (Windows)",
+            "inherits": "portable-compact-release",
+            "binaryDir": "${sourceDir}/build-compact-debug",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Debug"
+            }
+        },
+        {
+            "name": "portable-compact-linux-release",
+            "displayName": "Portable compact static release (Linux)",
+            "inherits": "portable-compact-release",
+            "binaryDir": "${sourceDir}/build-linux-compact",
+            "condition": {
+                "type": "equals",
+                "lhs": "${hostSystemName}",
+                "rhs": "Linux"
+            }
+        },
+        {
+            "name": "portable-compact-linux-debug",
+            "displayName": "Portable compact static debug (Linux)",
+            "inherits": "portable-compact-linux-release",
+            "binaryDir": "${sourceDir}/build-linux-compact-debug",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Debug"
+            }
+        },
+        {
+            "name": "portable-compact-macos-release",
+            "displayName": "Portable compact static release (macOS)",
+            "inherits": "portable-compact-release",
+            "binaryDir": "${sourceDir}/build-macos-compact",
+            "condition": {
+                "type": "equals",
+                "lhs": "${hostSystemName}",
+                "rhs": "Darwin"
+            }
+        },
+        {
+            "name": "portable-compact-macos-debug",
+            "displayName": "Portable compact static debug (macOS)",
+            "inherits": "portable-compact-macos-release",
+            "binaryDir": "${sourceDir}/build-macos-compact-debug",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Debug"
+            }
         }
     ],
     "buildPresets": [
+        {
+            "name": "portable-wasm-release",
+            "configurePreset": "portable-wasm-release",
+            "jobs": 4
+        },
+        {
+            "name": "portable-wasm-debug",
+            "configurePreset": "portable-wasm-debug",
+            "jobs": 4
+        },
         {
             "name": "portable-static-release",
             "configurePreset": "portable-static-release",
@@ -128,6 +226,66 @@
         {
             "name": "portable-static-macos-debug",
             "configurePreset": "portable-static-macos-debug",
+            "jobs": 4,
+            "condition": {
+                "type": "equals",
+                "lhs": "${hostSystemName}",
+                "rhs": "Darwin"
+            }
+        },
+        {
+            "name": "portable-compact-release",
+            "configurePreset": "portable-compact-release",
+            "jobs": 4,
+            "condition": {
+                "type": "equals",
+                "lhs": "${hostSystemName}",
+                "rhs": "Windows"
+            }
+        },
+        {
+            "name": "portable-compact-debug",
+            "configurePreset": "portable-compact-debug",
+            "jobs": 4,
+            "condition": {
+                "type": "equals",
+                "lhs": "${hostSystemName}",
+                "rhs": "Windows"
+            }
+        },
+        {
+            "name": "portable-compact-linux-release",
+            "configurePreset": "portable-compact-linux-release",
+            "jobs": 4,
+            "condition": {
+                "type": "equals",
+                "lhs": "${hostSystemName}",
+                "rhs": "Linux"
+            }
+        },
+        {
+            "name": "portable-compact-linux-debug",
+            "configurePreset": "portable-compact-linux-debug",
+            "jobs": 4,
+            "condition": {
+                "type": "equals",
+                "lhs": "${hostSystemName}",
+                "rhs": "Linux"
+            }
+        },
+        {
+            "name": "portable-compact-macos-release",
+            "configurePreset": "portable-compact-macos-release",
+            "jobs": 4,
+            "condition": {
+                "type": "equals",
+                "lhs": "${hostSystemName}",
+                "rhs": "Darwin"
+            }
+        },
+        {
+            "name": "portable-compact-macos-debug",
+            "configurePreset": "portable-compact-macos-debug",
             "jobs": 4,
             "condition": {
                 "type": "equals",
@@ -200,6 +358,78 @@
         {
             "name": "portable-static-macos-debug",
             "configurePreset": "portable-static-macos-debug",
+            "condition": {
+                "type": "equals",
+                "lhs": "${hostSystemName}",
+                "rhs": "Darwin"
+            },
+            "output": {
+                "outputOnFailure": true
+            }
+        },
+        {
+            "name": "portable-compact-release",
+            "configurePreset": "portable-compact-release",
+            "condition": {
+                "type": "equals",
+                "lhs": "${hostSystemName}",
+                "rhs": "Windows"
+            },
+            "output": {
+                "outputOnFailure": true
+            }
+        },
+        {
+            "name": "portable-compact-debug",
+            "configurePreset": "portable-compact-debug",
+            "condition": {
+                "type": "equals",
+                "lhs": "${hostSystemName}",
+                "rhs": "Windows"
+            },
+            "output": {
+                "outputOnFailure": true
+            }
+        },
+        {
+            "name": "portable-compact-linux-release",
+            "configurePreset": "portable-compact-linux-release",
+            "condition": {
+                "type": "equals",
+                "lhs": "${hostSystemName}",
+                "rhs": "Linux"
+            },
+            "output": {
+                "outputOnFailure": true
+            }
+        },
+        {
+            "name": "portable-compact-linux-debug",
+            "configurePreset": "portable-compact-linux-debug",
+            "condition": {
+                "type": "equals",
+                "lhs": "${hostSystemName}",
+                "rhs": "Linux"
+            },
+            "output": {
+                "outputOnFailure": true
+            }
+        },
+        {
+            "name": "portable-compact-macos-release",
+            "configurePreset": "portable-compact-macos-release",
+            "condition": {
+                "type": "equals",
+                "lhs": "${hostSystemName}",
+                "rhs": "Darwin"
+            },
+            "output": {
+                "outputOnFailure": true
+            }
+        },
+        {
+            "name": "portable-compact-macos-debug",
+            "configurePreset": "portable-compact-macos-debug",
             "condition": {
                 "type": "equals",
                 "lhs": "${hostSystemName}",
