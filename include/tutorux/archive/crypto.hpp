@@ -62,14 +62,16 @@ core::Result<Bytes> encryptRecordPayload(std::span<const std::byte> plaintext,
                                          RecordType type,
                                          const Uuid& recordId,
                                          std::uint64_t revision,
-                                         std::uint64_t previousOffset);
+                                         std::uint64_t previousOffset,
+                                         std::uint8_t codec = 0);
 core::Result<Bytes> decryptRecordPayload(std::span<const std::byte> ciphertext,
                                          const SecretKey& archiveKey,
                                          const Uuid& archiveId,
                                          RecordType type,
                                          const Uuid& recordId,
                                          std::uint64_t revision,
-                                         std::uint64_t previousOffset);
+                                         std::uint64_t previousOffset,
+                                         std::uint8_t codec = 0);
 std::array<std::byte, 32> authenticateBytes(std::span<const std::byte> bytes, const SecretKey& key);
 bool authenticationMatches(std::span<const std::byte> bytes,
                            std::span<const std::byte> authentication,
