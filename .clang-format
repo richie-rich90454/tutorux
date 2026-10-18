@@ -21,8 +21,8 @@ BinPackParameters: true
 BreakBeforeBraces: Attach
 BreakBeforeBinaryOperators: None
 BreakConstructorInitializers: BeforeComma
-BreakStringLiterals: true
-ColumnLimit: 100
+BreakStringLiterals: false
+ColumnLimit: 140
 ContinuationIndentWidth: 4
 Cpp11BracedListStyle: true
 DerivePointerAlignment: false
