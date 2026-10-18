@@ -18,16 +18,14 @@ namespace {
         }
     }
 
-    template <typename Integer>
-    core::Result<Integer> readLittle(std::span<const std::byte> bytes, std::size_t& cursor) {
+    template <typename Integer> core::Result<Integer> readLittle(std::span<const std::byte> bytes, std::size_t& cursor) {
         if (cursor > bytes.size() || bytes.size() - cursor < sizeof(Integer)) {
             return std::unexpected(core::error("archive_truncated", "Archive field is truncated."));
         }
         using Unsigned = std::make_unsigned_t<Integer>;
         std::uint64_t bits = 0;
         for (std::size_t index = 0; index < sizeof(Integer); ++index) {
-            bits |= static_cast<std::uint64_t>(std::to_integer<unsigned int>(bytes[cursor + index]))
-                    << (index * 8U);
+            bits |= static_cast<std::uint64_t>(std::to_integer<unsigned int>(bytes[cursor + index])) << (index * 8U);
         }
         cursor += sizeof(Integer);
         return static_cast<Integer>(static_cast<Unsigned>(bits));
@@ -48,8 +46,7 @@ namespace {
         normalized.reserve(value.size());
         for (const char character : value) {
             const auto byte = static_cast<unsigned char>(character);
-            normalized.push_back(byte >= 'A' && byte <= 'Z' ? static_cast<char>(byte - 'A' + 'a')
-                                                            : character);
+            normalized.push_back(byte >= 'A' && byte <= 'Z' ? static_cast<char>(byte - 'A' + 'a') : character);
         }
         return normalized;
     }
@@ -82,32 +79,28 @@ core::Result<Bytes> encodeArchiveHeader(const ArchiveHeader& header) {
     bytes.insert(bytes.end(), 12, std::byte{});
     writeLittle(bytes, crc32(bytes));
     if (bytes.size() != kArchiveHeaderSize) {
-        return std::unexpected(
-            core::error("archive_format_internal", "Invalid archive header size."));
+        return std::unexpected(core::error("archive_format_internal", "Invalid archive header size."));
     }
     return bytes;
 }
 
 core::Result<ArchiveVersion> inspectArchiveVersion(std::span<const std::byte> bytes) {
     if (bytes.size() < kArchiveHeaderSize || !hasMagic(bytes, std::string_view("TUTORUX\0", 8))) {
-        return std::unexpected(
-            core::error("archive_magic_invalid", "File is not a Tutorux archive."));
+        return std::unexpected(core::error("archive_magic_invalid", "File is not a Tutorux archive."));
     }
     if (crc32(bytes.first(60)) != [&] {
             std::size_t cursor = 60;
             auto checksum = readLittle<std::uint32_t>(bytes, cursor);
             return checksum ? *checksum : 0U;
         }()) {
-        return std::unexpected(
-            core::error("archive_header_checksum", "Archive header checksum is invalid."));
+        return std::unexpected(core::error("archive_header_checksum", "Archive header checksum is invalid."));
     }
     std::size_t cursor = 8;
     auto major = readLittle<std::uint16_t>(bytes, cursor);
     auto minor = readLittle<std::uint16_t>(bytes, cursor);
     auto length = readLittle<std::uint32_t>(bytes, cursor);
     if (!major || !minor || !length || *length != kArchiveHeaderSize) {
-        return std::unexpected(
-            core::error("archive_header_invalid", "Archive header fields are invalid."));
+        return std::unexpected(core::error("archive_header_invalid", "Archive header fields are invalid."));
     }
     return ArchiveVersion{*major, *minor};
 }
@@ -120,37 +113,41 @@ core::Result<ArchiveHeader> decodeArchiveHeader(std::span<const std::byte> bytes
     std::size_t cursor = 16;
     header.majorVersion = version->major;
     header.minorVersion = version->minor;
-    if (header.majorVersion > 1) {
-        return std::unexpected(core::error("archive_version_unsupported",
-                                           "This archive uses a newer major format version."));
-    }
-    if (header.majorVersion != 1) {
-        return std::unexpected(
-            core::error("archive_version_unsupported", "Unsupported archive version."));
-    }
     std::copy_n(bytes.begin() + static_cast<std::ptrdiff_t>(cursor), 16, header.id.begin());
     cursor += 16;
     auto createdAt = readLittle<std::uint64_t>(bytes, cursor);
     auto capabilities = readLittle<std::uint64_t>(bytes, cursor);
     if (!createdAt || !capabilities) {
-        return std::unexpected(
-            core::error("archive_header_invalid", "Archive header fields are invalid."));
+        return std::unexpected(core::error("archive_header_invalid", "Archive header fields are invalid."));
     }
     header.createdAtUs = *createdAt;
     header.capabilities = *capabilities;
     if (std::any_of(bytes.begin() + 48, bytes.begin() + 60, [](std::byte value) {
             return value != std::byte{};
         })) {
-        return std::unexpected(
-            core::error("archive_header_reserved", "Reserved archive header bytes must be zero."));
+        return std::unexpected(core::error("archive_header_reserved", "Reserved archive header bytes must be zero."));
+    }
+    if (header.majorVersion > kSupportedArchiveMajorVersion) {
+        return std::unexpected(core::error("archive_version_unsupported", "This archive uses a newer major format version."));
+    }
+    if (header.majorVersion != kSupportedArchiveMajorVersion) {
+        return std::unexpected(core::error("archive_version_unsupported", "Unsupported archive version."));
+    }
+    if (header.minorVersion > kSupportedArchiveMinorVersion) {
+        return std::unexpected(core::error("archive_version_unsupported",
+                                           "This archive uses a newer minor format version that this application cannot safely "
+                                           "open."));
+    }
+    if ((header.capabilities & ~kKnownArchiveCapabilities) != 0) {
+        return std::unexpected(core::error("archive_capability_unsupported",
+                                           "This archive requires capability bits that this application does not understand."));
     }
     return header;
 }
 
 core::Result<Bytes> encodeRecordPayload(const Record& record) {
     if (record.fields.size() > std::numeric_limits<std::uint16_t>::max()) {
-        return std::unexpected(
-            core::error("record_field_limit", "Record contains too many fields."));
+        return std::unexpected(core::error("record_field_limit", "Record contains too many fields."));
     }
     Bytes bytes;
     bytes.reserve(16 + record.blob.size());
@@ -162,8 +159,7 @@ core::Result<Bytes> encodeRecordPayload(const Record& record) {
     for (const auto& [key, value] : record.fields) {
         if (key.empty() || key.size() > std::numeric_limits<std::uint16_t>::max() ||
             value.size() > std::numeric_limits<std::uint32_t>::max()) {
-            return std::unexpected(
-                core::error("record_field_limit", "Record field exceeds format limits."));
+            return std::unexpected(core::error("record_field_limit", "Record field exceeds format limits."));
         }
         writeLittle<std::uint16_t>(bytes, static_cast<std::uint16_t>(key.size()));
         writeLittle<std::uint32_t>(bytes, static_cast<std::uint32_t>(value.size()));
@@ -176,26 +172,22 @@ core::Result<Bytes> encodeRecordPayload(const Record& record) {
     }
     bytes.insert(bytes.end(), record.blob.begin(), record.blob.end());
     if (bytes.size() > kMaximumRecordPayload) {
-        return std::unexpected(
-            core::error("record_payload_limit", "Record payload exceeds the v1 limit."));
+        return std::unexpected(core::error("record_payload_limit", "Record payload exceeds the v1 limit."));
     }
     return bytes;
 }
 
-core::Result<Record> decodeRecordPayload(RecordType type, Uuid id, std::uint64_t revision,
-                                         std::uint64_t previousOffset,
+core::Result<Record> decodeRecordPayload(RecordType type, Uuid id, std::uint64_t revision, std::uint64_t previousOffset,
                                          std::span<const std::byte> payload) {
     if (payload.size() < 16 || !hasMagic(payload, "TXMD")) {
-        return std::unexpected(
-            core::error("record_payload_invalid", "Domain record payload is malformed."));
+        return std::unexpected(core::error("record_payload_invalid", "Domain record payload is malformed."));
     }
     std::size_t cursor = 4;
     auto schema = readLittle<std::uint16_t>(payload, cursor);
     auto count = readLittle<std::uint16_t>(payload, cursor);
     auto blobSize = readLittle<std::uint64_t>(payload, cursor);
     if (!schema || *schema != 1 || !count || !blobSize) {
-        return std::unexpected(
-            core::error("record_schema_unsupported", "Unsupported record schema."));
+        return std::unexpected(core::error("record_schema_unsupported", "Unsupported record schema."));
     }
     Record record{type, id, revision, previousOffset, {}, {}};
     for (std::uint16_t fieldIndex = 0; fieldIndex < *count; ++fieldIndex) {
@@ -203,8 +195,7 @@ core::Result<Record> decodeRecordPayload(RecordType type, Uuid id, std::uint64_t
         auto valueLength = readLittle<std::uint32_t>(payload, cursor);
         if (!keyLength || !valueLength || *keyLength == 0 || cursor > payload.size() ||
             payload.size() - cursor < static_cast<std::size_t>(*keyLength) + *valueLength) {
-            return std::unexpected(
-                core::error("record_field_invalid", "Record field exceeds its payload."));
+            return std::unexpected(core::error("record_field_invalid", "Record field exceeds its payload."));
         }
         std::string key;
         std::string value;
@@ -215,13 +206,11 @@ core::Result<Record> decodeRecordPayload(RecordType type, Uuid id, std::uint64_t
         for (std::uint32_t index = 0; index < *valueLength; ++index)
             value.push_back(static_cast<char>(std::to_integer<unsigned char>(payload[cursor++])));
         if (!record.fields.emplace(std::move(key), std::move(value)).second) {
-            return std::unexpected(
-                core::error("record_field_duplicate", "Record contains duplicate field names."));
+            return std::unexpected(core::error("record_field_duplicate", "Record contains duplicate field names."));
         }
     }
     if (*blobSize != payload.size() - cursor) {
-        return std::unexpected(
-            core::error("record_blob_invalid", "Record blob length is inconsistent."));
+        return std::unexpected(core::error("record_blob_invalid", "Record blob length is inconsistent."));
     }
     record.blob.assign(payload.begin() + static_cast<std::ptrdiff_t>(cursor), payload.end());
     return record;
@@ -256,17 +245,14 @@ core::Result<Uuid> uuidFromString(std::string_view value) {
         else if (character >= 'A' && character <= 'F')
             nibble = static_cast<unsigned int>(character - 'A' + 10);
         else
-            return std::unexpected(
-                core::error("id_invalid", "Identifier must be a hexadecimal UUID."));
+            return std::unexpected(core::error("id_invalid", "Identifier must be a hexadecimal UUID."));
         if (highNibble < 0)
             highNibble = static_cast<int>(nibble);
         else {
             if (outputIndex >= id.size()) {
-                return std::unexpected(
-                    core::error("id_invalid", "Identifier must be a 128-bit UUID."));
+                return std::unexpected(core::error("id_invalid", "Identifier must be a 128-bit UUID."));
             }
-            id[outputIndex++] =
-                static_cast<std::byte>((static_cast<unsigned int>(highNibble) << 4U) | nibble);
+            id[outputIndex++] = static_cast<std::byte>((static_cast<unsigned int>(highNibble) << 4U) | nibble);
             highNibble = -1;
         }
     }
@@ -354,8 +340,7 @@ core::Result<RecordType> recordTypeFromName(std::string_view name) {
         return RecordType::Encryption;
     if (normalized == "waveform-index")
         return RecordType::WaveformIndex;
-    return std::unexpected(
-        core::error("record_type_invalid", "Unknown record type '" + normalized + "'."));
+    return std::unexpected(core::error("record_type_invalid", "Unknown record type '" + normalized + "'."));
 }
 
 } // namespace tutorux::archive
