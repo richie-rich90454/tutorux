@@ -2,10 +2,59 @@
   "version": 6,
   "configurePresets": [
     {
+      "name": "dev",
+      "displayName": "Developer build (shared GUI, tests)",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "BUILD_SHARED_LIBS": "ON",
+        "BUILD_TESTING": "ON",
+        "TUTORUX_BUILD_GUI": "ON",
+        "TUTORUX_ENABLE_FFMPEG": "OFF",
+        "TUTORUX_ENABLE_LLAMA": "OFF",
+        "TUTORUX_ENABLE_LTO": "ON",
+        "TUTORUX_ENABLE_WHISPER": "OFF",
+        "TUTORUX_FETCH_FFMPEG": "OFF",
+        "TUTORUX_FETCH_LLAMA": "OFF",
+        "TUTORUX_FETCH_PODOFO": "ON",
+        "TUTORUX_FETCH_SLINT": "ON",
+        "TUTORUX_FETCH_WHISPER": "OFF",
+        "TUTORUX_STATIC_RUNTIME": "OFF"
+      }
+    },
+    {
+      "name": "portable",
+      "displayName": "Portable single-file build (Windows)",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/portable",
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Windows"
+      },
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "BUILD_SHARED_LIBS": "OFF",
+        "BUILD_TESTING": "ON",
+        "TUTORUX_BUILD_GUI": "ON",
+        "TUTORUX_ENABLE_FFMPEG": "OFF",
+        "TUTORUX_ENABLE_LLAMA": "OFF",
+        "TUTORUX_ENABLE_LTO": "ON",
+        "TUTORUX_ENABLE_WHISPER": "ON",
+        "TUTORUX_FETCH_FFMPEG": "OFF",
+        "TUTORUX_FETCH_LLAMA": "OFF",
+        "TUTORUX_FETCH_PODOFO": "ON",
+        "TUTORUX_FETCH_SLINT": "ON",
+        "TUTORUX_FETCH_WHISPER": "ON",
+        "TUTORUX_STATIC_RUNTIME": "ON"
+      }
+    },
+    {
       "name": "portable-wasm-release",
       "displayName": "Portable static browser release",
       "generator": "Ninja",
-      "binaryDir": "${sourceDir}/build-wasm",
+      "binaryDir": "${sourceDir}/build/wasm",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release",
         "CMAKE_TOOLCHAIN_FILE": "$env{EMSDK}/upstream/emscripten/cmake/Modules/Platform/Emscripten.cmake",
@@ -19,7 +68,7 @@
       "name": "portable-wasm-debug",
       "displayName": "Portable static browser debug",
       "inherits": "portable-wasm-release",
-      "binaryDir": "${sourceDir}/build-wasm-debug",
+      "binaryDir": "${sourceDir}/build/wasm-debug",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug",
         "TUTORUX_ENABLE_LTO": "OFF"
@@ -29,7 +78,7 @@
       "name": "portable-static-release",
       "displayName": "Portable static release (Windows)",
       "generator": "Ninja",
-      "binaryDir": "${sourceDir}/build-static",
+      "binaryDir": "${sourceDir}/build/static",
       "condition": {
         "type": "equals",
         "lhs": "${hostSystemName}",
@@ -56,7 +105,7 @@
       "name": "portable-static-debug",
       "displayName": "Portable static debug",
       "inherits": "portable-static-release",
-      "binaryDir": "${sourceDir}/build-static-debug",
+      "binaryDir": "${sourceDir}/build/static-debug",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug"
       }
@@ -65,7 +114,7 @@
       "name": "portable-static-linux-release",
       "displayName": "Portable static release (Linux)",
       "inherits": "portable-static-release",
-      "binaryDir": "${sourceDir}/build-linux-static",
+      "binaryDir": "${sourceDir}/build/linux-static",
       "condition": {
         "type": "equals",
         "lhs": "${hostSystemName}",
@@ -76,7 +125,7 @@
       "name": "portable-static-linux-debug",
       "displayName": "Portable static debug (Linux)",
       "inherits": "portable-static-linux-release",
-      "binaryDir": "${sourceDir}/build-linux-static-debug",
+      "binaryDir": "${sourceDir}/build/linux-static-debug",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug"
       }
@@ -85,7 +134,7 @@
       "name": "portable-static-macos-release",
       "displayName": "Portable static release (macOS)",
       "inherits": "portable-static-release",
-      "binaryDir": "${sourceDir}/build-macos-static",
+      "binaryDir": "${sourceDir}/build/macos-static",
       "condition": {
         "type": "equals",
         "lhs": "${hostSystemName}",
@@ -99,7 +148,7 @@
       "name": "portable-static-macos-debug",
       "displayName": "Portable static debug (macOS)",
       "inherits": "portable-static-macos-release",
-      "binaryDir": "${sourceDir}/build-macos-static-debug",
+      "binaryDir": "${sourceDir}/build/macos-static-debug",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug"
       }
@@ -108,7 +157,7 @@
       "name": "portable-compact-release",
       "displayName": "Portable compact static release (Windows)",
       "inherits": "portable-static-release",
-      "binaryDir": "${sourceDir}/build-compact",
+      "binaryDir": "${sourceDir}/build/compact",
       "cacheVariables": {
         "TUTORUX_ENABLE_LLAMA": "OFF",
         "TUTORUX_FETCH_LLAMA": "OFF"
@@ -118,7 +167,7 @@
       "name": "portable-compact-debug",
       "displayName": "Portable compact static debug (Windows)",
       "inherits": "portable-compact-release",
-      "binaryDir": "${sourceDir}/build-compact-debug",
+      "binaryDir": "${sourceDir}/build/compact-debug",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug"
       }
@@ -127,7 +176,7 @@
       "name": "portable-compact-linux-release",
       "displayName": "Portable compact static release (Linux)",
       "inherits": "portable-compact-release",
-      "binaryDir": "${sourceDir}/build-linux-compact",
+      "binaryDir": "${sourceDir}/build/linux-compact",
       "condition": {
         "type": "equals",
         "lhs": "${hostSystemName}",
@@ -138,7 +187,7 @@
       "name": "portable-compact-linux-debug",
       "displayName": "Portable compact static debug (Linux)",
       "inherits": "portable-compact-linux-release",
-      "binaryDir": "${sourceDir}/build-linux-compact-debug",
+      "binaryDir": "${sourceDir}/build/linux-compact-debug",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug"
       }
@@ -147,7 +196,7 @@
       "name": "portable-compact-macos-release",
       "displayName": "Portable compact static release (macOS)",
       "inherits": "portable-compact-release",
-      "binaryDir": "${sourceDir}/build-macos-compact",
+      "binaryDir": "${sourceDir}/build/macos-compact",
       "condition": {
         "type": "equals",
         "lhs": "${hostSystemName}",
@@ -158,7 +207,7 @@
       "name": "portable-compact-macos-debug",
       "displayName": "Portable compact static debug (macOS)",
       "inherits": "portable-compact-macos-release",
-      "binaryDir": "${sourceDir}/build-macos-compact-debug",
+      "binaryDir": "${sourceDir}/build/macos-compact-debug",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug"
       }
@@ -167,7 +216,7 @@
       "name": "portable-static-windows-x64-release",
       "displayName": "Tutorux static windows-x64 release",
       "inherits": "portable-static-release",
-      "binaryDir": "${sourceDir}/build-windows-x64-static",
+      "binaryDir": "${sourceDir}/build/windows-x64-static",
       "condition": {
         "lhs": "${hostSystemName}",
         "type": "equals",
@@ -181,7 +230,7 @@
       "name": "portable-static-windows-arm64-release",
       "displayName": "Tutorux static windows-arm64 release",
       "inherits": "portable-static-release",
-      "binaryDir": "${sourceDir}/build-windows-arm64-static",
+      "binaryDir": "${sourceDir}/build/windows-arm64-static",
       "condition": {
         "lhs": "${hostSystemName}",
         "type": "equals",
@@ -196,7 +245,7 @@
       "name": "portable-static-linux-x64-release",
       "displayName": "Tutorux static linux-x64 release",
       "inherits": "portable-static-linux-release",
-      "binaryDir": "${sourceDir}/build-linux-x64-static",
+      "binaryDir": "${sourceDir}/build/linux-x64-static",
       "condition": {
         "lhs": "${hostSystemName}",
         "type": "equals",
@@ -210,7 +259,7 @@
       "name": "portable-static-linux-arm64-release",
       "displayName": "Tutorux static linux-arm64 release",
       "inherits": "portable-static-linux-release",
-      "binaryDir": "${sourceDir}/build-linux-arm64-static",
+      "binaryDir": "${sourceDir}/build/linux-arm64-static",
       "condition": {
         "lhs": "${hostSystemName}",
         "type": "equals",
@@ -224,7 +273,7 @@
       "name": "portable-static-linux-arm64-cross-release",
       "displayName": "Tutorux static linux-arm64-cross release",
       "inherits": "portable-static-linux-release",
-      "binaryDir": "${sourceDir}/build-linux-arm64-cross-static",
+      "binaryDir": "${sourceDir}/build/linux-arm64-cross-static",
       "condition": {
         "lhs": "${hostSystemName}",
         "type": "equals",
@@ -239,7 +288,7 @@
       "name": "portable-static-macos-x64-release",
       "displayName": "Tutorux static macos-x64 release",
       "inherits": "portable-static-macos-release",
-      "binaryDir": "${sourceDir}/build-macos-x64-static",
+      "binaryDir": "${sourceDir}/build/macos-x64-static",
       "condition": {
         "lhs": "${hostSystemName}",
         "type": "equals",
@@ -255,7 +304,7 @@
       "name": "portable-static-macos-arm64-release",
       "displayName": "Tutorux static macos-arm64 release",
       "inherits": "portable-static-macos-release",
-      "binaryDir": "${sourceDir}/build-macos-arm64-static",
+      "binaryDir": "${sourceDir}/build/macos-arm64-static",
       "condition": {
         "lhs": "${hostSystemName}",
         "type": "equals",
@@ -271,7 +320,7 @@
       "name": "portable-compact-windows-x64-release",
       "displayName": "Tutorux compact windows-x64 release",
       "inherits": "portable-compact-release",
-      "binaryDir": "${sourceDir}/build-windows-x64-compact",
+      "binaryDir": "${sourceDir}/build/windows-x64-compact",
       "condition": {
         "lhs": "${hostSystemName}",
         "type": "equals",
@@ -285,7 +334,7 @@
       "name": "portable-compact-windows-arm64-release",
       "displayName": "Tutorux compact windows-arm64 release",
       "inherits": "portable-compact-release",
-      "binaryDir": "${sourceDir}/build-windows-arm64-compact",
+      "binaryDir": "${sourceDir}/build/windows-arm64-compact",
       "condition": {
         "lhs": "${hostSystemName}",
         "type": "equals",
@@ -300,7 +349,7 @@
       "name": "portable-compact-linux-x64-release",
       "displayName": "Tutorux compact linux-x64 release",
       "inherits": "portable-compact-linux-release",
-      "binaryDir": "${sourceDir}/build-linux-x64-compact",
+      "binaryDir": "${sourceDir}/build/linux-x64-compact",
       "condition": {
         "lhs": "${hostSystemName}",
         "type": "equals",
@@ -314,7 +363,7 @@
       "name": "portable-compact-linux-arm64-release",
       "displayName": "Tutorux compact linux-arm64 release",
       "inherits": "portable-compact-linux-release",
-      "binaryDir": "${sourceDir}/build-linux-arm64-compact",
+      "binaryDir": "${sourceDir}/build/linux-arm64-compact",
       "condition": {
         "lhs": "${hostSystemName}",
         "type": "equals",
@@ -328,7 +377,7 @@
       "name": "portable-compact-linux-arm64-cross-release",
       "displayName": "Tutorux compact linux-arm64-cross release",
       "inherits": "portable-compact-linux-release",
-      "binaryDir": "${sourceDir}/build-linux-arm64-cross-compact",
+      "binaryDir": "${sourceDir}/build/linux-arm64-cross-compact",
       "condition": {
         "lhs": "${hostSystemName}",
         "type": "equals",
@@ -343,7 +392,7 @@
       "name": "portable-compact-macos-x64-release",
       "displayName": "Tutorux compact macos-x64 release",
       "inherits": "portable-compact-macos-release",
-      "binaryDir": "${sourceDir}/build-macos-x64-compact",
+      "binaryDir": "${sourceDir}/build/macos-x64-compact",
       "condition": {
         "lhs": "${hostSystemName}",
         "type": "equals",
@@ -359,7 +408,7 @@
       "name": "portable-compact-macos-arm64-release",
       "displayName": "Tutorux compact macos-arm64 release",
       "inherits": "portable-compact-macos-release",
-      "binaryDir": "${sourceDir}/build-macos-arm64-compact",
+      "binaryDir": "${sourceDir}/build/macos-arm64-compact",
       "condition": {
         "lhs": "${hostSystemName}",
         "type": "equals",
@@ -373,6 +422,21 @@
     }
   ],
   "buildPresets": [
+    {
+      "name": "dev",
+      "configurePreset": "dev",
+      "jobs": 4
+    },
+    {
+      "name": "portable",
+      "configurePreset": "portable",
+      "jobs": 4,
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Windows"
+      }
+    },
     {
       "name": "portable-wasm-release",
       "configurePreset": "portable-wasm-release",
@@ -575,6 +639,25 @@
     }
   ],
   "testPresets": [
+    {
+      "name": "dev",
+      "configurePreset": "dev",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "portable",
+      "configurePreset": "portable",
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Windows"
+      },
+      "output": {
+        "outputOnFailure": true
+      }
+    },
     {
       "name": "portable-static-release",
       "configurePreset": "portable-static-release",
