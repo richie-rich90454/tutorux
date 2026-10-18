@@ -5,7 +5,7 @@
 
 namespace tutorux::gui {
 
-    int launchDesktop(std::optional<std::filesystem::path> archivePath,
-                      std::optional<std::filesystem::path> directoryPath);
+int launchDesktop(std::optional<std::filesystem::path> archivePath,
+                  std::optional<std::filesystem::path> directoryPath);
 
 } // namespace tutorux::gui
