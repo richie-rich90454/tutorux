@@ -530,7 +530,26 @@ if(TUTORUX_ENABLE_FFMPEG)
         find_program(TUTORUX_FFMPEG_MAKE_EXECUTABLE NAMES make gmake mingw32-make REQUIRED)
         find_package(Git REQUIRED)
         if(WIN32)
-            find_program(TUTORUX_FFMPEG_BASH_EXECUTABLE NAMES bash REQUIRED)
+            if(MINGW)
+                get_filename_component(TUTORUX_MINGW_BIN_DIR "${CMAKE_C_COMPILER}" DIRECTORY)
+                get_filename_component(TUTORUX_MINGW_PREFIX "${TUTORUX_MINGW_BIN_DIR}" DIRECTORY)
+                get_filename_component(TUTORUX_MSYS_ROOT "${TUTORUX_MINGW_PREFIX}" DIRECTORY)
+                find_program(TUTORUX_MSYS_INSTALL_EXECUTABLE
+                    NAMES install.exe install
+                    HINTS "${TUTORUX_MSYS_ROOT}/usr/bin"
+                    NO_DEFAULT_PATH
+                    REQUIRED
+                )
+                find_program(TUTORUX_MINGW_BASH_EXECUTABLE
+                    NAMES bash.exe bash
+                    HINTS "${TUTORUX_MSYS_ROOT}/usr/bin"
+                    NO_DEFAULT_PATH
+                    REQUIRED
+                )
+                set(TUTORUX_FFMPEG_BASH_EXECUTABLE "${TUTORUX_MINGW_BASH_EXECUTABLE}")
+            else()
+                find_program(TUTORUX_FFMPEG_BASH_EXECUTABLE NAMES bash REQUIRED)
+            endif()
         endif()
 
         set(TUTORUX_FFMPEG_INSTALL_PREFIX "${CMAKE_CURRENT_BINARY_DIR}/ffmpeg-install")
@@ -548,6 +567,7 @@ if(TUTORUX_ENABLE_FFMPEG)
             --disable-network
             --disable-autodetect
             --disable-everything
+            --disable-x86asm
             --disable-encoders
             --disable-muxers
             --disable-filters
@@ -555,7 +575,6 @@ if(TUTORUX_ENABLE_FFMPEG)
             --disable-indevs
             --disable-outdevs
             --disable-avdevice
-            --disable-postproc
             --disable-swscale
             --disable-iconv
             --disable-bzlib
@@ -623,6 +642,21 @@ if(TUTORUX_ENABLE_FFMPEG)
             )
         endif()
 
+        if(WIN32 AND MINGW)
+            set(TUTORUX_FFMPEG_INSTALL_COMMAND
+                "${CMAKE_COMMAND}" -E env "DESTDIR="
+                "${TUTORUX_FFMPEG_MAKE_EXECUTABLE}"
+                "INSTALL=${TUTORUX_MSYS_INSTALL_EXECUTABLE}"
+                install-libs install-headers
+            )
+        else()
+            set(TUTORUX_FFMPEG_INSTALL_COMMAND
+                "${CMAKE_COMMAND}" -E env "DESTDIR="
+                "${TUTORUX_FFMPEG_MAKE_EXECUTABLE}"
+                install-libs install-headers
+            )
+        endif()
+
         ExternalProject_Add(tutorux_ffmpeg_build
             SOURCE_DIR "${TUTORUX_FFMPEG_SOURCE_DIR}"
             DOWNLOAD_COMMAND ""
@@ -637,7 +671,7 @@ if(TUTORUX_ENABLE_FFMPEG)
                 ${TUTORUX_FFMPEG_CONFIGURE_COMMAND}
                 ${TUTORUX_FFMPEG_CONFIGURE_ARGS}
             BUILD_COMMAND "${TUTORUX_FFMPEG_MAKE_EXECUTABLE}" -j4
-            INSTALL_COMMAND "${TUTORUX_FFMPEG_MAKE_EXECUTABLE}" install
+            INSTALL_COMMAND ${TUTORUX_FFMPEG_INSTALL_COMMAND}
             BUILD_IN_SOURCE TRUE
             BUILD_BYPRODUCTS
                 "${TUTORUX_FFMPEG_INSTALL_PREFIX}/lib/libavformat.a"
@@ -859,20 +893,6 @@ else()
     target_compile_options(tutorux_core PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion)
 endif()
 
-if(TUTORUX_FETCH_LLAMA)
-    install(FILES "${TUTORUX_LLAMA_SOURCE_DIR}/LICENSE"
-        DESTINATION licenses/llama.cpp COMPONENT Runtime
-    )
-    if(NOT EXISTS "${TUTORUX_LLAMA_SOURCE_DIR}/ggml/LICENSE")
-        message(FATAL_ERROR
-            "The pinned llama.cpp source is missing ggml's MIT license text."
-        )
-    endif()
-    install(FILES "${TUTORUX_LLAMA_SOURCE_DIR}/ggml/LICENSE"
-        DESTINATION licenses/ggml COMPONENT Runtime
-    )
-endif()
-
 target_compile_definitions(tutorux_core PRIVATE
     TUTORUX_BUILD_GUI=$<BOOL:${TUTORUX_BUILD_GUI}>
     TUTORUX_ENABLE_WHISPER=$<BOOL:${TUTORUX_ENABLE_WHISPER}>
@@ -933,6 +953,22 @@ if(TUTORUX_ENABLE_LLAMA)
         tutorux_verify_source_pin(
             llama.cpp "${TUTORUX_LLAMA_SOURCE_DIR}" "${TUTORUX_LLAMA_COMMIT_PIN}"
         )
+        set(TUTORUX_LLAMA_CLEF_SOURCE "${TUTORUX_LLAMA_SOURCE_DIR}/src/models/clef.cpp")
+        if(NOT EXISTS "${TUTORUX_LLAMA_CLEF_SOURCE}")
+            message(FATAL_ERROR "The pinned llama.cpp source is missing src/models/clef.cpp.")
+        endif()
+        file(READ "${TUTORUX_LLAMA_CLEF_SOURCE}" TUTORUX_LLAMA_CLEF_CONTENT)
+        string(FIND "${TUTORUX_LLAMA_CLEF_CONTENT}" "#include <algorithm>" TUTORUX_LLAMA_ALGORITHM_INCLUDE)
+        if(TUTORUX_LLAMA_ALGORITHM_INCLUDE EQUAL -1)
+            string(FIND "${TUTORUX_LLAMA_CLEF_CONTENT}" "#include <cmath>" TUTORUX_LLAMA_CMATH_INCLUDE)
+            if(TUTORUX_LLAMA_CMATH_INCLUDE EQUAL -1)
+                message(FATAL_ERROR "The pinned llama.cpp clef source no longer matches the compatibility patch.")
+            endif()
+            string(REPLACE "#include <cmath>" "#include <algorithm>\n#include <cmath>"
+                TUTORUX_LLAMA_CLEF_CONTENT "${TUTORUX_LLAMA_CLEF_CONTENT}"
+            )
+            file(WRITE "${TUTORUX_LLAMA_CLEF_SOURCE}" "${TUTORUX_LLAMA_CLEF_CONTENT}")
+        endif()
     else()
         find_package(llama CONFIG REQUIRED)
     endif()
@@ -944,6 +980,12 @@ if(TUTORUX_ENABLE_LLAMA)
     if(TUTORUX_LLAMA_CUDA OR TUTORUX_LLAMA_VULKAN OR TUTORUX_LLAMA_METAL)
         target_compile_definitions(tutorux_core PRIVATE TUTORUX_LLAMA_GPU_AVAILABLE=1)
     endif()
+endif()
+
+if(TUTORUX_FETCH_LLAMA)
+    install(FILES "${TUTORUX_LLAMA_SOURCE_DIR}/LICENSE"
+        DESTINATION licenses/llama.cpp COMPONENT Runtime
+    )
 endif()
 
 if(NOT TUTORUX_BUILD_WASM)
