@@ -101,8 +101,11 @@ compatibility suite.
 ## Third-party inputs
 
 Static Linux builds also require the ALSA development headers and a static `libasound` archive.
-The executable is linked with the platform C++ runtime and native libraries statically; operating
-system APIs remain external. Static macOS builds use the system CoreAudio frameworks.
+PipeWire capture is included when a static `libpipewire-0.3` library and its static dependency
+closure are available; otherwise the build retains ALSA capture. The PipeWire service remains an
+operating-system prerequisite when that backend is used. The executable is linked with the platform
+C++ runtime and native libraries statically; operating system APIs remain external. Static macOS
+builds use the system CoreAudio frameworks.
 
 Static Linux and macOS builds require static development archives for libsodium 1.0.22, libcurl
 7.85 or newer and its TLS/protocol dependencies, FreeType, and libxml2. CMake builds pinned
