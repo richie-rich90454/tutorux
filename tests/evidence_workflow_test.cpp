@@ -204,12 +204,18 @@ int main() {
     }
     auto context = dispatchJson(archivePath, {"ai", "context", "--session", sessionIdText});
     const auto* contextObject = context ? context->asObject() : nullptr;
-    const command::JsonValue::Array* included = nullptr;
+    const std::string* includedText = nullptr;
     if (contextObject) {
         const auto includedField = contextObject->find("included");
         if (includedField != contextObject->end())
-            included = includedField->second.asArray();
+            includedText = includedField->second.asString();
     }
+    if (!includedText) {
+        std::cerr << "AI context preview did not return its included-source list.\n";
+        return 1;
+    }
+    auto includedValue = command::parseJson(*includedText);
+    const auto* included = includedValue ? includedValue->asArray() : nullptr;
     if (!included) {
         std::cerr << "AI context preview did not return its included-source list.\n";
         return 1;
