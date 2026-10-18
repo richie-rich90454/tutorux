@@ -39,6 +39,7 @@ enum class RecordType : std::uint16_t {
     Settings = 11,
     AiJob = 12,
     Encryption = 13,
+    WaveformIndex = 14,
     IndexPage = 250,
     Commit = 251,
 };
@@ -79,9 +80,7 @@ std::uint32_t crc32(std::span<const std::byte> data);
 core::Result<Bytes> encodeArchiveHeader(const ArchiveHeader& header);
 core::Result<ArchiveHeader> decodeArchiveHeader(std::span<const std::byte> bytes);
 core::Result<Bytes> encodeRecordPayload(const Record& record);
-core::Result<Record> decodeRecordPayload(RecordType type,
-                                         Uuid id,
-                                         std::uint64_t revision,
+core::Result<Record> decodeRecordPayload(RecordType type, Uuid id, std::uint64_t revision,
                                          std::uint64_t previousOffset,
                                          std::span<const std::byte> payload);
 std::string uuidToString(const Uuid& id);
