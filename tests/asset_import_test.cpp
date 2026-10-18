@@ -141,20 +141,32 @@ int main() {
             return reportFailure("archive reopen", opened.error().message);
         auto assets = opened->list(archive::RecordType::AssetMetadata);
         auto blobs = opened->list(archive::RecordType::AssetBlob);
-        if (!assets || !blobs || assets->size() != 2 || blobs->size() != 1)
+        if (!assets || !blobs || assets->size() != 2 || blobs->size() != 2)
             return reportFailure("archive asset counts",
-                                 "Duplicate bytes were stored more than once.");
+                                 "Duplicate asset imports changed the content-addressed blob set.");
         auto firstBlobIdParsed = archive::uuidFromString(firstBlobIdText);
         auto firstAssetIdParsed = archive::uuidFromString(firstAssetIdText);
         if (!firstBlobIdParsed || !firstAssetIdParsed)
             return reportFailure("asset identifiers", "The CLI returned an invalid UUID.");
         auto storedBlob = opened->get(archive::RecordType::AssetBlob, *firstBlobIdParsed);
         auto storedAsset = opened->get(archive::RecordType::AssetMetadata, *firstAssetIdParsed);
-        if (!storedBlob || !*storedBlob || (*storedBlob)->blob != content || !storedAsset ||
-            !*storedAsset ||
+        if (!storedBlob || !*storedBlob ||
+            domain::getField(**storedBlob, "record_role") != "asset-blob-manifest" ||
+            domain::getField(**storedBlob, "chunk_count") != "1" || !storedAsset || !*storedAsset ||
             domain::getField(**storedAsset, "byte_size") != std::to_string(content.size())) {
-            return reportFailure("archive content", "Imported bytes or size metadata changed.");
+            return reportFailure("archive content", "Imported manifest or size metadata changed.");
         }
+        std::vector<std::byte> reconstructed;
+        reconstructed.reserve(content.size());
+        auto streamed = assets::visitArchiveAsset(
+            *opened,
+            **storedAsset,
+            [&](std::span<const std::byte> chunk) -> core::Status {
+                reconstructed.insert(reconstructed.end(), chunk.begin(), chunk.end());
+                return {};
+            });
+        if (!streamed || reconstructed != content)
+            return reportFailure("archive content", "Imported bytes changed during streaming.");
         if (auto status = opened->verify(true); !status || !status->valid)
             return reportFailure("archive integrity",
                                  status ? "The imported archive failed verification."
