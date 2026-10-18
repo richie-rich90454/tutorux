@@ -6,6 +6,7 @@
 #include "tutorux/audio/alsa_backend.hpp"
 #elif defined(__APPLE__)
 #include "tutorux/audio/coreaudio_backend.hpp"
+#include "tutorux/audio/screencapturekit_backend.hpp"
 #endif
 
 #include <algorithm>
@@ -39,12 +40,9 @@ namespace {
                                               .count());
     }
 
-    core::Status updateRecordingSession(archive::Archive& archive,
-                                        archive::Record& session,
-                                        std::string state,
-                                        std::uint64_t chunks,
-                                        std::uint64_t samples,
-                                        std::uint64_t bytes,
+    core::Status updateRecordingSession(archive::Archive& archive, archive::Record& session,
+                                        std::string state, std::uint64_t chunks,
+                                        std::uint64_t samples, std::uint64_t bytes,
                                         std::string error = {}) {
         session.fields["recording_state"] = std::move(state);
         session.fields["recording_audio_chunks"] = std::to_string(chunks);
@@ -57,16 +55,10 @@ namespace {
 
 #ifdef _WIN32
     constexpr GUID kPcmSubFormat{
-        0x00000001,
-        0x0000,
-        0x0010,
-        {0x80, 0x00, 0x00, 0xaa, 0x00, 0x38, 0x9b, 0x71}
+        0x00000001, 0x0000, 0x0010, {0x80, 0x00, 0x00, 0xaa, 0x00, 0x38, 0x9b, 0x71}
     };
     constexpr GUID kFloatSubFormat{
-        0x00000003,
-        0x0000,
-        0x0010,
-        {0x80, 0x00, 0x00, 0xaa, 0x00, 0x38, 0x9b, 0x71}
+        0x00000003, 0x0000, 0x0010, {0x80, 0x00, 0x00, 0xaa, 0x00, 0x38, 0x9b, 0x71}
     };
 
     template <typename Interface> class ComOwner final {
@@ -153,32 +145,25 @@ namespace {
     };
 
     core::Error captureError(std::string code, HRESULT result, std::string_view operation) {
-        return core::error(std::move(code),
-                           std::string(operation) + " failed (HRESULT " +
-                               std::to_string(static_cast<unsigned long>(result)) + ").");
+        return core::error(std::move(code), std::string(operation) + " failed (HRESULT " +
+                                                std::to_string(static_cast<unsigned long>(result)) +
+                                                ").");
     }
 
     core::Result<std::wstring> toWide(std::string_view value) {
         if (value.empty())
             return std::wstring{};
-        const int required = MultiByteToWideChar(CP_UTF8,
-                                                 MB_ERR_INVALID_CHARS,
-                                                 value.data(),
-                                                 static_cast<int>(value.size()),
-                                                 nullptr,
-                                                 0);
+        const int required = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, value.data(),
+                                                 static_cast<int>(value.size()), nullptr, 0);
         if (required <= 0) {
             return std::unexpected(captureError("audio_device_id_invalid",
                                                 HRESULT_FROM_WIN32(GetLastError()),
                                                 "Converting the selected audio device identifier"));
         }
         std::wstring converted(static_cast<std::size_t>(required), L'\0');
-        const int written = MultiByteToWideChar(CP_UTF8,
-                                                MB_ERR_INVALID_CHARS,
-                                                value.data(),
-                                                static_cast<int>(value.size()),
-                                                converted.data(),
-                                                required);
+        const int written =
+            MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, value.data(),
+                                static_cast<int>(value.size()), converted.data(), required);
         if (written != required) {
             return std::unexpected(captureError("audio_device_id_invalid",
                                                 HRESULT_FROM_WIN32(GetLastError()),
@@ -190,28 +175,16 @@ namespace {
     core::Result<std::string> toUtf8(const wchar_t* value) {
         if (!value)
             return std::string{};
-        const int required = WideCharToMultiByte(CP_UTF8,
-                                                 WC_ERR_INVALID_CHARS,
-                                                 value,
-                                                 -1,
-                                                 nullptr,
-                                                 0,
-                                                 nullptr,
-                                                 nullptr);
+        const int required = WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, value, -1, nullptr,
+                                                 0, nullptr, nullptr);
         if (required <= 0) {
             return std::unexpected(captureError("audio_device_id_invalid",
                                                 HRESULT_FROM_WIN32(GetLastError()),
                                                 "Converting the active audio device identifier"));
         }
         std::string converted(static_cast<std::size_t>(required), '\0');
-        const int written = WideCharToMultiByte(CP_UTF8,
-                                                WC_ERR_INVALID_CHARS,
-                                                value,
-                                                -1,
-                                                converted.data(),
-                                                required,
-                                                nullptr,
-                                                nullptr);
+        const int written = WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, value, -1,
+                                                converted.data(), required, nullptr, nullptr);
         if (written != required) {
             return std::unexpected(captureError("audio_device_id_invalid",
                                                 HRESULT_FROM_WIN32(GetLastError()),
@@ -275,14 +248,11 @@ namespace {
         }
         const EDataFlow flow = source == DeviceKind::microphone ? eCapture : eRender;
         ComOwner<IMMDeviceEnumerator> enumerator;
-        HRESULT result = CoCreateInstance(CLSID_MMDeviceEnumerator,
-                                          nullptr,
-                                          CLSCTX_ALL,
-                                          IID_IMMDeviceEnumerator,
-                                          reinterpret_cast<void**>(enumerator.put()));
+        HRESULT result =
+            CoCreateInstance(CLSID_MMDeviceEnumerator, nullptr, CLSCTX_ALL, IID_IMMDeviceEnumerator,
+                             reinterpret_cast<void**>(enumerator.put()));
         if (FAILED(result)) {
-            return std::unexpected(captureError("audio_device_enumeration_failed",
-                                                result,
+            return std::unexpected(captureError("audio_device_enumeration_failed", result,
                                                 "Creating the Windows audio device enumerator"));
         }
         ComOwner<IMMDevice> device;
@@ -295,8 +265,7 @@ namespace {
             result = enumerator->GetDevice(identifier->c_str(), device.put());
         }
         if (FAILED(result)) {
-            return std::unexpected(captureError("audio_device_open_failed",
-                                                result,
+            return std::unexpected(captureError("audio_device_open_failed", result,
                                                 "Opening the selected audio endpoint"));
         }
         ComOwner<IMMEndpoint> endpoint;
@@ -312,8 +281,7 @@ namespace {
         LPWSTR wideDeviceId = nullptr;
         result = device->GetId(&wideDeviceId);
         if (FAILED(result)) {
-            return std::unexpected(captureError("audio_device_id_failed",
-                                                result,
+            return std::unexpected(captureError("audio_device_id_failed", result,
                                                 "Reading the selected endpoint identifier"));
         }
         auto activeDeviceId = toUtf8(wideDeviceId);
@@ -322,20 +290,16 @@ namespace {
             return std::unexpected(activeDeviceId.error());
 
         ComOwner<IAudioClient> client;
-        result = device->Activate(IID_IAudioClient,
-                                  CLSCTX_ALL,
-                                  nullptr,
+        result = device->Activate(IID_IAudioClient, CLSCTX_ALL, nullptr,
                                   reinterpret_cast<void**>(client.put()));
         if (FAILED(result)) {
-            return std::unexpected(captureError("audio_client_activation_failed",
-                                                result,
+            return std::unexpected(captureError("audio_client_activation_failed", result,
                                                 "Activating the audio endpoint"));
         }
         WaveFormatOwner mixFormat;
         result = client->GetMixFormat(mixFormat.put());
         if (FAILED(result) || !mixFormat.get()) {
-            return std::unexpected(captureError("audio_format_query_failed",
-                                                result,
+            return std::unexpected(captureError("audio_format_query_failed", result,
                                                 "Reading the endpoint audio format"));
         }
         WAVEFORMATEX* format = mixFormat.get();
@@ -355,37 +319,23 @@ namespace {
         }
 
         const DWORD streamFlags = source == DeviceKind::playback ? AUDCLNT_STREAMFLAGS_LOOPBACK : 0;
-        result = client->Initialize(AUDCLNT_SHAREMODE_SHARED,
-                                    streamFlags,
-                                    10'000'000,
-                                    0,
-                                    format,
+        result = client->Initialize(AUDCLNT_SHAREMODE_SHARED, streamFlags, 10'000'000, 0, format,
                                     nullptr);
         if (FAILED(result)) {
-            return std::unexpected(captureError("audio_stream_initialize_failed",
-                                                result,
+            return std::unexpected(captureError("audio_stream_initialize_failed", result,
                                                 "Probing the audio capture stream"));
         }
-        return CaptureDeviceProbe{std::move(*activeDeviceId),
-                                  std::move(*sampleFormat),
-                                  format->nSamplesPerSec,
-                                  format->nChannels};
+        return CaptureDeviceProbe{std::move(*activeDeviceId), std::move(*sampleFormat),
+                                  format->nSamplesPerSec, format->nChannels};
     }
 
-    core::Status appendCapturedChunk(archive::Archive& archive,
-                                     archive::Record& session,
-                                     const archive::Uuid& sessionId,
-                                     const archive::Uuid& trackId,
-                                     std::uint64_t sequence,
-                                     std::uint64_t firstSample,
-                                     std::uint64_t frameCount,
-                                     std::uint64_t totalStoredSamples,
-                                     std::uint64_t gapBeforeSamples,
-                                     std::uint32_t sampleRateHz,
-                                     std::uint16_t channelCount,
-                                     std::uint32_t channelMaskValue,
-                                     const std::string& sampleFormat,
-                                     bool containsDiscontinuity,
+    core::Status appendCapturedChunk(archive::Archive& archive, archive::Record& session,
+                                     const archive::Uuid& sessionId, const archive::Uuid& trackId,
+                                     std::uint64_t sequence, std::uint64_t firstSample,
+                                     std::uint64_t frameCount, std::uint64_t totalStoredSamples,
+                                     std::uint64_t gapBeforeSamples, std::uint32_t sampleRateHz,
+                                     std::uint16_t channelCount, std::uint32_t channelMaskValue,
+                                     const std::string& sampleFormat, bool containsDiscontinuity,
                                      archive::Bytes payload) {
         archive::Record chunk;
         chunk.type = archive::RecordType::AudioChunk;
@@ -417,9 +367,8 @@ namespace {
         session.fields["recording_bytes"] = domain::getField(session, "recording_bytes", "0");
         std::uint64_t currentBytes = 0;
         const std::string previousBytes = session.fields["recording_bytes"];
-        const auto [end, error] = std::from_chars(previousBytes.data(),
-                                                  previousBytes.data() + previousBytes.size(),
-                                                  currentBytes);
+        const auto [end, error] = std::from_chars(
+            previousBytes.data(), previousBytes.data() + previousBytes.size(), currentBytes);
         if (error != std::errc{} || end != previousBytes.data() + previousBytes.size() ||
             currentBytes > std::numeric_limits<std::uint64_t>::max() - chunk.blob.size()) {
             return std::unexpected(
@@ -447,14 +396,11 @@ namespace {
 
         const EDataFlow flow = options.source == DeviceKind::microphone ? eCapture : eRender;
         ComOwner<IMMDeviceEnumerator> enumerator;
-        HRESULT result = CoCreateInstance(CLSID_MMDeviceEnumerator,
-                                          nullptr,
-                                          CLSCTX_ALL,
-                                          IID_IMMDeviceEnumerator,
-                                          reinterpret_cast<void**>(enumerator.put()));
+        HRESULT result =
+            CoCreateInstance(CLSID_MMDeviceEnumerator, nullptr, CLSCTX_ALL, IID_IMMDeviceEnumerator,
+                             reinterpret_cast<void**>(enumerator.put()));
         if (FAILED(result)) {
-            return std::unexpected(captureError("audio_device_enumeration_failed",
-                                                result,
+            return std::unexpected(captureError("audio_device_enumeration_failed", result,
                                                 "Creating the Windows audio device enumerator"));
         }
 
@@ -468,8 +414,7 @@ namespace {
             result = enumerator->GetDevice(identifier->c_str(), device.put());
         }
         if (FAILED(result)) {
-            return std::unexpected(captureError("audio_device_open_failed",
-                                                result,
+            return std::unexpected(captureError("audio_device_open_failed", result,
                                                 "Opening the selected audio endpoint"));
         }
         ComOwner<IMMEndpoint> endpoint;
@@ -485,8 +430,7 @@ namespace {
         LPWSTR wideDeviceId = nullptr;
         result = device->GetId(&wideDeviceId);
         if (FAILED(result)) {
-            return std::unexpected(captureError("audio_device_id_failed",
-                                                result,
+            return std::unexpected(captureError("audio_device_id_failed", result,
                                                 "Reading the selected endpoint identifier"));
         }
         auto activeDeviceId = toUtf8(wideDeviceId);
@@ -495,20 +439,16 @@ namespace {
             return std::unexpected(activeDeviceId.error());
 
         ComOwner<IAudioClient> client;
-        result = device->Activate(IID_IAudioClient,
-                                  CLSCTX_ALL,
-                                  nullptr,
+        result = device->Activate(IID_IAudioClient, CLSCTX_ALL, nullptr,
                                   reinterpret_cast<void**>(client.put()));
         if (FAILED(result)) {
-            return std::unexpected(captureError("audio_client_activation_failed",
-                                                result,
+            return std::unexpected(captureError("audio_client_activation_failed", result,
                                                 "Activating the audio endpoint"));
         }
         WaveFormatOwner mixFormat;
         result = client->GetMixFormat(mixFormat.put());
         if (FAILED(result) || !mixFormat.get()) {
-            return std::unexpected(captureError("audio_format_query_failed",
-                                                result,
+            return std::unexpected(captureError("audio_format_query_failed", result,
                                                 "Reading the endpoint audio format"));
         }
         WAVEFORMATEX* format = mixFormat.get();
@@ -543,8 +483,7 @@ namespace {
                                                "Session already has an active recording."));
         }
         bool sessionAlreadyHasAudio = false;
-        if (auto status = archive.forEachAudioChunk(sessionId,
-                                                    options.trackId,
+        if (auto status = archive.forEachAudioChunk(sessionId, options.trackId,
                                                     [&](archive::Record&& chunk) {
                                                         if (domain::getField(chunk, "session_id") ==
                                                             archive::uuidToString(sessionId)) {
@@ -607,19 +546,14 @@ namespace {
         const DWORD streamFlags = options.source == DeviceKind::playback
                                       ? kEventFlags | AUDCLNT_STREAMFLAGS_LOOPBACK
                                       : kEventFlags;
-        result = client->Initialize(AUDCLNT_SHAREMODE_SHARED,
-                                    streamFlags,
-                                    20'000'000,
-                                    0,
-                                    format,
+        result = client->Initialize(AUDCLNT_SHAREMODE_SHARED, streamFlags, 20'000'000, 0, format,
                                     nullptr);
         if (FAILED(result)) {
             if (auto status = markCaptureFailed("Unable to initialize the endpoint stream.");
                 !status) {
                 return std::unexpected(status.error());
             }
-            return std::unexpected(captureError("audio_stream_initialize_failed",
-                                                result,
+            return std::unexpected(captureError("audio_stream_initialize_failed", result,
                                                 "Initializing the audio capture stream"));
         }
         EventHandle audioEvent(CreateEventW(nullptr, FALSE, FALSE, nullptr));
@@ -628,8 +562,7 @@ namespace {
             if (auto status = markCaptureFailed("Unable to create the capture event."); !status) {
                 return std::unexpected(status.error());
             }
-            return std::unexpected(captureError("audio_event_create_failed",
-                                                eventError,
+            return std::unexpected(captureError("audio_event_create_failed", eventError,
                                                 "Creating the audio capture event"));
         }
         result = client->SetEventHandle(audioEvent.get());
@@ -637,8 +570,7 @@ namespace {
             if (auto status = markCaptureFailed("Unable to attach the capture event."); !status) {
                 return std::unexpected(status.error());
             }
-            return std::unexpected(captureError("audio_event_setup_failed",
-                                                result,
+            return std::unexpected(captureError("audio_event_setup_failed", result,
                                                 "Attaching the audio capture event"));
         }
         ComOwner<IAudioCaptureClient> captureClient;
@@ -649,8 +581,7 @@ namespace {
                 !status) {
                 return std::unexpected(status.error());
             }
-            return std::unexpected(captureError("audio_capture_service_failed",
-                                                result,
+            return std::unexpected(captureError("audio_capture_service_failed", result,
                                                 "Opening the audio capture stream"));
         }
         if (options.waitForSynchronizedStart && !options.waitForSynchronizedStart()) {
@@ -685,9 +616,8 @@ namespace {
         const std::uint64_t targetIntervalBytes =
             static_cast<std::uint64_t>(format->nSamplesPerSec) * blockAlign * intervalMilliseconds /
             1'000U;
-        const std::uint64_t targetChunkBytes =
-            std::max<std::uint64_t>(blockAlign,
-                                    std::min<std::uint64_t>(1'048'576, targetIntervalBytes));
+        const std::uint64_t targetChunkBytes = std::max<std::uint64_t>(
+            blockAlign, std::min<std::uint64_t>(1'048'576, targetIntervalBytes));
         const std::uint64_t alignedChunkBytes = targetChunkBytes - (targetChunkBytes % blockAlign);
         archive::Bytes pending;
         pending.reserve(static_cast<std::size_t>(alignedChunkBytes));
@@ -727,21 +657,11 @@ namespace {
                                 "Recording timeline or storage counter overflowed."));
             }
             const std::uint64_t gapBeforeSamples = pendingFirstSample - timelineEndSample;
-            auto status = appendCapturedChunk(archive,
-                                              session,
-                                              sessionId,
-                                              summary.trackId,
-                                              sequence,
-                                              pendingFirstSample,
-                                              frameCount,
-                                              totalStoredSamples + frameCount,
-                                              gapBeforeSamples,
-                                              summary.sampleRateHz,
-                                              summary.channelCount,
-                                              *mask,
-                                              *sampleFormat,
-                                              pendingHasDiscontinuity,
-                                              std::move(payload));
+            auto status = appendCapturedChunk(
+                archive, session, sessionId, summary.trackId, sequence, pendingFirstSample,
+                frameCount, totalStoredSamples + frameCount, gapBeforeSamples, summary.sampleRateHz,
+                summary.channelCount, *mask, *sampleFormat, pendingHasDiscontinuity,
+                std::move(payload));
             if (!status)
                 return status;
             ++sequence;
@@ -781,12 +701,9 @@ namespace {
                     failed = true;
                     break;
                 }
-                if (auto status = updateRecordingSession(archive,
-                                                         session,
-                                                         "paused",
-                                                         summary.chunkCount,
-                                                         summary.sampleCount,
-                                                         summary.byteCount);
+                if (auto status =
+                        updateRecordingSession(archive, session, "paused", summary.chunkCount,
+                                               summary.sampleCount, summary.byteCount);
                     !status) {
                     streamFailure = status.error();
                     failed = true;
@@ -803,8 +720,7 @@ namespace {
                 if (options.pauseRequested && !options.pauseRequested()) {
                     result = client->Start();
                     if (FAILED(result)) {
-                        streamFailure = captureError("audio_capture_resume_failed",
-                                                     result,
+                        streamFailure = captureError("audio_capture_resume_failed", result,
                                                      "Resuming audio capture");
                         failed = true;
                         break;
@@ -815,12 +731,9 @@ namespace {
                     devicePositionOrigin.reset();
                     devicePositionSampleOffset = timelineEndSample;
                     devicePositionValid = true;
-                    if (auto status = updateRecordingSession(archive,
-                                                             session,
-                                                             "recording",
-                                                             summary.chunkCount,
-                                                             summary.sampleCount,
-                                                             summary.byteCount);
+                    if (auto status = updateRecordingSession(
+                            archive, session, "recording", summary.chunkCount, summary.sampleCount,
+                            summary.byteCount);
                         !status) {
                         streamFailure = status.error();
                         failed = true;
@@ -839,9 +752,9 @@ namespace {
             }
             const DWORD waitResult = WaitForSingleObject(audioEvent.get(), 250);
             if (waitResult == WAIT_FAILED) {
-                streamFailure = captureError("audio_event_wait_failed",
-                                             HRESULT_FROM_WIN32(GetLastError()),
-                                             "Waiting for audio capture packets");
+                streamFailure =
+                    captureError("audio_event_wait_failed", HRESULT_FROM_WIN32(GetLastError()),
+                                 "Waiting for audio capture packets");
                 failed = true;
                 break;
             }
@@ -856,11 +769,8 @@ namespace {
                 DWORD packetFlags = 0;
                 UINT64 devicePosition = 0;
                 UINT64 qpcPosition = 0;
-                result = captureClient->GetBuffer(&packet,
-                                                  &frameCount,
-                                                  &packetFlags,
-                                                  &devicePosition,
-                                                  &qpcPosition);
+                result = captureClient->GetBuffer(&packet, &frameCount, &packetFlags,
+                                                  &devicePosition, &qpcPosition);
                 if (FAILED(result))
                     break;
                 static_cast<void>(qpcPosition);
@@ -873,8 +783,7 @@ namespace {
                     packetData.resize(static_cast<std::size_t>(packetBytes), std::byte{});
                 } else if (packet && packetBytes != 0) {
                     const auto* begin = reinterpret_cast<const std::byte*>(packet);
-                    packetData.insert(packetData.end(),
-                                      begin,
+                    packetData.insert(packetData.end(), begin,
                                       begin + static_cast<std::ptrdiff_t>(packetBytes));
                 } else if (packetBytes != 0) {
                     result = E_POINTER;
@@ -974,8 +883,7 @@ namespace {
             if (failed)
                 break;
             if (FAILED(result)) {
-                streamFailure = captureError("audio_packet_read_failed",
-                                             result,
+                streamFailure = captureError("audio_packet_read_failed", result,
                                              "Reading captured audio packets");
                 failed = true;
                 break;
@@ -998,12 +906,8 @@ namespace {
         summary.durationUs = samplesToMicroseconds(timelineEndSample, summary.sampleRateHz);
         if (failed) {
             const std::string finalState = summary.chunkCount == 0 ? "failed" : "interrupted";
-            auto status = updateRecordingSession(archive,
-                                                 session,
-                                                 finalState,
-                                                 summary.chunkCount,
-                                                 summary.sampleCount,
-                                                 summary.byteCount,
+            auto status = updateRecordingSession(archive, session, finalState, summary.chunkCount,
+                                                 summary.sampleCount, summary.byteCount,
                                                  streamFailure.message);
             if (!status)
                 return std::unexpected(core::error(
@@ -1015,12 +919,8 @@ namespace {
             return std::unexpected(streamFailure);
         }
         session.fields["recording_stopped_at_us"] = std::to_string(nowUnixMicroseconds());
-        if (auto status = updateRecordingSession(archive,
-                                                 session,
-                                                 "completed",
-                                                 summary.chunkCount,
-                                                 summary.sampleCount,
-                                                 summary.byteCount);
+        if (auto status = updateRecordingSession(archive, session, "completed", summary.chunkCount,
+                                                 summary.sampleCount, summary.byteCount);
             !status) {
             return std::unexpected(status.error());
         }
@@ -1045,10 +945,9 @@ core::Result<CaptureDeviceProbe> probeCaptureDevice(DeviceKind source, std::stri
     }
     return probeAlsaCaptureDevice(std::move(deviceId));
 #elif defined(__APPLE__)
-    if (source == DeviceKind::playback && deviceId.empty()) {
-        return std::unexpected(core::error(
-            "audio_monitor_required",
-            "Select a CoreAudio virtual loopback input explicitly for system-audio capture."));
+    if (source == DeviceKind::playback &&
+        (deviceId.empty() || deviceId == "default" || deviceId == "screen-capture-kit")) {
+        return probeScreenCaptureKitDevice(std::move(deviceId));
     }
     return probeCoreAudioCaptureDevice(std::move(deviceId));
 #else
@@ -1102,10 +1001,9 @@ core::Result<CaptureSummary> recoverNativeCapture(archive::Archive& archive,
             std::from_chars(value.data(), value.data() + value.size(), parsed);
         return error == std::errc{} && end == value.data() + value.size();
     };
-    if (!parseNumber(
-            domain::getField(formatRecord,
-                             trackMetadata ? "sample_rate_hz" : "recording_sample_rate_hz"),
-            sampleRate) ||
+    if (!parseNumber(domain::getField(formatRecord, trackMetadata ? "sample_rate_hz"
+                                                                  : "recording_sample_rate_hz"),
+                     sampleRate) ||
         !parseNumber(domain::getField(formatRecord,
                                       trackMetadata ? "channel_count" : "recording_channel_count"),
                      channelCount) ||
@@ -1232,13 +1130,8 @@ core::Result<CaptureSummary> recoverNativeCapture(archive::Archive& archive,
                             : "Committed audio was verified; the capture did not reach "
                               "completion.";
     }
-    auto status = updateRecordingSession(archive,
-                                         session,
-                                         summary.state,
-                                         summary.chunkCount,
-                                         summary.sampleCount,
-                                         summary.byteCount,
-                                         failureReason);
+    auto status = updateRecordingSession(archive, session, summary.state, summary.chunkCount,
+                                         summary.sampleCount, summary.byteCount, failureReason);
     if (!status)
         return std::unexpected(status.error());
     if (trackMetadata) {
@@ -1370,8 +1263,8 @@ core::Result<MultiTrackCaptureSummary> recoverNativeCaptureTracks(archive::Archi
     return combined;
 }
 
-core::Result<CaptureSummary>
-captureNative(archive::Archive& archive, const archive::Uuid& sessionId, CaptureOptions options) {
+core::Result<CaptureSummary> captureNative(archive::Archive& archive,
+                                           const archive::Uuid& sessionId, CaptureOptions options) {
 #ifdef _WIN32
     if (options.maximumDuration && options.maximumDuration->count() <= 0) {
         return std::unexpected(core::error("audio_capture_duration_invalid",
@@ -1381,6 +1274,11 @@ captureNative(archive::Archive& archive, const archive::Uuid& sessionId, Capture
 #elif defined(__linux__)
     return captureAlsa(archive, sessionId, std::move(options));
 #elif defined(__APPLE__)
+    if (options.source == DeviceKind::playback &&
+        (options.deviceId.empty() || options.deviceId == "default" ||
+         options.deviceId == "screen-capture-kit")) {
+        return captureScreenCaptureKit(archive, sessionId, std::move(options));
+    }
     return captureCoreAudio(archive, sessionId, std::move(options));
 #else
     static_cast<void>(archive);
