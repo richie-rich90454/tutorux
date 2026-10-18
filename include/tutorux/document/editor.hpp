@@ -5,6 +5,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -55,15 +56,30 @@ class PieceTable final {
     TextSelection selection() const noexcept;
     bool canUndo() const noexcept;
     bool canRedo() const noexcept;
+    core::Status setSelection(TextSelection selection);
 
     core::Result<EditResult> apply(const DocumentEditTransaction& transaction);
-    core::Result<EditResult> replace(TextRange range, std::string_view replacement);
-    core::Result<EditResult> replaceAll(std::string_view query, std::string_view replacement);
+    core::Result<EditResult> applyTextSnapshot(std::string_view updatedText,
+                                               std::string documentId = {},
+                                               std::uint64_t expectedRevision = 0,
+                                               std::optional<TextSelection> selectionAfter = {},
+                                               std::string origin = "user",
+                                               bool coalesceWithPrevious = false);
+    core::Result<EditResult> replace(TextRange range, std::string_view replacement,
+                                     std::string documentId = {},
+                                     std::uint64_t expectedRevision = 0,
+                                     std::string origin = "user");
+    core::Result<EditResult> replaceAll(std::string_view query, std::string_view replacement,
+                                        std::string documentId = {},
+                                        std::uint64_t expectedRevision = 0,
+                                        std::string origin = "user");
     core::Result<EditResult> undo();
     core::Result<EditResult> redo();
 
     core::Result<std::size_t> previousCodePoint(std::size_t offset) const;
     core::Result<std::size_t> nextCodePoint(std::size_t offset) const;
+    core::Result<std::size_t> previousGrapheme(std::size_t offset) const;
+    core::Result<std::size_t> nextGrapheme(std::size_t offset) const;
     std::vector<TextRange> findAll(std::string_view query) const;
     TextRange paragraphAt(std::size_t offset) const noexcept;
 
@@ -104,6 +120,7 @@ class PieceTable final {
     TextSelection selection_;
     std::vector<UndoEntry> undo_;
     std::vector<UndoEntry> redo_;
+    bool coalescingAllowed_{true};
 };
 
 } // namespace tutorux::document
