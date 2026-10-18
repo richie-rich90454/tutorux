@@ -34,115 +34,125 @@
 namespace {
 
 #ifdef _WIN32
-    using NativeSocket = SOCKET;
-    constexpr NativeSocket invalidSocket = INVALID_SOCKET;
-    void closeSocket(NativeSocket socket) {
-        if (socket != invalidSocket)
-            closesocket(socket);
+using NativeSocket = SOCKET;
+constexpr NativeSocket invalidSocket = INVALID_SOCKET;
+void closeSocket(NativeSocket socket) {
+    if (socket != invalidSocket)
+        closesocket(socket);
+}
+#else
+using NativeSocket = int;
+constexpr NativeSocket invalidSocket = -1;
+void closeSocket(NativeSocket socket) {
+    if (socket != invalidSocket)
+        ::close(socket);
+}
+#endif
+
+class SocketRuntime final {
+  public:
+    bool start() {
+#ifdef _WIN32
+        WSADATA data{};
+        return WSAStartup(MAKEWORD(2, 2), &data) == 0;
+#else
+        return true;
+#endif
     }
-#else
-    using NativeSocket = int;
-    constexpr NativeSocket invalidSocket = -1;
-    void closeSocket(NativeSocket socket) {
-        if (socket != invalidSocket)
-            ::close(socket);
+
+    ~SocketRuntime() {
+#ifdef _WIN32
+        WSACleanup();
+#endif
     }
-#endif
+};
 
-    class SocketRuntime final {
-      public:
-        bool start() {
+class EnvironmentVariableOverride final {
+  public:
+    ~EnvironmentVariableOverride() {
+        if (!active_)
+            return;
+        if (previous_)
+            static_cast<void>(write(*previous_));
+        else
+            static_cast<void>(remove());
+    }
+
+    bool set(std::string_view name, std::string_view value) {
+        name_.assign(name);
+        if (const char* existing = std::getenv(name_.c_str()))
+            previous_ = existing;
+        if (!write(value))
+            return false;
+        active_ = true;
+        return true;
+    }
+
+  private:
+    bool write(std::string_view value) const {
+        const std::string terminatedValue(value);
 #ifdef _WIN32
-            WSADATA data{};
-            return WSAStartup(MAKEWORD(2, 2), &data) == 0;
+        return _putenv_s(name_.c_str(), terminatedValue.c_str()) == 0;
 #else
-            return true;
+        return ::setenv(name_.c_str(), terminatedValue.c_str(), 1) == 0;
 #endif
-        }
+    }
 
-        ~SocketRuntime() {
+    bool remove() const {
 #ifdef _WIN32
-            WSACleanup();
-#endif
-        }
-    };
-
-    class EnvironmentVariableOverride final {
-      public:
-        ~EnvironmentVariableOverride() {
-            if (!active_)
-                return;
-            if (previous_)
-                static_cast<void>(write(*previous_));
-            else
-                static_cast<void>(remove());
-        }
-
-        bool set(std::string_view name, std::string_view value) {
-            name_.assign(name);
-            if (const char* existing = std::getenv(name_.c_str()))
-                previous_ = existing;
-            if (!write(value))
-                return false;
-            active_ = true;
-            return true;
-        }
-
-      private:
-        bool write(std::string_view value) const {
-            const std::string terminatedValue(value);
-#ifdef _WIN32
-            return _putenv_s(name_.c_str(), terminatedValue.c_str()) == 0;
+        return _putenv_s(name_.c_str(), "") == 0;
 #else
-            return ::setenv(name_.c_str(), terminatedValue.c_str(), 1) == 0;
+        return ::unsetenv(name_.c_str()) == 0;
 #endif
-        }
+    }
 
-        bool remove() const {
+    std::string name_;
+    std::optional<std::string> previous_;
+    bool active_{};
+};
+
+class LocalHttpServer final {
+  public:
+    ~LocalHttpServer() {
+        closeSocket(listener_);
+        join();
+    }
+
+    bool start(std::string response,
+               std::chrono::milliseconds delayAfterPartialResponse = {},
+               std::size_t splitAfterBytes = 0) {
+        return start(std::vector<std::string>{std::move(response)},
+                     delayAfterPartialResponse,
+                     splitAfterBytes);
+    }
+
+    bool start(std::vector<std::string> responses,
+               std::chrono::milliseconds delayAfterPartialResponse = {},
+               std::size_t splitAfterBytes = 0) {
+        listener_ = ::socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+        if (listener_ == invalidSocket)
+            return false;
+        sockaddr_in address{};
+        address.sin_family = AF_INET;
+        address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+        address.sin_port = 0;
 #ifdef _WIN32
-            return _putenv_s(name_.c_str(), "") == 0;
+        int addressLength = sizeof(address);
 #else
-            return ::unsetenv(name_.c_str()) == 0;
+        socklen_t addressLength = sizeof(address);
 #endif
+        if (::bind(listener_, reinterpret_cast<const sockaddr*>(&address), sizeof(address)) != 0)
+            return false;
+        if (::getsockname(listener_, reinterpret_cast<sockaddr*>(&address), &addressLength) != 0 ||
+            ::listen(listener_, 8) != 0) {
+            return false;
         }
-
-        std::string name_;
-        std::optional<std::string> previous_;
-        bool active_{};
-    };
-
-    class LocalHttpServer final {
-      public:
-        ~LocalHttpServer() {
-            closeSocket(listener_);
-            join();
-        }
-
-        bool start(std::string response, std::chrono::milliseconds delayAfterPartialResponse = {},
-                   std::size_t splitAfterBytes = 0) {
-            listener_ = ::socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
-            if (listener_ == invalidSocket)
-                return false;
-            sockaddr_in address{};
-            address.sin_family = AF_INET;
-            address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
-            address.sin_port = 0;
-#ifdef _WIN32
-            int addressLength = sizeof(address);
-#else
-            socklen_t addressLength = sizeof(address);
-#endif
-            if (::bind(listener_, reinterpret_cast<const sockaddr*>(&address), sizeof(address)) !=
-                0)
-                return false;
-            if (::getsockname(listener_, reinterpret_cast<sockaddr*>(&address), &addressLength) !=
-                    0 ||
-                ::listen(listener_, 1) != 0) {
-                return false;
-            }
-            port_ = ntohs(address.sin_port);
-            worker_ = std::thread([this, response = std::move(response), delayAfterPartialResponse,
-                                   splitAfterBytes] {
+        port_ = ntohs(address.sin_port);
+        worker_ = std::thread([this,
+                               responses = std::move(responses),
+                               delayAfterPartialResponse,
+                               splitAfterBytes] {
+            for (const std::string& response : responses) {
                 const NativeSocket client = ::accept(listener_, nullptr, nullptr);
                 if (client == invalidSocket)
                     return;
@@ -165,6 +175,10 @@ namespace {
                     request.append(buffer.data(), static_cast<std::size_t>(count));
                 }
                 const std::size_t headerEnd = request.find("\r\n\r\n");
+                if (headerEnd == std::string::npos) {
+                    closeSocket(client);
+                    return;
+                }
                 const std::size_t bodyStart = headerEnd + 4;
                 std::size_t contentLength = 0;
                 const std::size_t lengthHeader = request.find("Content-Length:");
@@ -173,8 +187,9 @@ namespace {
                         request.find_first_not_of(" \t", lengthHeader + 15);
                     const std::size_t valueEnd = request.find("\r\n", valueStart);
                     if (valueStart != std::string::npos && valueEnd != std::string::npos) {
-                        static_cast<void>(std::from_chars(
-                            request.data() + valueStart, request.data() + valueEnd, contentLength));
+                        static_cast<void>(std::from_chars(request.data() + valueStart,
+                                                          request.data() + valueEnd,
+                                                          contentLength));
                     }
                 }
                 while (request.size() - bodyStart < contentLength) {
@@ -188,15 +203,20 @@ namespace {
                         break;
                     request.append(buffer.data(), static_cast<std::size_t>(count));
                 }
-                request_ = std::move(request);
+                request_ += request;
+                request_.push_back('\n');
                 const auto sendRange = [&](std::size_t begin, std::size_t end) {
                     std::size_t offset = begin;
                     while (offset < end) {
 #ifdef _WIN32
-                        const int count = ::send(client, response.data() + offset,
-                                                 static_cast<int>(end - offset), 0);
+                        const int count = ::send(client,
+                                                 response.data() + offset,
+                                                 static_cast<int>(end - offset),
+                                                 0);
 #else
-                        const ssize_t count = ::send(client, response.data() + offset, end - offset,
+                        const ssize_t count = ::send(client,
+                                                     response.data() + offset,
+                                                     end - offset,
 #ifdef MSG_NOSIGNAL
                                                      MSG_NOSIGNAL
 #else
@@ -218,57 +238,58 @@ namespace {
                     static_cast<void>(sendRange(0, response.size()));
                 }
                 closeSocket(client);
-            });
-            return true;
-        }
-
-        std::string url(std::string_view path = "/") const {
-            return "http://127.0.0.1:" + std::to_string(port_) + std::string(path);
-        }
-
-        void join() {
-            if (worker_.joinable())
-                worker_.join();
-        }
-
-        const std::string& request() const noexcept {
-            return request_;
-        }
-
-      private:
-        NativeSocket listener_{invalidSocket};
-        std::uint16_t port_{};
-        std::thread worker_;
-        std::string request_;
-    };
-
-    int reportFailure(std::string_view step, std::string_view detail) {
-        std::cerr << step << ": " << detail << '\n';
-        return 1;
+            }
+        });
+        return true;
     }
 
-    std::string makeResponse(std::string_view body, std::string_view extraHeaders = {}) {
-        return "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n" + std::string(extraHeaders) +
-               "Content-Length: " + std::to_string(body.size()) + "\r\nConnection: close\r\n\r\n" +
-               std::string(body);
+    std::string url(std::string_view path = "/") const {
+        return "http://127.0.0.1:" + std::to_string(port_) + std::string(path);
     }
 
-    struct TemporaryDirectory final {
-        std::filesystem::path path;
-
-        ~TemporaryDirectory() {
-            std::error_code ignored;
-            std::filesystem::remove_all(path, ignored);
-        }
-    };
-
-    const std::string* jsonString(const tutorux::command::JsonValue& value, std::string_view key) {
-        const auto* object = value.asObject();
-        if (!object)
-            return nullptr;
-        const auto found = object->find(key);
-        return found == object->end() ? nullptr : found->second.asString();
+    void join() {
+        if (worker_.joinable())
+            worker_.join();
     }
+
+    const std::string& request() const noexcept {
+        return request_;
+    }
+
+  private:
+    NativeSocket listener_{invalidSocket};
+    std::uint16_t port_{};
+    std::thread worker_;
+    std::string request_;
+};
+
+int reportFailure(std::string_view step, std::string_view detail) {
+    std::cerr << step << ": " << detail << '\n';
+    return 1;
+}
+
+std::string makeResponse(std::string_view body, std::string_view extraHeaders = {}) {
+    return "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n" + std::string(extraHeaders) +
+           "Content-Length: " + std::to_string(body.size()) + "\r\nConnection: close\r\n\r\n" +
+           std::string(body);
+}
+
+struct TemporaryDirectory final {
+    std::filesystem::path path;
+
+    ~TemporaryDirectory() {
+        std::error_code ignored;
+        std::filesystem::remove_all(path, ignored);
+    }
+};
+
+const std::string* jsonString(const tutorux::command::JsonValue& value, std::string_view key) {
+    const auto* object = value.asObject();
+    if (!object)
+        return nullptr;
+    const auto found = object->find(key);
+    return found == object->end() ? nullptr : found->second.asString();
+}
 
 } // namespace
 
@@ -345,7 +366,9 @@ int main() {
     std::atomic_bool cancelled{};
     ai::HttpRequest cancelRequest;
     cancelRequest.url = cancelServer.url();
-    cancelRequest.cancelled = [&] { return cancelled.load(); };
+    cancelRequest.cancelled = [&] {
+        return cancelled.load();
+    };
     cancelRequest.onChunk = [&](std::string_view) {
         cancelled.store(true);
         return true;
@@ -397,7 +420,9 @@ int main() {
     generation.userContent = "{\"session\":\"fixture\"}";
     generation.useMaxCompletionTokens = true;
     std::string streamedText;
-    generation.onText = [&](std::string_view chunk) { streamedText.append(chunk); };
+    generation.onText = [&](std::string_view chunk) {
+        streamedText.append(chunk);
+    };
     auto generated = ai::generateOpenAiCompatible(std::move(generation));
     generationServer.join();
     if (!generated || generated->statusCode != 200 || generated->content != expectedGuide ||
@@ -458,24 +483,40 @@ int main() {
             return reportFailure("local AI session", status.error().message);
     }
 
+    const std::string ollamaModelCatalog =
+        "{\"models\":[{\"name\":\"fixture-model\",\"model\":\"fixture-model\","
+        "\"details\":{\"family\":\"llama\",\"parameter_size\":\"8B\"}}]}";
     LocalHttpServer ollamaModelsServer;
-    if (!ollamaModelsServer.start(makeResponse(modelCatalog))) {
+    if (!ollamaModelsServer.start(makeResponse(ollamaModelCatalog))) {
         return reportFailure("Ollama model fixture", "Unable to start the model fixture server.");
     }
-    auto configured = command::dispatch(
-        {"--archive", archivePath.string(), "ai", "configure", "--provider", "ollama", "--endpoint",
-         ollamaModelsServer.url("/v1"), "--model", "fixture-model"});
+    auto configured = command::dispatch({"--archive",
+                                         archivePath.string(),
+                                         "ai",
+                                         "configure",
+                                         "--provider",
+                                         "ollama",
+                                         "--endpoint",
+                                         ollamaModelsServer.url(),
+                                         "--model",
+                                         "fixture-model"});
     if (!configured || configured->exitCode != 0) {
         return reportFailure("Ollama CLI configuration",
                              configured ? configured->output : configured.error().message);
     }
-    auto localModels = command::dispatch({"--archive", archivePath.string(), "--json", "ai",
-                                          "models", "--provider", "ollama", "--refresh"});
+    auto localModels = command::dispatch({"--archive",
+                                          archivePath.string(),
+                                          "--json",
+                                          "ai",
+                                          "models",
+                                          "--provider",
+                                          "ollama",
+                                          "--refresh"});
     ollamaModelsServer.join();
     const std::string ollamaModelRequest = ollamaModelsServer.request();
     if (!localModels || localModels->exitCode != 0 ||
         localModels->output.find("fixture-model") == std::string::npos ||
-        ollamaModelRequest.find("GET /v1/models HTTP/1.1") == std::string::npos ||
+        ollamaModelRequest.find("GET /api/tags HTTP/1.1") == std::string::npos ||
         ollamaModelRequest.find("Authorization:") != std::string::npos) {
         return reportFailure("Ollama CLI model discovery",
                              localModels ? ollamaModelRequest + localModels->output
@@ -483,24 +524,41 @@ int main() {
     }
 
     LocalHttpServer ollamaServer;
-    const std::string ollamaEvent =
-        "data: {\"id\":\"ollama-job\",\"model\":\"fixture-model\",\"choices\":["
-        "{\"delta\":{\"content\":\"" +
-        command::jsonEscape(expectedGuide) + "\"},\"index\":0}]}\n\ndata: [DONE]\n\n";
-    if (!ollamaServer.start(makeResponse(ollamaEvent, "Content-Type: text/event-stream\r\n"))) {
+    const std::string ollamaMetadata = "{\"capabilities\":[\"completion\"],\"model_info\":{"
+                                       "\"general.context_length\":32768}}";
+    const std::string ollamaEvent = "{\"model\":\"fixture-model\",\"message\":{\"content\":\"" +
+                                    command::jsonEscape(expectedGuide) +
+                                    "\"},\"done\":false}\n"
+                                    "{\"model\":\"fixture-model\",\"done\":true}\n";
+    if (!ollamaServer.start(std::vector<std::string>{
+            makeResponse(ollamaMetadata),
+            makeResponse(ollamaEvent, "Content-Type: application/x-ndjson\r\n")})) {
         return reportFailure("Ollama fixture", "Unable to start the local AI fixture server.");
     }
-    auto generationConfiguration = command::dispatch(
-        {"--archive", archivePath.string(), "ai", "configure", "--provider", "ollama", "--endpoint",
-         ollamaServer.url("/v1"), "--model", "fixture-model"});
+    auto generationConfiguration = command::dispatch({"--archive",
+                                                      archivePath.string(),
+                                                      "ai",
+                                                      "configure",
+                                                      "--provider",
+                                                      "ollama",
+                                                      "--endpoint",
+                                                      ollamaServer.url(),
+                                                      "--model",
+                                                      "fixture-model"});
     if (!generationConfiguration || generationConfiguration->exitCode != 0) {
         return reportFailure("Ollama CLI generation configuration",
                              generationConfiguration ? generationConfiguration->output
                                                      : generationConfiguration.error().message);
     }
-    auto localPackage =
-        command::dispatch({"--archive", archivePath.string(), "--json", "ai", "package",
-                           "--session", archive::uuidToString(sessionId), "--mode", "local"});
+    auto localPackage = command::dispatch({"--archive",
+                                           archivePath.string(),
+                                           "--json",
+                                           "ai",
+                                           "package",
+                                           "--session",
+                                           archive::uuidToString(sessionId),
+                                           "--mode",
+                                           "local"});
     if (!localPackage || localPackage->exitCode != 0) {
         return reportFailure("Ollama CLI package",
                              localPackage ? localPackage->output : localPackage.error().message);
@@ -511,9 +569,15 @@ int main() {
     if (!localPackageJob) {
         return reportFailure("Ollama CLI package result", localPackage->output);
     }
-    auto localResult =
-        command::dispatch({"--archive", archivePath.string(), "--json", "ai", "generate", "--job",
-                           *localPackageJob, "--provider", "ollama"});
+    auto localResult = command::dispatch({"--archive",
+                                          archivePath.string(),
+                                          "--json",
+                                          "ai",
+                                          "generate",
+                                          "--job",
+                                          *localPackageJob,
+                                          "--provider",
+                                          "ollama"});
     ollamaServer.join();
     if (!localResult || localResult->exitCode != 0) {
         return reportFailure("Ollama CLI generation",
@@ -524,9 +588,10 @@ int main() {
         localResultValue ? jsonString(*localResultValue, "processing_boundary") : nullptr;
     const std::string ollamaRequest = ollamaServer.request();
     if (!localBoundary || *localBoundary != "loopback-only" ||
-        ollamaRequest.find("POST /v1/chat/completions HTTP/1.1") == std::string::npos ||
+        ollamaRequest.find("POST /api/show HTTP/1.1") == std::string::npos ||
+        ollamaRequest.find("POST /api/chat HTTP/1.1") == std::string::npos ||
         ollamaRequest.find("Authorization:") != std::string::npos ||
-        ollamaRequest.find("\"max_tokens\":4096") == std::string::npos) {
+        ollamaRequest.find("\"num_predict\":4096") == std::string::npos) {
         return reportFailure("Ollama CLI request policy", ollamaRequest);
     }
     {
@@ -553,9 +618,11 @@ int main() {
     struct CloudProviderFixture final {
         std::string_view id;
         std::string_view apiKeyEnvironment;
+        std::string_view apiKeyHeader{"Authorization"};
     };
     constexpr std::array cloudProviders{
         CloudProviderFixture{"openrouter", "OPENROUTER_API_KEY"},
+        CloudProviderFixture{"fireworks", "FIREWORKS_API_KEY"},
         CloudProviderFixture{"groq", "GROQ_API_KEY"},
         CloudProviderFixture{"deepseek", "DEEPSEEK_API_KEY"},
         CloudProviderFixture{"mistral", "MISTRAL_API_KEY"},
@@ -570,6 +637,11 @@ int main() {
         CloudProviderFixture{"nebius", "NEBIUS_API_KEY"},
         CloudProviderFixture{"siliconflow", "SILICONFLOW_API_KEY"},
         CloudProviderFixture{"minimax", "MINIMAX_API_KEY"},
+        CloudProviderFixture{"baidu", "BAIDU_API_KEY"},
+        CloudProviderFixture{"tencent-cloud", "TOKENHUB_API_KEY"},
+        CloudProviderFixture{"volcengine", "ARK_API_KEY"},
+        CloudProviderFixture{"bedrock", "AWS_BEARER_TOKEN_BEDROCK"},
+        CloudProviderFixture{"azure-openai", "AZURE_OPENAI_API_KEY", "api-key"},
     };
     for (const auto& provider : cloudProviders) {
         EnvironmentVariableOverride apiKey;
@@ -577,6 +649,10 @@ int main() {
             return reportFailure("cloud provider API-key fixture",
                                  std::string(provider.apiKeyEnvironment));
         }
+        const std::string expectedApiKeyHeader =
+            provider.apiKeyHeader == "Authorization"
+                ? "Authorization: Bearer fixture-api-key"
+                : std::string(provider.apiKeyHeader) + ": fixture-api-key";
 
         LocalHttpServer modelsServer;
         constexpr std::string_view togetherModelCatalog =
@@ -586,13 +662,24 @@ int main() {
         if (!modelsServer.start(makeResponse(providerModelCatalog))) {
             return reportFailure("cloud model fixture", std::string(provider.id));
         }
-        auto cloudConfiguration =
-            command::dispatch({"--archive", archivePath.string(), "ai", "configure", "--provider",
-                               std::string(provider.id), "--endpoint", modelsServer.url("/v1"),
-                               "--model", "fixture-model"});
-        auto cloudModels =
-            command::dispatch({"--archive", archivePath.string(), "--json", "ai", "models",
-                               "--provider", std::string(provider.id), "--refresh"});
+        auto cloudConfiguration = command::dispatch({"--archive",
+                                                     archivePath.string(),
+                                                     "ai",
+                                                     "configure",
+                                                     "--provider",
+                                                     std::string(provider.id),
+                                                     "--endpoint",
+                                                     modelsServer.url("/v1"),
+                                                     "--model",
+                                                     "fixture-model"});
+        auto cloudModels = command::dispatch({"--archive",
+                                              archivePath.string(),
+                                              "--json",
+                                              "ai",
+                                              "models",
+                                              "--provider",
+                                              std::string(provider.id),
+                                              "--refresh"});
         modelsServer.join();
         const std::string modelRequest = modelsServer.request();
         if (!cloudConfiguration || cloudConfiguration->exitCode != 0 || !cloudModels ||
@@ -601,7 +688,7 @@ int main() {
             (provider.id == "together" &&
              cloudModels->output.find("fixture-org") == std::string::npos) ||
             modelRequest.find("GET /v1/models HTTP/1.1") == std::string::npos ||
-            modelRequest.find("Authorization: Bearer fixture-api-key") == std::string::npos) {
+            modelRequest.find(expectedApiKeyHeader) == std::string::npos) {
             return reportFailure(
                 "cloud model discovery",
                 modelRequest + (cloudModels ? cloudModels->output : cloudModels.error().message));
@@ -611,18 +698,30 @@ int main() {
         if (!generationServer.start(makeResponse(event, "Content-Type: text/event-stream\r\n"))) {
             return reportFailure("cloud generation fixture", std::string(provider.id));
         }
-        auto generationConfiguration =
-            command::dispatch({"--archive", archivePath.string(), "ai", "configure", "--provider",
-                               std::string(provider.id), "--endpoint", generationServer.url("/v1"),
-                               "--model", "fixture-model"});
-        auto cloudPackage =
-            command::dispatch({"--archive", archivePath.string(), "--json", "ai", "package",
-                               "--session", archive::uuidToString(sessionId), "--mode", "manual"});
+        auto generationConfiguration = command::dispatch({"--archive",
+                                                          archivePath.string(),
+                                                          "ai",
+                                                          "configure",
+                                                          "--provider",
+                                                          std::string(provider.id),
+                                                          "--endpoint",
+                                                          generationServer.url("/v1"),
+                                                          "--model",
+                                                          "fixture-model"});
+        auto cloudPackage = command::dispatch({"--archive",
+                                               archivePath.string(),
+                                               "--json",
+                                               "ai",
+                                               "package",
+                                               "--session",
+                                               archive::uuidToString(sessionId),
+                                               "--mode",
+                                               "manual"});
         if (!generationConfiguration || generationConfiguration->exitCode != 0 || !cloudPackage ||
             cloudPackage->exitCode != 0) {
-            return reportFailure("cloud package preparation", cloudPackage
-                                                                  ? cloudPackage->output
-                                                                  : cloudPackage.error().message);
+            return reportFailure("cloud package preparation",
+                                 cloudPackage ? cloudPackage->output
+                                              : cloudPackage.error().message);
         }
         auto cloudPackageSummary = command::parseJson(cloudPackage->output);
         const std::string* cloudJobId =
@@ -632,13 +731,21 @@ int main() {
         if (!cloudJobId || !cloudPackageHash) {
             return reportFailure("cloud package summary", cloudPackage->output);
         }
-        auto cloudPreview = command::dispatch(
-            {"--archive", archivePath.string(), "--json", "ai", "generate", "--job", *cloudJobId,
-             "--provider", std::string(provider.id), "--model", "fixture-model"});
+        auto cloudPreview = command::dispatch({"--archive",
+                                               archivePath.string(),
+                                               "--json",
+                                               "ai",
+                                               "generate",
+                                               "--job",
+                                               *cloudJobId,
+                                               "--provider",
+                                               std::string(provider.id),
+                                               "--model",
+                                               "fixture-model"});
         if (!cloudPreview || cloudPreview->exitCode != 0) {
-            return reportFailure("cloud outbound preview", cloudPreview
-                                                               ? cloudPreview->output
-                                                               : cloudPreview.error().message);
+            return reportFailure("cloud outbound preview",
+                                 cloudPreview ? cloudPreview->output
+                                              : cloudPreview.error().message);
         }
         auto cloudPreviewValue = command::parseJson(cloudPreview->output);
         const std::string* cloudRequestBody =
@@ -649,7 +756,8 @@ int main() {
             cloudPreviewValue ? jsonString(*cloudPreviewValue, "confirmation_command") : nullptr;
         const std::string expectedConfirmation =
             "--api-key-env " + std::string(provider.apiKeyEnvironment);
-        const bool usesMaxCompletionTokens = provider.id == "minimax";
+        const bool usesMaxCompletionTokens =
+            provider.id == "minimax" || provider.id == "volcengine";
         if (!cloudRequestBody ||
             cloudRequestBody->find(usesMaxCompletionTokens
                                        ? "\"max_completion_tokens\":4096"
@@ -661,15 +769,25 @@ int main() {
             confirmationCommand->find(expectedConfirmation) == std::string::npos) {
             return reportFailure("cloud outbound preview policy", cloudPreview->output);
         }
-        auto cloudGeneration = command::dispatch(
-            {"--archive", archivePath.string(), "--json", "ai", "generate", "--job", *cloudJobId,
-             "--provider", std::string(provider.id), "--model", "fixture-model",
-             "--confirm-outbound", "--confirm-hash", *confirmationHash});
+        auto cloudGeneration = command::dispatch({"--archive",
+                                                  archivePath.string(),
+                                                  "--json",
+                                                  "ai",
+                                                  "generate",
+                                                  "--job",
+                                                  *cloudJobId,
+                                                  "--provider",
+                                                  std::string(provider.id),
+                                                  "--model",
+                                                  "fixture-model",
+                                                  "--confirm-outbound",
+                                                  "--confirm-hash",
+                                                  *confirmationHash});
         generationServer.join();
         const std::string generationRequest = generationServer.request();
         if (!cloudGeneration || cloudGeneration->exitCode != 0 ||
             generationRequest.find("POST /v1/chat/completions HTTP/1.1") == std::string::npos ||
-            generationRequest.find("Authorization: Bearer fixture-api-key") == std::string::npos ||
+            generationRequest.find(expectedApiKeyHeader) == std::string::npos ||
             generationRequest.find(usesMaxCompletionTokens
                                        ? "\"max_completion_tokens\":4096"
                                        : "\"max_tokens\":4096") == std::string::npos) {
