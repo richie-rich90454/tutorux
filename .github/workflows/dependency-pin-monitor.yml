@@ -1,8 +1,8 @@
 name: FetchContent pin monitor
 
 on:
-  schedule:
-    - cron: "13 9 * * 1"
+  # schedule:
+  #   - cron: "13 9 * * 1"
   workflow_dispatch:
 
 permissions:
