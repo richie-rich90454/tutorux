@@ -341,7 +341,7 @@ int main() {
             }
         }
     }
-    if (localEndpoint != "http://127.0.0.1:11434/v1") {
+    if (localEndpoint != "http://127.0.0.1:11434") {
         return reportFailure("local provider default endpoint",
                              "Ollama was not configured with its loopback default.");
     }
