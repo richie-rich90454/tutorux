@@ -71,7 +71,9 @@ int main() {
         return fail("Session creation did not return a JSON object.");
     const auto idField = object->find("id");
     const auto* idText = idField == object->end() ? nullptr : idField->second.asString();
-    const auto sessionId = idText ? archive::uuidFromString(*idText) : std::nullopt;
+    if (!idText)
+        return fail("Session creation did not return a valid session ID.");
+    const auto sessionId = archive::uuidFromString(*idText);
     if (!sessionId)
         return fail("Session creation did not return a valid session ID.");
 
