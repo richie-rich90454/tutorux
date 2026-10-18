@@ -3507,7 +3507,10 @@ int launchDesktop(std::optional<std::filesystem::path> archivePath, std::optiona
                 window->set_guide_output(toSharedString(match.error().message));
                 return;
             }
-            editor.text.setSelection({match->start, match->end});
+            if (auto status = editor.text.setSelection({match->start, match->end}); !status) {
+                window->set_guide_output(toSharedString(status.error().message));
+                return;
+            }
             window->set_guide_edit_anchor(static_cast<int>(match->start));
             window->set_guide_edit_focus(static_cast<int>(match->end));
             window->set_guide_output(toSharedString("Selected the next match. Press Replace again to replace it."));
