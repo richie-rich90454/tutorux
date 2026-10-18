@@ -41,8 +41,12 @@ The first 64 bytes are immutable after initialization:
 | 60 | 4 | CRC-32/IEEE of bytes 0..59 |
 
 Capability bit `0x1` declares that protected record payloads use archive encryption. Unknown
-capability bits are preserved. A reader may open a newer minor version only when all
-required capability bits are understood. A newer major version is never opened for writing.
+capability bits are preserved by implementations that understand their requirements. This v1
+implementation treats every unknown capability bit as required, so it rejects record access and
+writing while still allowing header-only discovery metadata. A reader may open a newer minor version
+only when all required capability bits are understood; this implementation treats newer minor
+versions as unsupported and exposes header-only discovery metadata. A newer major version is never
+opened for writing.
 
 ## Record framing
 
@@ -80,8 +84,17 @@ the sample encoding.
 Record types are stable 16-bit values: student `1`, session `2`, audio chunk `3`, transcript
 segment `4`, annotation `5`, asset metadata `6`, asset blob `7`, evidence node `8`, evidence edge
 `9`, guide `10`, settings `11`, AI job `12`, encryption metadata `13`, waveform index `14`, index
-page `250`, and commit `251`. Unknown record types are skipped when framing is valid and are
-preserved by compaction when reachable.
+page `250`, and commit `251`. Unknown domain record types are opaque to older readers: readers
+validate their frame bounds, checksum, supported codec, encryption authentication, and revision
+links without interpreting their payload schema. Full verification includes these checks, and
+compaction retains every unknown revision reachable through an index entry, along with each index
+key that references it. Compaction rewrites the framing's previous-revision offsets and
+re-authenticates encrypted payloads. It preserves each opaque codec-payload byte sequence and codec.
+Because an older reader cannot interpret extension references, it conservatively retains every
+indexed `AssetBlob` revision chain when opaque records are present. Extension payloads must therefore
+use stable logical identifiers rather than absolute archive offsets for cross-record references. An
+older reader validates opaque framing and revision links but cannot validate extension-specific
+reference semantics. Unknown keys and payload fields must fit the v1 key and record limits.
 
 `WaveformIndex` records (`14`) store a discardable min/max cache for one session track. The cache
 includes a fingerprint of its source audio chunk revisions; stale or invalid caches are rebuilt
@@ -222,22 +235,30 @@ verification result, and any integrity issues. A tutor can publish a verified co
 explicitly discard the uncommitted tail. A transaction writes domain records and any new B+ tree
 pages, flushes them, writes and flushes the commit, then writes and flushes the locator.
 
-Cross-process coordination uses a hidden sibling lock file named `.<archive-name>.lock`. It is a
-generated coordination file, not archive content, and is not needed when moving a closed `.tux`
-archive. It is retained after close so another process cannot lock a different file inode during
-atomic compaction replacement; do not remove it while the archive is open. Compaction keeps this
-path lock while it closes the old archive handle, replaces the file, and opens the replacement.
-During compaction, the implementation removes only UUID-named temporary `.partial` files for that
-archive, and only after it has fully verified
-the source archive and established that each candidate is a regular file and is not currently
-locked. Other files, directories, and symbolic links are left alone.
+`ArchiveInfo::writable` reports whether the operating system permits opening the archive with
+read/write access. Its probe must not write archive bytes or acquire the archive lock, so an archive
+held by an active writer can still report filesystem write access. Lock, recovery, and compatibility
+conditions are reported independently through `healthStatus`.
+
+Cross-process coordination uses native locks on the archive file handle itself: readers hold shared
+locks and writers hold exclusive locks. Tutorux creates no sibling lock file. During compaction,
+Tutorux writes and locks a UUID-named `.partial` file, then atomically replaces the archive while
+both the source and replacement handles remain locked. The writer adopts the replacement handle
+before releasing the source handle, so another process cannot enter between publication and lock
+handoff. During compaction, the implementation removes only UUID-named temporary `.partial` files
+for that archive, and only after it has fully verified the source archive and established that
+each candidate is a regular file and is not currently locked. Other files, directories, and
+symbolic links are left alone.
 
 Targets without operating-system file locks, including the Emscripten build, cannot coordinate
 separate processes through these locks; archive access there must remain within one process. Locks
-are advisory, so external tools must not mutate archive files while Tutorux has them open. Different
-hard-link names for the same file do not share a path lock and must not be modified concurrently.
-Cross-process locking and atomic replacement also depend on the filesystem honoring native locks
-and same-directory atomic rename semantics.
+are advisory, so external tools must not mutate archive files while Tutorux has them open. Hard-link
+names for the same file share the underlying file lock on supported native filesystems and must not
+be modified concurrently. Cross-process locking and atomic replacement depend on the filesystem
+honoring native locks and same-directory atomic rename semantics. On Windows, archive handles allow
+delete sharing so compaction can replace an open file; an external handle that denies delete
+sharing can prevent opening or replacing the archive, in which case compaction fails without
+releasing the existing writer lock.
 
 An implementation must never rewrite committed records in place. Compaction writes a verified
 replacement archive beside the source and publishes it atomically where the filesystem permits.
