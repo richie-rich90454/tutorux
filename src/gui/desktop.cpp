@@ -1784,6 +1784,8 @@ namespace {
 
     void applyWorkspaceSnapshot(MainWindow& window, WorkspaceSnapshot snapshot) {
         if (snapshot.specialArchive) {
+            window.set_journal_entry_id(toSharedString(""));
+            window.set_journal_session_id(toSharedString(""));
             if (snapshot.specialArchiveIsMetadataOnly)
                 showMetadataOnlyArchive(window, *snapshot.specialArchive);
             else if (snapshot.specialArchiveIsLocked)
@@ -1793,6 +1795,26 @@ namespace {
 
         clearAssetPanel(window,
                         "Choose a session, list its materials, then preview a selected file.");
+        const std::string currentEntryId(window.get_journal_entry_id().data(),
+                                         window.get_journal_entry_id().size());
+        const auto entryStillPresent =
+            std::find_if(snapshot.journalEntries.begin(), snapshot.journalEntries.end(),
+                         [&](const slint::SharedString& choice) {
+                             return selectionId(choice) == currentEntryId;
+                         });
+        if (!currentEntryId.empty() && entryStillPresent == snapshot.journalEntries.end()) {
+            window.set_journal_entry_id(toSharedString(""));
+            window.set_journal_document_id(toSharedString(""));
+        }
+        const std::string currentSessionId(window.get_journal_session_id().data(),
+                                           window.get_journal_session_id().size());
+        const auto sessionStillPresent =
+            std::find_if(snapshot.sessions.begin(), snapshot.sessions.end(),
+                         [&](const slint::SharedString& choice) {
+                             return selectionId(choice) == currentSessionId;
+                         });
+        if (!currentSessionId.empty() && sessionStillPresent == snapshot.sessions.end())
+            window.set_journal_session_id(toSharedString(""));
         window.set_archive_path(toSharedString(snapshot.path.string()));
         window.set_archive_list(toSharedString(std::move(snapshot.archiveList)));
         window.set_archive_paths(std::move(snapshot.archivePaths));
@@ -2091,7 +2113,6 @@ int launchDesktop(std::optional<std::filesystem::path> archivePath,
         if (path.is_relative())
             path = directory / path;
         std::string passphrase(requestedPassphrase.data(), requestedPassphrase.size());
-        window->set_archive_path(toSharedString(path.string()));
         window->set_status_message(toSharedString("Opening archive and checking its integrity…"));
         const std::uint64_t generation = backgroundTasks.archiveOpenGeneration.fetch_add(1) + 1;
         const bool started = backgroundTasks.spawn([weakWindow, &directory, &activePassphrase,
@@ -2227,9 +2248,15 @@ int launchDesktop(std::optional<std::filesystem::path> archivePath,
                 weakWindow, backgroundTasks,
                 archiveCommand(path,
                                {"repair", "--output", destination.string(), "--confirm-sensitive"}),
-                activePassphrase, [](MainWindow& completedWindow, bool, std::string output) {
+                activePassphrase,
+                [weakWindow, &backgroundTasks, path, &activePassphrase](
+                    MainWindow& completedWindow, bool succeeded, std::string output) {
                     completedWindow.set_status_message(toSharedString(output));
                     completedWindow.set_command_output(toSharedString(std::move(output)));
+                    if (!succeeded)
+                        return;
+                    refreshArchiveRecoveryStateAsync(weakWindow, backgroundTasks, path,
+                                                     activePassphrase);
                 });
             return;
         }
@@ -3527,12 +3554,17 @@ int launchDesktop(std::optional<std::filesystem::path> archivePath,
             window->set_command_output(toSharedString("Select a session from this archive."));
             return;
         }
+        std::string markerType(type.data(), type.size());
+        std::string markerText(note.data(), note.size());
+        if (markerText.empty()) {
+            markerText = markerType;
+            std::replace(markerText.begin(), markerText.end(), '-', ' ');
+        }
         dispatchCommandAsync(
             weakWindow, backgroundTasks,
-            archiveCommand(path, {"annotation", "add", "--session", id, "--type",
-                                  std::string(type.data(), type.size()), "--at",
-                                  std::string(timestamp.data(), timestamp.size()), "--text",
-                                  std::string(note.data(), note.size())}),
+            archiveCommand(path,
+                           {"annotation", "add", "--session", id, "--type", markerType, "--at",
+                            std::string(timestamp.data(), timestamp.size()), "--text", markerText}),
             activePassphrase, [](MainWindow& completedWindow, bool, std::string output) {
                 completedWindow.set_command_output(toSharedString(output));
                 completedWindow.set_status_message(toSharedString(std::move(output)));
@@ -4989,8 +5021,8 @@ int launchDesktop(std::optional<std::filesystem::path> archivePath,
             window->set_status_message(toSharedString("Saving quick marker shortcuts…"));
             dispatchCommandAsync(
                 weakWindow, backgroundTasks,
-                archiveCommand(
-                    path, {"settings", "set", "annotation.quick_marker_shortcuts", serialized}),
+                archiveCommand(path, {"settings", "set", "--key",
+                                      "annotation.quick_marker_shortcuts", "--value", serialized}),
                 activePassphrase,
                 [shortcuts = std::move(shortcuts)](MainWindow& completedWindow, bool saved,
                                                    std::string output) {
@@ -5322,7 +5354,7 @@ int launchDesktop(std::optional<std::filesystem::path> archivePath,
             }
             const std::string canonicalId = tutorux::archive::uuidToString(*id);
             insertion = selectedText + "[[source:" + canonicalId + "]]";
-        } else if (kind == "image" && !reference.empty()) {
+        } else if (kind == "image") {
             auto id = tutorux::archive::uuidFromString(reference);
             if (!id) {
                 window->set_guide_output(
@@ -5349,9 +5381,9 @@ int launchDesktop(std::optional<std::filesystem::path> archivePath,
         } else if (kind == "table") {
             updatedKind = "table";
             insertion = "| Column 1 | Column 2 |\n| --- | --- |\n| Value | Value |";
-        } else if (kind == "image" || kind == "figure" || kind == "paragraph" ||
-                   kind == "list-item" || kind == "quote" || kind == "example" ||
-                   kind == "instruction" || kind == "recommendation" || kind == "worked-example") {
+        } else if (kind == "figure" || kind == "paragraph" || kind == "list-item" ||
+                   kind == "quote" || kind == "example" || kind == "instruction" ||
+                   kind == "recommendation" || kind == "worked-example") {
             updatedKind = kind;
             insertion = selectedText;
         } else {
@@ -5442,7 +5474,8 @@ int launchDesktop(std::optional<std::filesystem::path> archivePath,
                                                     expectedRevision, sectionIndex, blockIndex,
                                                     guideSelection, blockSelection,
                                                     arguments = std::move(arguments),
-                                                    passphrase = std::move(passphrase)]() mutable {
+                                                    passphrase = std::move(passphrase),
+                                                    &activePassphrase]() mutable {
             std::string output;
             std::string errorMessage;
             std::uint64_t savedRevision = 0;
@@ -5484,7 +5517,7 @@ int launchDesktop(std::optional<std::filesystem::path> archivePath,
                 [weakWindow, &backgroundTasks, activeGuideEditor, guideSaveBusy, path, id,
                  expectedRevision, sectionIndex, blockIndex, guideSelection, blockSelection,
                  output = std::move(output), errorMessage = std::move(errorMessage), savedRevision,
-                 succeeded]() mutable {
+                 succeeded, &activePassphrase]() mutable {
                     guideSaveBusy->store(false);
                     const auto strongWindow = weakWindow.lock();
                     if (!strongWindow)
@@ -5509,7 +5542,7 @@ int launchDesktop(std::optional<std::filesystem::path> archivePath,
                     (*strongWindow)
                         ->set_guide_provenance(toSharedString(
                             "Saved as a new archive revision. Source references were retained."));
-                    refreshWorkspaceAsync(weakWindow, backgroundTasks, path);
+                    refreshWorkspaceAsync(weakWindow, backgroundTasks, path, activePassphrase);
                 }));
         });
         if (!started) {
@@ -5657,10 +5690,11 @@ int launchDesktop(std::optional<std::filesystem::path> archivePath,
 
         std::string commandPassphrase = activePassphrase;
         std::string newPassphrase(requestedNewPassphrase.data(), requestedNewPassphrase.size());
-        bool changesPassphrase = parsed->size() >= 2 && parsed->front() == "archive" &&
-                                 ((*parsed)[1] == "encrypt" || (*parsed)[1] == "change-passphrase");
-        if (changesPassphrase && parsed->size() > 2) {
-            std::filesystem::path commandArchive((*parsed)[2]);
+        bool changesPassphrase =
+            remainingArguments >= 2 && *commandStart == "archive" &&
+            (*(commandStart + 1) == "encrypt" || *(commandStart + 1) == "change-passphrase");
+        if (changesPassphrase && remainingArguments > 2) {
+            std::filesystem::path commandArchive(*(commandStart + 2));
             if (commandArchive.is_relative())
                 commandArchive = selectedPath.parent_path() / commandArchive;
             std::error_code pathError;
@@ -5929,10 +5963,31 @@ int launchDesktop(std::optional<std::filesystem::path> archivePath,
                     (*strongWindow)
                         ->set_journal_session_options(
                             std::make_shared<slint::VectorModel<slint::SharedString>>(choices));
-                    (*strongWindow)->set_journal_session_id(toSharedString(""));
+                    const std::string currentSessionId(
+                        (*strongWindow)->get_journal_session_id().data(),
+                        (*strongWindow)->get_journal_session_id().size());
+                    const std::string previousSelectionId =
+                        selectionId((*strongWindow)->get_selected_journal_session());
+                    const auto overrideChoice = std::find_if(
+                        choices.begin(), choices.end(), [&](const slint::SharedString& choice) {
+                            return !currentSessionId.empty() &&
+                                   selectionId(choice) == currentSessionId;
+                        });
+                    if (!currentSessionId.empty() && overrideChoice == choices.end())
+                        (*strongWindow)->set_journal_session_id(toSharedString(""));
+                    const auto selectedChoice =
+                        overrideChoice != choices.end()
+                            ? overrideChoice
+                            : std::find_if(choices.begin(), choices.end(),
+                                           [&](const slint::SharedString& choice) {
+                                               return !previousSelectionId.empty() &&
+                                                      selectionId(choice) == previousSelectionId;
+                                           });
                     (*strongWindow)
-                        ->set_selected_journal_session(choices.empty() ? toSharedString("")
-                                                                       : choices.front());
+                        ->set_selected_journal_session(selectedChoice != choices.end()
+                                                           ? *selectedChoice
+                                                       : choices.empty() ? toSharedString("")
+                                                                         : choices.front());
                 }
                 if (exitCode == 0 && journalEntryGuideResponse) {
                     if (const auto guideId = jsonStringField(output, "id")) {
