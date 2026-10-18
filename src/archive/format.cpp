@@ -174,9 +174,7 @@ core::Result<Bytes> encodeRecordPayload(const Record& record) {
     return bytes;
 }
 
-core::Result<Record> decodeRecordPayload(RecordType type,
-                                         Uuid id,
-                                         std::uint64_t revision,
+core::Result<Record> decodeRecordPayload(RecordType type, Uuid id, std::uint64_t revision,
                                          std::uint64_t previousOffset,
                                          std::span<const std::byte> payload) {
     if (payload.size() < 16 || !hasMagic(payload, "TXMD")) {
@@ -308,6 +306,8 @@ std::string recordTypeName(RecordType type) {
             return "ai-job";
         case RecordType::Encryption:
             return "encryption";
+        case RecordType::WaveformIndex:
+            return "waveform-index";
         case RecordType::IndexPage:
             return "index";
         case RecordType::Commit:
@@ -344,6 +344,8 @@ core::Result<RecordType> recordTypeFromName(std::string_view name) {
         return RecordType::AiJob;
     if (normalized == "encryption")
         return RecordType::Encryption;
+    if (normalized == "waveform-index")
+        return RecordType::WaveformIndex;
     return std::unexpected(
         core::error("record_type_invalid", "Unknown record type '" + normalized + "'."));
 }
