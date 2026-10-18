@@ -17,63 +17,63 @@
 
 namespace {
 
-    struct TemporaryFiles final {
-        std::vector<std::filesystem::path> paths;
+struct TemporaryFiles final {
+    std::vector<std::filesystem::path> paths;
 
-        ~TemporaryFiles() {
-            for (const auto& path : paths) {
-                std::error_code ignored;
-                std::filesystem::remove(path, ignored);
-            }
-        }
-    };
-
-    void appendAscii(std::vector<std::byte>& bytes, std::string_view value) {
-        for (const char character : value)
-            bytes.push_back(static_cast<std::byte>(static_cast<unsigned char>(character)));
-    }
-
-    template <typename Integer> void appendLittle(std::vector<std::byte>& bytes, Integer value) {
-        using Unsigned = std::make_unsigned_t<Integer>;
-        const auto bits = static_cast<Unsigned>(value);
-        for (std::size_t index = 0; index < sizeof(Integer); ++index) {
-            bytes.push_back(static_cast<std::byte>((bits >> (index * 8U)) & 0xffU));
+    ~TemporaryFiles() {
+        for (const auto& path : paths) {
+            std::error_code ignored;
+            std::filesystem::remove(path, ignored);
         }
     }
+};
 
-    bool writeWave(const std::filesystem::path& path) {
-        constexpr std::uint32_t sampleRate = 8'000;
-        constexpr std::uint32_t sampleCount = 256;
-        constexpr std::uint32_t dataSize = sampleCount * 2;
+void appendAscii(std::vector<std::byte>& bytes, std::string_view value) {
+    for (const char character : value)
+        bytes.push_back(static_cast<std::byte>(static_cast<unsigned char>(character)));
+}
 
-        std::vector<std::byte> bytes;
-        bytes.reserve(44 + dataSize);
-        appendAscii(bytes, "RIFF");
-        appendLittle(bytes, std::uint32_t{36} + dataSize);
-        appendAscii(bytes, "WAVEfmt ");
-        appendLittle(bytes, std::uint32_t{16});
-        appendLittle(bytes, std::uint16_t{1});
-        appendLittle(bytes, std::uint16_t{1});
-        appendLittle(bytes, sampleRate);
-        appendLittle(bytes, sampleRate * 2);
-        appendLittle(bytes, std::uint16_t{2});
-        appendLittle(bytes, std::uint16_t{16});
-        appendAscii(bytes, "data");
-        appendLittle(bytes, dataSize);
-        bytes.resize(44 + dataSize, std::byte{});
-
-        std::ofstream output(path, std::ios::binary | std::ios::trunc);
-        if (!output)
-            return false;
-        for (const std::byte byte : bytes)
-            output.put(static_cast<char>(std::to_integer<unsigned char>(byte)));
-        return output.good();
+template <typename Integer> void appendLittle(std::vector<std::byte>& bytes, Integer value) {
+    using Unsigned = std::make_unsigned_t<Integer>;
+    const auto bits = static_cast<Unsigned>(value);
+    for (std::size_t index = 0; index < sizeof(Integer); ++index) {
+        bytes.push_back(static_cast<std::byte>((bits >> (index * 8U)) & 0xffU));
     }
+}
 
-    int fail(std::string_view message) {
-        std::cerr << message << '\n';
-        return 1;
-    }
+bool writeWave(const std::filesystem::path& path) {
+    constexpr std::uint32_t sampleRate = 8'000;
+    constexpr std::uint32_t sampleCount = 256;
+    constexpr std::uint32_t dataSize = sampleCount * 2;
+
+    std::vector<std::byte> bytes;
+    bytes.reserve(44 + dataSize);
+    appendAscii(bytes, "RIFF");
+    appendLittle(bytes, std::uint32_t{36} + dataSize);
+    appendAscii(bytes, "WAVEfmt ");
+    appendLittle(bytes, std::uint32_t{16});
+    appendLittle(bytes, std::uint16_t{1});
+    appendLittle(bytes, std::uint16_t{1});
+    appendLittle(bytes, sampleRate);
+    appendLittle(bytes, sampleRate * 2);
+    appendLittle(bytes, std::uint16_t{2});
+    appendLittle(bytes, std::uint16_t{16});
+    appendAscii(bytes, "data");
+    appendLittle(bytes, dataSize);
+    bytes.resize(44 + dataSize, std::byte{});
+
+    std::ofstream output(path, std::ios::binary | std::ios::trunc);
+    if (!output)
+        return false;
+    for (const std::byte byte : bytes)
+        output.put(static_cast<char>(std::to_integer<unsigned char>(byte)));
+    return output.good();
+}
+
+int fail(std::string_view message) {
+    std::cerr << message << '\n';
+    return 1;
+}
 
 } // namespace
 
@@ -83,9 +83,12 @@ int main() {
     const auto uniqueSuffix = std::chrono::steady_clock::now().time_since_epoch().count();
     const auto basePath = std::filesystem::current_path() /
                           ("tutorux-session-transfer-" + std::to_string(uniqueSuffix));
-    TemporaryFiles temporary{{basePath.string() + "-source.tux", basePath.string() + "-audio.wav",
-                              basePath.string() + "-package.tux",
-                              basePath.string() + "-destination.tux"}};
+    TemporaryFiles temporary{
+        {basePath.string() + "-source.tux",
+         basePath.string() + "-audio.wav",
+         basePath.string() + "-package.tux",
+         basePath.string() + "-destination.tux"}
+    };
 
     if (!writeWave(temporary.paths[1]))
         return fail("Unable to write the test WAV fixture.");
