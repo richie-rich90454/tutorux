@@ -36,7 +36,8 @@ namespace {
                                RecordType type,
                                const Uuid& recordId,
                                std::uint64_t revision,
-                               std::uint64_t previousOffset) {
+                               std::uint64_t previousOffset,
+                               std::uint8_t codec) {
         constexpr std::string_view label = "TUTORUX-RECORD-V1";
         Bytes result;
         result.reserve(label.size() + archiveId.size() + 2 + recordId.size() + 16);
@@ -47,6 +48,8 @@ namespace {
         result.insert(result.end(), recordId.begin(), recordId.end());
         appendLittle(result, revision, 8);
         appendLittle(result, previousOffset, 8);
+        if (codec != 0)
+            result.push_back(static_cast<std::byte>(codec));
         return result;
     }
 
@@ -228,7 +231,8 @@ core::Result<Bytes> encryptRecordPayload(std::span<const std::byte> plaintext,
                                          RecordType type,
                                          const Uuid& recordId,
                                          std::uint64_t revision,
-                                         std::uint64_t previousOffset) {
+                                         std::uint64_t previousOffset,
+                                         std::uint8_t codec) {
     if (!archiveKey ||
         plaintext.size() > kMaximumRecordPayload - kEncryptionNonceSize - kEncryptionTagSize) {
         return std::unexpected(
@@ -240,7 +244,7 @@ core::Result<Bytes> encryptRecordPayload(std::span<const std::byte> plaintext,
     std::array<std::byte, kEncryptionNonceSize> nonce{};
     randombytes_buf(nonce.data(), nonce.size());
     const Bytes associatedData =
-        recordAssociatedData(archiveId, type, recordId, revision, previousOffset);
+        recordAssociatedData(archiveId, type, recordId, revision, previousOffset, codec);
     Bytes output(nonce.size() + plaintext.size() + kEncryptionTagSize);
     std::copy(nonce.begin(), nonce.end(), output.begin());
     unsigned long long ciphertextLength = 0;
@@ -267,7 +271,8 @@ core::Result<Bytes> decryptRecordPayload(std::span<const std::byte> ciphertext,
                                          RecordType type,
                                          const Uuid& recordId,
                                          std::uint64_t revision,
-                                         std::uint64_t previousOffset) {
+                                         std::uint64_t previousOffset,
+                                         std::uint8_t codec) {
     if (!archiveKey || ciphertext.size() < kEncryptionNonceSize + kEncryptionTagSize) {
         return std::unexpected(
             core::error("archive_record_encrypted",
@@ -279,7 +284,7 @@ core::Result<Bytes> decryptRecordPayload(std::span<const std::byte> ciphertext,
     const auto nonce = ciphertext.first(kEncryptionNonceSize);
     const auto body = ciphertext.subspan(kEncryptionNonceSize);
     const Bytes associatedData =
-        recordAssociatedData(archiveId, type, recordId, revision, previousOffset);
+        recordAssociatedData(archiveId, type, recordId, revision, previousOffset, codec);
     Bytes plaintext(body.size() - kEncryptionTagSize);
     unsigned long long plaintextLength = 0;
     const int decrypted = crypto_aead_xchacha20poly1305_ietf_decrypt(
