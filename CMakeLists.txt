@@ -4,7 +4,40 @@ if(POLICY CMP0091)
     cmake_policy(SET CMP0091 NEW)
 endif()
 
+if(CMAKE_HOST_SYSTEM_NAME STREQUAL "Darwin" AND NOT CMAKE_OSX_DEPLOYMENT_TARGET)
+    set(CMAKE_OSX_DEPLOYMENT_TARGET "13.0" CACHE STRING
+        "Minimum macOS release target for Tutorux portable builds"
+    )
+endif()
+
 project(Tutorux VERSION 1.0.0 LANGUAGES CXX)
+
+set(TUTORUX_RELEASE_ARCH "" CACHE STRING
+    "Architecture requested by a release preset: x64 or arm64"
+)
+set_property(CACHE TUTORUX_RELEASE_ARCH PROPERTY STRINGS "" x64 arm64)
+if(TUTORUX_RELEASE_ARCH)
+    string(TOLOWER "${CMAKE_SYSTEM_PROCESSOR}" TUTORUX_SYSTEM_PROCESSOR_LOWER)
+    if(APPLE AND CMAKE_OSX_ARCHITECTURES)
+        string(TOLOWER "${CMAKE_OSX_ARCHITECTURES}" TUTORUX_SYSTEM_PROCESSOR_LOWER)
+    endif()
+    if(TUTORUX_RELEASE_ARCH STREQUAL "x64" AND
+       NOT TUTORUX_SYSTEM_PROCESSOR_LOWER MATCHES "^(x86_64|amd64|x64)$")
+        message(FATAL_ERROR
+            "The x64 release preset requires an x86_64 target; found '${CMAKE_SYSTEM_PROCESSOR}' "
+            "with CMAKE_OSX_ARCHITECTURES='${CMAKE_OSX_ARCHITECTURES}'."
+        )
+    elseif(TUTORUX_RELEASE_ARCH STREQUAL "arm64" AND
+           NOT TUTORUX_SYSTEM_PROCESSOR_LOWER MATCHES "^(aarch64|arm64|armv8.*)$")
+        message(FATAL_ERROR
+            "The ARM64 release preset requires an AArch64 target; found '${CMAKE_SYSTEM_PROCESSOR}' "
+            "with CMAKE_OSX_ARCHITECTURES='${CMAKE_OSX_ARCHITECTURES}'."
+        )
+    elseif(NOT TUTORUX_RELEASE_ARCH STREQUAL "x64" AND
+           NOT TUTORUX_RELEASE_ARCH STREQUAL "arm64")
+        message(FATAL_ERROR "TUTORUX_RELEASE_ARCH must be x64 or arm64.")
+    endif()
+endif()
 
 if(APPLE)
     enable_language(OBJCXX)
@@ -24,6 +57,11 @@ option(TUTORUX_FETCH_SLINT "Fetch the pinned Slint C++ dependency when building 
 option(TUTORUX_FETCH_PODOFO "Build the pinned PoDoFo dependency from its upstream source" OFF)
 option(TUTORUX_ENABLE_WHISPER "Enable local transcription with whisper.cpp" OFF)
 option(TUTORUX_FETCH_WHISPER "Fetch the pinned whisper.cpp dependency" OFF)
+option(TUTORUX_ENABLE_FFMPEG "Enable local FLAC, MP3, and M4A decoding" OFF)
+option(TUTORUX_FETCH_FFMPEG "Build the pinned FFmpeg source statically" OFF)
+set(TUTORUX_FFMPEG_PREFIX "" CACHE PATH
+    "Prefix containing a static FFmpeg build for relinking or externally supplied builds"
+)
 option(TUTORUX_ENABLE_LLAMA "Enable embedded llama.cpp inference" OFF)
 option(TUTORUX_FETCH_LLAMA "Fetch the pinned llama.cpp dependency" OFF)
 option(TUTORUX_LLAMA_CUDA "Build embedded llama.cpp with CUDA support" OFF)
@@ -39,18 +77,23 @@ endif()
 if(TUTORUX_FETCH_WHISPER)
     set(TUTORUX_ENABLE_WHISPER ON)
 endif()
+if(TUTORUX_FETCH_FFMPEG)
+    set(TUTORUX_ENABLE_FFMPEG ON)
+endif()
 
 if(TUTORUX_BUILD_WASM AND NOT EMSCRIPTEN)
     message(FATAL_ERROR "TUTORUX_BUILD_WASM requires the Emscripten toolchain.")
 endif()
 if(TUTORUX_BUILD_WASM AND
-   (TUTORUX_FETCH_SLINT OR TUTORUX_FETCH_PODOFO OR TUTORUX_FETCH_WHISPER OR TUTORUX_FETCH_LLAMA))
+   (TUTORUX_FETCH_SLINT OR TUTORUX_FETCH_PODOFO OR TUTORUX_FETCH_WHISPER OR
+    TUTORUX_FETCH_FFMPEG OR TUTORUX_FETCH_LLAMA))
     message(FATAL_ERROR
         "The WebAssembly target uses browser-native interfaces and does not fetch native-only "
         "GUI, PDF, transcription, or model dependencies."
     )
 endif()
-if(TUTORUX_BUILD_WASM AND (TUTORUX_BUILD_GUI OR TUTORUX_ENABLE_WHISPER OR TUTORUX_ENABLE_LLAMA))
+if(TUTORUX_BUILD_WASM AND
+   (TUTORUX_BUILD_GUI OR TUTORUX_ENABLE_WHISPER OR TUTORUX_ENABLE_FFMPEG OR TUTORUX_ENABLE_LLAMA))
     message(FATAL_ERROR
         "The static browser edition uses its HTML interface and browser-provided recording; "
         "native GUI and local model runtimes are unavailable in this target."
@@ -84,6 +127,12 @@ if(TUTORUX_STATIC_RUNTIME)
     endif()
     if(TUTORUX_ENABLE_WHISPER AND NOT TUTORUX_FETCH_WHISPER)
         message(FATAL_ERROR "Static Whisper builds require TUTORUX_FETCH_WHISPER=ON.")
+    endif()
+    if(TUTORUX_ENABLE_FFMPEG AND NOT TUTORUX_FETCH_FFMPEG AND NOT TUTORUX_FFMPEG_PREFIX)
+        message(FATAL_ERROR
+            "Static FFmpeg builds require TUTORUX_FETCH_FFMPEG=ON or a static "
+            "TUTORUX_FFMPEG_PREFIX development package."
+        )
     endif()
     if(TUTORUX_ENABLE_LLAMA AND NOT TUTORUX_FETCH_LLAMA)
         message(FATAL_ERROR "Static embedded inference requires TUTORUX_FETCH_LLAMA=ON.")
@@ -142,6 +191,7 @@ set(TUTORUX_CORE_SOURCES
     src/audio/capture_coreaudio.cpp
     src/audio/devices.cpp
     src/audio/recording_control.cpp
+    src/audio/ffmpeg_import.cpp
     src/audio/wav_import.cpp
     src/audio/wav_export.cpp
     src/audio/timeline.cpp
@@ -386,6 +436,9 @@ endif()
 set(TUTORUX_SODIUM_PREFIX "$ENV{TUTORUX_SODIUM_PREFIX}" CACHE PATH
     "Prefix containing the pinned target libsodium headers and static library"
 )
+set(TUTORUX_SODIUM_SOURCE_COMMIT "$ENV{TUTORUX_SODIUM_SOURCE_COMMIT}" CACHE STRING
+    "Exact source commit used to build the libsodium archive"
+)
 set(TUTORUX_SODIUM_VERSION_PIN "1.0.22")
 set(TUTORUX_PODOFO_VERSION_PIN "1.1.2")
 set(TUTORUX_PODOFO_COMMIT_PIN "e91d8b727763724f3efd96c589c8033f4333c68c")
@@ -395,6 +448,12 @@ set(TUTORUX_CORROSION_VERSION_PIN "0.6.1")
 set(TUTORUX_CORROSION_COMMIT_PIN "1499b14e4906a2890f5cee1547c8848db261753d")
 set(TUTORUX_WHISPER_VERSION_PIN "1.9.5")
 set(TUTORUX_WHISPER_COMMIT_PIN "d1be6fde11ac6e0407606b4e42fe72d34add8037")
+set(TUTORUX_FFMPEG_VERSION_PIN "9.0.2")
+set(TUTORUX_FFMPEG_COMMIT_PIN "946fcce07b6dcd0331c8cc609192aeff5e1924f8")
+file(SHA256
+    "${CMAKE_CURRENT_SOURCE_DIR}/patches/ffmpeg-9.0.2-cve-2026-107678.patch"
+    TUTORUX_FFMPEG_PATCH_SHA256
+)
 set(TUTORUX_LLAMA_VERSION_PIN "0.6.0")
 set(TUTORUX_LLAMA_COMMIT_PIN "d812350")
 if(MINGW)
@@ -435,6 +494,275 @@ if(NOT TUTORUX_SODIUM_VERSION STREQUAL TUTORUX_SODIUM_VERSION_PIN)
 endif()
 target_include_directories(tutorux_core PRIVATE "${TUTORUX_SODIUM_INCLUDE_DIR}")
 target_link_libraries(tutorux_core PRIVATE "${TUTORUX_SODIUM_LINK_LIBRARY}")
+
+if(TUTORUX_ENABLE_FFMPEG)
+    if(TUTORUX_FETCH_FFMPEG)
+        if(WIN32 AND NOT MINGW)
+            message(FATAL_ERROR
+                "The pinned FFmpeg source build currently supports Windows UCRT64 MinGW, "
+                "Linux, and macOS; an MSVC FFmpeg build is not configured."
+            )
+        endif()
+
+        enable_language(C)
+        include(FetchContent)
+        include(ExternalProject)
+
+        FetchContent_Declare(
+            tutorux_ffmpeg
+            GIT_REPOSITORY https://github.com/FFmpeg/FFmpeg.git
+            GIT_TAG n${TUTORUX_FFMPEG_VERSION_PIN}
+            GIT_SHALLOW TRUE
+            GIT_SUBMODULES ""
+        )
+        FetchContent_GetProperties(tutorux_ffmpeg)
+        if(NOT tutorux_ffmpeg_POPULATED)
+            FetchContent_Populate(tutorux_ffmpeg)
+        endif()
+        FetchContent_GetProperties(tutorux_ffmpeg SOURCE_DIR TUTORUX_FFMPEG_SOURCE_DIR)
+        tutorux_verify_source_pin(
+            FFmpeg "${TUTORUX_FFMPEG_SOURCE_DIR}" "${TUTORUX_FFMPEG_COMMIT_PIN}"
+        )
+
+        if(NOT EXISTS "${TUTORUX_FFMPEG_SOURCE_DIR}/COPYING.LGPLv2.1")
+            message(FATAL_ERROR "The pinned FFmpeg source is missing COPYING.LGPLv2.1.")
+        endif()
+        find_program(TUTORUX_FFMPEG_MAKE_EXECUTABLE NAMES make gmake mingw32-make REQUIRED)
+        find_package(Git REQUIRED)
+        if(WIN32)
+            find_program(TUTORUX_FFMPEG_BASH_EXECUTABLE NAMES bash REQUIRED)
+        endif()
+
+        set(TUTORUX_FFMPEG_INSTALL_PREFIX "${CMAKE_CURRENT_BINARY_DIR}/ffmpeg-install")
+        set(TUTORUX_FFMPEG_CONFIGURE_ARGS
+            "--prefix=${TUTORUX_FFMPEG_INSTALL_PREFIX}"
+            --disable-shared
+            --enable-static
+            --enable-pic
+            --disable-gpl
+            --disable-version3
+            --disable-nonfree
+            --disable-programs
+            --disable-doc
+            --disable-debug
+            --disable-network
+            --disable-autodetect
+            --disable-everything
+            --disable-encoders
+            --disable-muxers
+            --disable-filters
+            --disable-devices
+            --disable-indevs
+            --disable-outdevs
+            --disable-avdevice
+            --disable-postproc
+            --disable-swscale
+            --disable-iconv
+            --disable-bzlib
+            --disable-lzma
+            --disable-zlib
+            --enable-demuxer=flac,mp3,mov
+            --enable-decoder=aac,alac,flac,mp3,mp3float
+            --enable-parser=aac,flac,mpegaudio
+            --enable-protocol=file
+        )
+        if(WIN32)
+            if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(ARM64|arm64|aarch64)$")
+                set(TUTORUX_FFMPEG_ARCH "aarch64")
+            else()
+                set(TUTORUX_FFMPEG_ARCH "x86_64")
+            endif()
+            list(APPEND TUTORUX_FFMPEG_CONFIGURE_ARGS
+                --target-os=mingw32
+                "--arch=${TUTORUX_FFMPEG_ARCH}"
+                "--cc=${CMAKE_C_COMPILER}"
+                "--cxx=${CMAKE_CXX_COMPILER}"
+                "--ar=${CMAKE_AR}"
+                "--ranlib=${CMAKE_RANLIB}"
+            )
+            set(TUTORUX_FFMPEG_CONFIGURE_COMMAND
+                "${TUTORUX_FFMPEG_BASH_EXECUTABLE}"
+                "${TUTORUX_FFMPEG_SOURCE_DIR}/configure"
+            )
+        elseif(APPLE AND CMAKE_OSX_ARCHITECTURES)
+            if(CMAKE_OSX_ARCHITECTURES STREQUAL "arm64")
+                set(TUTORUX_FFMPEG_ARCH "aarch64")
+            else()
+                set(TUTORUX_FFMPEG_ARCH "x86_64")
+            endif()
+            list(APPEND TUTORUX_FFMPEG_CONFIGURE_ARGS
+                --target-os=darwin
+                "--arch=${TUTORUX_FFMPEG_ARCH}"
+                --enable-cross-compile
+                "--cc=${CMAKE_C_COMPILER} -arch ${CMAKE_OSX_ARCHITECTURES} -mmacosx-version-min=${CMAKE_OSX_DEPLOYMENT_TARGET}"
+                "--cxx=${CMAKE_CXX_COMPILER} -arch ${CMAKE_OSX_ARCHITECTURES} -mmacosx-version-min=${CMAKE_OSX_DEPLOYMENT_TARGET}"
+                "--ar=${CMAKE_AR}"
+                "--ranlib=${CMAKE_RANLIB}"
+            )
+            set(TUTORUX_FFMPEG_CONFIGURE_COMMAND
+                "${TUTORUX_FFMPEG_SOURCE_DIR}/configure"
+            )
+        elseif(CMAKE_CROSSCOMPILING AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
+            set(TUTORUX_FFMPEG_ARCH "aarch64")
+            list(APPEND TUTORUX_FFMPEG_CONFIGURE_ARGS
+                --target-os=linux
+                "--arch=${TUTORUX_FFMPEG_ARCH}"
+                --enable-cross-compile
+                "--cc=${CMAKE_C_COMPILER}"
+                "--cxx=${CMAKE_CXX_COMPILER}"
+                "--ar=${CMAKE_AR}"
+                "--ranlib=${CMAKE_RANLIB}"
+                "--sysroot=${CMAKE_SYSROOT}"
+            )
+            set(TUTORUX_FFMPEG_CONFIGURE_COMMAND
+                "${TUTORUX_FFMPEG_SOURCE_DIR}/configure"
+            )
+        else()
+            set(TUTORUX_FFMPEG_CONFIGURE_COMMAND
+                "${TUTORUX_FFMPEG_SOURCE_DIR}/configure"
+            )
+        endif()
+
+        ExternalProject_Add(tutorux_ffmpeg_build
+            SOURCE_DIR "${TUTORUX_FFMPEG_SOURCE_DIR}"
+            DOWNLOAD_COMMAND ""
+            UPDATE_COMMAND ""
+            PATCH_COMMAND
+                "${CMAKE_COMMAND}"
+                "-DGIT_EXECUTABLE=${GIT_EXECUTABLE}"
+                "-DSOURCE_DIR=${TUTORUX_FFMPEG_SOURCE_DIR}"
+                "-DPATCH_FILE=${CMAKE_CURRENT_SOURCE_DIR}/patches/ffmpeg-9.0.2-cve-2026-107678.patch"
+                -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/ApplyFFmpegPatch.cmake"
+            CONFIGURE_COMMAND
+                ${TUTORUX_FFMPEG_CONFIGURE_COMMAND}
+                ${TUTORUX_FFMPEG_CONFIGURE_ARGS}
+            BUILD_COMMAND "${TUTORUX_FFMPEG_MAKE_EXECUTABLE}" -j4
+            INSTALL_COMMAND "${TUTORUX_FFMPEG_MAKE_EXECUTABLE}" install
+            BUILD_IN_SOURCE TRUE
+            BUILD_BYPRODUCTS
+                "${TUTORUX_FFMPEG_INSTALL_PREFIX}/lib/libavformat.a"
+                "${TUTORUX_FFMPEG_INSTALL_PREFIX}/lib/libavcodec.a"
+                "${TUTORUX_FFMPEG_INSTALL_PREFIX}/lib/libavutil.a"
+                "${TUTORUX_FFMPEG_INSTALL_PREFIX}/lib/libswresample.a"
+            USES_TERMINAL_CONFIGURE TRUE
+            USES_TERMINAL_BUILD TRUE
+            USES_TERMINAL_INSTALL TRUE
+        )
+        add_dependencies(tutorux_core tutorux_ffmpeg_build)
+        target_include_directories(tutorux_core PRIVATE
+            "${TUTORUX_FFMPEG_INSTALL_PREFIX}/include"
+        )
+        target_link_libraries(tutorux_core PRIVATE
+            "${TUTORUX_FFMPEG_INSTALL_PREFIX}/lib/libavformat.a"
+            "${TUTORUX_FFMPEG_INSTALL_PREFIX}/lib/libavcodec.a"
+            "${TUTORUX_FFMPEG_INSTALL_PREFIX}/lib/libswresample.a"
+            "${TUTORUX_FFMPEG_INSTALL_PREFIX}/lib/libavutil.a"
+        )
+        if(UNIX AND NOT APPLE)
+            target_link_libraries(tutorux_core PRIVATE m pthread dl)
+        elseif(APPLE)
+            target_link_libraries(tutorux_core PRIVATE pthread)
+        endif()
+        target_compile_definitions(tutorux_core PRIVATE TUTORUX_WITH_FFMPEG=1)
+
+        set(TUTORUX_FFMPEG_RELINK_DIR "${CMAKE_CURRENT_BINARY_DIR}/ffmpeg-relink")
+        set(TUTORUX_FFMPEG_SOURCE_ARCHIVE
+            "${TUTORUX_FFMPEG_RELINK_DIR}/FFmpeg-${TUTORUX_FFMPEG_VERSION_PIN}-patched-source.tar.gz"
+        )
+        add_custom_target(tutorux_ffmpeg_relink_source ALL
+            COMMAND "${CMAKE_COMMAND}"
+                "-DGIT_EXECUTABLE=${GIT_EXECUTABLE}"
+                "-DSOURCE_DIR=${TUTORUX_FFMPEG_SOURCE_DIR}"
+                "-DPATCH_FILE=${CMAKE_CURRENT_SOURCE_DIR}/patches/ffmpeg-9.0.2-cve-2026-107678.patch"
+                "-DSOURCE_COMMIT=${TUTORUX_FFMPEG_COMMIT_PIN}"
+                "-DOUTPUT_ARCHIVE=${TUTORUX_FFMPEG_SOURCE_ARCHIVE}"
+                -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/PackageFFmpegSource.cmake"
+            DEPENDS tutorux_ffmpeg_build
+            BYPRODUCTS "${TUTORUX_FFMPEG_SOURCE_ARCHIVE}" "${TUTORUX_FFMPEG_SOURCE_ARCHIVE}.sha256"
+            VERBATIM
+        )
+
+        string(REPLACE ";" "\n  " TUTORUX_FFMPEG_CONFIGURE_ARGS_TEXT
+            "${TUTORUX_FFMPEG_CONFIGURE_ARGS}"
+        )
+        string(REPLACE "${TUTORUX_FFMPEG_INSTALL_PREFIX}" "<FFMPEG_INSTALL_PREFIX>"
+            TUTORUX_FFMPEG_CONFIGURE_ARGS_TEXT "${TUTORUX_FFMPEG_CONFIGURE_ARGS_TEXT}"
+        )
+        string(REPLACE "${CMAKE_C_COMPILER}" "<C_COMPILER>"
+            TUTORUX_FFMPEG_CONFIGURE_ARGS_TEXT "${TUTORUX_FFMPEG_CONFIGURE_ARGS_TEXT}"
+        )
+        string(REPLACE "${CMAKE_CXX_COMPILER}" "<CXX_COMPILER>"
+            TUTORUX_FFMPEG_CONFIGURE_ARGS_TEXT "${TUTORUX_FFMPEG_CONFIGURE_ARGS_TEXT}"
+        )
+        get_filename_component(TUTORUX_FFMPEG_C_COMPILER_NAME "${CMAKE_C_COMPILER}" NAME)
+        get_filename_component(TUTORUX_FFMPEG_CXX_COMPILER_NAME "${CMAKE_CXX_COMPILER}" NAME)
+        get_filename_component(TUTORUX_FFMPEG_MAKE_NAME "${TUTORUX_FFMPEG_MAKE_EXECUTABLE}" NAME)
+        get_filename_component(TUTORUX_FFMPEG_CMAKE_MAKE_NAME "${CMAKE_MAKE_PROGRAM}" NAME)
+        if(WIN32)
+            set(TUTORUX_FFMPEG_CONFIGURE_COMMAND_TEXT "bash ./configure")
+        else()
+            set(TUTORUX_FFMPEG_CONFIGURE_COMMAND_TEXT "./configure")
+        endif()
+        file(MAKE_DIRECTORY "${TUTORUX_FFMPEG_RELINK_DIR}")
+        file(WRITE "${TUTORUX_FFMPEG_RELINK_DIR}/ffmpeg-build-metadata.txt"
+            "FFmpeg version: ${TUTORUX_FFMPEG_VERSION_PIN}\n"
+            "Upstream Git commit: ${TUTORUX_FFMPEG_COMMIT_PIN}\n"
+            "Security patch: ffmpeg-9.0.2-cve-2026-107678.patch\n"
+            "Security patch SHA-256: ${TUTORUX_FFMPEG_PATCH_SHA256}\n"
+            "Security patch provenance: docs/dependencies/FFMPEG-CVE-2026-107678.md\n"
+            "CMake generator: ${CMAKE_GENERATOR}\n"
+            "CMake build type: ${CMAKE_BUILD_TYPE}\n"
+            "Target system: ${CMAKE_SYSTEM_NAME} ${CMAKE_SYSTEM_PROCESSOR}\n"
+            "Tutorux profile: GUI=${TUTORUX_BUILD_GUI}; Whisper=${TUTORUX_ENABLE_WHISPER}; llama.cpp=${TUTORUX_ENABLE_LLAMA}; static runtime=${TUTORUX_STATIC_RUNTIME}\n"
+            "C compiler executable: ${TUTORUX_FFMPEG_C_COMPILER_NAME}\n"
+            "C compiler ID/version: ${CMAKE_C_COMPILER_ID} ${CMAKE_C_COMPILER_VERSION}\n"
+            "C flags: ${CMAKE_C_FLAGS} ${CMAKE_C_FLAGS_${CMAKE_BUILD_TYPE}}\n"
+            "C++ compiler executable: ${TUTORUX_FFMPEG_CXX_COMPILER_NAME}\n"
+            "C++ compiler ID/version: ${CMAKE_CXX_COMPILER_ID} ${CMAKE_CXX_COMPILER_VERSION}\n"
+            "C++ flags: ${CMAKE_CXX_FLAGS} ${CMAKE_CXX_FLAGS_${CMAKE_BUILD_TYPE}}\n"
+            "CMake build program: ${TUTORUX_FFMPEG_CMAKE_MAKE_NAME}\n"
+            "FFmpeg make program: ${TUTORUX_FFMPEG_MAKE_NAME}\n"
+            "FFmpeg build command: make -j4\n"
+            "FFmpeg configure command: ${TUTORUX_FFMPEG_CONFIGURE_COMMAND_TEXT}\n"
+            "FFmpeg configure arguments:\n  ${TUTORUX_FFMPEG_CONFIGURE_ARGS_TEXT}\n"
+            "Static FFmpeg link order: libavformat.a, libavcodec.a, libswresample.a, libavutil.a\n"
+            "Additional FFmpeg link libraries: m pthread dl on Linux; pthread on macOS; none on Windows\n"
+            "Relink: build the matching Tutorux source with TUTORUX_ENABLE_FFMPEG=ON, TUTORUX_FETCH_FFMPEG=OFF, and TUTORUX_FFMPEG_PREFIX set to this package's relink/ffmpeg directory; use the same target toolchain and release preset settings, then build target tutorux.\n"
+        )
+    else()
+        if(TUTORUX_FFMPEG_PREFIX)
+            set(TUTORUX_FFMPEG_STATIC_LIBRARIES
+                libavformat.a libavcodec.a libswresample.a libavutil.a
+            )
+            foreach(TUTORUX_FFMPEG_LIBRARY IN LISTS TUTORUX_FFMPEG_STATIC_LIBRARIES)
+                if(NOT EXISTS "${TUTORUX_FFMPEG_PREFIX}/lib/${TUTORUX_FFMPEG_LIBRARY}")
+                    message(FATAL_ERROR
+                        "TUTORUX_FFMPEG_PREFIX is missing static archive ${TUTORUX_FFMPEG_LIBRARY}."
+                    )
+                endif()
+            endforeach()
+            target_include_directories(tutorux_core PRIVATE "${TUTORUX_FFMPEG_PREFIX}/include")
+            target_link_libraries(tutorux_core PRIVATE
+                "${TUTORUX_FFMPEG_PREFIX}/lib/libavformat.a"
+                "${TUTORUX_FFMPEG_PREFIX}/lib/libavcodec.a"
+                "${TUTORUX_FFMPEG_PREFIX}/lib/libswresample.a"
+                "${TUTORUX_FFMPEG_PREFIX}/lib/libavutil.a"
+            )
+            if(UNIX AND NOT APPLE)
+                target_link_libraries(tutorux_core PRIVATE m pthread dl)
+            elseif(APPLE)
+                target_link_libraries(tutorux_core PRIVATE pthread)
+            endif()
+        else()
+            find_package(PkgConfig REQUIRED)
+            pkg_check_modules(TUTORUX_FFMPEG REQUIRED IMPORTED_TARGET
+                libavformat libavcodec libavutil libswresample
+            )
+            target_link_libraries(tutorux_core PRIVATE PkgConfig::TUTORUX_FFMPEG)
+        endif()
+        target_compile_definitions(tutorux_core PRIVATE TUTORUX_WITH_FFMPEG=1)
+    endif()
+endif()
 
 if(TUTORUX_BUILD_WASM)
     # The browser target uses the self-contained portable PDF writer.
@@ -520,6 +848,7 @@ if(TUTORUX_STATIC_RUNTIME AND NOT MSVC AND NOT TUTORUX_BUILD_WASM)
 endif()
 
 if(WIN32)
+    target_compile_definitions(tutorux_core PUBLIC WINVER=0x0A00 _WIN32_WINNT=0x0A00)
     target_link_libraries(tutorux_core PUBLIC ole32 propsys uuid advapi32 Psapi)
 endif()
 
@@ -533,6 +862,14 @@ endif()
 if(TUTORUX_FETCH_LLAMA)
     install(FILES "${TUTORUX_LLAMA_SOURCE_DIR}/LICENSE"
         DESTINATION licenses/llama.cpp COMPONENT Runtime
+    )
+    if(NOT EXISTS "${TUTORUX_LLAMA_SOURCE_DIR}/ggml/LICENSE")
+        message(FATAL_ERROR
+            "The pinned llama.cpp source is missing ggml's MIT license text."
+        )
+    endif()
+    install(FILES "${TUTORUX_LLAMA_SOURCE_DIR}/ggml/LICENSE"
+        DESTINATION licenses/ggml COMPONENT Runtime
     )
 endif()
 
@@ -613,7 +950,11 @@ if(NOT TUTORUX_BUILD_WASM)
     add_executable(tutorux src/main.cpp)
     target_link_libraries(tutorux PRIVATE tutorux_core)
     if(MINGW AND TUTORUX_STATIC_RUNTIME)
-        target_link_options(tutorux_core INTERFACE -static -static-libgcc -static-libstdc++)
+        if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
+            target_link_options(tutorux_core INTERFACE -static)
+        else()
+            target_link_options(tutorux_core INTERFACE -static -static-libgcc -static-libstdc++)
+        endif()
     elseif(MINGW)
         target_link_options(tutorux PRIVATE -static-libgcc -static-libstdc++)
     elseif(UNIX AND NOT APPLE AND TUTORUX_STATIC_RUNTIME)
@@ -681,6 +1022,38 @@ if(TUTORUX_BUILD_GUI)
     endif()
     slint_target_sources(tutorux ui/app-window.slint)
     target_link_libraries(tutorux PRIVATE Slint::Slint)
+endif()
+
+if(TUTORUX_FETCH_FFMPEG AND TARGET tutorux)
+    get_target_property(TUTORUX_RELINK_CORE_LINK_ITEMS tutorux_core LINK_LIBRARIES)
+    get_target_property(TUTORUX_RELINK_EXECUTABLE_LINK_ITEMS tutorux LINK_LIBRARIES)
+    set(TUTORUX_RELINK_CORE_LINK_NAMES)
+    set(TUTORUX_RELINK_EXECUTABLE_LINK_NAMES)
+    foreach(TUTORUX_RELINK_LINK_ITEM IN LISTS TUTORUX_RELINK_CORE_LINK_ITEMS)
+        if(IS_ABSOLUTE "${TUTORUX_RELINK_LINK_ITEM}")
+            get_filename_component(TUTORUX_RELINK_LINK_NAME "${TUTORUX_RELINK_LINK_ITEM}" NAME)
+        else()
+            set(TUTORUX_RELINK_LINK_NAME "${TUTORUX_RELINK_LINK_ITEM}")
+        endif()
+        list(APPEND TUTORUX_RELINK_CORE_LINK_NAMES "${TUTORUX_RELINK_LINK_NAME}")
+    endforeach()
+    foreach(TUTORUX_RELINK_LINK_ITEM IN LISTS TUTORUX_RELINK_EXECUTABLE_LINK_ITEMS)
+        if(IS_ABSOLUTE "${TUTORUX_RELINK_LINK_ITEM}")
+            get_filename_component(TUTORUX_RELINK_LINK_NAME "${TUTORUX_RELINK_LINK_ITEM}" NAME)
+        else()
+            set(TUTORUX_RELINK_LINK_NAME "${TUTORUX_RELINK_LINK_ITEM}")
+        endif()
+        list(APPEND TUTORUX_RELINK_EXECUTABLE_LINK_NAMES "${TUTORUX_RELINK_LINK_NAME}")
+    endforeach()
+    string(JOIN ", " TUTORUX_RELINK_CORE_LINK_NAMES_TEXT ${TUTORUX_RELINK_CORE_LINK_NAMES})
+    string(JOIN ", " TUTORUX_RELINK_EXECUTABLE_LINK_NAMES_TEXT
+        ${TUTORUX_RELINK_EXECUTABLE_LINK_NAMES}
+    )
+    file(APPEND "${TUTORUX_FFMPEG_RELINK_DIR}/ffmpeg-build-metadata.txt"
+        "Tutorux core link targets/libraries (paths reduced to filenames): ${TUTORUX_RELINK_CORE_LINK_NAMES_TEXT}\n"
+        "Tutorux executable link targets/libraries (paths reduced to filenames): ${TUTORUX_RELINK_EXECUTABLE_LINK_NAMES_TEXT}\n"
+        "Tutorux compile definitions: TUTORUX_WITH_FFMPEG=1; TUTORUX_BUILD_GUI=${TUTORUX_BUILD_GUI}; TUTORUX_ENABLE_WHISPER=${TUTORUX_ENABLE_WHISPER}\n"
+    )
 endif()
 
 if(TUTORUX_BUILD_WASM)
@@ -805,61 +1178,287 @@ if(TUTORUX_FETCH_WHISPER)
         DESTINATION licenses/whisper.cpp COMPONENT Runtime
     )
 endif()
-
-if(TARGET tutorux AND WIN32 AND MINGW)
-    install(FILES docs/dependencies/WINDOWS-X64-SBOM.md DESTINATION . COMPONENT Runtime)
-    set(TUTORUX_MINGW_LICENSES
-        brotli
-        bzip2
-        curl
-        freetype
-        gcc-libs
-        gettext-runtime
-        glib2
-        graphite2
-        harfbuzz
-        libiconv
-        libjpeg-turbo
-        libpng
-        libpsl
-        libssh2
-        libunistring
-        libwinpthread
-        libxml2
-        nghttp2
-        nghttp3
-        ngtcp2
-        libsodium
-        openssl
-        pcre2
-        zstd
-        zlib
+if(TUTORUX_FETCH_FFMPEG)
+    install(FILES
+        "${TUTORUX_FFMPEG_SOURCE_DIR}/COPYING.LGPLv2.1"
+        "${CMAKE_CURRENT_SOURCE_DIR}/patches/ffmpeg-9.0.2-cve-2026-107678.patch"
+        "${CMAKE_CURRENT_SOURCE_DIR}/docs/dependencies/FFMPEG-CVE-2026-107678.md"
+        DESTINATION licenses/FFmpeg COMPONENT Runtime
     )
-    foreach(TUTORUX_LICENSE_NAME IN LISTS TUTORUX_MINGW_LICENSES)
-        set(TUTORUX_LICENSE_SOURCE
-            "${TUTORUX_SODIUM_PREFIX}/share/licenses/${TUTORUX_LICENSE_NAME}"
+    install(DIRECTORY "${TUTORUX_FFMPEG_INSTALL_PREFIX}/include/"
+        DESTINATION relink/ffmpeg/include
+        COMPONENT Development
+        FILES_MATCHING PATTERN "*.h"
+    )
+    install(DIRECTORY "${TUTORUX_FFMPEG_INSTALL_PREFIX}/lib/"
+        DESTINATION relink/ffmpeg/lib
+        COMPONENT Development
+        FILES_MATCHING PATTERN "*.a" PATTERN "*.pc"
+    )
+    install(FILES
+        "${TUTORUX_FFMPEG_SOURCE_ARCHIVE}"
+        "${TUTORUX_FFMPEG_SOURCE_ARCHIVE}.sha256"
+        "${TUTORUX_FFMPEG_RELINK_DIR}/ffmpeg-build-metadata.txt"
+        "${CMAKE_CURRENT_SOURCE_DIR}/patches/ffmpeg-9.0.2-cve-2026-107678.patch"
+        "${CMAKE_CURRENT_SOURCE_DIR}/docs/dependencies/FFMPEG-CVE-2026-107678.md"
+        "${CMAKE_CURRENT_SOURCE_DIR}/docs/dependencies/FFMPEG-LGPL-RELINK.md"
+        "${TUTORUX_FFMPEG_SOURCE_DIR}/COPYING.LGPLv2.1"
+        DESTINATION relink/ffmpeg
+        COMPONENT Development
+    )
+endif()
+
+if(TUTORUX_STATIC_RUNTIME AND
+   (CMAKE_SYSTEM_NAME STREQUAL "Linux" OR APPLE))
+    if(APPLE)
+        set(TUTORUX_STATIC_MANIFEST_PLATFORM "macOS ${CMAKE_SYSTEM_PROCESSOR}")
+        set(TUTORUX_STATIC_MANIFEST_FILE
+            "${CMAKE_CURRENT_BINARY_DIR}/TUTORUX-STATIC-MACOS-SBOM.md"
         )
-        if(EXISTS "${TUTORUX_LICENSE_SOURCE}")
-            install(DIRECTORY "${TUTORUX_LICENSE_SOURCE}/"
-                DESTINATION "licenses/${TUTORUX_LICENSE_NAME}" COMPONENT Runtime
+        set(TUTORUX_STATIC_LICENSE_PLATFORM "macOS")
+        find_program(TUTORUX_BREW_EXECUTABLE brew)
+        set(TUTORUX_STATIC_LICENSE_SYSROOT "")
+    else()
+        set(TUTORUX_STATIC_MANIFEST_PLATFORM "Linux ${CMAKE_SYSTEM_PROCESSOR}")
+        set(TUTORUX_STATIC_MANIFEST_FILE
+            "${CMAKE_CURRENT_BINARY_DIR}/TUTORUX-STATIC-LINUX-SBOM.md"
+        )
+        set(TUTORUX_STATIC_LICENSE_PLATFORM "Linux")
+        set(TUTORUX_STATIC_LICENSE_SYSROOT "${CMAKE_SYSROOT}")
+    endif()
+
+    set(TUTORUX_STATIC_LICENSE_ARCHIVE_NAMES
+        ${TUTORUX_STATIC_CURL_STATIC_LIBRARIES}
+        ${TUTORUX_STATIC_FREETYPE_STATIC_LIBRARIES}
+        ${TUTORUX_STATIC_LIBXML2_STATIC_LIBRARIES}
+        ${TUTORUX_STATIC_ARCHIVE_GROUP_LIBRARIES}
+        ${TUTORUX_ALSA_STATIC_LIBRARIES}
+        "${TUTORUX_SODIUM_LINK_LIBRARY}"
+    )
+    list(REMOVE_DUPLICATES TUTORUX_STATIC_LICENSE_ARCHIVE_NAMES)
+    set(TUTORUX_STATIC_LICENSE_ARCHIVE_PATHS)
+    set(TUTORUX_STATIC_LICENSE_UNRESOLVED_NAMES)
+    set(TUTORUX_STATIC_LICENSE_SEARCH_DIRS
+        ${TUTORUX_STATIC_CURL_STATIC_LIBRARY_DIRS}
+        ${TUTORUX_STATIC_FREETYPE_STATIC_LIBRARY_DIRS}
+        ${TUTORUX_STATIC_LIBXML2_STATIC_LIBRARY_DIRS}
+        ${CMAKE_PREFIX_PATH}
+        "${TUTORUX_SODIUM_PREFIX}/lib"
+    )
+    if(TUTORUX_ALSA_STATIC_LIBRARY_DIRS)
+        list(APPEND TUTORUX_STATIC_LICENSE_SEARCH_DIRS ${TUTORUX_ALSA_STATIC_LIBRARY_DIRS})
+    endif()
+    set(TUTORUX_STATIC_LICENSE_LIBRARY_INDEX 0)
+    foreach(TUTORUX_STATIC_LICENSE_ENTRY IN LISTS TUTORUX_STATIC_LICENSE_ARCHIVE_NAMES)
+        if(TARGET "${TUTORUX_STATIC_LICENSE_ENTRY}")
+            continue()
+        endif()
+        if(TUTORUX_STATIC_LICENSE_ENTRY MATCHES "^(m|pthread|dl|rt|c|gcc|gcc_s|stdc\+\+|c\+\+)$")
+            continue()
+        endif()
+        if(APPLE AND TUTORUX_STATIC_LICENSE_ENTRY STREQUAL "iconv")
+            continue()
+        endif()
+        if(EXISTS "${TUTORUX_STATIC_LICENSE_ENTRY}" AND
+           NOT IS_DIRECTORY "${TUTORUX_STATIC_LICENSE_ENTRY}")
+            list(APPEND TUTORUX_STATIC_LICENSE_ARCHIVE_PATHS
+                "${TUTORUX_STATIC_LICENSE_ENTRY}"
+            )
+            continue()
+        endif()
+
+        math(EXPR TUTORUX_STATIC_LICENSE_LIBRARY_INDEX
+            "${TUTORUX_STATIC_LICENSE_LIBRARY_INDEX} + 1"
+        )
+        set(TUTORUX_STATIC_LICENSE_LIBRARY_VAR
+            "TUTORUX_STATIC_LICENSE_LIBRARY_${TUTORUX_STATIC_LICENSE_LIBRARY_INDEX}"
+        )
+        find_library(${TUTORUX_STATIC_LICENSE_LIBRARY_VAR}
+            NAMES "${TUTORUX_STATIC_LICENSE_ENTRY}"
+            HINTS ${TUTORUX_STATIC_LICENSE_SEARCH_DIRS}
+            PATH_SUFFIXES lib lib64
+            NO_CACHE
+        )
+        if(${TUTORUX_STATIC_LICENSE_LIBRARY_VAR})
+            list(APPEND TUTORUX_STATIC_LICENSE_ARCHIVE_PATHS
+                "${${TUTORUX_STATIC_LICENSE_LIBRARY_VAR}}"
             )
         else()
-            message(WARNING "No license directory found for ${TUTORUX_LICENSE_NAME}.")
-        endif()
-    endforeach()
-    if("idn2" IN_LIST TUTORUX_STATIC_CURL_STATIC_LIBRARIES)
-        set(TUTORUX_LIBIDN2_LICENSE
-            "${TUTORUX_SODIUM_PREFIX}/share/licenses/xz/COPYING.GPLv2"
-        )
-        if(NOT EXISTS "${TUTORUX_LIBIDN2_LICENSE}")
-            message(FATAL_ERROR
-                "The static libcurl dependency closure uses libidn2, but its GPL-2.0-or-later "
-                "license text is unavailable."
+            list(APPEND TUTORUX_STATIC_LICENSE_UNRESOLVED_NAMES
+                "${TUTORUX_STATIC_LICENSE_ENTRY}"
             )
         endif()
-        install(FILES "${TUTORUX_LIBIDN2_LICENSE}"
-            DESTINATION licenses/libidn2 COMPONENT Runtime
+    endforeach()
+    list(REMOVE_DUPLICATES TUTORUX_STATIC_LICENSE_ARCHIVE_PATHS)
+
+    find_file(TUTORUX_SODIUM_LICENSE_FILE
+        NAMES LICENSE COPYING COPYING.md LICENSE.txt
+        PATHS
+            "${TUTORUX_SODIUM_PREFIX}/share/licenses/libsodium"
+            "${TUTORUX_SODIUM_PREFIX}/share/licenses/sodium"
+            "${TUTORUX_SODIUM_PREFIX}/share/doc/libsodium"
+            "${TUTORUX_STATIC_LICENSE_SYSROOT}/usr/share/doc/libsodium-dev"
+            /usr/share/doc/libsodium-dev
+            /usr/share/doc/libsodium23
+            /opt/homebrew/opt/libsodium/share/doc/libsodium
+            /usr/local/opt/libsodium/share/doc/libsodium
+        NO_DEFAULT_PATH
+    )
+    set(TUTORUX_STATIC_LICENSE_OUTPUT_DIRECTORY
+        "${CMAKE_CURRENT_BINARY_DIR}/static-dependency-licenses"
+    )
+    set(TUTORUX_STATIC_LICENSE_STATUS_FILE
+        "${TUTORUX_STATIC_LICENSE_OUTPUT_DIRECTORY}/collection-status.txt"
+    )
+    execute_process(
+        COMMAND "${CMAKE_COMMAND}"
+            "-DPLATFORM=${TUTORUX_STATIC_LICENSE_PLATFORM}"
+            "-DARCHIVE_PATHS=${TUTORUX_STATIC_LICENSE_ARCHIVE_PATHS}"
+            "-DUNRESOLVED_NAMES=${TUTORUX_STATIC_LICENSE_UNRESOLVED_NAMES}"
+            "-DOUTPUT_DIRECTORY=${TUTORUX_STATIC_LICENSE_OUTPUT_DIRECTORY}"
+            "-DMANIFEST_FILE=${TUTORUX_STATIC_MANIFEST_FILE}"
+            "-DSYSROOT=${TUTORUX_STATIC_LICENSE_SYSROOT}"
+            "-DBREW_EXECUTABLE=${TUTORUX_BREW_EXECUTABLE}"
+            "-DSODIUM_ARCHIVE=${TUTORUX_SODIUM_LINK_LIBRARY}"
+            "-DSODIUM_VERSION=${TUTORUX_SODIUM_VERSION}"
+            "-DSODIUM_SOURCE_COMMIT=${TUTORUX_SODIUM_SOURCE_COMMIT}"
+            "-DSODIUM_LICENSE_FILE=${TUTORUX_SODIUM_LICENSE_FILE}"
+            -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/CollectStaticDependencyLicenses.cmake"
+        RESULT_VARIABLE TUTORUX_STATIC_LICENSE_COLLECTION_RESULT
+    )
+    if(NOT TUTORUX_STATIC_LICENSE_COLLECTION_RESULT EQUAL 0)
+        message(FATAL_ERROR
+            "Static dependency license collection failed while generating the platform SBOM."
         )
+    endif()
+
+    file(APPEND "${TUTORUX_STATIC_MANIFEST_FILE}"
+        "\n## Tutorux and source-built dependencies\n\n"
+        "- Tutorux: ${PROJECT_VERSION}, GPL-3.0-only\n"
+        "- PoDoFo: ${TUTORUX_PODOFO_VERSION_PIN}\n"
+        "- FFmpeg: ${TUTORUX_FFMPEG_VERSION_PIN}, LGPL-2.1-only, upstream commit ${TUTORUX_FFMPEG_COMMIT_PIN}, security patch SHA-256 ${TUTORUX_FFMPEG_PATCH_SHA256}\n"
+        "- Slint: ${TUTORUX_SLINT_VERSION_PIN}, GPLv3 route\n"
+        "- whisper.cpp: ${TUTORUX_WHISPER_VERSION_PIN}\n"
+        "- llama.cpp: ${TUTORUX_LLAMA_VERSION_PIN}, enabled=${TUTORUX_ENABLE_LLAMA}\n"
+        "- Operating-system interfaces/frameworks remain external: ${TUTORUX_STATIC_LICENSE_PLATFORM}\n"
+    )
+    install(FILES "${TUTORUX_STATIC_MANIFEST_FILE}"
+        DESTINATION licenses COMPONENT Runtime
+    )
+    install(DIRECTORY "${TUTORUX_STATIC_LICENSE_OUTPUT_DIRECTORY}/licenses/"
+        DESTINATION licenses/static-dependencies COMPONENT Runtime
+    )
+    string(CONCAT TUTORUX_STATIC_LICENSE_INSTALL_GUARD
+        "if(NOT EXISTS \"${TUTORUX_STATIC_LICENSE_STATUS_FILE}\")\n"
+        "    message(FATAL_ERROR \"Static dependency license status is missing; Runtime packaging is blocked.\")\n"
+        "endif()\n"
+        "file(READ \"${TUTORUX_STATIC_LICENSE_STATUS_FILE}\" _tutorux_license_status)\n"
+        "if(NOT _tutorux_license_status MATCHES \"^COMPLETE\")\n"
+        "    message(FATAL_ERROR \"Static dependency license collection is incomplete; see ${TUTORUX_STATIC_MANIFEST_FILE}. Runtime packaging is blocked.\")\n"
+        "endif()\n"
+    )
+    install(CODE "${TUTORUX_STATIC_LICENSE_INSTALL_GUARD}" COMPONENT Runtime)
+endif()
+
+if(TARGET tutorux AND WIN32 AND MINGW)
+    if(TUTORUX_RELEASE_ARCH STREQUAL "arm64")
+        set(TUTORUX_ARM64_LICENSE_ROOT "${TUTORUX_SODIUM_PREFIX}/share/licenses")
+        if(NOT IS_DIRECTORY "${TUTORUX_ARM64_LICENSE_ROOT}")
+            message(FATAL_ERROR
+                "Windows ARM64 Runtime packaging requires the target package license tree at "
+                "${TUTORUX_ARM64_LICENSE_ROOT}."
+            )
+        endif()
+        find_program(TUTORUX_ARM64_PACMAN_EXECUTABLE pacman REQUIRED)
+        execute_process(
+            COMMAND "${TUTORUX_ARM64_PACMAN_EXECUTABLE}" -Q
+            RESULT_VARIABLE TUTORUX_ARM64_PACKAGE_INVENTORY_RESULT
+            OUTPUT_VARIABLE TUTORUX_ARM64_PACKAGE_INVENTORY
+            ERROR_VARIABLE TUTORUX_ARM64_PACKAGE_INVENTORY_ERROR
+        )
+        if(NOT TUTORUX_ARM64_PACKAGE_INVENTORY_RESULT EQUAL 0)
+            message(FATAL_ERROR
+                "Windows ARM64 SBOM collection failed: ${TUTORUX_ARM64_PACKAGE_INVENTORY_ERROR}"
+            )
+        endif()
+        set(TUTORUX_ARM64_SBOM_FILE
+            "${CMAKE_CURRENT_BINARY_DIR}/WINDOWS-ARM64-SBOM.md"
+        )
+        file(WRITE "${TUTORUX_ARM64_SBOM_FILE}"
+            "# Tutorux Windows ARM64 Static Dependency Manifest\n\n"
+            "Architecture: ${CMAKE_SYSTEM_PROCESSOR}\n"
+            "Compiler: ${CMAKE_CXX_COMPILER_ID} ${CMAKE_CXX_COMPILER_VERSION}\n"
+            "Toolchain: MSYS2 CLANGARM64 / LLVM-MinGW GNU ABI\n"
+            "Rust target: aarch64-pc-windows-gnullvm\n"
+            "License source: complete CLANGARM64 prefix license tree\n\n"
+            "## Installed MSYS2 package versions\n\n"
+            "```text\n${TUTORUX_ARM64_PACKAGE_INVENTORY}```\n"
+            "The Runtime install copies the package license tree. Release qualification also checks "
+            "that the executable is a PE ARM64 image and that the copied notices are present.\n"
+        )
+        install(FILES "${TUTORUX_ARM64_SBOM_FILE}"
+            DESTINATION . COMPONENT Runtime
+        )
+        install(DIRECTORY "${TUTORUX_ARM64_LICENSE_ROOT}/"
+            DESTINATION licenses/third-party COMPONENT Runtime
+        )
+    else()
+        install(FILES docs/dependencies/WINDOWS-X64-SBOM.md
+            DESTINATION . COMPONENT Runtime
+        )
+        set(TUTORUX_MINGW_LICENSES
+            brotli
+            bzip2
+            curl
+            freetype
+            gcc-libs
+            gettext-runtime
+            glib2
+            graphite2
+            harfbuzz
+            libiconv
+            libjpeg-turbo
+            libpng
+            libpsl
+            libssh2
+            libunistring
+            libwinpthread
+            libxml2
+            nghttp2
+            nghttp3
+            ngtcp2
+            libsodium
+            openssl
+            pcre2
+            zstd
+            zlib
+        )
+        foreach(TUTORUX_LICENSE_NAME IN LISTS TUTORUX_MINGW_LICENSES)
+            set(TUTORUX_LICENSE_SOURCE
+                "${TUTORUX_SODIUM_PREFIX}/share/licenses/${TUTORUX_LICENSE_NAME}"
+            )
+            if(EXISTS "${TUTORUX_LICENSE_SOURCE}")
+                install(DIRECTORY "${TUTORUX_LICENSE_SOURCE}/"
+                    DESTINATION "licenses/${TUTORUX_LICENSE_NAME}" COMPONENT Runtime
+                )
+            else()
+                message(WARNING "No license directory found for ${TUTORUX_LICENSE_NAME}.")
+            endif()
+        endforeach()
+        if("idn2" IN_LIST TUTORUX_STATIC_CURL_STATIC_LIBRARIES)
+            set(TUTORUX_LIBIDN2_LICENSE
+                "${TUTORUX_SODIUM_PREFIX}/share/licenses/xz/COPYING.GPLv2"
+            )
+            if(NOT EXISTS "${TUTORUX_LIBIDN2_LICENSE}")
+                message(FATAL_ERROR
+                    "The static libcurl dependency closure uses libidn2, but its GPL-2.0-or-later "
+                    "license text is unavailable."
+                )
+            endif()
+            install(FILES "${TUTORUX_LIBIDN2_LICENSE}"
+                DESTINATION licenses/libidn2 COMPONENT Runtime
+            )
+        endif()
     endif()
     install(TARGETS tutorux RUNTIME_DEPENDENCY_SET tutorux_runtime RUNTIME DESTINATION .
         COMPONENT Runtime
@@ -884,6 +1483,17 @@ elseif(TARGET tutorux)
     install(TARGETS tutorux RUNTIME DESTINATION . COMPONENT Runtime)
 endif()
 
+if(TARGET tutorux)
+    install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/LICENSE"
+        DESTINATION licenses/Tutorux COMPONENT Runtime
+    )
+endif()
+if(TUTORUX_BUILD_WASM)
+    install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/LICENSE"
+        DESTINATION licenses/Tutorux COMPONENT WebRuntime
+    )
+endif()
+
 if(BUILD_TESTING AND NOT TUTORUX_BUILD_WASM)
     add_executable(tutorux_json_test tests/json_test.cpp)
     target_link_libraries(tutorux_json_test PRIVATE tutorux_core)
@@ -892,6 +1502,12 @@ if(BUILD_TESTING AND NOT TUTORUX_BUILD_WASM)
     add_executable(tutorux_ai_import_test tests/ai_import_test.cpp)
     target_link_libraries(tutorux_ai_import_test PRIVATE tutorux_core)
     add_test(NAME structured_ai_response_import COMMAND tutorux_ai_import_test)
+
+    add_executable(tutorux_student_progress_test tests/student_progress_test.cpp)
+    target_link_libraries(tutorux_student_progress_test PRIVATE tutorux_core)
+    add_test(NAME student_progress_requires_human_reviewed_evidence
+        COMMAND tutorux_student_progress_test
+    )
 
     add_executable(tutorux_asset_import_test tests/asset_import_test.cpp)
     target_link_libraries(tutorux_asset_import_test PRIVATE tutorux_core)
@@ -904,6 +1520,10 @@ if(BUILD_TESTING AND NOT TUTORUX_BUILD_WASM)
     add_executable(tutorux_archive_reopen_test tests/archive_reopen_test.cpp)
     target_link_libraries(tutorux_archive_reopen_test PRIVATE tutorux_core)
     add_test(NAME archive_integrity_discovery_and_compaction COMMAND tutorux_archive_reopen_test)
+
+    add_executable(tutorux_archive_locking_test tests/archive_locking_test.cpp)
+    target_link_libraries(tutorux_archive_locking_test PRIVATE tutorux_core)
+    add_test(NAME archive_transient_cross_process_locking COMMAND tutorux_archive_locking_test)
 
     add_executable(tutorux_session_transfer_test tests/session_transfer_test.cpp)
     target_link_libraries(tutorux_session_transfer_test PRIVATE tutorux_core)
