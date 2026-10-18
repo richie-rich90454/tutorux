@@ -413,7 +413,6 @@ core::Result<EditResult> PieceTable::applyTextSnapshot(
         const auto sourceBegin = sourceEnd - static_cast<std::ptrdiff_t>(comparedLength);
         const auto updatedEnd =
             updatedText.begin() + static_cast<std::ptrdiff_t>(updatedText.size() - commonSuffix);
-        const auto updatedBegin = updatedEnd - static_cast<std::ptrdiff_t>(comparedLength);
         const auto sourceReverseBegin = std::make_reverse_iterator(sourceEnd);
         const auto sourceReverseEnd = std::make_reverse_iterator(sourceBegin);
         const auto updatedReverseBegin = std::make_reverse_iterator(updatedEnd);
@@ -716,6 +715,7 @@ core::Result<std::string> PieceTable::replaceWithoutHistory(TextRange range,
         position += piece->length;
     }
     if (range.start == range.end) {
+        position = 0;
         for (auto piece = pieces_.begin(); piece != pieces_.end(); ++piece) {
             if (position == range.start) {
                 first = piece;
