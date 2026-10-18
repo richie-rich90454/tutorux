@@ -7,6 +7,7 @@
 #include <cmath>
 #include <cstdlib>
 #include <filesystem>
+#include <functional>
 #include <map>
 #include <memory>
 #include <optional>
@@ -601,7 +602,7 @@ namespace {
         PoDoFo::PdfFont& font_;
         PoDoFo::PdfPainter painter_;
         std::span<const GuideImageAsset> images_;
-        std::map<std::string, std::unique_ptr<PoDoFo::PdfImage>> imageCache_;
+        std::map<std::string, std::unique_ptr<PoDoFo::PdfImage>, std::less<>> imageCache_;
         std::optional<core::Error> renderError_;
         std::string_view title_;
         std::string_view approvalState_;
