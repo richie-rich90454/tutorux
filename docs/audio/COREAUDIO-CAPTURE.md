@@ -11,6 +11,20 @@ and resume continues the same archive track. The native CoreAudio frameworks are
 macOS. The static application preset links Tutorux's third-party code statically while using these
 operating-system frameworks.
 
-Microphone and system-audio capture can run as synchronized separate tracks. macOS does not expose
-a universal output-loopback device, so select an explicitly configured virtual audio input with
-`--playback DEVICE_ID`; Tutorux does not select one automatically.
+Microphone and system-audio capture can run as synchronized separate tracks. Microphone input uses
+CoreAudio and may prompt for microphone access. On macOS 13 and newer, system audio uses
+ScreenCaptureKit and the operating system's system-audio recording permission. `record devices`
+lists the `screen-capture-kit` pseudo-device; select it with `--playback screen-capture-kit` (or
+leave the system-audio device at its default). The backend captures system audio through Apple's
+API and does not require a third-party virtual input driver. System-audio capture is unavailable on
+macOS releases older than 13.
+
+Per-application audio capture uses ScreenCaptureKit's app filter on macOS 14 and newer. The app
+source list comes from ScreenCaptureKit's currently shareable applications and can prompt for the
+operating system's screen and audio capture permission. Each `screencapturekit-app:PID` selection is
+checked during preflight and again before streaming. Tutorux records the process ID, application
+name, bundle identifier, consent source, and `screencapturekit` backend in the archive. The
+existing `screen-capture-kit` device continues to capture system audio. App-filtered audio is
+unavailable on macOS 13 and earlier. Start one app with
+`record start --session UUID --consent --source application --device screencapturekit-app:PID`, or
+pair it with the microphone using `--source both --application ID`.
