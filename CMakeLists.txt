@@ -1,5 +1,9 @@
 cmake_minimum_required(VERSION 3.25)
 
+if(POLICY CMP0091)
+    cmake_policy(SET CMP0091 NEW)
+endif()
+
 project(Tutorux VERSION 1.0.0 LANGUAGES CXX)
 
 if(POLICY CMP0207)
@@ -22,12 +26,34 @@ option(TUTORUX_ENABLE_LTO "Enable link-time optimization for release builds" ON)
 option(TUTORUX_STATIC_RUNTIME "Statically link bundled third-party dependencies" OFF)
 option(TUTORUX_BUILD_WASM "Build the static browser edition with Emscripten" OFF)
 
+if(TUTORUX_FETCH_LLAMA)
+    set(TUTORUX_ENABLE_LLAMA ON)
+endif()
+if(TUTORUX_FETCH_WHISPER)
+    set(TUTORUX_ENABLE_WHISPER ON)
+endif()
+
 if(TUTORUX_BUILD_WASM AND NOT EMSCRIPTEN)
     message(FATAL_ERROR "TUTORUX_BUILD_WASM requires the Emscripten toolchain.")
 endif()
-
-if(TUTORUX_FETCH_LLAMA)
-    set(TUTORUX_ENABLE_LLAMA ON)
+if(TUTORUX_BUILD_WASM AND
+   (TUTORUX_FETCH_SLINT OR TUTORUX_FETCH_PODOFO OR TUTORUX_FETCH_WHISPER OR TUTORUX_FETCH_LLAMA))
+    message(FATAL_ERROR
+        "The WebAssembly target uses browser-native interfaces and does not fetch native-only "
+        "GUI, PDF, transcription, or model dependencies."
+    )
+endif()
+if(TUTORUX_BUILD_WASM AND (TUTORUX_BUILD_GUI OR TUTORUX_ENABLE_WHISPER OR TUTORUX_ENABLE_LLAMA))
+    message(FATAL_ERROR
+        "The static browser edition uses its HTML interface and browser-provided recording; "
+        "native GUI and local model runtimes are unavailable in this target."
+    )
+endif()
+if(TUTORUX_BUILD_WASM AND TUTORUX_STATIC_RUNTIME)
+    message(FATAL_ERROR
+        "Emscripten already produces a statically linked WebAssembly module; "
+        "TUTORUX_STATIC_RUNTIME is reserved for native platform packaging."
+    )
 endif()
 
 if(TUTORUX_LLAMA_METAL AND NOT APPLE)
@@ -90,7 +116,7 @@ function(tutorux_verify_source_pin dependency source_directory expected_commit)
     endif()
 endfunction()
 
-add_library(tutorux_core STATIC
+set(TUTORUX_CORE_SOURCES
     src/ai/http.cpp
     src/ai/content.cpp
     src/ai/cloudflare.cpp
@@ -107,6 +133,7 @@ add_library(tutorux_core STATIC
     src/audio/recording_control.cpp
     src/audio/wav_import.cpp
     src/archive/archive.cpp
+    src/archive/compression.cpp
     src/archive/crypto.cpp
     src/archive/file.cpp
     src/archive/format.cpp
@@ -127,6 +154,26 @@ add_library(tutorux_core STATIC
     src/transcription/import.cpp
     src/transcription/whisper_backend.cpp
 )
+
+if(TUTORUX_BUILD_WASM)
+    list(REMOVE_ITEM TUTORUX_CORE_SOURCES
+        src/ai/http.cpp
+        src/audio/capture.cpp
+        src/audio/multi_track.cpp
+        src/audio/capture_alsa.cpp
+        src/audio/capture_coreaudio.cpp
+        src/audio/devices.cpp
+        src/audio/recording_control.cpp
+        src/document/pdf_export.cpp
+    )
+    list(APPEND TUTORUX_CORE_SOURCES
+        src/ai/http_wasm.cpp
+        src/audio/platform_wasm.cpp
+        src/document/pdf_export_wasm.cpp
+    )
+endif()
+
+add_library(tutorux_core STATIC ${TUTORUX_CORE_SOURCES})
 target_include_directories(tutorux_core PUBLIC include)
 target_compile_features(tutorux_core PUBLIC cxx_std_23)
 
@@ -149,7 +196,9 @@ if(APPLE)
     )
 endif()
 
-if(TUTORUX_STATIC_RUNTIME AND NOT MSVC)
+if(TUTORUX_BUILD_WASM)
+    # Browser requests use the Emscripten Fetch API implementation in http_wasm.cpp.
+elseif(TUTORUX_STATIC_RUNTIME AND NOT MSVC)
     find_package(PkgConfig REQUIRED)
     set(PKG_CONFIG_ARGN --static)
     pkg_check_modules(TUTORUX_STATIC_CURL REQUIRED IMPORTED_TARGET libcurl>=7.85)
@@ -164,7 +213,9 @@ else()
     endif()
 endif()
 
-set(TUTORUX_SODIUM_PREFIX "")
+set(TUTORUX_SODIUM_PREFIX "$ENV{TUTORUX_SODIUM_PREFIX}" CACHE PATH
+    "Prefix containing the pinned target libsodium headers and static library"
+)
 set(TUTORUX_SODIUM_VERSION_PIN "1.0.22")
 set(TUTORUX_PODOFO_VERSION_PIN "1.1.2")
 set(TUTORUX_PODOFO_COMMIT_PIN "e91d8b727763724f3efd96c589c8033f4333c68c")
@@ -197,6 +248,12 @@ endif()
 if(NOT TUTORUX_SODIUM_INCLUDE_DIR OR NOT TUTORUX_SODIUM_LINK_LIBRARY)
     message(FATAL_ERROR "libsodium ${TUTORUX_SODIUM_VERSION_PIN} is required for archive encryption.")
 endif()
+if(EMSCRIPTEN AND NOT TUTORUX_SODIUM_LINK_LIBRARY MATCHES "\\.a$")
+    message(FATAL_ERROR
+        "The WebAssembly edition requires a static Emscripten build of libsodium; "
+        "set TUTORUX_SODIUM_PREFIX to that target library's install prefix."
+    )
+endif()
 file(STRINGS "${TUTORUX_SODIUM_INCLUDE_DIR}/sodium/version.h"
     TUTORUX_SODIUM_VERSION_LINE REGEX "^#define SODIUM_VERSION_STRING ")
 string(REGEX MATCH "[0-9]+\\.[0-9]+\\.[0-9]+" TUTORUX_SODIUM_VERSION
@@ -209,7 +266,9 @@ endif()
 target_include_directories(tutorux_core PRIVATE "${TUTORUX_SODIUM_INCLUDE_DIR}")
 target_link_libraries(tutorux_core PRIVATE "${TUTORUX_SODIUM_LINK_LIBRARY}")
 
-if(TUTORUX_FETCH_PODOFO)
+if(TUTORUX_BUILD_WASM)
+    # The browser target uses the self-contained portable PDF writer.
+elseif(TUTORUX_FETCH_PODOFO)
     include(FetchContent)
     set(PODOFO_BUILD_LIB_ONLY ON CACHE BOOL "" FORCE)
     if(TUTORUX_STATIC_RUNTIME)
@@ -254,11 +313,13 @@ elseif(MINGW)
 else()
     find_package(podofo ${TUTORUX_PODOFO_VERSION_PIN} EXACT CONFIG REQUIRED)
 endif()
-target_link_libraries(tutorux_core PRIVATE podofo::podofo)
-if(TUTORUX_FETCH_PODOFO)
-    target_include_directories(tutorux_core PRIVATE ${TUTORUX_PODOFO_INCLUDE_DIRS})
+if(NOT TUTORUX_BUILD_WASM)
+    target_link_libraries(tutorux_core PRIVATE podofo::podofo)
+    if(TUTORUX_FETCH_PODOFO)
+        target_include_directories(tutorux_core PRIVATE ${TUTORUX_PODOFO_INCLUDE_DIRS})
+    endif()
 endif()
-if(TUTORUX_STATIC_RUNTIME AND NOT MSVC)
+if(TUTORUX_STATIC_RUNTIME AND NOT MSVC AND NOT TUTORUX_BUILD_WASM)
     find_package(PkgConfig REQUIRED)
     set(PKG_CONFIG_ARGN --static)
     pkg_check_modules(TUTORUX_STATIC_FREETYPE REQUIRED IMPORTED_TARGET freetype2)
@@ -299,9 +360,6 @@ else()
     target_compile_options(tutorux_core PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion)
 endif()
 
-if(TUTORUX_FETCH_WHISPER)
-    set(TUTORUX_ENABLE_WHISPER ON)
-endif()
 if(TUTORUX_FETCH_LLAMA)
     install(FILES "${TUTORUX_LLAMA_SOURCE_DIR}/LICENSE"
         DESTINATION licenses/llama.cpp COMPONENT Runtime
@@ -381,21 +439,26 @@ if(TUTORUX_ENABLE_LLAMA)
     endif()
 endif()
 
-add_executable(tutorux src/main.cpp)
-target_link_libraries(tutorux PRIVATE tutorux_core)
-if(MINGW AND TUTORUX_STATIC_RUNTIME)
-    target_link_options(tutorux_core INTERFACE -static -static-libgcc -static-libstdc++)
-elseif(MINGW)
-    target_link_options(tutorux PRIVATE -static-libgcc -static-libstdc++)
-elseif(UNIX AND NOT APPLE AND TUTORUX_STATIC_RUNTIME)
-    target_link_options(tutorux_core INTERFACE -static -static-libgcc -static-libstdc++)
+if(NOT TUTORUX_BUILD_WASM)
+    add_executable(tutorux src/main.cpp)
+    target_link_libraries(tutorux PRIVATE tutorux_core)
+    if(MINGW AND TUTORUX_STATIC_RUNTIME)
+        target_link_options(tutorux_core INTERFACE -static -static-libgcc -static-libstdc++)
+    elseif(MINGW)
+        target_link_options(tutorux PRIVATE -static-libgcc -static-libstdc++)
+    elseif(UNIX AND NOT APPLE AND TUTORUX_STATIC_RUNTIME)
+        target_link_options(tutorux_core INTERFACE -static -static-libgcc -static-libstdc++)
+    endif()
 endif()
 
 if(TUTORUX_ENABLE_LTO AND CMAKE_BUILD_TYPE STREQUAL "Release" AND NOT MINGW)
     include(CheckIPOSupported)
     check_ipo_supported(RESULT TUTORUX_LTO_SUPPORTED OUTPUT TUTORUX_LTO_ERROR)
     if(TUTORUX_LTO_SUPPORTED)
-        set_property(TARGET tutorux_core tutorux PROPERTY INTERPROCEDURAL_OPTIMIZATION TRUE)
+        set_property(TARGET tutorux_core PROPERTY INTERPROCEDURAL_OPTIMIZATION TRUE)
+        if(TARGET tutorux)
+            set_property(TARGET tutorux PROPERTY INTERPROCEDURAL_OPTIMIZATION TRUE)
+        endif()
     endif()
 elseif(TUTORUX_ENABLE_LTO AND CMAKE_BUILD_TYPE STREQUAL "Release" AND MINGW)
     message(STATUS "Skipping IPO/LTO for MinGW; GCC LTO cannot reliably merge the COFF archive.")
@@ -463,6 +526,8 @@ if(TUTORUX_BUILD_WASM)
         "-sMODULARIZE=1"
         "-sEXPORT_NAME=createTutoruxModule"
         "-sALLOW_MEMORY_GROWTH=1"
+        "-sFETCH=1"
+        "-sASYNCIFY=1"
         "-sEXIT_RUNTIME=0"
         "-sENVIRONMENT=web,worker"
         "-sEXPORTED_RUNTIME_METHODS=ccall,FS"
@@ -486,6 +551,9 @@ if(TUTORUX_BUILD_WASM)
         PATTERN "tutorux.js" EXCLUDE
     )
     install(FILES "${CMAKE_CURRENT_BINARY_DIR}/web/tutorux.js"
+        DESTINATION web COMPONENT WebRuntime
+    )
+    install(FILES "${CMAKE_CURRENT_BINARY_DIR}/web/tutorux-core.wasm"
         DESTINATION web COMPONENT WebRuntime
     )
 endif()
@@ -547,9 +615,9 @@ elseif(WIN32 AND MINGW)
     )
 endif()
 
-if(APPLE)
+if(TARGET tutorux AND APPLE)
     set_target_properties(tutorux PROPERTIES BUILD_RPATH "@loader_path" INSTALL_RPATH "@loader_path")
-elseif(UNIX)
+elseif(TARGET tutorux AND UNIX)
     set_target_properties(tutorux PROPERTIES BUILD_RPATH "$ORIGIN" INSTALL_RPATH "$ORIGIN")
 endif()
 
@@ -568,7 +636,7 @@ if(TUTORUX_FETCH_WHISPER)
     )
 endif()
 
-if(WIN32 AND MINGW)
+if(TARGET tutorux AND WIN32 AND MINGW)
     install(FILES docs/dependencies/WINDOWS-X64-SBOM.md DESTINATION . COMPONENT Runtime)
     set(TUTORUX_MINGW_LICENSES
         brotli
@@ -642,11 +710,11 @@ if(WIN32 AND MINGW)
         RUNTIME DESTINATION .
         COMPONENT Runtime
     )
-else()
+elseif(TARGET tutorux)
     install(TARGETS tutorux RUNTIME DESTINATION . COMPONENT Runtime)
 endif()
 
-if(BUILD_TESTING)
+if(BUILD_TESTING AND NOT TUTORUX_BUILD_WASM)
     add_executable(tutorux_json_test tests/json_test.cpp)
     target_link_libraries(tutorux_json_test PRIVATE tutorux_core)
     add_test(NAME json_strict_parsing COMMAND tutorux_json_test)
