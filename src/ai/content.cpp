@@ -32,6 +32,13 @@ namespace {
         std::int64_t timestampUs{};
     };
 
+    EncodedPart textPart(std::string text) {
+        EncodedPart part;
+        part.kind = PartKind::text;
+        part.text = std::move(text);
+        return part;
+    }
+
     class EncodedPartsWiper final {
       public:
         explicit EncodedPartsWiper(std::vector<EncodedPart>& parts) noexcept
@@ -148,7 +155,7 @@ namespace {
             if (!document.fileName.empty())
                 label += " " + document.fileName;
             label += ":\n";
-            parts.push_back({PartKind::text, std::move(label) + document.extractedText});
+            parts.push_back(textPart(std::move(label) + document.extractedText));
         }
         if (!document.bytes.empty()) {
             auto encoded = encodeBase64(document.bytes);
@@ -170,7 +177,7 @@ namespace {
         std::vector<EncodedPart> parts;
         EncodedPartsWiper partsWiper(parts);
         if (content.empty()) {
-            parts.push_back({PartKind::text, std::string(fallbackText)});
+            parts.push_back(textPart(std::string(fallbackText)));
             return parts;
         }
         for (const ContentPart& item : content) {
@@ -179,7 +186,7 @@ namespace {
                     using Value = std::decay_t<decltype(value)>;
                     if constexpr (std::is_same_v<Value, TextContentPart>) {
                         if (!value.text.empty())
-                            parts.push_back({PartKind::text, value.text});
+                            parts.push_back(textPart(value.text));
                         return {};
                     } else if constexpr (std::is_same_v<Value, ImageContentPart>) {
                         return appendImage(parts, value, 0, serialization);
@@ -202,8 +209,7 @@ namespace {
                                              0});
                         }
                         if (!value.transcript.empty())
-                            parts.push_back(
-                                {PartKind::text, "Audio transcript:\n" + value.transcript});
+                            parts.push_back(textPart("Audio transcript:\n" + value.transcript));
                         if (value.bytes.empty() && value.transcript.empty()) {
                             return std::unexpected(core::error(
                                 "ai_audio_content_unavailable",
@@ -237,13 +243,11 @@ namespace {
                                              0});
                         }
                         if (!value.transcript.empty()) {
-                            parts.push_back(
-                                {PartKind::text, "Video transcript:\n" + value.transcript});
+                            parts.push_back(textPart("Video transcript:\n" + value.transcript));
                         }
                         for (const auto& frame : value.frames) {
-                            parts.push_back(
-                                {PartKind::text,
-                                 "Video frame at " + std::to_string(frame.timestampUs) + " us:"});
+                            parts.push_back(textPart("Video frame at " +
+                                                     std::to_string(frame.timestampUs) + " us:"));
                             if (auto status = appendImage(parts,
                                                           frame.image,
                                                           frame.timestampUs,
@@ -260,7 +264,7 @@ namespace {
                 return std::unexpected(status.error());
         }
         if (parts.empty())
-            parts.push_back({PartKind::text, std::string(fallbackText)});
+            parts.push_back(textPart(std::string(fallbackText)));
         return parts;
     }
 
