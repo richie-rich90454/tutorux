@@ -1477,7 +1477,11 @@ namespace {
 
             const auto reportJson = [](const archive::RecoveryReport& recovery) {
                 std::string json = "{";
-                json += "\"committed_generation\":" + std::to_string(recovery.committedGeneration);
+                json += "\"archive_header_valid\":";
+                json += recovery.archiveHeaderValid ? "true" : "false";
+                json += ",\"recovery_assessment_complete\":";
+                json += recovery.recoveryAssessmentComplete ? "true" : "false";
+                json += ",\"committed_generation\":" + std::to_string(recovery.committedGeneration);
                 json += ",\"candidate_generation\":" + std::to_string(recovery.candidateGeneration);
                 json += ",\"recoverable_generation\":" + std::to_string(recovery.recoverableGeneration);
                 json += ",\"trailing_bytes\":" + std::to_string(recovery.trailingBytes);
@@ -1518,7 +1522,11 @@ namespace {
             };
             const auto textReport = [&](std::string_view operation, bool changed, const archive::RecoveryReport* after) {
                 std::string text = "Archive recovery inspection: " + path.string() + "\n";
-                text += "Committed generation: " + std::to_string(report->committedGeneration) + "\n";
+                text += std::string("Archive header: ") + (report->archiveHeaderValid ? "valid\n" : "invalid or unreadable\n");
+                text += std::string("Recovery assessment: ") +
+                        (report->recoveryAssessmentComplete ? "complete\n" : "incomplete; no recovery action is available\n");
+                text += report->archiveHeaderValid ? "Committed generation: " + std::to_string(report->committedGeneration) + "\n"
+                                                   : "Committed generation: unknown\n";
                 text += "Unpublished candidate generation: ";
                 text += report->hasUnpublishedCommit ? std::to_string(report->candidateGeneration) + "\n" : "none\n";
                 text += "Recoverable generation: ";
@@ -2994,11 +3002,36 @@ namespace {
             session.title = optionOr(*options, "title", "Untitled session");
             session.objectives = optionOr(*options, "objectives");
             session.sessionType = optionOr(*options, "type", "notes-only");
+            session.transcriptionLanguage = optionOr(*options, "language", "auto");
+            session.guideTemplateId = optionOr(*options, "guide-template");
+            session.recordingSource = optionOr(*options, "recording-source",
+                                               session.sessionType == "record-audio"       ? "microphone"
+                                               : session.sessionType == "import-recording" ? "imported-file"
+                                                                                           : "none");
             session.sessionState = "active";
             session.startedAtUs = static_cast<std::int64_t>(nowUnixMicroseconds());
             if (!domain::isValidSessionType(session.sessionType)) {
                 return failed(core::error("session_type_invalid", "Session type must be notes-only, record-audio, or import-recording."));
             }
+            const bool languageValid = session.transcriptionLanguage == "auto" ||
+                                       (session.transcriptionLanguage.size() >= 2 && session.transcriptionLanguage.size() <= 32 &&
+                                        std::all_of(session.transcriptionLanguage.begin(), session.transcriptionLanguage.end(),
+                                                    [](unsigned char character) {
+                                                        return std::isalnum(character) || character == '-';
+                                                    }) &&
+                                        session.transcriptionLanguage.front() != '-' && session.transcriptionLanguage.back() != '-' &&
+                                        session.transcriptionLanguage.find("--") == std::string::npos);
+            if (!languageValid)
+                return failed(core::error("transcription_language_invalid", "Use auto or a language code such as en or zh-Hant."));
+            static constexpr std::array recordingSources{"none", "microphone", "system-audio", "both", "application", "imported-file"};
+            if (std::find(recordingSources.begin(), recordingSources.end(), session.recordingSource) == recordingSources.end())
+                return failed(
+                    core::error("recording_source_invalid", "Choose none, microphone, system-audio, both, application, or imported-file."));
+            if (session.guideTemplateId.size() > 128 ||
+                std::any_of(session.guideTemplateId.begin(), session.guideTemplateId.end(), [](unsigned char character) {
+                    return character < 0x20 || character == 0x7f;
+                }))
+                return failed(core::error("guide_template_invalid", "The guide template ID is too long or contains control characters."));
             if (session.studentId != "anonymous") {
                 auto student = getRequiredRecord(*archive, RecordType::Student, session.studentId, "Student");
                 if (!student)
@@ -3106,6 +3139,35 @@ namespace {
                     return failed(parsedEntryId.error());
                 std::erase_if(*sessions, [&](const Record& session) {
                     return domain::getField(session, "entry_id") != uuid(*parsedEntryId);
+                });
+            }
+            const auto dateBound = [&](std::string_view key, bool inclusiveEnd) -> Result<std::optional<std::int64_t>> {
+                const auto dateText = option(*options, key);
+                if (!dateText)
+                    return std::optional<std::int64_t>{};
+                if (!domain::isValidJournalDate(*dateText))
+                    return std::unexpected(core::error("session_date_invalid", "Use a valid calendar date in YYYY-MM-DD format."));
+                const int year = std::stoi(dateText->substr(0, 4));
+                const unsigned int month = static_cast<unsigned int>(std::stoi(dateText->substr(5, 2)));
+                const unsigned int day = static_cast<unsigned int>(std::stoi(dateText->substr(8, 2)));
+                const std::chrono::sys_days dayStart{std::chrono::year{year} / std::chrono::month{month} / std::chrono::day{day}};
+                const auto dayEnd = dayStart + std::chrono::days{1};
+                const auto bound = inclusiveEnd ? dayEnd : dayStart;
+                return std::optional<std::int64_t>{std::chrono::duration_cast<std::chrono::microseconds>(bound.time_since_epoch()).count() -
+                                                   (inclusiveEnd ? 1 : 0)};
+            };
+            auto from = dateBound("from", false);
+            auto to = dateBound("to", true);
+            if (!from)
+                return failed(from.error());
+            if (!to)
+                return failed(to.error());
+            if (*from && *to && **from > **to)
+                return failed(core::error("session_date_range_invalid", "--from must not be later than --to."));
+            if (*from || *to) {
+                std::erase_if(*sessions, [&](const Record& session) {
+                    const std::int64_t startedAt = integerField(session, "started_at_us", integerField(session, "created_at_us"));
+                    return (*from && startedAt < **from) || (*to && startedAt > **to);
                 });
             }
             if (hasFlag(*options, "unarchived")) {
@@ -5940,7 +6002,13 @@ namespace {
             return std::unexpected(session.error());
         if (!*session || domain::isDeleted(**session))
             return std::unexpected(core::error("session_not_found", "Session was not found."));
-        auto templateDefinition = resolveGuideTemplate(archive, templateId, sessionId);
+        std::string selectedTemplate(templateId);
+        if (selectedTemplate.empty() || normalize(selectedTemplate) == "auto") {
+            const std::string sessionTemplate = domain::getField(**session, "guide_template_id");
+            if (!sessionTemplate.empty())
+                selectedTemplate = sessionTemplate;
+        }
+        auto templateDefinition = resolveGuideTemplate(archive, selectedTemplate, sessionId);
         if (!templateDefinition)
             return std::unexpected(templateDefinition.error());
         guide.templateId = templateDefinition->id;
@@ -11351,24 +11419,24 @@ namespace {
             const auto captureSource = option(*options, "capture-source");
             std::optional<std::uint64_t> captureConsentAtUs;
             if (captureSource) {
-                if (*captureSource != "browser-microphone" || !hasFlag(*options, "consent")) {
-                    return failed(
-                        core::error("recording_consent_required", "Browser microphone audio requires an explicit --consent confirmation."));
+                if ((*captureSource != "browser-microphone" && *captureSource != "browser-system-audio") || !hasFlag(*options, "consent")) {
+                    return failed(core::error("recording_consent_required",
+                                              "Browser audio requires an explicit --consent confirmation and a supported capture source."));
                 }
                 const auto consentTime = option(*options, "capture-consent-at-us");
                 if (!consentTime) {
-                    return failed(core::error("recording_consent_time_required",
-                                              "Browser microphone audio requires its explicit consent timestamp."));
+                    return failed(core::error("recording_consent_time_required", "Browser audio requires its explicit consent timestamp."));
                 }
                 std::uint64_t parsedTime = 0;
                 const auto [end, errorCode] = std::from_chars(consentTime->data(), consentTime->data() + consentTime->size(), parsedTime);
                 if (errorCode != std::errc{} || end != consentTime->data() + consentTime->size() || parsedTime == 0) {
-                    return failed(core::error("recording_consent_time_invalid", "The browser microphone consent timestamp is invalid."));
+                    return failed(core::error("recording_consent_time_invalid", "The browser audio consent timestamp is invalid."));
                 }
                 captureConsentAtUs = parsedTime;
             } else if (option(*options, "capture-consent-at-us") || hasFlag(*options, "consent")) {
-                return failed(core::error("recording_consent_source_required",
-                                          "Recording consent metadata requires --capture-source browser-microphone."));
+                return failed(
+                    core::error("recording_consent_source_required",
+                                "Recording consent metadata requires --capture-source browser-microphone or browser-system-audio."));
             }
             std::filesystem::path inputPath(*inputValue);
             if (inputPath.is_relative())
@@ -12666,6 +12734,8 @@ Journal:
 Session:
   session create [--entry-id UUID] [--type notes-only|record-audio|import-recording]
                  [--student-id UUID] [--subject SUBJECT] [--title TITLE]
+                 [--language auto|CODE] [--guide-template ID] [--recording-source SOURCE]
+  session list [--entry-id UUID] [--from YYYY-MM-DD] [--to YYYY-MM-DD]
   Every new session is journal-linked; omitting --entry-id creates a journal entry.
   session list | show ID | update ID | clone ID | archive ID
   session start|complete|review|resume ID
@@ -12752,7 +12822,7 @@ Model / recording:
   model list|inspect|select|verify|remove-reference
   record import --session UUID --input FILE (WAV/FLAC/MP3/M4A)
       [--additional-track]
-      [--capture-source browser-microphone --capture-consent-at-us US --consent]
+      [--capture-source browser-microphone|browser-system-audio --capture-consent-at-us US --consent]
   record export-wav --session UUID --output FILE.wav [--track UUID]
                     [--fill-gaps] [--overwrite]
   record play --session UUID [--track UUID] [--start-us N] [--duration-us N]
