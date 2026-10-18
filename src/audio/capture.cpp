@@ -78,6 +78,7 @@ namespace {
         return static_cast<DWORD>(processId);
     }
 
+#if defined(TUTORUX_HAS_WASAPI_PROCESS_LOOPBACK)
     core::Status validateWasapiProcess(DWORD processId) {
         HANDLE process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, processId);
         if (!process) {
@@ -89,8 +90,9 @@ namespace {
         DWORD currentSession = 0;
         DWORD targetSession = 0;
         if (!ProcessIdToSessionId(GetCurrentProcessId(), &currentSession) || !ProcessIdToSessionId(processId, &targetSession)) {
-            return std::unexpected(captureError("audio_application_session_unavailable", HRESULT_FROM_WIN32(GetLastError()),
-                                                "Checking the selected application's Windows session"));
+            return std::unexpected(core::error(
+                "audio_application_session_unavailable",
+                "Windows could not determine the selected application's session."));
         }
         if (targetSession != currentSession) {
             return std::unexpected(core::error("audio_application_session_mismatch",
@@ -99,7 +101,6 @@ namespace {
         return {};
     }
 
-#if defined(TUTORUX_HAS_WASAPI_PROCESS_LOOPBACK)
     class ProcessLoopbackActivation final : public IActivateAudioInterfaceCompletionHandler {
       public:
         ProcessLoopbackActivation()
