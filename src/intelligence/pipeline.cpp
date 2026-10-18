@@ -951,7 +951,9 @@ std::optional<TimestampOffset> SparseTimestampSeekIndex::atOrBefore(std::int64_t
                                         [](std::int64_t value, const TimestampOffset& entry) {
                                             return value < entry.timeUs;
                                         });
-    return found == entries_.begin() ? std::nullopt : *std::prev(found);
+    if (found == entries_.begin())
+        return std::nullopt;
+    return *std::prev(found);
 }
 
 std::optional<TimestampOffset> SparseTimestampSeekIndex::atOrAfter(std::int64_t timeUs) const {
@@ -961,7 +963,9 @@ std::optional<TimestampOffset> SparseTimestampSeekIndex::atOrAfter(std::int64_t 
                                         [](const TimestampOffset& entry, std::int64_t value) {
                                             return entry.timeUs < value;
                                         });
-    return found == entries_.end() ? std::nullopt : *found;
+    if (found == entries_.end())
+        return std::nullopt;
+    return *found;
 }
 
 const std::vector<TimestampOffset>& SparseTimestampSeekIndex::entries() const noexcept {
