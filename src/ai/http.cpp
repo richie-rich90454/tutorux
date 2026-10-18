@@ -1,4 +1,5 @@
 #include "tutorux/ai/http.hpp"
+#include "tutorux/ai/http_retry.hpp"
 
 #include <curl/curl.h>
 #include <sodium.h>
@@ -8,6 +9,7 @@
 #include <limits>
 #include <mutex>
 #include <string_view>
+#include <thread>
 
 namespace tutorux::ai {
 namespace {
@@ -254,6 +256,59 @@ bool isLoopbackHttpUrl(std::string_view url) {
 
 core::Result<HttpResponse> performHttp(HttpRequest request) {
     SensitiveRequestWiper wiper(request);
+    if (request.method == "GET" && !request.onChunk && request.maximumRetries != 0U) {
+        constexpr std::uint8_t maximumAutomaticRetries = 2;
+        const std::uint8_t retries = std::min(request.maximumRetries, maximumAutomaticRetries);
+        request.maximumRetries = 0;
+        for (std::uint8_t attempt = 0;; ++attempt) {
+            if (attempt != 0U) {
+                const auto cancellation = detail::checkCancellation(request.cancelled);
+                if (cancellation.callbackFailed) {
+                    return std::unexpected(
+                        core::error("ai_cancellation_callback_failed",
+                                    "The cancellation callback failed before a provider retry."));
+                }
+                if (cancellation.requested) {
+                    HttpResponse cancelled;
+                    cancelled.cancelled = true;
+                    return cancelled;
+                }
+            }
+            HttpRequest retryRequest = request;
+            auto response = performHttp(std::move(retryRequest));
+            if (!response)
+                return std::unexpected(response.error());
+            if (attempt >= retries || !detail::isTransientHttpFailure(*response))
+                return response;
+
+            const auto delay = detail::retryAfterDelay(response->retryAfter, attempt);
+            if (!delay) {
+                if (!response->body.empty())
+                    sodium_memzero(response->body.data(), response->body.size());
+                return response;
+            }
+            if (!response->body.empty())
+                sodium_memzero(response->body.data(), response->body.size());
+
+            auto remaining = *delay;
+            while (remaining > std::chrono::milliseconds::zero()) {
+                const auto cancellation = detail::checkCancellation(request.cancelled);
+                if (cancellation.callbackFailed) {
+                    return std::unexpected(core::error(
+                        "ai_cancellation_callback_failed",
+                        "The cancellation callback failed during provider retry backoff."));
+                }
+                if (cancellation.requested) {
+                    HttpResponse cancelled;
+                    cancelled.cancelled = true;
+                    return cancelled;
+                }
+                const auto interval = std::min(remaining, std::chrono::milliseconds{25});
+                std::this_thread::sleep_for(interval);
+                remaining -= interval;
+            }
+        }
+    }
     static std::once_flag globalInitialization;
     static CURLcode globalInitializationResult = CURLE_FAILED_INIT;
     std::call_once(globalInitialization, [] {
@@ -356,9 +411,8 @@ core::Result<HttpResponse> performHttp(HttpRequest request) {
             errorBuffer[0] == '\0' ? curl_easy_strerror(transferCode) : errorBuffer;
     }
     if (state.callbackFailed) {
-        return std::unexpected(
-            core::error("ai_http_callback_failed",
-                        "An AI response callback failed while processing data."));
+        return std::unexpected(core::error(
+            "ai_http_callback_failed", "An AI response callback failed while processing data."));
     }
     return response;
 }
