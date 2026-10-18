@@ -7,11 +7,23 @@ optional positive duration. `--durability default|maximum|reduced-write` selects
 interval. Without a duration, press Ctrl+C to stop a foreground command or add `--detach` to run a
 controllable background worker.
 
+Windows 10 build 20348 and newer supports per-application process loopback. `record devices` lists
+visible application windows in the current Windows session with IDs of the form
+`wasapi-process:PID`. Process loopback includes the selected process and its child processes and is
+independent of the selected render endpoint. Preflight validates that the process still exists in
+the current session and initializes the process-filtered stream before recording. The archive
+records source `application-audio`, backend `wasapi-process-loopback`, and the selected process ID.
+If the target has no active audio streams, Windows supplies silence. Older Windows builds or SDKs
+without process-loopback support return an explicit unsupported error; Tutorux never substitutes
+system loopback for an application source. Start one process with
+`record start --session UUID --consent --source application --device wasapi-process:PID`, or keep
+the microphone as a separate synchronized track with `--source both --application ID`.
+
 The consent flag is required on every capture command. `--confirmed-by LABEL` records the person or
 authority that confirmed consent; it defaults to `not-specified` and accepts one line of at most 256
 bytes. The session stores the selected source, endpoint identifier, consent time, confirmation label,
-consent policy version, audio format, start time, and final state. `record devices` only queries
-active MMDevice endpoints and does not open a capture stream.
+consent policy version, audio format, start time, and final state. `record devices` queries active
+MMDevice endpoints and the visible application process list; it does not start a capture stream.
 
 ## Storage and timeline
 
@@ -62,7 +74,9 @@ wall time from the recording duration and continues the same sample timeline. St
 audio and marks the session completed. `record status` without a session lists active recordings
 from the selected archive. `record configure` stores microphone and playback endpoint choices and the
 durability policy in the selected archive. `record test` confirms that an endpoint is active; stream
-initialization is probed without starting a capture. Native capture is currently available only on
-Windows; WAV import and the detached-control IPC implementation are portable to supported desktop
-builds. Use `--source both` to open microphone capture and WASAPI render loopback together as
-synchronized, separately retained tracks; either track continues if its peer fails.
+initialization is probed without starting a capture. This document describes the Windows WASAPI
+backend. Native capture also has ALSA support on Linux and CoreAudio microphone plus ScreenCaptureKit
+system and per-application audio support on macOS; see [`ALSA-CAPTURE.md`](ALSA-CAPTURE.md) and
+[`COREAUDIO-CAPTURE.md`](COREAUDIO-CAPTURE.md). WAV import and detached-control IPC are available on
+supported desktop builds. Use `--source both` to open microphone capture and WASAPI render loopback
+together as synchronized, separately retained tracks; either track continues if its peer fails.
