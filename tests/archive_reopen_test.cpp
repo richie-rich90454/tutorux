@@ -1,7 +1,9 @@
 #include "tutorux/archive/archive.hpp"
 
 #include <chrono>
+#include <cstdint>
 #include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <string>
 
@@ -16,14 +18,24 @@ struct TemporaryDirectory final {
     }
 };
 
+bool rewriteArchiveHeader(const std::filesystem::path& path, const tutorux::archive::ArchiveHeader& header) {
+    auto encoded = tutorux::archive::encodeArchiveHeader(header);
+    if (!encoded)
+        return false;
+    std::fstream file(path, std::ios::binary | std::ios::in | std::ios::out);
+    if (!file)
+        return false;
+    file.write(reinterpret_cast<const char*>(encoded->data()), static_cast<std::streamsize>(encoded->size()));
+    return file.good();
+}
+
 } // namespace
 
 int main() {
     using namespace tutorux;
 
     const auto uniqueSuffix = std::chrono::steady_clock::now().time_since_epoch().count();
-    TemporaryDirectory temporary{std::filesystem::current_path() /
-                                 ("tutorux-archive-reopen-" + std::to_string(uniqueSuffix))};
+    TemporaryDirectory temporary{std::filesystem::current_path() / ("tutorux-archive-reopen-" + std::to_string(uniqueSuffix))};
     std::error_code errorCode;
     std::filesystem::create_directories(temporary.path, errorCode);
     if (errorCode) {
@@ -82,6 +94,45 @@ int main() {
         return 1;
     }
 
+    const auto compatibilityPath = temporary.path / "compatibility.tux";
+    archive::ArchiveHeader compatibilityHeader;
+    {
+        auto created = archive::Archive::create(compatibilityPath, "Compatibility test");
+        if (!created) {
+            std::cerr << "Compatibility archive creation failed: " << created.error().message << '\n';
+            return 1;
+        }
+        compatibilityHeader = created->header();
+    }
+    compatibilityHeader.minorVersion = static_cast<std::uint16_t>(archive::kSupportedArchiveMinorVersion + 1U);
+    if (!rewriteArchiveHeader(compatibilityPath, compatibilityHeader)) {
+        std::cerr << "Unable to write a newer-minor compatibility fixture.\n";
+        return 1;
+    }
+    auto newerMinorOpen = archive::Archive::open(compatibilityPath, true);
+    auto newerMinorInfo = archive::inspectArchive(compatibilityPath);
+    if (newerMinorOpen || newerMinorOpen.error().code != "archive_version_unsupported" || !newerMinorInfo ||
+        !newerMinorInfo->metadataOnly || newerMinorInfo->healthStatus != "unsupported-version" ||
+        newerMinorInfo->formatMinor != compatibilityHeader.minorVersion) {
+        std::cerr << "A newer minor archive version was not limited to safe metadata inspection.\n";
+        return 1;
+    }
+
+    compatibilityHeader.minorVersion = archive::kSupportedArchiveMinorVersion;
+    compatibilityHeader.capabilities |= 1ULL << 1U;
+    if (!rewriteArchiveHeader(compatibilityPath, compatibilityHeader)) {
+        std::cerr << "Unable to write an unknown-capability compatibility fixture.\n";
+        return 1;
+    }
+    auto unknownCapabilityOpen = archive::Archive::open(compatibilityPath, true);
+    auto unknownCapabilityInfo = archive::inspectArchive(compatibilityPath);
+    if (unknownCapabilityOpen || unknownCapabilityOpen.error().code != "archive_capability_unsupported" || !unknownCapabilityInfo ||
+        !unknownCapabilityInfo->metadataOnly || unknownCapabilityInfo->healthStatus != "unsupported-capability") {
+        std::cerr << "An archive with an unknown capability was not limited to safe metadata "
+                     "inspection.\n";
+        return 1;
+    }
+
     const archive::Uuid revisionId = archive::randomUuid();
     {
         auto writable = archive::Archive::open(archivePath, true);
@@ -119,8 +170,7 @@ int main() {
     const auto checkHistory = [revisionId](const archive::Archive& archive) {
         auto latest = archive.getRevision(archive::RecordType::Annotation, revisionId, 0);
         auto original = archive.getRevision(archive::RecordType::Annotation, revisionId, 1);
-        return latest && *latest && original && *original &&
-               (**latest).fields.at("content") == "edited wording" &&
+        return latest && *latest && original && *original && (**latest).fields.at("content") == "edited wording" &&
                (**original).fields.at("content") == "original wording";
     };
 
@@ -140,8 +190,7 @@ int main() {
     {
         auto writable = archive::Archive::open(archivePath, true);
         if (!writable) {
-            std::cerr << "Archive writer reopen failed before compaction: "
-                      << writable.error().message << '\n';
+            std::cerr << "Archive writer reopen failed before compaction: " << writable.error().message << '\n';
             return 1;
         }
         if (auto status = writable->compact(); !status) {
