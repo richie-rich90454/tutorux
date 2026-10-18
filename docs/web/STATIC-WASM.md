@@ -73,6 +73,12 @@ asset file to 64 MiB to bound temporary memory use. Live microphone capture writ
 segments in the worker and imports each segment into the active session as a separate
 archive-native audio track. Native archive workflows do not use this browser-specific import limit.
 
+Document text extraction uses the shared bounds described in [Safe asset import](../assets/ASSET-IMPORT.md).
+DOCX text is extracted in the WebAssembly build. That build does not include the native PDF parser:
+PDF bytes are still imported, and the asset metadata reports `text_extraction_status` as
+`extractor-unavailable` when the file is within the extraction input limit. PDF preview remains a
+separate browser feature. Files beyond the shared input limit report `size-limit`.
+
 ## Browser workflows
 
 The static page currently provides these archive-backed workflows:
