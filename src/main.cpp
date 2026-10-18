@@ -70,9 +70,8 @@ int main(int argumentCount, char* argumentValues[]) {
             argumentValues[2],
             [&](const tutorux::audio::RecordingControlCallbacks& callbacks)
                 -> tutorux::core::Status {
-                tutorux::command::DispatchControl control{callbacks.stopRequested,
-                                                          callbacks.pauseRequested,
-                                                          callbacks.stateChanged};
+                tutorux::command::DispatchControl control{
+                    callbacks.stopRequested, callbacks.pauseRequested, callbacks.stateChanged};
                 auto commandResult =
                     tutorux::command::dispatch(workerArguments, {}, std::move(control));
                 if (!commandResult)
@@ -133,7 +132,7 @@ int main(int argumentCount, char* argumentValues[]) {
                                        : executableDirectory(argumentValues[0]);
         }
         if (archivePath && archivePath->is_relative())
-            archivePath = std::filesystem::absolute(*archivePath);
+            archivePath = std::filesystem::absolute(*directoryPath / *archivePath);
 #ifdef _WIN32
         static_cast<void>(FreeConsole());
 #endif
