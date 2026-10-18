@@ -615,7 +615,7 @@ namespace {
             if (rawStartedAt.empty())
                 rawStartedAt = read("created_at_us");
             const std::string startedAt = journalSessionDateTime(rawStartedAt);
-            const std::string state = read("state");
+            const std::string state = read("session_state");
             std::string label = startedAt.empty() ? title : startedAt + " · " + title;
             if (!state.empty())
                 label += " · " + state;
