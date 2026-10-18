@@ -770,6 +770,10 @@ if(BUILD_TESTING AND NOT TUTORUX_BUILD_WASM)
     target_link_libraries(tutorux_session_transfer_test PRIVATE tutorux_core)
     add_test(NAME wav_session_transfer COMMAND tutorux_session_transfer_test)
 
+    add_executable(tutorux_audio_timeline_test tests/audio_timeline_test.cpp)
+    target_link_libraries(tutorux_audio_timeline_test PRIVATE tutorux_core)
+    add_test(NAME audio_timeline_waveform_and_wav_export COMMAND tutorux_audio_timeline_test)
+
     add_executable(tutorux_archive_encryption_test tests/archive_encryption_test.cpp)
     target_link_libraries(tutorux_archive_encryption_test PRIVATE tutorux_core)
     add_test(NAME archive_encryption_and_passphrase_rotation COMMAND tutorux_archive_encryption_test)
