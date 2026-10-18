@@ -456,15 +456,37 @@ namespace {
         setSelectedJournalNoteBlock(window, choices.empty() ? std::string_view{} : std::string_view(blocks[selectedIndex].id));
     }
 
-    std::vector<slint::SharedString> journalEntryChoices(std::string_view json) {
+    std::vector<slint::SharedString> journalEntryChoices(std::string_view json, std::string_view sort = "Newest first") {
         std::vector<slint::SharedString> choices;
         auto parsed = tutorux::command::parseJson(json);
         const auto* rows = parsed ? parsed->asArray() : nullptr;
         if (!rows)
             return choices;
 
+        std::vector<std::size_t> order;
+        order.reserve(rows->size());
+        for (std::size_t index = 0; index < rows->size(); ++index)
+            order.push_back(index);
+        const auto field = [&](std::size_t index, std::string_view name) {
+            const auto* object = (*rows)[index].asObject();
+            if (!object)
+                return std::string{};
+            const auto found = object->find(name);
+            if (found == object->end())
+                return std::string{};
+            const auto* value = found->second.asString();
+            return value ? *value : std::string{};
+        };
+        std::stable_sort(order.begin(), order.end(), [&](std::size_t left, std::size_t right) {
+            if (sort == "Title")
+                return field(left, "title") < field(right, "title");
+            if (sort == "Oldest first")
+                return field(left, "entry_date") < field(right, "entry_date");
+            return field(left, "entry_date") > field(right, "entry_date");
+        });
         choices.reserve(rows->size());
-        for (const auto& row : *rows) {
+        for (const std::size_t index : order) {
+            const auto& row = (*rows)[index];
             const auto* object = row.asObject();
             if (!object)
                 continue;
@@ -476,7 +498,7 @@ namespace {
                 return value ? *value : std::string{};
             };
             const std::string id = read("id");
-            if (!tutorux::archive::uuidFromString(id))
+            if (id.empty())
                 continue;
             const std::string title = read("title");
             const std::string date = read("entry_date");
@@ -488,6 +510,50 @@ namespace {
             choices.emplace_back(std::move(label));
         }
         return choices;
+    }
+
+    std::vector<slint::SharedString> journalTemplateChoices(std::string_view json) {
+        std::vector<slint::SharedString> choices{toSharedString("Use recommended template")};
+        auto parsed = tutorux::command::parseJson(json);
+        const auto* rows = parsed ? parsed->asArray() : nullptr;
+        if (!rows)
+            return choices;
+        for (const auto& row : *rows) {
+            const auto* object = row.asObject();
+            if (!object)
+                continue;
+            const auto read = [&](std::string_view name) {
+                const auto found = object->find(name);
+                if (found == object->end())
+                    return std::string{};
+                const auto* value = found->second.asString();
+                return value ? *value : std::string{};
+            };
+            const std::string id = read("id");
+            if (!tutorux::archive::uuidFromString(id))
+                continue;
+            const std::string name = read("name");
+            choices.emplace_back((name.empty() ? "Guide template" : name) + " · " + id);
+        }
+        return choices;
+    }
+
+    std::string journalSessionDetailSummary(std::string_view json) {
+        const auto title = jsonStringField(json, "title").value_or("Tutoring session");
+        std::string summary = title;
+        const auto append = [&](std::string_view label, std::string_view value) {
+            if (!value.empty())
+                summary += "\n" + std::string(label) + ": " + std::string(value);
+        };
+        append("Subject", jsonStringField(json, "subject").value_or(""));
+        append("State", jsonStringField(json, "session_state").value_or(""));
+        append("Type", jsonStringField(json, "session_type").value_or(""));
+        append("Student", jsonStringField(json, "student_id").value_or("Anonymous session"));
+        append("Transcription language", jsonStringField(json, "transcription_language").value_or("auto"));
+        append("Guide template", jsonStringField(json, "guide_template_id").value_or("Recommended"));
+        append("Recording source", jsonStringField(json, "recording_source").value_or(""));
+        append("Learning objectives", jsonStringField(json, "learning_objectives").value_or(""));
+        return summary;
     }
 
     std::string journalEntryListSummary(std::string_view json) {
@@ -1147,6 +1213,20 @@ namespace {
             return;
         }
 
+        if (!report->archiveHeaderValid || !report->recoveryAssessmentComplete) {
+            window.set_archive_recovery_needed(true);
+            window.set_archive_recovery_recoverable(false);
+            window.set_archive_recovery_tail_present(false);
+            window.set_archive_status(toSharedString("Recovery assessment unavailable"));
+            std::ostringstream status;
+            status << (report->archiveHeaderValid ? "Recovery could not safely assess this archive."
+                                                  : "The archive header is invalid or unreadable; recovery is unavailable.");
+            for (const auto& issue : report->issues)
+                status << "\n" << issue;
+            window.set_archive_recovery_status(toSharedString(status.str()));
+            return;
+        }
+
         const bool hasTail = report->trailingBytes != 0;
         window.set_archive_recovery_needed(hasTail);
         window.set_archive_recovery_recoverable(hasTail && report->recoverable);
@@ -1272,10 +1352,12 @@ namespace {
         auto journalEntries = dispatchWithSecrets(archiveCommand(path, {"--json", "journal", "entry", "list"}), passphrase);
         auto journalCollections = dispatchWithSecrets(archiveCommand(path, {"--json", "journal", "collection", "list"}), passphrase);
         auto journalTags = dispatchWithSecrets(archiveCommand(path, {"--json", "journal", "tag", "list"}), passphrase);
+        auto guideTemplates = dispatchWithSecrets(archiveCommand(path, {"--json", "template", "list"}), passphrase);
         window.set_students_text(toSharedString(commandOutput(std::move(students))));
         window.set_sessions_text(toSharedString(commandOutput(std::move(sessions))));
         const std::string journalEntriesJson = commandOutput(std::move(journalEntries));
-        const auto journalChoices = journalEntryChoices(journalEntriesJson);
+        const auto journalSort = window.get_journal_sort();
+        const auto journalChoices = journalEntryChoices(journalEntriesJson, std::string_view(journalSort.data(), journalSort.size()));
         window.set_journal_list_output(toSharedString(journalEntryListSummary(journalEntriesJson)));
         window.set_journal_entry_options(std::make_shared<slint::VectorModel<slint::SharedString>>(journalChoices));
         window.set_journal_collection_options(std::make_shared<slint::VectorModel<slint::SharedString>>(
@@ -1293,6 +1375,7 @@ namespace {
         window.set_selected_archive(toSharedString(path.filename().string()));
 
         std::vector<slint::SharedString> studentChoices{"Anonymous session"};
+        std::vector<slint::SharedString> journalStudentChoices{"Anonymous session"};
         std::vector<slint::SharedString> sessionChoices;
         std::vector<slint::SharedString> guideChoices;
         std::vector<slint::SharedString> guideBlockChoices;
@@ -1301,10 +1384,13 @@ namespace {
             auto records = opened->list(tutorux::archive::RecordType::Student);
             if (records) {
                 studentChoices.reserve(records->size() + 1);
+                journalStudentChoices.reserve(records->size() + 2);
                 for (const auto& student : *records) {
                     const auto name = student.fields.find("display_name");
                     const std::string displayName = name == student.fields.end() ? "Unnamed student" : name->second;
-                    studentChoices.emplace_back(displayName + " · " + tutorux::archive::uuidToString(student.id));
+                    const std::string choice = displayName + " · " + tutorux::archive::uuidToString(student.id);
+                    studentChoices.emplace_back(choice);
+                    journalStudentChoices.emplace_back(choice);
                 }
             }
             auto sessions = opened->list(tutorux::archive::RecordType::Session);
@@ -1341,7 +1427,21 @@ namespace {
                 }
             }
         }
+        journalStudentChoices.emplace_back("Create a new student");
         window.set_student_options(std::make_shared<slint::VectorModel<slint::SharedString>>(std::move(studentChoices)));
+        const auto selectedJournalStudent = window.get_journal_session_student();
+        const std::string selectedJournalStudentText(selectedJournalStudent.data(), selectedJournalStudent.size());
+        const bool hasSelectedJournalStudent =
+            std::any_of(journalStudentChoices.begin(), journalStudentChoices.end(), [&](const slint::SharedString& choice) {
+                return std::string(choice.data(), choice.size()) == selectedJournalStudentText;
+            });
+        if (!hasSelectedJournalStudent)
+            window.set_journal_session_student(toSharedString("Anonymous session"));
+        window.set_journal_session_student_options(
+            std::make_shared<slint::VectorModel<slint::SharedString>>(std::move(journalStudentChoices)));
+        const std::string guideTemplatesJson = commandOutput(std::move(guideTemplates));
+        window.set_journal_guide_template_options(
+            std::make_shared<slint::VectorModel<slint::SharedString>>(journalTemplateChoices(guideTemplatesJson)));
         window.set_selected_student(toSharedString("Anonymous session"));
         window.set_session_options(std::make_shared<slint::VectorModel<slint::SharedString>>(std::move(sessionChoices)));
         const auto selectedSessions = window.get_session_options();
@@ -1863,6 +1963,16 @@ int launchDesktop(std::optional<std::filesystem::path> archivePath, std::optiona
                 return;
             }
             arguments = {"--json", "session", "list", "--entry-id", values[0]};
+            addOption("from", values[1]);
+            addOption("to", values[2]);
+        } else if (action == "session-show") {
+            const std::string selectedSessionId =
+                tutorux::archive::uuidFromString(values[0]) ? values[0] : selectionId(toSharedString(values[0]));
+            if (!tutorux::archive::uuidFromString(selectedSessionId)) {
+                window->set_status_message(toSharedString("Select a session from this entry first."));
+                return;
+            }
+            arguments = {"--json", "session", "show", selectedSessionId};
         } else if (action == "session-resume" || action == "session-complete" || action == "session-review" ||
                    action == "session-delete-preview" || action == "session-delete-confirm") {
             const auto selectedSessionId = tutorux::archive::uuidFromString(values[0]) ? values[0] : selectionId(toSharedString(values[0]));
@@ -2029,6 +2139,86 @@ int launchDesktop(std::optional<std::filesystem::path> archivePath, std::optiona
         const std::string requestedCommand = commandLineFromArguments(arguments);
         window->set_command_input(toSharedString(requestedCommand));
         window->set_status_message(toSharedString("Working in the selected journal archive."));
+        window->invoke_run_command(toSharedString(requestedCommand), toSharedString(""));
+    });
+
+    window->on_journal_session_create([&](slint::SharedString entry, slint::SharedString type, slint::SharedString title,
+                                          slint::SharedString studentChoice, slint::SharedString subject, slint::SharedString objectives,
+                                          slint::SharedString language, slint::SharedString guideTemplate,
+                                          slint::SharedString newStudentName, slint::SharedString newStudentGrade) {
+        const std::filesystem::path path(window->get_archive_path().data());
+        const auto value = [](const slint::SharedString& text) {
+            return std::string(text.data(), text.size());
+        };
+        const std::string entryId = value(entry);
+        if (path.empty() || !tutorux::archive::uuidFromString(entryId)) {
+            window->set_status_message(toSharedString("Choose a journal entry before creating a session."));
+            return;
+        }
+        std::string studentId;
+        const std::string selectedStudent = value(studentChoice);
+        if (selectedStudent == "Create a new student") {
+            const std::string name = value(newStudentName);
+            if (name.empty()) {
+                window->set_status_message(toSharedString("Enter a name for the new student."));
+                return;
+            }
+            auto createStudent = archiveCommand(path, {"--json", "student", "create", "--name", name});
+            const std::string grade = value(newStudentGrade);
+            const std::string studentSubject = value(subject);
+            if (!grade.empty())
+                createStudent.insert(createStudent.end(), {"--grade", grade});
+            if (!studentSubject.empty())
+                createStudent.insert(createStudent.end(), {"--subjects", studentSubject});
+            auto created = dispatchWithSecrets(createStudent, activePassphrase);
+            if (!created || created->exitCode != 0) {
+                window->set_status_message(toSharedString(commandOutput(std::move(created))));
+                return;
+            }
+            studentId = jsonStringField(created->output, "id").value_or("");
+            if (!tutorux::archive::uuidFromString(studentId)) {
+                window->set_status_message(toSharedString("The new student was saved, but its ID could not be read."));
+                return;
+            }
+        } else if (!selectedStudent.empty() && selectedStudent != "Anonymous session") {
+            studentId = selectionId(studentChoice);
+            if (!tutorux::archive::uuidFromString(studentId)) {
+                window->set_status_message(toSharedString("Select a student from this archive."));
+                return;
+            }
+        }
+
+        std::vector<std::string> arguments{"--json",
+                                           "session",
+                                           "create",
+                                           "--entry-id",
+                                           entryId,
+                                           "--type",
+                                           value(type),
+                                           "--language",
+                                           value(language).empty() ? "auto" : value(language),
+                                           "--recording-source",
+                                           value(type) == "record-audio"       ? "microphone"
+                                           : value(type) == "import-recording" ? "imported-file"
+                                                                               : "none"};
+        const auto addOption = [&](std::string_view name, std::string optionValue) {
+            if (!optionValue.empty())
+                arguments.insert(arguments.end(), {"--" + std::string(name), std::move(optionValue)});
+        };
+        addOption("title", value(title));
+        addOption("student-id", studentId);
+        addOption("subject", value(subject));
+        addOption("objectives", value(objectives));
+        std::string selectedTemplate = value(guideTemplate);
+        if (selectedTemplate != "Use recommended template") {
+            const auto separator = selectedTemplate.rfind(" · ");
+            if (separator != std::string::npos)
+                selectedTemplate.erase(0, separator + 3);
+            addOption("guide-template", selectedTemplate);
+        }
+        const std::string requestedCommand = commandLineFromArguments(std::move(arguments));
+        window->set_command_input(toSharedString(requestedCommand));
+        window->set_status_message(toSharedString("Creating a journal-linked session."));
         window->invoke_run_command(toSharedString(requestedCommand), toSharedString(""));
     });
 
@@ -2693,6 +2883,16 @@ int launchDesktop(std::optional<std::filesystem::path> archivePath, std::optiona
                     return;
                 }
                 arguments.insert(arguments.end(), {"--live-transcribe", "--model", modelPath});
+                const auto sessionUuid = tutorux::archive::uuidFromString(id);
+                auto sessionArchive = Archive::open(path, false, activePassphrase);
+                if (sessionUuid && sessionArchive) {
+                    auto sessionRecord = sessionArchive->get(tutorux::archive::RecordType::Session, *sessionUuid);
+                    if (sessionRecord && *sessionRecord) {
+                        const auto language = (**sessionRecord).fields.find("transcription_language");
+                        if (language != (**sessionRecord).fields.end() && !language->second.empty() && language->second != "auto")
+                            arguments.insert(arguments.end(), {"--language", language->second});
+                    }
+                }
             }
             std::string microphoneDevice(window->get_recording_microphone_device().data(),
                                          window->get_recording_microphone_device().size());
@@ -3811,6 +4011,7 @@ int launchDesktop(std::optional<std::filesystem::path> archivePath, std::optiona
             remainingArguments >= 3 && *commandStart == "journal" && *(commandStart + 1) == "entry" && *(commandStart + 2) == "list";
         const bool journalSessionListResponse = remainingArguments >= 2 && *commandStart == "session" && *(commandStart + 1) == "list";
         const bool journalSessionCreateResponse = remainingArguments >= 2 && *commandStart == "session" && *(commandStart + 1) == "create";
+        const bool journalSessionShowResponse = remainingArguments >= 3 && *commandStart == "session" && *(commandStart + 1) == "show";
         const bool journalSessionDeleteResponse = remainingArguments >= 3 && *commandStart == "session" && *(commandStart + 1) == "delete";
         const bool journalSessionDeleteConfirmation =
             journalSessionDeleteResponse && std::find(parsed->begin(), parsed->end(), "--confirm-scope") != parsed->end();
@@ -3856,7 +4057,7 @@ int launchDesktop(std::optional<std::filesystem::path> archivePath, std::optiona
         std::thread worker([weakWindow, commandBusy, commandStopRequested, selectedPath, &activePassphrase, changesPassphrase,
                             journalEntryResponse, journalEntryOpensDocument, journalEntryCreateResponse, journalDocumentResponse,
                             journalDocumentMutationResponse, journalDocumentBlockAddResponse, journalDocumentMutationId,
-                            journalEntryListResponse, journalSessionListResponse, journalSessionCreateResponse,
+                            journalEntryListResponse, journalSessionListResponse, journalSessionCreateResponse, journalSessionShowResponse,
                             journalSessionDeleteResponse, journalSessionDeleteConfirmation, journalSessionDeleteId,
                             journalEntryGuideResponse, commandPassphrase = std::move(commandPassphrase),
                             newPassphrase = std::move(newPassphrase), arguments = std::move(arguments)]() mutable {
@@ -3916,8 +4117,9 @@ int launchDesktop(std::optional<std::filesystem::path> archivePath, std::optiona
                 [weakWindow, selectedPath, exitCode, changesPassphrase, journalEntryResponse, journalEntryOpensDocument,
                  journalEntryCreateResponse, journalDocumentResponse, journalDocumentMutationResponse, journalDocumentBlockAddResponse,
                  journalDocumentMutationId, journalEntryListResponse, journalSessionListResponse, journalSessionCreateResponse,
-                 journalSessionDeleteResponse, journalSessionDeleteConfirmation, journalSessionDeleteId, journalEntryGuideResponse,
-                 &activePassphrase, refreshPassphrase = std::move(refreshPassphrase), output = std::move(output)]() mutable {
+                 journalSessionShowResponse, journalSessionDeleteResponse, journalSessionDeleteConfirmation, journalSessionDeleteId,
+                 journalEntryGuideResponse, &activePassphrase, refreshPassphrase = std::move(refreshPassphrase),
+                 output = std::move(output)]() mutable {
                     auto strongWindow = weakWindow.lock();
                     if (!strongWindow) {
                         eraseSecret(refreshPassphrase);
@@ -3966,6 +4168,8 @@ int launchDesktop(std::optional<std::filesystem::path> archivePath, std::optiona
                     if (exitCode == 0 && journalDocumentResponse) {
                         setJournalDocumentFromJson(**strongWindow, output);
                     }
+                    if (exitCode == 0 && journalSessionShowResponse)
+                        (*strongWindow)->set_journal_session_detail_output(toSharedString(journalSessionDetailSummary(output)));
                     (*strongWindow)->set_command_running(false);
                     (*strongWindow)->set_status_message(toSharedString(exitCode == 0 ? "Command completed." : "Command failed."));
                     if (exitCode == 0 && std::filesystem::path((*strongWindow)->get_archive_path().data()) == selectedPath) {
@@ -4012,7 +4216,8 @@ int launchDesktop(std::optional<std::filesystem::path> archivePath, std::optiona
                         }
                     }
                     if (exitCode == 0 && journalEntryListResponse) {
-                        const auto choices = journalEntryChoices(output);
+                        const auto sort = (*strongWindow)->get_journal_sort();
+                        const auto choices = journalEntryChoices(output, std::string_view(sort.data(), sort.size()));
                         (*strongWindow)->set_journal_list_output(toSharedString(journalEntryListSummary(output)));
                         (*strongWindow)->set_journal_entry_options(std::make_shared<slint::VectorModel<slint::SharedString>>(choices));
                         const auto selectedEntryId =
