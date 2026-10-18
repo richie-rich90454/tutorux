@@ -30,8 +30,8 @@ The source commits for Slint, whisper.cpp, and llama.cpp are
 `372cf0ee5577c3dfec309a45e7b778ba4e81b734`,
 `d1be6fde11ac6e0407606b4e42fe72d34add8037`, and `d812350` (the verified commit prefix),
 respectively. The Full profile includes the `ggml` subproject from the pinned llama.cpp source;
-Whisper includes its own `ggml` subproject. Both upstream projects use MIT licensing and carry
-their own license files. Slint's About dialog exposes the
+Whisper includes its own `ggml` subproject. Both upstream projects use MIT licensing. The pinned
+llama.cpp release carries a root `LICENSE` for the project and its `ggml` subproject. Slint's About dialog exposes the
 `AboutSlint` widget and the package includes Slint's license files. Tutorux is licensed under
 GPL-3.0-only and uses the pinned Slint release under GPLv3:
 [Slint license terms](https://slint.dev/terms-and-conditions).
