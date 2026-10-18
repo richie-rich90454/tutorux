@@ -60,8 +60,8 @@ namespace {
             if (pathError) {
                 canonicalPath = std::filesystem::absolute(path, pathError);
                 if (pathError) {
-                    return std::unexpected(core::error(
-                        "archive_lock_path_invalid", "Unable to resolve the archive lock path: " + pathError.message()));
+                    return std::unexpected(
+                        core::error("archive_lock_path_invalid", "Unable to resolve the archive lock path: " + pathError.message()));
                 }
             }
 
@@ -83,9 +83,8 @@ namespace {
             const std::wstring mutexName = L"Global\\TutoruxArchiveHandoff-" + std::to_wstring(hash);
             HANDLE handle = CreateMutexW(nullptr, FALSE, mutexName.c_str());
             if (!handle) {
-                return std::unexpected(core::error(
-                    "archive_lock_failed", "Unable to create the archive lock handoff (Windows error " +
-                                                std::to_string(GetLastError()) + ")."));
+                return std::unexpected(core::error("archive_lock_failed", "Unable to create the archive lock handoff (Windows error " +
+                                                                              std::to_string(GetLastError()) + ")."));
             }
 
             const DWORD waitResult = WaitForSingleObject(handle, 0);
@@ -93,9 +92,9 @@ namespace {
                 const bool waitFailed = waitResult == WAIT_FAILED;
                 const DWORD nativeError = waitFailed ? GetLastError() : ERROR_LOCK_VIOLATION;
                 CloseHandle(handle);
-                return std::unexpected(core::error(
-                    waitFailed ? "archive_lock_failed" : "archive_locked",
-                    "Archive has another lock handoff in progress (Windows error " + std::to_string(nativeError) + ")."));
+                return std::unexpected(
+                    core::error(waitFailed ? "archive_lock_failed" : "archive_locked",
+                                "Archive has another lock handoff in progress (Windows error " + std::to_string(nativeError) + ")."));
             }
 
             ArchiveHandoffMutex result;
@@ -123,8 +122,7 @@ namespace {
 
         const DWORD nativeError = GetLastError();
         const std::string code = nativeError == ERROR_LOCK_VIOLATION ? "archive_locked" : "archive_lock_failed";
-        return std::unexpected(core::error(
-            code, "Unable to lock archive (Windows error " + std::to_string(nativeError) + ")."));
+        return std::unexpected(core::error(code, "Unable to lock archive (Windows error " + std::to_string(nativeError) + ")."));
     }
 #endif
 
@@ -425,12 +423,25 @@ core::Status ArchiveFile::replaceWith(ArchiveFile&& replacement, const std::file
     }
     replacement.closeDataHandle();
     closeDataHandle();
-    if (!ReplaceFileW(destinationPath.c_str(), replacement.path_.c_str(), nullptr, 0, nullptr, nullptr)) {
+    constexpr DWORD maximumReplaceAttempts = 7;
+    DWORD replaceErrorCode = ERROR_SUCCESS;
+    for (DWORD attempt = 0; attempt < maximumReplaceAttempts; ++attempt) {
+        if (ReplaceFileW(destinationPath.c_str(), replacement.path_.c_str(), nullptr, 0, nullptr, nullptr)) {
+            replaceErrorCode = ERROR_SUCCESS;
+            break;
+        }
+        replaceErrorCode = GetLastError();
+        if (replaceErrorCode != ERROR_UNABLE_TO_REMOVE_REPLACED || attempt + 1 == maximumReplaceAttempts)
+            break;
+        Sleep(20U << attempt);
+    }
+    if (replaceErrorCode != ERROR_SUCCESS) {
+        SetLastError(replaceErrorCode);
         const auto replaceError = fileError("compaction_publish_failed", destinationPath, "Atomically replacing archive");
         if (auto status = openDataHandle(false); !status) {
-            return std::unexpected(core::error(
-                "archive_lock_reacquire_failed", replaceError.message + " The original archive could not be reopened: " +
-                                                       status.error().message));
+            return std::unexpected(
+                core::error("archive_lock_reacquire_failed",
+                            replaceError.message + " The original archive could not be reopened: " + status.error().message));
         }
         return std::unexpected(replaceError);
     }
