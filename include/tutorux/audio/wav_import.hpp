@@ -18,9 +18,9 @@ struct ImportSummary final {
     bool completed{};
 };
 
-core::Result<ImportSummary> importWave(archive::Archive& archive,
-                                       const archive::Uuid& sessionId,
-                                       const std::filesystem::path& source);
+core::Result<ImportSummary> importWave(archive::Archive& archive, const archive::Uuid& sessionId,
+                                       const std::filesystem::path& source,
+                                       bool allowAdditionalTrack = false);
 
 core::Result<ImportSummary> recoverWaveImport(archive::Archive& archive,
                                               const archive::Uuid& sessionId);
