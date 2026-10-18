@@ -169,19 +169,9 @@
       "inherits": "portable-static-release",
       "binaryDir": "${sourceDir}/build-windows-x64-static",
       "condition": {
-        "conditions": [
-          {
-            "lhs": "${hostSystemName}",
-            "type": "equals",
-            "rhs": "Windows"
-          },
-          {
-            "lhs": "${hostSystemProcessor}",
-            "type": "matches",
-            "rhs": "^(x86_64|AMD64|amd64)$"
-          }
-        ],
-        "type": "allOf"
+        "lhs": "${hostSystemName}",
+        "type": "equals",
+        "rhs": "Windows"
       },
       "cacheVariables": {
         "TUTORUX_RELEASE_ARCH": "x64"
@@ -208,19 +198,9 @@
       "inherits": "portable-static-linux-release",
       "binaryDir": "${sourceDir}/build-linux-x64-static",
       "condition": {
-        "conditions": [
-          {
-            "lhs": "${hostSystemName}",
-            "type": "equals",
-            "rhs": "Linux"
-          },
-          {
-            "lhs": "${hostSystemProcessor}",
-            "type": "matches",
-            "rhs": "^(x86_64|AMD64|amd64)$"
-          }
-        ],
-        "type": "allOf"
+        "lhs": "${hostSystemName}",
+        "type": "equals",
+        "rhs": "Linux"
       },
       "cacheVariables": {
         "TUTORUX_RELEASE_ARCH": "x64"
@@ -232,19 +212,9 @@
       "inherits": "portable-static-linux-release",
       "binaryDir": "${sourceDir}/build-linux-arm64-static",
       "condition": {
-        "conditions": [
-          {
-            "lhs": "${hostSystemName}",
-            "type": "equals",
-            "rhs": "Linux"
-          },
-          {
-            "lhs": "${hostSystemProcessor}",
-            "type": "matches",
-            "rhs": "^(aarch64|arm64|ARM64)$"
-          }
-        ],
-        "type": "allOf"
+        "lhs": "${hostSystemName}",
+        "type": "equals",
+        "rhs": "Linux"
       },
       "cacheVariables": {
         "TUTORUX_RELEASE_ARCH": "arm64"
@@ -303,19 +273,9 @@
       "inherits": "portable-compact-release",
       "binaryDir": "${sourceDir}/build-windows-x64-compact",
       "condition": {
-        "conditions": [
-          {
-            "lhs": "${hostSystemName}",
-            "type": "equals",
-            "rhs": "Windows"
-          },
-          {
-            "lhs": "${hostSystemProcessor}",
-            "type": "matches",
-            "rhs": "^(x86_64|AMD64|amd64)$"
-          }
-        ],
-        "type": "allOf"
+        "lhs": "${hostSystemName}",
+        "type": "equals",
+        "rhs": "Windows"
       },
       "cacheVariables": {
         "TUTORUX_RELEASE_ARCH": "x64"
@@ -342,19 +302,9 @@
       "inherits": "portable-compact-linux-release",
       "binaryDir": "${sourceDir}/build-linux-x64-compact",
       "condition": {
-        "conditions": [
-          {
-            "lhs": "${hostSystemName}",
-            "type": "equals",
-            "rhs": "Linux"
-          },
-          {
-            "lhs": "${hostSystemProcessor}",
-            "type": "matches",
-            "rhs": "^(x86_64|AMD64|amd64)$"
-          }
-        ],
-        "type": "allOf"
+        "lhs": "${hostSystemName}",
+        "type": "equals",
+        "rhs": "Linux"
       },
       "cacheVariables": {
         "TUTORUX_RELEASE_ARCH": "x64"
@@ -366,19 +316,9 @@
       "inherits": "portable-compact-linux-release",
       "binaryDir": "${sourceDir}/build-linux-arm64-compact",
       "condition": {
-        "conditions": [
-          {
-            "lhs": "${hostSystemName}",
-            "type": "equals",
-            "rhs": "Linux"
-          },
-          {
-            "lhs": "${hostSystemProcessor}",
-            "type": "matches",
-            "rhs": "^(aarch64|arm64|ARM64)$"
-          }
-        ],
-        "type": "allOf"
+        "lhs": "${hostSystemName}",
+        "type": "equals",
+        "rhs": "Linux"
       },
       "cacheVariables": {
         "TUTORUX_RELEASE_ARCH": "arm64"
