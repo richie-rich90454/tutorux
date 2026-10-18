@@ -238,6 +238,7 @@ export component MainWindow inherits Window {
     in-out property <bool> about-open: false;
     in-out property <string> active-view: "journal";
     in-out property <string> journal-query;
+    in-out property <string> journal-sort: "Newest first";
     in-out property <string> journal-collection-filter: "All collections";
     in-out property <string> journal-tag-filter: "All tags";
     in-out property <[string]> journal-collection-options;
@@ -251,6 +252,17 @@ export component MainWindow inherits Window {
     in-out property <string> journal-timeline-output;
     in-out property <[string]> journal-session-options;
     in-out property <string> selected-journal-session;
+    in-out property <string> journal-timeline-date;
+    in-out property <bool> journal-session-expanded: false;
+    in-out property <string> journal-session-detail-output: "Select a session and show its details.";
+    in-out property <[string]> journal-session-student-options;
+    in-out property <string> journal-session-student: "Anonymous session";
+    in-out property <string> journal-session-new-student-name;
+    in-out property <string> journal-session-new-student-grade;
+    in-out property <string> journal-session-language: "auto";
+    in-out property <string> journal-session-recording-source: "microphone";
+    in-out property <[string]> journal-guide-template-options;
+    in-out property <string> journal-session-template: "Use recommended template";
     in-out property <string> journal-guide-output:
         "Draft guides created from this entry will appear in Study guides.";
     in-out property <string> journal-entry-title;
@@ -293,6 +305,7 @@ export component MainWindow inherits Window {
 
     changed selected-journal-session => {
         root.journal-session-id = "";
+        root.journal-session-expanded = false;
         root.recording-status-output =
             "Session selection changed. Check status before continuing capture.";
         root.journal-session-delete-confirmed = false;
@@ -312,11 +325,21 @@ export component MainWindow inherits Window {
         root.journal-session-delete-scope-token = "";
     }
     changed journal-query => { root.schedule-journal-search(); }
+    changed journal-sort => { root.schedule-journal-search(); }
     changed journal-collection-filter => { root.schedule-journal-search(); }
     changed journal-tag-filter => { root.schedule-journal-search(); }
     changed journal-date-from => { root.schedule-journal-search(); }
     changed journal-date-to => { root.schedule-journal-search(); }
     changed journal-session-filter => { root.schedule-journal-search(); }
+    changed journal-session-type => {
+        if root.journal-session-type == "notes-only" {
+            root.journal-session-recording-source = "none";
+        } else if root.journal-session-type == "import-recording" {
+            root.journal-session-recording-source = "imported-file";
+        } else {
+            root.journal-session-recording-source = "microphone";
+        }
+    }
     changed selected-journal-note-block => {
         root.journal-action("document-block-select", root.journal-document-id,
             root.selected-journal-note-block, "", "", "", "");
@@ -347,6 +370,7 @@ export component MainWindow inherits Window {
     callback save-student-profile(string, string, string, string, string, string, string, string, string);
     callback create-session(string, string, string, string);
     callback journal-action(string, string, string, string, string, string, string);
+    callback journal-session-create(string, string, string, string, string, string, string, string, string, string, string);
     callback open-session(string);
     callback review-transcript(string);
     callback load-transcript(string, string);
@@ -626,10 +650,10 @@ export component MainWindow inherits Window {
                         }
                         Rectangle { }
                         Button {
-                            text: "+  New session";
+                            text: "+  New journal entry";
                             clicked => {
-                                root.create-session(root.selected-student, root.session-subject,
-                                    root.session-title, root.session-objectives);
+                                root.active-view = "journal";
+                                root.status-message = "Choose or create a journal entry before starting a session.";
                             }
                         }
                         Button {
@@ -723,19 +747,17 @@ export component MainWindow inherits Window {
                                 padding: 18px;
                                 spacing: 10px;
                                 Text { text: "New session"; color: #111111; font-size: 10px; font-weight: 700; letter-spacing: 1px; }
-                                Text { text: "Set up your next lesson"; color: #111111; font-size: 15px; font-weight: 600; }
-                                ComboBox {
-                                    model: root.student-options;
-                                    current-value <=> root.selected-student;
+                                Text { text: "Start from a journal entry"; color: #111111; font-size: 15px; font-weight: 600; }
+                                Text {
+                                    text: "Sessions belong to an entry so lesson notes, recordings and guides stay together.";
+                                    color: #111111;
+                                    font-size: 12px;
+                                    wrap: word-wrap;
                                 }
-                                LineEdit { placeholder-text: "Subject"; text <=> root.session-subject; }
-                                LineEdit { placeholder-text: "Session title"; text <=> root.session-title; }
-                                LineEdit { placeholder-text: "Learning objectives"; text <=> root.session-objectives; }
                                 Button {
-                                    text: "Create session";
+                                    text: "Choose a journal entry";
                                     clicked => {
-                                        root.create-session(root.selected-student, root.session-subject,
-                                            root.session-title, root.session-objectives);
+                                        root.active-view = "journal";
                                     }
                                 }
                             }
@@ -1024,6 +1046,10 @@ export component MainWindow inherits Window {
                                 HorizontalLayout {
                                     spacing: 8px;
                                     ComboBox {
+                                        model: ["Newest first", "Oldest first", "Title"];
+                                        current-value <=> root.journal-sort;
+                                    }
+                                    ComboBox {
                                         model: root.journal-collection-options;
                                         current-value <=> root.journal-collection-filter;
                                     }
@@ -1201,6 +1227,29 @@ export component MainWindow inherits Window {
                                         HorizontalLayout {
                                             spacing: 8px;
                                             LineEdit {
+                                                placeholder-text: "Session date YYYY-MM-DD";
+                                                text <=> root.journal-timeline-date;
+                                            }
+                                            Button {
+                                                text: "Jump to date";
+                                                clicked => {
+                                                    root.journal-action("session-list", root.journal-entry-id,
+                                                        root.journal-timeline-date, root.journal-timeline-date,
+                                                        "", "", "");
+                                                }
+                                            }
+                                            Button {
+                                                text: "All dates";
+                                                clicked => {
+                                                    root.journal-timeline-date = "";
+                                                    root.journal-action("session-list", root.journal-entry-id,
+                                                        "", "", "", "", "");
+                                                }
+                                            }
+                                        }
+                                        HorizontalLayout {
+                                            spacing: 8px;
+                                            LineEdit {
                                                 placeholder-text: "Session title";
                                                 text <=> root.journal-session-title;
                                             }
@@ -1218,6 +1267,52 @@ export component MainWindow inherits Window {
                                             LineEdit {
                                                 placeholder-text: "Learning objectives";
                                                 text <=> root.journal-session-objectives;
+                                            }
+                                        }
+                                        HorizontalLayout {
+                                            spacing: 8px;
+                                            ComboBox {
+                                                model: root.journal-session-student-options;
+                                                current-value <=> root.journal-session-student;
+                                            }
+                                            LineEdit {
+                                                placeholder-text: "Language code, for example en or zh";
+                                                text <=> root.journal-session-language;
+                                            }
+                                            ComboBox {
+                                                model: root.journal-guide-template-options;
+                                                current-value <=> root.journal-session-template;
+                                            }
+                                        }
+                                        HorizontalLayout {
+                                            spacing: 8px;
+                                            Text {
+                                                text: "Capture source";
+                                                color: #111111;
+                                                font-size: 12px;
+                                            }
+                                            if root.journal-session-type == "record-audio": ComboBox {
+                                                model: ["microphone", "system-audio", "both", "application"];
+                                                current-value <=> root.journal-session-recording-source;
+                                            }
+                                            if root.journal-session-type == "import-recording": ComboBox {
+                                                model: ["imported-file"];
+                                                current-value <=> root.journal-session-recording-source;
+                                            }
+                                            if root.journal-session-type == "notes-only": ComboBox {
+                                                model: ["none"];
+                                                current-value <=> root.journal-session-recording-source;
+                                            }
+                                        }
+                                        if root.journal-session-student == "Create a new student": HorizontalLayout {
+                                            spacing: 8px;
+                                            LineEdit {
+                                                placeholder-text: "New student name";
+                                                text <=> root.journal-session-new-student-name;
+                                            }
+                                            LineEdit {
+                                                placeholder-text: "Grade or level";
+                                                text <=> root.journal-session-new-student-grade;
                                             }
                                         }
                                         if root.journal-session-options.length > 0: ScrollView {
@@ -1242,6 +1337,16 @@ export component MainWindow inherits Window {
                                                         if root.selected-journal-session == session: HorizontalLayout {
                                                             spacing: 6px;
                                                             Button {
+                                                                text: root.journal-session-expanded ? "Hide details" : "Show details";
+                                                                clicked => {
+                                                                    root.journal-session-expanded = !root.journal-session-expanded;
+                                                                    if root.journal-session-expanded {
+                                                                        root.journal-action("session-show", session,
+                                                                            "", "", "", "", "");
+                                                                    }
+                                                                }
+                                                            }
+                                                            Button {
                                                                 text: "Open session";
                                                                 clicked => {
                                                                     root.open-session("Session · " + session);
@@ -1260,6 +1365,12 @@ export component MainWindow inherits Window {
                                                                     root.recording-panel-open = true;
                                                                 }
                                                             }
+                                                        }
+                                                        if root.selected-journal-session == session && root.journal-session-expanded: Text {
+                                                            text: root.journal-session-detail-output;
+                                                            color: #111111;
+                                                            font-size: 11px;
+                                                            wrap: word-wrap;
                                                         }
                                                     }
                                                 }
@@ -1280,20 +1391,26 @@ export component MainWindow inherits Window {
                                             Button {
                                                 text: "New session";
                                                 clicked => {
-                                                    root.journal-action("session-create",
+                                                    root.journal-session-create(
                                                         root.journal-entry-id,
                                                         root.journal-session-type,
                                                         root.journal-session-title,
-                                                        root.selected-student,
+                                                        root.journal-session-student,
                                                         root.journal-session-subject,
-                                                        root.journal-session-objectives);
+                                                        root.journal-session-objectives,
+                                                        root.journal-session-language,
+                                                        root.journal-session-template,
+                                                        root.journal-session-new-student-name,
+                                                        root.journal-session-new-student-grade,
+                                                        root.journal-session-recording-source);
                                                 }
                                             }
                                             Button {
                                                 text: "Show timeline";
                                                 clicked => {
                                                     root.journal-action("session-list",
-                                                        root.journal-entry-id, "", "", "", "", "");
+                                                        root.journal-entry-id, root.journal-timeline-date,
+                                                        root.journal-timeline-date, "", "", "");
                                                 }
                                             }
                                             Button {
