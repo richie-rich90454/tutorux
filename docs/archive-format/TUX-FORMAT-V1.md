@@ -58,7 +58,7 @@ Each record begins at an eight-byte-aligned offset and has this 64-byte header:
 | 20 | 16 | Logical object UUID |
 | 36 | 8 | Object revision |
 | 44 | 8 | Previous revision record offset, or zero |
-| 52 | 1 | Codec (`0` = none) |
+| 52 | 1 | Codec (`0` = none, `1` = LZ4 block) |
 | 53 | 1 | Flags |
 | 54 | 2 | Reserved, zero in v1 |
 | 56 | 4 | CRC-32/IEEE of the payload |
@@ -67,6 +67,15 @@ Each record begins at an eight-byte-aligned offset and has this 64-byte header:
 The payload follows the header. The next record begins at `align8(offset + 64 + payload_length)`.
 Padding bytes are zero and are not included in checksums. Readers reject a payload length above the
 configured record limit, an overflowing end offset, an unknown codec, or a checksum mismatch.
+Codec `0` stores the ordinary serialized record payload directly. Codec `1` stores an eight-byte
+little-endian uncompressed length followed by an LZ4 block. The length must not exceed 256 MiB, and
+the decoded payload must match it exactly. Writers may retain codec `0` when LZ4 would not reduce
+the stored size. CRC-32 is calculated over the bytes as stored, including the length prefix and
+compressed block; encryption, when enabled, is applied to those stored payload bytes. PCM audio
+chunks are compressed when beneficial. Asset blob payloads retain their original bytes and are not
+recompressed; already-encoded audio is not recompressed either.
+This framing codec is independent of the `codec` metadata field on `AudioChunk`, which describes
+the sample encoding.
 
 Record types are stable 16-bit values: student `1`, session `2`, audio chunk `3`, transcript
 segment `4`, annotation `5`, asset metadata `6`, asset blob `7`, evidence node `8`, evidence edge
@@ -128,7 +137,9 @@ All domain record payloads are encrypted except the archive manifest (`Settings`
 UUID) and the key-wrapping metadata record. A protected payload consists of a fresh 24-byte nonce,
 the ciphertext, and the 16-byte Poly1305 tag. Associated data is the byte sequence
 `TUTORUX-RECORD-V1`, archive UUID, record type, record UUID, revision, and previous-revision offset
-in little-endian integer encoding. The record CRC covers the resulting nonce and ciphertext bytes;
+in little-endian integer encoding. For codec `1`, the codec byte is appended to the associated data.
+Codec `0` keeps the original associated-data bytes so existing encrypted archives remain readable.
+The record CRC covers the resulting nonce and ciphertext bytes;
 authenticated decryption is required before decoding the record payload.
 
 The plaintext manifest contains the ordinary archive display metadata and a `manifest_auth` field.
