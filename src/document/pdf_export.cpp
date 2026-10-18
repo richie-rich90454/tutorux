@@ -75,8 +75,8 @@ namespace {
         return characters;
     }
 
-    std::vector<std::string_view> guideText(const domain::GuideDocument& guide) {
-        std::vector<std::string_view> values{
+    std::vector<std::string> guideText(const domain::GuideDocument& guide) {
+        std::vector<std::string> values{
             guide.title,
             guide.templateId,
             guide.approvalState,
@@ -106,7 +106,7 @@ namespace {
     Result<PoDoFo::PdfFont*> selectFont(PoDoFo::PdfDocument& document,
                                         const domain::GuideDocument& guide) {
         std::set<char32_t> requiredCharacters;
-        for (const std::string_view value : guideText(guide)) {
+        for (const std::string& value : guideText(guide)) {
             auto decoded = decodeUtf8(value);
             if (!decoded)
                 return std::unexpected(decoded.error());
