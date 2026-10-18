@@ -219,9 +219,31 @@ $env:OPENCODE_GO_API_KEY = "..."
 tutorux ai models --provider opencode-go --refresh
 ```
 
-Model refresh makes an authenticated HTTPS request and caches model IDs and owners in the selected
-archive. The `ai test` command checks connectivity by fetching a fresh provider model catalog without
-changing that cache. A normal `ai models` command reads the cached catalog without connecting.
+Model refresh makes an authenticated HTTPS request and caches model IDs, owners, capability
+metadata, and catalog freshness in the selected archive. Catalog metadata is considered fresh for
+one hour. `ai models --provider ID --refresh-if-stale` refreshes only when the cached catalog is
+missing or older than that TTL; `--refresh` always requests a refresh. A normal `ai models` command
+reads the cached catalog without connecting and reports its freshness, age, source, and last
+successful check time. JSON output retains its array shape and includes the same catalog freshness
+fields on each model row.
+
+If a provider's model endpoint is unavailable, Tutorux tries the matching public catalog at
+[models.dev](https://models.dev) for supported providers. Such rows are labeled
+`models.dev-fallback` and remain metadata discoveries, not account-level verification. If both
+sources are unavailable, Tutorux uses the last archived catalog when one exists and reports the
+failed refresh while preserving its original successful-check timestamp. It returns an error when
+no cached catalog exists. Cancellation, authentication failures, invalid endpoints, and local
+providers never fall through to public catalog discovery. A catalog fallback does not make or alter
+generation requests.
+
+Idempotent HTTP `GET` metadata requests retry transient transport failures and HTTP 408, 425, 429,
+500, 502, 503, and 504 responses at most twice. The transport honors a usable `Retry-After` value
+and otherwise uses short bounded backoff; it stops rather than retrying earlier than a longer
+server-requested delay. Cancellation interrupts the backoff. Generation uses `POST` and is never
+automatically retried, so a transient provider error cannot duplicate generated work.
+
+The `ai test` command checks connectivity by fetching a fresh provider model catalog without changing
+the archived catalog.
 Loopback HTTP endpoints
 are allowed for local development; remote requests require HTTPS, certificate verification, and do
 not follow redirects. On Windows, certificate verification also loads the operating system's native
@@ -249,7 +271,7 @@ Tutorux streams response text to the caller's progress callback and retains the 
 response bytes in an archive AI job. Valid guide JSON becomes a new proposed guide; unsupported
 responses are retained as plain text for correction. Partial output is retained on cancellation or
 stream failure. Every resulting guide remains proposed and requires tutor review before approval.
-Provider errors do not trigger automatic retries.
+Generation POST errors do not trigger automatic retries.
 
 The archive supports separate, explicit credential storage for users who choose to save a sensitive
 setting inside an encrypted `.tux` file. The OpenAI-compatible adapter currently reads environment
