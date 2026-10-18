@@ -7,8 +7,18 @@ server or hosted AI proxy.
 
 ## Build and publish
 
-Install the Emscripten SDK and TypeScript compiler (`tsc`), set `EMSDK`, then build and install the
-browser component:
+Install the Emscripten SDK and TypeScript compiler (`tsc`), build a static libsodium 1.0.22 for the
+Emscripten target with the pinned upstream recipe, and set `EMSDK` and `TUTORUX_SODIUM_PREFIX`:
+
+```sh
+git clone --depth 1 --branch 1.0.22-RELEASE https://github.com/jedisct1/libsodium.git
+cd libsodium
+./dist-build/emscripten.sh --standard
+export TUTORUX_SODIUM_PREFIX="$PWD/libsodium-js"
+```
+
+The archive encryption format uses libsodium; its static archive is linked into the generated
+WebAssembly module. Then build and install the browser component:
 
 ```sh
 cmake --preset portable-wasm-release
@@ -33,10 +43,12 @@ handle and Save archive writes the changed bytes back to that file. Other browse
 for opening and download the archive when the user selects Save archive. A newly created archive
 can also be downloaded immediately.
 
-For recovery, the browser stores one complete working `.tux` copy in one IndexedDB entry. Tutorux
-updates that entry after each successful archive edit and attempts to restore it on the next launch.
-The page shows when this browser copy was restored or updated and provides a separate Download
-recovery copy action. Browser-managed storage can be cleared or evicted, even when the browser grants
+For recovery, the browser stores a complete `.tux` snapshot in IndexedDB, keyed by the archive UUID,
+and remembers the last active snapshot. Tutorux updates it after archive commands and attempts to
+restore it on the next launch. Each worker serializes commands; browsers with the Web Locks API also
+serialize access across tabs and reload the latest committed snapshot before each command. The page
+shows when this browser copy was restored or updated and provides a separate Download recovery copy
+action. Browser-managed storage can be cleared or evicted, even when the browser grants
 persistent-storage permission. IndexedDB is a recovery aid; a downloaded `.tux` file is the
 independent portable copy. If a retained archive cannot be opened, Tutorux leaves the entry in place
 and offers the original bytes for download.
@@ -80,7 +92,9 @@ The manual AI package is stored as an archive job and downloaded for use with an
 ZIP packages contain verified session asset bytes; large ZIP handoffs use ordered UTF-8-safe JSON
 parts. Importing a JSON response stores the original response and a proposed guide in
 the archive. It does not approve the guide; review its content, warnings, and source references in
-the guide editor before approval. No AI provider request is made by these browser workflows.
+the guide editor before approval. Manual handoff exports do not send provider requests; the separate
+`ai generate` command sends only after the normal outbound-content confirmation and provider CORS
+checks.
 
 Guide approval uses the shared archive validator. A guide with invalid or stale source references
 must be reviewed and corrected before approval. The browser editor preserves the archive's
@@ -97,9 +111,10 @@ copy before leaving a long editing session.
 ## Browser boundaries
 
 The page uses a single-thread WebAssembly module and a standard Web Worker. It does not require
-`SharedArrayBuffer`, a backend, or an embedded browser runtime. Browser permissions and WebAssembly
-build support determine which shared commands can run. Unsupported commands return the command
-engine's error rather than reporting success.
+`SharedArrayBuffer`, a backend, or an embedded browser runtime. The C++ HTTP transport uses the
+browser Fetch API through Emscripten Asyncify, so provider calls work only when the provider allows
+the page's origin through CORS. Unsupported commands return the command engine's error rather than
+reporting success.
 
 Cloud AI providers may block direct requests from a browser origin through CORS policy. Browser
 credentials are not stored by this page, and passphrases are held in memory only while the page is
