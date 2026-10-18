@@ -14,36 +14,38 @@
 
 namespace {
 
-    struct TemporaryDirectory final {
-        std::filesystem::path path;
+struct TemporaryDirectory final {
+    std::filesystem::path path;
 
-        ~TemporaryDirectory() {
-            std::error_code ignored;
-            std::filesystem::remove_all(path, ignored);
-        }
-    };
+    ~TemporaryDirectory() {
+        std::error_code ignored;
+        std::filesystem::remove_all(path, ignored);
+    }
+};
 
-    bool setEnvironment(std::string_view name, std::string_view value) {
+bool setEnvironment(std::string_view name, std::string_view value) {
 #ifdef _WIN32
-        return _putenv_s(std::string(name).c_str(), std::string(value).c_str()) == 0;
+    return _putenv_s(std::string(name).c_str(), std::string(value).c_str()) == 0;
 #else
-        return setenv(std::string(name).c_str(), std::string(value).c_str(), 1) == 0;
+    return setenv(std::string(name).c_str(), std::string(value).c_str(), 1) == 0;
 #endif
-    }
+}
 
-    int reportFailure(std::string_view step, std::string_view detail) {
-        std::cerr << step << ": " << detail << '\n';
-        return 1;
-    }
+int reportFailure(std::string_view step, std::string_view detail) {
+    std::cerr << step << ": " << detail << '\n';
+    return 1;
+}
 
-    tutorux::core::Result<tutorux::command::CommandResult>
-    dispatchSettings(const std::filesystem::path& archivePath,
-                     const std::vector<std::string>& command) {
-        std::vector<std::string> arguments{"--archive", archivePath.string(), "--passphrase-env",
-                                           "TUTORUX_TEST_PASSPHRASE"};
-        arguments.insert(arguments.end(), command.begin(), command.end());
-        return tutorux::command::dispatch(arguments);
-    }
+tutorux::core::Result<tutorux::command::CommandResult>
+dispatchSettings(const std::filesystem::path& archivePath,
+                 const std::vector<std::string>& command) {
+    std::vector<std::string> arguments{"--archive",
+                                       archivePath.string(),
+                                       "--passphrase-env",
+                                       "TUTORUX_TEST_PASSPHRASE"};
+    arguments.insert(arguments.end(), command.begin(), command.end());
+    return tutorux::command::dispatch(arguments);
+}
 
 } // namespace
 
@@ -75,22 +77,33 @@ int main() {
             return reportFailure("encrypt archive", status.error().message);
     }
 
-    auto noOptIn = dispatchSettings(encryptedPath, {"settings", "set", "--key", "provider-api-key",
-                                                    "--value-env", "TUTORUX_TEST_API_KEY"});
+    auto noOptIn = dispatchSettings(
+        encryptedPath,
+        {"settings", "set", "--key", "provider-api-key", "--value-env", "TUTORUX_TEST_API_KEY"});
     if (noOptIn || noOptIn.error().code != "credential_storage_requires_opt_in")
         return reportFailure("credential opt-in",
                              "Sensitive setting was accepted without explicit opt-in.");
 
-    auto rawValue =
-        dispatchSettings(encryptedPath, {"settings", "set", "--key", "provider-api-key", "--value",
-                                         std::string(credentialMarker), "--store-credential"});
+    auto rawValue = dispatchSettings(encryptedPath,
+                                     {"settings",
+                                      "set",
+                                      "--key",
+                                      "provider-api-key",
+                                      "--value",
+                                      std::string(credentialMarker),
+                                      "--store-credential"});
     if (rawValue || rawValue.error().code != "credential_environment_required")
         return reportFailure("raw credential rejection",
                              "Raw command-line credential value was accepted.");
 
     auto stored = dispatchSettings(encryptedPath,
-                                   {"settings", "set", "--key", "provider-api-key", "--value-env",
-                                    "TUTORUX_TEST_API_KEY", "--store-credential"});
+                                   {"settings",
+                                    "set",
+                                    "--key",
+                                    "provider-api-key",
+                                    "--value-env",
+                                    "TUTORUX_TEST_API_KEY",
+                                    "--store-credential"});
     if (!stored || stored->exitCode != 0 ||
         stored->output.find(credentialMarker) != std::string::npos)
         return reportFailure("encrypted credential write",
@@ -141,9 +154,14 @@ int main() {
         if (!created)
             return reportFailure("create plaintext archive", created.error().message);
     }
-    auto plaintextStore = dispatchSettings(
-        plaintextPath, {"settings", "set", "--key", "provider-api-key", "--value-env",
-                        "TUTORUX_TEST_API_KEY", "--store-credential"});
+    auto plaintextStore = dispatchSettings(plaintextPath,
+                                           {"settings",
+                                            "set",
+                                            "--key",
+                                            "provider-api-key",
+                                            "--value-env",
+                                            "TUTORUX_TEST_API_KEY",
+                                            "--store-credential"});
     if (plaintextStore || plaintextStore.error().code != "credential_archive_not_encrypted") {
         return reportFailure("plaintext credential rejection",
                              "Credential was accepted by a plaintext archive.");
@@ -164,9 +182,9 @@ int main() {
     if (!encrypted || encrypted->exitCode != 0)
         return reportFailure("CLI archive encryption",
                              encrypted ? encrypted->output : encrypted.error().message);
-    auto rotated =
-        dispatchSettings(cliEncryptionPath, {"archive", "change-passphrase", "--new-passphrase-env",
-                                             "TUTORUX_TEST_NEW_PASSPHRASE"});
+    auto rotated = dispatchSettings(
+        cliEncryptionPath,
+        {"archive", "change-passphrase", "--new-passphrase-env", "TUTORUX_TEST_NEW_PASSPHRASE"});
     if (!rotated || rotated->exitCode != 0)
         return reportFailure("CLI passphrase rotation",
                              rotated ? rotated->output : rotated.error().message);
