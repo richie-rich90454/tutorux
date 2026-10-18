@@ -214,6 +214,14 @@ through `--playback ID`. macOS capture uses CoreAudio; output loopback requires 
 virtual audio input. Both tracks can be selected independently with `--microphone ID` and
 `--playback ID`.
 
+Replay a committed track directly from the archive with `record play --session UUID`. Use
+`--track UUID` for multi-track sessions and `--start-us N --duration-us N` to select a range. The
+desktop transcript review and browser transcript rows can play a 30-second excerpt from a segment's
+timestamp. `record waveform --session UUID` builds a reusable min/max index with gap markers,
+`record export-wav --session UUID --output FILE.wav` writes a PCM WAV, and `--fill-gaps` explicitly
+inserts silence where the recording timeline has missing audio. See
+[`docs/audio/PLAYBACK.md`](docs/audio/PLAYBACK.md) for platform playback details.
+
 Session transfer uses a self-verifying `.tux` package. It includes the session's related records,
 their retained revision chains, and referenced asset blobs. Import assigns fresh identifiers and rewrites internal links;
 it preserves the source student only when that student already exists in the destination archive.
