@@ -1,6 +1,9 @@
 #include "tutorux/document/editor.hpp"
 
+#include "tutorux/document/unicode_grapheme_tables.hpp"
+
 #include <algorithm>
+#include <iterator>
 #include <limits>
 #include <utility>
 
@@ -59,6 +62,175 @@ namespace {
         return (static_cast<unsigned char>(value) & 0xc0U) == 0x80U;
     }
 
+    bool isUtf8Boundary(std::string_view text, std::size_t offset) noexcept {
+        return offset == 0 || offset >= text.size() ||
+               (static_cast<unsigned char>(text[offset]) & 0xc0U) != 0x80U;
+    }
+
+    using unicode::GraphemeCategory;
+
+    struct DecodedScalar final {
+        char32_t value{};
+        std::size_t byteOffset{};
+        GraphemeCategory category{GraphemeCategory::any};
+        bool indicExtend{};
+        bool indicLinker{};
+    };
+
+    GraphemeCategory graphemeCategory(char32_t value) noexcept {
+        if (value <= 0x7eU) {
+            if (value == U'\n')
+                return GraphemeCategory::lf;
+            if (value == U'\r')
+                return GraphemeCategory::cr;
+            return value >= 0x20U ? GraphemeCategory::any : GraphemeCategory::control;
+        }
+        const auto found =
+            std::lower_bound(unicode::graphemeRanges.begin(), unicode::graphemeRanges.end(), value,
+                             [](const unicode::GraphemeRange& range, char32_t scalar) {
+                                 return range.last < scalar;
+                             });
+        if (found == unicode::graphemeRanges.end() || found->first > value)
+            return GraphemeCategory::any;
+        return found->category;
+    }
+
+    DecodedScalar decodeScalar(std::string_view text, std::size_t offset) noexcept {
+        const auto first = static_cast<unsigned char>(text[offset]);
+        char32_t value = first;
+        std::size_t length = 1;
+        if (first >= 0xf0U) {
+            value = first & 0x07U;
+            length = 4;
+        } else if (first >= 0xe0U) {
+            value = first & 0x0fU;
+            length = 3;
+        } else if (first >= 0xc0U) {
+            value = first & 0x1fU;
+            length = 2;
+        }
+        for (std::size_t index = 1; index < length; ++index) {
+            value = (value << 6U) | (static_cast<unsigned char>(text[offset + index]) & 0x3fU);
+        }
+
+        const auto indicRange =
+            std::lower_bound(unicode::indicExtendRanges.begin(), unicode::indicExtendRanges.end(),
+                             value, [](const unicode::ScalarRange& range, char32_t scalar) {
+                                 return range.last < scalar;
+                             });
+        const bool indicExtend =
+            indicRange != unicode::indicExtendRanges.end() && indicRange->first <= value;
+        const bool indicLinker =
+            std::binary_search(unicode::indicLinkers.begin(), unicode::indicLinkers.end(), value);
+        return {value, offset, graphemeCategory(value), indicExtend, indicLinker};
+    }
+
+    std::vector<DecodedScalar> decodeScalars(std::string_view text) {
+        std::vector<DecodedScalar> scalars;
+        scalars.reserve(text.size());
+        for (std::size_t offset = 0; offset < text.size();) {
+            auto scalar = decodeScalar(text, offset);
+            offset += scalar.value <= 0x7fU     ? 1U
+                      : scalar.value <= 0x7ffU  ? 2U
+                      : scalar.value <= 0xffffU ? 3U
+                                                : 4U;
+            scalars.push_back(scalar);
+        }
+        return scalars;
+    }
+
+    bool isControl(GraphemeCategory category) noexcept {
+        return category == GraphemeCategory::control || category == GraphemeCategory::cr ||
+               category == GraphemeCategory::lf;
+    }
+
+    bool isGraphemeBreak(const std::vector<DecodedScalar>& scalars, std::size_t index) noexcept {
+        const auto before = scalars[index - 1U].category;
+        const auto after = scalars[index].category;
+        if (before == GraphemeCategory::cr && after == GraphemeCategory::lf)
+            return false;
+        if (isControl(before) || isControl(after))
+            return true;
+
+        if (before == GraphemeCategory::hangulL &&
+            (after == GraphemeCategory::hangulL || after == GraphemeCategory::hangulV ||
+             after == GraphemeCategory::hangulLv || after == GraphemeCategory::hangulLvt)) {
+            return false;
+        }
+        if ((before == GraphemeCategory::hangulLv || before == GraphemeCategory::hangulV) &&
+            (after == GraphemeCategory::hangulV || after == GraphemeCategory::hangulT)) {
+            return false;
+        }
+        if ((before == GraphemeCategory::hangulLvt || before == GraphemeCategory::hangulT) &&
+            after == GraphemeCategory::hangulT) {
+            return false;
+        }
+        if (after == GraphemeCategory::extend || after == GraphemeCategory::zeroWidthJoiner ||
+            after == GraphemeCategory::spacingMark || before == GraphemeCategory::prepend) {
+            return false;
+        }
+
+        if (after == GraphemeCategory::indicConsonant) {
+            bool hasLinker = false;
+            std::size_t previous = index;
+            while (previous > 0) {
+                const auto& scalar = scalars[previous - 1U];
+                if (scalar.indicLinker) {
+                    hasLinker = true;
+                    --previous;
+                } else if (scalar.indicExtend) {
+                    --previous;
+                } else {
+                    break;
+                }
+            }
+            if (hasLinker && previous > 0 &&
+                scalars[previous - 1U].category == GraphemeCategory::indicConsonant) {
+                return false;
+            }
+        }
+
+        if (before == GraphemeCategory::zeroWidthJoiner &&
+            after == GraphemeCategory::extendedPictographic) {
+            std::size_t previous = index - 1U;
+            while (previous > 0 && scalars[previous - 1U].category == GraphemeCategory::extend) {
+                --previous;
+            }
+            if (previous > 0 &&
+                scalars[previous - 1U].category == GraphemeCategory::extendedPictographic) {
+                return false;
+            }
+        }
+
+        if (before == GraphemeCategory::regionalIndicator &&
+            after == GraphemeCategory::regionalIndicator) {
+            std::size_t regionalIndicatorCount = 0;
+            for (std::size_t previous = index;
+                 previous > 0 &&
+                 scalars[previous - 1U].category == GraphemeCategory::regionalIndicator;
+                 --previous) {
+                ++regionalIndicatorCount;
+            }
+            return regionalIndicatorCount % 2U == 0;
+        }
+
+        return true;
+    }
+
+    std::vector<std::size_t> graphemeBoundaries(std::string_view text,
+                                                const std::vector<DecodedScalar>& scalars) {
+        std::vector<std::size_t> boundaries;
+        boundaries.reserve(scalars.size() + 1U);
+        boundaries.push_back(0);
+        for (std::size_t index = 1; index < scalars.size(); ++index) {
+            if (isGraphemeBreak(scalars, index))
+                boundaries.push_back(scalars[index].byteOffset);
+        }
+        if (boundaries.back() != text.size())
+            boundaries.push_back(text.size());
+        return boundaries;
+    }
+
 } // namespace
 
 PieceTable::PieceTable(std::string original, std::vector<Piece> pieces)
@@ -105,6 +277,15 @@ bool PieceTable::canRedo() const noexcept {
     return !redo_.empty();
 }
 
+core::Status PieceTable::setSelection(TextSelection selection) {
+    if (!isBoundary(selection.anchor) || !isBoundary(selection.focus)) {
+        return std::unexpected(
+            core::error("document_selection_invalid", "The selection splits a UTF-8 code point."));
+    }
+    selection_ = selection;
+    return {};
+}
+
 core::Result<EditResult> PieceTable::apply(const DocumentEditTransaction& transaction) {
     if (transaction.operations.empty()) {
         return EditResult{paragraphAt(selection_.focus), selection_, 0};
@@ -137,7 +318,7 @@ core::Result<EditResult> PieceTable::apply(const DocumentEditTransaction& transa
     }
     candidate.selection_ = entry.after;
     bool coalesced = false;
-    if (transaction.coalesceWithPrevious && entry.operations.size() == 1 &&
+    if (transaction.coalesceWithPrevious && coalescingAllowed_ && entry.operations.size() == 1 &&
         !candidate.undo_.empty()) {
         auto& previous = candidate.undo_.back();
         if (previous.origin == entry.origin && previous.operations.size() == 1 &&
@@ -183,18 +364,106 @@ core::Result<EditResult> PieceTable::apply(const DocumentEditTransaction& transa
     if (!coalesced)
         candidate.undo_.push_back(std::move(entry));
     candidate.redo_.clear();
+    candidate.coalescingAllowed_ = true;
     const auto invalidated = candidate.expandedParagraphRange(changed);
     *this = std::move(candidate);
     return EditResult{invalidated, selection_, transaction.operations.size()};
 }
 
-core::Result<EditResult> PieceTable::replace(TextRange range, std::string_view replacement) {
+core::Result<EditResult> PieceTable::applyTextSnapshot(
+    std::string_view updatedText, std::string documentId, std::uint64_t expectedRevision,
+    std::optional<TextSelection> selectionAfter, std::string origin, bool coalesceWithPrevious) {
+    if (auto status = validateUtf8(updatedText); !status)
+        return std::unexpected(status.error());
+
+    std::size_t commonPrefix = 0;
+    for (const auto& piece : pieces_) {
+        if (commonPrefix == updatedText.size())
+            break;
+        const std::string& buffer = pieceBuffer(piece);
+        const std::size_t comparedLength =
+            std::min(piece.length, updatedText.size() - commonPrefix);
+        const auto sourceBegin = buffer.begin() + static_cast<std::ptrdiff_t>(piece.start);
+        const auto sourceEnd = sourceBegin + static_cast<std::ptrdiff_t>(comparedLength);
+        const auto updatedBegin = updatedText.begin() + static_cast<std::ptrdiff_t>(commonPrefix);
+        const auto mismatch = std::mismatch(sourceBegin, sourceEnd, updatedBegin);
+        commonPrefix += static_cast<std::size_t>(std::distance(sourceBegin, mismatch.first));
+        if (mismatch.first != sourceEnd)
+            break;
+    }
+    if (commonPrefix == size_ && size_ == updatedText.size())
+        return EditResult{paragraphAt(selection_.focus), selection_, 0};
+    while (commonPrefix > 0 &&
+           (!isBoundary(commonPrefix) || !isUtf8Boundary(updatedText, commonPrefix))) {
+        --commonPrefix;
+    }
+
+    std::size_t commonSuffix = 0;
+    for (auto piece = pieces_.rbegin(); piece != pieces_.rend(); ++piece) {
+        const std::size_t remainingCurrent = size_ - commonPrefix - commonSuffix;
+        const std::size_t remainingUpdated = updatedText.size() - commonPrefix - commonSuffix;
+        if (remainingCurrent == 0 || remainingUpdated == 0)
+            break;
+
+        const std::size_t comparedLength =
+            std::min({piece->length, remainingCurrent, remainingUpdated});
+        const std::string& buffer = pieceBuffer(*piece);
+        const auto sourceEnd =
+            buffer.begin() + static_cast<std::ptrdiff_t>(piece->start + piece->length);
+        const auto sourceBegin = sourceEnd - static_cast<std::ptrdiff_t>(comparedLength);
+        const auto updatedEnd =
+            updatedText.begin() + static_cast<std::ptrdiff_t>(updatedText.size() - commonSuffix);
+        const auto updatedBegin = updatedEnd - static_cast<std::ptrdiff_t>(comparedLength);
+        const auto sourceReverseBegin = std::make_reverse_iterator(sourceEnd);
+        const auto sourceReverseEnd = std::make_reverse_iterator(sourceBegin);
+        const auto updatedReverseBegin = std::make_reverse_iterator(updatedEnd);
+        const auto mismatch =
+            std::mismatch(sourceReverseBegin, sourceReverseEnd, updatedReverseBegin);
+        const std::size_t matchedLength =
+            static_cast<std::size_t>(std::distance(sourceReverseBegin, mismatch.first));
+        commonSuffix += matchedLength;
+        if (matchedLength != comparedLength || comparedLength != piece->length)
+            break;
+    }
+
+    std::size_t currentSuffix = size_ - commonSuffix;
+    std::size_t updatedSuffix = updatedText.size() - commonSuffix;
+    while (currentSuffix < size_ && updatedSuffix < updatedText.size() &&
+           (!isBoundary(currentSuffix) || !isUtf8Boundary(updatedText, updatedSuffix))) {
+        ++currentSuffix;
+        ++updatedSuffix;
+    }
+    if (currentSuffix < commonPrefix || updatedSuffix < commonPrefix) {
+        return std::unexpected(core::error(
+            "document_diff_invalid", "The text snapshot did not produce valid UTF-8 edit bounds."));
+    }
+
+    const std::string removedText = slice({commonPrefix, currentSuffix});
+    const std::string insertedText(updatedText.substr(commonPrefix, updatedSuffix - commonPrefix));
+    DocumentEditTransaction transaction;
+    transaction.documentId = std::move(documentId);
+    transaction.expectedRevision = expectedRevision;
+    transaction.selectionBefore = selection_;
+    const std::size_t cursor = commonPrefix + insertedText.size();
+    transaction.selectionAfter = selectionAfter.value_or(TextSelection{cursor, cursor});
+    transaction.origin = std::move(origin);
+    transaction.coalesceWithPrevious = coalesceWithPrevious;
+    transaction.operations.push_back({commonPrefix, insertedText, removedText});
+    return apply(transaction);
+}
+
+core::Result<EditResult> PieceTable::replace(TextRange range, std::string_view replacement,
+                                             std::string documentId, std::uint64_t expectedRevision,
+                                             std::string origin) {
     if (range.start > range.end || range.end > size_ || !isBoundary(range.start) ||
         !isBoundary(range.end)) {
         return std::unexpected(core::error(
             "document_range_invalid", "The edit range is outside the document or UTF-8 boundary."));
     }
     DocumentEditTransaction transaction;
+    transaction.documentId = std::move(documentId);
+    transaction.expectedRevision = expectedRevision;
+    transaction.origin = std::move(origin);
     transaction.selectionBefore = selection_;
     transaction.selectionAfter = {range.start + replacement.size(),
                                   range.start + replacement.size()};
@@ -202,8 +471,9 @@ core::Result<EditResult> PieceTable::replace(TextRange range, std::string_view r
     return apply(transaction);
 }
 
-core::Result<EditResult> PieceTable::replaceAll(std::string_view query,
-                                                std::string_view replacement) {
+core::Result<EditResult>
+PieceTable::replaceAll(std::string_view query, std::string_view replacement, std::string documentId,
+                       std::uint64_t expectedRevision, std::string origin) {
     if (query.empty()) {
         return std::unexpected(core::error("document_search_empty",
                                            "Find and replace requires non-empty search text."));
@@ -234,6 +504,9 @@ core::Result<EditResult> PieceTable::replaceAll(std::string_view query,
     }
 
     DocumentEditTransaction transaction;
+    transaction.documentId = std::move(documentId);
+    transaction.expectedRevision = expectedRevision;
+    transaction.origin = std::move(origin);
     transaction.selectionBefore = selection_;
     transaction.selectionAfter = {updatedSize, updatedSize};
     transaction.operations.reserve(matches.size());
@@ -255,6 +528,7 @@ core::Result<EditResult> PieceTable::undo() {
         return std::unexpected(result.error());
     undo_.pop_back();
     redo_.push_back(entry);
+    coalescingAllowed_ = false;
     selection_ = entry.before;
     result->selection = selection_;
     return result;
@@ -271,6 +545,7 @@ core::Result<EditResult> PieceTable::redo() {
         return std::unexpected(result.error());
     redo_.pop_back();
     undo_.push_back(entry);
+    coalescingAllowed_ = false;
     selection_ = entry.after;
     result->selection = selection_;
     return result;
@@ -302,15 +577,71 @@ core::Result<std::size_t> PieceTable::nextCodePoint(std::size_t offset) const {
     return offset;
 }
 
+core::Result<std::size_t> PieceTable::previousGrapheme(std::size_t offset) const {
+    if (offset > size_ || !isBoundary(offset)) {
+        return std::unexpected(core::error(
+            "document_cursor_invalid", "The cursor is outside the document or UTF-8 boundary."));
+    }
+    if (offset == 0)
+        return 0;
+
+    const std::string contents = text();
+    const auto scalars = decodeScalars(contents);
+    const auto boundaries = graphemeBoundaries(contents, scalars);
+    auto boundary = std::lower_bound(boundaries.begin(), boundaries.end(), offset);
+    if (boundary == boundaries.begin())
+        return 0;
+    --boundary;
+    return *boundary;
+}
+
+core::Result<std::size_t> PieceTable::nextGrapheme(std::size_t offset) const {
+    if (offset > size_ || !isBoundary(offset)) {
+        return std::unexpected(core::error(
+            "document_cursor_invalid", "The cursor is outside the document or UTF-8 boundary."));
+    }
+    if (offset == size_)
+        return size_;
+
+    const std::string contents = text();
+    const auto scalars = decodeScalars(contents);
+    const auto boundaries = graphemeBoundaries(contents, scalars);
+    const auto boundary = std::upper_bound(boundaries.begin(), boundaries.end(), offset);
+    return boundary == boundaries.end() ? size_ : *boundary;
+}
+
 std::vector<TextRange> PieceTable::findAll(std::string_view query) const {
     std::vector<TextRange> matches;
     if (query.empty())
         return matches;
-    const std::string contents = text();
-    std::size_t position = 0;
-    while ((position = contents.find(query, position)) != std::string::npos) {
-        matches.push_back({position, position + query.size()});
-        position += query.size();
+
+    std::vector<std::size_t> prefix(query.size());
+    for (std::size_t index = 1, matched = 0; index < query.size(); ++index) {
+        while (matched > 0 && query[index] != query[matched])
+            matched = prefix[matched - 1U];
+        if (query[index] == query[matched])
+            ++matched;
+        prefix[index] = matched;
+    }
+
+    std::size_t matched = 0;
+    std::size_t documentOffset = 0;
+    for (const Piece& piece : pieces_) {
+        const std::string& buffer = pieceBuffer(piece);
+        for (std::size_t index = 0; index < piece.length; ++index, ++documentOffset) {
+            const char character = buffer[piece.start + index];
+            while (matched > 0 && character != query[matched])
+                matched = prefix[matched - 1U];
+            if (character == query[matched])
+                ++matched;
+            if (matched == query.size()) {
+                const std::size_t start = documentOffset + 1U - query.size();
+                const std::size_t end = documentOffset + 1U;
+                if (isBoundary(start) && isBoundary(end))
+                    matches.push_back({start, end});
+                matched = prefix[matched - 1U];
+            }
+        }
     }
     return matches;
 }
