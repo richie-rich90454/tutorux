@@ -1,5 +1,9 @@
 #include "tutorux/audio/devices.hpp"
 
+#if defined(__linux__)
+#include "tutorux/audio/pipewire_backend.hpp"
+#endif
+
 #include <algorithm>
 #include <cctype>
 #include <iterator>
@@ -469,7 +473,23 @@ core::Result<std::vector<DeviceInfo>> enumerateDevices() {
 #endif
     return devices;
 #elif defined(__linux__) && defined(TUTORUX_HAS_ALSA)
-    return enumerateAlsaCaptureDevices();
+    auto alsaDevices = enumerateAlsaCaptureDevices();
+    auto pipeWireDevices = enumeratePipeWireDevices();
+    if (!alsaDevices) {
+        if (!pipeWireDevices || pipeWireDevices->empty())
+            return std::unexpected(alsaDevices.error());
+        return std::move(*pipeWireDevices);
+    }
+    if (pipeWireDevices) {
+        for (auto& device : *pipeWireDevices) {
+            if (std::none_of(alsaDevices->begin(), alsaDevices->end(), [&](const DeviceInfo& existing) {
+                    return existing.id == device.id;
+                })) {
+                alsaDevices->push_back(std::move(device));
+            }
+        }
+    }
+    return std::move(*alsaDevices);
 #elif defined(__APPLE__)
     auto devices = enumerateCoreAudioInputDevices();
     if (!devices)
