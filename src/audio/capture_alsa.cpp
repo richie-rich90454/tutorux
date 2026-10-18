@@ -1,6 +1,7 @@
 #include "tutorux/audio/alsa_backend.hpp"
 
 #include "tutorux/domain/entities.hpp"
+#include "preflight_metrics.hpp"
 
 #if defined(TUTORUX_HAS_ALSA)
 #include <alsa/asoundlib.h>
@@ -45,12 +46,9 @@ namespace {
                                               .count());
     }
 
-    core::Status updateRecordingSession(archive::Archive& archive,
-                                        archive::Record& session,
-                                        std::string state,
-                                        std::uint64_t chunks,
-                                        std::uint64_t samples,
-                                        std::uint64_t bytes,
+    core::Status updateRecordingSession(archive::Archive& archive, archive::Record& session,
+                                        std::string state, std::uint64_t chunks,
+                                        std::uint64_t samples, std::uint64_t bytes,
                                         std::string error = {}) {
         session.fields["recording_state"] = std::move(state);
         session.fields["recording_audio_chunks"] = std::to_string(chunks);
@@ -98,8 +96,7 @@ namespace {
         int result = snd_pcm_hw_params_malloc(&parameters);
         if (result < 0)
             return std::unexpected(alsaError("audio_parameters_allocate_failed",
-                                             "Allocating ALSA hardware parameters",
-                                             result));
+                                             "Allocating ALSA hardware parameters", result));
 
         const auto releaseParameters = [&] {
             snd_pcm_hw_params_free(parameters);
@@ -127,9 +124,7 @@ namespace {
         snd_pcm_uframes_t periodFrames = std::max<snd_pcm_uframes_t>(sampleRate / 20, 1);
         int periodDirection = 0;
         if (result >= 0)
-            result = snd_pcm_hw_params_set_period_size_near(pcm,
-                                                            parameters,
-                                                            &periodFrames,
+            result = snd_pcm_hw_params_set_period_size_near(pcm, parameters, &periodFrames,
                                                             &periodDirection);
         if (result >= 0)
             result = snd_pcm_hw_params(pcm, parameters);
@@ -144,38 +139,27 @@ namespace {
         result = snd_pcm_hw_params_malloc(&activeParameters);
         if (result < 0)
             return std::unexpected(alsaError("audio_parameters_allocate_failed",
-                                             "Allocating active ALSA parameters",
-                                             result));
+                                             "Allocating active ALSA parameters", result));
         result = snd_pcm_hw_params_current(pcm, activeParameters);
         if (result >= 0)
-            result = snd_pcm_hw_params_get_period_size(activeParameters,
-                                                       &periodFrames,
+            result = snd_pcm_hw_params_get_period_size(activeParameters, &periodFrames,
                                                        &periodDirection);
         snd_pcm_hw_params_free(activeParameters);
         if (result < 0)
             return std::unexpected(alsaError("audio_format_query_failed",
-                                             "Reading the active ALSA period size",
-                                             result));
+                                             "Reading the active ALSA period size", result));
 
         return ConfiguredCapture{static_cast<std::uint32_t>(sampleRate),
-                                 static_cast<std::uint16_t>(channels),
-                                 periodFrames};
+                                 static_cast<std::uint16_t>(channels), periodFrames};
     }
 
-    core::Status appendCapturedChunk(archive::Archive& archive,
-                                     archive::Record& session,
-                                     const archive::Uuid& sessionId,
-                                     const archive::Uuid& trackId,
-                                     std::uint64_t sequence,
-                                     std::uint64_t firstSample,
-                                     std::uint64_t frameCount,
-                                     std::uint64_t totalStoredSamples,
-                                     std::uint64_t totalStoredBytes,
-                                     std::uint64_t gapBeforeSamples,
-                                     std::uint32_t sampleRateHz,
-                                     std::uint16_t channelCount,
-                                     bool containsDiscontinuity,
-                                     archive::Bytes payload) {
+    core::Status appendCapturedChunk(archive::Archive& archive, archive::Record& session,
+                                     const archive::Uuid& sessionId, const archive::Uuid& trackId,
+                                     std::uint64_t sequence, std::uint64_t firstSample,
+                                     std::uint64_t frameCount, std::uint64_t totalStoredSamples,
+                                     std::uint64_t totalStoredBytes, std::uint64_t gapBeforeSamples,
+                                     std::uint32_t sampleRateHz, std::uint16_t channelCount,
+                                     bool containsDiscontinuity, archive::Bytes payload) {
         archive::Record chunk;
         chunk.type = archive::RecordType::AudioChunk;
         chunk.id = archive::randomUuid();
@@ -234,14 +218,122 @@ core::Result<CaptureDeviceProbe> probeAlsaCaptureDevice(std::string deviceId) {
     auto configuration = configureCapture(pcm.get());
     if (!configuration)
         return std::unexpected(configuration.error());
-    return CaptureDeviceProbe{std::move(deviceId),
-                              "pcm_s16le",
-                              configuration->sampleRateHz,
+    return CaptureDeviceProbe{std::move(deviceId), "pcm_s16le", configuration->sampleRateHz,
                               configuration->channelCount};
 }
 
-core::Result<CaptureSummary>
-captureAlsa(archive::Archive& archive, const archive::Uuid& sessionId, CaptureOptions options) {
+core::Result<CapturePreflightSummary> preflightAlsaCaptureDevice(CapturePreflightOptions options) {
+    if (auto status = detail::validatePreflightOptions(options); !status)
+        return std::unexpected(status.error());
+    if (options.deviceId.empty())
+        options.deviceId = "default";
+
+    PcmHandle pcm;
+    const int openResult =
+        snd_pcm_open(pcm.put(), options.deviceId.c_str(), SND_PCM_STREAM_CAPTURE, 0);
+    if (openResult < 0) {
+        return std::unexpected(alsaError("audio_device_open_failed",
+                                         "Opening microphone '" + options.deviceId + "'",
+                                         openResult));
+    }
+    auto configuration = configureCapture(pcm.get());
+    if (!configuration)
+        return std::unexpected(configuration.error());
+
+    const auto framesPerRead = std::max<snd_pcm_uframes_t>(
+        1, static_cast<snd_pcm_uframes_t>(configuration->sampleRateHz) *
+               static_cast<snd_pcm_uframes_t>(options.levelInterval.count()) / 1'000U);
+    const std::size_t sampleValueCount =
+        static_cast<std::size_t>(framesPerRead) * configuration->channelCount;
+    std::vector<std::int16_t> samples(sampleValueCount);
+    detail::LevelAccumulator levels;
+    const auto startedAt = std::chrono::steady_clock::now();
+    auto lastNotification = startedAt;
+    std::uint64_t framesMeasured = 0;
+    const auto deadline = startedAt + options.duration;
+
+    while (std::chrono::steady_clock::now() < deadline) {
+        const auto remaining = deadline - std::chrono::steady_clock::now();
+        const auto remainingFrames = static_cast<snd_pcm_uframes_t>(
+            std::max<std::int64_t>(
+                1, std::chrono::duration_cast<std::chrono::microseconds>(remaining).count()) *
+            configuration->sampleRateHz / 1'000'000);
+        const snd_pcm_uframes_t requestedFrames = std::min(framesPerRead, remainingFrames);
+        const snd_pcm_sframes_t readFrames =
+            snd_pcm_readi(pcm.get(), samples.data(), requestedFrames);
+        if (readFrames == -EPIPE) {
+            const int prepareResult = snd_pcm_prepare(pcm.get());
+            if (prepareResult < 0) {
+                return std::unexpected(alsaError("audio_preflight_read_failed",
+                                                 "Recovering microphone input", prepareResult));
+            }
+            continue;
+        }
+        if (readFrames == -EINTR)
+            continue;
+        if (readFrames < 0) {
+            return std::unexpected(alsaError("audio_preflight_read_failed",
+                                             "Reading microphone input",
+                                             static_cast<int>(readFrames)));
+        }
+        if (readFrames == 0)
+            continue;
+
+        const std::size_t valuesRead =
+            static_cast<std::size_t>(readFrames) * configuration->channelCount;
+        for (std::size_t index = 0; index < valuesRead; ++index) {
+            levels.add(static_cast<double>(samples[index]) / 32'768.0);
+        }
+        std::fill(samples.begin(), samples.begin() + static_cast<std::ptrdiff_t>(valuesRead), 0);
+        if (static_cast<std::uint64_t>(readFrames) >
+            std::numeric_limits<std::uint64_t>::max() - framesMeasured) {
+            return std::unexpected(core::error("audio_preflight_counter_invalid",
+                                               "Microphone check frame counter overflowed."));
+        }
+        framesMeasured += static_cast<std::uint64_t>(readFrames);
+
+        const auto now = std::chrono::steady_clock::now();
+        if (now - lastNotification >= options.levelInterval) {
+            const auto window = levels.takeWindow();
+            const auto elapsed =
+                std::chrono::duration_cast<std::chrono::milliseconds>(now - startedAt);
+            const auto level =
+                detail::makeCaptureInputLevel(window, configuration->channelCount, elapsed);
+            auto update = level;
+            update.framesMeasured = framesMeasured;
+            if (auto status = detail::notifyPreflightLevel(options, update); !status)
+                return std::unexpected(status.error());
+            lastNotification = now;
+        }
+    }
+
+    const auto finishedAt = std::chrono::steady_clock::now();
+    const auto finalWindow = levels.takeWindow();
+    if (finalWindow.sampleValueCount != 0) {
+        const auto elapsed =
+            std::chrono::duration_cast<std::chrono::milliseconds>(finishedAt - startedAt);
+        const auto level =
+            detail::makeCaptureInputLevel(finalWindow, configuration->channelCount, elapsed);
+        auto update = level;
+        update.framesMeasured = framesMeasured;
+        if (auto status = detail::notifyPreflightLevel(options, update); !status)
+            return std::unexpected(status.error());
+    }
+    if (framesMeasured == 0) {
+        return std::unexpected(core::error(
+            "audio_preflight_no_samples",
+            "The selected microphone opened, but it produced no samples during the check."));
+    }
+
+    CaptureDeviceProbe device{options.deviceId, "pcm_s16le", configuration->sampleRateHz,
+                              configuration->channelCount};
+    return detail::makeCapturePreflightSummary(
+        std::move(device), levels.total(),
+        std::chrono::duration_cast<std::chrono::milliseconds>(finishedAt - startedAt));
+}
+
+core::Result<CaptureSummary> captureAlsa(archive::Archive& archive, const archive::Uuid& sessionId,
+                                         CaptureOptions options) {
     if (options.source == DeviceKind::playback && options.deviceId.empty()) {
         return std::unexpected(
             core::error("audio_monitor_required",
@@ -267,8 +359,7 @@ captureAlsa(archive::Archive& archive, const archive::Uuid& sessionId, CaptureOp
             core::error("audio_capture_session_busy", "Session already has an active recording."));
     }
     bool hasAudio = false;
-    if (auto status = archive.forEachAudioChunk(sessionId,
-                                                options.trackId,
+    if (auto status = archive.forEachAudioChunk(sessionId, options.trackId,
                                                 [&](archive::Record&&) {
                                                     hasAudio = true;
                                                     return false;
@@ -287,8 +378,7 @@ captureAlsa(archive::Archive& archive, const archive::Uuid& sessionId, CaptureOp
     int result = snd_pcm_open(pcm.put(), deviceId.c_str(), SND_PCM_STREAM_CAPTURE, 0);
     if (result < 0) {
         return std::unexpected(alsaError("audio_device_open_failed",
-                                         "Opening ALSA capture device '" + deviceId + "'",
-                                         result));
+                                         "Opening ALSA capture device '" + deviceId + "'", result));
     }
     auto configuration = configureCapture(pcm.get());
     if (!configuration)
@@ -364,8 +454,7 @@ captureAlsa(archive::Archive& archive, const archive::Uuid& sessionId, CaptureOp
         : options.durability == DurabilityPolicy::reducedWrite ? 2'000U
                                                                : 500U;
     const std::uint64_t framesPerChunk = std::max<std::uint64_t>(
-        1,
-        static_cast<std::uint64_t>(summary.sampleRateHz) * intervalMilliseconds / 1'000U);
+        1, static_cast<std::uint64_t>(summary.sampleRateHz) * intervalMilliseconds / 1'000U);
     const std::uint64_t bytesPerFrame =
         static_cast<std::uint64_t>(summary.channelCount) * sizeof(std::int16_t);
     const std::uint64_t maximumChunkBytes = 1'048'576;
@@ -403,20 +492,10 @@ captureAlsa(archive::Archive& archive, const archive::Uuid& sessionId, CaptureOp
         }
         archive::Bytes payload = std::move(pending);
         pending.clear();
-        auto status = appendCapturedChunk(archive,
-                                          session,
-                                          sessionId,
-                                          summary.trackId,
-                                          sequence,
-                                          timelineEndSample,
-                                          frames,
-                                          storedSamples,
-                                          storedBytes,
-                                          0,
-                                          summary.sampleRateHz,
-                                          summary.channelCount,
-                                          pendingDiscontinuity,
-                                          std::move(payload));
+        auto status = appendCapturedChunk(archive, session, sessionId, summary.trackId, sequence,
+                                          timelineEndSample, frames, storedSamples, storedBytes, 0,
+                                          summary.sampleRateHz, summary.channelCount,
+                                          pendingDiscontinuity, std::move(payload));
         if (!status)
             return status;
         ++sequence;
@@ -451,12 +530,8 @@ captureAlsa(archive::Archive& archive, const archive::Uuid& sessionId, CaptureOp
                     alsaError("audio_capture_pause_failed", "Pausing ALSA capture", result);
                 break;
             }
-            if (auto status = updateRecordingSession(archive,
-                                                     session,
-                                                     "paused",
-                                                     sequence,
-                                                     storedSamples,
-                                                     storedBytes);
+            if (auto status = updateRecordingSession(archive, session, "paused", sequence,
+                                                     storedSamples, storedBytes);
                 !status) {
                 streamFailure = status.error();
                 break;
@@ -479,12 +554,8 @@ captureAlsa(archive::Archive& archive, const archive::Uuid& sessionId, CaptureOp
                 const auto resumedAt = std::chrono::steady_clock::now();
                 totalPause += resumedAt - pausedAt;
                 paused = false;
-                if (auto status = updateRecordingSession(archive,
-                                                         session,
-                                                         "recording",
-                                                         sequence,
-                                                         storedSamples,
-                                                         storedBytes);
+                if (auto status = updateRecordingSession(archive, session, "recording", sequence,
+                                                         storedSamples, storedBytes);
                     !status) {
                     streamFailure = status.error();
                     break;
@@ -507,8 +578,7 @@ captureAlsa(archive::Archive& archive, const archive::Uuid& sessionId, CaptureOp
             result = snd_pcm_prepare(pcm.get());
             if (result < 0) {
                 streamFailure = alsaError("audio_capture_recovery_failed",
-                                          "Recovering an ALSA input overrun",
-                                          result);
+                                          "Recovering an ALSA input overrun", result);
                 break;
             }
             continue;
@@ -516,8 +586,7 @@ captureAlsa(archive::Archive& archive, const archive::Uuid& sessionId, CaptureOp
         if (frames == -EINTR)
             continue;
         if (frames < 0) {
-            streamFailure = alsaError("audio_capture_read_failed",
-                                      "Reading samples from ALSA",
+            streamFailure = alsaError("audio_capture_read_failed", "Reading samples from ALSA",
                                       static_cast<int>(frames));
             break;
         }
@@ -526,8 +595,7 @@ captureAlsa(archive::Archive& archive, const archive::Uuid& sessionId, CaptureOp
 
         const auto bytes =
             static_cast<std::size_t>(frames) * static_cast<std::size_t>(bytesPerFrame);
-        pending.insert(pending.end(),
-                       buffer.begin(),
+        pending.insert(pending.end(), buffer.begin(),
                        buffer.begin() + static_cast<std::ptrdiff_t>(bytes));
         if (pending.size() >= safeFramesPerChunk * bytesPerFrame) {
             if (auto status = writePending(); !status) {
@@ -543,13 +611,8 @@ captureAlsa(archive::Archive& archive, const archive::Uuid& sessionId, CaptureOp
     }
     if (streamFailure) {
         const std::string state = sequence == 0 ? "failed" : "interrupted";
-        auto status = updateRecordingSession(archive,
-                                             session,
-                                             state,
-                                             sequence,
-                                             storedSamples,
-                                             storedBytes,
-                                             streamFailure->message);
+        auto status = updateRecordingSession(archive, session, state, sequence, storedSamples,
+                                             storedBytes, streamFailure->message);
         if (!status) {
             return std::unexpected(core::error(
                 streamFailure->code,
@@ -563,11 +626,7 @@ captureAlsa(archive::Archive& archive, const archive::Uuid& sessionId, CaptureOp
 
     session.fields["recording_stopped_at_us"] = std::to_string(nowUnixMicroseconds());
     session.fields["recording_discontinuities"] = std::to_string(discontinuities);
-    if (auto status = updateRecordingSession(archive,
-                                             session,
-                                             "completed",
-                                             sequence,
-                                             storedSamples,
+    if (auto status = updateRecordingSession(archive, session, "completed", sequence, storedSamples,
                                              storedBytes);
         !status) {
         return std::unexpected(status.error());
@@ -582,6 +641,11 @@ captureAlsa(archive::Archive& archive, const archive::Uuid& sessionId, CaptureOp
 #else
 
 core::Result<CaptureDeviceProbe> probeAlsaCaptureDevice(std::string) {
+    return std::unexpected(
+        core::error("audio_backend_unavailable", "This build does not include the ALSA backend."));
+}
+
+core::Result<CapturePreflightSummary> preflightAlsaCaptureDevice(CapturePreflightOptions) {
     return std::unexpected(
         core::error("audio_backend_unavailable", "This build does not include the ALSA backend."));
 }
