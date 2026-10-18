@@ -355,13 +355,24 @@
         });
     }
 
-    async function responseFrom(argumentsList: string[]): Promise<any> {
+    async function responseFrom(
+        argumentsList: string[],
+        options: { synchronizeArchive?: boolean } = {},
+    ): Promise<any> {
         const message = await requestWorker("dispatch", {
             arguments: argumentsList,
             passphrase: archivePassphrase,
             newPassphrase: newArchivePassphrase,
+            synchronizeArchive: options.synchronizeArchive !== false,
         });
         const response = message.result;
+        if (response.archive_persistence_error) {
+            setStorageStatus(
+                "Browser recovery storage unavailable",
+                response.archive_persistence_error,
+                Boolean(activeArchivePath),
+            );
+        }
         if (response.ok !== true && response.ok !== "true") {
             const error = new Error(response.error || response.output || "The command failed.");
             error.code = response.error_code || "command_failed";
@@ -378,7 +389,7 @@
     }
 
     async function readArchiveBytes() {
-        const result = await requestWorker("read-file", { path: activeArchivePath });
+        const result = await requestWorker("read-archive", { path: activeArchivePath });
         return new Uint8Array(result.bytes);
     }
 
@@ -397,52 +408,81 @@
         });
     }
 
-    function readBrowserArchive() {
+    function archiveStorageKey(bytes: ArrayBuffer | Uint8Array): string {
+        const view = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
+        const magic = [0x54, 0x55, 0x54, 0x4f, 0x52, 0x55, 0x58, 0x00];
+        if (view.byteLength < 32 || magic.some((byte, index) => view[index] !== byte)) {
+            throw new Error("The selected file does not have a valid Tutorux archive header.");
+        }
+        const archiveId = Array.from(view.subarray(16, 32), (byte) =>
+            byte.toString(16).padStart(2, "0"),
+        ).join("");
+        return `archive:${archiveId}`;
+    }
+
+    function readBrowserArchive(archiveKey = "") {
         return new Promise((resolve, reject) => {
             if (!browserArchiveDatabase) {
                 reject(new Error("Browser archive storage is unavailable."));
                 return;
             }
-            const request = browserArchiveDatabase
+            const store = browserArchiveDatabase
                 .transaction("workspace", "readonly")
-                .objectStore("workspace")
-                .get("active");
-            request.onsuccess = () => {
-                recoveryArchive = request.result || null;
-                resolve(recoveryArchive);
+                .objectStore("workspace");
+            if (archiveKey) {
+                const request = store.get(archiveKey);
+                request.onsuccess = () => resolve(request.result || null);
+                request.onerror = () => reject(
+                    request.error || new Error("Browser archive could not be read."),
+                );
+                return;
+            }
+            const activeRequest = store.get("active");
+            activeRequest.onsuccess = () => {
+                const active = activeRequest.result;
+                if (!active) {
+                    recoveryArchive = null;
+                    resolve(null);
+                    return;
+                }
+                if (typeof active.archiveKey !== "string") {
+                    recoveryArchive = active;
+                    resolve(active);
+                    return;
+                }
+                const archiveRequest = store.get(active.archiveKey);
+                archiveRequest.onsuccess = () => {
+                    recoveryArchive = archiveRequest.result || null;
+                    resolve(recoveryArchive);
+                };
+                archiveRequest.onerror = () => reject(
+                    archiveRequest.error || new Error("Browser archive could not be read."),
+                );
             };
-            request.onerror = () => reject(request.error || new Error("Browser archive could not be read."));
+            activeRequest.onerror = () => reject(
+                activeRequest.error || new Error("Browser archive could not be read."),
+            );
         });
     }
 
     async function persistBrowserArchive() {
         if (!browserArchiveDatabase || !activeArchivePath) return;
         const source = await readArchiveBytes();
-        return new Promise((resolve, reject) => {
-            const transaction = browserArchiveDatabase.transaction("workspace", "readwrite");
-            const request = transaction.objectStore("workspace").put({
-                key: "active",
-                name: activeArchiveName,
-                bytes: source.slice().buffer,
-                savedAt: Date.now(),
-            });
-            request.onerror = () => reject(request.error || new Error("Browser archive could not be saved."));
-            transaction.oncomplete = () => {
-                recoveryArchive = {
-                    name: activeArchiveName,
-                    bytes: source.slice().buffer,
-                    savedAt: Date.now(),
-                };
-                setStorageStatus(
-                    "Browser recovery copy updated",
-                    "The current .tux archive is stored in this browser. Browser storage can be cleared or evicted; download a portable copy to keep it independently.",
-                    true,
-                );
-                resolve();
-            };
-            transaction.onerror = () => reject(transaction.error || new Error("Browser archive could not be saved."));
-            transaction.onabort = () => reject(transaction.error || new Error("Browser archive save was interrupted."));
-        });
+        const stored = await readBrowserArchive(archiveStorageKey(source));
+        if (!stored || !(stored.bytes instanceof ArrayBuffer)) {
+            throw new Error("The browser could not retain the latest archive snapshot.");
+        }
+        const storedBytes = new Uint8Array(stored.bytes);
+        if (storedBytes.length !== source.length ||
+            storedBytes.some((byte, index) => byte !== source[index])) {
+            throw new Error("The browser recovery copy is older than the current archive in memory.");
+        }
+        recoveryArchive = stored;
+        setStorageStatus(
+            "Browser recovery copy updated",
+            "The current .tux archive is stored in this browser. Browser storage can be cleared or evicted; download a portable copy to keep it independently.",
+            true,
+        );
     }
 
     async function restoreBrowserArchive() {
@@ -524,7 +564,13 @@
     }
 
     async function downloadBrowserRecoveryCopy(): Promise<void> {
-        const stored = recoveryArchive || await readBrowserArchive();
+        if (activeArchivePath) {
+            const bytes = await readArchiveBytes();
+            downloadArchiveBytes(bytes, activeArchiveName);
+            showNotice(`Downloaded the current recovery copy of ${activeArchiveName}.`);
+            return;
+        }
+        const stored = await readBrowserArchive() || recoveryArchive;
         if (!stored || !(stored.bytes instanceof ArrayBuffer)) {
             throw new Error("There is no retained browser recovery copy to download.");
         }
@@ -1152,7 +1198,10 @@
         const displayName = name.trim().replace(/[\\/\0]/g, "_").replace(/\.tux$/i, "") || "Tutorux";
         const archiveName = `${displayName}.tux`;
         const path = `/workspace/${archiveName}`;
-        await responseFrom(["archive", "init", path, "--name", displayName, "--json"]);
+        await responseFrom(
+            ["archive", "init", path, "--name", displayName, "--json"],
+            { synchronizeArchive: false },
+        );
         setArchive(path, archiveName);
         activeSessionId = "";
         activeGuideId = "";
@@ -1181,11 +1230,17 @@
         activeArchiveName = safeName;
         sourceFileHandle = handle;
         try {
-            await responseFrom(["--archive", activeArchivePath, "archive", "verify", "--json"]);
+            await responseFrom(
+                ["--archive", activeArchivePath, "archive", "verify", "--json"],
+                { synchronizeArchive: false },
+            );
         } catch (error) {
             if (error.code !== "archive_locked") throw error;
             archivePassphrase = await requestArchivePassphrase();
-            await responseFrom(["--archive", activeArchivePath, "archive", "verify", "--json"]);
+            await responseFrom(
+                ["--archive", activeArchivePath, "archive", "verify", "--json"],
+                { synchronizeArchive: false },
+            );
         }
         setArchive(path, safeName, handle);
         activeSessionId = "";
