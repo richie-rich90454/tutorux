@@ -425,9 +425,11 @@ int main() {
                     }
                 }
             }
-            if (!name || !status || *status != "local-openai-compatible")
+            if (!name || !status)
                 continue;
-            listsOllama |= *name == "Ollama";
+            listsOllama |= *name == "Ollama" && *status == "native-ollama-api";
+            if (*status != "local-openai-compatible")
+                continue;
             listsLmStudio |= *name == "LM Studio";
             listsLlamaServer |= *name == "llama.cpp server";
         }
