@@ -6,6 +6,7 @@
 
 #if defined(__linux__)
 #include "tutorux/audio/alsa_backend.hpp"
+#include "tutorux/audio/pipewire_backend.hpp"
 #elif defined(__APPLE__)
 #include "tutorux/audio/coreaudio_backend.hpp"
 #include "tutorux/audio/screencapturekit_backend.hpp"
@@ -90,9 +91,8 @@ namespace {
         DWORD currentSession = 0;
         DWORD targetSession = 0;
         if (!ProcessIdToSessionId(GetCurrentProcessId(), &currentSession) || !ProcessIdToSessionId(processId, &targetSession)) {
-            return std::unexpected(core::error(
-                "audio_application_session_unavailable",
-                "Windows could not determine the selected application's session."));
+            return std::unexpected(
+                core::error("audio_application_session_unavailable", "Windows could not determine the selected application's session."));
         }
         if (targetSession != currentSession) {
             return std::unexpected(core::error("audio_application_session_mismatch",
@@ -1387,6 +1387,8 @@ core::Result<CaptureDeviceProbe> probeCaptureDevice(DeviceKind source, std::stri
 #ifdef _WIN32
     return probeWasapi(source, std::move(deviceId));
 #elif defined(__linux__)
+    if (isPipeWireDevice(deviceId))
+        return probePipeWireCaptureDevice(source, std::move(deviceId));
     if (source == DeviceKind::application) {
         return std::unexpected(core::error("audio_application_capture_unsupported",
                                            "This Linux build uses ALSA capture and does not expose PipeWire application streams."));
@@ -1415,6 +1417,8 @@ core::Result<CapturePreflightSummary> preflightCaptureInput(CapturePreflightOpti
 #ifdef _WIN32
     return preflightWasapi(std::move(options));
 #elif defined(__linux__)
+    if (isPipeWireDevice(options.deviceId))
+        return preflightPipeWireCaptureDevice(std::move(options));
     return preflightAlsaCaptureDevice(std::move(options));
 #elif defined(__APPLE__)
     return preflightCoreAudioCaptureDevice(std::move(options));
@@ -1695,6 +1699,8 @@ core::Result<CaptureSummary> captureNative(archive::Archive& archive, const arch
     }
     return captureWasapi(archive, sessionId, std::move(options));
 #elif defined(__linux__)
+    if (isPipeWireDevice(options.deviceId))
+        return capturePipeWire(archive, sessionId, std::move(options));
     if (options.source == DeviceKind::application) {
         return std::unexpected(core::error("audio_application_capture_unsupported",
                                            "This Linux build uses ALSA capture and does not expose PipeWire application streams."));
