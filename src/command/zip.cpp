@@ -19,8 +19,9 @@ namespace {
     }
 
     void appendBytes(std::vector<std::byte>& output, std::string_view value) {
-        for (const unsigned char character : value)
-            output.push_back(static_cast<std::byte>(character));
+        for (const char rawCharacter : value) {
+            output.push_back(static_cast<std::byte>(static_cast<unsigned char>(rawCharacter)));
+        }
     }
 
     struct CentralDirectoryEntry final {
