@@ -1,0 +1,390 @@
+name: Static release qualification
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: static-release-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  native-static:
+    name: ${{ matrix.profile }} static · ${{ matrix.name }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 240
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: windows-x64
+            profile: Full
+            runner: windows-2025
+            preset: portable-static-windows-x64-release
+            build_dir: build-windows-x64-static
+            runtime_dir: dist/windows-x64
+            executable: dist/windows-x64/tutorux.exe
+            artifact: dist/windows-x64
+            rust_target: x86_64-pc-windows-gnu
+          - name: windows-arm64
+            profile: Full
+            runner: windows-11-arm
+            preset: portable-static-windows-arm64-release
+            build_dir: build-windows-arm64-static
+            runtime_dir: dist/windows-arm64
+            executable: dist/windows-arm64/tutorux.exe
+            artifact: dist/windows-arm64
+            rust_target: aarch64-pc-windows-gnullvm
+          - name: linux-x64
+            profile: Full
+            runner: ubuntu-24.04
+            preset: portable-static-linux-x64-release
+            build_dir: build-linux-x64-static
+            runtime_dir: dist/linux-x64
+            executable: dist/linux-x64/tutorux
+            artifact: dist/linux-x64
+          - name: linux-arm64
+            profile: Full
+            runner: ubuntu-24.04-arm
+            preset: portable-static-linux-arm64-release
+            build_dir: build-linux-arm64-static
+            runtime_dir: dist/linux-arm64
+            executable: dist/linux-arm64/tutorux
+            artifact: dist/linux-arm64
+          - name: macos-intel
+            profile: Full
+            runner: macos-15-intel
+            preset: portable-static-macos-x64-release
+            build_dir: build-macos-x64-static
+            runtime_dir: dist/macos-intel-runtime
+            executable: dist/Tutorux-macos-intel-Full.app/Contents/MacOS/tutorux
+            artifact: dist/Tutorux-macos-intel-Full.app
+            app_bundle: dist/Tutorux-macos-intel-Full.app
+          - name: macos-apple-silicon
+            profile: Full
+            runner: macos-15
+            preset: portable-static-macos-arm64-release
+            build_dir: build-macos-arm64-static
+            runtime_dir: dist/macos-apple-silicon-runtime
+            executable: dist/Tutorux-macos-apple-silicon-Full.app/Contents/MacOS/tutorux
+            artifact: dist/Tutorux-macos-apple-silicon-Full.app
+            app_bundle: dist/Tutorux-macos-apple-silicon-Full.app
+          - name: windows-x64
+            profile: Compact
+            runner: windows-2025
+            preset: portable-compact-windows-x64-release
+            build_dir: build-windows-x64-compact
+            runtime_dir: dist/windows-x64-compact
+            executable: dist/windows-x64-compact/tutorux.exe
+            artifact: dist/windows-x64-compact
+            rust_target: x86_64-pc-windows-gnu
+          - name: windows-arm64
+            profile: Compact
+            runner: windows-11-arm
+            preset: portable-compact-windows-arm64-release
+            build_dir: build-windows-arm64-compact
+            runtime_dir: dist/windows-arm64-compact
+            executable: dist/windows-arm64-compact/tutorux.exe
+            artifact: dist/windows-arm64-compact
+            rust_target: aarch64-pc-windows-gnullvm
+          - name: linux-x64
+            profile: Compact
+            runner: ubuntu-24.04
+            preset: portable-compact-linux-x64-release
+            build_dir: build-linux-x64-compact
+            runtime_dir: dist/linux-x64-compact
+            executable: dist/linux-x64-compact/tutorux
+            artifact: dist/linux-x64-compact
+          - name: linux-arm64
+            profile: Compact
+            runner: ubuntu-24.04-arm
+            preset: portable-compact-linux-arm64-release
+            build_dir: build-linux-arm64-compact
+            runtime_dir: dist/linux-arm64-compact
+            executable: dist/linux-arm64-compact/tutorux
+            artifact: dist/linux-arm64-compact
+          - name: macos-intel
+            profile: Compact
+            runner: macos-15-intel
+            preset: portable-compact-macos-x64-release
+            build_dir: build-macos-x64-compact
+            runtime_dir: dist/macos-intel-compact-runtime
+            executable: dist/Tutorux-macos-intel-Compact.app/Contents/MacOS/tutorux
+            artifact: dist/Tutorux-macos-intel-Compact.app
+            app_bundle: dist/Tutorux-macos-intel-Compact.app
+          - name: macos-apple-silicon
+            profile: Compact
+            runner: macos-15
+            preset: portable-compact-macos-arm64-release
+            build_dir: build-macos-arm64-compact
+            runtime_dir: dist/macos-apple-silicon-compact-runtime
+            executable: dist/Tutorux-macos-apple-silicon-Compact.app/Contents/MacOS/tutorux
+            artifact: dist/Tutorux-macos-apple-silicon-Compact.app
+            app_bundle: dist/Tutorux-macos-apple-silicon-Compact.app
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Prepare MSYS2 UCRT64 dependencies
+        if: matrix.name == 'windows-x64'
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: true
+          install: >-
+            git
+            make
+            mingw-w64-ucrt-x86_64-toolchain
+            mingw-w64-ucrt-x86_64-cmake
+            mingw-w64-ucrt-x86_64-ninja
+            mingw-w64-ucrt-x86_64-pkgconf
+            mingw-w64-ucrt-x86_64-python
+            mingw-w64-ucrt-x86_64-libsodium
+            mingw-w64-ucrt-x86_64-curl
+            mingw-w64-ucrt-x86_64-freetype
+            mingw-w64-ucrt-x86_64-libxml2
+            mingw-w64-ucrt-x86_64-alsa-lib
+
+      - name: Prepare MSYS2 CLANGARM64 dependencies
+        if: matrix.name == 'windows-arm64'
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: CLANGARM64
+          update: true
+          install: >-
+            git
+            make
+            mingw-w64-clang-aarch64-cc
+            mingw-w64-clang-aarch64-cmake
+            mingw-w64-clang-aarch64-ninja
+            mingw-w64-clang-aarch64-pkgconf
+            mingw-w64-clang-aarch64-python
+            mingw-w64-clang-aarch64-libsodium
+            mingw-w64-clang-aarch64-curl
+            mingw-w64-clang-aarch64-freetype
+            mingw-w64-clang-aarch64-libxml2
+            mingw-w64-clang-aarch64-openssl
+            mingw-w64-clang-aarch64-libjpeg-turbo
+            mingw-w64-clang-aarch64-libpng
+            mingw-w64-clang-aarch64-zlib
+
+      - name: Install Rust GNU target
+        if: matrix.name == 'windows-x64'
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          target: ${{ matrix.rust_target }}
+
+      - name: Install Rust Windows ARM64 GNU target
+        if: matrix.name == 'windows-arm64'
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          target: ${{ matrix.rust_target }}
+
+      - name: Install Rust for Unix targets
+        if: runner.os != 'Windows'
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Linux static build dependencies
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends \
+            autoconf automake build-essential bzip2 cmake curl git libasound2-dev \
+            libbrotli-dev libbz2-dev libcurl4-openssl-dev libfreetype-dev libicu-dev \
+            libidn2-dev liblzma-dev libnghttp2-dev libnghttp3-dev libngtcp2-dev \
+            libpng-dev libpsl-dev libssh2-1-dev libssl-dev libtool libtool-bin \
+            libunistring-dev libxml2-dev libzstd-dev ninja-build pkg-config python3 \
+            zlib1g-dev
+
+      - name: Build pinned static libsodium on Linux
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          git clone --depth 1 --branch 1.0.22 https://github.com/jedisct1/libsodium.git "$RUNNER_TEMP/libsodium"
+          cd "$RUNNER_TEMP/libsodium"
+          ./autogen.sh
+          ./configure --prefix="$RUNNER_TEMP/tutorux-sodium" --enable-static --disable-shared
+          make -j2
+          make install
+          echo "TUTORUX_SODIUM_PREFIX=$RUNNER_TEMP/tutorux-sodium" >> "$GITHUB_ENV"
+          git rev-parse HEAD > "$RUNNER_TEMP/libsodium-commit.txt"
+          echo "TUTORUX_SODIUM_SOURCE_COMMIT=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+
+      - name: Install macOS static build dependencies
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          brew install cmake curl freetype libxml2 libsodium ninja pkgconf
+          echo "TUTORUX_SODIUM_PREFIX=$(brew --prefix libsodium)" >> "$GITHUB_ENV"
+          echo "PKG_CONFIG_PATH=$(brew --prefix curl)/lib/pkgconfig:$(brew --prefix freetype)/lib/pkgconfig:$(brew --prefix libxml2)/lib/pkgconfig:$PKG_CONFIG_PATH" >> "$GITHUB_ENV"
+          echo "CMAKE_PREFIX_PATH=$(brew --prefix curl);$(brew --prefix freetype);$(brew --prefix libxml2)" >> "$GITHUB_ENV"
+
+      - name: Configure Full static release
+        if: runner.os != 'Windows'
+        shell: bash
+        run: cmake --preset "${{ matrix.preset }}" -DTUTORUX_SODIUM_PREFIX="$TUTORUX_SODIUM_PREFIX"
+
+      - name: Configure Full static release on UCRT64
+        if: matrix.name == 'windows-x64'
+        shell: msys2 {0}
+        run: cmake --preset "${{ matrix.preset }}" -DTUTORUX_SODIUM_PREFIX=/ucrt64
+
+      - name: Configure Windows ARM64 static release on CLANGARM64
+        if: matrix.name == 'windows-arm64'
+        shell: msys2 {0}
+        run: |
+          export TUTORUX_WINDOWS_ARM64_PREFIX="$(cygpath -m /clangarm64)"
+          export TUTORUX_WINDOWS_ARM64_TOOLCHAIN_KIND=msys2-clangarm64
+          cmake --preset "${{ matrix.preset }}" -DTUTORUX_SODIUM_PREFIX="$TUTORUX_WINDOWS_ARM64_PREFIX"
+
+      - name: Build and run CTest
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          cmake --build --preset "${{ matrix.preset }}" --parallel 2
+          ctest --preset "${{ matrix.preset }}" --parallel 2
+
+      - name: Build and run CTest on UCRT64
+        if: runner.os == 'Windows'
+        shell: msys2 {0}
+        run: |
+          cmake --build --preset "${{ matrix.preset }}" --parallel 2
+          ctest --preset "${{ matrix.preset }}" --parallel 2
+
+      - name: Install native runtime
+        if: runner.os != 'Windows'
+        shell: bash
+        run: cmake --install "${{ matrix.build_dir }}" --config Release --component Runtime --prefix "${{ matrix.runtime_dir }}"
+
+      - name: Install Windows runtime
+        if: runner.os == 'Windows'
+        shell: msys2 {0}
+        run: cmake --install "${{ matrix.build_dir }}" --config Release --component Runtime --prefix "${{ matrix.runtime_dir }}"
+
+      - name: Confirm Windows ARM64 executable and notices
+        if: matrix.name == 'windows-arm64'
+        shell: msys2 {0}
+        run: |
+          test -f "${{ matrix.executable }}"
+          /clangarm64/bin/llvm-readobj.exe --file-headers "${{ matrix.executable }}" > "$RUNNER_TEMP/tutorux-arm64-pe-headers.txt"
+          grep -q 'ARM64' "$RUNNER_TEMP/tutorux-arm64-pe-headers.txt"
+          test -s "${{ matrix.runtime_dir }}/WINDOWS-ARM64-SBOM.md"
+          test -d "${{ matrix.runtime_dir }}/licenses/third-party"
+          test -n "$(find "${{ matrix.runtime_dir }}/licenses/third-party" -type f -print -quit)"
+
+      - name: Package macOS app bundle
+        if: runner.os == 'macOS'
+        shell: bash
+        run: >-
+          cmake
+          -DTUTORUX_RUNTIME_DIR="${{ matrix.runtime_dir }}"
+          -DTUTORUX_APP_BUNDLE_DIR="${{ matrix.app_bundle }}"
+          -DTUTORUX_APP_VERSION=1.0.0
+          -P cmake/PackageMacOSApp.cmake
+
+      - name: Capture Windows package inventory
+        if: runner.os == 'Windows'
+        shell: msys2 {0}
+        run: pacman -Q > dist/package-inventory.txt
+
+      - name: Capture Linux package inventory
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          dpkg-query -W -f='${binary:Package}=${Version}\n' > dist/package-inventory.txt
+          printf 'libsodium source commit: ' >> dist/package-inventory.txt
+          cat "$RUNNER_TEMP/libsodium-commit.txt" >> dist/package-inventory.txt
+
+      - name: Capture macOS package inventory
+        if: runner.os == 'macOS'
+        shell: bash
+        run: brew list --versions --formula > dist/package-inventory.txt
+
+      - name: Write native size and dependency report
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          python3 cmake/WriteReleaseQualificationReport.py \
+            --binary "${{ matrix.executable }}" \
+            --artifact "${{ matrix.artifact }}" \
+            --preset "${{ matrix.preset }}" \
+            --inventory dist/package-inventory.txt \
+            --output dist/qualification-report.md
+          cp docs/dependencies/DEPENDENCY-PINS.md dist/DEPENDENCY-PINS.md
+
+      - name: Write Windows size and dependency report
+        if: runner.os == 'Windows'
+        shell: msys2 {0}
+        run: |
+          python cmake/WriteReleaseQualificationReport.py \
+            --binary "${{ matrix.executable }}" \
+            --artifact "${{ matrix.artifact }}" \
+            --preset "${{ matrix.preset }}" \
+            --inventory dist/package-inventory.txt \
+            --output dist/qualification-report.md
+          cp docs/dependencies/DEPENDENCY-PINS.md dist/DEPENDENCY-PINS.md
+
+      - name: Upload runtime and qualification report
+        uses: actions/upload-artifact@v4
+        with:
+          name: tutorux-${{ matrix.name }}-${{ matrix.profile }}
+          path: |
+            ${{ matrix.artifact }}
+            dist/package-inventory.txt
+            dist/qualification-report.md
+            dist/DEPENDENCY-PINS.md
+          if-no-files-found: error
+          retention-days: 30
+
+  wasm-static:
+    name: Static WebAssembly build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Emscripten and build dependencies
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends autoconf automake build-essential cmake git libtool libtool-bin ninja-build pkg-config python3
+          git clone --depth 1 https://github.com/emscripten-core/emsdk.git "$RUNNER_TEMP/emsdk"
+          "$RUNNER_TEMP/emsdk/emsdk" install 4.0.10
+          "$RUNNER_TEMP/emsdk/emsdk" activate 4.0.10
+          cd "$RUNNER_TEMP/emsdk"
+          source ./emsdk_env.sh
+          git clone --depth 1 --branch 1.0.22 https://github.com/jedisct1/libsodium.git "$RUNNER_TEMP/libsodium-wasm"
+          cd "$RUNNER_TEMP/libsodium-wasm"
+          ./autogen.sh
+          emconfigure ./configure --host=wasm32-unknown-emscripten --prefix="$RUNNER_TEMP/tutorux-sodium-wasm" --enable-static --disable-shared
+          emmake make -j2
+          emmake make install
+          echo "libsodium source commit: $(git rev-parse HEAD)" >> "$RUNNER_TEMP/wasm-dependency-inventory.txt"
+          cd "$GITHUB_WORKSPACE"
+          echo "Emscripten SDK: 4.0.10" >> "$RUNNER_TEMP/wasm-dependency-inventory.txt"
+          git -C "$RUNNER_TEMP/emsdk" rev-parse HEAD >> "$RUNNER_TEMP/wasm-dependency-inventory.txt"
+          cmake --preset portable-wasm-release -DTUTORUX_SODIUM_PREFIX="$RUNNER_TEMP/tutorux-sodium-wasm"
+          cmake --build --preset portable-wasm-release --parallel 2
+          cmake --install build-wasm --component WebRuntime --prefix dist/tutorux-web
+          dpkg-query -W -f='${binary:Package}=${Version}\n' > "$RUNNER_TEMP/wasm-package-inventory.txt"
+          cat "$RUNNER_TEMP/wasm-dependency-inventory.txt" >> "$RUNNER_TEMP/wasm-package-inventory.txt"
+          python3 cmake/WriteReleaseQualificationReport.py \
+            --binary dist/tutorux-web/web/tutorux-core.wasm \
+            --artifact dist/tutorux-web \
+            --preset portable-wasm-release \
+            --inventory "$RUNNER_TEMP/wasm-package-inventory.txt" \
+            --output dist/qualification-report.md
+          cp docs/dependencies/DEPENDENCY-PINS.md dist/DEPENDENCY-PINS.md
+
+      - name: Upload static WebAssembly package and report
+        uses: actions/upload-artifact@v4
+        with:
+          name: tutorux-static-wasm
+          path: dist/
+          if-no-files-found: error
+          retention-days: 30
