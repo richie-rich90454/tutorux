@@ -1,5 +1,6 @@
 #include "tutorux/archive/archive.hpp"
 #include "tutorux/command/dispatcher.hpp"
+#include "tutorux/command/json.hpp"
 #include "tutorux/domain/entities.hpp"
 #include "tutorux/domain/journal.hpp"
 
@@ -89,7 +90,7 @@ int main() {
     const auto entryId = archive::uuidFromString(session->entryId);
     if (!entryId)
         return fail("A session created without an entry was not linked to an automatic journal entry.");
-    auto entryRecord = opened->get(archive::RecordType::JournalEntry, *entryId);
+    auto entryRecord = opened->get(archive::RecordType::Settings, *entryId);
     if (!entryRecord || !*entryRecord)
         return fail("The automatic journal entry could not be reopened.");
     auto entry = domain::journalEntryFromRecord(**entryRecord);
