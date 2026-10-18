@@ -12,6 +12,10 @@
         ok: boolean;
         result?: any;
         bytes?: ArrayBuffer;
+        channels?: number;
+        frames?: number;
+        sampleRate?: number;
+        samples?: ArrayBuffer;
         error?: string;
     };
 
@@ -76,6 +80,7 @@
             "browser-recording-start",
             "browser-recording-stop",
             "browser-recording-status",
+            "browser-playback-stop",
             "asset-import-form",
             "asset-files",
             "assets-list",
@@ -129,6 +134,10 @@
     let browserRecordingSessionId = "";
     let browserRecordingConsentAtUs = 0;
     let browserRecordingSaving = false;
+    let browserPlaybackContext: AudioContext | null = null;
+    let browserPlaybackSource: AudioBufferSourceNode | null = null;
+    let browserPlaybackPort: MessagePort | null = null;
+    let browserPlaybackCancelled = false;
 
     const maximumBrowserRecordingBytes = 64 * 1024 * 1024;
 
@@ -140,6 +149,80 @@
         noticeTimer = window.setTimeout(() => {
             elements.notice.hidden = true;
         }, 4800);
+    }
+
+    function primeBrowserPlayback(): void {
+        const AudioContextType = window.AudioContext;
+        if (!AudioContextType) return;
+        browserPlaybackContext ??= new AudioContextType();
+        void browserPlaybackContext.resume().catch(() => {});
+    }
+
+    function stopBrowserPlayback(): void {
+        browserPlaybackCancelled = true;
+        try {
+            browserPlaybackPort?.postMessage({ result: 3 });
+        } catch {
+            // The worker may have completed its playback request between UI events.
+        }
+        if (browserPlaybackSource) {
+            try {
+                browserPlaybackSource.stop();
+            } catch {
+                // The source may have completed between the click and stop request.
+            }
+        }
+    }
+
+    async function playBrowserPcm(message: WorkerResponse, port: MessagePort): Promise<void> {
+        try {
+            primeBrowserPlayback();
+            if (!browserPlaybackContext || !message.samples || !message.frames || !message.channels ||
+                !message.sampleRate) {
+                port.postMessage({ result: 1 });
+                return;
+            }
+            await browserPlaybackContext.resume();
+            const pcm = new Int16Array(message.samples);
+            const audio = browserPlaybackContext.createBuffer(
+                message.channels,
+                message.frames,
+                message.sampleRate,
+            );
+            for (let channel = 0; channel < message.channels; channel += 1) {
+                const channelData = audio.getChannelData(channel);
+                for (let frame = 0; frame < message.frames; frame += 1) {
+                    channelData[frame] = pcm[frame * message.channels + channel] / 32768;
+                }
+            }
+            const source = browserPlaybackContext.createBufferSource();
+            source.buffer = audio;
+            source.connect(browserPlaybackContext.destination);
+            browserPlaybackSource = source;
+            browserPlaybackPort = port;
+            elements["browser-playback-stop"].disabled = false;
+            await new Promise<void>((resolve, reject) => {
+                source.onended = () => resolve();
+                try {
+                    source.start();
+                } catch (error) {
+                    reject(error);
+                }
+            });
+            if (browserPlaybackSource === source) browserPlaybackSource = null;
+            if (browserPlaybackPort === port) browserPlaybackPort = null;
+            const cancelled = browserPlaybackCancelled;
+            browserPlaybackCancelled = false;
+            if (!cancelled) port.postMessage({ result: 0 });
+        } catch {
+            browserPlaybackSource = null;
+            if (browserPlaybackPort === port) browserPlaybackPort = null;
+            if (!browserPlaybackCancelled) port.postMessage({ result: 2 });
+            browserPlaybackCancelled = false;
+        } finally {
+            elements["browser-playback-stop"].disabled = true;
+            port.close();
+        }
     }
 
     function setDirty(value) {
@@ -330,6 +413,11 @@
             webWorker = new Worker("./tutorux-worker.js");
             webWorker.onmessage = (event: MessageEvent<WorkerResponse>) => {
                 const message = event.data;
+                if (message.type === "play-audio") {
+                    const port = event.ports[0];
+                    if (port) void playBrowserPcm(message, port);
+                    return;
+                }
                 if (message.type === "ready") {
                     resolve();
                     return;
@@ -878,7 +966,25 @@
                 }
             });
 
-            row.append(heading, textForm, timestampForm, speakerForm, verify);
+            const playAudio = document.createElement("button");
+            playAudio.className = "text-button";
+            playAudio.type = "button";
+            playAudio.textContent = "Play from timestamp";
+            playAudio.addEventListener("click", async () => {
+                primeBrowserPlayback();
+                try {
+                    await responseFrom(archiveArguments([
+                        "record", "play", "--session", activeSessionId,
+                        "--start-us", String(record.start_time_us || 0),
+                        "--duration-us", "30000000",
+                    ]));
+                    showNotice("Audio playback finished.");
+                } catch (error) {
+                    showNotice(error.message, true);
+                }
+            });
+
+            row.append(heading, playAudio, textForm, timestampForm, speakerForm, verify);
             container.append(row);
         }
     }
@@ -1437,6 +1543,7 @@
         elements["browser-recording-status"].textContent = "Stopping and saving the microphone recording…";
         browserRecordingRecorder.stop();
     });
+    elements["browser-playback-stop"].addEventListener("click", stopBrowserPlayback);
     window.addEventListener("beforeunload", (event) => {
         if (!browserRecordingRecorder && !browserRecordingSaving) return;
         event.preventDefault();
