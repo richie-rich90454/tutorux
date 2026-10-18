@@ -1,6 +1,7 @@
 #include "tutorux/audio/capture.hpp"
 
 #include "tutorux/domain/entities.hpp"
+#include "preflight_metrics.hpp"
 
 #if defined(__linux__)
 #include "tutorux/audio/alsa_backend.hpp"
@@ -327,6 +328,301 @@ namespace {
         }
         return CaptureDeviceProbe{std::move(*activeDeviceId), std::move(*sampleFormat),
                                   format->nSamplesPerSec, format->nChannels};
+    }
+
+    double normalizedSample(const BYTE* sample, std::uint16_t formatTag,
+                            std::uint16_t bitsPerSample) noexcept {
+        if (formatTag == WAVE_FORMAT_IEEE_FLOAT) {
+            float value{};
+            std::memcpy(&value, sample, sizeof(value));
+            return std::isfinite(value) ? std::clamp(static_cast<double>(value), -1.0, 1.0) : 0.0;
+        }
+        switch (bitsPerSample) {
+            case 8:
+                return (static_cast<double>(*sample) - 128.0) / 128.0;
+            case 16: {
+                std::int16_t value{};
+                std::memcpy(&value, sample, sizeof(value));
+                return static_cast<double>(value) / 32'768.0;
+            }
+            case 24: {
+                std::int32_t value = static_cast<std::int32_t>(sample[0]) |
+                                     (static_cast<std::int32_t>(sample[1]) << 8) |
+                                     (static_cast<std::int32_t>(sample[2]) << 16);
+                if ((value & 0x0080'0000) != 0)
+                    value -= 0x0100'0000;
+                return static_cast<double>(value) / 8'388'608.0;
+            }
+            case 32: {
+                std::int32_t value{};
+                std::memcpy(&value, sample, sizeof(value));
+                return static_cast<double>(value) / 2'147'483'648.0;
+            }
+            default:
+                return 0.0;
+        }
+    }
+
+    class WasapiRunGuard final {
+      public:
+        WasapiRunGuard() = default;
+        WasapiRunGuard(const WasapiRunGuard&) = delete;
+        WasapiRunGuard& operator=(const WasapiRunGuard&) = delete;
+        ~WasapiRunGuard() {
+            if (client_)
+                client_->Stop();
+        }
+
+        void arm(IAudioClient* client) noexcept {
+            client_ = client;
+        }
+
+        HRESULT stop() noexcept {
+            if (!client_)
+                return S_OK;
+            const HRESULT result = client_->Stop();
+            if (SUCCEEDED(result))
+                client_ = nullptr;
+            return result;
+        }
+
+      private:
+        IAudioClient* client_{};
+    };
+
+    core::Result<CapturePreflightSummary> preflightWasapi(CapturePreflightOptions options) {
+        if (auto status = detail::validatePreflightOptions(options); !status)
+            return std::unexpected(status.error());
+
+        ComApartment apartment;
+        if (FAILED(apartment.result()) && apartment.result() != RPC_E_CHANGED_MODE) {
+            return std::unexpected(captureError("audio_com_initialization_failed",
+                                                apartment.result(),
+                                                "Initializing Windows microphone access"));
+        }
+        ComOwner<IMMDeviceEnumerator> enumerator;
+        HRESULT result =
+            CoCreateInstance(CLSID_MMDeviceEnumerator, nullptr, CLSCTX_ALL, IID_IMMDeviceEnumerator,
+                             reinterpret_cast<void**>(enumerator.put()));
+        if (FAILED(result)) {
+            return std::unexpected(captureError("audio_device_enumeration_failed", result,
+                                                "Creating the Windows audio device enumerator"));
+        }
+
+        ComOwner<IMMDevice> device;
+        if (options.deviceId.empty()) {
+            result = enumerator->GetDefaultAudioEndpoint(eCapture, eConsole, device.put());
+        } else {
+            auto identifier = toWide(options.deviceId);
+            if (!identifier)
+                return std::unexpected(identifier.error());
+            result = enumerator->GetDevice(identifier->c_str(), device.put());
+        }
+        if (FAILED(result)) {
+            return std::unexpected(captureError("audio_device_open_failed", result,
+                                                "Opening the selected microphone"));
+        }
+
+        ComOwner<IMMEndpoint> endpoint;
+        result = device->QueryInterface(IID_IMMEndpoint, reinterpret_cast<void**>(endpoint.put()));
+        EDataFlow actualFlow{};
+        if (SUCCEEDED(result))
+            result = endpoint->GetDataFlow(&actualFlow);
+        if (FAILED(result) || actualFlow != eCapture) {
+            return std::unexpected(captureError("audio_device_flow_mismatch",
+                                                FAILED(result) ? result : E_INVALIDARG,
+                                                "Validating the selected microphone"));
+        }
+
+        LPWSTR wideDeviceId = nullptr;
+        result = device->GetId(&wideDeviceId);
+        if (FAILED(result)) {
+            return std::unexpected(captureError("audio_device_id_failed", result,
+                                                "Reading the selected microphone identifier"));
+        }
+        auto activeDeviceId = toUtf8(wideDeviceId);
+        CoTaskMemFree(wideDeviceId);
+        if (!activeDeviceId)
+            return std::unexpected(activeDeviceId.error());
+
+        ComOwner<IAudioClient> client;
+        result = device->Activate(IID_IAudioClient, CLSCTX_ALL, nullptr,
+                                  reinterpret_cast<void**>(client.put()));
+        if (FAILED(result)) {
+            return std::unexpected(captureError("audio_client_activation_failed", result,
+                                                "Activating the selected microphone"));
+        }
+        WaveFormatOwner mixFormat;
+        result = client->GetMixFormat(mixFormat.put());
+        if (FAILED(result) || !mixFormat.get()) {
+            return std::unexpected(captureError("audio_format_query_failed", result,
+                                                "Reading the microphone audio format"));
+        }
+        WAVEFORMATEX* format = mixFormat.get();
+        std::uint16_t formatTag = format->wFormatTag;
+        auto mask = channelMask(format, formatTag);
+        if (!mask)
+            return std::unexpected(mask.error());
+        auto sampleFormat = sampleFormatName(formatTag, format->wBitsPerSample);
+        if (!sampleFormat)
+            return std::unexpected(sampleFormat.error());
+        const std::uint32_t expectedBlockAlign =
+            static_cast<std::uint32_t>(format->nChannels) * (format->wBitsPerSample / 8U);
+        if (format->nChannels == 0 || format->nChannels > 8 || format->nSamplesPerSec < 8'000 ||
+            format->nSamplesPerSec > 384'000 || expectedBlockAlign != format->nBlockAlign ||
+            format->nBlockAlign == 0) {
+            return std::unexpected(core::error(
+                "audio_format_unsupported", "Microphone channel or sample rate is unsupported."));
+        }
+
+        constexpr DWORD kEventFlags = AUDCLNT_STREAMFLAGS_EVENTCALLBACK;
+        result = client->Initialize(AUDCLNT_SHAREMODE_SHARED, kEventFlags, 20'000'000, 0, format,
+                                    nullptr);
+        if (FAILED(result)) {
+            return std::unexpected(captureError("audio_stream_initialize_failed", result,
+                                                "Initializing the microphone check stream"));
+        }
+        EventHandle audioEvent(CreateEventW(nullptr, FALSE, FALSE, nullptr));
+        if (!audioEvent.get()) {
+            return std::unexpected(captureError("audio_event_create_failed",
+                                                HRESULT_FROM_WIN32(GetLastError()),
+                                                "Creating the microphone check event"));
+        }
+        result = client->SetEventHandle(audioEvent.get());
+        if (FAILED(result)) {
+            return std::unexpected(captureError("audio_event_setup_failed", result,
+                                                "Attaching the microphone check event"));
+        }
+        ComOwner<IAudioCaptureClient> captureClient;
+        result = client->GetService(IID_IAudioCaptureClient,
+                                    reinterpret_cast<void**>(captureClient.put()));
+        if (FAILED(result)) {
+            return std::unexpected(captureError("audio_capture_service_failed", result,
+                                                "Opening the microphone sample stream"));
+        }
+        result = client->Start();
+        if (FAILED(result)) {
+            return std::unexpected(captureError("audio_preflight_start_failed", result,
+                                                "Starting the microphone access check"));
+        }
+        WasapiRunGuard runGuard;
+        runGuard.arm(client.get());
+
+        const auto startedAt = std::chrono::steady_clock::now();
+        auto lastNotification = startedAt;
+        const auto deadline = startedAt + options.duration;
+        detail::LevelAccumulator levels;
+        std::uint64_t framesMeasured = 0;
+        const std::size_t bytesPerSample = format->wBitsPerSample / 8U;
+        const std::size_t bytesPerFrame = format->nBlockAlign;
+
+        while (std::chrono::steady_clock::now() < deadline) {
+            const auto remaining = deadline - std::chrono::steady_clock::now();
+            const auto waitMilliseconds = std::clamp<std::int64_t>(
+                std::chrono::duration_cast<std::chrono::milliseconds>(remaining).count(), 1, 100);
+            const DWORD waitResult =
+                WaitForSingleObject(audioEvent.get(), static_cast<DWORD>(waitMilliseconds));
+            if (waitResult == WAIT_FAILED) {
+                return std::unexpected(captureError("audio_event_wait_failed",
+                                                    HRESULT_FROM_WIN32(GetLastError()),
+                                                    "Waiting for microphone input"));
+            }
+            if (waitResult != WAIT_OBJECT_0 && waitResult != WAIT_TIMEOUT) {
+                return std::unexpected(
+                    core::error("audio_event_wait_failed",
+                                "The microphone check received an invalid event result."));
+            }
+
+            UINT32 packetFrames = 0;
+            while (SUCCEEDED(result = captureClient->GetNextPacketSize(&packetFrames)) &&
+                   packetFrames != 0) {
+                BYTE* packet = nullptr;
+                UINT32 frameCount = 0;
+                DWORD packetFlags = 0;
+                result =
+                    captureClient->GetBuffer(&packet, &frameCount, &packetFlags, nullptr, nullptr);
+                if (FAILED(result))
+                    break;
+                bool packetValid = frameCount != 0;
+                const std::uint64_t packetBytes =
+                    static_cast<std::uint64_t>(frameCount) * bytesPerFrame;
+                if (packetBytes > std::numeric_limits<std::size_t>::max() ||
+                    packetBytes % bytesPerFrame != 0 ||
+                    ((packetFlags & AUDCLNT_BUFFERFLAGS_SILENT) == 0 && !packet &&
+                     packetBytes != 0)) {
+                    packetValid = false;
+                }
+                if (packetValid &&
+                    frameCount > std::numeric_limits<std::uint64_t>::max() - framesMeasured) {
+                    packetValid = false;
+                }
+                if (packetValid) {
+                    const std::size_t sampleCount =
+                        static_cast<std::size_t>(frameCount) * format->nChannels;
+                    for (std::size_t index = 0; index < sampleCount; ++index) {
+                        const double value =
+                            (packetFlags & AUDCLNT_BUFFERFLAGS_SILENT) != 0
+                                ? 0.0
+                                : normalizedSample(packet + index * bytesPerSample, formatTag,
+                                                   format->wBitsPerSample);
+                        levels.add(value);
+                    }
+                    framesMeasured += frameCount;
+                }
+                const HRESULT releaseResult = captureClient->ReleaseBuffer(frameCount);
+                if (!packetValid) {
+                    result = E_INVALIDARG;
+                    break;
+                }
+                if (FAILED(releaseResult)) {
+                    result = releaseResult;
+                    break;
+                }
+            }
+            if (FAILED(result)) {
+                return std::unexpected(captureError("audio_preflight_read_failed", result,
+                                                    "Reading microphone samples"));
+            }
+
+            const auto now = std::chrono::steady_clock::now();
+            if (now - lastNotification >= options.levelInterval) {
+                const auto elapsed =
+                    std::chrono::duration_cast<std::chrono::milliseconds>(now - startedAt);
+                auto level =
+                    detail::makeCaptureInputLevel(levels.takeWindow(), format->nChannels, elapsed);
+                level.framesMeasured = framesMeasured;
+                if (auto status = detail::notifyPreflightLevel(options, level); !status)
+                    return std::unexpected(status.error());
+                lastNotification = now;
+            }
+        }
+
+        result = runGuard.stop();
+        if (FAILED(result)) {
+            return std::unexpected(captureError("audio_preflight_stop_failed", result,
+                                                "Stopping the microphone access check"));
+        }
+        const auto finishedAt = std::chrono::steady_clock::now();
+        const auto finalWindow = levels.takeWindow();
+        if (framesMeasured == 0) {
+            return std::unexpected(core::error(
+                "audio_preflight_no_samples",
+                "The selected microphone opened, but it produced no samples during the check."));
+        }
+        if (finalWindow.sampleValueCount != 0) {
+            const auto elapsed =
+                std::chrono::duration_cast<std::chrono::milliseconds>(finishedAt - startedAt);
+            auto level = detail::makeCaptureInputLevel(finalWindow, format->nChannels, elapsed);
+            level.framesMeasured = framesMeasured;
+            if (auto status = detail::notifyPreflightLevel(options, level); !status)
+                return std::unexpected(status.error());
+        }
+
+        CaptureDeviceProbe selectedDevice{std::move(*activeDeviceId), std::move(*sampleFormat),
+                                          format->nSamplesPerSec, format->nChannels};
+        return detail::makeCapturePreflightSummary(
+            std::move(selectedDevice), levels.total(),
+            std::chrono::duration_cast<std::chrono::milliseconds>(finishedAt - startedAt));
     }
 
     core::Status appendCapturedChunk(archive::Archive& archive, archive::Record& session,
@@ -956,6 +1252,23 @@ core::Result<CaptureDeviceProbe> probeCaptureDevice(DeviceKind source, std::stri
     return std::unexpected(
         core::error("audio_backend_unavailable",
                     "Native device probing is not implemented for this platform."));
+#endif
+}
+
+core::Result<CapturePreflightSummary> preflightCaptureInput(CapturePreflightOptions options) {
+    if (auto status = detail::validatePreflightOptions(options); !status)
+        return std::unexpected(status.error());
+#ifdef _WIN32
+    return preflightWasapi(std::move(options));
+#elif defined(__linux__)
+    return preflightAlsaCaptureDevice(std::move(options));
+#elif defined(__APPLE__)
+    return preflightCoreAudioCaptureDevice(std::move(options));
+#else
+    static_cast<void>(options);
+    return std::unexpected(
+        core::error("audio_backend_unavailable",
+                    "Native microphone checks are not implemented for this platform."));
 #endif
 }
 
