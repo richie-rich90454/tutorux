@@ -52,6 +52,8 @@ export component MainWindow inherits Window {
     in-out property <string> selected-session;
     in-out property <string> recording-microphone-device;
     in-out property <string> recording-playback-device;
+    in-out property <string> recording-export-path;
+    in-out property <string> recording-export-track;
     in-out property <[string]> guide-options;
     in-out property <string> selected-guide;
     in-out property <[string]> guide-block-options;
@@ -671,6 +673,58 @@ export component MainWindow inherits Window {
                                 }
                                 HorizontalLayout {
                                     spacing: 8px;
+                                    LineEdit {
+                                        placeholder-text: "WAV export path";
+                                        text <=> root.recording-export-path;
+                                    }
+                                    LineEdit {
+                                        placeholder-text: "Track ID (needed for multiple tracks)";
+                                        text <=> root.recording-export-track;
+                                    }
+                                }
+                                HorizontalLayout {
+                                    spacing: 8px;
+                                    Button {
+                                        text: "Export WAV";
+                                        clicked => {
+                                            root.recording-command(root.selected-session,
+                                                "export-wav", root.recording-export-path);
+                                        }
+                                    }
+                                    Button {
+                                        text: "Export with gap silence";
+                                        clicked => {
+                                            root.recording-command(root.selected-session,
+                                                "export-wav-fill-gaps",
+                                                root.recording-export-path);
+                                        }
+                                    }
+                                    Button {
+                                        text: "Build waveform";
+                                        clicked => {
+                                            root.recording-command(root.selected-session,
+                                                "waveform", "");
+                                        }
+                                    }
+                                    Button {
+                                        text: "Cancel waveform";
+                                        clicked => {
+                                            root.recording-command(root.selected-session,
+                                                "stop-waveform", "");
+                                        }
+                                    }
+                                }
+                                ScrollView {
+                                    height: 110px;
+                                    Text {
+                                        text: root.command-output;
+                                        color: #53615b;
+                                        font-size: 11px;
+                                        wrap: word-wrap;
+                                    }
+                                }
+                                HorizontalLayout {
+                                    spacing: 8px;
                                     Button {
                                         text: "Open session details";
                                         clicked => { root.open-session(root.selected-session); }
@@ -928,6 +982,20 @@ export component MainWindow inherits Window {
                                         clicked => {
                                             root.load-transcript(root.selected-session,
                                                 root.selected-transcript);
+                                        }
+                                    }
+                                    Button {
+                                        text: "Play from timestamp";
+                                        clicked => {
+                                            root.recording-command(root.selected-session,
+                                                "play-transcript", "");
+                                        }
+                                    }
+                                    Button {
+                                        text: "Stop audio";
+                                        clicked => {
+                                            root.recording-command(root.selected-session,
+                                                "stop-playback", "");
                                         }
                                     }
                                 }
