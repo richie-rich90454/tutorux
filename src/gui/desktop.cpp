@@ -2142,85 +2142,86 @@ int launchDesktop(std::optional<std::filesystem::path> archivePath, std::optiona
         window->invoke_run_command(toSharedString(requestedCommand), toSharedString(""));
     });
 
-    window->on_journal_session_create([&](slint::SharedString entry, slint::SharedString type, slint::SharedString title,
-                                          slint::SharedString studentChoice, slint::SharedString subject, slint::SharedString objectives,
-                                          slint::SharedString language, slint::SharedString guideTemplate,
-                                          slint::SharedString newStudentName, slint::SharedString newStudentGrade) {
-        const std::filesystem::path path(window->get_archive_path().data());
-        const auto value = [](const slint::SharedString& text) {
-            return std::string(text.data(), text.size());
-        };
-        const std::string entryId = value(entry);
-        if (path.empty() || !tutorux::archive::uuidFromString(entryId)) {
-            window->set_status_message(toSharedString("Choose a journal entry before creating a session."));
-            return;
-        }
-        std::string studentId;
-        const std::string selectedStudent = value(studentChoice);
-        if (selectedStudent == "Create a new student") {
-            const std::string name = value(newStudentName);
-            if (name.empty()) {
-                window->set_status_message(toSharedString("Enter a name for the new student."));
+    window->on_journal_session_create(
+        [&](slint::SharedString entry, slint::SharedString type, slint::SharedString title, slint::SharedString studentChoice,
+            slint::SharedString subject, slint::SharedString objectives, slint::SharedString language, slint::SharedString guideTemplate,
+            slint::SharedString newStudentName, slint::SharedString newStudentGrade, slint::SharedString recordingSource) {
+            const std::filesystem::path path(window->get_archive_path().data());
+            const auto value = [](const slint::SharedString& text) {
+                return std::string(text.data(), text.size());
+            };
+            const std::string entryId = value(entry);
+            if (path.empty() || !tutorux::archive::uuidFromString(entryId)) {
+                window->set_status_message(toSharedString("Choose a journal entry before creating a session."));
                 return;
             }
-            auto createStudent = archiveCommand(path, {"--json", "student", "create", "--name", name});
-            const std::string grade = value(newStudentGrade);
-            const std::string studentSubject = value(subject);
-            if (!grade.empty())
-                createStudent.insert(createStudent.end(), {"--grade", grade});
-            if (!studentSubject.empty())
-                createStudent.insert(createStudent.end(), {"--subjects", studentSubject});
-            auto created = dispatchWithSecrets(createStudent, activePassphrase);
-            if (!created || created->exitCode != 0) {
-                window->set_status_message(toSharedString(commandOutput(std::move(created))));
-                return;
+            std::string studentId;
+            const std::string selectedStudent = value(studentChoice);
+            if (selectedStudent == "Create a new student") {
+                const std::string name = value(newStudentName);
+                if (name.empty()) {
+                    window->set_status_message(toSharedString("Enter a name for the new student."));
+                    return;
+                }
+                auto createStudent = archiveCommand(path, {"--json", "student", "create", "--name", name});
+                const std::string grade = value(newStudentGrade);
+                const std::string studentSubject = value(subject);
+                if (!grade.empty())
+                    createStudent.insert(createStudent.end(), {"--grade", grade});
+                if (!studentSubject.empty())
+                    createStudent.insert(createStudent.end(), {"--subjects", studentSubject});
+                auto created = dispatchWithSecrets(createStudent, activePassphrase);
+                if (!created || created->exitCode != 0) {
+                    window->set_status_message(toSharedString(commandOutput(std::move(created))));
+                    return;
+                }
+                studentId = jsonStringField(created->output, "id").value_or("");
+                if (!tutorux::archive::uuidFromString(studentId)) {
+                    window->set_status_message(toSharedString("The new student was saved, but its ID could not be read."));
+                    return;
+                }
+            } else if (!selectedStudent.empty() && selectedStudent != "Anonymous session") {
+                studentId = selectionId(studentChoice);
+                if (!tutorux::archive::uuidFromString(studentId)) {
+                    window->set_status_message(toSharedString("Select a student from this archive."));
+                    return;
+                }
             }
-            studentId = jsonStringField(created->output, "id").value_or("");
-            if (!tutorux::archive::uuidFromString(studentId)) {
-                window->set_status_message(toSharedString("The new student was saved, but its ID could not be read."));
-                return;
-            }
-        } else if (!selectedStudent.empty() && selectedStudent != "Anonymous session") {
-            studentId = selectionId(studentChoice);
-            if (!tutorux::archive::uuidFromString(studentId)) {
-                window->set_status_message(toSharedString("Select a student from this archive."));
-                return;
-            }
-        }
 
-        std::vector<std::string> arguments{"--json",
-                                           "session",
-                                           "create",
-                                           "--entry-id",
-                                           entryId,
-                                           "--type",
-                                           value(type),
-                                           "--language",
-                                           value(language).empty() ? "auto" : value(language),
-                                           "--recording-source",
-                                           value(type) == "record-audio"       ? "microphone"
-                                           : value(type) == "import-recording" ? "imported-file"
-                                                                               : "none"};
-        const auto addOption = [&](std::string_view name, std::string optionValue) {
-            if (!optionValue.empty())
-                arguments.insert(arguments.end(), {"--" + std::string(name), std::move(optionValue)});
-        };
-        addOption("title", value(title));
-        addOption("student-id", studentId);
-        addOption("subject", value(subject));
-        addOption("objectives", value(objectives));
-        std::string selectedTemplate = value(guideTemplate);
-        if (selectedTemplate != "Use recommended template") {
-            const auto separator = selectedTemplate.rfind(" · ");
-            if (separator != std::string::npos)
-                selectedTemplate.erase(0, separator + 3);
-            addOption("guide-template", selectedTemplate);
-        }
-        const std::string requestedCommand = commandLineFromArguments(std::move(arguments));
-        window->set_command_input(toSharedString(requestedCommand));
-        window->set_status_message(toSharedString("Creating a journal-linked session."));
-        window->invoke_run_command(toSharedString(requestedCommand), toSharedString(""));
-    });
+            std::vector<std::string> arguments{"--json",
+                                               "session",
+                                               "create",
+                                               "--entry-id",
+                                               entryId,
+                                               "--type",
+                                               value(type),
+                                               "--language",
+                                               value(language).empty() ? "auto" : value(language),
+                                               "--recording-source",
+                                               value(type) == "record-audio"
+                                                   ? (value(recordingSource).empty() ? "microphone" : value(recordingSource))
+                                               : value(type) == "import-recording" ? "imported-file"
+                                                                                   : "none"};
+            const auto addOption = [&](std::string_view name, std::string optionValue) {
+                if (!optionValue.empty())
+                    arguments.insert(arguments.end(), {"--" + std::string(name), std::move(optionValue)});
+            };
+            addOption("title", value(title));
+            addOption("student-id", studentId);
+            addOption("subject", value(subject));
+            addOption("objectives", value(objectives));
+            std::string selectedTemplate = value(guideTemplate);
+            if (selectedTemplate != "Use recommended template") {
+                const auto separator = selectedTemplate.rfind(" · ");
+                if (separator != std::string::npos)
+                    selectedTemplate.erase(0, separator + 3);
+                addOption("guide-template", selectedTemplate);
+            }
+            const std::string requestedCommand = commandLineFromArguments(std::move(arguments));
+            window->set_command_input(toSharedString(requestedCommand));
+            window->set_status_message(toSharedString("Creating a journal-linked session."));
+            window->invoke_run_command(toSharedString(requestedCommand), toSharedString(""));
+        });
 
     window->on_create_student([&](slint::SharedString requestedName, slint::SharedString requestedGrade,
                                   slint::SharedString requestedSubjects, slint::SharedString requestedObjectives,
