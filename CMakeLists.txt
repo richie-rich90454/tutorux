@@ -58,6 +58,7 @@ option(TUTORUX_FETCH_PODOFO "Build the pinned PoDoFo dependency from its upstrea
 option(TUTORUX_ENABLE_WHISPER "Enable local transcription with whisper.cpp" OFF)
 option(TUTORUX_FETCH_WHISPER "Fetch the pinned whisper.cpp dependency" OFF)
 option(TUTORUX_ENABLE_FFMPEG "Enable local FLAC, MP3, and M4A decoding" OFF)
+option(TUTORUX_ENABLE_PIPEWIRE "Enable Linux PipeWire microphone and system-audio capture" ON)
 option(TUTORUX_FETCH_FFMPEG "Build the pinned FFmpeg source statically" OFF)
 set(TUTORUX_FFMPEG_PREFIX "" CACHE PATH
     "Prefix containing a static FFmpeg build for relinking or externally supplied builds"
@@ -188,6 +189,7 @@ set(TUTORUX_CORE_SOURCES
     src/audio/capture.cpp
     src/audio/multi_track.cpp
     src/audio/capture_alsa.cpp
+    src/audio/capture_pipewire.cpp
     src/audio/capture_coreaudio.cpp
     src/audio/devices.cpp
     src/audio/recording_control.cpp
@@ -238,6 +240,7 @@ if(TUTORUX_BUILD_WASM)
         src/audio/capture.cpp
         src/audio/multi_track.cpp
         src/audio/capture_alsa.cpp
+        src/audio/capture_pipewire.cpp
         src/audio/capture_coreaudio.cpp
         src/audio/devices.cpp
         src/audio/recording_control.cpp
@@ -403,6 +406,37 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     unset(PKG_CONFIG_ARGN)
     target_link_libraries(tutorux_core PRIVATE PkgConfig::TUTORUX_ALSA)
     target_compile_definitions(tutorux_core PRIVATE TUTORUX_HAS_ALSA=1)
+
+    if(TUTORUX_ENABLE_PIPEWIRE)
+        if(TUTORUX_STATIC_RUNTIME)
+            set(PKG_CONFIG_ARGN --static)
+        endif()
+        pkg_check_modules(TUTORUX_PIPEWIRE QUIET IMPORTED_TARGET libpipewire-0.3>=0.3.60)
+        unset(PKG_CONFIG_ARGN)
+
+        set(TUTORUX_PIPEWIRE_STATIC_AVAILABLE FALSE)
+        if(TUTORUX_PIPEWIRE_FOUND)
+            foreach(TUTORUX_PIPEWIRE_LIBRARY_DIR IN LISTS TUTORUX_PIPEWIRE_LIBRARY_DIRS)
+                if(EXISTS "${TUTORUX_PIPEWIRE_LIBRARY_DIR}/libpipewire-0.3.a")
+                    set(TUTORUX_PIPEWIRE_STATIC_AVAILABLE TRUE)
+                    break()
+                endif()
+            endforeach()
+        endif()
+
+        if(TUTORUX_PIPEWIRE_FOUND AND (NOT TUTORUX_STATIC_RUNTIME OR TUTORUX_PIPEWIRE_STATIC_AVAILABLE))
+            target_link_libraries(tutorux_core PRIVATE PkgConfig::TUTORUX_PIPEWIRE)
+            target_compile_definitions(tutorux_core PRIVATE TUTORUX_HAS_PIPEWIRE=1)
+        elseif(TUTORUX_STATIC_RUNTIME)
+            message(STATUS
+                "PipeWire capture is omitted from this static build because a static libpipewire-0.3 archive is unavailable; ALSA capture remains enabled."
+            )
+        else()
+            message(STATUS
+                "PipeWire development files were not found; Linux capture will use the ALSA backend."
+            )
+        endif()
+    endif()
 endif()
 
 if(APPLE)
@@ -1275,6 +1309,7 @@ if(TUTORUX_STATIC_RUNTIME AND
         ${TUTORUX_STATIC_LIBXML2_STATIC_LIBRARIES}
         ${TUTORUX_STATIC_ARCHIVE_GROUP_LIBRARIES}
         ${TUTORUX_ALSA_STATIC_LIBRARIES}
+        ${TUTORUX_PIPEWIRE_STATIC_LIBRARIES}
         "${TUTORUX_SODIUM_LINK_LIBRARY}"
     )
     list(REMOVE_DUPLICATES TUTORUX_STATIC_LICENSE_ARCHIVE_NAMES)
@@ -1284,6 +1319,7 @@ if(TUTORUX_STATIC_RUNTIME AND
         ${TUTORUX_STATIC_CURL_STATIC_LIBRARY_DIRS}
         ${TUTORUX_STATIC_FREETYPE_STATIC_LIBRARY_DIRS}
         ${TUTORUX_STATIC_LIBXML2_STATIC_LIBRARY_DIRS}
+        ${TUTORUX_PIPEWIRE_STATIC_LIBRARY_DIRS}
         ${CMAKE_PREFIX_PATH}
         "${TUTORUX_SODIUM_PREFIX}/lib"
     )
