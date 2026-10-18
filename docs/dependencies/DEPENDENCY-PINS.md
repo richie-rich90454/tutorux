@@ -21,9 +21,10 @@ remain an explicit release-owner change followed by qualification and SBOM revie
 | FFmpeg | 9.0.2 | `946fcce07b6dcd0331c8cc609192aeff5e1924f8` |
 | llama.cpp | 0.6.0 | `d812350` |
 
-Linux audio capture uses ALSA's system PCM library. Dynamic development builds link the selected
-system package; portable static Linux builds require `libasound.a` and use the static package
-dependency metadata where available.
+Linux audio capture uses ALSA's system PCM library and can optionally use PipeWire 0.3.60 or newer
+for microphone, sink-monitor, and application-output capture. Dynamic builds link the selected
+system packages. Portable static Linux builds require `libasound.a`; PipeWire is included only when
+its static library and static dependency metadata are available.
 
 libcurl 7.85 or newer is required for HTTPS requests. The static release links the selected
 platform's static libcurl and its static dependency closure; the exact Windows package version is
