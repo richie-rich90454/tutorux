@@ -12,6 +12,9 @@ version `1`. The label defaults to `not-specified`; it can contain up to 256 byt
 This records the user's confirmation and does not determine whether recording is lawful in a given
 location or circumstance.
 
+The browser microphone recorder requires a separate checked permission confirmation. Its imported
+audio asset records the `browser-microphone` source, the confirmation time, and policy version `1`.
+
 ## Full archive copies
 
 `archive backup` and `archive copy` duplicate the complete archive. They refuse to write unless the
@@ -19,6 +22,11 @@ command includes `--confirm-sensitive`, because a workspace can contain student 
 recordings, private annotations, and credentials. Check the destination's access controls before
 confirming. Use `session export` to transfer one session and its related records instead of copying
 the complete workspace.
+
+`archive repair FILE --output COPY.tux --confirm-sensitive` selects the newest consistent archive
+generation, validates every reachable record, compacts a separate temporary copy, validates that
+copy, and publishes it without replacing the source. It refuses an existing destination. A damaged
+reachable record stops repair so the application does not silently discard source evidence.
 
 ## Archive encryption and credentials
 
@@ -47,8 +55,9 @@ credential values are rejected.
 Imported assets are stored as opaque content-addressed blobs. Import records MIME metadata from file
 signatures where possible, applies size and folder-count bounds, and does not execute or automatically
 extract imported files. User-provided transcripts and imported work are treated as untrusted
-content in AI prompts. OpenAI-compatible requests require a separate confirmation against the exact
-package SHA-256. The preview displays the complete request body and endpoint before the API key is
-read from its named environment variable. That environment value is not persisted by generation.
+content in AI prompts. Cloud requests require a separate confirmation against the exact serialized
+request-body SHA-256, including any attached asset bytes. The preview displays the complete request
+body and endpoint before the API key is read from its named environment variable. That environment
+value is not persisted by generation.
 The exact raw provider response, including error or partial response bytes, is stored in the archive's
 AI job record.
