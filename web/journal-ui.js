@@ -55,6 +55,13 @@
     sessionStartSubject: byId("session-start-subject"),
     sessionStartName: byId("session-start-name"),
     sessionStartObjectives: byId("session-start-objectives"),
+    sessionStartLanguage: byId("session-start-language"),
+    sessionStartTemplate: byId("session-start-template"),
+    sessionStartSource: byId("session-start-source"),
+    sessionStartSourceControl: byId("session-start-source-control"),
+    sessionSystemAudioOption: byId("session-system-audio-option"),
+    sessionSourceCapability: byId("session-source-capability"),
+    sessionRecordingCapability: byId("session-recording-capability"),
     sessionDeleteDialog: byId("session-delete-dialog"),
     sessionDeleteScope: byId("session-delete-scope"),
     sessionDeleteWarning: byId("session-delete-warning"),
@@ -127,6 +134,7 @@
     recordingStartedAt: 0,
     guideEntryScopeError: "",
     pendingRecordingStream: null,
+    recordingConsentAtUs: 0,
     microphoneContext: null,
     microphoneAnalyser: null,
     microphoneAnimation: 0,
@@ -1287,6 +1295,8 @@
       state.pendingRecordingStream = null;
     }
     window.tutoruxPendingRecordingStream = null;
+    window.tutoruxPendingRecordingSource = "";
+    window.tutoruxPendingRecordingConsentAtUs = 0;
     clearMicrophoneCheck();
     state.microphoneReady = false;
   }
@@ -1307,22 +1317,41 @@
     state.microphoneAnimation = requestAnimationFrame(updateMicMeter);
   }
 
-  async function checkMicrophone() {
+  async function checkRecordingSource() {
+    const source = ui.sessionStartSource.value || "microphone";
     if (!ui.recordingConsent.checked) {
-      ui.microphoneStatus.textContent = "Confirm permission before checking the microphone.";
+      ui.microphoneStatus.textContent = "Confirm permission before checking the selected audio source.";
       return;
     }
-    if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia ||
-        !window.AudioContext || typeof AudioWorkletNode === "undefined") {
-      ui.microphoneStatus.textContent = "Microphone capture needs a secure browser with AudioWorklet support.";
+    const displayCaptureAvailable = typeof navigator.mediaDevices?.getDisplayMedia === "function";
+    if (!window.isSecureContext || !window.AudioContext || typeof AudioWorkletNode === "undefined" ||
+        (source === "microphone" && !navigator.mediaDevices?.getUserMedia) ||
+        (source === "system-audio" && !displayCaptureAvailable)) {
+      ui.microphoneStatus.textContent = source === "system-audio"
+        ? "System audio capture is unavailable here. Choose microphone instead."
+        : "Microphone capture needs a secure browser with AudioWorklet support.";
       return;
     }
     releasePendingStream();
-    ui.microphoneStatus.textContent = "Requesting microphone access…";
+    ui.microphoneStatus.textContent = source === "system-audio"
+      ? "Choose a shared tab, window, or screen and enable its audio…"
+      : "Requesting microphone access…";
+    let stream = null;
     try {
-      state.pendingRecordingStream = await navigator.mediaDevices.getUserMedia({
-        audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
-      });
+      if (source === "system-audio") {
+        stream = await navigator.mediaDevices.getDisplayMedia({ audio: true, video: true });
+        if (stream.getAudioTracks().length === 0) {
+          stream.getTracks().forEach((track) => track.stop());
+          throw new Error("The shared source did not provide audio. Choose a tab or source with audio enabled.");
+        }
+        stream.getVideoTracks().forEach((track) => track.stop());
+      } else {
+        stream = await navigator.mediaDevices.getUserMedia({
+          audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
+        });
+      }
+      state.pendingRecordingStream = stream;
+      window.tutoruxPendingRecordingSource = source;
       const AudioContextType = window.AudioContext;
       if (AudioContextType) {
         state.microphoneContext = new AudioContextType();
@@ -1334,13 +1363,33 @@
         updateMicMeter();
       }
       state.microphoneReady = true;
-      ui.microphoneStatus.textContent = "Microphone ready. Confirm again to start recording; this check has not captured a session.";
+      ui.microphoneStatus.textContent = `${source === "system-audio" ? "System audio" : "Microphone"} ready. This check has not captured a session.`;
       ui.startRecordingSession.disabled = false;
     } catch (error) {
+      stream?.getTracks().forEach((track) => track.stop());
+      state.pendingRecordingStream = null;
+      window.tutoruxPendingRecordingStream = null;
+      window.tutoruxPendingRecordingSource = "";
+      clearMicrophoneCheck();
       state.microphoneReady = false;
-      ui.microphoneStatus.textContent = `Microphone access was not granted: ${error.message}`;
+      ui.microphoneStatus.textContent = `${source === "system-audio" ? "Shared system audio" : "Microphone"} access was not granted: ${error.message}`;
       ui.startRecordingSession.disabled = true;
     }
+  }
+
+  function configureSessionSourceOptions() {
+    const supportsDisplayAudio = typeof navigator.mediaDevices?.getDisplayMedia === "function";
+    ui.sessionSystemAudioOption.hidden = !supportsDisplayAudio;
+    if (!supportsDisplayAudio && ui.sessionStartSource.value === "system-audio")
+      ui.sessionStartSource.value = "microphone";
+    const note = supportsDisplayAudio
+      ? "System audio uses the browser’s tab or screen picker. Video is discarded; only audio is recorded."
+      : "This browser exposes microphone capture only. System audio sharing is unavailable here.";
+    ui.sessionSourceCapability.textContent = note;
+    ui.sessionRecordingCapability.textContent = note;
+    byId("check-microphone").textContent = ui.sessionStartSource.value === "system-audio"
+      ? "Check system audio"
+      : "Check microphone";
   }
 
   function selectSessionKind(kind) {
@@ -1348,6 +1397,7 @@
     if (selected) selected.checked = true;
     ui.recordingCheckPanel.hidden = kind !== "record-audio";
     ui.recordingImportPanel.hidden = kind !== "import-recording";
+    ui.sessionStartSourceControl.hidden = kind !== "record-audio";
     ui.createNotesSession.hidden = kind !== "notes-only";
     ui.startRecordingSession.hidden = kind !== "record-audio";
     ui.importRecordingSession.hidden = kind !== "import-recording";
@@ -1363,6 +1413,8 @@
     }
     releasePendingStream();
     ui.sessionStartForm.reset();
+    state.recordingConsentAtUs = 0;
+    configureSessionSourceOptions();
     ui.sessionStartStudent.replaceChildren(new Option("Anonymous session", ""));
     for (const student of state.studentProgressStudents) {
       const studentId = String(field(student, "id", "uuid"));
@@ -1376,7 +1428,7 @@
     ui.newSessionStudentPanel.hidden = true;
     ui.sessionStartSubject.value = String(field(state.entry, "subject") || "");
     selectSessionKind("notes-only");
-    ui.microphoneStatus.textContent = "Microphone access is not checked.";
+    ui.microphoneStatus.textContent = "The selected audio source is not checked.";
     ui.createNotesSession.hidden = false;
     ui.createNotesSession.disabled = false;
     ui.startRecordingSession.hidden = true;
@@ -1431,6 +1483,17 @@
       ...(ui.sessionStartObjectives.value.trim()
         ? ["--objectives", ui.sessionStartObjectives.value.trim()]
         : []),
+      "--language",
+      ui.sessionStartLanguage.value.trim() || "auto",
+      "--recording-source",
+      kind === "record-audio"
+        ? ui.sessionStartSource.value
+        : kind === "import-recording"
+          ? "imported-file"
+          : "none",
+      ...(ui.sessionStartTemplate.value
+        ? ["--guide-template", ui.sessionStartTemplate.value]
+        : []),
     ]);
     let sessionId = parseCreatedId(response);
     if (!sessionId) {
@@ -1466,13 +1529,20 @@
     ui.startRecordingSession.disabled = true;
     if (!state.microphoneReady || !state.pendingRecordingStream) {
       ui.startRecordingSession.disabled = false;
-      ui.microphoneStatus.textContent = "Check the microphone before starting the recording.";
+      ui.microphoneStatus.textContent = "Check the selected audio source before starting the recording.";
+      return;
+    }
+    if (!state.recordingConsentAtUs) {
+      ui.microphoneStatus.textContent = "Confirm permission to record the selected audio source.";
+      ui.startRecordingSession.disabled = false;
       return;
     }
     const stream = state.pendingRecordingStream;
     clearMicrophoneCheck();
     state.pendingRecordingStream = null;
     window.tutoruxPendingRecordingStream = stream;
+    window.tutoruxPendingRecordingSource = ui.sessionStartSource.value;
+    window.tutoruxPendingRecordingConsentAtUs = state.recordingConsentAtUs;
     try {
       const sessionId = await createSession("record-audio");
       ui.sessionDialog.close();
@@ -1480,10 +1550,12 @@
       await loadEntry(state.entryId, true);
       showView("entry");
       await showSessionMaterials(sessionId);
-      await bridge.startRecording();
+      await bridge.startRecording(ui.sessionStartSource.value, state.recordingConsentAtUs);
     } catch (error) {
       stream.getTracks().forEach((track) => track.stop());
       window.tutoruxPendingRecordingStream = null;
+      window.tutoruxPendingRecordingSource = "";
+      window.tutoruxPendingRecordingConsentAtUs = 0;
       ui.microphoneStatus.textContent = error.message;
       ui.startRecordingSession.disabled = false;
       showJournalError(error.message);
@@ -2659,13 +2731,23 @@
     byId("entry-taxonomy-form").addEventListener("submit", saveEntryTaxonomy);
     byId("collection-create-form").addEventListener("submit", (event) => void createTaxonomy("collection", event));
     byId("tag-create-form").addEventListener("submit", (event) => void createTaxonomy("tag", event));
-    byId("check-microphone").addEventListener("click", () => void checkMicrophone());
+    byId("check-microphone").addEventListener("click", () => void checkRecordingSource());
+    ui.sessionStartSource.addEventListener("change", () => {
+      releasePendingStream();
+      ui.recordingConsent.checked = false;
+      state.recordingConsentAtUs = 0;
+      byId("check-microphone").disabled = true;
+      ui.startRecordingSession.disabled = true;
+      const sourceLabel = ui.sessionStartSource.value === "system-audio" ? "system audio" : "microphone";
+      ui.microphoneStatus.textContent = `Confirm permission, then check ${sourceLabel} before starting capture.`;
+    });
     ui.recordingConsent.addEventListener("change", () => {
       byId("check-microphone").disabled = !ui.recordingConsent.checked;
+      state.recordingConsentAtUs = ui.recordingConsent.checked ? Date.now() * 1000 : 0;
       if (!ui.recordingConsent.checked) {
         releasePendingStream();
         ui.startRecordingSession.disabled = true;
-        ui.microphoneStatus.textContent = "Confirm permission before checking the microphone.";
+        ui.microphoneStatus.textContent = "Confirm permission before checking the selected audio source.";
       }
     });
     ui.sessionStartForm.querySelectorAll('input[name="session-kind"]').forEach((radio) => {
@@ -2679,6 +2761,11 @@
       );
       if (student && !ui.sessionStartSubject.value.trim()) {
         ui.sessionStartSubject.value = String(field(student, "subjects") || "");
+      }
+      if (student && !ui.sessionStartTemplate.value) {
+        const preferredTemplate = String(field(student, "preferred_guide_template") || "");
+        if ([...ui.sessionStartTemplate.options].some((option) => option.value === preferredTemplate))
+          ui.sessionStartTemplate.value = preferredTemplate;
       }
     });
     ui.guideSourceScope.addEventListener("change", updateGuideSourceControls);
