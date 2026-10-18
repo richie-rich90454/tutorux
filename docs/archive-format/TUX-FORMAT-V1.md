@@ -20,6 +20,10 @@ Audio and asset data is represented by independently addressable records so a re
 need to be rewritten for an unrelated edit. Implementations may stream those records; they must
 not allocate from an unvalidated on-disk length.
 
+Recovery uses the newest valid commit locator and falls back through earlier consistent commits.
+`archive repair` writes the selected generation to a new file, compacts reachable records, performs
+full verification, and only then publishes the copy. It never replaces the source archive.
+
 ## Archive header
 
 The first 64 bytes are immutable after initialization:
@@ -88,6 +92,21 @@ recovery stream chunks in timeline order while holding only one chunk payload at
 encountering older sessions without the marker scan the primary audio-chunk index and sort compact
 chunk references before validating payloads. The secondary index is rebuilt during compaction and is
 covered by full archive verification.
+
+Asset blob records may store legacy opaque content directly or use `record_role` values
+`asset-blob-manifest` and `asset-blob-chunk`. A manifest stores the SHA-256 `content_hash`, total
+`byte_size`, `chunk_count`, and comma-separated ordered `chunk_ids`. Each referenced chunk stores
+its `manifest_id`, zero-based `chunk_index`, `byte_size`, and opaque bytes. New imports use chunks no
+larger than 8 MiB and verify the full asset hash while streaming. Full verification checks manifest
+order, chunk ownership, total byte count, and content hash. Compaction retains blobs reachable from
+asset metadata revision history and drops unreferenced partial-import chunks.
+
+The manifest's `guide_source_index_version=1` flag enables `GUIDESOURCE:<source-uuid>:<guide-uuid>`
+secondary entries. Guide block `stale` fields record source changes without replacing approved guide
+content; `stale_block_count` is a display summary, and `source_index_history` keeps references
+available for later revisions. These fields are optional in earlier v1 archives. Compaction rebuilds
+the source index from guide revisions, and full verification checks each alias against the latest
+guide revision.
 
 ## Optional archive encryption
 
@@ -167,11 +186,18 @@ Full recovery may scan the file when no locator in the normal window is usable.
 
 ## Transactions, locking, and forward compatibility
 
-One process holds an OS-backed exclusive archive lock while appending. Readers open the last
-committed root and ignore the uncommitted tail. A transaction writes domain records, any new B+
-tree pages, the commit, and its locator in that order. The commit and locator are both flushed before
-the writer reports durable success.
+One process holds an OS-backed exclusive archive lock while appending. A shared archive handle also
+serializes in-process reads and writes, including compaction and verification, so worker threads
+cannot publish interleaved transactions. Readers open the last committed root and ignore the
+uncommitted tail. A transaction writes domain records, any new B+ tree pages, the commit, and its
+locator in that order. The commit and locator are both flushed before the writer reports durable
+success.
 
 An implementation must never rewrite committed records in place. Compaction writes a verified
 replacement archive beside the source and publishes it atomically where the filesystem permits.
 Unknown reachable record types and revisions must be retained by a preserving compactor.
+Guide source references are indexed by source UUID. Updating a cited student, session, transcript,
+annotation, asset, or evidence record appends a guide revision that marks the affected blocks stale;
+the guide text and prior approved revision remain in its revision chain. Validation, approval, and
+export report stale blocks until a tutor reviews or regenerates them. Existing archives acquire this
+index on their first guide or source update.
