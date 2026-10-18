@@ -23,6 +23,30 @@ as arrow-parenthesis and trailing-comma policy do not apply to C++.
 Pinned source commits and dependency hashes are recorded in
 [`docs/dependencies/DEPENDENCY-PINS.md`](docs/dependencies/DEPENDENCY-PINS.md).
 
+All build trees live under `build/`. The `dev` preset builds the day-to-day GUI configuration
+(Slint, tests, shared dependencies); on Windows the `portable` preset produces the self-contained
+single-file executable. From a fresh clone:
+
+```powershell
+cmake --preset dev
+cmake --build build
+build/tutorux.exe
+```
+
+```powershell
+cmake --preset portable
+cmake --build build/portable --target dist
+dist/Tutorux.exe
+```
+
+Delete every build tree to reclaim space; add `-Dist` to remove `dist/` too, `-DryRun` to preview:
+
+```powershell
+./clean.ps1
+```
+
+On Linux and macOS, use the `dev` preset and `./clean.sh` (`--dist`, `--dry-run`).
+
 The Full release presets statically link the GUI, PDF, cryptography, speech, and embedded
 llama.cpp dependencies into the executable. Compact release presets omit embedded llama.cpp while
 keeping Ollama and llama.cpp server support. Both profiles run a post-link check for unresolved and
@@ -56,13 +80,13 @@ Install the static release runtime files. Review the platform's dependency notic
 distribution:
 
 ```powershell
-cmake --install build-static --config Release --component Runtime --prefix dist/static-release
+cmake --install build/static --config Release --component Runtime --prefix dist/static-release
 ```
 
 ```powershell
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
-cmake --build build --config Release
-ctest --test-dir build --output-on-failure
+cmake --preset dev
+cmake --build --preset dev
+ctest --preset dev
 ```
 
 For a non-release development build, configure CMake directly. To build the pinned PoDoFo 1.1.2
@@ -79,7 +103,7 @@ capability details.
 
 Install and activate the Emscripten SDK so `EMSDK` identifies its root, then use
 `cmake --preset portable-wasm-release`, `cmake --build --preset portable-wasm-release`, and
-`cmake --install build-wasm --component WebRuntime --prefix dist/tutorux-web`. The browser keeps
+`cmake --install build/wasm --component WebRuntime --prefix dist/tutorux-web`. The browser keeps
 the selected archive as one local IndexedDB value, supports direct file handles where the browser
 provides them, and offers explicit archive download for backup and transfer.
 
@@ -101,8 +125,8 @@ Full builds also support direct GGUF inference through the embedded llama.cpp ru
 model explicitly with `model select --provider llama.cpp-embedded --model MODEL_ID --path FILE.gguf`;
 see [`docs/ai/EMBEDDED-LLAMA.md`](docs/ai/EMBEDDED-LLAMA.md) for memory, CPU, and accelerator settings.
 
-    cmake -S . -B build-gui -DTUTORUX_BUILD_GUI=ON -DTUTORUX_FETCH_SLINT=ON
-    cmake --build build-gui --config Release
+    cmake --preset dev
+    cmake --build build
 
 The current build includes the archive engine, student/session records, transcript import (plain
 text, SubRip, and WebVTT) and revision editing, tutor annotations, content-addressed assets, evidence
@@ -149,7 +173,7 @@ The `Runtime` install component creates a deployable folder without Slint's deve
 libraries:
 
 ```powershell
-cmake --install build-gui --config Release --component Runtime --prefix dist/tutorux-windows
+cmake --install build --config Release --component Runtime --prefix dist/tutorux-windows
 ```
 
 ## First commands
