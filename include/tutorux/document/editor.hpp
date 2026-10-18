@@ -34,6 +34,7 @@ struct DocumentEditTransaction final {
     TextSelection selectionBefore;
     TextSelection selectionAfter;
     std::string origin{"user"};
+    bool coalesceWithPrevious{};
 };
 
 struct EditResult final {
@@ -83,6 +84,7 @@ class PieceTable final {
         std::vector<TextOperation> operations;
         TextSelection before;
         TextSelection after;
+        std::string origin;
     };
 
     PieceTable(std::string original, std::vector<Piece> pieces);
