@@ -4,13 +4,31 @@
 #include "tutorux/audio/devices.hpp"
 
 #include <chrono>
+#include <cstddef>
 #include <functional>
 #include <optional>
+#include <span>
 #include <string>
+#include <string_view>
 
 namespace tutorux::audio {
 
 struct CaptureSummary;
+
+// Captured chunks are limited to 1 MiB. The sample view is valid only for the duration of the
+// callback; consumers that need to retain it must copy or enqueue it to their own worker.
+struct PcmCaptureChunk final {
+    archive::Uuid trackId{};
+    std::uint32_t sampleRateHz{};
+    std::uint16_t channelCount{};
+    std::uint64_t startTimestampUnixMicroseconds{};
+    std::uint64_t firstSampleIndex{};
+    std::uint64_t frameCount{};
+    std::string_view sampleFormat;
+    std::span<const std::byte> samples;
+};
+
+using PcmChunkCallback = std::function<void(const PcmCaptureChunk&)>;
 
 enum class DurabilityPolicy {
     defaultPolicy,
@@ -70,6 +88,9 @@ struct CaptureOptions final {
     std::function<bool()> pauseRequested;
     std::function<void(std::string state, std::string message)> stateChanged;
     std::function<void(const CaptureSummary&)> progress;
+    // Called synchronously on the capture worker after each bounded chunk is committed. Keep this
+    // callback short and enqueue work elsewhere; device I/O callbacks never run this callback.
+    PcmChunkCallback pcmChunk;
 };
 
 struct CaptureSummary final {
@@ -86,6 +107,9 @@ struct CaptureSummary final {
     std::uint64_t byteCount{};
     bool completed{};
     std::string state;
+    // Set when the optional live PCM consumer throws or cannot accept a bounded chunk. Recording
+    // continues and remains durable.
+    std::optional<core::Error> pcmObserverFailure;
 };
 
 struct CaptureTrackOutcome final {
@@ -103,12 +127,9 @@ struct MultiTrackCaptureSummary final {
     std::uint64_t byteCount{};
 };
 
-core::Result<CaptureSummary> captureNative(archive::Archive& archive,
-                                           const archive::Uuid& sessionId, CaptureOptions options);
-core::Result<MultiTrackCaptureSummary> captureNativeTracks(archive::Archive& archive,
-                                                           const archive::Uuid& sessionId,
-                                                           CaptureOptions microphone,
-                                                           CaptureOptions systemAudio);
+core::Result<CaptureSummary> captureNative(archive::Archive& archive, const archive::Uuid& sessionId, CaptureOptions options);
+core::Result<MultiTrackCaptureSummary> captureNativeTracks(archive::Archive& archive, const archive::Uuid& sessionId,
+                                                           CaptureOptions microphone, CaptureOptions systemAudio);
 core::Result<CaptureDeviceProbe> probeCaptureDevice(DeviceKind source, std::string deviceId);
 // Opens and briefly reads the selected microphone to verify access and report levels. The
 // function is blocking and should run on a worker thread. It holds input only long enough to
@@ -116,10 +137,8 @@ core::Result<CaptureDeviceProbe> probeCaptureDevice(DeviceKind source, std::stri
 // not count as consent to begin a recording. The callback reports interval levels on the caller
 // thread. Digital silence is -120 dBFS; signalDetected uses an aggregate RMS threshold of -60 dBFS.
 core::Result<CapturePreflightSummary> preflightCaptureInput(CapturePreflightOptions options = {});
-core::Result<CaptureSummary> recoverNativeCapture(archive::Archive& archive,
-                                                  const archive::Uuid& sessionId,
+core::Result<CaptureSummary> recoverNativeCapture(archive::Archive& archive, const archive::Uuid& sessionId,
                                                   std::optional<archive::Uuid> trackId = {});
-core::Result<MultiTrackCaptureSummary> recoverNativeCaptureTracks(archive::Archive& archive,
-                                                                  const archive::Uuid& sessionId);
+core::Result<MultiTrackCaptureSummary> recoverNativeCaptureTracks(archive::Archive& archive, const archive::Uuid& sessionId);
 
 } // namespace tutorux::audio
