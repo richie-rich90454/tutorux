@@ -1674,7 +1674,7 @@ core::Result<std::uint64_t> Archive::writeIndexPage(const IndexPage& page) {
         payload.insert(payload.end(), authentication.begin(), authentication.end());
     }
     if (auto status = file_.flush(); !status)
-        return status;
+        return std::unexpected(status.error());
     Uuid zeroId{};
     auto location = appendFrame(file_, RecordType::IndexPage, zeroId, 1, 0, payload);
     if (!location)
