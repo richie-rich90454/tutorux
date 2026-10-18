@@ -85,7 +85,7 @@ component CommandPanel inherits Rectangle {
     VerticalLayout {
         padding: 18px;
         spacing: 10px;
-        Text { text: "ARCHIVE COMMAND"; color: #111111; font-size: 10px; font-weight: 700; letter-spacing: 1px; }
+        Text { text: "Archive command"; color: #111111; font-size: 10px; font-weight: 700; letter-spacing: 1px; }
         HorizontalLayout {
             spacing: 8px;
             LineEdit {
@@ -145,6 +145,9 @@ export component MainWindow inherits Window {
     in-out property <string> selected-session;
     in-out property <string> recording-microphone-device;
     in-out property <string> recording-playback-device;
+    in-out property <string> recording-application-device;
+    in-out property <bool> recording-live-transcription-enabled: false;
+    in-out property <string> recording-live-model-path;
     in-out property <string> recording-import-path;
     in-out property <string> recording-export-path;
     in-out property <string> recording-export-track;
@@ -175,6 +178,14 @@ export component MainWindow inherits Window {
     in-out property <string> annotation-time: "00:00:00";
     in-out property <string> annotation-note;
     in-out property <string> asset-input-path;
+    in-out property <[string]> asset-options;
+    in-out property <string> selected-asset;
+    in-out property <string> asset-preview-kind: "message";
+    in-out property <string> asset-preview-description:
+        "Choose a session, list its materials, then preview a selected file.";
+    in-out property <string> asset-preview-body;
+    in-out property <string> asset-preview-waveform;
+    in-out property <image> asset-preview-image;
     in-out property <string> ai-provider-id: "openai";
     in-out property <string> ai-endpoint;
     in-out property <string> ai-model-id;
@@ -204,6 +215,20 @@ export component MainWindow inherits Window {
     in-out property <string> student-notes;
     in-out property <[string]> student-options;
     in-out property <string> selected-student;
+    in-out property <string> student-progress-skill;
+    in-out property <string> student-progress-classification: "newly-observed";
+    in-out property <string> student-progress-evidence-ids;
+    in-out property <string> student-progress-reviewer;
+    in-out property <string> student-progress-note;
+    in-out property <string> student-progress-output: "Select a student to review learning history.";
+    in-out property <string> student-profile-name;
+    in-out property <string> student-profile-grade;
+    in-out property <string> student-profile-subjects;
+    in-out property <string> student-profile-objectives;
+    in-out property <string> student-profile-difficulties;
+    in-out property <string> student-profile-improvements;
+    in-out property <string> student-profile-template;
+    in-out property <string> student-profile-notes;
     in-out property <string> session-subject;
     in-out property <string> session-title;
     in-out property <string> session-objectives;
@@ -213,8 +238,10 @@ export component MainWindow inherits Window {
     in-out property <bool> about-open: false;
     in-out property <string> active-view: "journal";
     in-out property <string> journal-query;
-    in-out property <string> journal-collection-filter;
-    in-out property <string> journal-tag-filter;
+    in-out property <string> journal-collection-filter: "All collections";
+    in-out property <string> journal-tag-filter: "All tags";
+    in-out property <[string]> journal-collection-options;
+    in-out property <[string]> journal-tag-options;
     in-out property <string> journal-date-from;
     in-out property <string> journal-date-to;
     in-out property <string> journal-session-filter: "all";
@@ -228,10 +255,13 @@ export component MainWindow inherits Window {
         "Draft guides created from this entry will appear in Study guides.";
     in-out property <string> journal-entry-title;
     in-out property <string> journal-entry-date;
+    in-out property <bool> journal-entry-create-open: false;
     in-out property <string> journal-entry-collections;
     in-out property <string> journal-entry-tags;
     in-out property <string> journal-entry-id;
     in-out property <string> journal-session-title;
+    in-out property <string> journal-session-subject;
+    in-out property <string> journal-session-objectives;
     in-out property <string> journal-session-type: "notes-only";
     in-out property <string> journal-session-id;
     in-out property <bool> journal-session-delete-confirmed: false;
@@ -242,6 +272,19 @@ export component MainWindow inherits Window {
         "Review the deletion scope before confirming.";
     in-out property <string> journal-document-id;
     in-out property <string> journal-document-text;
+    in-out property <string> journal-document-blocks-json: "[]";
+    in-out property <[string]> journal-note-block-options;
+    in-out property <string> selected-journal-note-block;
+    in-out property <string> journal-document-block-text;
+    in-out property <string> journal-document-block-kind: "Paragraph";
+    in-out property <int> journal-document-block-anchor-offset: 0;
+    in-out property <int> journal-document-block-focus-offset: 0;
+    property <bool> journal-inline-format-enabled:
+        root.journal-document-block-count > 0 && root.journal-document-block-kind != "Code";
+    in-out property <string> journal-document-new-block-text;
+    in-out property <int> journal-document-block-index: -1;
+    in-out property <int> journal-document-block-count: 0;
+    in-out property <bool> journal-document-show-preview: false;
     in-out property <string> journal-item-name;
     in-out property <string> journal-item-id;
     in-out property <string> journal-item-description;
@@ -257,6 +300,9 @@ export component MainWindow inherits Window {
         root.journal-session-delete-preview-id = "";
         root.journal-session-delete-scope-token = "";
     }
+    changed selected-session => {
+        root.asset-command(root.selected-session, "reset", "");
+    }
     changed journal-session-id => {
         root.recording-status-output =
             "Session selection changed. Check status before continuing capture.";
@@ -264,6 +310,16 @@ export component MainWindow inherits Window {
         root.journal-session-delete-scope-reviewed = false;
         root.journal-session-delete-preview-id = "";
         root.journal-session-delete-scope-token = "";
+    }
+    changed journal-query => { root.schedule-journal-search(); }
+    changed journal-collection-filter => { root.schedule-journal-search(); }
+    changed journal-tag-filter => { root.schedule-journal-search(); }
+    changed journal-date-from => { root.schedule-journal-search(); }
+    changed journal-date-to => { root.schedule-journal-search(); }
+    changed journal-session-filter => { root.schedule-journal-search(); }
+    changed selected-journal-note-block => {
+        root.journal-action("document-block-select", root.journal-document-id,
+            root.selected-journal-note-block, "", "", "", "");
     }
     changed sanitized-copy-output => { root.sanitized-copy-ready = false; }
     changed sanitized-copy-include-students => { root.sanitized-copy-ready = false; }
@@ -286,6 +342,9 @@ export component MainWindow inherits Window {
     callback forget-passphrase();
     callback create-archive(string, string);
     callback create-student(string, string, string, string, string, string);
+    callback load-student-progress(string);
+    callback review-student-progress(string, string, string, string, string, string);
+    callback save-student-profile(string, string, string, string, string, string, string, string, string);
     callback create-session(string, string, string, string);
     callback journal-action(string, string, string, string, string, string, string);
     callback open-session(string);
@@ -295,6 +354,8 @@ export component MainWindow inherits Window {
     callback quick-marker(string, string, string, string);
     callback recording-command(string, string, string);
     callback check-recording-device(string);
+    pure callback accepts-dropped-files(data-transfer) -> bool;
+    callback import-dropped-files(data-transfer);
     callback guide-command(string, string, string, string);
     callback asset-command(string, string, string);
     callback ai-command(string, string, string, string);
@@ -312,6 +373,47 @@ export component MainWindow inherits Window {
     callback run-command(string, string);
 
     callback cancel-command();
+
+    function schedule-journal-search() {
+        if (journal-search-timer.running) {
+            journal-search-timer.restart();
+        } else {
+            journal-search-timer.start();
+        }
+    }
+
+    function run-journal-search() {
+        journal-search-timer.stop();
+        root.journal-action("entry-list", root.journal-query,
+            root.journal-collection-filter,
+            root.journal-tag-filter,
+            root.journal-date-from,
+            root.journal-date-to,
+            root.journal-session-filter);
+    }
+
+    journal-search-timer := Timer {
+        interval: 260ms;
+        running: false;
+        triggered() => { root.run-journal-search(); }
+    }
+
+    drop-area := DropArea {
+        width: 100%;
+        height: 100%;
+        accessible-role: AccessibleRole.region;
+        accessible-label: self.has-drag
+            ? "Release the local files to import them into Tutorux."
+            : "Tutorux file import. Drop local files anywhere in this window to add them to the selected archive.";
+        accessible-live-region: AccessibleLiveness.polite;
+
+        can-drop(event) => {
+            root.accepts-dropped-files(event.data) ? DragAction.copy : DragAction.none
+        }
+        dropped(event) => {
+            root.import-dropped-files(event.data);
+            return event.proposed-action;
+        }
 
     marker-shortcuts := FocusScope {
         capture-key-pressed(event) => {
@@ -403,7 +505,7 @@ export component MainWindow inherits Window {
                     Rectangle { height: 10px; }
 
                     Text {
-                        text: "JOURNAL";
+                        text: "Journal";
                         color: #ffffff;
                         font-size: 10px;
                         font-weight: 700;
@@ -457,7 +559,7 @@ export component MainWindow inherits Window {
                     }
                     Rectangle { height: 12px; }
                     Text {
-                        text: "PORTABLE ARCHIVE";
+                        text: "Portable archive";
                         color: #ffffff;
                         font-size: 10px;
                         font-weight: 700;
@@ -519,7 +621,7 @@ export component MainWindow inherits Window {
                         spacing: 20px;
                         VerticalLayout {
                             spacing: 5px;
-                            Text { text: "YOUR TEACHING WORKSPACE"; color: #111111; font-size: 10px; font-weight: 700; letter-spacing: 1.4px; }
+                            Text { text: "Your teaching workspace"; color: #111111; font-size: 10px; font-weight: 700; letter-spacing: 1.4px; }
                             Text { text: "Good work starts with good notes."; color: #111111; font-size: 27px; font-weight: 700; }
                         }
                         Rectangle { }
@@ -596,7 +698,7 @@ export component MainWindow inherits Window {
                             VerticalLayout {
                                 padding: 18px;
                                 spacing: 10px;
-                                Text { text: "STUDENTS"; color: #111111; font-size: 10px; font-weight: 700; letter-spacing: 1px; }
+                                Text { text: "Students"; color: #111111; font-size: 10px; font-weight: 700; letter-spacing: 1px; }
                                 Text { text: "Learning histories"; color: #111111; font-size: 15px; font-weight: 600; }
                                 LineEdit { placeholder-text: "Student name"; text <=> root.student-name; }
                                 LineEdit { placeholder-text: "Grade or level"; text <=> root.student-grade; }
@@ -620,7 +722,7 @@ export component MainWindow inherits Window {
                             VerticalLayout {
                                 padding: 18px;
                                 spacing: 10px;
-                                Text { text: "NEW SESSION"; color: #111111; font-size: 10px; font-weight: 700; letter-spacing: 1px; }
+                                Text { text: "New session"; color: #111111; font-size: 10px; font-weight: 700; letter-spacing: 1px; }
                                 Text { text: "Set up your next lesson"; color: #111111; font-size: 15px; font-weight: 600; }
                                 ComboBox {
                                     model: root.student-options;
@@ -648,7 +750,7 @@ export component MainWindow inherits Window {
                             VerticalLayout {
                                 padding: 18px;
                                 spacing: 10px;
-                                Text { text: "ARCHIVE"; color: #111111; font-size: 10px; font-weight: 700; letter-spacing: 1px; }
+                                Text { text: "Archive"; color: #111111; font-size: 10px; font-weight: 700; letter-spacing: 1px; }
                                 Text { text: "Open an existing workspace"; color: #111111; font-size: 15px; font-weight: 600; }
                                 if root.archive-paths.length > 0: ComboBox {
                                     model: root.archive-paths;
@@ -683,7 +785,7 @@ export component MainWindow inherits Window {
                             VerticalLayout {
                                 padding: 18px;
                                 spacing: 10px;
-                                Text { text: "START FRESH"; color: #111111; font-size: 10px; font-weight: 700; letter-spacing: 1px; }
+                                Text { text: "Start fresh"; color: #111111; font-size: 10px; font-weight: 700; letter-spacing: 1px; }
                                 Text { text: "Create a portable archive"; color: #111111; font-size: 15px; font-weight: 600; }
                                 Text {
                                     text: "One file holds your students, sessions, recordings, materials and guides.";
@@ -716,7 +818,7 @@ export component MainWindow inherits Window {
                             VerticalLayout {
                                 padding: 16px;
                                 spacing: 7px;
-                                Text { text: "STUDENTS IN THIS ARCHIVE"; color: #111111; font-size: 10px; font-weight: 700; letter-spacing: 1px; }
+                                Text { text: "Students in this archive"; color: #111111; font-size: 10px; font-weight: 700; letter-spacing: 1px; }
                                 ScrollView { height: 92px; Text { text: root.students-text; color: #111111; font-size: 11px; wrap: word-wrap; } }
                             }
                         }
@@ -726,7 +828,7 @@ export component MainWindow inherits Window {
                             VerticalLayout {
                                 padding: 16px;
                                 spacing: 7px;
-                                Text { text: "RECENT SESSIONS"; color: #111111; font-size: 10px; font-weight: 700; letter-spacing: 1px; }
+                                Text { text: "Recent sessions"; color: #111111; font-size: 10px; font-weight: 700; letter-spacing: 1px; }
                                 ScrollView { height: 92px; Text { text: root.sessions-text; color: #111111; font-size: 11px; wrap: word-wrap; } }
                             }
                         }
@@ -739,7 +841,7 @@ export component MainWindow inherits Window {
                             padding: 18px;
                             spacing: 10px;
                             Text {
-                                text: "COMMAND CONSOLE";
+                                text: "Command console";
                                 color: #111111;
                                 font-size: 10px;
                                 font-weight: 700;
@@ -806,7 +908,7 @@ export component MainWindow inherits Window {
                             VerticalLayout {
                                 spacing: 4px;
                                 Text {
-                                    text: "JOURNAL";
+                                    text: "Journal";
                                     color: #111111;
                                     font-size: 10px;
                                     font-weight: 700;
@@ -827,7 +929,53 @@ export component MainWindow inherits Window {
                                     root.journal-entry-date = "";
                                     root.journal-entry-collections = "";
                                     root.journal-entry-tags = "";
+                                    root.journal-entry-create-open = true;
                                     root.status-message = "Add a title, then create the entry in the workspace.";
+                                    journal-entry-title-input.focus();
+                                }
+                            }
+                        }
+
+                        if root.journal-entry-create-open: Rectangle {
+                            border-width: 1px;
+                            border-color: #111111;
+                            border-radius: 5px;
+                            background: #ffffff;
+                            VerticalLayout {
+                                padding: 12px;
+                                spacing: 8px;
+                                Text {
+                                    text: "New journal entry";
+                                    color: #111111;
+                                    font-size: 14px;
+                                    font-weight: 600;
+                                }
+                                HorizontalLayout {
+                                    spacing: 8px;
+                                    journal-entry-title-input := LineEdit {
+                                        placeholder-text: "Entry title";
+                                        text <=> root.journal-entry-title;
+                                    }
+                                    LineEdit {
+                                        placeholder-text: "Date YYYY-MM-DD (optional)";
+                                        text <=> root.journal-entry-date;
+                                    }
+                                    Button {
+                                        text: "Create entry";
+                                        enabled: root.journal-entry-title != "";
+                                        clicked => {
+                                            root.journal-action("entry-create",
+                                                root.journal-entry-title,
+                                                root.journal-entry-date,
+                                                root.journal-entry-collections,
+                                                root.journal-entry-tags,
+                                                "", "");
+                                        }
+                                    }
+                                    Button {
+                                        text: "Cancel";
+                                        clicked => { root.journal-entry-create-open = false; }
+                                    }
                                 }
                             }
                         }
@@ -851,14 +999,7 @@ export component MainWindow inherits Window {
                                     LineEdit {
                                         placeholder-text: "Search titles, notes, transcripts, and guides";
                                         text <=> root.journal-query;
-                                        accepted => {
-                                            root.journal-action("entry-list", root.journal-query,
-                                                root.journal-collection-filter,
-                                                root.journal-tag-filter,
-                                                root.journal-date-from,
-                                                root.journal-date-to,
-                                                root.journal-session-filter);
-                                        }
+                                        accepted => { root.run-journal-search(); }
                                     }
                                     ComboBox {
                                         model: ["all", "with sessions", "without sessions"];
@@ -866,14 +1007,7 @@ export component MainWindow inherits Window {
                                     }
                                     Button {
                                         text: "Search";
-                                        clicked => {
-                                            root.journal-action("entry-list", root.journal-query,
-                                                root.journal-collection-filter,
-                                                root.journal-tag-filter,
-                                                root.journal-date-from,
-                                                root.journal-date-to,
-                                                root.journal-session-filter);
-                                        }
+                                        clicked => { root.run-journal-search(); }
                                     }
                                     Button {
                                         text: "Collections";
@@ -890,13 +1024,13 @@ export component MainWindow inherits Window {
                                 }
                                 HorizontalLayout {
                                     spacing: 8px;
-                                    LineEdit {
-                                        placeholder-text: "Collection ID";
-                                        text <=> root.journal-collection-filter;
+                                    ComboBox {
+                                        model: root.journal-collection-options;
+                                        current-value <=> root.journal-collection-filter;
                                     }
-                                    LineEdit {
-                                        placeholder-text: "Tag ID";
-                                        text <=> root.journal-tag-filter;
+                                    ComboBox {
+                                        model: root.journal-tag-options;
+                                        current-value <=> root.journal-tag-filter;
                                     }
                                     LineEdit {
                                         placeholder-text: "From YYYY-MM-DD";
@@ -1076,9 +1210,67 @@ export component MainWindow inherits Window {
                                                 current-value <=> root.journal-session-type;
                                             }
                                         }
-                                        if root.journal-session-options.length > 0: ComboBox {
-                                            model: root.journal-session-options;
-                                            current-value <=> root.selected-journal-session;
+                                        HorizontalLayout {
+                                            spacing: 8px;
+                                            LineEdit {
+                                                placeholder-text: "Subject";
+                                                text <=> root.journal-session-subject;
+                                            }
+                                            LineEdit {
+                                                placeholder-text: "Learning objectives";
+                                                text <=> root.journal-session-objectives;
+                                            }
+                                        }
+                                        if root.journal-session-options.length > 0: ScrollView {
+                                            height: 170px;
+                                            VerticalLayout {
+                                                spacing: 6px;
+                                                for session in root.journal-session-options: Rectangle {
+                                                    border-width: 1px;
+                                                    border-color: #111111;
+                                                    border-radius: 5px;
+                                                    background: root.selected-journal-session == session ?
+                                                        #eef2fb : #ffffff;
+                                                    VerticalLayout {
+                                                        padding: 5px;
+                                                        spacing: 4px;
+                                                        Button {
+                                                            text: session;
+                                                            clicked => {
+                                                                root.selected-journal-session = session;
+                                                            }
+                                                        }
+                                                        if root.selected-journal-session == session: HorizontalLayout {
+                                                            spacing: 6px;
+                                                            Button {
+                                                                text: "Open session";
+                                                                clicked => {
+                                                                    root.open-session("Session · " + session);
+                                                                }
+                                                            }
+                                                            Button {
+                                                                text: "Review transcript";
+                                                                clicked => {
+                                                                    root.review-transcript("Session · " + session);
+                                                                }
+                                                            }
+                                                            Button {
+                                                                text: "Recording controls";
+                                                                clicked => {
+                                                                    root.selected-session = session;
+                                                                    root.recording-panel-open = true;
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        if root.journal-session-options.length == 0: Text {
+                                            text: "No sessions are linked to this entry yet.";
+                                            color: #111111;
+                                            font-size: 12px;
+                                        }
                                         }
                                         LineEdit {
                                             placeholder-text: "Session ID";
@@ -1093,7 +1285,9 @@ export component MainWindow inherits Window {
                                                         root.journal-entry-id,
                                                         root.journal-session-type,
                                                         root.journal-session-title,
-                                                        "", "", "");
+                                                        root.selected-student,
+                                                        root.journal-session-subject,
+                                                        root.journal-session-objectives);
                                                 }
                                             }
                                             Button {
@@ -1223,14 +1417,11 @@ export component MainWindow inherits Window {
                                             font-size: 11px;
                                             wrap: word-wrap;
                                         }
-                                        ScrollView {
-                                            height: 150px;
-                                            Text {
-                                                text: root.journal-timeline-output;
-                                                color: #111111;
-                                                font-size: 12px;
-                                                wrap: word-wrap;
-                                            }
+                                        Text {
+                                            text: root.journal-timeline-output;
+                                            color: #111111;
+                                            font-size: 11px;
+                                            wrap: word-wrap;
                                         }
                                     }
                                 }
@@ -1254,34 +1445,242 @@ export component MainWindow inherits Window {
                                             LineEdit {
                                                 placeholder-text: "Notes document ID";
                                                 text <=> root.journal-document-id;
+                                                enabled: root.journal-entry-id != "";
                                             }
                                             Button {
                                                 text: "Load notes";
+                                                enabled: root.journal-document-id != "";
                                                 clicked => {
                                                     root.journal-action("document-show",
                                                         root.journal-document-id,
                                                         "", "", "", "", "");
                                                 }
                                             }
+                                        }
+                                        Text {
+                                            text: "Notes are edited as separate blocks, so each block keeps its type and identity.";
+                                            color: #111111;
+                                            font-size: 11px;
+                                            wrap: word-wrap;
+                                        }
+                                        HorizontalLayout {
+                                            spacing: 8px;
+                                            Text { text: "Block"; color: #111111; font-size: 12px; }
+                                            ComboBox {
+                                                model: root.journal-note-block-options;
+                                                current-value <=> root.selected-journal-note-block;
+                                                enabled: root.journal-document-block-count > 0;
+                                            }
+                                            Text { text: "Type"; color: #111111; font-size: 12px; }
+                                            ComboBox {
+                                                model: ["Paragraph", "Heading", "Bulleted list",
+                                                        "Numbered list", "Checklist", "Quote", "Code"];
+                                                current-value <=> root.journal-document-block-kind;
+                                                enabled: root.journal-document-block-count > 0;
+                                            }
+                                        }
+                                        HorizontalLayout {
+                                            spacing: 6px;
+                                            Text {
+                                                text: "Format selection";
+                                                color: #111111;
+                                                font-size: 12px;
+                                                vertical-alignment: center;
+                                            }
                                             Button {
-                                                text: "Save notes";
+                                                text: "Bold";
+                                                enabled: root.journal-inline-format-enabled;
                                                 clicked => {
-                                                    root.journal-action("document-update",
+                                                    root.journal-action("document-block-format",
                                                         root.journal-document-id,
-                                                        root.journal-document-text,
+                                                        root.selected-journal-note-block,
+                                                        "bold", "", "", "");
+                                                }
+                                            }
+                                            Button {
+                                                text: "Italic";
+                                                enabled: root.journal-inline-format-enabled;
+                                                clicked => {
+                                                    root.journal-action("document-block-format",
+                                                        root.journal-document-id,
+                                                        root.selected-journal-note-block,
+                                                        "italic", "", "", "");
+                                                }
+                                            }
+                                            Button {
+                                                text: "Strike";
+                                                enabled: root.journal-inline-format-enabled;
+                                                clicked => {
+                                                    root.journal-action("document-block-format",
+                                                        root.journal-document-id,
+                                                        root.selected-journal-note-block,
+                                                        "strike", "", "", "");
+                                                }
+                                            }
+                                            Button {
+                                                text: "Code";
+                                                enabled: root.journal-inline-format-enabled;
+                                                clicked => {
+                                                    root.journal-action("document-block-format",
+                                                        root.journal-document-id,
+                                                        root.selected-journal-note-block,
+                                                        "code", "", "", "");
+                                                }
+                                            }
+                                            Button {
+                                                text: "Link";
+                                                enabled: root.journal-inline-format-enabled;
+                                                clicked => {
+                                                    root.journal-action("document-block-format",
+                                                        root.journal-document-id,
+                                                        root.selected-journal-note-block,
+                                                        "link", "", "", "");
+                                                }
+                                            }
+                                        }
+                                        Text {
+                                            text: "Select text to format, or place the cursor to insert a span. Formatting uses portable Markdown; Ctrl+B, Ctrl+I, and Ctrl+K also work. Save the block to keep your edits.";
+                                            color: #111111;
+                                            font-size: 11px;
+                                            wrap: word-wrap;
+                                        }
+                                        TextInput {
+                                            height: 160px;
+                                            single-line: false;
+                                            wrap: word-wrap;
+                                            text <=> root.journal-document-block-text;
+                                            font-size: 13px;
+                                            color: #111111;
+                                            enabled: root.journal-document-block-count > 0;
+                                            edited => { root.journal-document-block-text = self.text; }
+                                            cursor-position-changed(position) => {
+                                                root.journal-document-block-anchor-offset =
+                                                    self.anchor-position-byte-offset;
+                                                root.journal-document-block-focus-offset =
+                                                    self.cursor-position-byte-offset;
+                                            }
+                                            key-pressed(event) => {
+                                                if (root.journal-inline-format-enabled &&
+                                                    (event.modifiers.control || event.modifiers.meta) &&
+                                                    event.text == Key.B) {
+                                                    root.journal-action("document-block-format",
+                                                        root.journal-document-id,
+                                                        root.selected-journal-note-block,
+                                                        "bold", "", "", "");
+                                                    accept
+                                                } else if (root.journal-inline-format-enabled &&
+                                                           (event.modifiers.control ||
+                                                            event.modifiers.meta) &&
+                                                           event.text == Key.I) {
+                                                    root.journal-action("document-block-format",
+                                                        root.journal-document-id,
+                                                        root.selected-journal-note-block,
+                                                        "italic", "", "", "");
+                                                    accept
+                                                } else if (root.journal-inline-format-enabled &&
+                                                           (event.modifiers.control ||
+                                                            event.modifiers.meta) &&
+                                                           event.text == Key.K) {
+                                                    root.journal-action("document-block-format",
+                                                        root.journal-document-id,
+                                                        root.selected-journal-note-block,
+                                                        "link", "", "", "");
+                                                    accept
+                                                } else {
+                                                    reject
+                                                }
+                                            }
+                                        }
+                                        HorizontalLayout {
+                                            spacing: 8px;
+                                            Button {
+                                                text: "Save block";
+                                                enabled: root.journal-document-id != "" &&
+                                                    root.selected-journal-note-block != "";
+                                                clicked => {
+                                                    root.journal-action("document-block-update",
+                                                        root.journal-document-id,
+                                                        root.selected-journal-note-block,
+                                                        root.journal-document-block-kind,
+                                                        root.journal-document-block-text,
+                                                        "", "");
+                                                }
+                                            }
+                                            Button {
+                                                text: "Move up";
+                                                enabled: root.journal-document-block-index > 0;
+                                                clicked => {
+                                                    root.journal-action("document-block-move",
+                                                        root.journal-document-id,
+                                                        root.selected-journal-note-block,
+                                                        "up", "", "", "");
+                                                }
+                                            }
+                                            Button {
+                                                text: "Move down";
+                                                enabled: root.journal-document-block-index >= 0 &&
+                                                    root.journal-document-block-index + 1 <
+                                                        root.journal-document-block-count;
+                                                clicked => {
+                                                    root.journal-action("document-block-move",
+                                                        root.journal-document-id,
+                                                        root.selected-journal-note-block,
+                                                        "down", "", "", "");
+                                                }
+                                            }
+                                            Button {
+                                                text: "Remove block";
+                                                enabled: root.journal-document-id != "" &&
+                                                    root.selected-journal-note-block != "";
+                                                clicked => {
+                                                    root.journal-action("document-block-remove",
+                                                        root.journal-document-id,
+                                                        root.selected-journal-note-block,
                                                         "", "", "", "");
                                                 }
                                             }
                                         }
+                                        HorizontalLayout {
+                                            spacing: 8px;
+                                            Text { text: "Add a block"; color: #111111; font-size: 12px; }
+                                            Button {
+                                                text: "Add block";
+                                                enabled: root.journal-document-id != "" &&
+                                                    root.journal-document-new-block-text != "";
+                                                clicked => {
+                                                    root.journal-action("document-block-add",
+                                                        root.journal-document-id,
+                                                        root.journal-document-block-kind,
+                                                        root.journal-document-new-block-text,
+                                                        root.selected-journal-note-block,
+                                                        "", "");
+                                                }
+                                            }
+                                        }
                                         TextInput {
-                                            height: 210px;
+                                            height: 90px;
                                             single-line: false;
                                             wrap: word-wrap;
-                                            text <=> root.journal-document-text;
+                                            placeholder-text: "Write the new block";
+                                            text <=> root.journal-document-new-block-text;
                                             font-size: 13px;
                                             color: #111111;
+                                            enabled: root.journal-document-id != "";
                                             edited => {
-                                                root.journal-document-text = self.text;
+                                                root.journal-document-new-block-text = self.text;
+                                            }
+                                        }
+                                        CheckBox {
+                                            text: "Show saved notes as a whole document";
+                                            checked <=> root.journal-document-show-preview;
+                                        }
+                                        if root.journal-document-show-preview: ScrollView {
+                                            height: 100px;
+                                            Text {
+                                                text: root.journal-document-text;
+                                                color: #111111;
+                                                font-size: 12px;
+                                                wrap: word-wrap;
                                             }
                                         }
                                         HorizontalLayout {
@@ -1555,7 +1954,7 @@ export component MainWindow inherits Window {
                                 }
                                 Text {
                                     text: "Preview first. Track filters opt in recordings; other sensitive categories default off.";
-                                    color: #333333;
+                                    color: #111111;
                                     font-size: 12px;
                                     wrap: word-wrap;
                                 }
@@ -1660,7 +2059,7 @@ export component MainWindow inherits Window {
                                 }
                                 Text {
                                     text: root.sanitized-copy-status;
-                                    color: #333333;
+                                    color: #111111;
                                     font-size: 12px;
                                     wrap: word-wrap;
                                 }
@@ -1689,13 +2088,13 @@ export component MainWindow inherits Window {
                             VerticalLayout {
                                 spacing: 5px;
                                 Text {
-                                    text: root.active-view == "students" ? "STUDENT RECORDS" :
-                                          root.active-view == "sessions" ? "SESSION WORKSPACE" :
-                                          root.active-view == "assets" ? "SESSION MATERIALS" :
-                                          root.active-view == "recording" ? "RECORDING STUDIO" :
-                                          root.active-view == "review" ? "SESSION REVIEW" :
-                                          root.active-view == "ai" ? "AI WORKSPACE" :
-                                          root.active-view == "guides" ? "STUDY GUIDES" : "ARCHIVE SETTINGS";
+                                    text: root.active-view == "students" ? "Student records" :
+                                          root.active-view == "sessions" ? "Session workspace" :
+                                          root.active-view == "assets" ? "Session materials" :
+                                          root.active-view == "recording" ? "Recording studio" :
+                                          root.active-view == "review" ? "Session review" :
+                                          root.active-view == "ai" ? "AI workspace" :
+                                          root.active-view == "guides" ? "Study guides" : "Archive settings";
                                     color: #111111;
                                     font-size: 10px;
                                     font-weight: 700;
@@ -1726,10 +2125,79 @@ export component MainWindow inherits Window {
                             background: #ffffff;
                             VerticalLayout {
                                 padding: 20px;
-                                spacing: 12px;
-                                Text { text: "Students in this archive"; color: #111111; font-size: 16px; font-weight: 600; }
-                                ScrollView { height: 270px; Text { text: root.students-text; color: #111111; font-size: 12px; wrap: word-wrap; } }
-                                Text { text: "Use the archive command panel below to create, inspect, update, or remove a student."; color: #111111; font-size: 12px; wrap: word-wrap; }
+                                spacing: 14px;
+                                Text { text: "Students and learning history"; color: #111111; font-size: 16px; font-weight: 600; }
+                                HorizontalLayout {
+                                    spacing: 10px;
+                                    ComboBox {
+                                        model: root.student-options;
+                                        current-value <=> root.selected-student;
+                                    }
+                                    Button {
+                                        text: "Load progress";
+                                        clicked => { root.load-student-progress(root.selected-student); }
+                                    }
+                                }
+                                Text { text: "Profile"; color: #111111; font-size: 14px; font-weight: 600; }
+                                HorizontalLayout {
+                                    spacing: 8px;
+                                    LineEdit { placeholder-text: "Name"; text <=> root.student-profile-name; }
+                                    LineEdit { placeholder-text: "Grade or level"; text <=> root.student-profile-grade; }
+                                    LineEdit { placeholder-text: "Subjects"; text <=> root.student-profile-subjects; }
+                                    LineEdit { placeholder-text: "Preferred guide template"; text <=> root.student-profile-template; }
+                                }
+                                HorizontalLayout {
+                                    spacing: 8px;
+                                    LineEdit { placeholder-text: "Learning objectives"; text <=> root.student-profile-objectives; }
+                                    LineEdit { placeholder-text: "Known difficulties"; text <=> root.student-profile-difficulties; }
+                                }
+                                HorizontalLayout {
+                                    spacing: 8px;
+                                    LineEdit { placeholder-text: "Demonstrated improvements"; text <=> root.student-profile-improvements; }
+                                    LineEdit { placeholder-text: "Tutor notes"; text <=> root.student-profile-notes; }
+                                }
+                                Button {
+                                    text: "Save profile";
+                                    clicked => {
+                                        root.save-student-profile(root.selected-student,
+                                            root.student-profile-name, root.student-profile-grade,
+                                            root.student-profile-subjects, root.student-profile-objectives,
+                                            root.student-profile-difficulties, root.student-profile-improvements,
+                                            root.student-profile-template, root.student-profile-notes);
+                                    }
+                                }
+                                ScrollView {
+                                    height: 210px;
+                                    Text { text: root.student-progress-output; color: #111111; font-size: 12px; wrap: word-wrap; }
+                                }
+                                Text { text: "Tutor review"; color: #111111; font-size: 14px; font-weight: 600; }
+                                Text { text: "Classifications require source evidence from this student's archive. Mastery requires human-verified evidence."; color: #111111; font-size: 11px; wrap: word-wrap; }
+                                Text { text: "Reviewer names are tutor-entered audit labels; Tutorux does not authenticate identity."; color: #111111; font-size: 11px; wrap: word-wrap; }
+                                HorizontalLayout {
+                                    spacing: 8px;
+                                    LineEdit { placeholder-text: "Skill"; text <=> root.student-progress-skill; }
+                                    ComboBox {
+                                        model: ["newly-observed", "recurring", "partial-improvement", "demonstrated-mastery", "unverified-improvement", "not-revisited"];
+                                        current-value <=> root.student-progress-classification;
+                                    }
+                                }
+                                LineEdit { placeholder-text: "Evidence node UUIDs, comma separated"; text <=> root.student-progress-evidence-ids; }
+                                HorizontalLayout {
+                                    spacing: 8px;
+                                    LineEdit { placeholder-text: "Reviewed by (tutor-entered label)"; text <=> root.student-progress-reviewer; }
+                                    LineEdit { placeholder-text: "Review note (optional)"; text <=> root.student-progress-note; }
+                                }
+                                Button {
+                                    text: "Save reviewed progress";
+                                    clicked => {
+                                        root.review-student-progress(root.selected-student,
+                                            root.student-progress-skill,
+                                            root.student-progress-classification,
+                                            root.student-progress-evidence-ids,
+                                            root.student-progress-reviewer,
+                                            root.student-progress-note);
+                                    }
+                                }
                             }
                         }
                         if root.active-view == "sessions": Rectangle {
@@ -1913,6 +2381,13 @@ export component MainWindow inherits Window {
                                     font-size: 16px;
                                     font-weight: 600;
                                 }
+                                Text {
+                                    text: "Drop local files anywhere in this window to add them to this archive. The selected session is attached when one is selected. Files are copied into the archive; they are never extracted.";
+                                    color: #111111;
+                                    font-size: 12px;
+                                    wrap: word-wrap;
+                                    accessible-role: AccessibleRole.text;
+                                }
                                 if root.session-options.length > 0: ComboBox {
                                     model: root.session-options;
                                     current-value <=> root.selected-session;
@@ -1936,6 +2411,99 @@ export component MainWindow inherits Window {
                                             root.asset-command(root.selected-session, "list", "");
                                         }
                                     }
+                                }
+                                if root.asset-options.length > 0: HorizontalLayout {
+                                    spacing: 8px;
+                                    ComboBox {
+                                        model: root.asset-options;
+                                        current-value <=> root.selected-asset;
+                                        accessible-label: "Material to preview";
+                                    }
+                                    Button {
+                                        text: "Preview selected";
+                                        enabled: root.selected-asset != "";
+                                        clicked => {
+                                            root.asset-command(root.selected-session, "preview",
+                                                root.selected-asset);
+                                        }
+                                    }
+                                }
+                                Text {
+                                    text: root.asset-preview-description;
+                                    color: #111111;
+                                    font-size: 12px;
+                                    wrap: word-wrap;
+                                    accessible-role: AccessibleRole.text;
+                                }
+                                if root.asset-preview-kind == "image": Rectangle {
+                                    height: 340px;
+                                    border-width: 1px;
+                                    border-color: #111111;
+                                    border-radius: 5px;
+                                    background: #ffffff;
+                                    Image {
+                                        x: 12px;
+                                        y: 12px;
+                                        width: parent.width - 24px;
+                                        height: parent.height - 24px;
+                                        source: root.asset-preview-image;
+                                        image-fit: contain;
+                                        accessible-label: root.asset-preview-description;
+                                    }
+                                }
+                                if root.asset-preview-kind == "text": Rectangle {
+                                    height: 250px;
+                                    border-width: 1px;
+                                    border-color: #111111;
+                                    border-radius: 5px;
+                                    background: #ffffff;
+                                    ScrollView {
+                                        x: 12px;
+                                        y: 10px;
+                                        width: parent.width - 24px;
+                                        height: parent.height - 20px;
+                                        Text {
+                                            width: parent.visible-width;
+                                            text: root.asset-preview-body;
+                                            color: #111111;
+                                            font-size: 12px;
+                                            font-family: "monospace";
+                                            wrap: word-wrap;
+                                            accessible-role: AccessibleRole.text;
+                                        }
+                                    }
+                                }
+                                if root.asset-preview-kind == "audio": Rectangle {
+                                    height: 88px;
+                                    border-width: 1px;
+                                    border-color: #111111;
+                                    border-radius: 5px;
+                                    background: #ffffff;
+                                    VerticalLayout {
+                                        padding: 12px;
+                                        spacing: 4px;
+                                        Text {
+                                            text: root.asset-preview-waveform;
+                                            color: #1e40ff;
+                                            font-size: 24px;
+                                            font-family: "monospace";
+                                            accessible-role: AccessibleRole.text;
+                                            accessible-label: "Audio waveform preview";
+                                        }
+                                        Text {
+                                            text: root.asset-preview-body;
+                                            color: #111111;
+                                            font-size: 11px;
+                                            wrap: word-wrap;
+                                        }
+                                    }
+                                }
+                                if root.asset-preview-kind == "message": Text {
+                                    text: root.asset-preview-body;
+                                    color: #111111;
+                                    font-size: 12px;
+                                    wrap: word-wrap;
+                                    accessible-role: AccessibleRole.text;
                                 }
                                 ScrollView {
                                     height: 260px;
@@ -1990,10 +2558,44 @@ export component MainWindow inherits Window {
                                     placeholder-text: "Microphone device ID (optional)";
                                     text <=> root.recording-microphone-device;
                                 }
+                                HorizontalLayout {
+                                    spacing: 8px;
+                                    LineEdit {
+                                        placeholder-text: "Application audio ID";
+                                        text <=> root.recording-application-device;
+                                    }
+                                    Button {
+                                        text: "List audio sources";
+                                        clicked => {
+                                            root.recording-command(root.selected-session,
+                                                "devices", "");
+                                        }
+                                    }
+                                }
+                            Text {
+                                text: "Start both uses this application when an ID is set.";
+                                color: #111111;
+                                font-size: 10px;
+                                wrap: word-wrap;
+                            }
+                                CheckBox {
+                                    text: "Create provisional transcript while recording";
+                                    checked <=> root.recording-live-transcription-enabled;
+                                }
+                                LineEdit {
+                                    placeholder-text: "Local Whisper model path (GGML/GGUF)";
+                                    text <=> root.recording-live-model-path;
+                                }
+                                Text {
+                                    text: "Live transcription needs one source and a local Whisper model. Segments are provisional until reviewed.";
+                                    color: #111111;
+                                    font-size: 10px;
+                                    wrap: word-wrap;
+                                }
                                 Text {
                                     text: "Speak naturally during the short microphone check. It is temporary " +
                                           "and is not saved in the archive.";
-                                    color: #555555;
+                                    color: #111111;
                                     font-size: 12px;
                                     wrap: word-wrap;
                                 }
@@ -2067,7 +2669,8 @@ export component MainWindow inherits Window {
                                         enabled: root.recording-preflight-ready &&
                                                  root.recording-preflight-requested-device-id ==
                                                      root.recording-microphone-device &&
-                                                 root.recording-consent-confirmed;
+                                                 root.recording-consent-confirmed &&
+                                                 !root.recording-live-transcription-enabled;
                                         clicked => {
                                             if (root.recording-consent-confirmed) {
                                                 root.recording-command(root.selected-session,
@@ -2075,6 +2678,15 @@ export component MainWindow inherits Window {
                                             } else {
                                                 root.status-message = "Confirm participant consent before recording.";
                                             }
+                                        }
+                                    }
+                                    Button {
+                                        text: "Start application";
+                                        enabled: root.recording-consent-confirmed &&
+                                                 root.recording-application-device != "";
+                                        clicked => {
+                                            root.recording-command(root.selected-session,
+                                                "start", "application");
                                         }
                                     }
                                     Button {
@@ -2635,7 +3247,7 @@ export component MainWindow inherits Window {
                     }
 
                     if root.recording-panel-open: Rectangle {
-                        height: 176px;
+                        height: 210px;
                         border-width: 1px;
                         border-color: #111111;
                         border-radius: 5px;
@@ -2646,7 +3258,7 @@ export component MainWindow inherits Window {
                             HorizontalLayout {
                                 spacing: 8px;
                                 Text {
-                                    text: "CAPTURE CONTROLS";
+                                    text: "Capture controls";
                                     color: #111111;
                                     font-size: 10px;
                                     font-weight: 700;
@@ -2710,6 +3322,29 @@ export component MainWindow inherits Window {
                             }
                             HorizontalLayout {
                                 spacing: 8px;
+                                LineEdit {
+                                    placeholder-text: "Application audio ID";
+                                    text <=> root.recording-application-device;
+                                }
+                                Button {
+                                    text: "List audio sources";
+                                    clicked => {
+                                        root.recording-command(
+                                            root.journal-session-id == "" ?
+                                                root.selected-journal-session :
+                                                root.journal-session-id,
+                                            "devices", "");
+                                    }
+                                }
+                            }
+                                Text {
+                                    text: "Start both tracks uses this application when an ID is set.";
+                                    color: #111111;
+                                    font-size: 11px;
+                                    wrap: word-wrap;
+                                }
+                            HorizontalLayout {
+                                spacing: 8px;
                                 CheckBox {
                                     text: "Everyone recorded has agreed";
                                     checked <=> root.recording-consent-confirmed;
@@ -2757,6 +3392,20 @@ export component MainWindow inherits Window {
                                                 root.selected-journal-session :
                                                 root.journal-session-id,
                                             "start", "both");
+                                    }
+                                }
+                                Button {
+                                    text: "Start application";
+                                    enabled: root.recording-consent-confirmed &&
+                                             root.recording-application-device != "" &&
+                                             (root.journal-session-id != "" ||
+                                              root.selected-journal-session != "");
+                                    clicked => {
+                                        root.recording-command(
+                                            root.journal-session-id == "" ?
+                                                root.selected-journal-session :
+                                                root.journal-session-id,
+                                            "start", "application");
                                     }
                                 }
                                 Button {
@@ -2819,6 +3468,42 @@ export component MainWindow inherits Window {
                 }
             }
         }
+        }
+    }
+
+        if drop-area.has-drag: Rectangle {
+            x: 32px;
+            y: 32px;
+            width: parent.width - 64px;
+            height: parent.height - 64px;
+            border-width: 2px;
+            border-color: #1e40ff;
+            border-radius: 5px;
+            background: #ffffff;
+            opacity: 0.96;
+            accessible-role: AccessibleRole.groupbox;
+            accessible-label: "Release to import the dropped files into Tutorux.";
+
+            VerticalLayout {
+                alignment: center;
+                spacing: 8px;
+                Text {
+                    text: "Drop files to import";
+                    color: #111111;
+                    font-size: 22px;
+                    font-weight: 700;
+                    horizontal-alignment: center;
+                    accessible-role: AccessibleRole.text;
+                }
+                Text {
+                    text: root.selected-session == ""
+                        ? "Files will be added to this archive without a session."
+                        : "Files will be added to the selected session.";
+                    color: #111111;
+                    font-size: 13px;
+                    horizontal-alignment: center;
+                }
+            }
         }
     }
 }
