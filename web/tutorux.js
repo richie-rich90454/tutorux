@@ -62,6 +62,17 @@
     "transcript-import-form",
     "transcript-file",
     "transcript-format",
+    "remote-transcription-form",
+    "remote-audio-file",
+    "remote-transcription-endpoint",
+    "remote-transcription-model",
+    "remote-transcription-key",
+    "remote-transcription-disclosure",
+    "remote-transcription-disclosure-copy",
+    "remote-transcription-consent",
+    "remote-transcription-submit",
+    "remote-transcription-cancel",
+    "remote-transcription-status",
     "transcript-export-form",
     "transcript-export-format",
     "transcript-list",
@@ -78,7 +89,9 @@
     "browser-playback-stop",
     "asset-import-form",
     "asset-files",
+    "asset-import-feedback",
     "assets-list",
+    "global-drop-overlay",
     "ai-package-form",
     "ai-package-session",
     "ai-package-format",
@@ -89,6 +102,7 @@
     "guide-source-scope",
     "guide-session",
     "guide-entry-scope",
+    "guide-template",
     "guide-editor",
     "active-guide",
     "guide-title-form",
@@ -121,6 +135,7 @@
   let newArchivePassphrase = "";
   let sessionRecords = [];
   let guideRecords = [];
+  let guideTemplateRecords = [];
   let activeSessionId = "";
   let activeSessionHasAudio = false;
   let activeSessionAssets = [];
@@ -156,6 +171,15 @@
   let browserPlaybackSource = null;
   let browserPlaybackPort = null;
   let browserPlaybackCancelled = false;
+  let remoteTranscriptionController = null;
+  let remoteTranscriptionInProgress = false;
+  let remoteTranscriptionImportSequence = 0;
+  let browserAssetImportActive = false;
+  let assetPreviewSequence = 0;
+  let assetPreviewObjectUrl = "";
+  let activeAssetPreviewPanel = null;
+  let activeAssetPreviewButton = null;
+  let browserFileDragDepth = 0;
   const browserRecordingCheckpointSeconds = 20;
   const maximumPendingBrowserRecordingSeconds = 7;
   function showNotice(message, isError = false) {
@@ -261,6 +285,28 @@
         control.disabled = !available;
     }
     updateBrowserRecordingControls();
+    updateRemoteTranscriptionControls();
+  }
+  function updateRemoteTranscriptionControls() {
+    const file = elements["remote-audio-file"].files?.[0];
+    const available = Boolean(activeArchivePath && activeSessionId && !archiveRecoveryNeedsReview);
+    const busy = remoteTranscriptionInProgress;
+    const fieldsAvailable = Boolean(activeArchivePath && !archiveRecoveryNeedsReview && !busy);
+    for (const field of elements["remote-transcription-form"].querySelectorAll('input:not([type="checkbox"])')) {
+      field.disabled = !fieldsAvailable;
+    }
+    let validFile = Boolean(file);
+    if (file) {
+      try {
+        validateRemoteAudioFile(file);
+      } catch {
+        validFile = false;
+      }
+    }
+    elements["remote-transcription-consent"].disabled = !available || !validFile || busy;
+    elements["remote-transcription-submit"].disabled = !available || !validFile || busy || !elements["remote-transcription-consent"].checked || !elements["remote-transcription-endpoint"].value.trim() || !elements["remote-transcription-model"].value.trim();
+    elements["remote-transcription-cancel"].hidden = !busy;
+    elements["remote-transcription-cancel"].disabled = !busy;
   }
   function updateBrowserRecordingControls() {
     const supported = Boolean(window.isSecureContext && navigator.mediaDevices?.getUserMedia && window.AudioContext && typeof AudioWorkletNode !== "undefined");
@@ -568,6 +614,10 @@
     activeArchivePath = path;
     activeArchiveName = name;
     sourceFileHandle = handle;
+    remoteTranscriptionController?.abort();
+    elements["remote-transcription-key"].value = "";
+    elements["remote-transcription-consent"].checked = false;
+    elements["remote-audio-file"].value = "";
     archiveRecoveryNeedsReview = false;
     archiveRecoveryReport = null;
     elements["archive-recovery"].hidden = true;
@@ -580,6 +630,7 @@
     elements.setPassphrase.disabled = !path;
     elements.archiveState.classList.toggle("is-open", Boolean(path));
     setWorkspaceAvailability(Boolean(path));
+    updateRemoteTranscriptionDisclosure();
     setDirty(false);
     elements.studentCount.textContent = "0";
     elements.sessionCount.textContent = "0";
@@ -651,6 +702,254 @@
       throw new Error("Open or create a Tutorux archive first.");
     }
     return ["--archive", activeArchivePath, ...commandArguments, "--json"];
+  }
+  const maximumBrowserImportBytes = 64 * 1024 * 1024;
+  const maximumRemoteTranscriptBytes = 16 * 1024 * 1024;
+  function validateRemoteAudioFile(file) {
+    if (file.size === 0)
+      throw new Error("The selected audio file is empty.");
+    if (file.size > maximumBrowserImportBytes)
+      throw new Error("Browser audio uploads are limited to 64 MiB per file.");
+    const extension = file.name.toLowerCase().match(/\.[^.]+$/)?.[0] || "";
+    const acceptedTypes = {
+      ".mp3": ["audio/mpeg", "audio/mp3"],
+      ".mp4": ["audio/mp4", "video/mp4"],
+      ".mpeg": ["audio/mpeg", "audio/mpg", "audio/x-mpeg"],
+      ".mpga": ["audio/mpeg", "audio/mpga"],
+      ".m4a": ["audio/mp4", "audio/x-m4a", "audio/m4a"],
+      ".wav": ["audio/wav", "audio/x-wav", "audio/wave", "audio/vnd.wave"],
+      ".webm": ["audio/webm", "video/webm"]
+    };
+    const allowedTypes = acceptedTypes[extension];
+    if (!allowedTypes)
+      throw new Error("Choose an MP3, MP4, MPEG, M4A, WAV, or WebM audio file.");
+    if (file.type && !allowedTypes.includes(file.type.toLowerCase()))
+      throw new Error("The selected file's media type does not match a supported audio format.");
+  }
+  function validatedRemoteTranscriptionUrl(value) {
+    let endpoint;
+    try {
+      endpoint = new URL(value.trim());
+    } catch {
+      throw new Error("Enter a valid HTTPS API base URL.");
+    }
+    const host = endpoint.hostname.toLowerCase();
+    const isIpv4Loopback = host.split(".").length === 4 && host.startsWith("127.") && host.split(".").every((part) => {
+      const octet = Number(part);
+      return Number.isInteger(octet) && octet >= 0 && octet <= 255;
+    });
+    const isLoopback = host === "localhost" || host.endsWith(".localhost") || isIpv4Loopback || host === "[::1]" || host === "::1";
+    if (endpoint.protocol !== "https:" && !(endpoint.protocol === "http:" && isLoopback))
+      throw new Error("Use HTTPS. Plain HTTP is permitted only for localhost loopback endpoints.");
+    if (endpoint.username || endpoint.password || endpoint.search || endpoint.hash)
+      throw new Error("The API URL cannot contain credentials, a query string, or a fragment.");
+    return endpoint;
+  }
+  function remoteTranscriptionUrl(endpoint) {
+    const base = endpoint.href.replace(/\/+$/, "");
+    return /\/audio\/transcriptions\/?$/i.test(endpoint.pathname) ? base : `${base}/audio/transcriptions`;
+  }
+  function formatRemoteTimestamp(milliseconds) {
+    const hours = Math.floor(milliseconds / 3600000);
+    const minutes = Math.floor(milliseconds % 3600000 / 60000);
+    const seconds = Math.floor(milliseconds % 60000 / 1000);
+    const fraction = milliseconds % 1000;
+    return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}.${String(fraction).padStart(3, "0")}`;
+  }
+  function remoteSegmentsAsWebVtt(payload) {
+    if (!Array.isArray(payload?.segments) || payload.segments.length === 0)
+      throw new Error("The provider returned no timestamped transcript segments.");
+    if (payload.segments.length > 100000)
+      throw new Error("The provider returned too many transcript segments to import safely.");
+    const lines = ["WEBVTT", ""];
+    let previousStart = -1;
+    for (const [index, segment] of payload.segments.entries()) {
+      const start = Number(segment?.start);
+      const end = Number(segment?.end);
+      const text = typeof segment?.text === "string" ? segment.text.trim() : "";
+      if (!Number.isFinite(start) || !Number.isFinite(end) || start < 0 || end <= start || end > 604800 || start < previousStart || !text)
+        throw new Error(`The provider returned an invalid timestamped segment (${index + 1}).`);
+      if (/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/u.test(text))
+        throw new Error(`The provider returned unsupported control characters (${index + 1}).`);
+      const startMs = Math.round(start * 1000);
+      const endMs = Math.round(end * 1000);
+      if (endMs <= startMs)
+        throw new Error(`The provider returned a segment shorter than one millisecond (${index + 1}).`);
+      lines.push(String(index + 1), `${formatRemoteTimestamp(startMs)} --> ${formatRemoteTimestamp(endMs)}`, text.replace(/\r\n?/g, "\n"), "");
+      previousStart = start;
+    }
+    const transcript = lines.join("\n");
+    if (new TextEncoder().encode(transcript).byteLength > maximumRemoteTranscriptBytes)
+      throw new Error("The returned transcript exceeds the 16 MiB import safety limit.");
+    return transcript;
+  }
+  async function readBoundedProviderResponse(response) {
+    const declaredLength = Number(response.headers.get("content-length") || 0);
+    if (declaredLength > maximumRemoteTranscriptBytes)
+      throw new Error("The provider response exceeds the 16 MiB safety limit.");
+    if (!response.body)
+      throw new Error("The provider returned an unreadable response.");
+    const reader = response.body.getReader();
+    const chunks = [];
+    let totalBytes = 0;
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done)
+          break;
+        totalBytes += value.byteLength;
+        if (totalBytes > maximumRemoteTranscriptBytes) {
+          await reader.cancel();
+          throw new Error("The provider response exceeds the 16 MiB safety limit.");
+        }
+        chunks.push(value);
+      }
+    } finally {
+      reader.releaseLock();
+    }
+    const bytes = new Uint8Array(totalBytes);
+    let offset = 0;
+    for (const chunk of chunks) {
+      bytes.set(chunk, offset);
+      offset += chunk.byteLength;
+    }
+    let text;
+    try {
+      text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+    } catch {
+      throw new Error("The provider returned a response that is not valid UTF-8.");
+    }
+    try {
+      return JSON.parse(text);
+    } catch {
+      throw new Error("The provider response was not valid JSON. Check its transcription API compatibility.");
+    }
+  }
+  function updateRemoteTranscriptionDisclosure() {
+    const file = elements["remote-audio-file"].files?.[0];
+    elements["remote-transcription-disclosure"].hidden = !file;
+    if (!file) {
+      elements["remote-transcription-disclosure-copy"].textContent = "";
+      updateRemoteTranscriptionControls();
+      return;
+    }
+    const endpointInput = elements["remote-transcription-endpoint"].value.trim();
+    const model = elements["remote-transcription-model"].value.trim();
+    let destination = "an endpoint you enter below";
+    if (endpointInput) {
+      try {
+        destination = remoteTranscriptionUrl(validatedRemoteTranscriptionUrl(endpointInput));
+      } catch (error) {
+        destination = error.message;
+      }
+    }
+    let fileDetails = `${file.name} · ${file.type || "unknown media type"} · ${file.size.toLocaleString()} bytes`;
+    try {
+      validateRemoteAudioFile(file);
+    } catch (error) {
+      fileDetails += ` · ${error.message}`;
+    }
+    elements["remote-transcription-disclosure-copy"].textContent = `${fileDetails}. Destination: ${destination}. Model: ${model || "enter a model above"}.`;
+    updateRemoteTranscriptionControls();
+  }
+  function setRemoteTranscriptionStatus(message, isError = false) {
+    const status = elements["remote-transcription-status"];
+    status.textContent = message;
+    status.classList.toggle("is-error", isError);
+  }
+  function remoteTranscriptionFallback() {
+    return " You can import a transcript file manually or use the external AI-package workflow.";
+  }
+  async function submitRemoteTranscription() {
+    const file = elements["remote-audio-file"].files?.[0];
+    if (!file || !activeArchivePath || !activeSessionId)
+      throw new Error("Choose an audio file and an active session before transcribing.");
+    if (!elements["remote-transcription-consent"].checked)
+      throw new Error("Review the upload disclosure and authorize this upload first.");
+    validateRemoteAudioFile(file);
+    const endpoint = validatedRemoteTranscriptionUrl(elements["remote-transcription-endpoint"].value);
+    const model = elements["remote-transcription-model"].value.trim();
+    const apiKey = elements["remote-transcription-key"].value;
+    if (!model || model.length > 512 || /[\u0000-\u001f\u007f]/u.test(model))
+      throw new Error("Enter a valid transcription model name without control characters.");
+    if (apiKey.length > 4096 || /[\u0000-\u001f\u007f]/u.test(apiKey))
+      throw new Error("The API key is too long or contains unsupported control characters.");
+    const selectedArchivePath = activeArchivePath;
+    const selectedSessionId = activeSessionId;
+    const controller = new AbortController();
+    remoteTranscriptionController = controller;
+    remoteTranscriptionInProgress = true;
+    updateRemoteTranscriptionControls();
+    setRemoteTranscriptionStatus(`Sending ${file.name} to the selected provider. The audio is not added to the archive by this request.`);
+    try {
+      const body = new FormData();
+      body.append("file", file, file.name);
+      body.append("model", model);
+      body.append("response_format", "verbose_json");
+      body.append("timestamp_granularities[]", "segment");
+      const headers = new Headers({ Accept: "application/json" });
+      if (apiKey)
+        headers.set("Authorization", `Bearer ${apiKey}`);
+      const response = await fetch(remoteTranscriptionUrl(endpoint), {
+        method: "POST",
+        headers,
+        body,
+        mode: "cors",
+        credentials: "omit",
+        cache: "no-store",
+        redirect: "error",
+        referrerPolicy: "no-referrer",
+        signal: controller.signal
+      });
+      if (!response.ok)
+        throw new Error(`Provider request failed with HTTP ${response.status}. Check the endpoint, model, API key, and provider CORS or transcription-format requirements.${remoteTranscriptionFallback()}`);
+      const payload = await readBoundedProviderResponse(response);
+      const transcript = remoteSegmentsAsWebVtt(payload);
+      if (activeArchivePath !== selectedArchivePath || activeSessionId !== selectedSessionId)
+        throw new Error(`The selected archive or session changed while transcription was running. No transcript was imported.${remoteTranscriptionFallback()}`);
+      const importPath = `/workspace/remote-transcript-${Date.now()}-${++remoteTranscriptionImportSequence}.vtt`;
+      const bytes = new TextEncoder().encode(transcript).buffer;
+      try {
+        await requestWorker("write-file", { path: importPath, bytes }, [bytes]);
+        if (activeArchivePath !== selectedArchivePath || activeSessionId !== selectedSessionId)
+          throw new Error(`The selected archive or session changed while transcription was running. No transcript was imported.${remoteTranscriptionFallback()}`);
+        await responseFrom(["--archive", selectedArchivePath, "transcript", "import", "--session", selectedSessionId, "--input", importPath, "--format", "vtt", "--json"]);
+      } finally {
+        requestWorker("remove-file", { path: importPath }).catch(() => {});
+      }
+      if (activeArchivePath === selectedArchivePath) {
+        setDirty(true);
+        try {
+          await refreshWorkspace();
+          if (activeArchivePath === selectedArchivePath && activeSessionId)
+            await loadSessionWorkspace(activeSessionId);
+          if (activeArchivePath === selectedArchivePath)
+            await persistBrowserArchive();
+        } catch (error) {
+          showNotice(`Transcript imported, but the browser archive view or recovery copy could not be refreshed: ${error.message}`, true);
+        }
+        window.dispatchEvent(new CustomEvent("tutorux:archive-change"));
+      }
+      setRemoteTranscriptionStatus(`Imported ${payload.segments.length.toLocaleString()} timestamped provisional segment(s) into the selected session. Review them before use.`);
+      elements["remote-audio-file"].value = "";
+      elements["remote-transcription-consent"].checked = false;
+    } catch (error) {
+      if (controller.signal.aborted) {
+        setRemoteTranscriptionStatus(`Request canceled. The provider may already have received the audio; no returned transcript was imported.${remoteTranscriptionFallback()}`, true);
+      } else {
+        let message = error instanceof TypeError ? `The browser could not reach or read the provider response. The endpoint may be unreachable or may not allow this page through CORS.${remoteTranscriptionFallback()}` : error.message || `The provider response could not be imported.${remoteTranscriptionFallback()}`;
+        if (!message.includes("external AI-package workflow"))
+          message += remoteTranscriptionFallback();
+        setRemoteTranscriptionStatus(message, true);
+      }
+    } finally {
+      elements["remote-transcription-key"].value = "";
+      elements["remote-transcription-consent"].checked = false;
+      remoteTranscriptionController = null;
+      remoteTranscriptionInProgress = false;
+      updateRemoteTranscriptionDisclosure();
+      updateRemoteTranscriptionControls();
+    }
   }
   function updateArchiveRecovery(report) {
     archiveRecoveryReport = report;
@@ -1504,7 +1803,138 @@
       container.append(row);
     }
   }
+  const assetPreviewLimits = {
+    image: 12 * 1024 * 1024,
+    pdf: 16 * 1024 * 1024,
+    text: 1024 * 1024,
+    media: 24 * 1024 * 1024
+  };
+  function assetPreviewKind(record) {
+    const mediaType = String(record.media_type || "").toLowerCase().split(";")[0].trim();
+    const extension = String(record.filename || "").toLowerCase().match(/\.[^.]+$/)?.[0] || "";
+    const imageTypes = new Set(["image/png", "image/jpeg", "image/gif", "image/webp", "image/bmp"]);
+    if (imageTypes.has(mediaType))
+      return { kind: "image", mediaType, limit: assetPreviewLimits.image };
+    if (mediaType === "application/pdf")
+      return { kind: "pdf", mediaType, limit: assetPreviewLimits.pdf };
+    if (mediaType === "text/plain" || mediaType === "text/csv" || [".txt", ".md", ".markdown", ".csv", ".json", ".log"].includes(extension))
+      return { kind: "text", mediaType: "text/plain", limit: assetPreviewLimits.text };
+    if (["audio/wav", "audio/mpeg", "audio/flac", "audio/ogg", "audio/mp4", "audio/webm"].includes(mediaType))
+      return { kind: "audio", mediaType, limit: assetPreviewLimits.media };
+    if (["video/mp4", "video/webm"].includes(mediaType))
+      return { kind: "video", mediaType, limit: assetPreviewLimits.media };
+    return null;
+  }
+  function clearAssetPreview() {
+    assetPreviewSequence += 1;
+    if (activeAssetPreviewPanel) {
+      activeAssetPreviewPanel.hidden = true;
+      activeAssetPreviewPanel.replaceChildren();
+    }
+    if (activeAssetPreviewButton) {
+      activeAssetPreviewButton.textContent = "Preview";
+      activeAssetPreviewButton.setAttribute("aria-expanded", "false");
+    }
+    activeAssetPreviewPanel = null;
+    activeAssetPreviewButton = null;
+    if (assetPreviewObjectUrl)
+      URL.revokeObjectURL(assetPreviewObjectUrl);
+    assetPreviewObjectUrl = "";
+    return assetPreviewSequence;
+  }
+  function renderAssetPreviewContent(panel, kind, record, bytes) {
+    if (kind.kind === "text") {
+      const decoded = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+      if (decoded.includes("\0"))
+        throw new Error("The file contains binary data and cannot be shown as text.");
+      const pre = document.createElement("pre");
+      pre.className = "asset-preview-text";
+      pre.textContent = decoded.slice(0, 1e5);
+      panel.replaceChildren(pre);
+      if (decoded.length > 1e5) {
+        const note = document.createElement("p");
+        note.className = "form-help";
+        note.textContent = "Preview truncated after 100,000 characters. Download the original to see the rest.";
+        panel.append(note);
+      }
+      return;
+    }
+    const blob = new Blob([bytes], { type: kind.mediaType });
+    const objectUrl = URL.createObjectURL(blob);
+    assetPreviewObjectUrl = objectUrl;
+    if (kind.kind === "image") {
+      const image = document.createElement("img");
+      image.className = "asset-preview-image";
+      image.alt = String(record.filename || "Image preview");
+      image.src = objectUrl;
+      image.addEventListener("error", () => {
+        panel.textContent = "This image could not be decoded by the browser.";
+      }, { once: true });
+      panel.replaceChildren(image);
+    } else if (kind.kind === "audio" || kind.kind === "video") {
+      const media = document.createElement(kind.kind);
+      media.className = "asset-preview-media";
+      media.controls = true;
+      media.preload = "none";
+      media.src = objectUrl;
+      media.setAttribute("aria-label", `${kind.kind === "audio" ? "Audio" : "Video"} preview: ${String(record.filename || "archive asset")}`);
+      media.addEventListener("error", () => {
+        panel.textContent = "This browser cannot play the asset format. Use Download file above.";
+      }, { once: true });
+      panel.replaceChildren(media);
+    } else {
+      const frame = document.createElement("iframe");
+      frame.className = "asset-preview-pdf";
+      frame.title = `PDF preview: ${String(record.filename || "archive asset")}`;
+      frame.setAttribute("sandbox", "allow-same-origin");
+      frame.setAttribute("referrerpolicy", "no-referrer");
+      frame.src = objectUrl;
+      const fallback = document.createElement("p");
+      fallback.className = "form-help";
+      fallback.textContent = "If your browser does not display this PDF, use Download file above.";
+      panel.replaceChildren(frame, fallback);
+    }
+  }
+  async function loadAssetPreview(panel, record, kind, token) {
+    const archivePath = activeArchivePath;
+    const assetId = String(record.id || "");
+    let outputPath = "";
+    try {
+      if (!archivePath || archiveRecoveryNeedsReview)
+        throw new Error("Resolve archive recovery before previewing files.");
+      if (!/^[A-Za-z0-9_-]{1,128}$/.test(assetId))
+        throw new Error("This archive asset has an invalid identifier.");
+      const byteSize = Number(record.byte_size);
+      if (!Number.isSafeInteger(byteSize) || byteSize < 0)
+        throw new Error("The archive does not report a safe file size.");
+      if (byteSize === 0)
+        throw new Error("The selected file is empty.");
+      if (byteSize > kind.limit)
+        throw new Error(`This ${kind.kind} preview is limited to ${(kind.limit / (1024 * 1024)).toLocaleString()} MiB; download the original instead.`);
+      panel.setAttribute("role", "status");
+      panel.setAttribute("aria-live", "polite");
+      panel.textContent = "Verifying and loading preview…";
+      outputPath = `/workspace/asset-preview-${Date.now()}-${token}.bin`;
+      await responseFrom(archiveArguments(["asset", "extract", assetId, "--output", outputPath]));
+      const file = await requestWorker("read-file", { path: outputPath });
+      if (token !== assetPreviewSequence || archivePath !== activeArchivePath)
+        return;
+      if (!(file.bytes instanceof ArrayBuffer) || file.bytes.byteLength !== byteSize)
+        throw new Error("The verified asset preview returned an unexpected byte count.");
+      renderAssetPreviewContent(panel, kind, record, file.bytes);
+    } catch (error) {
+      if (token === assetPreviewSequence) {
+        panel.setAttribute("role", "alert");
+        panel.setAttribute("aria-live", "assertive");
+        panel.textContent = error.message || "The asset preview could not be loaded.";
+      }
+    } finally {
+      if (outputPath)
+        await requestWorker("remove-file", { path: outputPath }).catch(() => {});
+    }
+  }
   function renderAssets(records) {
+    clearAssetPreview();
     const container = elements["assets-list"];
     container.replaceChildren();
     if (records.length === 0) {
@@ -1527,6 +1957,39 @@
       meta.textContent = `${record.media_type || "Unknown file type"} · SHA-256 ${record.content_hash || "not listed"}`;
       const actions = document.createElement("div");
       actions.className = "form-actions asset-actions";
+      const previewKind = assetPreviewKind(record);
+      let previewPanel = null;
+      if (previewKind) {
+        const previewButton = document.createElement("button");
+        previewButton.className = "text-button";
+        previewButton.type = "button";
+        previewButton.textContent = "Preview";
+        previewButton.setAttribute("aria-expanded", "false");
+        previewPanel = document.createElement("div");
+        previewPanel.className = "asset-preview";
+        previewPanel.hidden = true;
+        previewButton.addEventListener("click", () => {
+          if (!previewPanel.hidden) {
+            clearAssetPreview();
+            return;
+          }
+          clearAssetPreview();
+          previewPanel.hidden = false;
+          activeAssetPreviewPanel = previewPanel;
+          activeAssetPreviewButton = previewButton;
+          previewButton.textContent = "Close preview";
+          previewButton.setAttribute("aria-expanded", "true");
+          const token = assetPreviewSequence;
+          void loadAssetPreview(previewPanel, record, previewKind, token);
+        });
+        actions.append(previewButton);
+      } else {
+        const unsupported = document.createElement("span");
+        unsupported.className = "asset-preview-unavailable";
+        unsupported.textContent = "Preview unavailable for this format";
+        unsupported.setAttribute("role", "status");
+        actions.append(unsupported);
+      }
       const verify = document.createElement("button");
       verify.className = "text-button";
       verify.type = "button";
@@ -1560,6 +2023,8 @@
       });
       actions.append(verify, download);
       row.append(heading, meta, actions);
+      if (previewPanel)
+        row.append(previewPanel);
       container.append(row);
     }
   }
@@ -1616,8 +2081,13 @@
   async function loadSessionWorkspace(sessionId) {
     const sessionChanged = activeSessionId !== sessionId;
     activeSessionId = sessionId;
+    if (sessionChanged) {
+      elements["remote-transcription-consent"].checked = false;
+      remoteTranscriptionController?.abort();
+    }
     activeSessionHasAudio = false;
     updateBrowserRecordingControls();
+    updateRemoteTranscriptionControls();
     if (!sessionId) {
       renderAnnotations([]);
       activeSessionAssets = [];
@@ -1850,12 +2320,17 @@
     if (!activeArchivePath) {
       return;
     }
-    const studentsResponse = await responseFrom(archiveArguments(["student", "list"]));
-    const sessionsResponse = await responseFrom(archiveArguments(["session", "list"]));
-    const guideResponse = await responseFrom(archiveArguments(["guide", "list"]));
+    const selectedGuideTemplateId = elements["guide-template"].value;
+    const [studentsResponse, sessionsResponse, guideResponse, templatesResponse] = await Promise.all([
+      responseFrom(archiveArguments(["student", "list"])),
+      responseFrom(archiveArguments(["session", "list"])),
+      responseFrom(archiveArguments(["guide", "list"])),
+      responseFrom(archiveArguments(["template", "list"])),
+    ]);
     const students = parseRows(studentsResponse.output);
     sessionRecords = parseRows(sessionsResponse.output);
     guideRecords = parseRows(guideResponse.output);
+    guideTemplateRecords = parseRows(templatesResponse.output);
     const selectedAiSessionId = elements["ai-package-session"].value || activeSessionId;
     elements.studentCount.textContent = String(students.length);
     elements.sessionCount.textContent = String(sessionRecords.length);
@@ -1899,6 +2374,12 @@
     fillSelect(elements["guide-session"], sessionRecords, "Choose a session");
     fillSelect(elements["ai-package-session"], sessionRecords, "Choose a session", selectedAiSessionId);
     fillSelect(elements["active-guide"], guideRecords, "Choose a guide", activeGuideId);
+    fillSelect(
+      elements["guide-template"],
+      guideTemplateRecords,
+      "Use the recommended template",
+      selectedGuideTemplateId,
+    );
     if (activeSessionId && sessionRecords.some((record) => String(record.id) === activeSessionId)) {
       elements["active-session"].value = activeSessionId;
     }
@@ -2336,6 +2817,22 @@
       showNotice(error.message, true);
     }
   });
+  for (const field of [elements["remote-audio-file"], elements["remote-transcription-endpoint"], elements["remote-transcription-model"], elements["remote-transcription-key"]]) {
+    field.addEventListener(field === elements["remote-audio-file"] ? "change" : "input", () => {
+      elements["remote-transcription-consent"].checked = false;
+      updateRemoteTranscriptionDisclosure();
+    });
+  }
+  elements["remote-transcription-consent"].addEventListener("change", updateRemoteTranscriptionControls);
+  elements["remote-transcription-form"].addEventListener("submit", (event) => {
+    event.preventDefault();
+    void submitRemoteTranscription().catch((error) => {
+      setRemoteTranscriptionStatus(error.message, true);
+    });
+  });
+  elements["remote-transcription-cancel"].addEventListener("click", () => {
+    remoteTranscriptionController?.abort();
+  });
   elements["transcript-import-form"].addEventListener("submit", async (event) => {
     event.preventDefault();
     const file = elements["transcript-file"].files?.[0];
@@ -2438,54 +2935,149 @@
       requestWorker("remove-file", { path: inputPath }).catch(() => {});
     }
   });
-  elements["asset-import-form"].addEventListener("submit", async (event) => {
-    event.preventDefault();
-    const files = [...elements["asset-files"].files];
-    if (!activeSessionId || files.length === 0) {
-      showNotice("Choose a session and one or more files first.", true);
+  function renderAssetImportFeedback(total, imported, failures, progress = "", linkedToSession = Boolean(activeSessionId), batchError = "") {
+    const feedback = elements["asset-import-feedback"];
+    feedback.replaceChildren();
+    feedback.classList.toggle("is-error", failures.length > 0 || Boolean(batchError));
+    feedback.hidden = false;
+    const summary = document.createElement("p");
+    summary.textContent = progress || `Finished ${total.toLocaleString()} file(s): ${imported.length.toLocaleString()} imported, ${failures.length.toLocaleString()} file(s) failed.`;
+    feedback.append(summary);
+    if (batchError) {
+      const detail = document.createElement("p");
+      detail.textContent = batchError;
+      feedback.append(detail);
+    }
+    if (imported.length > 0 && !progress) {
+      const destination = document.createElement("p");
+      destination.textContent = linkedToSession ? "Imported files are linked to the selected session." : "Imported files are in the archive; select a session to link files to it.";
+      feedback.append(destination);
+    }
+    if (failures.length > 0) {
+      const list = document.createElement("ul");
+      for (const failure of failures) {
+        const item = document.createElement("li");
+        item.textContent = `${failure.name}: ${failure.reason}`;
+        list.append(item);
+      }
+      feedback.append(list);
+    }
+  }
+  async function importBrowserAssets(files) {
+    if (browserAssetImportActive) {
+      renderAssetImportFeedback(files.length, [], files.map((file) => ({ name: file.name || "Unnamed file", reason: "Another asset import is already in progress." })));
       return;
     }
-    const oversized = files.find((file) => file.size > 64 * 1024 * 1024);
-    if (oversized) {
-      showNotice(`${oversized.name} exceeds the browser import limit of 64 MiB per file.`, true);
-      return;
-    }
-    const temporaryPaths = [];
-    let importedCount = 0;
-    let importError = null;
+    browserAssetImportActive = true;
+    const imported = [];
+    const failures = [];
+    let batchError = "";
+    const archivePath = activeArchivePath;
+    const sessionId = activeSessionId;
     try {
       for (const [index, file] of files.entries()) {
-        const safeName = file.name.replace(/[\\/\0]/g, "_").replace(/^\.+/, "_");
-        const path = `/workspace/asset-import-${Date.now()}-${index}-${safeName}`;
-        const bytes = await file.arrayBuffer();
-        temporaryPaths.push(path);
-        await requestWorker("write-file", { path, bytes }, [bytes]);
-        await responseFrom(archiveArguments(["asset", "add", path, "--session", activeSessionId]));
-        importedCount += 1;
+        const name = file.name || `Dropped file ${index + 1}`;
+        let importPath = "";
+        try {
+          if (!archivePath)
+            throw new Error("Open or create an archive before importing files.");
+          if (archiveRecoveryNeedsReview)
+            throw new Error("Review archive recovery before importing files.");
+          if (file.size > maximumBrowserImportBytes)
+            throw new Error("Browser imports are limited to 64 MiB per file.");
+          const safeName = name.replace(/[\\/\0]/g, "_").replace(/^\.+/, "_");
+          importPath = `/workspace/asset-import-${Date.now()}-${index}-${safeName}`;
+          const bytes = await file.arrayBuffer();
+          await requestWorker("write-file", { path: importPath, bytes }, [bytes]);
+          const command = ["--archive", archivePath, "asset", "add", importPath];
+          if (sessionId)
+            command.push("--session", sessionId);
+          command.push("--json");
+          await responseFrom(command);
+          imported.push(name);
+        } catch (error) {
+          failures.push({ name, reason: error.message || "The file could not be imported." });
+        } finally {
+          if (importPath)
+            await requestWorker("remove-file", { path: importPath }).catch(() => {});
+        }
+        renderAssetImportFeedback(files.length, imported, failures, `Importing ${index + 1} of ${files.length}: ${imported.length} imported, ${failures.length} failed.`);
       }
-    } catch (error) {
-      importError = error;
-    } finally {
-      await Promise.all(temporaryPaths.map((path) => requestWorker("remove-file", { path }).catch(() => {})));
-      if (importedCount > 0) {
+      if (imported.length > 0 && activeArchivePath === archivePath) {
         try {
           setDirty(true);
           await refreshWorkspace();
-          await loadSessionWorkspace(activeSessionId);
+          if (activeSessionId)
+            await loadSessionWorkspace(activeSessionId);
           await persistBrowserArchive();
+          window.dispatchEvent(new CustomEvent("tutorux:archive-change"));
         } catch (error) {
-          if (!importError)
-            importError = error;
+          batchError = `Files were imported, but the archive view or browser recovery copy could not be refreshed: ${error.message || "unknown storage error"}`;
         }
       }
+      renderAssetImportFeedback(files.length, imported, failures, "", Boolean(sessionId), batchError);
+    } finally {
+      browserAssetImportActive = false;
     }
-    elements["asset-import-form"].reset();
-    if (importError) {
-      showNotice(`Imported ${importedCount} file(s); ${importError.message}`, true);
-    } else {
-      showNotice(`Imported ${importedCount} file(s) into the portable archive.`);
+  }
+  elements["asset-import-form"].addEventListener("submit", (event) => {
+    event.preventDefault();
+    const files = [...elements["asset-files"].files];
+    if (files.length === 0) {
+      renderAssetImportFeedback(0, [], [{ name: "Import", reason: "Choose one or more files first." }]);
+      return;
     }
+    void importBrowserAssets(files).catch((error) => {
+      renderAssetImportFeedback(files.length, [], [{ name: "Import", reason: error.message }]);
+    }).finally(() => elements["asset-import-form"].reset());
   });
+  function isFileDrag(event) {
+    const transfer = event.dataTransfer;
+    return Boolean(transfer && (transfer.files.length > 0 || Array.from(transfer.types || []).includes("Files")));
+  }
+  function clearBrowserFileDrag() {
+    browserFileDragDepth = 0;
+    document.body.classList.remove("is-file-dragging");
+    elements["global-drop-overlay"].hidden = true;
+  }
+  window.addEventListener("dragenter", (event) => {
+    if (!isFileDrag(event))
+      return;
+    event.preventDefault();
+    browserFileDragDepth += 1;
+    elements["global-drop-overlay"].hidden = false;
+    document.body.classList.add("is-file-dragging");
+  }, true);
+  window.addEventListener("dragover", (event) => {
+    if (!isFileDrag(event))
+      return;
+    event.preventDefault();
+    if (event.dataTransfer)
+      event.dataTransfer.dropEffect = "copy";
+  }, true);
+  window.addEventListener("dragleave", (event) => {
+    if (!isFileDrag(event))
+      return;
+    event.preventDefault();
+    browserFileDragDepth = Math.max(0, browserFileDragDepth - 1);
+    if (browserFileDragDepth === 0)
+      clearBrowserFileDrag();
+  }, true);
+  window.addEventListener("drop", (event) => {
+    if (!isFileDrag(event))
+      return;
+    event.preventDefault();
+    clearBrowserFileDrag();
+    const files = Array.from(event.dataTransfer?.files || []);
+    if (files.length === 0) {
+      renderAssetImportFeedback(0, [], [{ name: "Dropped item", reason: "This browser did not expose the dropped item as a file. Choose it with the file picker instead." }]);
+      return;
+    }
+    void importBrowserAssets(files).catch((error) => {
+      renderAssetImportFeedback(files.length, [], [{ name: "Dropped files", reason: error.message }]);
+    });
+  }, true);
+  window.addEventListener("dragend", clearBrowserFileDrag, true);
   elements["ai-package-form"].addEventListener("submit", async (event) => {
     event.preventDefault();
     const sessionId = elements["ai-package-session"].value;
@@ -2577,12 +3169,16 @@
     if (!sourceId)
       return;
     try {
-      const response = await runWriteCommand([
+      const command = [
         "guide",
         "generate",
         sourceScope === "entry" ? "--entry-id" : "--session",
-        sourceId
-      ]);
+        sourceId,
+      ];
+      if (elements["guide-template"].value) {
+        command.push("--template", elements["guide-template"].value);
+      }
+      const response = await runWriteCommand(command);
       const guide = parseRecord(response.output);
       if (guide?.id) {
         activeGuideId = guide.id;
@@ -2756,6 +3352,12 @@
   window.addEventListener("pagehide", () => {
     archivePassphrase = "";
     newArchivePassphrase = "";
+    elements["remote-transcription-key"].value = "";
+    elements["remote-transcription-endpoint"].value = "";
+    elements["remote-transcription-model"].value = "";
+    elements["remote-audio-file"].value = "";
+    elements["remote-transcription-consent"].checked = false;
+    remoteTranscriptionController?.abort();
   });
   window.addEventListener("beforeunload", (event) => {
     if (!dirty)
