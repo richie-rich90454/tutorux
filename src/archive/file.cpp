@@ -9,7 +9,9 @@
 #include <Windows.h>
 #else
 #include <fcntl.h>
+#ifndef __EMSCRIPTEN__
 #include <sys/file.h>
+#endif
 #include <sys/stat.h>
 #include <unistd.h>
 #endif
@@ -91,12 +93,14 @@ ArchiveFile::open(const std::filesystem::path& path, bool writable, bool createN
                       path,
                       "Opening archive"));
     }
+#ifndef __EMSCRIPTEN__
     const int lockType = writable ? LOCK_EX : LOCK_SH;
     if (::flock(descriptor, lockType | LOCK_NB) != 0) {
         const auto error = fileError("archive_locked", path, "Locking archive");
         ::close(descriptor);
         return std::unexpected(error);
     }
+#endif
     file.nativeHandle_ = reinterpret_cast<void*>(static_cast<std::intptr_t>(descriptor));
 #endif
     return file;
@@ -290,7 +294,9 @@ void ArchiveFile::close() noexcept {
     CloseHandle(static_cast<HANDLE>(nativeHandle_));
 #else
     const auto descriptor = static_cast<int>(reinterpret_cast<std::intptr_t>(nativeHandle_));
+#ifndef __EMSCRIPTEN__
     ::flock(descriptor, LOCK_UN);
+#endif
     ::close(descriptor);
 #endif
     nativeHandle_ = nullptr;
