@@ -931,7 +931,6 @@ export component MainWindow inherits Window {
                                     root.journal-entry-tags = "";
                                     root.journal-entry-create-open = true;
                                     root.status-message = "Add a title, then create the entry in the workspace.";
-                                    journal-entry-title-input.focus();
                                 }
                             }
                         }
@@ -1661,7 +1660,6 @@ export component MainWindow inherits Window {
                                             height: 90px;
                                             single-line: false;
                                             wrap: word-wrap;
-                                            placeholder-text: "Write the new block";
                                             text <=> root.journal-document-new-block-text;
                                             font-size: 13px;
                                             color: #111111;
@@ -3506,4 +3504,3 @@ export component MainWindow inherits Window {
             }
         }
     }
-}
