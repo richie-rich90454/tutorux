@@ -106,8 +106,9 @@ tutorux::archive::Record makeAudioChunk(const tutorux::archive::Uuid& sessionId,
 std::int16_t readLittleEndianSample(const std::vector<char>& bytes, std::size_t offset) {
     const auto low = static_cast<std::uint8_t>(bytes[offset]);
     const auto high = static_cast<std::uint8_t>(bytes[offset + 1U]);
-    return std::bit_cast<std::int16_t>(static_cast<std::uint16_t>(low) |
-                                       static_cast<std::uint16_t>(high << 8U));
+    const auto bits = static_cast<std::uint16_t>(static_cast<std::uint16_t>(low) |
+                                                 static_cast<std::uint16_t>(high << 8U));
+    return std::bit_cast<std::int16_t>(bits);
 }
 
 int fail(std::string_view message) {
