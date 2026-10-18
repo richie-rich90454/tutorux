@@ -23,7 +23,7 @@ WebAssembly module. Then build and install the browser component:
 ```sh
 cmake --preset portable-wasm-release
 cmake --build --preset portable-wasm-release
-cmake --install build-wasm --component WebRuntime --prefix dist/tutorux-web
+cmake --install build/wasm --component WebRuntime --prefix dist/tutorux-web
 ```
 
 Publish the contents of `dist/tutorux-web/web` as a static site. GitHub Pages and other static hosts
