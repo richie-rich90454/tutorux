@@ -2,7 +2,9 @@
 
 #include "app-window.h"
 #include "tutorux/archive/archive.hpp"
+#include "tutorux/audio/capture.hpp"
 #include "tutorux/command/dispatcher.hpp"
+#include "tutorux/command/json.hpp"
 #include "tutorux/document/editor.hpp"
 #include "tutorux/domain/entities.hpp"
 #include "tutorux/domain/guide.hpp"
@@ -11,8 +13,11 @@
 #include <array>
 #include <atomic>
 #include <charconv>
+#include <chrono>
 #include <cctype>
+#include <cmath>
 #include <exception>
+#include <iomanip>
 #include <iterator>
 #include <memory>
 #include <mutex>
@@ -41,6 +46,8 @@ namespace {
         std::size_t blockIndex{};
         std::uint64_t expectedRevision{};
         tutorux::document::PieceTable text;
+        std::string kind;
+        std::vector<std::string> sourceIds;
     };
 
     struct GuideBlockSelection final {
@@ -49,56 +56,86 @@ namespace {
         std::size_t blockIndex{};
     };
 
-    bool isUtf8Boundary(std::string_view text, std::size_t offset) noexcept {
-        return offset == 0 || offset >= text.size() ||
-               (static_cast<unsigned char>(text[offset]) & 0xc0U) != 0x80U;
-    }
-
-    tutorux::core::Status updateGuideEditorText(ActiveGuideEditor& editor,
-                                                std::string_view updatedText) {
-        const std::string currentText = editor.text.text();
-        if (currentText == updatedText)
-            return {};
-
-        std::size_t prefix = 0;
-        while (prefix < currentText.size() && prefix < updatedText.size() &&
-               currentText[prefix] == updatedText[prefix]) {
-            ++prefix;
-        }
-        while (prefix > 0 &&
-               (!isUtf8Boundary(currentText, prefix) || !isUtf8Boundary(updatedText, prefix))) {
-            --prefix;
-        }
-
-        std::size_t currentSuffix = currentText.size();
-        std::size_t updatedSuffix = updatedText.size();
-        while (currentSuffix > prefix && updatedSuffix > prefix &&
-               currentText[currentSuffix - 1] == updatedText[updatedSuffix - 1]) {
-            --currentSuffix;
-            --updatedSuffix;
-        }
-        while (currentSuffix < currentText.size() && updatedSuffix < updatedText.size() &&
-               (!isUtf8Boundary(currentText, currentSuffix) ||
-                !isUtf8Boundary(updatedText, updatedSuffix))) {
-            ++currentSuffix;
-            ++updatedSuffix;
-        }
-
-        std::string removedText = currentText.substr(prefix, currentSuffix - prefix);
-        std::string insertedText(updatedText.substr(prefix, updatedSuffix - prefix));
-        tutorux::document::DocumentEditTransaction transaction;
-        transaction.documentId = editor.guideId;
-        transaction.expectedRevision = editor.expectedRevision;
-        transaction.selectionBefore = editor.text.selection();
-        const std::size_t cursor = prefix + insertedText.size();
-        transaction.selectionAfter = {cursor, cursor};
-        transaction.origin = "desktop-guide-editor";
-        transaction.coalesceWithPrevious = true;
-        transaction.operations.push_back({prefix, std::move(insertedText), std::move(removedText)});
-        auto result = editor.text.apply(transaction);
+    tutorux::core::Status
+    updateGuideEditorText(ActiveGuideEditor& editor, std::string_view updatedText,
+                          std::optional<tutorux::document::TextSelection> selection = {}) {
+        auto result =
+            editor.text.applyTextSnapshot(updatedText, editor.guideId, editor.expectedRevision,
+                                          selection, "desktop-guide-editor", true);
         if (!result)
             return std::unexpected(result.error());
         return {};
+    }
+
+    Result<tutorux::document::TextRange> nextGuideTextMatch(ActiveGuideEditor& editor,
+                                                            std::string_view query) {
+        if (query.empty()) {
+            return std::unexpected(tutorux::core::error("document_search_empty",
+                                                        "Enter text to find in this guide block."));
+        }
+        const auto matches = editor.text.findAll(query);
+        if (matches.empty()) {
+            return std::unexpected(tutorux::core::error(
+                "document_search_not_found", "No matching text was found in this guide block."));
+        }
+        const std::size_t currentEnd =
+            std::max(editor.text.selection().anchor, editor.text.selection().focus);
+        const auto next = std::find_if(matches.begin(), matches.end(), [&](const auto& match) {
+            return match.start >= currentEnd;
+        });
+        return next == matches.end() ? matches.front() : *next;
+    }
+
+    std::string joinSourceIds(const std::vector<std::string>& sourceIds) {
+        std::string joined;
+        for (const auto& sourceId : sourceIds) {
+            if (!joined.empty())
+                joined.push_back(',');
+            joined += sourceId;
+        }
+        return joined;
+    }
+
+    void appendUniqueSourceId(std::vector<std::string>& sourceIds, std::string_view sourceId) {
+        if (std::find(sourceIds.begin(), sourceIds.end(), sourceId) == sourceIds.end())
+            sourceIds.emplace_back(sourceId);
+    }
+
+    Result<std::vector<std::string>> guideEditorSourceIds(const ActiveGuideEditor& editor) {
+        std::vector<std::string> sourceIds = editor.sourceIds;
+        const std::string text = editor.text.text();
+        auto inlineSourceIds = tutorux::domain::guideInlineSourceIds(text);
+        if (!inlineSourceIds)
+            return std::unexpected(inlineSourceIds.error());
+        for (const auto& sourceId : *inlineSourceIds)
+            appendUniqueSourceId(sourceIds, sourceId);
+        if (editor.kind == "image" || editor.kind == "figure" || text.starts_with("![")) {
+            auto image = tutorux::domain::parseGuideImageReference(text);
+            if (!image)
+                return std::unexpected(image.error());
+            appendUniqueSourceId(sourceIds, image->assetId);
+        }
+        return sourceIds;
+    }
+
+    std::vector<std::string> explicitGuideSourceIds(const tutorux::domain::GuideBlock& block) {
+        std::vector<std::string> sourceIds = block.sourceIds;
+        auto inlineSourceIds = tutorux::domain::guideInlineSourceIds(block.text);
+        const auto removeSource = [&](std::string_view sourceId) {
+            std::erase_if(sourceIds, [&](const std::string& existing) {
+                return existing == sourceId;
+            });
+        };
+        if (inlineSourceIds) {
+            for (const auto& sourceId : *inlineSourceIds)
+                removeSource(sourceId);
+        }
+        if (block.kind == "image" || block.kind == "figure" || block.text.starts_with("![")) {
+            auto image = tutorux::domain::parseGuideImageReference(block.text);
+            if (image)
+                removeSource(image->assetId);
+        }
+        return sourceIds;
     }
 
     struct ActiveTranscriptEditor final {
@@ -139,6 +176,156 @@ namespace {
         if (!command)
             return command.error().message;
         return command->output.empty() ? "Completed." : command->output;
+    }
+
+    std::optional<std::string> jsonStringField(std::string_view json, std::string_view fieldName) {
+        auto parsed = tutorux::command::parseJson(json);
+        if (!parsed)
+            return std::nullopt;
+        const auto* object = parsed->asObject();
+        if (!object)
+            return std::nullopt;
+        const auto field = object->find(fieldName);
+        if (field == object->end())
+            return std::nullopt;
+        const auto* value = field->second.asString();
+        if (!value)
+            return std::nullopt;
+        return *value;
+    }
+
+    std::vector<slint::SharedString> journalEntryChoices(std::string_view json) {
+        std::vector<slint::SharedString> choices;
+        auto parsed = tutorux::command::parseJson(json);
+        const auto* rows = parsed ? parsed->asArray() : nullptr;
+        if (!rows)
+            return choices;
+
+        choices.reserve(rows->size());
+        for (const auto& row : *rows) {
+            const auto* object = row.asObject();
+            if (!object)
+                continue;
+            const auto read = [&](std::string_view name) -> std::string {
+                const auto found = object->find(name);
+                if (found == object->end())
+                    return {};
+                const auto* value = found->second.asString();
+                return value ? *value : std::string{};
+            };
+            const std::string id = read("id");
+            if (!tutorux::archive::uuidFromString(id))
+                continue;
+            const std::string title = read("title");
+            const std::string date = read("entry_date");
+            const std::string sessionCount = read("session_count");
+            std::string label = date.empty() ? title : date + " · " + title;
+            if (!sessionCount.empty())
+                label += " · " + sessionCount + " session(s)";
+            label += " · " + id;
+            choices.emplace_back(std::move(label));
+        }
+        return choices;
+    }
+
+    std::string journalEntryListSummary(std::string_view json) {
+        auto parsed = tutorux::command::parseJson(json);
+        if (!parsed || !parsed->asArray())
+            return std::string(json);
+        const auto choices = journalEntryChoices(json);
+        if (choices.empty())
+            return "No journal entries yet. Create an entry to start the journal.";
+        return "Select an entry above to open it. " + std::to_string(choices.size()) +
+               (choices.size() == 1 ? " entry found." : " entries found.");
+    }
+
+    std::string journalSessionDateTime(std::string_view value) {
+        std::int64_t timestampUs = 0;
+        const auto [end, errorCode] =
+            std::from_chars(value.data(), value.data() + value.size(), timestampUs);
+        if (errorCode != std::errc{} || end != value.data() + value.size() || timestampUs < 0)
+            return std::string(value);
+
+        using namespace std::chrono;
+        const sys_time<microseconds> timestamp{microseconds{timestampUs}};
+        const auto day = floor<days>(timestamp);
+        const year_month_day date{day};
+        const hh_mm_ss time{floor<seconds>(timestamp - day)};
+        std::ostringstream output;
+        output << static_cast<int>(date.year()) << '-' << std::setfill('0') << std::setw(2)
+               << static_cast<unsigned int>(date.month()) << '-' << std::setw(2)
+               << static_cast<unsigned int>(date.day()) << ' ' << std::setw(2)
+               << time.hours().count() << ':' << std::setw(2) << time.minutes().count() << ':'
+               << std::setw(2) << time.seconds().count() << " UTC";
+        return output.str();
+    }
+
+    std::vector<slint::SharedString> journalSessionChoices(std::string_view json) {
+        std::vector<slint::SharedString> choices;
+        auto parsed = tutorux::command::parseJson(json);
+        const auto* rows = parsed ? parsed->asArray() : nullptr;
+        if (!rows)
+            return choices;
+
+        choices.reserve(rows->size());
+        for (const auto& row : *rows) {
+            const auto* object = row.asObject();
+            if (!object)
+                continue;
+            const auto read = [&](std::string_view name) -> std::string {
+                const auto found = object->find(name);
+                if (found == object->end())
+                    return {};
+                const auto* value = found->second.asString();
+                return value ? *value : std::string{};
+            };
+            const std::string id = read("id");
+            if (!tutorux::archive::uuidFromString(id))
+                continue;
+            const std::string sessionTitle = read("title");
+            const std::string title = sessionTitle.empty() ? "Tutoring session" : sessionTitle;
+            std::string rawStartedAt = read("started_at");
+            if (rawStartedAt.empty())
+                rawStartedAt = read("started_at_us");
+            if (rawStartedAt.empty())
+                rawStartedAt = read("created_at_us");
+            const std::string startedAt = journalSessionDateTime(rawStartedAt);
+            const std::string state = read("state");
+            std::string label = startedAt.empty() ? title : startedAt + " · " + title;
+            if (!state.empty())
+                label += " · " + state;
+            const std::string audioChunkCount = read("audio_chunk_count");
+            const std::string transcriptSegmentCount = read("transcript_segment_count");
+            const bool hasAudio =
+                read("has_audio") == "true" || (!audioChunkCount.empty() && audioChunkCount != "0");
+            const bool hasTranscript =
+                read("has_transcript") == "true" ||
+                (!transcriptSegmentCount.empty() && transcriptSegmentCount != "0");
+            if (hasAudio || hasTranscript) {
+                label += " · ";
+                label += hasAudio ? "Audio" : "Notes";
+                if (hasTranscript)
+                    label += hasAudio ? " and transcript" : "Transcript";
+            } else {
+                label += " · Notes only";
+            }
+            label += " · " + id;
+            choices.emplace_back(std::move(label));
+        }
+        return choices;
+    }
+
+    std::string journalSessionListSummary(std::string_view json) {
+        auto parsed = tutorux::command::parseJson(json);
+        if (!parsed || !parsed->asArray())
+            return std::string(json);
+        const auto choices = journalSessionChoices(json);
+        if (choices.empty())
+            return "No sessions are linked to this entry yet.";
+        return std::to_string(choices.size()) +
+               (choices.size() == 1
+                    ? " session in this entry. Choose it to review its materials."
+                    : " sessions in this entry, newest first. Choose one to review its materials.");
     }
 
     std::vector<std::string> archiveCommand(const std::filesystem::path& path,
@@ -283,6 +470,8 @@ namespace {
     std::string selectionId(const slint::SharedString& selection) {
         constexpr std::string_view separator = " · ";
         const std::string value(selection.data(), selection.size());
+        if (tutorux::archive::uuidFromString(value))
+            return value;
         const auto position = value.rfind(separator);
         if (position == std::string::npos)
             return {};
@@ -414,6 +603,50 @@ namespace {
         return {};
     }
 
+    void refreshArchiveRecoveryState(MainWindow& window, const std::filesystem::path& path,
+                                     std::string_view passphrase = {}) {
+        auto report = Archive::inspectRecovery(path, passphrase);
+        if (!report) {
+            window.set_archive_recovery_needed(true);
+            window.set_archive_recovery_recoverable(false);
+            window.set_archive_recovery_tail_present(false);
+            window.set_archive_status(toSharedString("Recovery inspection failed"));
+            window.set_archive_recovery_status(
+                toSharedString("Recovery inspection failed: " + report.error().message));
+            return;
+        }
+
+        const bool hasTail = report->trailingBytes != 0;
+        window.set_archive_recovery_needed(hasTail);
+        window.set_archive_recovery_recoverable(hasTail && report->recoverable);
+        window.set_archive_recovery_tail_present(hasTail);
+        if (!hasTail) {
+            window.set_archive_recovery_status(toSharedString(""));
+            return;
+        }
+        window.set_archive_status(toSharedString(report->encrypted ? "Recovery required · Encrypted"
+                                                                   : "Recovery required"));
+
+        std::ostringstream status;
+        status << "Committed generation " << report->committedGeneration << "; "
+               << report->trailingBytes << " trailing bytes. ";
+        if (report->hasUnpublishedCommit) {
+            status << "An unpublished generation " << report->candidateGeneration << " was found. ";
+            if (report->recoverable) {
+                status << "Full integrity verification passed; you can recover this generation.";
+            } else if (report->requiresPassphrase) {
+                status << "Enter the archive passphrase to verify whether it can be recovered.";
+            } else {
+                status << "It did not pass full integrity verification and cannot be recovered.";
+            }
+        } else {
+            status << "No complete unpublished generation is available.";
+        }
+        for (const auto& issue : report->issues)
+            status << "\n" << issue;
+        window.set_archive_recovery_status(toSharedString(status.str()));
+    }
+
     void refreshWorkspace(MainWindow& window, const std::filesystem::path& path,
                           std::string_view passphrase = {}) {
         window.set_archive_path(toSharedString(path.string()));
@@ -432,8 +665,25 @@ namespace {
         }
         auto students = dispatchWithSecrets(archiveCommand(path, {"student", "list"}), passphrase);
         auto sessions = dispatchWithSecrets(archiveCommand(path, {"session", "list"}), passphrase);
+        auto journalEntries = dispatchWithSecrets(
+            archiveCommand(path, {"--json", "journal", "entry", "list"}), passphrase);
         window.set_students_text(toSharedString(commandOutput(std::move(students))));
         window.set_sessions_text(toSharedString(commandOutput(std::move(sessions))));
+        const std::string journalEntriesJson = commandOutput(std::move(journalEntries));
+        const auto journalChoices = journalEntryChoices(journalEntriesJson);
+        window.set_journal_list_output(toSharedString(journalEntryListSummary(journalEntriesJson)));
+        window.set_journal_entry_options(
+            std::make_shared<slint::VectorModel<slint::SharedString>>(journalChoices));
+        const auto selectedEntryId =
+            std::string(window.get_journal_entry_id().data(), window.get_journal_entry_id().size());
+        const auto selectedJournalEntry = std::find_if(
+            journalChoices.begin(), journalChoices.end(), [&](const slint::SharedString& choice) {
+                return selectionId(choice) == selectedEntryId;
+            });
+        window.set_selected_journal_entry(selectedJournalEntry != journalChoices.end()
+                                              ? *selectedJournalEntry
+                                          : journalChoices.empty() ? toSharedString("")
+                                                                   : journalChoices.front());
         window.set_selected_archive(toSharedString(path.filename().string()));
 
         std::vector<slint::SharedString> studentChoices{"Anonymous session"};
@@ -576,6 +826,13 @@ int launchDesktop(std::optional<std::filesystem::path> archivePath,
     window->set_archive_status(toSharedString("No archive selected"));
     window->set_students_text(toSharedString("Choose an archive to view students."));
     window->set_sessions_text(toSharedString("Choose an archive to view sessions."));
+    window->set_journal_list_output(toSharedString("Open an archive to see journal entries."));
+    window->set_journal_entry_options(std::make_shared<slint::VectorModel<slint::SharedString>>());
+    window->set_selected_journal_entry(toSharedString(""));
+    window->set_journal_timeline_output(toSharedString("Open an entry to view its sessions."));
+    window->set_journal_session_options(
+        std::make_shared<slint::VectorModel<slint::SharedString>>());
+    window->set_selected_journal_session(toSharedString(""));
     window->set_transcript_options(std::make_shared<slint::VectorModel<slint::SharedString>>());
     window->set_selected_transcript(toSharedString(""));
     window->set_transcript_edit_text(toSharedString(""));
@@ -597,20 +854,27 @@ int launchDesktop(std::optional<std::filesystem::path> archivePath,
     std::string activePassphrase;
 
     auto selected = initialArchive(archivePath, directory);
+    if (!selected)
+        window->set_active_view(toSharedString("archive"));
     if (selected) {
         auto info = tutorux::archive::inspectArchive(*selected);
         if (info) {
             directory = info->path.parent_path();
             if (info->healthStatus == "locked") {
+                window->set_active_view(toSharedString("archive"));
                 window->set_archive_path(toSharedString(info->path.string()));
                 window->set_selected_archive(toSharedString(info->path.filename().string()));
                 window->set_archive_status(toSharedString("Locked · Encrypted"));
                 window->set_students_text(toSharedString(
                     "This archive is encrypted. Enter its passphrase to unlock it."));
                 window->set_sessions_text(toSharedString("Unlock the archive to view sessions."));
+                refreshArchiveRecoveryState(*window, info->path);
                 window->set_status_message(toSharedString("Archive is locked."));
             } else {
                 refreshWorkspace(*window, info->path);
+                refreshArchiveRecoveryState(*window, info->path);
+                window->set_active_view(
+                    toSharedString(info->recoveryNeeded ? "archive" : "journal"));
             }
         } else {
             window->set_status_message(toSharedString(info.error().message));
@@ -631,6 +895,10 @@ int launchDesktop(std::optional<std::filesystem::path> archivePath,
             }
             if (info->healthStatus == "locked") {
                 eraseSecret(passphrase);
+                window->set_archive_path(toSharedString(info->path.string()));
+                window->set_selected_archive(toSharedString(info->path.filename().string()));
+                window->set_active_view(toSharedString("archive"));
+                refreshArchiveRecoveryState(*window, info->path);
                 window->set_status_message(
                     toSharedString("Enter the archive passphrase before opening this workspace."));
                 return;
@@ -648,9 +916,51 @@ int launchDesktop(std::optional<std::filesystem::path> archivePath,
             eraseSecret(passphrase);
             window->set_archive_passphrase(toSharedString(""));
             refreshWorkspace(*window, info->path, activePassphrase);
-            window->set_status_message(
-                toSharedString("Archive opened. Changes save directly to this file."));
+            refreshArchiveRecoveryState(*window, info->path, activePassphrase);
+            window->set_active_view(toSharedString(info->recoveryNeeded ? "archive" : "journal"));
+            window->set_status_message(toSharedString(
+                info->recoveryNeeded
+                    ? "Archive opened read-only. Review the recovery options before editing."
+                    : "Archive opened. Changes save directly to this file."));
         });
+
+    window->on_archive_recovery_action([&](slint::SharedString requestedAction) {
+        const std::filesystem::path path(window->get_archive_path().data());
+        if (path.empty()) {
+            window->set_status_message(toSharedString("Choose an archive before recovery."));
+            return;
+        }
+        const std::string action(requestedAction.data(), requestedAction.size());
+        std::vector<std::string> arguments{"archive", "recover"};
+        if (action == "recover-unpublished")
+            arguments.emplace_back("--recover-unpublished");
+        else if (action == "discard-tail")
+            arguments.emplace_back("--discard-tail");
+        else {
+            window->set_status_message(toSharedString("Unknown archive recovery action."));
+            return;
+        }
+
+        auto recovered =
+            dispatchWithSecrets(archiveCommand(path, std::move(arguments)), activePassphrase);
+        if (!recovered || recovered->exitCode != 0) {
+            window->set_status_message(toSharedString(commandOutput(std::move(recovered))));
+            return;
+        }
+        refreshWorkspace(*window, path, activePassphrase);
+        refreshArchiveRecoveryState(*window, path, activePassphrase);
+        const bool recoveryStillNeeded = window->get_archive_recovery_needed();
+        auto archiveState = tutorux::archive::inspectArchive(path, activePassphrase);
+        const bool archiveStillLocked = archiveState && archiveState->healthStatus == "locked";
+        window->set_active_view(
+            toSharedString(recoveryStillNeeded || archiveStillLocked ? "archive" : "journal"));
+        if (archiveStillLocked) {
+            window->set_archive_status(toSharedString("Locked · Encrypted"));
+            window->set_students_text(toSharedString("Unlock the archive to view students."));
+            window->set_sessions_text(toSharedString("Unlock the archive to view sessions."));
+        }
+        window->set_status_message(toSharedString(commandOutput(std::move(recovered))));
+    });
 
     window->on_forget_passphrase([&]() {
         eraseSecret(activePassphrase);
@@ -661,8 +971,11 @@ int launchDesktop(std::optional<std::filesystem::path> archivePath,
             window->set_archive_status(toSharedString("Locked · Encrypted"));
             window->set_students_text(toSharedString("Unlock the archive to view students."));
             window->set_sessions_text(toSharedString("Unlock the archive to view sessions."));
+            refreshArchiveRecoveryState(*window, path);
             window->set_status_message(toSharedString("Passphrase cleared. Archive is locked."));
         } else {
+            if (info)
+                refreshArchiveRecoveryState(*window, info->path);
             window->set_status_message(toSharedString("Passphrase cleared from memory."));
         }
     });
@@ -703,7 +1016,360 @@ int launchDesktop(std::optional<std::filesystem::path> archivePath,
         eraseSecret(newPassphrase);
         window->set_new_archive_passphrase(toSharedString(""));
         refreshWorkspace(*window, path, activePassphrase);
+        refreshArchiveRecoveryState(*window, path, activePassphrase);
+        window->set_active_view(toSharedString("journal"));
         window->set_status_message(toSharedString("Archive created and selected."));
+    });
+
+    std::string sanitizedPreviewGeneration;
+    std::string sanitizedPreviewFingerprint;
+    std::string sanitizedPreviewRequest;
+    window->on_sanitized_copy(
+        [&](slint::SharedString requestedOutput, slint::SharedString includeStudents,
+            slint::SharedString excludeStudents, slint::SharedString includeSessions,
+            slint::SharedString excludeSessions, slint::SharedString includeRecordingTracks,
+            slint::SharedString excludeRecordingTracks, bool includeRecordings,
+            bool includePrivateAnnotations, bool includeGenerationLogs, bool includeCredentials,
+            slint::SharedString requestedPassphrase, bool confirm) {
+            const auto toString = [](const slint::SharedString& value) {
+                return std::string(value.data(), value.size());
+            };
+            const std::string outputText = toString(requestedOutput);
+            if (outputText.empty()) {
+                window->set_sanitized_copy_ready(false);
+                window->set_sanitized_copy_status(toSharedString("Choose a .tux output path."));
+                return;
+            }
+            std::filesystem::path sourcePath(window->get_archive_path().data());
+            if (sourcePath.empty()) {
+                window->set_sanitized_copy_ready(false);
+                window->set_sanitized_copy_status(
+                    toSharedString("Open an archive before creating a sanitized copy."));
+                return;
+            }
+            if (sourcePath.is_relative())
+                sourcePath = directory / sourcePath;
+            std::filesystem::path outputPath(outputText);
+            if (outputPath.is_relative())
+                outputPath = directory / outputPath;
+
+            const std::string includeStudentText = toString(includeStudents);
+            const std::string excludeStudentText = toString(excludeStudents);
+            const std::string includeSessionText = toString(includeSessions);
+            const std::string excludeSessionText = toString(excludeSessions);
+            const std::string includeRecordingTrackText = toString(includeRecordingTracks);
+            const std::string excludeRecordingTrackText = toString(excludeRecordingTracks);
+            std::string requestKey;
+            const auto appendKey = [&](std::string_view value) {
+                requestKey += std::to_string(value.size());
+                requestKey.push_back(':');
+                requestKey.append(value);
+                requestKey.push_back(';');
+            };
+            appendKey(sourcePath.string());
+            appendKey(outputPath.string());
+            appendKey(includeStudentText);
+            appendKey(excludeStudentText);
+            appendKey(includeSessionText);
+            appendKey(excludeSessionText);
+            appendKey(includeRecordingTrackText);
+            appendKey(excludeRecordingTrackText);
+            appendKey(includeRecordings ? "1" : "0");
+            appendKey(includePrivateAnnotations ? "1" : "0");
+            appendKey(includeGenerationLogs ? "1" : "0");
+            appendKey(includeCredentials ? "1" : "0");
+
+            if (confirm &&
+                (sanitizedPreviewRequest != requestKey || sanitizedPreviewGeneration.empty() ||
+                 sanitizedPreviewFingerprint.empty())) {
+                window->set_sanitized_copy_ready(false);
+                window->set_sanitized_copy_status(
+                    toSharedString("The selection changed or has no preview. Preview again before "
+                                   "creating the copy."));
+                return;
+            }
+
+            std::vector<std::string> arguments{"--json",   "archive",
+                                               "sanitize", sourcePath.string(),
+                                               "--output", outputPath.string()};
+            const auto addOption = [&](std::string_view name, const std::string& value) {
+                if (!value.empty()) {
+                    arguments.emplace_back("--" + std::string(name));
+                    arguments.push_back(value);
+                }
+            };
+            addOption("include-students", includeStudentText);
+            addOption("exclude-students", excludeStudentText);
+            addOption("include-sessions", includeSessionText);
+            addOption("exclude-sessions", excludeSessionText);
+            addOption("include-recording-tracks", includeRecordingTrackText);
+            addOption("exclude-recording-tracks", excludeRecordingTrackText);
+            if (includeRecordings)
+                arguments.emplace_back("--include-recordings");
+            if (includePrivateAnnotations)
+                arguments.emplace_back("--include-private-annotations");
+            if (includeGenerationLogs)
+                arguments.emplace_back("--include-generation-logs");
+            if (includeCredentials)
+                arguments.emplace_back("--include-credentials");
+            if (confirm) {
+                arguments.emplace_back("--confirm-sensitive");
+                arguments.emplace_back("--expected-generation");
+                arguments.push_back(sanitizedPreviewGeneration);
+                arguments.emplace_back("--expected-selection");
+                arguments.push_back(sanitizedPreviewFingerprint);
+                arguments.emplace_back("--expected-output");
+                arguments.push_back(outputPath.string());
+            }
+
+            std::string destinationPassphrase =
+                confirm ? toString(requestedPassphrase) : std::string{};
+            auto response = dispatchWithSecrets(arguments, activePassphrase, destinationPassphrase);
+            eraseSecret(destinationPassphrase);
+            if (confirm)
+                window->set_sanitized_copy_passphrase(toSharedString(""));
+            if (!response || response->exitCode != 0) {
+                window->set_sanitized_copy_ready(false);
+                window->set_sanitized_copy_status(
+                    toSharedString(commandOutput(std::move(response))));
+                sanitizedPreviewGeneration.clear();
+                sanitizedPreviewFingerprint.clear();
+                sanitizedPreviewRequest.clear();
+                return;
+            }
+            const std::string output = response->output;
+            if (!confirm) {
+                const auto generation = jsonStringField(output, "source_generation");
+                const auto fingerprint = jsonStringField(output, "selection_fingerprint");
+                if (!generation || !fingerprint) {
+                    window->set_sanitized_copy_ready(false);
+                    window->set_sanitized_copy_status(
+                        toSharedString("Preview response was incomplete. Preview again."));
+                    return;
+                }
+                sanitizedPreviewGeneration = *generation;
+                sanitizedPreviewFingerprint = *fingerprint;
+                sanitizedPreviewRequest = requestKey;
+                window->set_sanitized_copy_ready(true);
+                const auto count = [&](std::string_view field) {
+                    return jsonStringField(output, field).value_or("0");
+                };
+                const std::string previewSummary =
+                    "Preview ready for source generation " + *generation + ". Students " +
+                    count("students") + ", sessions " + count("sessions") + ", annotations " +
+                    count("annotations") + ", assets " + count("assets") + ", evidence " +
+                    count("evidence_items") + ", guides " + count("guides") +
+                    ", recording tracks " + count("recording_tracks") + ", recording chunks " +
+                    count("recording_chunks") + ", generation logs " + count("generation_logs") +
+                    ", credentials " + count("credentials") +
+                    ". Create only after reviewing these counts.";
+                window->set_sanitized_copy_status(toSharedString(previewSummary));
+                return;
+            }
+            sanitizedPreviewGeneration.clear();
+            sanitizedPreviewFingerprint.clear();
+            sanitizedPreviewRequest.clear();
+            window->set_sanitized_copy_ready(false);
+            window->set_sanitized_copy_status(
+                toSharedString("Sanitized copy created at " + outputPath.string() + "."));
+            window->set_status_message(toSharedString("Sanitized archive created."));
+        });
+
+    window->on_journal_action([&](slint::SharedString requestedAction, slint::SharedString first,
+                                  slint::SharedString second, slint::SharedString third,
+                                  slint::SharedString fourth, slint::SharedString fifth,
+                                  slint::SharedString sixth) {
+        const auto text = [](const slint::SharedString& value) {
+            return std::string(value.data(), value.size());
+        };
+        const std::string action = text(requestedAction);
+        const std::array<std::string, 6> values{text(first),  text(second), text(third),
+                                                text(fourth), text(fifth),  text(sixth)};
+        std::vector<std::string> arguments;
+        const auto addOption = [&](std::string_view name, const std::string& value) {
+            if (value.empty())
+                return;
+            arguments.emplace_back("--" + std::string(name));
+            arguments.push_back(value);
+        };
+
+        if (action == "entry-list") {
+            arguments = {"--json", "journal", "entry", "list"};
+            addOption("query", values[0]);
+            addOption("collection-id", values[1]);
+            addOption("tag-id", values[2]);
+            addOption("from", values[3]);
+            addOption("to", values[4]);
+            if (values[5] == "with sessions")
+                arguments.insert(arguments.end(), {"--has-sessions", "true"});
+            else if (values[5] == "without sessions")
+                arguments.insert(arguments.end(), {"--has-sessions", "false"});
+        } else if (action == "entry-create") {
+            if (values[0].empty()) {
+                window->set_status_message(toSharedString("Enter an entry title first."));
+                return;
+            }
+            arguments = {"--json", "journal", "entry", "create", "--title", values[0]};
+            addOption("date", values[1]);
+            addOption("collection-ids", values[2]);
+            addOption("tag-ids", values[3]);
+        } else if (action == "entry-show") {
+            const auto selectedEntryId = tutorux::archive::uuidFromString(values[0])
+                                             ? values[0]
+                                             : selectionId(toSharedString(values[0]));
+            if (!tutorux::archive::uuidFromString(selectedEntryId)) {
+                window->set_status_message(toSharedString("Enter a valid entry ID first."));
+                return;
+            }
+            arguments = {"--json", "journal", "entry", "show", selectedEntryId};
+            window->set_selected_journal_entry(toSharedString(values[0]));
+        } else if (action == "entry-update") {
+            if (!tutorux::archive::uuidFromString(values[0])) {
+                window->set_status_message(toSharedString("Enter a valid entry ID first."));
+                return;
+            }
+            arguments = {"--json", "journal", "entry", "update", values[0]};
+            addOption("title", values[1]);
+            addOption("date", values[2]);
+            addOption("collection-ids", values[3]);
+            addOption("tag-ids", values[4]);
+            if (arguments.size() == 5) {
+                window->set_status_message(toSharedString("Enter at least one entry change."));
+                return;
+            }
+        } else if (action == "entry-clear-date") {
+            if (!tutorux::archive::uuidFromString(values[0])) {
+                window->set_status_message(toSharedString("Enter a valid entry ID first."));
+                return;
+            }
+            arguments = {"--json", "journal", "entry", "update", values[0], "--clear-date"};
+        } else if (action == "entry-delete") {
+            if (!tutorux::archive::uuidFromString(values[0])) {
+                window->set_status_message(toSharedString("Enter a valid entry ID first."));
+                return;
+            }
+            arguments = {"journal", "entry", "delete", values[0]};
+        } else if (action == "session-create") {
+            if (!tutorux::archive::uuidFromString(values[0])) {
+                window->set_status_message(
+                    toSharedString("Open an entry before adding a session."));
+                return;
+            }
+            arguments = {"--json",  "session", "create", "--entry-id",
+                         values[0], "--type",  values[1]};
+            addOption("title", values[2]);
+        } else if (action == "session-list") {
+            if (!tutorux::archive::uuidFromString(values[0])) {
+                window->set_status_message(toSharedString("Open an entry to view its timeline."));
+                return;
+            }
+            arguments = {"--json", "session", "list", "--entry-id", values[0]};
+        } else if (action == "session-resume" || action == "session-complete" ||
+                   action == "session-review" || action == "session-delete-preview" ||
+                   action == "session-delete-confirm") {
+            const auto selectedSessionId = tutorux::archive::uuidFromString(values[0])
+                                               ? values[0]
+                                               : selectionId(toSharedString(values[0]));
+            if (!tutorux::archive::uuidFromString(selectedSessionId)) {
+                window->set_status_message(toSharedString("Enter a valid session ID first."));
+                return;
+            }
+            window->set_journal_session_id(toSharedString(selectedSessionId));
+            const bool isDeletePreview = action == "session-delete-preview";
+            const bool isDeleteConfirmation = action == "session-delete-confirm";
+            const auto reviewedSessionId = window->get_journal_session_delete_preview_id();
+            if (isDeleteConfirmation &&
+                (!window->get_journal_session_delete_scope_reviewed() ||
+                 std::string(reviewedSessionId.data(), reviewedSessionId.size()) !=
+                     selectedSessionId ||
+                 values[1].empty())) {
+                window->set_status_message(
+                    toSharedString("Review the deletion scope for this session first."));
+                return;
+            }
+            const std::string operation = action == "session-review" ? "review"
+                                          : (isDeletePreview || isDeleteConfirmation)
+                                              ? "delete"
+                                              : action.substr(std::string("session-").size());
+            if (isDeletePreview) {
+                window->set_journal_session_delete_scope_reviewed(false);
+                window->set_journal_session_delete_preview_id(toSharedString(""));
+                window->set_journal_session_delete_scope_output(
+                    toSharedString("Loading the records linked to this session…"));
+            } else if (isDeleteConfirmation) {
+                window->set_journal_session_delete_scope_reviewed(false);
+                window->set_journal_session_delete_scope_output(
+                    toSharedString("Confirming the reviewed deletion scope…"));
+            }
+            arguments = {"session", operation, selectedSessionId};
+            if (isDeletePreview || isDeleteConfirmation)
+                arguments.insert(arguments.begin(), "--json");
+            if (isDeleteConfirmation) {
+                arguments.insert(arguments.end(), {"--confirm-scope", "--scope-token", values[1]});
+                window->set_journal_session_delete_scope_token(toSharedString(""));
+            }
+        } else if (action == "document-show") {
+            if (!tutorux::archive::uuidFromString(values[0])) {
+                window->set_status_message(toSharedString("Enter a valid notes document ID."));
+                return;
+            }
+            arguments = {"--json", "journal", "document", "show", values[0]};
+        } else if (action == "document-update") {
+            if (!tutorux::archive::uuidFromString(values[0])) {
+                window->set_status_message(toSharedString("Enter a valid notes document ID."));
+                return;
+            }
+            arguments = {"journal", "document", "update", values[0], "--text", values[1]};
+        } else if (action == "guide-generate-entry") {
+            if (!tutorux::archive::uuidFromString(values[0])) {
+                window->set_status_message(
+                    toSharedString("Open an entry before generating its guide."));
+                return;
+            }
+            arguments = {"--json", "guide", "generate", "--entry-id", values[0]};
+        } else if (action == "collection-list") {
+            arguments = {"journal", "collection", "list"};
+        } else if (action == "tag-list") {
+            arguments = {"journal", "tag", "list"};
+        } else if (action == "collection-create" || action == "tag-create") {
+            if (values[0].empty()) {
+                window->set_status_message(toSharedString("Enter a collection or tag name."));
+                return;
+            }
+            arguments = {"journal", action == "collection-create" ? "collection" : "tag", "create",
+                         "--name", values[0]};
+            addOption("description", values[1]);
+            addOption("color", values[2]);
+        } else if (action == "collection-update" || action == "tag-update") {
+            if (!tutorux::archive::uuidFromString(values[0])) {
+                window->set_status_message(toSharedString("Enter a valid collection or tag ID."));
+                return;
+            }
+            arguments = {"journal", action == "collection-update" ? "collection" : "tag", "update",
+                         values[0]};
+            addOption("name", values[1]);
+            addOption("description", values[2]);
+            addOption("color", values[3]);
+            if (arguments.size() == 4) {
+                window->set_status_message(toSharedString("Enter at least one change."));
+                return;
+            }
+        } else if (action == "collection-delete" || action == "tag-delete") {
+            if (!tutorux::archive::uuidFromString(values[0])) {
+                window->set_status_message(toSharedString("Enter a valid collection or tag ID."));
+                return;
+            }
+            arguments = {"journal", action == "collection-delete" ? "collection" : "tag", "delete",
+                         values[0]};
+        } else {
+            window->set_status_message(toSharedString("Unsupported journal action."));
+            return;
+        }
+
+        const std::string requestedCommand = commandLineFromArguments(arguments);
+        window->set_command_input(toSharedString(requestedCommand));
+        window->set_status_message(toSharedString("Working in the selected journal archive."));
+        window->invoke_run_command(toSharedString(requestedCommand), toSharedString(""));
     });
 
     window->on_create_student(
@@ -966,6 +1632,156 @@ int launchDesktop(std::optional<std::filesystem::path> archivePath,
     std::shared_ptr<std::atomic_bool> playbackStop;
     std::shared_ptr<std::atomic_bool> waveformStop;
     const slint::ComponentWeakHandle<MainWindow> playbackWeakWindow(window);
+    const auto microphonePreflightBusy = std::make_shared<std::atomic_bool>(false);
+    window->on_check_recording_device([playbackWeakWindow, playbackThreads, playbackThreadsMutex,
+                                       microphonePreflightBusy](
+                                          slint::SharedString requestedDevice) {
+        bool expected = false;
+        if (!microphonePreflightBusy->compare_exchange_strong(expected, true)) {
+            if (auto strongWindow = playbackWeakWindow.lock()) {
+                (*strongWindow)
+                    ->set_status_message(
+                        toSharedString("The microphone check is already running."));
+            }
+            return;
+        }
+
+        const std::string requestedDeviceId(requestedDevice.data(), requestedDevice.size());
+        if (auto strongWindow = playbackWeakWindow.lock()) {
+            (*strongWindow)->set_recording_preflight_ready(false);
+            (*strongWindow)->set_recording_preflight_device_id(toSharedString(""));
+            (*strongWindow)->set_recording_preflight_requested_device_id(toSharedString(""));
+            (*strongWindow)->set_recording_input_level(0);
+            (*strongWindow)
+                ->set_recording_preflight_output(
+                    toSharedString("Listening briefly. Speak naturally into the microphone…"));
+            (*strongWindow)
+                ->set_status_message(
+                    toSharedString("Checking microphone input in temporary memory."));
+        }
+
+        tutorux::audio::CapturePreflightOptions options;
+        options.deviceId = requestedDeviceId;
+        options.levelChanged =
+            [playbackWeakWindow](const tutorux::audio::CaptureInputLevel& level) {
+                const int peakPercent =
+                    std::clamp(static_cast<int>(std::lround(level.peakLevel * 100.0)), 0, 100);
+                std::ostringstream message;
+                message << "Listening · peak " << std::fixed << std::setprecision(1)
+                        << level.peakDbfs << " dBFS · RMS " << level.rmsDbfs << " dBFS";
+                const std::string output = message.str();
+                static_cast<void>(
+                    slint::invoke_from_event_loop([playbackWeakWindow, peakPercent, output] {
+                        if (auto strongWindow = playbackWeakWindow.lock()) {
+                            (*strongWindow)->set_recording_input_level(peakPercent);
+                            (*strongWindow)->set_recording_preflight_output(toSharedString(output));
+                        }
+                    }));
+            };
+
+        std::thread worker;
+        try {
+            worker = std::thread([playbackWeakWindow, microphonePreflightBusy, requestedDeviceId,
+                                  options = std::move(options)]() mutable {
+                bool succeeded = false;
+                bool signalDetected = false;
+                std::string checkedDeviceId;
+                double peakLevel = 0.0;
+                std::string output;
+                try {
+                    auto result = tutorux::audio::preflightCaptureInput(std::move(options));
+                    succeeded = result.has_value();
+                    signalDetected = succeeded && result->signalDetected;
+                    checkedDeviceId = succeeded ? result->device.deviceId : std::string{};
+                    peakLevel = succeeded ? result->peakLevel : 0.0;
+                    std::ostringstream report;
+                    if (!succeeded) {
+                        report << "Microphone check failed: " << result.error().message;
+                    } else if (!signalDetected) {
+                        report << "No input signal detected. Check the microphone and speak, "
+                                  "then run the check again.";
+                    } else {
+                        report << "Input detected · peak " << std::fixed << std::setprecision(1)
+                               << result->peakDbfs << " dBFS · RMS " << result->rmsDbfs << " dBFS";
+                    }
+                    output = report.str();
+                } catch (const std::exception& exception) {
+                    output = std::string("Microphone check failed: ") + exception.what();
+                } catch (...) {
+                    output = "Microphone check failed with an unknown error.";
+                }
+
+                static_cast<void>(slint::invoke_from_event_loop([playbackWeakWindow,
+                                                                 microphonePreflightBusy, succeeded,
+                                                                 signalDetected, requestedDeviceId,
+                                                                 checkedDeviceId, peakLevel,
+                                                                 output] {
+                    microphonePreflightBusy->store(false);
+                    if (auto strongWindow = playbackWeakWindow.lock()) {
+                        const int peakPercent =
+                            std::clamp(static_cast<int>(std::lround(peakLevel * 100.0)), 0, 100);
+                        (*strongWindow)->set_recording_input_level(peakPercent);
+                        (*strongWindow)->set_recording_preflight_output(toSharedString(output));
+                        (*strongWindow)->set_recording_preflight_ready(succeeded && signalDetected);
+                        (*strongWindow)
+                            ->set_recording_preflight_device_id(toSharedString(checkedDeviceId));
+                        (*strongWindow)
+                            ->set_recording_preflight_requested_device_id(
+                                toSharedString(requestedDeviceId));
+                        (*strongWindow)
+                            ->set_status_message(
+                                toSharedString(succeeded && signalDetected
+                                                   ? "Microphone input is ready for recording."
+                                                   : "Microphone check needs attention."));
+                    }
+                }));
+            });
+        } catch (const std::exception& exception) {
+            microphonePreflightBusy->store(false);
+            if (auto strongWindow = playbackWeakWindow.lock()) {
+                const std::string message =
+                    std::string("Unable to start the microphone check: ") + exception.what();
+                (*strongWindow)->set_recording_preflight_output(toSharedString(message));
+                (*strongWindow)->set_status_message(toSharedString(message));
+            }
+            return;
+        } catch (...) {
+            microphonePreflightBusy->store(false);
+            if (auto strongWindow = playbackWeakWindow.lock()) {
+                const std::string message =
+                    "Unable to start the microphone check because of an unknown error.";
+                (*strongWindow)->set_recording_preflight_output(toSharedString(message));
+                (*strongWindow)->set_status_message(toSharedString(message));
+            }
+            return;
+        }
+        try {
+            const std::scoped_lock lock(*playbackThreadsMutex);
+            playbackThreads->push_back(std::move(worker));
+        } catch (const std::exception& exception) {
+            if (worker.joinable())
+                worker.join();
+            microphonePreflightBusy->store(false);
+            if (auto strongWindow = playbackWeakWindow.lock()) {
+                const std::string message =
+                    std::string("Unable to retain the microphone check worker: ") +
+                    exception.what();
+                (*strongWindow)->set_recording_preflight_ready(false);
+                (*strongWindow)->set_recording_preflight_output(toSharedString(message));
+                (*strongWindow)->set_status_message(toSharedString(message));
+            }
+        } catch (...) {
+            if (worker.joinable())
+                worker.join();
+            microphonePreflightBusy->store(false);
+            if (auto strongWindow = playbackWeakWindow.lock()) {
+                const std::string message = "Unable to retain the microphone check worker.";
+                (*strongWindow)->set_recording_preflight_ready(false);
+                (*strongWindow)->set_recording_preflight_output(toSharedString(message));
+                (*strongWindow)->set_status_message(toSharedString(message));
+            }
+        }
+    });
     window->on_recording_command([&, playbackThreads, playbackThreadsMutex](
                                      slint::SharedString selectedSession,
                                      slint::SharedString action, slint::SharedString source) {
@@ -982,6 +1798,25 @@ int launchDesktop(std::optional<std::filesystem::path> archivePath,
             if (waveformStop)
                 waveformStop->store(true);
             window->set_status_message(toSharedString("Waveform generation is stopping."));
+            return;
+        }
+        if (commandAction == "start" && !window->get_recording_consent_confirmed()) {
+            window->set_status_message(
+                toSharedString("Confirm participant consent before starting audio capture."));
+            return;
+        }
+        const std::string requestedSource(source.data(), source.size());
+        const bool microphoneTrackRequested =
+            commandAction == "start" &&
+            (requestedSource == "microphone" || requestedSource == "both");
+        if (microphoneTrackRequested &&
+            (!window->get_recording_preflight_ready() ||
+             std::string(window->get_recording_preflight_requested_device_id().data(),
+                         window->get_recording_preflight_requested_device_id().size()) !=
+                 std::string(window->get_recording_microphone_device().data(),
+                             window->get_recording_microphone_device().size()))) {
+            window->set_status_message(
+                toSharedString("Check the selected microphone input before starting."));
             return;
         }
         if (path.empty() || id.empty()) {
@@ -1124,7 +1959,14 @@ int launchDesktop(std::optional<std::filesystem::path> archivePath,
         const bool fillAudioGaps = commandAction == "export-wav-fill-gaps";
         const std::string dispatchedAction = fillAudioGaps ? "export-wav" : commandAction;
         std::vector<std::string> arguments{"record", dispatchedAction, "--session", id};
-        if (commandAction == "export-wav" || fillAudioGaps) {
+        if (commandAction == "import") {
+            const std::string inputValue(source.data(), source.size());
+            if (inputValue.empty()) {
+                window->set_command_output(toSharedString("Choose a WAV recording to import."));
+                return;
+            }
+            arguments = {"record", "import", "--session", id, "--input", inputValue};
+        } else if (commandAction == "export-wav" || fillAudioGaps) {
             const std::string outputValue(source.data(), source.size());
             if (outputValue.empty()) {
                 window->set_command_output(toSharedString("Choose a WAV export path."));
@@ -1141,11 +1983,13 @@ int launchDesktop(std::optional<std::filesystem::path> archivePath,
             if (!trackId.empty())
                 arguments.insert(arguments.end(), {"--track", trackId});
         } else if (commandAction == "start") {
-            const std::string requestedSource(source.data(), source.size());
             arguments.insert(arguments.end(), {"--source", requestedSource, "--consent",
                                                "--confirmed-by", "Tutorux desktop", "--detach"});
-            const std::string microphoneDevice(window->get_recording_microphone_device().data(),
-                                               window->get_recording_microphone_device().size());
+            std::string microphoneDevice(window->get_recording_microphone_device().data(),
+                                         window->get_recording_microphone_device().size());
+            if (microphoneTrackRequested)
+                microphoneDevice = std::string(window->get_recording_preflight_device_id().data(),
+                                               window->get_recording_preflight_device_id().size());
             const std::string playbackDevice(window->get_recording_playback_device().data(),
                                              window->get_recording_playback_device().size());
             if ((requestedSource == "microphone" || requestedSource == "both") &&
@@ -1161,11 +2005,34 @@ int launchDesktop(std::optional<std::filesystem::path> archivePath,
             window->set_command_output(toSharedString("Unsupported recording action."));
             return;
         }
+        if (commandAction == "start")
+            window->set_recording_preflight_ready(false);
         auto command =
             dispatchWithSecrets(archiveCommand(path, std::move(arguments)), activePassphrase);
+        const bool commandSucceeded = command && command->exitCode == 0;
         const std::string output = commandOutput(std::move(command));
         window->set_command_output(toSharedString(output));
         window->set_status_message(toSharedString(output));
+        if (commandAction == "start" || commandAction == "pause" || commandAction == "resume" ||
+            commandAction == "stop" || commandAction == "status") {
+            window->set_recording_status_output(toSharedString("Session " + id + "\n" + output));
+        }
+        if (commandAction == "start" && commandSucceeded) {
+            const bool recordingPanelWasOpen = window->get_recording_panel_open();
+            const auto journalSessionId = selectionId(window->get_selected_journal_session());
+            const std::string enteredJournalSessionId(window->get_journal_session_id().data(),
+                                                      window->get_journal_session_id().size());
+            bool sessionIsInVisibleEntry = id == journalSessionId || id == enteredJournalSessionId;
+            const auto journalSessions = window->get_journal_session_options();
+            for (std::size_t row = 0;
+                 !sessionIsInVisibleEntry && row < journalSessions->row_count(); ++row) {
+                const auto choice = journalSessions->row_data(row);
+                sessionIsInVisibleEntry = choice && selectionId(*choice) == id;
+            }
+            window->set_recording_panel_open(true);
+            if (recordingPanelWasOpen && sessionIsInVisibleEntry)
+                window->set_active_view(toSharedString("journal"));
+        }
     });
 
     window->on_guide_command([&](slint::SharedString selectedGuide, slint::SharedString action,
@@ -1188,6 +2055,8 @@ int launchDesktop(std::optional<std::filesystem::path> archivePath,
             return;
         }
         std::vector<std::string> arguments{"guide", commandAction, id};
+        std::optional<std::pair<std::size_t, std::size_t>> requestedBlockSelection;
+        bool refreshGuideEditorChoices = false;
         if (commandAction == "export") {
             if (outputPath.empty()) {
                 window->set_guide_output(
@@ -1197,8 +2066,90 @@ int launchDesktop(std::optional<std::filesystem::path> archivePath,
             arguments.insert(arguments.end(),
                              {"--format", std::string(format.data(), format.size()), "--output",
                               std::string(outputPath.data(), outputPath.size())});
+        } else if (commandAction == "regenerate-section") {
+            const auto indexes = guideBlockIndexes(window->get_selected_guide_block());
+            if (!indexes || indexes->guideId != id) {
+                window->set_guide_output(
+                    toSharedString("Select a section block before regenerating its section."));
+                return;
+            }
+            arguments = {"guide", "regenerate", id, "--section-index",
+                         std::to_string(indexes->sectionIndex)};
+            requestedBlockSelection = std::pair{indexes->sectionIndex, indexes->blockIndex};
+            refreshGuideEditorChoices = true;
+        } else if (commandAction == "add-example" || commandAction == "remove-block" ||
+                   commandAction == "move-section-up" || commandAction == "move-section-down") {
+            const auto indexes = guideBlockIndexes(window->get_selected_guide_block());
+            if (!indexes || indexes->guideId != id) {
+                window->set_guide_output(
+                    toSharedString("Select a guide block before changing the guide."));
+                return;
+            }
+            if (commandAction == "add-example") {
+                const std::size_t insertionIndex = indexes->blockIndex + 1U;
+                arguments = {"guide",
+                             "add-block",
+                             id,
+                             "--section-index",
+                             std::to_string(indexes->sectionIndex),
+                             "--block-index",
+                             std::to_string(insertionIndex),
+                             "--kind",
+                             "example",
+                             "--text",
+                             ""};
+                requestedBlockSelection = std::pair{indexes->sectionIndex, insertionIndex};
+            } else if (commandAction == "remove-block") {
+                arguments = {"guide",
+                             "remove-block",
+                             id,
+                             "--section-index",
+                             std::to_string(indexes->sectionIndex),
+                             "--block-index",
+                             std::to_string(indexes->blockIndex)};
+                requestedBlockSelection = std::pair{indexes->sectionIndex, indexes->blockIndex};
+            } else {
+                const auto guideId = tutorux::archive::uuidFromString(id);
+                if (!guideId) {
+                    window->set_guide_output(toSharedString(guideId.error().message));
+                    return;
+                }
+                auto guideRecord =
+                    openedArchive->get(tutorux::archive::RecordType::Guide, *guideId);
+                if (!guideRecord || !*guideRecord) {
+                    window->set_guide_output(
+                        toSharedString(guideRecord ? "Guide was not found in the active archive."
+                                                   : guideRecord.error().message));
+                    return;
+                }
+                auto guide = tutorux::domain::guideFromRecord(**guideRecord);
+                if (!guide) {
+                    window->set_guide_output(toSharedString(guide.error().message));
+                    return;
+                }
+                const std::size_t sectionCount = guide->sections.size();
+                const bool moveUp = commandAction == "move-section-up";
+                if ((moveUp && indexes->sectionIndex == 0) ||
+                    (!moveUp && indexes->sectionIndex + 1U >= sectionCount)) {
+                    window->set_guide_output(
+                        toSharedString(moveUp ? "The first section is already at the top."
+                                              : "The last section is already at the bottom."));
+                    return;
+                }
+                const std::size_t destinationIndex =
+                    moveUp ? indexes->sectionIndex - 1U : indexes->sectionIndex + 1U;
+                arguments = {"guide",
+                             "move-section",
+                             id,
+                             "--from",
+                             std::to_string(indexes->sectionIndex),
+                             "--to",
+                             std::to_string(destinationIndex)};
+                requestedBlockSelection = std::pair{destinationIndex, indexes->blockIndex};
+            }
+            refreshGuideEditorChoices = true;
         } else if (commandAction != "show" && commandAction != "validate" &&
-                   commandAction != "approve") {
+                   commandAction != "approve" && commandAction != "compare") {
             window->set_guide_output(toSharedString("Unsupported guide action."));
             return;
         }
@@ -1207,6 +2158,40 @@ int launchDesktop(std::optional<std::filesystem::path> archivePath,
         const std::string output = commandOutput(std::move(command));
         window->set_guide_output(toSharedString(output));
         window->set_status_message(toSharedString(output));
+        if (refreshGuideEditorChoices &&
+            (output == "Guide revision saved.\n" || output.starts_with("Regenerated section"))) {
+            std::string refreshedGuideId = id;
+            if (commandAction == "regenerate-section") {
+                constexpr std::string_view guideMarker = " in guide ";
+                const auto markerPosition = output.rfind(guideMarker);
+                if (markerPosition != std::string::npos) {
+                    refreshedGuideId = output.substr(markerPosition + guideMarker.size());
+                    if (refreshedGuideId.ends_with(".\n"))
+                        refreshedGuideId.resize(refreshedGuideId.size() - 2U);
+                }
+            }
+            refreshWorkspace(*window, path, activePassphrase);
+            window->set_selected_guide(toSharedString(refreshedGuideId));
+            auto latestArchive = Archive::open(path, false, activePassphrase);
+            if (latestArchive) {
+                populateGuideBlockOptions(*window, *latestArchive, refreshedGuideId);
+                if (requestedBlockSelection) {
+                    const auto choices = window->get_guide_block_options();
+                    for (std::size_t row = 0; row < choices->row_count(); ++row) {
+                        const auto choice = choices->row_data(row);
+                        if (!choice)
+                            continue;
+                        const auto choiceIndexes = guideBlockIndexes(*choice);
+                        if (choiceIndexes && choiceIndexes->guideId == refreshedGuideId &&
+                            choiceIndexes->sectionIndex == requestedBlockSelection->first &&
+                            choiceIndexes->blockIndex == requestedBlockSelection->second) {
+                            window->set_selected_guide_block(*choice);
+                            break;
+                        }
+                    }
+                }
+            }
+        }
     });
 
     window->on_asset_command([&](slint::SharedString selectedSession, slint::SharedString action,
@@ -1449,16 +2434,39 @@ int launchDesktop(std::optional<std::filesystem::path> archivePath,
             return;
         }
         auto& block = guide->sections[indexes->sectionIndex].blocks[indexes->blockIndex];
+        auto sourceIds = explicitGuideSourceIds(block);
         auto buffer = tutorux::document::PieceTable::create(block.text);
         if (!buffer) {
             window->set_guide_provenance(toSharedString(buffer.error().message));
             return;
         }
-        *activeGuideEditor = ActiveGuideEditor{id, indexes->sectionIndex, indexes->blockIndex,
-                                               (**record).revision, std::move(*buffer)};
+        *activeGuideEditor = ActiveGuideEditor{id,
+                                               indexes->sectionIndex,
+                                               indexes->blockIndex,
+                                               (**record).revision,
+                                               std::move(*buffer),
+                                               block.kind,
+                                               std::move(sourceIds)};
         window->set_guide_edit_text(toSharedString(block.text));
+        window->set_guide_edit_anchor(0);
+        window->set_guide_edit_focus(0);
+        window->set_guide_reference_id(
+            toSharedString(block.sourceIds.empty() ? std::string_view{} : block.sourceIds.front()));
+        window->set_guide_block_kind(toSharedString(block.kind));
         std::ostringstream provenance;
         provenance << guide->sections[indexes->sectionIndex].heading << " · " << block.kind;
+        if (block.origin == "ai-generated")
+            provenance << " · AI-generated draft";
+        else if (block.origin == "human-edited")
+            provenance << " · tutor-edited";
+        else if (block.origin == "tutor-authored")
+            provenance << " · tutor-authored";
+        else if (block.origin == "session-evidence")
+            provenance << " · session evidence";
+        else if (block.origin == "uncertain")
+            provenance << " · uncertain interpretation";
+        else
+            provenance << " · provenance unverified";
         if (block.stale)
             provenance << " · source changed; review this content before saving";
         if (!block.sourceIds.empty()) {
@@ -1476,13 +2484,226 @@ int launchDesktop(std::optional<std::filesystem::path> archivePath,
             toSharedString("Block loaded from the selected archive revision."));
     });
 
-    window->on_guide_edit_input_changed([&, activeGuideEditor](slint::SharedString editedText) {
+    window->on_guide_edit_input_changed(
+        [&, activeGuideEditor](slint::SharedString editedText, int cursorOffset, int anchorOffset) {
+            if (!*activeGuideEditor)
+                return;
+            const std::string_view text(editedText.data(), editedText.size());
+            const auto selection = tutorux::document::TextSelection{
+                static_cast<std::size_t>(anchorOffset), static_cast<std::size_t>(cursorOffset)};
+            auto status = updateGuideEditorText(**activeGuideEditor, text, selection);
+            if (!status)
+                window->set_guide_output(toSharedString(status.error().message));
+        });
+
+    window->on_guide_edit_selection_changed(
+        [&, activeGuideEditor](int cursorOffset, int anchorOffset) {
+            if (!*activeGuideEditor)
+                return;
+            auto status = (*activeGuideEditor)
+                              ->text.setSelection({static_cast<std::size_t>(anchorOffset),
+                                                   static_cast<std::size_t>(cursorOffset)});
+            if (!status)
+                window->set_guide_output(toSharedString(status.error().message));
+        });
+
+    window->on_find_guide_next([&, activeGuideEditor](slint::SharedString requestedQuery) {
+        if (!*activeGuideEditor) {
+            window->set_guide_output(toSharedString("Load a guide block before searching."));
+            return;
+        }
+        const std::string query(requestedQuery.data(), requestedQuery.size());
+        auto match = nextGuideTextMatch(**activeGuideEditor, query);
+        if (!match) {
+            window->set_guide_output(toSharedString(match.error().message));
+            return;
+        }
+        auto status = (*activeGuideEditor)->text.setSelection({match->start, match->end});
+        if (!status) {
+            window->set_guide_output(toSharedString(status.error().message));
+            return;
+        }
+        window->set_guide_edit_anchor(static_cast<int>(match->start));
+        window->set_guide_edit_focus(static_cast<int>(match->end));
+        window->set_guide_output(toSharedString("Selected the next matching text."));
+    });
+
+    window->on_replace_guide_match([&, activeGuideEditor](slint::SharedString requestedQuery,
+                                                          slint::SharedString replacementText) {
+        if (!*activeGuideEditor) {
+            window->set_guide_output(toSharedString("Load a guide block before replacing text."));
+            return;
+        }
+        const std::string query(requestedQuery.data(), requestedQuery.size());
+        const std::string replacement(replacementText.data(), replacementText.size());
+        auto& editor = **activeGuideEditor;
+        const auto selection = editor.text.selection();
+        const std::size_t start = std::min(selection.anchor, selection.focus);
+        const std::size_t end = std::max(selection.anchor, selection.focus);
+        const std::string contents = editor.text.text();
+        if (query.empty()) {
+            window->set_guide_output(toSharedString("Enter text to find before replacing."));
+            return;
+        }
+        if (end - start != query.size() || contents.compare(start, query.size(), query) != 0) {
+            auto match = nextGuideTextMatch(editor, query);
+            if (!match) {
+                window->set_guide_output(toSharedString(match.error().message));
+                return;
+            }
+            editor.text.setSelection({match->start, match->end});
+            window->set_guide_edit_anchor(static_cast<int>(match->start));
+            window->set_guide_edit_focus(static_cast<int>(match->end));
+            window->set_guide_output(
+                toSharedString("Selected the next match. Press Replace again to replace it."));
+            return;
+        }
+        auto result = editor.text.replace({start, end}, replacement, editor.guideId,
+                                          editor.expectedRevision, "guide-find-replace");
+        if (!result) {
+            window->set_guide_output(toSharedString(result.error().message));
+            return;
+        }
+        window->set_guide_edit_text(toSharedString(editor.text.text()));
+        window->set_guide_edit_anchor(static_cast<int>(result->selection.anchor));
+        window->set_guide_edit_focus(static_cast<int>(result->selection.focus));
+        window->set_guide_output(toSharedString("Replaced the selected match."));
+    });
+
+    window->on_replace_all_guide_matches([&,
+                                          activeGuideEditor](slint::SharedString requestedQuery,
+                                                             slint::SharedString replacementText) {
+        if (!*activeGuideEditor) {
+            window->set_guide_output(toSharedString("Load a guide block before replacing text."));
+            return;
+        }
+        auto result =
+            (*activeGuideEditor)
+                ->text.replaceAll(std::string_view(requestedQuery.data(), requestedQuery.size()),
+                                  std::string_view(replacementText.data(), replacementText.size()),
+                                  (*activeGuideEditor)->guideId,
+                                  (*activeGuideEditor)->expectedRevision, "guide-find-replace-all");
+        if (!result) {
+            window->set_guide_output(toSharedString(result.error().message));
+            return;
+        }
+        window->set_guide_edit_text(toSharedString((*activeGuideEditor)->text.text()));
+        window->set_guide_edit_anchor(static_cast<int>(result->selection.anchor));
+        window->set_guide_edit_focus(static_cast<int>(result->selection.focus));
+        window->set_guide_output(
+            toSharedString("Replaced " + std::to_string(result->operationCount) + " match(es)."));
+    });
+
+    window->on_guide_edit_undo([&, activeGuideEditor] {
         if (!*activeGuideEditor)
             return;
-        const std::string_view text(editedText.data(), editedText.size());
-        auto status = updateGuideEditorText(**activeGuideEditor, text);
-        if (!status)
-            window->set_guide_output(toSharedString(status.error().message));
+        auto result = (*activeGuideEditor)->text.undo();
+        if (!result) {
+            window->set_guide_output(toSharedString(result.error().message));
+            return;
+        }
+        window->set_guide_edit_text(toSharedString((*activeGuideEditor)->text.text()));
+        window->set_guide_edit_anchor(static_cast<int>(result->selection.anchor));
+        window->set_guide_edit_focus(static_cast<int>(result->selection.focus));
+        window->set_guide_output(toSharedString("Undid the last structured guide edit."));
+    });
+
+    window->on_guide_edit_redo([&, activeGuideEditor] {
+        if (!*activeGuideEditor)
+            return;
+        auto result = (*activeGuideEditor)->text.redo();
+        if (!result) {
+            window->set_guide_output(toSharedString(result.error().message));
+            return;
+        }
+        window->set_guide_edit_text(toSharedString((*activeGuideEditor)->text.text()));
+        window->set_guide_edit_anchor(static_cast<int>(result->selection.anchor));
+        window->set_guide_edit_focus(static_cast<int>(result->selection.focus));
+        window->set_guide_output(toSharedString("Redid the last structured guide edit."));
+    });
+
+    window->on_insert_guide_markup([&, activeGuideEditor](slint::SharedString markupKind,
+                                                          slint::SharedString referenceId) {
+        if (!*activeGuideEditor) {
+            window->set_guide_output(toSharedString("Load a guide block before inserting markup."));
+            return;
+        }
+        auto& editor = **activeGuideEditor;
+        const std::string kind(markupKind.data(), markupKind.size());
+        const std::string reference(referenceId.data(), referenceId.size());
+        const auto selection = editor.text.selection();
+        const std::size_t start = std::min(selection.anchor, selection.focus);
+        const std::size_t end = std::max(selection.anchor, selection.focus);
+        const std::string contents = editor.text.text();
+        if (end > contents.size()) {
+            window->set_guide_output(
+                toSharedString("The editor selection is outside the guide block."));
+            return;
+        }
+        const std::string selectedText = contents.substr(start, end - start);
+        std::string insertion;
+        std::string updatedKind = editor.kind;
+        if (kind == "source") {
+            auto id = tutorux::archive::uuidFromString(reference);
+            if (!id) {
+                window->set_guide_output(
+                    toSharedString("Enter a valid source UUID before inserting it."));
+                return;
+            }
+            const std::string canonicalId = tutorux::archive::uuidToString(*id);
+            insertion = selectedText + "[[source:" + canonicalId + "]]";
+        } else if (kind == "image" && !reference.empty()) {
+            auto id = tutorux::archive::uuidFromString(reference);
+            if (!id) {
+                window->set_guide_output(
+                    toSharedString("Enter a valid asset UUID before inserting an image."));
+                return;
+            }
+            const std::string canonicalId = tutorux::archive::uuidToString(*id);
+            std::string description = selectedText.empty() ? "Image description" : selectedText;
+            std::string escapedDescription;
+            escapedDescription.reserve(description.size());
+            for (const char character : description) {
+                if (character == '\\' || character == ']')
+                    escapedDescription.push_back('\\');
+                escapedDescription.push_back(character);
+            }
+            insertion = "![" + escapedDescription + "](asset:" + canonicalId + ")";
+            updatedKind = "image";
+        } else if (kind == "code") {
+            updatedKind = "code";
+            insertion = selectedText;
+        } else if (kind == "equation") {
+            updatedKind = "equation";
+            insertion = selectedText;
+        } else if (kind == "table") {
+            updatedKind = "table";
+            insertion = "| Column 1 | Column 2 |\n| --- | --- |\n| Value | Value |";
+        } else if (kind == "image" || kind == "figure" || kind == "paragraph" ||
+                   kind == "list-item" || kind == "quote" || kind == "example" ||
+                   kind == "instruction" || kind == "recommendation" || kind == "worked-example") {
+            updatedKind = kind;
+            insertion = selectedText;
+        } else {
+            window->set_guide_output(toSharedString("Unsupported guide markup action."));
+            return;
+        }
+
+        if (insertion != selectedText) {
+            auto result = editor.text.replace({start, end}, insertion, editor.guideId,
+                                              editor.expectedRevision, "guide-markup");
+            if (!result) {
+                window->set_guide_output(toSharedString(result.error().message));
+                return;
+            }
+        }
+        editor.kind = std::move(updatedKind);
+        window->set_guide_block_kind(toSharedString(editor.kind));
+        const auto insertedSelection = editor.text.selection();
+        window->set_guide_edit_text(toSharedString(editor.text.text()));
+        window->set_guide_edit_anchor(static_cast<int>(insertedSelection.anchor));
+        window->set_guide_edit_focus(static_cast<int>(insertedSelection.focus));
+        window->set_guide_output(toSharedString("Inserted markup into the in-memory guide block."));
     });
 
     window->on_save_guide_block([&, activeGuideEditor](slint::SharedString selectedGuide,
@@ -1529,9 +2750,26 @@ int launchDesktop(std::optional<std::filesystem::path> archivePath,
             return;
         }
 
-        auto arguments = archiveCommand(
-            path, {"guide", "edit", id, "--section-index", std::to_string(indexes->sectionIndex),
-                   "--block-index", std::to_string(indexes->blockIndex), "--text", buffer.text()});
+        auto sourceIds = guideEditorSourceIds(**activeGuideEditor);
+        if (!sourceIds) {
+            window->set_guide_output(toSharedString(sourceIds.error().message));
+            return;
+        }
+
+        std::vector<std::string> editArguments{"guide",
+                                               "edit",
+                                               id,
+                                               "--section-index",
+                                               std::to_string(indexes->sectionIndex),
+                                               "--block-index",
+                                               std::to_string(indexes->blockIndex),
+                                               "--text",
+                                               buffer.text(),
+                                               "--kind",
+                                               (*activeGuideEditor)->kind,
+                                               "--sources",
+                                               joinSourceIds(*sourceIds)};
+        auto arguments = archiveCommand(path, std::move(editArguments));
         auto saved = dispatchWithSecrets(arguments, activePassphrase);
         const std::string output = commandOutput(std::move(saved));
         window->set_guide_output(toSharedString(output));
@@ -1621,6 +2859,35 @@ int launchDesktop(std::optional<std::filesystem::path> archivePath,
                 *commandStart == "--verbose" || *commandStart == "--no-color")) {
             ++commandStart;
         }
+        const auto remainingArguments = static_cast<std::size_t>(parsed->end() - commandStart);
+        const bool journalEntryResponse =
+            remainingArguments >= 3 && *commandStart == "journal" &&
+            *(commandStart + 1) == "entry" &&
+            (*(commandStart + 2) == "create" || *(commandStart + 2) == "show" ||
+             *(commandStart + 2) == "update");
+        const bool journalDocumentResponse =
+            remainingArguments >= 3 && *commandStart == "journal" &&
+            *(commandStart + 1) == "document" && *(commandStart + 2) == "show";
+        const bool journalEntryListResponse =
+            remainingArguments >= 3 && *commandStart == "journal" &&
+            *(commandStart + 1) == "entry" && *(commandStart + 2) == "list";
+        const bool journalSessionListResponse =
+            remainingArguments >= 2 && *commandStart == "session" && *(commandStart + 1) == "list";
+        const bool journalSessionCreateResponse = remainingArguments >= 2 &&
+                                                  *commandStart == "session" &&
+                                                  *(commandStart + 1) == "create";
+        const bool journalSessionDeleteResponse = remainingArguments >= 3 &&
+                                                  *commandStart == "session" &&
+                                                  *(commandStart + 1) == "delete";
+        const bool journalSessionDeleteConfirmation =
+            journalSessionDeleteResponse &&
+            std::find(parsed->begin(), parsed->end(), "--confirm-scope") != parsed->end();
+        const std::string journalSessionDeleteId =
+            journalSessionDeleteResponse ? *(commandStart + 2) : std::string{};
+        const bool journalEntryGuideResponse =
+            remainingArguments >= 2 && *commandStart == "guide" &&
+            *(commandStart + 1) == "generate" &&
+            std::find(parsed->begin(), parsed->end(), "--entry-id") != parsed->end();
         const bool foregroundRecording =
             parsed->end() - commandStart >= 2 && *commandStart == "record" &&
             *(commandStart + 1) == "start" &&
@@ -1667,7 +2934,11 @@ int launchDesktop(std::optional<std::filesystem::path> archivePath,
             (*strongWindow)->set_new_archive_passphrase(toSharedString(""));
 
         std::thread worker([weakWindow, commandBusy, commandStopRequested, selectedPath,
-                            &activePassphrase, changesPassphrase,
+                            &activePassphrase, changesPassphrase, journalEntryResponse,
+                            journalDocumentResponse, journalEntryListResponse,
+                            journalSessionListResponse, journalSessionCreateResponse,
+                            journalSessionDeleteResponse, journalSessionDeleteConfirmation,
+                            journalSessionDeleteId, journalEntryGuideResponse,
                             commandPassphrase = std::move(commandPassphrase),
                             newPassphrase = std::move(newPassphrase),
                             arguments = std::move(arguments)]() mutable {
@@ -1726,41 +2997,204 @@ int launchDesktop(std::optional<std::filesystem::path> archivePath,
             eraseSecret(newPassphrase);
 
             commandBusy->store(false);
-            static_cast<void>(slint::invoke_from_event_loop(
-                [weakWindow, selectedPath, exitCode, changesPassphrase, &activePassphrase,
-                 refreshPassphrase = std::move(refreshPassphrase),
-                 output = std::move(output)]() mutable {
-                    auto strongWindow = weakWindow.lock();
-                    if (!strongWindow) {
-                        eraseSecret(refreshPassphrase);
-                        return;
-                    }
-                    constexpr std::string_view packageJobMarker = "as job ";
-                    const std::size_t packageJobPosition = output.find(packageJobMarker);
-                    if (packageJobPosition != std::string::npos) {
-                        const std::size_t idStart = packageJobPosition + packageJobMarker.size();
-                        if (idStart <= output.size() && output.size() - idStart >= 36) {
-                            const std::string_view candidate(output.data() + idStart, 36);
-                            if (tutorux::archive::uuidFromString(candidate))
-                                (*strongWindow)->set_ai_package_job_id(toSharedString(candidate));
-                        }
-                    }
-                    (*strongWindow)->set_command_output(toSharedString(output));
-                    (*strongWindow)->set_command_running(false);
-                    (*strongWindow)
-                        ->set_status_message(toSharedString(exitCode == 0 ? "Command completed."
-                                                                          : "Command failed."));
-                    if (exitCode == 0 &&
-                        std::filesystem::path((*strongWindow)->get_archive_path().data()) ==
-                            selectedPath) {
-                        if (changesPassphrase) {
-                            eraseSecret(activePassphrase);
-                            activePassphrase = refreshPassphrase;
-                        }
-                        refreshWorkspace(**strongWindow, selectedPath, refreshPassphrase);
-                    }
+            static_cast<void>(slint::invoke_from_event_loop([weakWindow, selectedPath, exitCode,
+                                                             changesPassphrase,
+                                                             journalEntryResponse,
+                                                             journalDocumentResponse,
+                                                             journalEntryListResponse,
+                                                             journalSessionListResponse,
+                                                             journalSessionCreateResponse,
+                                                             journalSessionDeleteResponse,
+                                                             journalSessionDeleteConfirmation,
+                                                             journalSessionDeleteId,
+                                                             journalEntryGuideResponse,
+                                                             &activePassphrase,
+                                                             refreshPassphrase =
+                                                                 std::move(refreshPassphrase),
+                                                             output = std::move(output)]() mutable {
+                auto strongWindow = weakWindow.lock();
+                if (!strongWindow) {
                     eraseSecret(refreshPassphrase);
-                }));
+                    return;
+                }
+                constexpr std::string_view packageJobMarker = "as job ";
+                const std::size_t packageJobPosition = output.find(packageJobMarker);
+                if (packageJobPosition != std::string::npos) {
+                    const std::size_t idStart = packageJobPosition + packageJobMarker.size();
+                    if (idStart <= output.size() && output.size() - idStart >= 36) {
+                        const std::string_view candidate(output.data() + idStart, 36);
+                        if (tutorux::archive::uuidFromString(candidate))
+                            (*strongWindow)->set_ai_package_job_id(toSharedString(candidate));
+                    }
+                }
+                (*strongWindow)->set_command_output(toSharedString(output));
+                if (exitCode == 0 && journalEntryResponse) {
+                    if (auto entryId = jsonStringField(output, "id")) {
+                        (*strongWindow)->set_journal_entry_id(toSharedString(*entryId));
+                        const auto choices = (*strongWindow)->get_journal_entry_options();
+                        for (std::size_t row = 0; row < choices->row_count(); ++row) {
+                            const auto choice = choices->row_data(row);
+                            if (choice && selectionId(*choice) == *entryId) {
+                                (*strongWindow)->set_selected_journal_entry(*choice);
+                                break;
+                            }
+                        }
+                    }
+                    if (auto title = jsonStringField(output, "title"))
+                        (*strongWindow)->set_journal_entry_title(toSharedString(*title));
+                    if (auto date = jsonStringField(output, "entry_date"))
+                        (*strongWindow)->set_journal_entry_date(toSharedString(*date));
+                    if (auto collections = jsonStringField(output, "collection_ids"))
+                        (*strongWindow)
+                            ->set_journal_entry_collections(toSharedString(*collections));
+                    if (auto tags = jsonStringField(output, "tag_ids"))
+                        (*strongWindow)->set_journal_entry_tags(toSharedString(*tags));
+                    if (auto documentId = jsonStringField(output, "notes_document_id")) {
+                        (*strongWindow)->set_journal_document_id(toSharedString(*documentId));
+                    }
+                    if (auto notesText = jsonStringField(output, "notes_text")) {
+                        (*strongWindow)->set_journal_document_text(toSharedString(*notesText));
+                    }
+                }
+                if (exitCode == 0 && journalDocumentResponse) {
+                    if (auto documentId = jsonStringField(output, "document_id")) {
+                        (*strongWindow)->set_journal_document_id(toSharedString(*documentId));
+                    }
+                    if (auto documentText = jsonStringField(output, "text")) {
+                        (*strongWindow)->set_journal_document_text(toSharedString(*documentText));
+                    }
+                }
+                (*strongWindow)->set_command_running(false);
+                (*strongWindow)
+                    ->set_status_message(
+                        toSharedString(exitCode == 0 ? "Command completed." : "Command failed."));
+                if (exitCode == 0 &&
+                    std::filesystem::path((*strongWindow)->get_archive_path().data()) ==
+                        selectedPath) {
+                    if (changesPassphrase) {
+                        eraseSecret(activePassphrase);
+                        activePassphrase = refreshPassphrase;
+                    }
+                    refreshWorkspace(**strongWindow, selectedPath, refreshPassphrase);
+                }
+                if (exitCode == 0 && journalSessionCreateResponse) {
+                    if (auto sessionId = jsonStringField(output, "id")) {
+                        (*strongWindow)->set_journal_session_id(toSharedString(*sessionId));
+                        (*strongWindow)
+                            ->set_selected_session(toSharedString("Session · " + *sessionId));
+                        const auto sessionType = jsonStringField(output, "session_type");
+                        if (sessionType && (*sessionType == "record-audio" ||
+                                            *sessionType == "import-recording")) {
+                            if (*sessionType == "import-recording") {
+                                (*strongWindow)
+                                    ->set_status_message(toSharedString(
+                                        "Session created. Open recording controls to choose its "
+                                        "WAV recording."));
+                            } else {
+                                (*strongWindow)
+                                    ->set_status_message(toSharedString(
+                                        "Session created. Open recording controls to check the "
+                                        "microphone and start capture."));
+                            }
+                        }
+                    }
+                }
+                if (exitCode == 0 && journalEntryListResponse) {
+                    const auto choices = journalEntryChoices(output);
+                    (*strongWindow)
+                        ->set_journal_list_output(toSharedString(journalEntryListSummary(output)));
+                    (*strongWindow)
+                        ->set_journal_entry_options(
+                            std::make_shared<slint::VectorModel<slint::SharedString>>(choices));
+                    const auto selectedEntryId =
+                        std::string((*strongWindow)->get_journal_entry_id().data(),
+                                    (*strongWindow)->get_journal_entry_id().size());
+                    const auto selectedChoice = std::find_if(
+                        choices.begin(), choices.end(), [&](const slint::SharedString& choice) {
+                            return selectionId(choice) == selectedEntryId;
+                        });
+                    (*strongWindow)
+                        ->set_selected_journal_entry(selectedChoice != choices.end()
+                                                         ? *selectedChoice
+                                                     : choices.empty() ? toSharedString("")
+                                                                       : choices.front());
+                }
+                if (exitCode == 0 && journalSessionListResponse) {
+                    const auto choices = journalSessionChoices(output);
+                    (*strongWindow)
+                        ->set_journal_timeline_output(
+                            toSharedString(journalSessionListSummary(output)));
+                    (*strongWindow)
+                        ->set_journal_session_options(
+                            std::make_shared<slint::VectorModel<slint::SharedString>>(choices));
+                    (*strongWindow)->set_journal_session_id(toSharedString(""));
+                    (*strongWindow)
+                        ->set_selected_journal_session(choices.empty() ? toSharedString("")
+                                                                       : choices.front());
+                }
+                if (exitCode == 0 && journalEntryGuideResponse) {
+                    if (const auto guideId = jsonStringField(output, "id")) {
+                        const std::string title =
+                            jsonStringField(output, "title").value_or("Study Guide");
+                        (*strongWindow)
+                            ->set_selected_guide(toSharedString(title + " · " + *guideId));
+                        (*strongWindow)
+                            ->set_journal_guide_output(toSharedString(
+                                "Draft guide created for this entry. Review it before approval: " +
+                                *guideId));
+                    }
+                }
+                if (exitCode == 0 && journalSessionDeleteResponse) {
+                    const auto deleteStatus = jsonStringField(output, "status");
+                    if (!journalSessionDeleteConfirmation && deleteStatus &&
+                        *deleteStatus == "confirmation-required") {
+                        const auto fieldOrZero = [&](std::string_view name) {
+                            const auto value = jsonStringField(output, name);
+                            return value.value_or("0");
+                        };
+                        std::string scope =
+                            "Review the records that will be removed with this session:\n";
+                        scope += "Audio chunks: " + fieldOrZero("audio_chunks") + "\n";
+                        scope +=
+                            "Transcript segments: " + fieldOrZero("transcript_segments") + "\n";
+                        scope += "Annotations: " + fieldOrZero("annotations") + "\n";
+                        scope += "Session notes: " + fieldOrZero("session_notes") + "\n";
+                        scope += "Study guides: " + fieldOrZero("guides") + "\n";
+                        scope += "Assets: " + fieldOrZero("assets") + "\n";
+                        scope += "Evidence nodes: " + fieldOrZero("evidence_nodes") + "\n";
+                        scope += "Total records: " + fieldOrZero("total_records");
+                        (*strongWindow)
+                            ->set_journal_session_delete_scope_output(toSharedString(scope));
+                        (*strongWindow)
+                            ->set_journal_session_delete_preview_id(
+                                toSharedString(journalSessionDeleteId));
+                        (*strongWindow)
+                            ->set_journal_session_delete_scope_token(toSharedString(
+                                jsonStringField(output, "scope_token").value_or("")));
+                        (*strongWindow)->set_journal_session_delete_scope_reviewed(true);
+                        (*strongWindow)->set_journal_session_delete_confirmed(false);
+                    } else if (journalSessionDeleteConfirmation && deleteStatus &&
+                               *deleteStatus == "deleted") {
+                        (*strongWindow)
+                            ->set_journal_session_delete_scope_output(toSharedString(
+                                "Session and the reviewed associated records were deleted."));
+                        (*strongWindow)->set_journal_session_delete_preview_id(toSharedString(""));
+                        (*strongWindow)->set_journal_session_delete_scope_token(toSharedString(""));
+                        (*strongWindow)->set_journal_session_delete_scope_reviewed(false);
+                        (*strongWindow)->set_journal_session_delete_confirmed(false);
+                    }
+                }
+                if (exitCode != 0 && journalSessionDeleteConfirmation) {
+                    (*strongWindow)
+                        ->set_journal_session_delete_scope_output(
+                            toSharedString("Deletion was not completed. Review the current scope "
+                                           "before trying again."));
+                    (*strongWindow)->set_journal_session_delete_preview_id(toSharedString(""));
+                    (*strongWindow)->set_journal_session_delete_scope_token(toSharedString(""));
+                    (*strongWindow)->set_journal_session_delete_scope_reviewed(false);
+                }
+                eraseSecret(refreshPassphrase);
+            }));
         });
         {
             const std::scoped_lock lock(*commandThreadsMutex);
