@@ -1,5 +1,7 @@
 #include "tutorux/ai/embedded_llama.hpp"
 
+#include <sodium.h>
+
 #include <algorithm>
 #include <array>
 #include <atomic>
@@ -12,6 +14,7 @@
 #include <string>
 #include <system_error>
 #include <thread>
+#include <type_traits>
 #include <utility>
 #include <vector>
 
@@ -91,6 +94,123 @@ namespace {
             failed = true;
             return false;
         }
+    }
+
+    class SensitiveStringWiper final {
+      public:
+        explicit SensitiveStringWiper(std::string& value) noexcept
+            : value_(value) {}
+
+        ~SensitiveStringWiper() {
+            if (!value_.empty())
+                sodium_memzero(value_.data(), value_.size());
+        }
+
+      private:
+        std::string& value_;
+    };
+
+    class EmbeddedRequestWiper final {
+      public:
+        explicit EmbeddedRequestWiper(EmbeddedLlamaGenerationRequest& request) noexcept
+            : request_(request) {}
+
+        ~EmbeddedRequestWiper() {
+            if (!request_.systemPrompt.empty())
+                sodium_memzero(request_.systemPrompt.data(), request_.systemPrompt.size());
+            if (!request_.userContent.empty())
+                sodium_memzero(request_.userContent.data(), request_.userContent.size());
+            wipeContentParts(request_.content);
+        }
+
+      private:
+        EmbeddedLlamaGenerationRequest& request_;
+    };
+
+    core::Result<std::string> canonicalTextContent(std::span<const ContentPart> content,
+                                                   std::string_view fallback) {
+        constexpr std::size_t maximumContentBytes = 4U * 1024U * 1024U;
+        std::string text;
+
+        const auto append = [&](std::string_view value) -> core::Status {
+            const std::size_t separatorBytes = !text.empty() && !value.empty() ? 1U : 0U;
+            if (text.size() > maximumContentBytes ||
+                separatorBytes > maximumContentBytes - text.size() ||
+                value.size() > maximumContentBytes - text.size() - separatorBytes) {
+                return std::unexpected(
+                    core::error("llama_prompt_too_large",
+                                "The canonical Tutorux text input exceeds the 4 MiB limit."));
+            }
+            if (separatorBytes != 0U)
+                text.push_back('\n');
+            text.append(value);
+            return {};
+        };
+
+        if (content.empty()) {
+            if (auto status = append(fallback); !status)
+                return std::unexpected(status.error());
+            return text;
+        }
+
+        for (const ContentPart& part : content) {
+            const auto status = std::visit(
+                [&](const auto& value) -> core::Status {
+                    using Value = std::decay_t<decltype(value)>;
+                    if constexpr (std::is_same_v<Value, TextContentPart>) {
+                        return append(value.text);
+                    } else if constexpr (std::is_same_v<Value, DocumentContentPart>) {
+                        if (value.extractedText.empty()) {
+                            return std::unexpected(core::error(
+                                "ai_document_content_unavailable",
+                                "Embedded llama.cpp cannot read document bytes, and this "
+                                "document has no extracted text."));
+                        }
+                        std::string labeledText = "Document";
+                        if (!value.fileName.empty())
+                            labeledText += " " + value.fileName;
+                        if (!value.bytes.empty())
+                            labeledText += " (using extracted text; source bytes are not sent)";
+                        labeledText += ":\n";
+                        labeledText += value.extractedText;
+                        return append(labeledText);
+                    } else if constexpr (std::is_same_v<Value, AudioContentPart>) {
+                        if (value.transcript.empty()) {
+                            return std::unexpected(core::error(
+                                "ai_model_capability_unsupported",
+                                "Embedded llama.cpp cannot read audio bytes, and this audio has "
+                                "no transcript."));
+                        }
+                        const std::string label = value.bytes.empty()
+                                                      ? "Audio transcript:\n"
+                                                      : "Audio transcript (source audio bytes are "
+                                                        "not sent):\n";
+                        return append(label + value.transcript);
+                    } else if constexpr (std::is_same_v<Value, VideoContentPart>) {
+                        if (value.transcript.empty()) {
+                            return std::unexpected(core::error(
+                                "ai_model_capability_unsupported",
+                                "Embedded llama.cpp cannot read video bytes or frames, and this "
+                                "video has no transcript."));
+                        }
+                        const std::string label = value.bytes.empty() && value.frames.empty()
+                                                      ? "Video transcript:\n"
+                                                      : "Video transcript (video bytes and frames "
+                                                        "are not sent):\n";
+                        return append(label + value.transcript);
+                    } else {
+                        return std::unexpected(core::error(
+                            "ai_model_capability_unsupported",
+                            "Embedded llama.cpp text generation cannot read image bytes. Choose "
+                            "a model with verified image input or remove the image from this "
+                            "generation package."));
+                    }
+                },
+                part);
+            if (!status)
+                return std::unexpected(status.error());
+        }
+        return text;
     }
 
 #if defined(TUTORUX_WITH_LLAMA)
@@ -178,9 +298,8 @@ namespace {
     core::Result<EmbeddedLlamaModelInfo> inspectGgufWithLlama(const std::filesystem::path& path) {
         std::error_code filesystemError;
         if (!std::filesystem::is_regular_file(path, filesystemError) || filesystemError) {
-            return std::unexpected(
-                core::error("llama_model_file_invalid",
-                            "The GGUF model path is not a readable regular file."));
+            return std::unexpected(core::error(
+                "llama_model_file_invalid", "The GGUF model path is not a readable regular file."));
         }
 
         const std::uint64_t fileSize = std::filesystem::file_size(path, filesystemError);
@@ -248,9 +367,8 @@ namespace {
                                                           std::string_view prompt) {
         if (prompt.size() > maximumPromptBytes ||
             prompt.size() > static_cast<std::size_t>(std::numeric_limits<std::int32_t>::max())) {
-            return std::unexpected(
-                core::error("llama_prompt_too_large",
-                            "The combined system and user prompt exceeds 4 MiB."));
+            return std::unexpected(core::error(
+                "llama_prompt_too_large", "The combined system and user prompt exceeds 4 MiB."));
         }
 
         const auto promptLength = static_cast<std::int32_t>(prompt.size());
@@ -262,13 +380,8 @@ namespace {
         }
 
         std::vector<llama_token> tokens(static_cast<std::size_t>(-tokenCount));
-        const std::int32_t written = llama_tokenize(vocabulary,
-                                                    prompt.data(),
-                                                    promptLength,
-                                                    tokens.data(),
-                                                    tokenCount * -1,
-                                                    true,
-                                                    false);
+        const std::int32_t written = llama_tokenize(vocabulary, prompt.data(), promptLength,
+                                                    tokens.data(), tokenCount * -1, true, false);
         if (written < 0 || written != -tokenCount) {
             return std::unexpected(
                 core::error("llama_prompt_tokenization_failed",
@@ -279,24 +392,16 @@ namespace {
 
     core::Result<std::string> tokenPiece(const llama_vocab* vocabulary, llama_token token) {
         std::vector<char> buffer(256U);
-        std::int32_t pieceSize = llama_token_to_piece(vocabulary,
-                                                      token,
-                                                      buffer.data(),
-                                                      static_cast<std::int32_t>(buffer.size()),
-                                                      0,
-                                                      false);
+        std::int32_t pieceSize = llama_token_to_piece(
+            vocabulary, token, buffer.data(), static_cast<std::int32_t>(buffer.size()), 0, false);
         if (pieceSize < 0) {
             if (pieceSize == std::numeric_limits<std::int32_t>::min() || -pieceSize > 1024 * 1024) {
                 return std::unexpected(core::error("llama_token_piece_too_large",
                                                    "The model emitted an oversized token piece."));
             }
             buffer.resize(static_cast<std::size_t>(-pieceSize));
-            pieceSize = llama_token_to_piece(vocabulary,
-                                             token,
-                                             buffer.data(),
-                                             static_cast<std::int32_t>(buffer.size()),
-                                             0,
-                                             false);
+            pieceSize = llama_token_to_piece(vocabulary, token, buffer.data(),
+                                             static_cast<std::int32_t>(buffer.size()), 0, false);
         }
         if (pieceSize < 0 || static_cast<std::size_t>(pieceSize) > buffer.size()) {
             return std::unexpected(core::error("llama_token_decode_failed",
@@ -440,9 +545,9 @@ core::Status EmbeddedLlama::load(const std::filesystem::path& modelPath,
         return {};
     } catch (const std::exception& exception) {
         impl_->unloadLocked();
-        return std::unexpected(core::error("llama_model_load_failed",
-                                           "Unable to initialize the embedded model: " +
-                                               std::string(exception.what())));
+        return std::unexpected(
+            core::error("llama_model_load_failed", "Unable to initialize the embedded model: " +
+                                                       std::string(exception.what())));
     } catch (...) {
         impl_->unloadLocked();
         return std::unexpected(
@@ -477,16 +582,14 @@ bool EmbeddedLlama::isLoaded() const {
 
 core::Result<EmbeddedLlamaModelInfo> EmbeddedLlama::modelInfo() const {
     if (!impl_) {
-        return std::unexpected(
-            core::error("llama_model_not_loaded",
-                        "Load a GGUF model before requesting model information."));
+        return std::unexpected(core::error(
+            "llama_model_not_loaded", "Load a GGUF model before requesting model information."));
     }
     const std::lock_guard lock(impl_->mutex);
 #if defined(TUTORUX_WITH_LLAMA)
     if (!impl_->model) {
-        return std::unexpected(
-            core::error("llama_model_not_loaded",
-                        "Load a GGUF model before requesting model information."));
+        return std::unexpected(core::error(
+            "llama_model_not_loaded", "Load a GGUF model before requesting model information."));
     }
     return impl_->info;
 #else
@@ -498,6 +601,7 @@ core::Result<EmbeddedLlamaModelInfo> EmbeddedLlama::modelInfo() const {
 
 core::Result<EmbeddedLlamaGenerationResponse>
 EmbeddedLlama::generate(EmbeddedLlamaGenerationRequest request) {
+    EmbeddedRequestWiper requestWiper(request);
 #if defined(TUTORUX_WITH_LLAMA)
     if (!impl_) {
         return std::unexpected(
@@ -546,22 +650,27 @@ EmbeddedLlama::generate(EmbeddedLlamaGenerationRequest request) {
             }
         } contextGuard{context};
 
+        auto canonicalUserContent = canonicalTextContent(request.content, request.userContent);
+        if (!canonicalUserContent)
+            return std::unexpected(canonicalUserContent.error());
+        SensitiveStringWiper canonicalContentWiper(*canonicalUserContent);
+
         std::string prompt;
-        prompt.reserve(request.systemPrompt.size() + request.userContent.size() + 32U);
+        SensitiveStringWiper promptWiper(prompt);
+        prompt.reserve(request.systemPrompt.size() + canonicalUserContent->size() + 32U);
         if (!request.systemPrompt.empty()) {
             prompt.append("System:\n");
             prompt.append(request.systemPrompt);
             prompt.append("\n\n");
         }
         prompt.append("User:\n");
-        prompt.append(request.userContent);
+        prompt.append(*canonicalUserContent);
         prompt.append("\n\nAssistant:\n");
 
         const llama_vocab* vocabulary = llama_model_get_vocab(impl_->model);
         if (!vocabulary) {
-            return std::unexpected(
-                core::error("llama_model_invalid",
-                            "The loaded GGUF model does not expose a tokenizer."));
+            return std::unexpected(core::error(
+                "llama_model_invalid", "The loaded GGUF model does not expose a tokenizer."));
         }
 
         auto promptTokens = tokenizePrompt(vocabulary, prompt);
@@ -583,9 +692,8 @@ EmbeddedLlama::generate(EmbeddedLlamaGenerationRequest request) {
                 "No context tokens remain for model output after encoding the prompt."));
         }
 
-        llama_batch promptBatch =
-            llama_batch_get_one(promptTokens->data(),
-                                static_cast<std::int32_t>(promptTokens->size()));
+        llama_batch promptBatch = llama_batch_get_one(
+            promptTokens->data(), static_cast<std::int32_t>(promptTokens->size()));
         if (llama_decode(context, promptBatch) != 0) {
             return std::unexpected(core::error("llama_prompt_evaluation_failed",
                                                "llama.cpp could not evaluate the prompt."));
@@ -613,9 +721,8 @@ EmbeddedLlama::generate(EmbeddedLlamaGenerationRequest request) {
 
         for (std::uint32_t index = 0; index < outputLimit; ++index) {
             if (cancellationRequested(request.cancelled, cancellationCallbackFailed)) {
-                return std::unexpected(
-                    core::error("ai_request_cancelled",
-                                "The embedded inference request was cancelled."));
+                return std::unexpected(core::error(
+                    "ai_request_cancelled", "The embedded inference request was cancelled."));
             }
             if (cancellationCallbackFailed) {
                 return std::unexpected(
@@ -632,9 +739,8 @@ EmbeddedLlama::generate(EmbeddedLlamaGenerationRequest request) {
             if (!piece)
                 return std::unexpected(piece.error());
             if (piece->size() > maximumGeneratedBytes - response.content.size()) {
-                return std::unexpected(
-                    core::error("llama_output_too_large",
-                                "Generated text exceeded the 8 MiB output limit."));
+                return std::unexpected(core::error(
+                    "llama_output_too_large", "Generated text exceeded the 8 MiB output limit."));
             }
 
             if (!piece->empty()) {
