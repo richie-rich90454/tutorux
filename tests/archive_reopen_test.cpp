@@ -364,9 +364,63 @@ int main() {
     auto corruptHeaderReport = archive::Archive::inspectRecovery(corruptHeaderPath);
     if (!corruptHeaderReport || corruptHeaderReport->archiveHeaderValid || corruptHeaderReport->recoveryAssessmentComplete ||
         corruptHeaderReport->recoverable || corruptHeaderReport->issues.empty() ||
-        corruptHeaderReport->issues.front().find("Recovery candidates were not scanned") == std::string::npos ||
+        corruptHeaderReport->issues.back().find("Recovery diagnostics did not change archive bytes") == std::string::npos ||
         readFileContents(corruptHeaderPath) != corruptHeaderBytes) {
         std::cerr << "Corrupt-header recovery inspection did not return a non-destructive diagnostic.\n";
+        return 1;
+    }
+
+    const auto checksumHeaderPath = temporary.path / "checksum-header.tux";
+    {
+        auto created = archive::Archive::create(checksumHeaderPath, "Checksum header repair test");
+        if (!created) {
+            std::cerr << "Checksum-header fixture creation failed: " << created.error().message << '\n';
+            return 1;
+        }
+    }
+    {
+        std::fstream file(checksumHeaderPath, std::ios::binary | std::ios::in | std::ios::out);
+        if (!file) {
+            std::cerr << "Unable to open the checksum-header fixture.\n";
+            return 1;
+        }
+        file.seekg(60);
+        char checksumByte{};
+        file.get(checksumByte);
+        if (!file) {
+            std::cerr << "Unable to read the checksum-header fixture.\n";
+            return 1;
+        }
+        file.seekp(60);
+        file.put(static_cast<char>(checksumByte ^ 0x80));
+        file.flush();
+        if (!file) {
+            std::cerr << "Unable to corrupt the checksum-header fixture.\n";
+            return 1;
+        }
+    }
+    const std::string checksumHeaderBytes = readFileContents(checksumHeaderPath);
+    auto checksumHeaderReport = archive::Archive::inspectRecovery(checksumHeaderPath);
+    if (!checksumHeaderReport || checksumHeaderReport->archiveHeaderValid || !checksumHeaderReport->recoveryAssessmentComplete ||
+        !checksumHeaderReport->headerRepairCandidate || !checksumHeaderReport->headerRepairAvailable ||
+        checksumHeaderReport->headerRepairGeneration == 0 || checksumHeaderReport->issues.empty() ||
+        readFileContents(checksumHeaderPath) != checksumHeaderBytes) {
+        std::cerr << "Checksum-only header damage was not fully verified without changing the source.\n";
+        return 1;
+    }
+    const auto repairedHeaderPath = temporary.path / "checksum-header-repaired.tux";
+    if (auto status = archive::Archive::repairCopy(checksumHeaderPath, repairedHeaderPath); !status) {
+        std::cerr << "Checksum-only header repair copy failed: " << status.error().message << '\n';
+        return 1;
+    }
+    auto repairedHeader = archive::Archive::open(repairedHeaderPath);
+    if (!repairedHeader) {
+        std::cerr << "Checksum-only repair copy could not be opened.\n";
+        return 1;
+    }
+    auto repairedHeaderVerification = repairedHeader->verify(true);
+    if (!repairedHeaderVerification || !repairedHeaderVerification->valid || readFileContents(checksumHeaderPath) != checksumHeaderBytes) {
+        std::cerr << "Checksum-only repair did not produce a verified copy while preserving the source.\n";
         return 1;
     }
 
