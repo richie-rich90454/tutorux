@@ -405,7 +405,8 @@ namespace {
     std::string canonicalSettingKey(std::string_view key) {
         std::string normalized;
         normalized.reserve(key.size());
-        for (const unsigned char character : key) {
+        for (const char rawCharacter : key) {
+            const auto character = static_cast<unsigned char>(rawCharacter);
             if (character >= 'A' && character <= 'Z')
                 normalized.push_back(static_cast<char>(character - 'A' + 'a'));
             else if ((character >= 'a' && character <= 'z') || (character >= '0' && character <= '9'))
