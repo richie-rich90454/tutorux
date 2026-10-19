@@ -6,49 +6,61 @@
 // control borders invisible. Everything here is scheme-independent.
 
 export global Theme {
+    // "light" | "dark". MainWindow writes this from its theme-mode property.
+    in-out property <string> mode: "light";
+
     // Surfaces
-    out property <color> canvas: #f2f4f8;
-    out property <color> surface: #ffffff;
-    out property <color> surface-inset: #f7f9fc;
-    out property <color> surface-hover: #f6f8fb;
+    out property <color> canvas: Theme.mode == "dark" ? #0f1115 : #f2f4f8;
+    out property <color> surface: Theme.mode == "dark" ? #16181d : #ffffff;
+    out property <color> surface-inset: Theme.mode == "dark" ? #111318 : #f7f9fc;
+    out property <color> surface-hover: Theme.mode == "dark" ? #1d2026 : #f6f8fb;
 
     // Text
-    out property <color> ink: #101828;
-    out property <color> muted: #5f6b7c;
-    out property <color> faint: #98a2b3;
+    out property <color> ink: Theme.mode == "dark" ? #eef1f6 : #101828;
+    out property <color> muted: Theme.mode == "dark" ? #a7b0bd : #5f6b7c;
+    out property <color> faint: Theme.mode == "dark" ? #8b94a3 : #98a2b3;
 
     // Hairlines
-    out property <color> line: #e3e7ee;
-    out property <color> line-strong: #cfd6e0;
+    out property <color> line: Theme.mode == "dark" ? #262a32 : #e3e7ee;
+    out property <color> line-strong: Theme.mode == "dark" ? #363b45 : #cfd6e0;
 
     // Accent (strict palette: white / black / blue / red)
     out property <color> accent: #1e40ff;
-    out property <color> accent-hover: #1b39e6;
-    out property <color> accent-press: #1732cc;
-    out property <color> accent-soft: #edf1ff;
+    out property <color> accent-hover: Theme.mode == "dark" ? #2b4bff : #1b39e6;
+    out property <color> accent-press: Theme.mode == "dark" ? #1c38e0 : #1732cc;
+    out property <color> accent-soft: Theme.mode == "dark" ? #1c2440 : #edf1ff;
     out property <color> accent-bright: #8f9dff;
+    // Accent used as text on surfaces; lightened on dark to keep AA contrast.
+    out property <color> accent-text: Theme.mode == "dark" ? #6b7cff : #1e40ff;
+    // Focus halo; opaque enough to stay visible against dark surfaces.
+    out property <color> focus-ring: Theme.mode == "dark" ? #6b7cffcc : Theme.accent.with-alpha(0.4);
 
     // Semantic (red family for errors; positives use the blue accent)
-    out property <color> danger: #d92d20;
-    out property <color> danger-soft: #fef3f2;
-    out property <color> danger-soft-hover: #fee4e2;
-    out property <color> danger-line: #fda29b;
+    out property <color> danger: Theme.mode == "dark" ? #f97066 : #d92d20;
+    out property <color> danger-soft: Theme.mode == "dark" ? #2c1614 : #fef3f2;
+    out property <color> danger-soft-hover: Theme.mode == "dark" ? #3b1c18 : #fee4e2;
+    out property <color> danger-line: Theme.mode == "dark" ? #7a2f28 : #fda29b;
     out property <color> success: #1e40ff;
-    out property <color> warning: #b42318;
+    out property <color> warning: Theme.mode == "dark" ? #f97066 : #b42318;
 
-    // Sidebar (black family)
-    out property <color> sidebar: #0e1013;
+    // Sidebar (black family; nearly identical in both modes)
+    out property <color> sidebar: Theme.mode == "dark" ? #0a0c0f : #0e1013;
     out property <color> sidebar-hover: #171a20;
-    out property <color> sidebar-active: #1e232c;
+    out property <color> sidebar-active: Theme.mode == "dark" ? #1a1f27 : #1e232c;
     out property <color> sidebar-line: #23272f;
     out property <color> sidebar-card: #14171c;
     out property <color> sidebar-ink: #f2f4f8;
     out property <color> sidebar-muted: #9aa1ad;
     out property <color> sidebar-faint: #6b7280;
 
+    // Command console: intentionally dark in both modes.
+    out property <color> console-bg: Theme.mode == "dark" ? #0b0e14 : #0e1626;
+    out property <color> console-line: Theme.mode == "dark" ? #242c3a : #1e2b47;
+    out property <color> console-ink: Theme.mode == "dark" ? #cfd9ec : #c7d4ea;
+
     // Scrollbars
-    out property <color> scrollbar: #c6ccd6;
-    out property <color> scrollbar-hover: #98a2b3;
+    out property <color> scrollbar: Theme.mode == "dark" ? #3a3f4a : #c6ccd6;
+    out property <color> scrollbar-hover: Theme.mode == "dark" ? #565c68 : #98a2b3;
 
     // Geometry (5 px radius standard)
     out property <length> radius-card: 5px;
@@ -64,7 +76,7 @@ export component FocusRing inherits Rectangle {
     width: 100%;
     height: 100%;
     border-width: 2px;
-    border-color: Theme.accent.with-alpha(0.4);
+    border-color: Theme.focus-ring;
     border-radius: root.radius;
     accessible-role: none;
 }
@@ -163,7 +175,6 @@ export component Button inherits Rectangle {
             padding-top: 6px;
             padding-bottom: 6px;
             spacing: 6px;
-            alignment: center;
 
             i-label := Text {
                 horizontal-alignment: center;
@@ -327,7 +338,6 @@ export component CheckBox inherits Rectangle {
 
     layout := HorizontalLayout {
         spacing: 9px;
-        alignment: center;
 
         background := Rectangle {
             width: 18px;
@@ -782,7 +792,7 @@ export component ComboBox inherits Rectangle {
                                 vertical-alignment: center;
                                 horizontal-alignment: left;
                                 text: value;
-                                color: value == root.current-value ? Theme.accent : Theme.ink;
+                                color: value == root.current-value ? Theme.accent-text : Theme.ink;
                                 font-weight: value == root.current-value ? 550 : 400;
                                 overflow: elide;
                                 accessible-role: none;
@@ -844,11 +854,11 @@ export component NavItem inherits Rectangle {
         padding-left: 9px;
         padding-right: 10px;
         spacing: 10px;
-        alignment: center;
 
         i-indicator := Rectangle {
             width: 3px;
             height: 18px;
+            y: (parent.height - self.height) / 2;
             border-radius: Theme.radius-pill;
             background: transparent;
         }
@@ -856,6 +866,7 @@ export component NavItem inherits Rectangle {
         i-icon := Image {
             width: 18px;
             height: 18px;
+            y: (parent.height - self.height) / 2;
             source: root.icon;
             colorize: Theme.sidebar-muted;
             accessible-role: none;
