@@ -579,10 +579,10 @@ namespace {
         plan.summary.generationLogs = kept(plan, RecordType::AiJob).size();
         plan.summary.credentials = 0;
         if (options.includeCredentials)
-            plan.summary.credentials = std::count_if(
+            plan.summary.credentials = static_cast<std::uint64_t>(std::count_if(
                 plan.metadata[RecordType::Settings].begin(), plan.metadata[RecordType::Settings].end(), [&](const Record& record) {
                     return kept(plan, RecordType::Settings).contains(record.id) && isCredential(record);
-                });
+                }));
         return plan;
     }
 
