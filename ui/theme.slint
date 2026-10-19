@@ -21,39 +21,39 @@ export global Theme {
     out property <color> line: #e3e7ee;
     out property <color> line-strong: #cfd6e0;
 
-    // Accent
-    out property <color> accent: #4f5bf0;
-    out property <color> accent-hover: #414ce0;
-    out property <color> accent-press: #3742cc;
-    out property <color> accent-soft: #eef0ff;
-    out property <color> accent-bright: #8590ff;
+    // Accent (strict palette: white / black / blue / red)
+    out property <color> accent: #1e40ff;
+    out property <color> accent-hover: #1b39e6;
+    out property <color> accent-press: #1732cc;
+    out property <color> accent-soft: #edf1ff;
+    out property <color> accent-bright: #8f9dff;
 
-    // Semantic
+    // Semantic (red family for errors; positives use the blue accent)
     out property <color> danger: #d92d20;
     out property <color> danger-soft: #fef3f2;
     out property <color> danger-soft-hover: #fee4e2;
     out property <color> danger-line: #fda29b;
-    out property <color> success: #067647;
-    out property <color> warning: #b54708;
+    out property <color> success: #1e40ff;
+    out property <color> warning: #b42318;
 
-    // Sidebar
-    out property <color> sidebar: #0c1120;
-    out property <color> sidebar-hover: #161e31;
-    out property <color> sidebar-active: #1d2846;
-    out property <color> sidebar-line: #222c46;
-    out property <color> sidebar-card: #121a30;
-    out property <color> sidebar-ink: #eef2fb;
-    out property <color> sidebar-muted: #9aa6c0;
-    out property <color> sidebar-faint: #66738f;
+    // Sidebar (black family)
+    out property <color> sidebar: #0e1013;
+    out property <color> sidebar-hover: #171a20;
+    out property <color> sidebar-active: #1e232c;
+    out property <color> sidebar-line: #23272f;
+    out property <color> sidebar-card: #14171c;
+    out property <color> sidebar-ink: #f2f4f8;
+    out property <color> sidebar-muted: #9aa1ad;
+    out property <color> sidebar-faint: #6b7280;
 
     // Scrollbars
-    out property <color> scrollbar: #c3cad8;
-    out property <color> scrollbar-hover: #94a0b5;
+    out property <color> scrollbar: #c6ccd6;
+    out property <color> scrollbar-hover: #98a2b3;
 
-    // Geometry
-    out property <length> radius-card: 12px;
-    out property <length> radius-input: 9px;
-    out property <length> radius-pill: 999px;
+    // Geometry (5 px radius standard)
+    out property <length> radius-card: 5px;
+    out property <length> radius-input: 5px;
+    out property <length> radius-pill: 5px;
     out property <length> control-height: 36px;
 }
 
@@ -361,6 +361,8 @@ export component CheckBox inherits Rectangle {
             font-weight: root.font-weight;
             vertical-alignment: center;
             horizontal-alignment: left;
+            wrap: word-wrap;
+            horizontal-stretch: 1;
             accessible-role: none;
         }
     }
@@ -424,7 +426,7 @@ component ScrollBar inherits Rectangle {
             (root.width - self.width) / 2;
         y: root.horizontal ? (root.height - self.height) / 2 :
             (root.inset + (root.track-size - self.height) * (-root.value / root.maximum));
-        border-radius: (root.horizontal ? self.height : self.width) / 2;
+        border-radius: 5px;
         background: i-touch-area.has-hover || i-touch-area.pressed ?
             Theme.scrollbar-hover : Theme.scrollbar;
         accessible-role: none;
@@ -769,7 +771,7 @@ export component ComboBox inherits Rectangle {
 
                         for value[index] in root.model : Rectangle {
                             height: root.item-height;
-                            border-radius: 8px;
+                            border-radius: 5px;
                             background: value == root.current-value ? Theme.accent-soft :
                                         option-touch.has-hover ? Theme.surface-hover : transparent;
 
@@ -809,7 +811,7 @@ export component NavItem inherits Rectangle {
     callback clicked;
 
     height: 38px;
-    border-radius: 9px;
+    border-radius: 5px;
     background: transparent;
     forward-focus: i-focus-scope;
 
