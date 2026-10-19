@@ -6695,7 +6695,7 @@ namespace {
                 images.push_back(std::move(*image));
             }
         }
-        return std::move(images);
+        return images;
     }
 
     Result<std::string> renderGuideHtml(const GuideDocument& guide, Archive& archive) {
