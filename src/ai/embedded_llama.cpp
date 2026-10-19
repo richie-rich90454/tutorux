@@ -36,10 +36,12 @@ namespace {
     constexpr std::uint32_t minimumContextTokens = 32;
     constexpr std::uint32_t maximumContextTokens = 1'048'576;
 
+#if defined(TUTORUX_WITH_LLAMA)
     std::string pathUtf8(const std::filesystem::path& path) {
         const std::u8string encoded = path.u8string();
         return {reinterpret_cast<const char*>(encoded.data()), encoded.size()};
     }
+#endif
 
     std::uint32_t resolvedCpuThreads(const EmbeddedLlamaConfig& config) {
         const unsigned int detected = std::thread::hardware_concurrency();
@@ -81,6 +83,7 @@ namespace {
         return true;
     }
 
+#if defined(TUTORUX_WITH_LLAMA)
     bool cancellationRequested(const std::function<bool()>& callback, bool& failed) {
         if (!callback)
             return false;
@@ -91,6 +94,7 @@ namespace {
             return false;
         }
     }
+#endif
 
     class SensitiveStringWiper final {
       public:
@@ -123,6 +127,7 @@ namespace {
         EmbeddedLlamaGenerationRequest& request_;
     };
 
+#if defined(TUTORUX_WITH_LLAMA)
     core::Result<std::string> canonicalTextContent(std::span<const ContentPart> content,
                                                    std::string_view fallback) {
         constexpr std::size_t maximumContentBytes = 4U * 1024U * 1024U;
@@ -208,6 +213,7 @@ namespace {
         }
         return text;
     }
+#endif
 
 #if defined(TUTORUX_WITH_LLAMA)
 
