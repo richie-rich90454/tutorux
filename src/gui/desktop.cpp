@@ -1247,6 +1247,23 @@ namespace {
         return parsed;
     }
 
+    std::string readThemeMode(Archive& archive) {
+        auto settings = archive.list(tutorux::archive::RecordType::Settings);
+        if (!settings)
+            return {};
+        const auto record =
+            std::find_if(settings->begin(), settings->end(), [](const auto& setting) {
+                const auto key = setting.fields.find("key");
+                return key != setting.fields.end() && key->second == "ui.theme";
+            });
+        if (record == settings->end())
+            return {};
+        const auto saved = record->fields.find("value");
+        if (saved == record->fields.end() || (saved->second != "light" && saved->second != "dark"))
+            return {};
+        return saved->second;
+    }
+
     std::optional<GuideBlockSelection> guideBlockIndexes(const slint::SharedString& selection) {
         const std::string value(selection.data(), selection.size());
         constexpr std::string_view labelSeparator = " · ";
@@ -1603,6 +1620,7 @@ namespace {
         slint::SharedString selectedGuideBlock;
         std::array<std::string, 7> shortcuts{"1", "2", "3", "4", "5", "6", "m"};
         std::string archiveStatus;
+        std::string themeMode;
     };
 
     WorkspaceSnapshot
@@ -1727,6 +1745,7 @@ namespace {
                 }
             }
             snapshot.shortcuts = markerShortcuts(*opened);
+            snapshot.themeMode = readThemeMode(*opened);
         }
 
         snapshot.journalStudents.emplace_back("Create a new student");
@@ -1856,6 +1875,8 @@ namespace {
         window.set_shortcut_example(toSharedString(snapshot.shortcuts[4]));
         window.set_shortcut_follow_up(toSharedString(snapshot.shortcuts[5]));
         window.set_shortcut_note(toSharedString(snapshot.shortcuts[6]));
+        if (!snapshot.themeMode.empty())
+            window.set_theme_mode(toSharedString(snapshot.themeMode));
         window.set_archive_status(toSharedString(std::move(snapshot.archiveStatus)));
     }
 
@@ -5039,6 +5060,21 @@ int launchDesktop(std::optional<std::filesystem::path> archivePath,
                     completedWindow.set_command_output(toSharedString(std::move(output)));
                 });
         });
+
+    window->on_set_theme_mode([&](slint::SharedString mode) {
+        const std::filesystem::path path(window->get_archive_path().data());
+        const std::string requested(mode.data(), mode.size());
+        if (path.empty() || (requested != "light" && requested != "dark"))
+            return;
+        dispatchCommandAsync(
+            weakWindow, backgroundTasks,
+            archiveCommand(path, {"settings", "set", "--key", "ui.theme", "--value", requested}),
+            activePassphrase,
+            [](MainWindow& completedWindow, bool saved, std::string output) {
+                if (!saved)
+                    completedWindow.set_status_message(toSharedString(output));
+            });
+    });
 
     const auto activeGuideEditor = std::make_shared<std::optional<ActiveGuideEditor>>();
     window->on_load_guide_block([&, activeGuideEditor](slint::SharedString selectedGuide,
