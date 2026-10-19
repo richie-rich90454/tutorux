@@ -478,7 +478,14 @@ namespace {
             return std::unexpected(core::error("audio_format_unsupported", "WASAPI process-loopback channel or rate is unsupported."));
         }
 
-        const HRESULT result = client->Initialize(
+        IAudioClient* audioClient = client.get();
+        // SDK-less activation stubs never hand over a client; keep the null check visible.
+        if (!audioClient) {
+            return std::unexpected(
+                core::error("audio_stream_unavailable",
+                            "WASAPI process-loopback activation did not provide an audio client."));
+        }
+        const HRESULT result = audioClient->Initialize(
             AUDCLNT_SHAREMODE_SHARED, AUDCLNT_STREAMFLAGS_LOOPBACK | AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM, 10'000'000, 0, format, nullptr);
         if (FAILED(result)) {
             return std::unexpected(captureError("audio_stream_initialize_failed", result, "Probing the process-loopback audio stream"));
