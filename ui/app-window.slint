@@ -22,7 +22,7 @@ component GuideDocumentEditor inherits Rectangle {
 
     border-width: 1px;
     border-color: Theme.line;
-    border-radius: 12px;
+    border-radius: 5px;
     background: #ffffff;
 
     ScrollArea {
@@ -120,7 +120,7 @@ component CommandPanel inherits Rectangle {
         }
 
         Rectangle {
-            border-radius: 10px;
+            border-radius: 5px;
             background: #0e1626;
             border-width: 1px;
             border-color: #1e2b47;
@@ -145,7 +145,7 @@ export component MainWindow inherits Window {
     min-width: 980px;
     min-height: 620px;
     background: Theme.canvas;
-    default-font-family: "Segoe UI";
+    default-font-family: "Noto Sans";
     default-font-size: 14px;
 
     in-out property <string> archive-list;
@@ -656,7 +656,7 @@ export component MainWindow inherits Window {
                         letter-spacing: 1.4px;
                     }
                     Rectangle {
-                        border-radius: 12px;
+                        border-radius: 5px;
                         background: Theme.sidebar-card;
                         border-width: 1px;
                         border-color: Theme.sidebar-line;
@@ -694,8 +694,8 @@ export component MainWindow inherits Window {
                         Rectangle {
                             width: 7px;
                             height: 7px;
-                            border-radius: 999px;
-                            background: #3ecf8e;
+                            border-radius: 5px;
+                            background: #1e40ff;
                         }
                         Text {
                             text: "Private by default — recordings and notes stay in this archive unless you choose to share them.";
@@ -721,7 +721,7 @@ export component MainWindow inherits Window {
                 VerticalLayout {
                     ScrollArea {
                     vertical-stretch: 1;
-                    content-width: self.visible-width;
+                    content-width: max(self.visible-width, page-content.min-width);
                     content-height: max(self.visible-height, page-content.preferred-height);
                     page-content := VerticalLayout {
                     width: parent.visible-width;
@@ -767,7 +767,7 @@ export component MainWindow inherits Window {
                         if root.journal-entry-create-open: Rectangle {
                             border-width: 1px;
                             border-color: Theme.line;
-                            border-radius: 12px;
+                            border-radius: 5px;
                             background: #ffffff;
                             VerticalLayout {
                                 padding: 12px;
@@ -814,7 +814,7 @@ export component MainWindow inherits Window {
                         Rectangle {
                             border-width: 1px;
                             border-color: Theme.line;
-                            border-radius: 12px;
+                            border-radius: 5px;
                             background: #ffffff;
                             accessible-role: AccessibleRole.region;
                             accessible-label: "Journal search and filters";
@@ -898,7 +898,7 @@ export component MainWindow inherits Window {
                                 width: 310px;
                                 border-width: 1px;
                                 border-color: Theme.line;
-                                border-radius: 12px;
+                                border-radius: 5px;
                                 background: #ffffff;
                                 accessible-role: AccessibleRole.region;
                                 accessible-label: "Journal entries";
@@ -947,7 +947,7 @@ export component MainWindow inherits Window {
                                 Rectangle {
                                     border-width: 1px;
                                     border-color: Theme.line;
-                                    border-radius: 12px;
+                                    border-radius: 5px;
                                     background: #ffffff;
                                     accessible-role: AccessibleRole.region;
                                     accessible-label: "Journal entry workspace";
@@ -1044,7 +1044,7 @@ export component MainWindow inherits Window {
                                 Rectangle {
                                     border-width: 1px;
                                     border-color: Theme.line;
-                                    border-radius: 12px;
+                                    border-radius: 5px;
                                     background: #ffffff;
                                     accessible-role: AccessibleRole.region;
                                     accessible-label: "Journal session timeline and controls";
@@ -1172,7 +1172,7 @@ export component MainWindow inherits Window {
                                                 for session in root.journal-session-options: Rectangle {
                                                     border-width: 1px;
                                                     border-color: Theme.line;
-                                                    border-radius: 12px;
+                                                    border-radius: 5px;
                                                     background: root.selected-journal-session == session ?
                                                 Theme.accent-soft : #ffffff;
                                                     VerticalLayout {
@@ -1416,7 +1416,7 @@ export component MainWindow inherits Window {
                                 Rectangle {
                                     border-width: 1px;
                                     border-color: Theme.line;
-                                    border-radius: 12px;
+                                    border-radius: 5px;
                                     background: #ffffff;
                                     VerticalLayout {
                                         padding: 15px;
@@ -1693,7 +1693,7 @@ export component MainWindow inherits Window {
                                 Rectangle {
                                     border-width: 1px;
                                     border-color: Theme.line;
-                                    border-radius: 12px;
+                                    border-radius: 5px;
                                     background: #ffffff;
                                     VerticalLayout {
                                         padding: 15px;
@@ -1808,11 +1808,12 @@ export component MainWindow inherits Window {
                             text: "Open or create the portable .tux file that holds this journal.";
                             color: Theme.ink;
                             font-size: 13px;
+                            wrap: word-wrap;
                         }
                         if root.archive-recovery-needed: Rectangle {
                             border-width: 1px;
                             border-color: Theme.danger-line;
-                            border-radius: 12px;
+                            border-radius: 5px;
                             background: Theme.danger-soft;
                             VerticalLayout {
                                 padding: 16px;
@@ -1866,7 +1867,7 @@ export component MainWindow inherits Window {
                             Rectangle {
                                 border-width: 1px;
                                 border-color: Theme.line;
-                                border-radius: 12px;
+                                border-radius: 5px;
                                 background: #ffffff;
                                 VerticalLayout {
                                     padding: 18px;
@@ -1908,7 +1909,7 @@ export component MainWindow inherits Window {
                             Rectangle {
                                 border-width: 1px;
                                 border-color: Theme.line;
-                                border-radius: 12px;
+                                border-radius: 5px;
                                 background: #ffffff;
                                 VerticalLayout {
                                     padding: 18px;
@@ -1943,7 +1944,7 @@ export component MainWindow inherits Window {
                         Rectangle {
                             border-width: 1px;
                             border-color: Theme.line;
-                            border-radius: 12px;
+                            border-radius: 5px;
                             background: #ffffff;
                             VerticalLayout {
                                 padding: 18px;
@@ -2097,6 +2098,7 @@ export component MainWindow inherits Window {
                                     font-size: 11px;
                                     font-weight: 700;
                                     letter-spacing: 1.4px;
+                                    overflow: elide;
                                 }
                                 Text {
                                     text: root.active-view == "students" ? "Learning histories" :
@@ -2107,8 +2109,10 @@ export component MainWindow inherits Window {
                                           root.active-view == "ai" ? "Prepare, review, and generate" :
                                           root.active-view == "guides" ? "Edit and approve learning guides" : "Portable workspace preferences";
                                     color: Theme.ink;
-                                    font-size: 27px;
+                                    font-size: 30px;
                                     font-weight: 700;
+                                    letter-spacing: -0.5px;
+                                    overflow: elide;
                                 }
                             }
                             Rectangle { }
@@ -2296,7 +2300,7 @@ export component MainWindow inherits Window {
                             }
                         }
                         if root.active-view == "sessions": Rectangle {
-                            border-radius: 12px;
+                            border-radius: 5px;
                             background: #ffffff;
                             VerticalLayout {
                                 padding: 20px;
@@ -2462,7 +2466,7 @@ export component MainWindow inherits Window {
                             }
                         }
                         if root.active-view == "assets": Rectangle {
-                            border-radius: 12px;
+                            border-radius: 5px;
                             background: #ffffff;
                             VerticalLayout {
                                 padding: 20px;
@@ -2532,7 +2536,7 @@ export component MainWindow inherits Window {
                                     height: 340px;
                                     border-width: 1px;
                                     border-color: Theme.line;
-                                    border-radius: 12px;
+                                    border-radius: 5px;
                                     background: #ffffff;
                                     Image {
                                         x: 12px;
@@ -2548,7 +2552,7 @@ export component MainWindow inherits Window {
                                     height: 250px;
                                     border-width: 1px;
                                     border-color: Theme.line;
-                                    border-radius: 12px;
+                                    border-radius: 5px;
                                     background: #ffffff;
                                     ScrollText {
                                         x: 12px;
@@ -2564,7 +2568,7 @@ export component MainWindow inherits Window {
                                     height: 88px;
                                     border-width: 1px;
                                     border-color: Theme.line;
-                                    border-radius: 12px;
+                                    border-radius: 5px;
                                     background: #ffffff;
                                     VerticalLayout {
                                         padding: 12px;
@@ -2574,6 +2578,7 @@ export component MainWindow inherits Window {
                                             color: Theme.accent;
                                             font-size: 24px;
                                             font-family: "Consolas";
+                                            overflow: elide;
                                             accessible-role: AccessibleRole.text;
                                             accessible-label: "Audio waveform preview";
                                         }
@@ -2599,7 +2604,7 @@ export component MainWindow inherits Window {
                             }
                         }
                         if root.active-view == "recording": Rectangle {
-                            border-radius: 12px;
+                            border-radius: 5px;
                             background: #ffffff;
                             VerticalLayout {
                                 padding: 20px;
@@ -2703,14 +2708,14 @@ export component MainWindow inherits Window {
                                         height: 12px;
                                         border-width: 1px;
                                         border-color: Theme.line;
-                                        border-radius: 12px;
+                                        border-radius: 5px;
                                         background: #ffffff;
                                         Rectangle {
                                             x: 0px;
                                             y: 0px;
                                             width: parent.width * root.recording-input-level / 100;
                                             height: parent.height;
-                                            border-radius: 12px;
+                                            border-radius: 5px;
                                             background: Theme.accent;
                                         }
                                     }
@@ -2779,7 +2784,7 @@ export component MainWindow inherits Window {
                             }
                         }
                         if root.active-view == "review": Rectangle {
-                            border-radius: 12px;
+                            border-radius: 5px;
                             background: #ffffff;
                             VerticalLayout {
                                 padding: 20px;
@@ -2857,7 +2862,7 @@ export component MainWindow inherits Window {
                             }
                         }
                         if root.active-view == "ai": Rectangle {
-                            border-radius: 12px;
+                            border-radius: 5px;
                             background: #ffffff;
                             VerticalLayout {
                                 padding: 20px;
@@ -3007,7 +3012,7 @@ export component MainWindow inherits Window {
                             }
                         }
                         if root.active-view == "guides": Rectangle {
-                            border-radius: 12px;
+                            border-radius: 5px;
                             background: #ffffff;
                             VerticalLayout {
                                 padding: 20px;
@@ -3251,7 +3256,7 @@ export component MainWindow inherits Window {
                             }
                         }
                         if root.active-view == "settings": Rectangle {
-                            border-radius: 12px;
+                            border-radius: 5px;
                             background: #ffffff;
                             VerticalLayout {
                                 padding: 20px;
@@ -3333,17 +3338,24 @@ export component MainWindow inherits Window {
                     }
 
                     if root.recording-panel-open: Rectangle {
-                        height: 300px;
+                        height: 320px;
                         border-width: 1px;
                         border-color: Theme.line;
-                        border-radius: 12px;
+                        border-radius: 5px;
                         background: #ffffff;
 
                         drop-shadow-color: #10182814;
                         drop-shadow-blur: 18px;
                         drop-shadow-offset-y: -2px;
 
-                        VerticalLayout {
+                        ScrollArea {
+                            width: 100%;
+                            height: 100%;
+                            content-width: max(self.visible-width, dock-content.min-width);
+                            content-height: max(self.visible-height, dock-content.preferred-height);
+
+                        dock-content := VerticalLayout {
+                            width: parent.visible-width;
                             padding: 16px;
                             spacing: 8px;
                             HorizontalLayout {
@@ -3397,14 +3409,14 @@ export component MainWindow inherits Window {
                                     height: 12px;
                                     border-width: 1px;
                                     border-color: Theme.line;
-                                    border-radius: 12px;
+                                    border-radius: 5px;
                                     background: #ffffff;
                                     Rectangle {
                                         x: 0px;
                                         y: 0px;
                                         width: parent.width * root.recording-input-level / 100;
                                         height: parent.height;
-                                        border-radius: 12px;
+                                        border-radius: 5px;
                                         background: Theme.accent;
                                     }
                                 }
@@ -3543,6 +3555,7 @@ export component MainWindow inherits Window {
                                 wrap: word-wrap;
                             }
                         }
+                        }
                     }
                 }
             }
@@ -3558,7 +3571,7 @@ export component MainWindow inherits Window {
             height: parent.height - 64px;
             border-width: 2px;
             border-color: Theme.accent;
-            border-radius: 12px;
+            border-radius: 5px;
             background: #ffffff;
             opacity: 0.96;
             accessible-role: AccessibleRole.groupbox;
@@ -3582,6 +3595,7 @@ export component MainWindow inherits Window {
                     color: Theme.ink;
                     font-size: 13px;
                     horizontal-alignment: center;
+                    wrap: word-wrap;
                 }
             }
         }
