@@ -1,19 +1,30 @@
 // Transcript tab: segment list, correction editor, and honest provenance.
-import { Button, ComboBox, ScrollArea, Theme } from "../theme.slint";
+import { Button, ComboBox, LineEdit, ScrollArea, ScrollText, Theme } from "../theme.slint";
 
 export component TranscriptPane inherits Rectangle {
     in property <[string]> options: [];
+    in property <[string]> evidence-options: [];
     in property <string> provenance;
+    in property <string> command-output;
+    in property <string> evidence-output;
     in property <bool> writable: true;
     in property <bool> has-session: false;
     in-out property <string> selected-segment;
+    in-out property <string> selected-evidence;
     in-out property <string> edit-text;
+    in-out property <string> reject-reason;
 
     callback load-segments();
     callback load-segment();
+    callback play();
+    callback stop-playback();
     callback save();
     callback open-console();
+    callback evidence(string, string);
 
+    horizontal-stretch: 1;
+    vertical-stretch: 1;
+    clip: true;
     background: Theme.surface;
 
     ScrollArea {
@@ -83,6 +94,21 @@ export component TranscriptPane inherits Rectangle {
                     }
                 }
 
+                HorizontalLayout {
+                    spacing: 8px;
+                    alignment: start;
+                    Button {
+                        text: "Play from timestamp";
+                        enabled: root.selected-segment != "";
+                        clicked => { root.play(); }
+                    }
+                    Button {
+                        text: "Stop audio";
+                        clicked => { root.stop-playback(); }
+                    }
+                    Rectangle { }
+                }
+
                 Text { text: "Corrected text"; color: Theme.faint; font-size: 11px; font-weight: 600; }
                 TextInput {
                     height: 300px;
@@ -126,6 +152,82 @@ export component TranscriptPane inherits Rectangle {
                         clicked => { root.open-console(); }
                     }
                 }
+            }
+
+            Rectangle { height: 1px; background: Theme.line; }
+            Text { text: "Evidence review"; color: Theme.ink; font-size: 14px; font-weight: 700; }
+            Text {
+                text: "Evidence is attached to the selected session. Approvals and rejections are recorded in the archive.";
+                color: Theme.muted;
+                font-size: 11.5px;
+                wrap: word-wrap;
+            }
+            HorizontalLayout {
+                spacing: 8px;
+                alignment: start;
+                Button {
+                    text: "Extract";
+                    enabled: root.has-session;
+                    clicked => { root.evidence("extract", ""); }
+                }
+                Button {
+                    text: "List";
+                    enabled: root.has-session;
+                    clicked => { root.evidence("list", ""); }
+                }
+                Button {
+                    text: "Show";
+                    enabled: root.selected-evidence != "";
+                    clicked => { root.evidence("show", ""); }
+                }
+                Button {
+                    text: "Approve";
+                    enabled: root.selected-evidence != "";
+                    clicked => { root.evidence("approve", ""); }
+                }
+                Button {
+                    text: "Verify";
+                    enabled: root.selected-evidence != "";
+                    clicked => { root.evidence("verify", ""); }
+                }
+                Rectangle { }
+            }
+            if root.evidence-options.length > 0 : ComboBox {
+                model: root.evidence-options;
+                current-value <=> root.selected-evidence;
+            }
+            HorizontalLayout {
+                spacing: 8px;
+                LineEdit {
+                    placeholder-text: "Rejection reason (optional)";
+                    text <=> root.reject-reason;
+                }
+                Button {
+                    text: "Reject";
+                    variant: "danger";
+                    enabled: root.selected-evidence != "";
+                    clicked => { root.evidence("reject", root.reject-reason); }
+                }
+                Rectangle { }
+            }
+            ScrollText {
+                height: 160px;
+                text: root.evidence-output;
+                text-color: Theme.body;
+                font-size: 11.5px;
+            }
+
+            Text { text: "Command output"; color: Theme.faint; font-size: 11px; font-weight: 600; }
+            ScrollText {
+                height: 180px;
+                text: root.command-output;
+                text-color: Theme.body;
+                font-size: 11.5px;
+            }
+
+            Rectangle {
+                vertical-stretch: 1;
+                min-height: 0px;
             }
         }
     }
