@@ -1,5 +1,5 @@
 // Materials scope: archived files for the selected session.
-import { ScrollArea, ScrollText, Theme } from "../theme.slint";
+import { Button, LineEdit, ScrollArea, ScrollText, Theme } from "../theme.slint";
 
 export component MaterialsPage inherits Rectangle {
     in property <string> session-title;
@@ -7,8 +7,18 @@ export component MaterialsPage inherits Rectangle {
     in property <string> preview-description;
     in property <string> preview-body;
     in property <string> preview-waveform;
+    in property <string> command-output;
     in property <image> preview-image;
+    in-out property <string> input-path;
+    in-out property <string> selected-asset;
 
+    callback import-file(string);
+    callback list-materials();
+    callback preview(string);
+
+    horizontal-stretch: 1;
+    vertical-stretch: 1;
+    clip: true;
     background: Theme.surface;
 
     ScrollArea {
@@ -34,6 +44,29 @@ export component MaterialsPage inherits Rectangle {
                 font-size: 12.5px;
                 wrap: word-wrap;
             }
+            HorizontalLayout {
+                spacing: 8px;
+                LineEdit {
+                    placeholder-text: "File path to import into this session";
+                    text <=> root.input-path;
+                }
+                Button {
+                    text: "Import";
+                    enabled: root.session-title != "" && root.input-path != "";
+                    clicked => { root.import-file(root.input-path); }
+                }
+                Button {
+                    text: "List materials";
+                    enabled: root.session-title != "";
+                    clicked => { root.list-materials(); }
+                }
+                Button {
+                    text: "Preview selected";
+                    enabled: root.selected-asset != "";
+                    clicked => { root.preview(root.selected-asset); }
+                }
+            }
+
             Rectangle { height: 1px; background: Theme.line; }
             Text {
                 text: root.preview-description;
@@ -58,6 +91,19 @@ export component MaterialsPage inherits Rectangle {
                 text: root.preview-waveform;
                 text-color: Theme.body;
                 font-size: 11px;
+            }
+
+            Text { text: "Command output"; color: Theme.faint; font-size: 11px; font-weight: 600; }
+            ScrollText {
+                height: 160px;
+                text: root.command-output;
+                text-color: Theme.body;
+                font-size: 11.5px;
+            }
+
+            Rectangle {
+                vertical-stretch: 1;
+                min-height: 0px;
             }
         }
     }
