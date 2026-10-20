@@ -10,10 +10,12 @@ export component ExportPanel inherits Rectangle {
     in-out property <string> guide-path;
     in-out property <string> wav-path;
     in-out property <string> wav-track;
+    in-out property <string> session-path;
 
     callback close();
     callback export-guide(string, string, string);
     callback export-wav(string);
+    callback export-session(string);
 
     width: 100%;
     height: 100%;
@@ -77,6 +79,26 @@ export component ExportPanel inherits Rectangle {
                     text: "Export WAV";
                     enabled: root.has-session && root.wav-path != "";
                     clicked => { root.export-wav(root.wav-path); }
+                }
+                Rectangle { }
+            }
+
+            Rectangle { height: 1px; background: Theme.line; }
+
+            Text { text: "Session package"; color: Theme.ink; font-size: 15px; font-weight: 700; }
+            Text {
+                text: "Exports the session as a portable package that can be imported into another archive.";
+                color: Theme.muted;
+                font-size: 12px;
+                wrap: word-wrap;
+            }
+            LineEdit { placeholder-text: "Package output path (for example Session.tux)"; text <=> root.session-path; }
+            HorizontalLayout {
+                spacing: 8px;
+                Button {
+                    text: "Export session package";
+                    enabled: root.has-session && root.session-path != "";
+                    clicked => { root.export-session(root.session-path); }
                 }
                 Rectangle { }
             }
