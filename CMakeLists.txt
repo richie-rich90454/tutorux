@@ -1691,6 +1691,10 @@ if(BUILD_TESTING AND NOT TUTORUX_BUILD_WASM)
 
     add_executable(tutorux_http_transport_test tests/http_transport_test.cpp)
     target_link_libraries(tutorux_http_transport_test PRIVATE tutorux_core)
+    if(WIN32)
+        # The test hosts throwaway loopback servers with the Winsock API directly.
+        target_link_libraries(tutorux_http_transport_test PRIVATE ws2_32)
+    endif()
     add_test(NAME bounded_https_transport COMMAND tutorux_http_transport_test)
 
     add_executable(tutorux_archive_reopen_test tests/archive_reopen_test.cpp)
