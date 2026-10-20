@@ -1,0 +1,67 @@
+// Command console: every operation remains reachable from the UI.
+import { Button, LineEdit, ScrollText, Theme } from "../theme.slint";
+import { PanelShell } from "./panel-shell.slint";
+
+export component ConsolePanel inherits Rectangle {
+    in property <bool> running: false;
+    in property <string> output;
+    in-out property <string> input;
+
+    callback close();
+    callback run(string);
+    callback cancel();
+
+    width: 100%;
+    height: 100%;
+    background: transparent;
+
+    PanelShell {
+        available-width: root.width;
+        available-height: root.height;
+        heading: "Command console";
+        detail: "Every operation is available through the CLI";
+        close => { root.close(); }
+
+        VerticalLayout {
+            spacing: 12px;
+
+            Text {
+                text: "The command console always uses the selected archive and directory. Arguments are parsed by Tutorux; no shell commands are executed.";
+                color: Theme.muted;
+                font-size: 12px;
+                line-height-factor: 1.45;
+                wrap: word-wrap;
+            }
+            HorizontalLayout {
+                spacing: 8px;
+                LineEdit {
+                    placeholder-text: "For example: session list";
+                    text <=> root.input;
+                    accepted => { root.run(root.input); }
+                }
+                Button {
+                    text: root.running ? "Running…" : "Run";
+                    variant: "primary";
+                    enabled: !root.running && root.input != "";
+                    clicked => { root.run(root.input); }
+                }
+                Button {
+                    text: "Cancel";
+                    enabled: root.running;
+                    clicked => { root.cancel(); }
+                }
+            }
+            ScrollText {
+                height: 360px;
+                text: root.output;
+                text-color: Theme.console-ink;
+                font-size: 11.5px;
+            }
+            Text {
+                text: "Tip: use `--json` for structured output.";
+                color: Theme.faint;
+                font-size: 11px;
+            }
+        }
+    }
+}
