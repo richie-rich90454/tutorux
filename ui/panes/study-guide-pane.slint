@@ -15,7 +15,11 @@ export component StudyGuidePane inherits Rectangle {
     callback save-block();
     callback action(string);
     callback open-ai();
+    callback open-full-editor();
 
+    horizontal-stretch: 1;
+    vertical-stretch: 1;
+    clip: true;
     background: Theme.surface;
 
     ScrollArea {
@@ -51,6 +55,10 @@ export component StudyGuidePane inherits Rectangle {
                 Button {
                     text: "AI actions";
                     clicked => { root.open-ai(); }
+                }
+                Button {
+                    text: "Full editor";
+                    clicked => { root.open-full-editor(); }
                 }
             }
 
@@ -160,6 +168,11 @@ export component StudyGuidePane inherits Rectangle {
                         clicked => { root.open-ai(); }
                     }
                 }
+            }
+
+            Rectangle {
+                vertical-stretch: 1;
+                min-height: 0px;
             }
         }
     }
