@@ -1,0 +1,165 @@
+// Audio capture configuration, capture commands, import/export and cleanup.
+import { Button, CheckBox, ComboBox, LineEdit, ScrollText, Theme } from "../theme.slint";
+import { PanelShell } from "./panel-shell.slint";
+
+export component RecordingPanel inherits Rectangle {
+    in property <bool> has-session: false;
+    in property <bool> writable: true;
+    in property <string> preflight-output;
+    in property <int> input-level: 0;
+    in property <string> status-output;
+    in property <string> command-output;
+
+    in-out property <string> source: "microphone";
+    in-out property <string> microphone;
+    in-out property <string> playback;
+    in-out property <string> application;
+    in-out property <string> import-path;
+    in-out property <string> export-path;
+    in-out property <string> export-track;
+    in-out property <bool> consent: false;
+    in-out property <bool> live-transcription: false;
+    in-out property <string> live-model-path;
+
+    callback close();
+    callback command(string, string);
+    callback check-device();
+
+    width: 100%;
+    height: 100%;
+    background: transparent;
+
+    PanelShell {
+        available-width: root.width;
+        available-height: root.height;
+        heading: "Audio capture";
+        detail: "Microphone, system audio, and archive-backed capture";
+        close => { root.close(); }
+
+        VerticalLayout {
+            spacing: 12px;
+
+            Text {
+                text: "Choose a source, check the microphone input, confirm consent, then start capture. Audio is committed directly to the selected archive.";
+                color: Theme.muted;
+                font-size: 12px;
+                line-height-factor: 1.45;
+                wrap: word-wrap;
+            }
+
+            Text { text: "Source"; color: Theme.faint; font-size: 11px; font-weight: 600; }
+            ComboBox {
+                model: ["microphone", "system-audio", "both", "application", "imported-file"];
+                current-value <=> root.source;
+            }
+
+            HorizontalLayout {
+                spacing: 12px;
+                VerticalLayout {
+                    horizontal-stretch: 1;
+                    spacing: 5px;
+                    Text { text: "Microphone"; color: Theme.faint; font-size: 11px; font-weight: 600; }
+                    LineEdit { placeholder-text: "Default input or device ID"; text <=> root.microphone; }
+                }
+                VerticalLayout {
+                    horizontal-stretch: 1;
+                    spacing: 5px;
+                    Text { text: "System-audio monitor / loopback"; color: Theme.faint; font-size: 11px; font-weight: 600; }
+                    LineEdit { placeholder-text: "Device ID (optional)"; text <=> root.playback; }
+                }
+            }
+            HorizontalLayout {
+                spacing: 8px;
+                LineEdit { placeholder-text: "Application audio ID"; text <=> root.application; }
+                Button { text: "List audio sources"; clicked => { root.command("devices", ""); } }
+                Rectangle { }
+            }
+            Text {
+                text: "Start both uses the application source when an ID is set.";
+                color: Theme.faint;
+                font-size: 11px;
+                wrap: word-wrap;
+            }
+
+            HorizontalLayout {
+                spacing: 10px;
+                Button {
+                    text: "Check microphone";
+                    clicked => { root.check-device(); }
+                }
+                Rectangle {
+                    width: 220px;
+                    height: 8px;
+                    y: (parent.height - self.height) / 2;
+                    border-radius: 4px;
+                    background: Theme.surface-inset;
+                    Rectangle {
+                        width: parent.width * root.input-level / 100;
+                        height: parent.height;
+                        border-radius: 4px;
+                        background: Theme.accent;
+                    }
+                }
+                Rectangle { }
+            }
+            Text { text: root.preflight-output; color: Theme.muted; font-size: 11.5px; wrap: word-wrap; }
+
+            CheckBox {
+                text: "I confirm that everyone being recorded has agreed to this recording.";
+                checked <=> root.consent;
+            }
+
+            HorizontalLayout {
+                spacing: 8px;
+                Button {
+                    text: "Start";
+                    variant: "primary";
+                    enabled: root.writable && root.has-session && root.source != "imported-file" && root.consent;
+                    clicked => { root.command("start", root.source); }
+                }
+                Button { text: "Pause"; enabled: root.has-session; clicked => { root.command("pause", ""); } }
+                Button { text: "Resume"; enabled: root.has-session; clicked => { root.command("resume", ""); } }
+                Button { text: "Stop"; enabled: root.has-session; clicked => { root.command("stop", ""); } }
+                Button { text: "Status"; enabled: root.has-session; clicked => { root.command("status", ""); } }
+            }
+
+            CheckBox { text: "Create provisional transcript while recording"; checked <=> root.live-transcription; }
+            LineEdit { placeholder-text: "Local Whisper model path (GGML/GGUF)"; text <=> root.live-model-path; }
+
+            Rectangle { height: 1px; background: Theme.line; }
+
+            Text { text: "Import or export audio"; color: Theme.ink; font-size: 14px; font-weight: 700; }
+            HorizontalLayout {
+                spacing: 8px;
+                LineEdit { placeholder-text: "WAV file to import"; text <=> root.import-path; }
+                Button {
+                    text: "Import";
+                    enabled: root.writable && root.has-session;
+                    clicked => { root.command("import", root.import-path); }
+                }
+            }
+            HorizontalLayout {
+                spacing: 8px;
+                LineEdit { placeholder-text: "WAV export path"; text <=> root.export-path; }
+                LineEdit { placeholder-text: "Track ID (optional)"; text <=> root.export-track; }
+                Button {
+                    text: "Export WAV";
+                    enabled: root.has-session && root.export-path != "";
+                    clicked => { root.command("export-wav", root.export-path); }
+                }
+            }
+            HorizontalLayout {
+                spacing: 8px;
+                Button {
+                    text: "Build waveform";
+                    enabled: root.has-session;
+                    clicked => { root.command("waveform", ""); }
+                }
+                Button { text: "Cancel waveform"; variant: "ghost"; clicked => { root.command("stop-waveform", ""); } }
+                Rectangle { }
+            }
+            Text { text: root.status-output; color: Theme.muted; font-size: 11.5px; line-height-factor: 1.4; wrap: word-wrap; }
+            ScrollText { height: 150px; text: root.command-output; text-color: Theme.body; }
+        }
+    }
+}
