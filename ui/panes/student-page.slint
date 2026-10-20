@@ -26,6 +26,9 @@ export component StudentPage inherits Rectangle {
     callback load-history();
     callback new-student();
 
+    horizontal-stretch: 1;
+    vertical-stretch: 1;
+    clip: true;
     background: Theme.surface;
 
     ScrollArea {
@@ -131,6 +134,12 @@ export component StudentPage inherits Rectangle {
                     VerticalLayout {
                         horizontal-stretch: 1;
                         spacing: 5px;
+                        Text { text: "Preferred guide template"; color: Theme.faint; font-size: 11px; font-weight: 600; }
+                        LineEdit { text <=> root.template; }
+                    }
+                    VerticalLayout {
+                        horizontal-stretch: 1;
+                        spacing: 5px;
                         Text { text: "Tutor notes"; color: Theme.faint; font-size: 11px; font-weight: 600; }
                         LineEdit { text <=> root.notes; }
                     }
@@ -219,6 +228,11 @@ export component StudentPage inherits Rectangle {
                         }
                     }
                 }
+            }
+
+            Rectangle {
+                vertical-stretch: 1;
+                min-height: 0px;
             }
         }
     }
