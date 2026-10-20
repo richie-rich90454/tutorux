@@ -1,6 +1,6 @@
 // Tutorux editorial workbench. The window binds the controller surface; each
 // visual region lives in a focused component under panes/ or overlays/.
-import { Button, LineEdit, Theme } from "./theme.slint";
+import { Button, CheckBox, ComboBox, LineEdit, ScrollArea, ScrollText, Theme } from "./theme.slint";
 import { MarkerRow, MaterialRow, NoteRow, SessionRow, StudentRow } from "./models.slint";
 import { Navigator } from "./panes/navigator.slint";
 import { CommandBar } from "./panes/command-bar.slint";
@@ -21,6 +21,8 @@ import { ConsolePanel } from "./overlays/console-panel.slint";
 import { ExportPanel } from "./overlays/export-panel.slint";
 import { NewSessionPanel } from "./overlays/new-session-panel.slint";
 import { NewStudentPanel } from "./overlays/new-student-panel.slint";
+import { PanelShell } from "./overlays/panel-shell.slint";
+import { GuideDocumentEditor } from "./components/guide-document-editor.slint";
 export component MainWindow inherits Window {
     title: "Tutorux";
     preferred-width: 1180px;
@@ -265,6 +267,7 @@ export component MainWindow inherits Window {
     in-out property <string> selected-session-started;
     in-out property <string> selected-session-state;
     in-out property <string> selected-session-student-choice;
+    in-out property <string> session-package-path;
     in-out property <string> recording-state: "not-started";
     in-out property <int> recording-elapsed-seconds: 0;
     in-out property <[SessionRow]> session-rows: [];
@@ -399,6 +402,7 @@ export component MainWindow inherits Window {
     callback rename-session(string, string);
     callback update-session-details(string, string, string);
     callback play-marker(string, int);
+    callback export-session-package(string);
 
     function schedule-journal-search() {
         if (journal-search-timer.running) {
@@ -422,6 +426,12 @@ export component MainWindow inherits Window {
         interval: 260ms;
         running: false;
         triggered() => { root.run-journal-search(); }
+    }
+
+    pure function show-status() -> bool {
+        return root.status-message != "" &&
+               root.status-message != "Your tutoring data stays in the selected .tux archive." &&
+               root.status-message != "Command completed.";
     }
 
     pure function matches(text: string, query: string) -> bool {
@@ -595,6 +605,10 @@ export component MainWindow inherits Window {
                                 root.inspector-open = !root.inspector-open;
                             } else if (command == "export") {
                                 root.overlay-panel = "export";
+                            } else if (command == "journal-tools") {
+                                root.overlay-panel = "journal-tools";
+                            } else if (command == "guide-editor") {
+                                root.overlay-panel = "guide-tools";
                             } else if (command == "configure-audio") {
                                 root.overlay-panel = "recording";
                             } else if (command == "guide-tools") {
@@ -714,7 +728,13 @@ export component MainWindow inherits Window {
                                 preview-description: root.asset-preview-description;
                                 preview-body: root.asset-preview-body;
                                 preview-waveform: root.asset-preview-waveform;
+                                command-output: root.command-output;
                                 preview-image: root.asset-preview-image;
+                                input-path <=> root.asset-input-path;
+                                selected-asset <=> root.selected-asset;
+                                import-file(path) => { root.asset-command(root.selected-session, "add", path); }
+                                list-materials => { root.asset-command(root.selected-session, "list", ""); }
+                                preview(asset) => { root.asset-command(root.selected-session, "preview", asset); }
                             }
 
                             if root.navigator-scope == "sessions" : VerticalLayout {
@@ -766,10 +786,13 @@ export component MainWindow inherits Window {
                                     }
 
                                     HorizontalLayout {
+                                        width: 100%;
                                         vertical-stretch: 1;
                                         spacing: 0px;
 
                                         if root.workbench-tab == "notebook" : Notebook {
+                                            horizontal-stretch: 1;
+                                            vertical-stretch: 1;
                                             rows: root.note-rows;
                                             document-id: root.journal-document-id;
                                             selected-block <=> root.selected-journal-note-block;
@@ -780,27 +803,43 @@ export component MainWindow inherits Window {
                                             save-state <=> root.note-save-state;
                                             new-block-text <=> root.journal-document-new-block-text;
                                             action(action, argument) => { root.notebook-action(action, argument); }
+                                            open-journal-tools => { root.overlay-panel = "journal-tools"; }
                                         }
 
                                         if root.workbench-tab == "transcript" : TranscriptPane {
+                                            horizontal-stretch: 1;
+                                            vertical-stretch: 1;
                                             options: root.transcript-options;
+                                            evidence-options: root.evidence-options;
                                             provenance: root.transcript-provenance;
+                                            command-output: root.command-output;
+                                            evidence-output: root.evidence-output;
                                             writable: root.archive-writable;
                                             has-session: root.selected-session != "";
                                             selected-segment <=> root.selected-transcript;
+                                            selected-evidence <=> root.selected-evidence;
                                             edit-text <=> root.transcript-edit-text;
+                                            reject-reason <=> root.evidence-reject-reason;
                                             load-segments => { root.review-transcript(root.selected-session); }
                                             load-segment => {
                                                 root.load-transcript(root.selected-session, root.selected-transcript);
                                             }
+                                            play => { root.recording-command(root.selected-session, "play-transcript", ""); }
+                                            stop-playback => { root.recording-command(root.selected-session, "stop-playback", ""); }
                                             save => {
                                                 root.save-transcript(root.selected-session,
                                                     root.selected-transcript, root.transcript-edit-text);
                                             }
                                             open-console => { root.overlay-panel = "console"; }
+                                            evidence(action, reason) => {
+                                                root.evidence-command(root.selected-session, action,
+                                                    root.selected-evidence, reason);
+                                            }
                                         }
 
                                         if root.workbench-tab == "guide" : StudyGuidePane {
+                                            horizontal-stretch: 1;
+                                            vertical-stretch: 1;
                                             guide-options: root.guide-options;
                                             block-options: root.guide-block-options;
                                             output: root.guide-output;
@@ -818,9 +857,12 @@ export component MainWindow inherits Window {
                                             }
                                             action(action) => { root.guide-command(root.selected-guide, action, "", ""); }
                                             open-ai => { root.overlay-panel = "ai"; }
+                                            open-full-editor => { root.overlay-panel = "guide-tools"; }
                                         }
 
                                         if root.inspector-open : SessionInspector {
+                                            horizontal-stretch: 0;
+                                            vertical-stretch: 1;
                                             student: root.selected-session-student;
                                             subject: root.selected-session-subject;
                                             started: root.selected-session-started;
@@ -853,7 +895,7 @@ export component MainWindow inherits Window {
                                         open-config => { root.overlay-panel = "recording"; }
                                     }
 
-                                    if root.status-message != "" : Rectangle {
+                                    if root.show-status() : Rectangle {
                                         height: 24px;
                                         background: Theme.surface;
 
@@ -893,6 +935,1325 @@ export component MainWindow inherits Window {
                 clicked => { root.overlay-panel = ""; }
             }
 
+
+            if root.overlay-panel == "journal-tools" : PanelShell {
+                available-width: parent.width;
+                available-height: parent.height;
+                heading: "Journal tools";
+                detail: "Entries, sessions, timeline, and structured notes";
+                sheet-width: 1100px;
+                close => { root.overlay-panel = ""; }
+
+                VerticalLayout {
+                    spacing: 16px;                        HorizontalLayout {
+                            spacing: 14px;
+                            VerticalLayout {
+                                spacing: 4px;
+                                Text {
+                                    text: "Journal";
+                                    color: Theme.ink;
+                                    font-size: 11px;
+                                    font-weight: 700;
+                                    letter-spacing: 1.2px;
+                                }
+                                Text {
+                                    text: "Entries and sessions";
+                                    color: Theme.ink;
+                                    font-size: 30px;
+                                    font-weight: 700;
+                                }
+                            }
+                            Rectangle { }
+                            Button {
+                                text: "+ New entry";
+                                variant: "primary";
+                                clicked => {
+                                    root.journal-entry-title = "";
+                                    root.journal-entry-date = "";
+                                    root.journal-entry-collections = "";
+                                    root.journal-entry-tags = "";
+                                    root.journal-entry-create-open = true;
+                                    root.status-message = "Add a title, then create the entry in the workspace.";
+                                }
+                            }
+                        }
+
+                        if root.journal-entry-create-open: Rectangle {
+                            border-width: 1px;
+                            border-color: Theme.line;
+                            border-radius: 5px;
+                            background: Theme.surface;
+                            VerticalLayout {
+                                padding: 12px;
+                                spacing: 8px;
+                                Text {
+                                    text: "New journal entry";
+                                    color: Theme.ink;
+                                    font-size: 14px;
+                                    font-weight: 600;
+                                }
+                                HorizontalLayout {
+                                    spacing: 8px;
+                                    legacy-journal-entry-title := LineEdit {
+                                        placeholder-text: "Entry title";
+                                        text <=> root.journal-entry-title;
+                                        accessible-label: "New journal entry title";
+                                    }
+                                    LineEdit {
+                                        placeholder-text: "Date YYYY-MM-DD (optional)";
+                                        text <=> root.journal-entry-date;
+                                        accessible-label: "New journal entry date";
+                                    }
+                                    Button {
+                                        text: "Create entry";
+                                        variant: "primary";
+                                        enabled: root.journal-entry-title != "";
+                                        clicked => {
+                                            root.journal-action("entry-create",
+                                                root.journal-entry-title,
+                                                root.journal-entry-date,
+                                                root.journal-entry-collections,
+                                                root.journal-entry-tags,
+                                                "", "");
+                                        }
+                                    }
+                                    Button {
+                                        text: "Cancel";
+                                        clicked => { root.journal-entry-create-open = false; }
+                                    }
+                                }
+                            }
+                        }
+
+                        Rectangle {
+                            border-width: 1px;
+                            border-color: Theme.line;
+                            border-radius: 5px;
+                            background: Theme.surface;
+                            accessible-role: AccessibleRole.region;
+                            accessible-label: "Journal search and filters";
+                            VerticalLayout {
+                                padding: 14px;
+                                spacing: 10px;
+                                Text {
+                                    text: "Find an entry";
+                                    color: Theme.ink;
+                                    font-size: 15px;
+                                    font-weight: 600;
+                                }
+                                HorizontalLayout {
+                                    spacing: 8px;
+                                    LineEdit {
+                                        placeholder-text: "Search titles, notes, transcripts, and guides";
+                                        text <=> root.journal-query;
+                                        accepted => { root.run-journal-search(); }
+                                        accessible-label: "Search journal entries by title, notes, transcripts, and guides";
+                                    }
+                                    ComboBox {
+                                        model: ["all", "with sessions", "without sessions"];
+                                        current-value <=> root.journal-session-filter;
+                                        accessible-label: "Filter entries by session presence";
+                                    }
+                                    Button {
+                                        text: "Search";
+                                        variant: "primary";
+                                        clicked => { root.run-journal-search(); }
+                                        accessible-label: "Search journal entries";
+                                    }
+                                    Button {
+                                        text: "Collections";
+                                        clicked => {
+                                            root.journal-action("collection-list", "", "", "", "", "", "");
+                                        }
+                                        accessible-label: "Manage journal collections";
+                                    }
+                                    Button {
+                                        text: "Tags";
+                                        clicked => {
+                                            root.journal-action("tag-list", "", "", "", "", "", "");
+                                        }
+                                        accessible-label: "Manage journal tags";
+                                    }
+                                }
+                                HorizontalLayout {
+                                    spacing: 8px;
+                                    ComboBox {
+                                        model: ["Newest first", "Oldest first", "Title"];
+                                        current-value <=> root.journal-sort;
+                                        accessible-label: "Sort journal entries";
+                                    }
+                                    ComboBox {
+                                        model: root.journal-collection-options;
+                                        current-value <=> root.journal-collection-filter;
+                                        accessible-label: "Filter entries by collection";
+                                    }
+                                    ComboBox {
+                                        model: root.journal-tag-options;
+                                        current-value <=> root.journal-tag-filter;
+                                        accessible-label: "Filter entries by tag";
+                                    }
+                                    LineEdit {
+                                        placeholder-text: "From YYYY-MM-DD";
+                                        text <=> root.journal-date-from;
+                                        accessible-label: "Filter entries from date";
+                                    }
+                                    LineEdit {
+                                        placeholder-text: "To YYYY-MM-DD";
+                                        text <=> root.journal-date-to;
+                                        accessible-label: "Filter entries through date";
+                                    }
+                                }
+                            }
+                        }
+
+                        HorizontalLayout {
+                            spacing: 14px;
+                            Rectangle {
+                                width: 310px;
+                                border-width: 1px;
+                                border-color: Theme.line;
+                                border-radius: 5px;
+                                background: Theme.surface;
+                                accessible-role: AccessibleRole.region;
+                                accessible-label: "Journal entries";
+                                VerticalLayout {
+                                    padding: 15px;
+                                    spacing: 10px;
+                                    Text {
+                                        text: "Entries";
+                                        color: Theme.ink;
+                                        font-size: 17px;
+                                        font-weight: 600;
+                                    }
+                                    if root.journal-entry-options.length > 0: ComboBox {
+                                        model: root.journal-entry-options;
+                                        current-value <=> root.selected-journal-entry;
+                                        accessible-label: "Select a journal entry";
+                                    }
+                                    Button {
+                                        text: "Open selected entry";
+                                        enabled: root.selected-journal-entry != "";
+                                        clicked => {
+                                            root.journal-action("entry-show",
+                                                root.selected-journal-entry,
+                                                "", "", "", "", "");
+                                        }
+                                        accessible-label: "Open the selected journal entry";
+                                    }
+                                    ScrollText {
+                                        height: 330px;
+                                        text: root.journal-list-output;
+                                        text-color: Theme.ink;
+                                        accessible-label: "Journal search results";
+                                        accessible-live-region: AccessibleLiveness.polite;
+                                    }
+                                    Text {
+                                        text: "Newest entries appear first. Search and filters preserve this journal view.";
+                                        color: Theme.ink;
+                                        font-size: 11px;
+                                        wrap: word-wrap;
+                                    }
+                                }
+                            }
+
+                            VerticalLayout {
+                                spacing: 14px;
+                                Rectangle {
+                                    border-width: 1px;
+                                    border-color: Theme.line;
+                                    border-radius: 5px;
+                                    background: Theme.surface;
+                                    accessible-role: AccessibleRole.region;
+                                    accessible-label: "Journal entry workspace";
+                                    VerticalLayout {
+                                        padding: 15px;
+                                        spacing: 9px;
+                                        Text {
+                                            text: "Entry workspace";
+                                            color: Theme.ink;
+                                            font-size: 17px;
+                                            font-weight: 600;
+                                        }
+                                        LineEdit {
+                                            placeholder-text: "Entry ID";
+                                            text <=> root.journal-entry-id;
+                                            accessible-label: "Journal entry identifier";
+                                        }
+                                        HorizontalLayout {
+                                            spacing: 8px;
+                                            Button {
+                                                text: "Open entry";
+                                                clicked => {
+                                                    root.journal-action("entry-show",
+                                                        root.journal-entry-id, "", "", "", "", "");
+                                                }
+                                            }
+                                            Button {
+                                                text: "Update entry";
+                                                clicked => {
+                                                    root.journal-action("entry-update",
+                                                        root.journal-entry-id,
+                                                        root.journal-entry-title,
+                                                        root.journal-entry-date,
+                                                        root.journal-entry-collections,
+                                                        root.journal-entry-tags, "");
+                                                }
+                                            }
+                                            Button {
+                                                text: "Clear date";
+                                                clicked => {
+                                                    root.journal-entry-date = "";
+                                                    root.journal-action("entry-clear-date",
+                                                        root.journal-entry-id,
+                                                        "", "", "", "", "");
+                                                }
+                                            }
+                                            Button {
+                                                text: "Delete entry";
+                                                variant: "danger";
+                                                clicked => {
+                                                    root.journal-action("entry-delete",
+                                                        root.journal-entry-id, "", "", "", "", "");
+                                                }
+                                            }
+                                        }
+                                        HorizontalLayout {
+                                            spacing: 8px;
+                                            LineEdit {
+                                                placeholder-text: "Title";
+                                                text <=> root.journal-entry-title;
+                                                accessible-label: "Journal entry title";
+                                            }
+                                            LineEdit {
+                                                placeholder-text: "Entry date YYYY-MM-DD";
+                                                text <=> root.journal-entry-date;
+                                                accessible-label: "Journal entry date";
+                                            }
+                                        }
+                                        HorizontalLayout {
+                                            spacing: 8px;
+                                            LineEdit {
+                                                placeholder-text: "Collection IDs, comma-separated";
+                                                text <=> root.journal-entry-collections;
+                                            }
+                                            LineEdit {
+                                                placeholder-text: "Tag IDs, comma-separated";
+                                                text <=> root.journal-entry-tags;
+                                            }
+                                        }
+                                        Button {
+                                            text: "Create entry";
+                                            clicked => {
+                                                root.journal-action("entry-create",
+                                                    root.journal-entry-title,
+                                                    root.journal-entry-date,
+                                                    root.journal-entry-collections,
+                                                    root.journal-entry-tags,
+                                                    "", "");
+                                            }
+                                        }
+                                    }
+                                }
+
+                                Rectangle {
+                                    border-width: 1px;
+                                    border-color: Theme.line;
+                                    border-radius: 5px;
+                                    background: Theme.surface;
+                                    accessible-role: AccessibleRole.region;
+                                    accessible-label: "Journal session timeline and controls";
+                                    VerticalLayout {
+                                        padding: 15px;
+                                        spacing: 9px;
+                                        Text {
+                                            text: "Session timeline";
+                                            color: Theme.ink;
+                                            font-size: 17px;
+                                            font-weight: 600;
+                                        }
+                                        HorizontalLayout {
+                                            spacing: 8px;
+                                            LineEdit {
+                                                placeholder-text: "Session date YYYY-MM-DD";
+                                                text <=> root.journal-timeline-date;
+                                                accessible-label: "Session timeline date";
+                                            }
+                                            Button {
+                                                text: "Jump to date";
+                                                clicked => {
+                                                    root.journal-action("session-list", root.journal-entry-id,
+                                                        root.journal-timeline-date, root.journal-timeline-date,
+                                                        "", "", "");
+                                                }
+                                                accessible-label: "Show sessions on the selected date";
+                                            }
+                                            Button {
+                                                text: "All dates";
+                                                clicked => {
+                                                    root.journal-timeline-date = "";
+                                                    root.journal-action("session-list", root.journal-entry-id,
+                                                        "", "", "", "", "");
+                                                }
+                                                accessible-label: "Show sessions from all dates";
+                                            }
+                                        }
+                                        HorizontalLayout {
+                                            spacing: 8px;
+                                            LineEdit {
+                                                placeholder-text: "Session title";
+                                                text <=> root.journal-session-title;
+                                                accessible-label: "Session title";
+                                            }
+                                            ComboBox {
+                                                model: ["notes-only", "record-audio", "import-recording"];
+                                                current-value <=> root.journal-session-type;
+                                                accessible-label: "New session mode";
+                                            }
+                                        }
+                                        HorizontalLayout {
+                                            spacing: 8px;
+                                            LineEdit {
+                                                placeholder-text: "Subject";
+                                                text <=> root.journal-session-subject;
+                                            }
+                                            LineEdit {
+                                                placeholder-text: "Learning objectives";
+                                                text <=> root.journal-session-objectives;
+                                            }
+                                        }
+                                        HorizontalLayout {
+                                            spacing: 8px;
+                                            ComboBox {
+                                                model: root.journal-session-student-options;
+                                                current-value <=> root.journal-session-student;
+                                                accessible-label: "Student for the new session";
+                                            }
+                                            LineEdit {
+                                                placeholder-text: "Language code, for example en or zh";
+                                                text <=> root.journal-session-language;
+                                                accessible-label: "Session language code";
+                                            }
+                                            ComboBox {
+                                                model: root.journal-guide-template-options;
+                                                current-value <=> root.journal-session-template;
+                                                accessible-label: "Guide template for the new session";
+                                            }
+                                        }
+                                        HorizontalLayout {
+                                            spacing: 8px;
+                                            Text {
+                                                text: "Capture source";
+                                                color: Theme.ink;
+                                                font-size: 12px;
+                                            }
+                                            if root.journal-session-type == "record-audio": ComboBox {
+                                                model: ["microphone", "system-audio", "both", "application"];
+                                                current-value <=> root.journal-session-recording-source;
+                                                accessible-label: "Audio capture source for the new session";
+                                            }
+                                            if root.journal-session-type == "import-recording": ComboBox {
+                                                model: ["imported-file"];
+                                                current-value <=> root.journal-session-recording-source;
+                                                accessible-label: "Recording source for the new session";
+                                            }
+                                            if root.journal-session-type == "notes-only": ComboBox {
+                                                model: ["none"];
+                                                current-value <=> root.journal-session-recording-source;
+                                                accessible-label: "Recording source for the new session";
+                                            }
+                                        }
+                                        if root.journal-session-student == "Create a new student": HorizontalLayout {
+                                            spacing: 8px;
+                                            LineEdit {
+                                                placeholder-text: "New student name";
+                                                text <=> root.journal-session-new-student-name;
+                                                accessible-label: "New student name";
+                                            }
+                                            LineEdit {
+                                                placeholder-text: "Grade or level";
+                                                text <=> root.journal-session-new-student-grade;
+                                                accessible-label: "New student grade or level";
+                                            }
+                                        }
+                                        if root.journal-session-options.length > 0: ScrollArea {
+                                            height: 170px;
+                                            content-width: self.visible-width;
+                                            content-height: max(self.visible-height,
+                                                               legacy-session-list.preferred-height);
+                                            legacy-session-list := VerticalLayout {
+                                                width: parent.visible-width;
+                                                spacing: 6px;
+                                                for session in root.journal-session-options: Rectangle {
+                                                    border-width: 1px;
+                                                    border-color: Theme.line;
+                                                    border-radius: 5px;
+                                                    background: root.selected-journal-session == session ?
+                                                Theme.accent-soft : Theme.surface;
+                                                    VerticalLayout {
+                                                        padding: 5px;
+                                                        spacing: 4px;
+                                                        Button {
+                                                            text: session;
+                                                            clicked => {
+                                                                root.selected-journal-session = session;
+                                                            }
+                                                            accessible-label: "Select session " + session;
+                                                        }
+                                                        if root.selected-journal-session == session: HorizontalLayout {
+                                                            spacing: 6px;
+                                                            Button {
+                                                                text: root.journal-session-expanded ? "Hide details" : "Show details";
+                                                                clicked => {
+                                                                    root.journal-session-expanded = !root.journal-session-expanded;
+                                                                    if root.journal-session-expanded {
+                                                                        root.journal-action("session-show", session,
+                                                                            "", "", "", "", "");
+                                                                    }
+                                                                }
+                                                                accessible-label: (root.journal-session-expanded ?
+                                                                    "Hide details for session " :
+                                                                    "Show details for session ") + session;
+                                                            }
+                                                            Button {
+                                                                text: "Open session";
+                                                                clicked => {
+                                                                    root.open-session("Session 路 " + session);
+                                                                }
+                                                                accessible-label: "Open session " + session;
+                                                            }
+                                                            Button {
+                                                                text: "Review transcript";
+                                                                clicked => {
+                                                                    root.review-transcript("Session 路 " + session);
+                                                                }
+                                                                accessible-label: "Review transcript for session " + session;
+                                                            }
+                                                            Button {
+                                                                text: "Recording controls";
+                                                                clicked => {
+                                                                    root.selected-session = session;
+                                                                    root.recording-panel-open = true;
+                                                                }
+                                                                accessible-label: "Open recording controls for session " + session;
+                                                            }
+                                                        }
+                                                        if root.selected-journal-session == session && root.journal-session-expanded: Text {
+                                                            text: root.journal-session-detail-output;
+                                                            color: Theme.ink;
+                                                            font-size: 11px;
+                                                            wrap: word-wrap;
+                                                            accessible-role: AccessibleRole.text;
+                                                            accessible-label: "Expanded session details";
+                                                            accessible-live-region: AccessibleLiveness.polite;
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        if root.journal-session-options.length == 0: Text {
+                                            text: "No sessions are linked to this entry yet.";
+                                            color: Theme.ink;
+                                            font-size: 12px;
+                                        }
+                                        }
+                                        LineEdit {
+                                            placeholder-text: "Session ID";
+                                            text <=> root.journal-session-id;
+                                            accessible-label: "Session identifier";
+                                        }
+                                        HorizontalLayout {
+                                            spacing: 8px;
+                                            Button {
+                                                text: "New session";
+                                                variant: "primary";
+                                                clicked => {
+                                                    root.journal-session-create(
+                                                        root.journal-entry-id,
+                                                        root.journal-session-type,
+                                                        root.journal-session-title,
+                                                        root.journal-session-student,
+                                                        root.journal-session-subject,
+                                                        root.journal-session-objectives,
+                                                        root.journal-session-language,
+                                                        root.journal-session-template,
+                                                        root.journal-session-new-student-name,
+                                                        root.journal-session-new-student-grade,
+                                                        root.journal-session-recording-source);
+                                                }
+                                                accessible-label: "Create a new session in this journal entry";
+                                            }
+                                            Button {
+                                                text: "Show timeline";
+                                                clicked => {
+                                                    root.journal-action("session-list",
+                                                        root.journal-entry-id, root.journal-timeline-date,
+                                                        root.journal-timeline-date, "", "", "");
+                                                }
+                                                accessible-label: "Refresh the session timeline";
+                                            }
+                                            Button {
+                                                text: "Open session";
+                                                clicked => {
+                                                    root.open-session("Session 路 " +
+                                                        (root.journal-session-id == "" ?
+                                                            root.selected-journal-session :
+                                                            root.journal-session-id));
+                                                }
+                                                accessible-label: "Open the selected session";
+                                            }
+                                            Button {
+                                                text: "Review transcript";
+                                                clicked => {
+                                                    root.review-transcript("Session 路 " +
+                                                        (root.journal-session-id == "" ?
+                                                            root.selected-journal-session :
+                                                            root.journal-session-id));
+                                                }
+                                                accessible-label: "Review the selected session transcript";
+                                            }
+                                            Button {
+                                                text: "Recording / import controls";
+                                                clicked => {
+                                                    root.selected-session =
+                                                        root.journal-session-id == "" ?
+                                                            root.selected-journal-session :
+                                                            root.journal-session-id;
+                                                    root.recording-panel-open = true;
+                                                }
+                                                accessible-label:
+                                                    "Open recording or import controls for the selected session";
+                                            }
+                                        }
+                                        HorizontalLayout {
+                                            spacing: 8px;
+                                            Button {
+                                                text: "Resume session";
+                                                clicked => {
+                                                    root.journal-action("session-resume",
+                                                        root.journal-session-id == "" ?
+                                                            root.selected-journal-session :
+                                                            root.journal-session-id,
+                                                        "", "", "", "", "");
+                                                }
+                                                accessible-label: "Resume the selected session";
+                                            }
+                                            Button {
+                                                text: "Complete session";
+                                                clicked => {
+                                                    root.journal-action("session-complete",
+                                                        root.journal-session-id == "" ?
+                                                            root.selected-journal-session :
+                                                            root.journal-session-id,
+                                                        "", "", "", "", "");
+                                                }
+                                                accessible-label: "Complete the selected session";
+                                            }
+                                            Button {
+                                                text: "Mark reviewed";
+                                                clicked => {
+                                                    root.journal-action("session-review",
+                                                        root.journal-session-id == "" ?
+                                                            root.selected-journal-session :
+                                                            root.journal-session-id,
+                                                        "", "", "", "", "");
+                                                }
+                                                accessible-label: "Mark the selected session as reviewed";
+                                            }
+                                        }
+                                        CheckBox {
+                                            text: "I reviewed the deletion scope and want to remove this session.";
+                                            checked <=> root.journal-session-delete-confirmed;
+                                            enabled: root.journal-session-delete-scope-reviewed &&
+                                                     (root.journal-session-id == "" ?
+                                                         root.selected-journal-session :
+                                                         root.journal-session-id) ==
+                                                         root.journal-session-delete-preview-id;
+                                        }
+                                        ScrollText {
+                                            height: 92px;
+                                            text: root.journal-session-delete-scope-output;
+                                            text-color: Theme.ink;
+                                        }
+                                        HorizontalLayout {
+                                            spacing: 8px;
+                                            Button {
+                                                text: "Review deletion scope";
+                                                clicked => {
+                                                    root.journal-session-delete-confirmed = false;
+                                                    root.journal-session-delete-scope-reviewed = false;
+                                                    root.journal-session-delete-preview-id = "";
+                                                    root.journal-action("session-delete-preview",
+                                                        root.journal-session-id == "" ?
+                                                            root.selected-journal-session :
+                                                            root.journal-session-id,
+                                                        "", "", "", "", "");
+                                                }
+                                            }
+                                            Button {
+                                                text: "Confirm session deletion";
+                                                variant: "danger";
+                                                enabled: root.journal-session-delete-confirmed &&
+                                                    root.journal-session-delete-scope-reviewed &&
+                                                    (root.journal-session-id == "" ?
+                                                        root.selected-journal-session :
+                                                        root.journal-session-id) ==
+                                                        root.journal-session-delete-preview-id;
+                                                clicked => {
+                                                    root.journal-action("session-delete-confirm",
+                                                        root.journal-session-id == "" ?
+                                                            root.selected-journal-session :
+                                                            root.journal-session-id,
+                                                        root.journal-session-delete-scope-token,
+                                                        "", "", "", "");
+                                                    root.journal-session-delete-confirmed = false;
+                                                }
+                                            }
+                                        }
+                                        Text {
+                                            text: "Audio starts only after microphone access, input level, and consent are confirmed.";
+                                            color: Theme.ink;
+                                            font-size: 11px;
+                                            wrap: word-wrap;
+                                        }
+                                        Text {
+                                            text: root.journal-timeline-output;
+                                            color: Theme.ink;
+                                            font-size: 11px;
+                                            wrap: word-wrap;
+                                            accessible-role: AccessibleRole.text;
+                                            accessible-label: "Session timeline results";
+                                            accessible-live-region: AccessibleLiveness.polite;
+                                        }
+                                    }
+                                }
+
+                                Rectangle {
+                                    border-width: 1px;
+                                    border-color: Theme.line;
+                                    border-radius: 5px;
+                                    background: Theme.surface;
+                                    VerticalLayout {
+                                        padding: 15px;
+                                        spacing: 9px;
+                                        Text {
+                                            text: "Entry notes";
+                                            color: Theme.ink;
+                                            font-size: 17px;
+                                            font-weight: 600;
+                                        }
+                                        HorizontalLayout {
+                                            spacing: 8px;
+                                            LineEdit {
+                                                placeholder-text: "Notes document ID";
+                                                text <=> root.journal-document-id;
+                                                enabled: root.journal-entry-id != "";
+                                            }
+                                            Button {
+                                                text: "Load notes";
+                                                enabled: root.journal-document-id != "";
+                                                clicked => {
+                                                    root.journal-action("document-show",
+                                                        root.journal-document-id,
+                                                        "", "", "", "", "");
+                                                }
+                                            }
+                                        }
+                                        Text {
+                                            text: "Notes are edited as separate blocks, so each block keeps its type and identity.";
+                                            color: Theme.ink;
+                                            font-size: 11px;
+                                            wrap: word-wrap;
+                                        }
+                                        HorizontalLayout {
+                                            spacing: 8px;
+                                            Text { text: "Block"; color: Theme.ink; font-size: 12px; }
+                                            ComboBox {
+                                                model: root.journal-note-block-options;
+                                                current-value <=> root.selected-journal-note-block;
+                                                enabled: root.journal-document-block-count > 0;
+                                            }
+                                            Text { text: "Type"; color: Theme.ink; font-size: 12px; }
+                                            ComboBox {
+                                                model: ["Paragraph", "Heading", "Bulleted list",
+                                                        "Numbered list", "Checklist", "Quote", "Code"];
+                                                current-value <=> root.journal-document-block-kind;
+                                                enabled: root.journal-document-block-count > 0;
+                                            }
+                                        }
+                                        HorizontalLayout {
+                                            spacing: 6px;
+                                            Text {
+                                                text: "Format selection";
+                                                color: Theme.ink;
+                                                font-size: 12px;
+                                                vertical-alignment: center;
+                                            }
+                                            Button {
+                                                text: "Bold";
+                                                enabled: root.journal-inline-format-enabled;
+                                                clicked => {
+                                                    root.journal-action("document-block-format",
+                                                        root.journal-document-id,
+                                                        root.selected-journal-note-block,
+                                                        "bold", "", "", "");
+                                                }
+                                            }
+                                            Button {
+                                                text: "Italic";
+                                                enabled: root.journal-inline-format-enabled;
+                                                clicked => {
+                                                    root.journal-action("document-block-format",
+                                                        root.journal-document-id,
+                                                        root.selected-journal-note-block,
+                                                        "italic", "", "", "");
+                                                }
+                                            }
+                                            Button {
+                                                text: "Strike";
+                                                enabled: root.journal-inline-format-enabled;
+                                                clicked => {
+                                                    root.journal-action("document-block-format",
+                                                        root.journal-document-id,
+                                                        root.selected-journal-note-block,
+                                                        "strike", "", "", "");
+                                                }
+                                            }
+                                            Button {
+                                                text: "Code";
+                                                enabled: root.journal-inline-format-enabled;
+                                                clicked => {
+                                                    root.journal-action("document-block-format",
+                                                        root.journal-document-id,
+                                                        root.selected-journal-note-block,
+                                                        "code", "", "", "");
+                                                }
+                                            }
+                                            Button {
+                                                text: "Link";
+                                                enabled: root.journal-inline-format-enabled;
+                                                clicked => {
+                                                    root.journal-action("document-block-format",
+                                                        root.journal-document-id,
+                                                        root.selected-journal-note-block,
+                                                        "link", "", "", "");
+                                                }
+                                            }
+                                        }
+                                        Text {
+                                            text: "Select text to format, or place the cursor to insert a span. Formatting uses portable Markdown; Ctrl+B, Ctrl+I, and Ctrl+K also work. Save the block to keep your edits.";
+                                            color: Theme.ink;
+                                            font-size: 11px;
+                                            wrap: word-wrap;
+                                        }
+                                        TextInput {
+                                            height: 160px;
+                                            single-line: false;
+                                            wrap: word-wrap;
+                                            text <=> root.journal-document-block-text;
+                                            font-size: 13px;
+                                            color: Theme.ink;
+                                            enabled: root.journal-document-block-count > 0;
+                                            edited => { root.journal-document-block-text = self.text; }
+                                            cursor-position-changed(position) => {
+                                                root.journal-document-block-anchor-offset =
+                                                    self.anchor-position-byte-offset;
+                                                root.journal-document-block-focus-offset =
+                                                    self.cursor-position-byte-offset;
+                                            }
+                                            key-pressed(event) => {
+                                                if (root.journal-inline-format-enabled &&
+                                                    (event.modifiers.control || event.modifiers.meta) &&
+                                                    event.text == Key.B) {
+                                                    root.journal-action("document-block-format",
+                                                        root.journal-document-id,
+                                                        root.selected-journal-note-block,
+                                                        "bold", "", "", "");
+                                                    accept
+                                                } else if (root.journal-inline-format-enabled &&
+                                                           (event.modifiers.control ||
+                                                            event.modifiers.meta) &&
+                                                           event.text == Key.I) {
+                                                    root.journal-action("document-block-format",
+                                                        root.journal-document-id,
+                                                        root.selected-journal-note-block,
+                                                        "italic", "", "", "");
+                                                    accept
+                                                } else if (root.journal-inline-format-enabled &&
+                                                           (event.modifiers.control ||
+                                                            event.modifiers.meta) &&
+                                                           event.text == Key.K) {
+                                                    root.journal-action("document-block-format",
+                                                        root.journal-document-id,
+                                                        root.selected-journal-note-block,
+                                                        "link", "", "", "");
+                                                    accept
+                                                } else {
+                                                    reject
+                                                }
+                                            }
+                                        }
+                                        HorizontalLayout {
+                                            spacing: 8px;
+                                            Button {
+                                                text: "Save block";
+                                                enabled: root.journal-document-id != "" &&
+                                                    root.selected-journal-note-block != "";
+                                                clicked => {
+                                                    root.journal-action("document-block-update",
+                                                        root.journal-document-id,
+                                                        root.selected-journal-note-block,
+                                                        root.journal-document-block-kind,
+                                                        root.journal-document-block-text,
+                                                        "", "");
+                                                }
+                                            }
+                                            Button {
+                                                text: "Move up";
+                                                enabled: root.journal-document-block-index > 0;
+                                                clicked => {
+                                                    root.journal-action("document-block-move",
+                                                        root.journal-document-id,
+                                                        root.selected-journal-note-block,
+                                                        "up", "", "", "");
+                                                }
+                                            }
+                                            Button {
+                                                text: "Move down";
+                                                enabled: root.journal-document-block-index >= 0 &&
+                                                    root.journal-document-block-index + 1 <
+                                                        root.journal-document-block-count;
+                                                clicked => {
+                                                    root.journal-action("document-block-move",
+                                                        root.journal-document-id,
+                                                        root.selected-journal-note-block,
+                                                        "down", "", "", "");
+                                                }
+                                            }
+                                            Button {
+                                                text: "Remove block";
+                                                variant: "danger";
+                                                enabled: root.journal-document-id != "" &&
+                                                    root.selected-journal-note-block != "";
+                                                clicked => {
+                                                    root.journal-action("document-block-remove",
+                                                        root.journal-document-id,
+                                                        root.selected-journal-note-block,
+                                                        "", "", "", "");
+                                                }
+                                            }
+                                        }
+                                        HorizontalLayout {
+                                            spacing: 8px;
+                                            Text { text: "Add a block"; color: Theme.ink; font-size: 12px; }
+                                            Button {
+                                                text: "Add block";
+                                                enabled: root.journal-document-id != "" &&
+                                                    root.journal-document-new-block-text != "";
+                                                clicked => {
+                                                    root.journal-action("document-block-add",
+                                                        root.journal-document-id,
+                                                        root.journal-document-block-kind,
+                                                        root.journal-document-new-block-text,
+                                                        root.selected-journal-note-block,
+                                                        "", "");
+                                                }
+                                            }
+                                        }
+                                        TextInput {
+                                            height: 90px;
+                                            single-line: false;
+                                            wrap: word-wrap;
+                                            text <=> root.journal-document-new-block-text;
+                                            font-size: 13px;
+                                            color: Theme.ink;
+                                            enabled: root.journal-document-id != "";
+                                            edited => {
+                                                root.journal-document-new-block-text = self.text;
+                                            }
+                                        }
+                                        CheckBox {
+                                            text: "Show saved notes as a whole document";
+                                            checked <=> root.journal-document-show-preview;
+                                        }
+                                        if root.journal-document-show-preview: ScrollText {
+                                            height: 100px;
+                                            text: root.journal-document-text;
+                                            text-color: Theme.ink;
+                                        }
+                                        HorizontalLayout {
+                                            spacing: 8px;
+                                            Button {
+                                                text: "Generate guide from this entry";
+                                                clicked => {
+                                                    root.journal-action("guide-generate-entry",
+                                                        root.journal-entry-id,
+                                                        "", "", "", "", "");
+                                                }
+                                            }
+                                            Button {
+                                                text: "Open study guides";
+                                                clicked => { root.overlay-panel = "guide-tools"; }
+                                            }
+                                        }
+                                        Text {
+                                            text: root.journal-guide-output;
+                                            color: Theme.ink;
+                                            font-size: 12px;
+                                            wrap: word-wrap;
+                                        }
+                                    }
+                                }
+
+                                Rectangle {
+                                    border-width: 1px;
+                                    border-color: Theme.line;
+                                    border-radius: 5px;
+                                    background: Theme.surface;
+                                    VerticalLayout {
+                                        padding: 15px;
+                                        spacing: 9px;
+                                        Text {
+                                            text: "Organize this journal";
+                                            color: Theme.ink;
+                                            font-size: 17px;
+                                            font-weight: 600;
+                                        }
+                                        LineEdit {
+                                            placeholder-text: "Collection or tag ID";
+                                            text <=> root.journal-item-id;
+                                        }
+                                        LineEdit {
+                                            placeholder-text: "Collection or tag name";
+                                            text <=> root.journal-item-name;
+                                        }
+                                        LineEdit {
+                                            placeholder-text: "Description";
+                                            text <=> root.journal-item-description;
+                                        }
+                                        LineEdit {
+                                            placeholder-text: "Color, optional";
+                                            text <=> root.journal-item-color;
+                                        }
+                                        HorizontalLayout {
+                                            spacing: 8px;
+                                            Button {
+                                                text: "Add collection";
+                                                clicked => {
+                                                    root.journal-action("collection-create",
+                                                        root.journal-item-name,
+                                                        root.journal-item-description,
+                                                        root.journal-item-color,
+                                                        "", "", "");
+                                                }
+                                            }
+                                            Button {
+                                                text: "Add tag";
+                                                clicked => {
+                                                    root.journal-action("tag-create",
+                                                        root.journal-item-name,
+                                                        root.journal-item-description,
+                                                        root.journal-item-color,
+                                                        "", "", "");
+                                                }
+                                            }
+                                        }
+                                        HorizontalLayout {
+                                            spacing: 8px;
+                                            Button {
+                                                text: "Update collection";
+                                                clicked => {
+                                                    root.journal-action("collection-update",
+                                                        root.journal-item-id,
+                                                        root.journal-item-name,
+                                                        root.journal-item-description,
+                                                        root.journal-item-color,
+                                                        "", "");
+                                                }
+                                            }
+                                            Button {
+                                                text: "Update tag";
+                                                clicked => {
+                                                    root.journal-action("tag-update",
+                                                        root.journal-item-id,
+                                                        root.journal-item-name,
+                                                        root.journal-item-description,
+                                                        root.journal-item-color,
+                                                        "", "");
+                                                }
+                                            }
+                                        }
+                                        HorizontalLayout {
+                                            spacing: 8px;
+                                            Button {
+                                                text: "Delete collection";
+                                                variant: "danger";
+                                                clicked => {
+                                                    root.journal-action("collection-delete",
+                                                        root.journal-item-id,
+                                                        "", "", "", "", "");
+                                                }
+                                            }
+                                            Button {
+                                                text: "Delete tag";
+                                                variant: "danger";
+                                                clicked => {
+                                                    root.journal-action("tag-delete",
+                                                        root.journal-item-id,
+                                                        "", "", "", "", "");
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }                }
+            }
+
+            if root.overlay-panel == "guide-tools" : PanelShell {
+                available-width: parent.width;
+                available-height: parent.height;
+                heading: "Guide editor";
+                detail: "Review, edit, validate, template, and export the study guide";
+                sheet-width: 1100px;
+                close => { root.overlay-panel = ""; }
+
+                VerticalLayout {
+                    spacing: 14px;                                Text {
+                                    text: "Guide review and export";
+                                    color: Theme.ink;
+                                    font-size: 16px;
+                                    font-weight: 600;
+                                }
+                                Text {
+                                    text: "Review source-linked content, validate it, explicitly approve " +
+                                          "the guide, then export a copy.";
+                                    color: Theme.ink;
+                                    font-size: 13px;
+                                    wrap: word-wrap;
+                                }
+                                if root.guide-options.length > 0: ComboBox {
+                                    model: root.guide-options;
+                                    current-value <=> root.selected-guide;
+                                }
+                                HorizontalLayout {
+                                    spacing: 8px;
+                                    if root.guide-block-options.length > 0: ComboBox {
+                                        model: root.guide-block-options;
+                                        current-value <=> root.selected-guide-block;
+                                    }
+                                    Button {
+                                        text: "Load block";
+                                        clicked => {
+                                            root.load-guide-block(root.selected-guide,
+                                                root.selected-guide-block);
+                                        }
+                                    }
+                                    Button {
+                                        text: "Save reviewed block";
+                                        clicked => {
+                                            root.save-guide-block(root.selected-guide,
+                                                root.selected-guide-block, root.guide-edit-text);
+                                        }
+                                    }
+                                }
+                                Text {
+                                    text: root.guide-provenance;
+                                    color: Theme.ink;
+                                    font-size: 11px;
+                                    wrap: word-wrap;
+                                }
+                                HorizontalLayout {
+                                    spacing: 6px;
+                                    LineEdit {
+                                        width: 270px;
+                                        placeholder-text: "Source or asset UUID";
+                                        text <=> root.guide-reference-id;
+                                    }
+                                    Button {
+                                        text: "Insert source";
+                                        clicked => {
+                                            root.insert-guide-markup("source",
+                                                                     root.guide-reference-id);
+                                        }
+                                    }
+                                    Button {
+                                        text: "Insert image";
+                                        clicked => {
+                                            root.insert-guide-markup("image",
+                                                                     root.guide-reference-id);
+                                        }
+                                    }
+                                    Button {
+                                        text: "Code";
+                                        clicked => { root.insert-guide-markup("code", ""); }
+                                    }
+                                    Button {
+                                        text: "Equation";
+                                        clicked => { root.insert-guide-markup("equation", ""); }
+                                    }
+                                    Button {
+                                        text: "Table";
+                                        clicked => { root.insert-guide-markup("table", ""); }
+                                    }
+                                }
+                                HorizontalLayout {
+                                    spacing: 6px;
+                                    ComboBox {
+                                        model: ["paragraph", "list-item", "quote", "code", "equation",
+                                            "table", "image", "figure", "example", "instruction",
+                                            "recommendation", "worked-example"];
+                                        current-value <=> root.guide-block-kind;
+                                    }
+                                    Button {
+                                        text: "Set block type";
+                                        clicked => {
+                                            root.insert-guide-markup(root.guide-block-kind, "");
+                                        }
+                                    }
+                                }
+                                HorizontalLayout {
+                                    spacing: 6px;
+                                    LineEdit {
+                                        placeholder-text: "Find in this block";
+                                        text <=> root.guide-find-query;
+                                    }
+                                    Button {
+                                        text: "Find next";
+                                        clicked => {
+                                            root.find-guide-next(root.guide-find-query);
+                                        }
+                                    }
+                                    Button {
+                                        text: "Replace";
+                                        clicked => {
+                                            root.replace-guide-match(root.guide-find-query,
+                                                root.guide-replace-text);
+                                        }
+                                    }
+                                }
+                                HorizontalLayout {
+                                    spacing: 6px;
+                                    LineEdit {
+                                        placeholder-text: "Replace with";
+                                        text <=> root.guide-replace-text;
+                                    }
+                                    Button {
+                                        text: "Replace all";
+                                        clicked => {
+                                            root.replace-all-guide-matches(root.guide-find-query,
+                                                root.guide-replace-text);
+                                        }
+                                    }
+                                }
+                                guide-editor-text-input := GuideDocumentEditor {
+                                    height: 170px;
+                                    text <=> root.guide-edit-text;
+                                    anchor-offset <=> root.guide-edit-anchor;
+                                    focus-offset <=> root.guide-edit-focus;
+                                    edited(text, focus, anchor) => {
+                                        root.guide-edit-input-changed(text, focus, anchor);
+                                    }
+                                    selection-changed(focus, anchor) => {
+                                        root.guide-edit-anchor = anchor;
+                                        root.guide-edit-focus = focus;
+                                        root.guide-edit-selection-changed(focus, anchor);
+                                    }
+                                    undo-requested => { root.guide-edit-undo(); }
+                                    redo-requested => { root.guide-edit-redo(); }
+                                }
+                                HorizontalLayout {
+                                    spacing: 8px;
+                                    Button {
+                                        text: "Open guide";
+                                        clicked => {
+                                            root.guide-command(root.selected-guide, "show", "", "");
+                                        }
+                                    }
+                                    Button {
+                                        text: "Validate sources";
+                                        clicked => {
+                                            root.guide-command(root.selected-guide, "validate", "", "");
+                                        }
+                                    }
+                                    Button {
+                                        text: "Approve guide";
+                                        variant: "primary";
+                                        clicked => {
+                                            root.guide-command(root.selected-guide, "approve", "", "");
+                                        }
+                                    }
+                                    Button {
+                                        text: "Compare revisions";
+                                        clicked => {
+                                            root.guide-command(root.selected-guide, "compare", "", "");
+                                        }
+                                    }
+                                }
+                                HorizontalLayout {
+                                    spacing: 8px;
+                                    Button {
+                                        text: "Regenerate this section";
+                                        clicked => {
+                                            root.guide-command(root.selected-guide,
+                                                "regenerate-section", "", "");
+                                        }
+                                    }
+                                }
+                                HorizontalLayout {
+                                    spacing: 8px;
+                                    Button {
+                                        text: "Add example";
+                                        clicked => {
+                                            root.guide-command(root.selected-guide,
+                                                "add-example", "", "");
+                                        }
+                                    }
+                                    Button {
+                                        text: "Remove block";
+                                        clicked => {
+                                            root.guide-command(root.selected-guide,
+                                                "remove-block", "", "");
+                                        }
+                                    }
+                                    Button {
+                                        text: "Move section up";
+                                        clicked => {
+                                            root.guide-command(root.selected-guide,
+                                                "move-section-up", "", "");
+                                        }
+                                    }
+                                    Button {
+                                        text: "Move section down";
+                                        clicked => {
+                                            root.guide-command(root.selected-guide,
+                                                "move-section-down", "", "");
+                                        }
+                                    }
+                                }
+                                HorizontalLayout {
+                                    spacing: 8px;
+                                    ComboBox {
+                                        model: ["markdown", "html", "pdf", "docx"];
+                                        current-value <=> root.guide-export-format;
+                                    }
+                                    LineEdit {
+                                        placeholder-text: "Export file path";
+                                        text <=> root.guide-export-path;
+                                    }
+                                    Button {
+                                        text: "Export";
+                                        variant: "primary";
+                                        clicked => {
+                                            root.guide-command(root.selected-guide, "export",
+                                                root.guide-export-format, root.guide-export-path);
+                                        }
+                                    }
+                                }
+                                ScrollText {
+                                    height: 260px;
+                                    text: root.guide-output;
+                                    text-color: Theme.ink;
+                                }                }
+            }
             if root.overlay-panel == "archive" : ArchivePanel {
                 archive-path: root.archive-path;
                 archive-list: root.archive-list;
@@ -938,6 +2299,7 @@ export component MainWindow inherits Window {
                         passphrase, confirm);
                 }
                 compact => { root.compact-archive(); }
+                verify => { root.diagnostics-command("archive", ""); }
             }
 
             if root.overlay-panel == "settings" : SettingsPanel {
@@ -976,6 +2338,7 @@ export component MainWindow inherits Window {
                 consent <=> root.recording-consent-confirmed;
                 live-transcription <=> root.recording-live-transcription-enabled;
                 live-model-path <=> root.recording-live-model-path;
+                durability <=> root.recording-durability;
                 close => { root.overlay-panel = ""; }
                 command(action, argument) => {
                     root.recording-command(root.selected-session, action, argument);
@@ -1033,6 +2396,7 @@ export component MainWindow inherits Window {
                 guide-path <=> root.guide-export-path;
                 wav-path <=> root.recording-export-path;
                 wav-track <=> root.recording-export-track;
+                session-path <=> root.session-package-path;
                 close => { root.overlay-panel = ""; }
                 export-guide(guide, format, path) => {
                     root.guide-command(guide, "export", format, path);
@@ -1040,6 +2404,7 @@ export component MainWindow inherits Window {
                 export-wav(path) => {
                     root.recording-command(root.selected-session, "export-wav", path);
                 }
+                export-session(path) => { root.export-session-package(path); }
             }
 
             if root.overlay-panel == "new-session" : NewSessionPanel {
