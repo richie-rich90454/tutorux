@@ -4129,6 +4129,26 @@ int launchDesktop(std::optional<std::filesystem::path> archivePath,
             });
     });
 
+    window->on_export_session_package([&](slint::SharedString requestedPath) {
+        const std::filesystem::path path(window->get_archive_path().data());
+        const std::string id = selectionId(window->get_selected_session());
+        const std::string output(requestedPath.data(), requestedPath.size());
+        if (path.empty() || id.empty() || output.empty()) {
+            window->set_status_message(
+                toSharedString("Select a session and choose a package output path."));
+            return;
+        }
+        window->set_status_message(toSharedString("Exporting the session package…"));
+        dispatchCommandAsync(
+            weakWindow, backgroundTasks,
+            archiveCommand(path, {"session", "export", id, "--output", output}), activePassphrase,
+            [](MainWindow& completedWindow, bool succeeded, std::string result) {
+                completedWindow.set_status_message(toSharedString(std::move(result)));
+                if (succeeded)
+                    completedWindow.set_command_output(toSharedString("Session package exported."));
+            });
+    });
+
     const auto activeTranscriptEditor = std::make_shared<std::optional<ActiveTranscriptEditor>>();
     window->on_review_transcript([&, activeTranscriptEditor](slint::SharedString selectedSession) {
         const std::filesystem::path path(window->get_archive_path().data());
