@@ -42,6 +42,7 @@ export component ArchivePanel inherits Rectangle {
     callback sanitize(string, string, string, string, string, string, string,
                       bool, bool, bool, bool, string, bool);
     callback compact();
+    callback verify();
 
     width: 100%;
     height: 100%;
@@ -205,6 +206,11 @@ export component ArchivePanel inherits Rectangle {
                     text: "Compact archive";
                     enabled: root.archive-path != "";
                     clicked => { root.compact(); }
+                }
+                Button {
+                    text: "Verify archive";
+                    enabled: root.archive-path != "";
+                    clicked => { root.verify(); }
                 }
                 Text {
                     text: "Reclaims space in the open .tux file. History stays verifiable.";
