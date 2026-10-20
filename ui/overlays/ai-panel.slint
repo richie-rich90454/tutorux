@@ -1,0 +1,130 @@
+// Optional AI preparation and review. No request is sent without an explicit
+// confirmation hash, and manual packages need no API key.
+import { Button, LineEdit, ScrollText, Theme } from "../theme.slint";
+import { PanelShell } from "./panel-shell.slint";
+
+export component AiPanel inherits Rectangle {
+    in property <bool> has-session: false;
+    in property <string> output;
+    in-out property <string> provider;
+    in-out property <string> endpoint;
+    in-out property <string> model-id;
+    in-out property <string> model-path;
+    in-out property <string> package-job-id;
+    in-out property <string> api-key-environment;
+    in-out property <string> confirmation-hash;
+    in-out property <string> package-path;
+    in-out property <string> response-path;
+
+    callback close();
+    callback command(string, string, string);
+
+    width: 100%;
+    height: 100%;
+    background: transparent;
+
+    PanelShell {
+        available-width: root.width;
+        available-height: root.height;
+        heading: "AI actions";
+        detail: "Optional preparation and review workflows";
+        close => { root.close(); }
+
+        VerticalLayout {
+            spacing: 12px;
+
+            Text {
+                text: "Manual packages need no API key. BYOK sends data only after you review the exact request and confirm its hash.";
+                color: Theme.muted;
+                font-size: 12px;
+                line-height-factor: 1.45;
+                wrap: word-wrap;
+            }
+
+            Text { text: "Provider"; color: Theme.faint; font-size: 11px; font-weight: 600; }
+            LineEdit { placeholder-text: "Provider ID, such as openai, ollama, llama.cpp-embedded"; text <=> root.provider; }
+            HorizontalLayout {
+                spacing: 8px;
+                VerticalLayout {
+                    horizontal-stretch: 1;
+                    spacing: 5px;
+                    Text { text: "Endpoint"; color: Theme.faint; font-size: 11px; font-weight: 600; }
+                    LineEdit { placeholder-text: "Optional provider endpoint"; text <=> root.endpoint; }
+                }
+                VerticalLayout {
+                    horizontal-stretch: 1;
+                    spacing: 5px;
+                    Text { text: "Model ID"; color: Theme.faint; font-size: 11px; font-weight: 600; }
+                    LineEdit { placeholder-text: "Model ID"; text <=> root.model-id; }
+                }
+            }
+            HorizontalLayout {
+                spacing: 8px;
+                LineEdit { placeholder-text: "GGUF model path (embedded llama.cpp)"; text <=> root.model-path; }
+                Button { text: "Configure"; clicked => { root.command(root.provider, "configure", ""); } }
+                Button { text: "Select GGUF"; clicked => { root.command(root.provider, "select-embedded", ""); } }
+            }
+            HorizontalLayout {
+                spacing: 8px;
+                Button { text: "Provider integrations"; clicked => { root.command(root.provider, "providers", ""); } }
+                Button { text: "Refresh model catalog"; clicked => { root.command(root.provider, "models", ""); } }
+                Button { text: "Installed models"; clicked => { root.command(root.provider, "model-list", ""); } }
+                Button { text: "Verify model"; clicked => { root.command(root.provider, "verify-model", ""); } }
+            }
+
+            Rectangle { height: 1px; background: Theme.line; }
+
+            Text { text: "Manual package"; color: Theme.ink; font-size: 14px; font-weight: 700; }
+            LineEdit { placeholder-text: "Optional package export path"; text <=> root.package-path; }
+            HorizontalLayout {
+                spacing: 8px;
+                Button {
+                    text: "Prepare chat package";
+                    variant: "primary";
+                    enabled: root.has-session;
+                    clicked => { root.command(root.provider, "package", root.package-path); }
+                }
+                Button {
+                    text: "Prepare ZIP package";
+                    enabled: root.has-session;
+                    clicked => { root.command(root.provider, "zip-package", root.package-path); }
+                }
+                Button {
+                    text: "Prepare local package";
+                    enabled: root.has-session;
+                    clicked => { root.command(root.provider, "local-package", root.package-path); }
+                }
+            }
+
+            Rectangle { height: 1px; background: Theme.line; }
+
+            Text { text: "Run with a provider"; color: Theme.ink; font-size: 14px; font-weight: 700; }
+            HorizontalLayout {
+                spacing: 8px;
+                LineEdit { placeholder-text: "Package job ID"; text <=> root.package-job-id; }
+                LineEdit { placeholder-text: "API key environment variable"; text <=> root.api-key-environment; }
+                Button {
+                    text: "Preview / run locally";
+                    enabled: root.has-session;
+                    clicked => { root.command(root.provider, "generate", ""); }
+                }
+            }
+            LineEdit { placeholder-text: "Review the request, then paste its exact body SHA-256 here"; text <=> root.confirmation-hash; }
+            HorizontalLayout {
+                spacing: 8px;
+                Button {
+                    text: "Confirm outbound request";
+                    enabled: root.has-session && root.confirmation-hash != "";
+                    clicked => { root.command(root.provider, "confirm-send", ""); }
+                }
+                LineEdit { placeholder-text: "External response JSON file path"; text <=> root.response-path; }
+                Button {
+                    text: "Import response";
+                    enabled: root.has-session && root.response-path != "";
+                    clicked => { root.command(root.provider, "import", root.response-path); }
+                }
+            }
+            ScrollText { height: 180px; text: root.output; text-color: Theme.body; }
+        }
+    }
+}
