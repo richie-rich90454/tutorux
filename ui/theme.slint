@@ -9,64 +9,82 @@ export global Theme {
     // "light" | "dark". MainWindow writes this from its theme-mode property.
     in-out property <string> mode: "light";
 
-    // Surfaces
-    out property <color> canvas: Theme.mode == "dark" ? #0f1115 : #f2f4f8;
+    // Surfaces. The product surface is white; secondary fills are reserved for
+    // transient hover states and inset controls.
+    out property <color> canvas: Theme.mode == "dark" ? #0f1115 : #ffffff;
     out property <color> surface: Theme.mode == "dark" ? #16181d : #ffffff;
     out property <color> surface-inset: Theme.mode == "dark" ? #111318 : #f7f9fc;
-    out property <color> surface-hover: Theme.mode == "dark" ? #1d2026 : #f6f8fb;
+    out property <color> surface-hover: Theme.mode == "dark" ? #1d2026 : #f3f6fc;
 
     // Text
-    out property <color> ink: Theme.mode == "dark" ? #eef1f6 : #101828;
-    out property <color> muted: Theme.mode == "dark" ? #a7b0bd : #5f6b7c;
-    out property <color> faint: Theme.mode == "dark" ? #8b94a3 : #98a2b3;
+    out property <color> ink: Theme.mode == "dark" ? #f2f4f8 : #000000;
+    out property <color> body: Theme.mode == "dark" ? #d5dbe5 : #26313f;
+    out property <color> muted: Theme.mode == "dark" ? #a7b0bd : #626d7e;
+    out property <color> faint: Theme.mode == "dark" ? #8b94a3 : #8590a0;
 
     // Hairlines
-    out property <color> line: Theme.mode == "dark" ? #262a32 : #e3e7ee;
-    out property <color> line-strong: Theme.mode == "dark" ? #363b45 : #cfd6e0;
+    out property <color> line: Theme.mode == "dark" ? #262a32 : #dfe4ed;
+    out property <color> line-subtle: Theme.mode == "dark" ? #1d202674 : #eef1f5;
+    out property <color> line-strong: Theme.mode == "dark" ? #363b45 : #c9d1de;
 
-    // Accent (strict palette: white / black / blue / red)
-    out property <color> accent: #1e40ff;
-    out property <color> accent-hover: Theme.mode == "dark" ? #2b4bff : #1b39e6;
-    out property <color> accent-press: Theme.mode == "dark" ? #1c38e0 : #1732cc;
-    out property <color> accent-soft: Theme.mode == "dark" ? #1c2440 : #edf1ff;
-    out property <color> accent-bright: #8f9dff;
+    // Accent (white / black / blue / red only)
+    out property <color> accent: #2554c7;
+    out property <color> accent-hover: Theme.mode == "dark" ? #3d67d8 : #1f48b0;
+    out property <color> accent-press: Theme.mode == "dark" ? #2f55c0 : #1a3c93;
+    out property <color> accent-soft: Theme.mode == "dark" ? #1c2440 : #eef3ff;
+    out property <color> accent-bright: #78a1ff;
     // Accent used as text on surfaces; lightened on dark to keep AA contrast.
-    out property <color> accent-text: Theme.mode == "dark" ? #6b7cff : #1e40ff;
+    out property <color> accent-text: Theme.mode == "dark" ? #8eabff : #2554c7;
     // Focus halo; opaque enough to stay visible against dark surfaces.
-    out property <color> focus-ring: Theme.mode == "dark" ? #6b7cffcc : Theme.accent.with-alpha(0.4);
+    out property <color> focus-ring: Theme.mode == "dark" ? #78a1ffcc : Theme.accent.with-alpha(0.4);
 
-    // Semantic (red family for errors; positives use the blue accent)
-    out property <color> danger: Theme.mode == "dark" ? #f97066 : #d92d20;
-    out property <color> danger-soft: Theme.mode == "dark" ? #2c1614 : #fef3f2;
-    out property <color> danger-soft-hover: Theme.mode == "dark" ? #3b1c18 : #fee4e2;
-    out property <color> danger-line: Theme.mode == "dark" ? #7a2f28 : #fda29b;
-    out property <color> success: #1e40ff;
-    out property <color> warning: Theme.mode == "dark" ? #f97066 : #b42318;
+    // Semantic
+    out property <color> danger: Theme.mode == "dark" ? #f97066 : #bc303b;
+    out property <color> danger-soft: Theme.mode == "dark" ? #2c1614 : #fdf1f2;
+    out property <color> danger-soft-hover: Theme.mode == "dark" ? #3b1c18 : #fbe4e6;
+    out property <color> danger-line: Theme.mode == "dark" ? #7a2f28 : #e8a6ac;
+    out property <color> success: Theme.mode == "dark" ? #57c99a : #21845c;
+    out property <color> warning: Theme.mode == "dark" ? #e0a44a : #a86810;
+    out property <color> recording: #e34a52;
 
-    // Sidebar (black family; nearly identical in both modes)
-    out property <color> sidebar: Theme.mode == "dark" ? #0a0c0f : #0e1013;
-    out property <color> sidebar-hover: #171a20;
-    out property <color> sidebar-active: Theme.mode == "dark" ? #1a1f27 : #1e232c;
-    out property <color> sidebar-line: #23272f;
-    out property <color> sidebar-card: #14171c;
-    out property <color> sidebar-ink: #f2f4f8;
-    out property <color> sidebar-muted: #9aa1ad;
-    out property <color> sidebar-faint: #6b7280;
+    // Navigator
+    out property <color> sidebar: Theme.mode == "dark" ? #0f1115 : #ffffff;
+    out property <color> sidebar-hover: Theme.mode == "dark" ? #1a1d23 : #f3f6fc;
+    out property <color> sidebar-active: Theme.mode == "dark" ? #1c2440 : #eef3ff;
+    out property <color> sidebar-line: Theme.mode == "dark" ? #262a32 : #dfe4ed;
+    out property <color> sidebar-card: Theme.mode == "dark" ? #16181d : #ffffff;
+    out property <color> sidebar-ink: Theme.mode == "dark" ? #f2f4f8 : #000000;
+    out property <color> sidebar-muted: Theme.mode == "dark" ? #a7b0bd : #626d7e;
+    out property <color> sidebar-faint: Theme.mode == "dark" ? #8b94a3 : #8590a0;
+
+    // Recording transport: intentionally black in both modes.
+    out property <color> transport: #000000;
+    out property <color> transport-text: #ffffff;
+    out property <color> transport-muted: #a7b0bd;
+    out property <color> transport-wave: #78a1ff;
+    out property <color> transport-quiet: #5b6779;
+    out property <color> transport-line: #2a2f38;
 
     // Command console: intentionally dark in both modes.
     out property <color> console-bg: Theme.mode == "dark" ? #0b0e14 : #0e1626;
     out property <color> console-line: Theme.mode == "dark" ? #242c3a : #1e2b47;
     out property <color> console-ink: Theme.mode == "dark" ? #cfd9ec : #c7d4ea;
 
-    // Scrollbars
-    out property <color> scrollbar: Theme.mode == "dark" ? #3a3f4a : #c6ccd6;
-    out property <color> scrollbar-hover: Theme.mode == "dark" ? #565c68 : #98a2b3;
+    // Scrollbars. Kept visible against white surfaces.
+    out property <color> scrollbar: Theme.mode == "dark" ? #3a3f4a : #d2d8e2;
+    out property <color> scrollbar-hover: Theme.mode == "dark" ? #565c68 : #aeb7c5;
 
-    // Geometry (5 px radius standard)
+    // Geometry (exactly 5 px on every rounded surface)
     out property <length> radius-card: 5px;
     out property <length> radius-input: 5px;
     out property <length> radius-pill: 5px;
     out property <length> control-height: 36px;
+    out property <length> navigator-width: 264px;
+    out property <length> inspector-width: 284px;
+    out property <length> toolbar-height: 62px;
+    out property <length> tab-height: 52px;
+    out property <length> transport-height: 105px;
+    out property <length> page-max-width: 819px;
 }
 
 // Accent halo drawn on the focused control.
@@ -85,7 +103,7 @@ export component Button inherits Rectangle {
     in property <string> text;
     // "primary" | "secondary" | "ghost" | "danger"
     in property <string> variant: "secondary";
-    in property <bool> enabled <=> i-touch-area.enabled;
+    in property <bool> enabled: true;
     out property <bool> has-focus: i-focus-scope.has-focus;
     out property <bool> pressed: self.enabled && i-touch-area.pressed;
 
@@ -131,7 +149,7 @@ export component Button inherits Rectangle {
     }
 
     min-width: max(60px, i-layout.min-width);
-    min-height: max(Theme.control-height, i-layout.min-height);
+    min-height: max(34px, i-layout.min-height);
     horizontal-stretch: 0;
     vertical-stretch: 0;
     forward-focus: i-focus-scope;
@@ -163,11 +181,7 @@ export component Button inherits Rectangle {
         border-color: root.variant == "primary" ? transparent :
                       root.variant == "danger" ? Theme.danger-line : Theme.line;
 
-        drop-shadow-color: #10182812;
-        drop-shadow-blur: 6px;
-        drop-shadow-offset-y: 1px;
-
-        animate background, border-color { duration: 120ms; }
+        animate background, border-color { duration: 90ms; }
 
         i-layout := HorizontalLayout {
             padding-left: 14px;
@@ -181,10 +195,11 @@ export component Button inherits Rectangle {
                 vertical-alignment: center;
                 text: root.text;
                 color: root.label-color();
+                font-size: 13px;
                 font-weight: 550;
                 overflow: elide;
                 accessible-role: none;
-                animate color { duration: 120ms; }
+                animate color { duration: 90ms; }
             }
         }
     }
@@ -221,7 +236,11 @@ export component LineEdit inherits Rectangle {
     callback accepted(text: string);
     callback edited(text: string);
 
-    min-width: 120px;
+    public function focus-input() {
+        input.focus();
+    }
+
+    min-width: 90px;
     min-height: max(Theme.control-height, input.preferred-height);
     horizontal-stretch: 1;
     vertical-stretch: 0;
@@ -408,7 +427,7 @@ export component CheckBox inherits Rectangle {
 component ScrollBar inherits Rectangle {
     in property <ScrollBarPolicy> policy: ScrollBarPolicy.as-needed;
     in property <bool> horizontal: false;
-    in property <bool> enabled <=> i-touch-area.enabled;
+    in property <bool> enabled: true;
     in-out property <length> maximum;
     in-out property <length> page-size;
     in-out property <length> value;
@@ -635,7 +654,7 @@ export component ComboBox inherits Rectangle {
     // correctly even when its index is unknown.
     changed model => { root.reset-current(); }
 
-    min-width: 160px;
+    min-width: 110px;
     min-height: max(Theme.control-height, i-layout.min-height);
     horizontal-stretch: 1;
     vertical-stretch: 0;
@@ -816,7 +835,7 @@ export component NavItem inherits Rectangle {
     in property <string> text;
     in property <image> icon;
     in property <bool> selected: false;
-    in property <bool> enabled <=> i-touch-area.enabled;
+    in property <bool> enabled: true;
 
     callback clicked;
 
@@ -904,3 +923,128 @@ export component NavItem inherits Rectangle {
     }
 }
 
+
+// Square icon action used in the navigator and toolbar. 34 px hit area with a
+// 16-18 px glyph; the accessible label is mandatory.
+export component IconButton inherits Rectangle {
+    in property <image> icon;
+    in property <string> label;
+    in property <bool> enabled: true;
+    in property <bool> selected: false;
+    out property <bool> has-focus: i-focus-scope.has-focus;
+
+    callback clicked;
+
+    width: 34px;
+    height: 34px;
+    border-radius: 5px;
+    background: root.selected ? Theme.accent-soft :
+                i-touch-area.has-hover && root.enabled ? Theme.surface-hover : transparent;
+    forward-focus: i-focus-scope;
+
+    accessible-role: button;
+    accessible-enabled: root.enabled;
+    accessible-label: root.label;
+    accessible-action-default => { i-touch-area.clicked(); }
+
+    i-glyph := Image {
+        width: 16px;
+        height: 16px;
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        source: root.icon;
+        colorize: root.enabled ? (root.selected ? Theme.accent : Theme.muted) : Theme.faint;
+        accessible-role: none;
+    }
+
+    i-touch-area := TouchArea {
+        enabled: root.enabled;
+        clicked => { root.clicked(); }
+    }
+
+    i-focus-scope := FocusScope {
+        x: 0;
+        width: 0;
+        enabled <=> root.enabled;
+        key-pressed(event) => {
+            if (event.text == Key.Space || event.text == Key.Return) {
+                i-touch-area.clicked();
+                accept
+            } else {
+                reject
+            }
+        }
+    }
+
+    if i-focus-scope.has-focus && root.enabled : FocusRing { radius: 5px; }
+}
+
+// Text tab with a 2 px active underline. Used for navigator scopes and
+// document tabs; never rendered as a pill or card.
+export component TabButton inherits Rectangle {
+    in property <string> text;
+    in property <bool> selected: false;
+    in property <bool> enabled: true;
+    in property <length> font-size: 13px;
+    in property <int> font-weight: 500;
+
+
+    callback clicked;
+
+    height: 100%;
+    min-width: 58px;
+    background: transparent;
+    forward-focus: i-focus-scope;
+
+    accessible-role: tab;
+    accessible-enabled: root.enabled;
+    accessible-label: root.text;
+    accessible-checked: root.selected;
+    accessible-action-default => { i-touch-area.clicked(); }
+
+    i-label := Text {
+        x: 2px;
+        width: parent.width - 4px;
+        height: parent.height - 2px;
+        vertical-alignment: center;
+        horizontal-alignment: center;
+        text: root.text;
+        color: root.enabled ? (root.selected ? Theme.ink : Theme.muted) : Theme.faint;
+        font-size: root.font-size;
+        font-weight: root.selected ? 700 : root.font-weight;
+        overflow: elide;
+        accessible-role: none;
+    }
+
+    i-rule := Rectangle {
+        visible: root.selected;
+        x: (parent.width - self.width) / 2;
+        y: parent.height - 2px;
+        width: parent.width;
+        height: 2px;
+        background: Theme.accent;
+        border-radius: 0px;
+        accessible-role: none;
+    }
+
+    i-touch-area := TouchArea {
+        enabled: root.enabled;
+        clicked => { root.clicked(); }
+    }
+
+    i-focus-scope := FocusScope {
+        x: 0;
+        width: 0;
+        enabled <=> root.enabled;
+        key-pressed(event) => {
+            if (event.text == Key.Space || event.text == Key.Return) {
+                i-touch-area.clicked();
+                accept
+            } else {
+                reject
+            }
+        }
+    }
+
+    if i-focus-scope.has-focus && root.enabled : FocusRing { radius: 2px; }
+}
