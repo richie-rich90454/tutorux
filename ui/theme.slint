@@ -148,8 +148,8 @@ export component Button inherits Rectangle {
         return Theme.ink;
     }
 
-    min-width: max(60px, i-layout.min-width);
-    min-height: max(34px, i-layout.min-height);
+    width: max(60px, i-layout.preferred-width);
+    height: max(34px, i-layout.preferred-height);
     horizontal-stretch: 0;
     vertical-stretch: 0;
     forward-focus: i-focus-scope;
@@ -533,8 +533,6 @@ export component ScrollArea inherits Rectangle {
     min-width: 50px;
     horizontal-stretch: 1;
     vertical-stretch: 1;
-    preferred-height: 100%;
-    preferred-width: 100%;
 
     flick := Flickable {
         mouse-drag-pan-enabled: false;
@@ -993,6 +991,7 @@ export component TabButton inherits Rectangle {
 
     height: 100%;
     min-width: 58px;
+    horizontal-stretch: 0;
     background: transparent;
     forward-focus: i-focus-scope;
 
@@ -1002,18 +1001,21 @@ export component TabButton inherits Rectangle {
     accessible-checked: root.selected;
     accessible-action-default => { i-touch-area.clicked(); }
 
-    i-label := Text {
-        x: 2px;
-        width: parent.width - 4px;
+    i-layout := HorizontalLayout {
+        padding-left: 2px;
+        padding-right: 2px;
         height: parent.height - 2px;
-        vertical-alignment: center;
-        horizontal-alignment: center;
-        text: root.text;
-        color: root.enabled ? (root.selected ? Theme.ink : Theme.muted) : Theme.faint;
-        font-size: root.font-size;
-        font-weight: root.selected ? 700 : root.font-weight;
-        overflow: elide;
-        accessible-role: none;
+
+        i-label := Text {
+            vertical-alignment: center;
+            horizontal-alignment: center;
+            text: root.text;
+            color: root.enabled ? (root.selected ? Theme.ink : Theme.muted) : Theme.faint;
+            font-size: root.font-size;
+            font-weight: root.selected ? 700 : root.font-weight;
+            overflow: elide;
+            accessible-role: none;
+        }
     }
 
     i-rule := Rectangle {
