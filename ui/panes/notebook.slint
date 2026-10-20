@@ -1,0 +1,279 @@
+// Notebook: structured note blocks with inline editing and truthful save state.
+import { Button, ComboBox, LineEdit, ScrollArea, Theme } from "../theme.slint";
+import { NoteRow } from "../models.slint";
+
+export component Notebook inherits Rectangle {
+    in property <[NoteRow]> rows: [];
+    in property <string> document-id;
+    in-out property <string> selected-block;
+    in-out property <string> block-text;
+    in-out property <string> block-kind: "Paragraph";
+    in property <bool> inline-format-enabled: false;
+    in property <bool> writable: true;
+    in-out property <string> save-state: "saved";
+    in-out property <string> new-block-text;
+
+    // action: save | remove | add | format
+    callback action(string, string);
+
+    background: Theme.surface;
+    property <bool> composer-open: false;
+
+    save-timer := Timer {
+        interval: 900ms;
+        running: false;
+        triggered() => {
+            if (root.selected-block != "" && root.document-id != "" &&
+                    root.block-text != "" && root.writable) {
+                root.save-state = "saving";
+                root.action("save", "");
+            }
+        }
+    }
+
+    ScrollArea {
+        width: 100%;
+        height: 100%;
+        content-width: self.visible-width;
+        content-height: max(self.visible-height, page.preferred-height);
+        vertical-scrollbar-policy: as-needed;
+
+        page := VerticalLayout {
+            x: max(0px, (parent.visible-width - self.width) / 2);
+            width: min(parent.visible-width, 867px);
+            padding-left: 48px;
+            padding-right: 48px;
+            padding-top: 26px;
+            padding-bottom: 64px;
+            spacing: 0px;
+
+            HorizontalLayout {
+                spacing: 12px;
+                Text {
+                    text: "Working notebook";
+                    color: Theme.ink;
+                    font-size: 12.5px;
+                    font-weight: 700;
+                    vertical-alignment: center;
+                }
+                Rectangle { }
+                HorizontalLayout {
+                    spacing: 6px;
+                    Rectangle {
+                        width: 6px;
+                        height: 6px;
+                        y: (parent.height - self.height) / 2;
+                        border-radius: 3px;
+                        background: root.save-state == "failed" ? Theme.danger :
+                                    root.save-state == "saving" ? Theme.warning : Theme.success;
+                    }
+                    Text {
+                        text: root.save-state == "failed" ? "Save failed — Retry" :
+                              root.save-state == "saving" ? "Saving…" :
+                              root.save-state == "unsaved" ? "Not saved" :
+                              root.writable ? "Saved to archive" : "Archive read-only";
+                        color: root.save-state == "failed" ? Theme.danger : Theme.muted;
+                        font-size: 11.5px;
+                        vertical-alignment: center;
+                    }
+                }
+            }
+
+            Rectangle { height: 12px; }
+            Rectangle { height: 1px; background: Theme.line; }
+            Rectangle { height: 22px; }
+
+            if root.rows.length == 0 : VerticalLayout {
+                spacing: 10px;
+                Text {
+                    text: "Start writing.";
+                    color: Theme.ink;
+                    font-size: 24px;
+                    font-weight: 700;
+                }
+                Text {
+                    text: "Add the first note block to this session. Notes are stored in the portable archive as structured blocks.";
+                    color: Theme.body;
+                    font-size: 14px;
+                    line-height-factor: 1.45;
+                    wrap: word-wrap;
+                }
+                HorizontalLayout {
+                    spacing: 10px;
+                    Button {
+                        text: "Add note block";
+                        variant: "primary";
+                        enabled: root.writable;
+                        clicked => { root.composer-open = true; }
+                    }
+                }
+            }
+
+            for note[i] in root.rows : Rectangle {
+                width: parent.width;
+                height: self.preferred-height + 14px;
+                background: root.selected-block == note.choice ? Theme.surface-hover : transparent;
+                border-radius: 5px;
+
+                VerticalLayout {
+                    x: 10px;
+                    width: parent.width - 20px;
+                    padding-top: 7px;
+                    padding-bottom: 7px;
+                    spacing: 4px;
+
+                    if root.selected-block == note.choice : TextInput {
+                        text <=> root.block-text;
+                        single-line: false;
+                        wrap: word-wrap;
+                        font-size: note.kind == "Heading" ? 24px : 14px;
+                        font-weight: note.kind == "Heading" ? 700 : 400;
+                        color: Theme.ink;
+                        height: max(28px, self.preferred-height);
+                        edited => {
+                            root.block-text = self.text;
+                            root.save-state = "unsaved";
+                            save-timer.restart();
+                        }
+                    }
+                    if root.selected-block != note.choice : Text {
+                        text: note.text;
+                        color: note.kind == "Quote" ? Theme.muted : Theme.body;
+                        font-size: note.kind == "Heading" ? 24px : 14px;
+                        font-weight: note.kind == "Heading" ? 700 : 400;
+                        line-height-factor: note.kind == "Heading" ? 1.45 : 1.32;
+                        wrap: word-wrap;
+                    }
+                }
+
+                TouchArea {
+                    clicked => { root.selected-block = note.choice; }
+                }
+            }
+
+            Rectangle { height: 24px; }
+            Rectangle { height: 1px; background: Theme.line; }
+            Rectangle { height: 16px; }
+
+            HorizontalLayout {
+                spacing: 8px;
+
+                Button {
+                    text: root.composer-open ? "Close composer" : "Add note";
+                    enabled: root.writable;
+                    clicked => { root.composer-open = !root.composer-open; }
+                }
+
+                if root.selected-block != "" : Button {
+                    text: "Save block";
+                    variant: "primary";
+                    enabled: root.writable;
+                    clicked => {
+                        root.save-state = "saving";
+                        root.action("save", "");
+                    }
+                }
+
+                if root.selected-block != "" : ComboBox {
+                    model: ["Paragraph", "Heading", "Bulleted list",
+                            "Numbered list", "Checklist", "Quote", "Code"];
+                    current-value <=> root.block-kind;
+                    width: 150px;
+                    horizontal-stretch: 0;
+                }
+
+                Rectangle { }
+            }
+
+            if root.selected-block != "" : HorizontalLayout {
+                spacing: 4px;
+                padding-top: 8px;
+                Text {
+                    text: "Format";
+                    color: Theme.faint;
+                    font-size: 11px;
+                    vertical-alignment: center;
+                }
+                Button {
+                    text: "Bold";
+                    variant: "ghost";
+                    enabled: root.inline-format-enabled;
+                    clicked => { root.action("format", "bold"); }
+                }
+                Button {
+                    text: "Italic";
+                    variant: "ghost";
+                    enabled: root.inline-format-enabled;
+                    clicked => { root.action("format", "italic"); }
+                }
+                Button {
+                    text: "Strike";
+                    variant: "ghost";
+                    enabled: root.inline-format-enabled;
+                    clicked => { root.action("format", "strike"); }
+                }
+                Button {
+                    text: "Code";
+                    variant: "ghost";
+                    enabled: root.inline-format-enabled;
+                    clicked => { root.action("format", "code"); }
+                }
+                Button {
+                    text: "Link";
+                    variant: "ghost";
+                    enabled: root.inline-format-enabled;
+                    clicked => { root.action("format", "link"); }
+                }
+                Rectangle { }
+                Button {
+                    text: "Remove";
+                    variant: "ghost";
+                    enabled: root.writable;
+                    clicked => { root.action("remove", ""); }
+                }
+            }
+
+            if root.composer-open : Rectangle {
+                border-width: 1px;
+                border-color: Theme.line;
+                border-radius: 5px;
+                background: Theme.surface;
+                VerticalLayout {
+                    padding: 14px;
+                    spacing: 9px;
+                    Text { text: "New note block"; color: Theme.ink; font-size: 13px; font-weight: 700; }
+                    LineEdit {
+                        placeholder-text: "Write the note…";
+                        text <=> root.new-block-text;
+                    }
+                    HorizontalLayout {
+                        spacing: 8px;
+                        ComboBox {
+                            model: ["Paragraph", "Heading", "Bulleted list",
+                                    "Numbered list", "Checklist", "Quote", "Code"];
+                            current-value <=> root.block-kind;
+                            width: 150px;
+                            horizontal-stretch: 0;
+                        }
+                        Button {
+                            text: "Add block";
+                            variant: "primary";
+                            enabled: root.document-id != "" && root.new-block-text != "" && root.writable;
+                            clicked => {
+                                root.save-state = "saving";
+                                root.action("add", "");
+                                root.composer-open = false;
+                            }
+                        }
+                        Rectangle { }
+                        Button {
+                            text: "Cancel";
+                            variant: "ghost";
+                            clicked => { root.composer-open = false; }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
