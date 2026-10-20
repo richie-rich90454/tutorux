@@ -29,8 +29,8 @@ single-file executable. From a fresh clone:
 
 ```powershell
 cmake --preset dev
-cmake --build build
-build/tutorux.exe
+cmake --build build/dev
+build/dev/tutorux.exe
 ```
 
 ```powershell
@@ -126,7 +126,7 @@ model explicitly with `model select --provider llama.cpp-embedded --model MODEL_
 see [`docs/ai/EMBEDDED-LLAMA.md`](docs/ai/EMBEDDED-LLAMA.md) for memory, CPU, and accelerator settings.
 
     cmake --preset dev
-    cmake --build build
+    cmake --build build/dev
 
 The current build includes the archive engine, student/session records, transcript import (plain
 text, SubRip, and WebVTT) and revision editing, tutor annotations, content-addressed assets, evidence
