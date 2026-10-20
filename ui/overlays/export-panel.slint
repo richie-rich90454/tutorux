@@ -1,0 +1,85 @@
+// Export: only implemented formats and destinations.
+import { Button, ComboBox, LineEdit, Theme } from "../theme.slint";
+import { PanelShell } from "./panel-shell.slint";
+
+export component ExportPanel inherits Rectangle {
+    in property <[string]> guide-options: [];
+    in property <bool> has-session: false;
+    in-out property <string> selected-guide;
+    in-out property <string> guide-format: "markdown";
+    in-out property <string> guide-path;
+    in-out property <string> wav-path;
+    in-out property <string> wav-track;
+
+    callback close();
+    callback export-guide(string, string, string);
+    callback export-wav(string);
+
+    width: 100%;
+    height: 100%;
+    background: transparent;
+
+    PanelShell {
+        available-width: root.width;
+        available-height: root.height;
+        heading: "Export";
+        detail: "Only implemented formats are shown";
+        close => { root.close(); }
+
+        VerticalLayout {
+            spacing: 14px;
+
+            Text { text: "Study guide"; color: Theme.ink; font-size: 15px; font-weight: 700; }
+            Text {
+                text: "Export the selected guide using a format the guide exporter implements.";
+                color: Theme.muted;
+                font-size: 12px;
+                wrap: word-wrap;
+            }
+            HorizontalLayout {
+                spacing: 8px;
+                VerticalLayout {
+                    horizontal-stretch: 1;
+                    spacing: 5px;
+                    Text { text: "Guide"; color: Theme.faint; font-size: 11px; font-weight: 600; }
+                    ComboBox { model: root.guide-options; current-value <=> root.selected-guide; }
+                }
+                VerticalLayout {
+                    width: 150px;
+                    spacing: 5px;
+                    Text { text: "Format"; color: Theme.faint; font-size: 11px; font-weight: 600; }
+                    ComboBox {
+                        model: ["markdown", "html", "pdf", "docx"];
+                        current-value <=> root.guide-format;
+                    }
+                }
+            }
+            LineEdit { placeholder-text: "Export file path"; text <=> root.guide-path; }
+            HorizontalLayout {
+                spacing: 8px;
+                Button {
+                    text: "Export guide";
+                    variant: "primary";
+                    enabled: root.selected-guide != "" && root.guide-path != "";
+                    clicked => { root.export-guide(root.selected-guide, root.guide-format, root.guide-path); }
+                }
+                Rectangle { }
+            }
+
+            Rectangle { height: 1px; background: Theme.line; }
+
+            Text { text: "Session audio"; color: Theme.ink; font-size: 15px; font-weight: 700; }
+            LineEdit { placeholder-text: "WAV export path"; text <=> root.wav-path; }
+            LineEdit { placeholder-text: "Track ID (optional)"; text <=> root.wav-track; }
+            HorizontalLayout {
+                spacing: 8px;
+                Button {
+                    text: "Export WAV";
+                    enabled: root.has-session && root.wav-path != "";
+                    clicked => { root.export-wav(root.wav-path); }
+                }
+                Rectangle { }
+            }
+        }
+    }
+}
