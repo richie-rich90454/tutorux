@@ -23,36 +23,42 @@ export component SessionHeader inherits Rectangle {
         padding-top: 28px;
         spacing: 0px;
 
-        HorizontalLayout {
-            spacing: 10px;
+        VerticalLayout {
+            spacing: 2px;
 
-            VerticalLayout {
-                horizontal-stretch: 1;
-                spacing: 2px;
-
-                if root.editing : TextInput {
-                    text <=> root.draft;
-                    font-size: 30px;
-                    font-weight: 700;
-                    color: Theme.ink;
-                    height: 40px;
-                    vertical-alignment: center;
-                    accepted => {
-                        root.rename(root.draft);
+            if root.editing : TextInput {
+                text <=> root.draft;
+                font-size: 30px;
+                font-weight: 700;
+                color: Theme.ink;
+                height: 40px;
+                vertical-alignment: center;
+                accepted => {
+                    root.rename(root.draft);
+                    root.editing = false;
+                }
+                key-pressed(event) => {
+                    if (event.text == Key.Escape) {
                         root.editing = false;
-                    }
-                    key-pressed(event) => {
-                        if (event.text == Key.Escape) {
-                            root.editing = false;
-                            root.draft = root.title;
-                            accept
-                        } else {
-                            reject
-                        }
+                        root.draft = root.title;
+                        accept
+                    } else {
+                        reject
                     }
                 }
+            }
 
-                if !root.editing : Text {
+            if !root.editing : Rectangle {
+                width: 100%;
+                height: 44px;
+                background: edit-touch.has-hover ? Theme.surface-hover : transparent;
+                border-radius: 5px;
+
+                Text {
+                    x: 4px;
+                    width: parent.width - 8px;
+                    height: 40px;
+                    vertical-alignment: center;
                     text: root.title;
                     color: Theme.ink;
                     font-size: 30px;
@@ -61,76 +67,58 @@ export component SessionHeader inherits Rectangle {
                     overflow: elide;
                 }
 
-                HorizontalLayout {
-                    spacing: 8px;
-                    height: 20px;
-                    Text {
-                        text: root.student == "" ? "No student assigned" : root.student;
-                        color: Theme.muted;
-                        font-size: 12px;
-                        vertical-alignment: center;
-                    }
-                    Text { text: "·"; color: Theme.faint; font-size: 12px; }
-                    Text {
-                        text: root.started == "" ? "Not started" : root.started;
-                        color: Theme.muted;
-                        font-size: 12px;
-                        vertical-alignment: center;
-                    }
-                    if root.recording-state == "recording" : Rectangle {
-                        width: 6px;
-                        height: 6px;
-                        y: (parent.height - self.height) / 2;
-                        border-radius: 3px;
-                        background: Theme.recording;
-                    }
-                    if root.recording-state == "recording" : Text {
-                        text: "Recording now";
-                        color: Theme.ink;
-                        font-size: 12px;
-                        font-weight: 600;
-                        vertical-alignment: center;
-                    }
-                    if root.recording-state == "paused" : Text {
-                        text: "Recording paused";
-                        color: Theme.muted;
-                        font-size: 12px;
-                        vertical-alignment: center;
-                    }
-                    if root.recording-state != "recording" && root.recording-state != "paused" : Text {
-                        text: root.state;
-                        color: Theme.muted;
-                        font-size: 12px;
-                        vertical-alignment: center;
-                    }
-                }
-            }
-
-            Rectangle { }
-
-            if !root.editing : Rectangle {
-                width: 64px;
-                height: 34px;
-                border-radius: 5px;
-                background: edit-touch.has-hover ? Theme.surface-hover : transparent;
-
-                Text {
-                    width: 100%;
-                    height: 100%;
-                    horizontal-alignment: center;
-                    vertical-alignment: center;
-                    text: "Edit";
-                    color: Theme.accent;
-                    font-size: 12.5px;
-                    font-weight: 600;
-                }
-
                 edit-touch := TouchArea {
                     clicked => {
                         root.draft = root.title;
                         root.editing = true;
                     }
                 }
+            }
+
+            HorizontalLayout {
+                spacing: 8px;
+                height: 20px;
+                alignment: start;
+                Text {
+                    text: root.student == "" ? "No student assigned" : root.student;
+                    color: Theme.muted;
+                    font-size: 12px;
+                    vertical-alignment: center;
+                }
+                Text { text: "·"; color: Theme.faint; font-size: 12px; }
+                Text {
+                    text: root.started == "" ? "Not started" : root.started;
+                    color: Theme.muted;
+                    font-size: 12px;
+                    vertical-alignment: center;
+                }
+                if root.recording-state == "recording" : Rectangle {
+                    width: 6px;
+                    height: 6px;
+                    y: (parent.height - self.height) / 2;
+                    border-radius: 3px;
+                    background: Theme.recording;
+                }
+                if root.recording-state == "recording" : Text {
+                    text: "Recording now";
+                    color: Theme.ink;
+                    font-size: 12px;
+                    font-weight: 600;
+                    vertical-alignment: center;
+                }
+                if root.recording-state == "paused" : Text {
+                    text: "Recording paused";
+                    color: Theme.muted;
+                    font-size: 12px;
+                    vertical-alignment: center;
+                }
+                if root.recording-state != "recording" && root.recording-state != "paused" : Text {
+                    text: root.state;
+                    color: Theme.muted;
+                    font-size: 12px;
+                    vertical-alignment: center;
+                }
+                Rectangle { }
             }
         }
 
@@ -148,6 +136,7 @@ export component SessionHeader inherits Rectangle {
 
             HorizontalLayout {
                 spacing: 28px;
+                alignment: start;
                 TabButton {
                     text: "Notebook";
                     selected: root.tab == "notebook";
