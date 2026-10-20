@@ -6,9 +6,10 @@ export component PanelShell inherits Rectangle {
     in property <string> detail;
     in property <length> available-width: 1024px;
     in property <length> available-height: 768px;
+    in property <length> sheet-width: 780px;
     callback close;
 
-    width: min(780px, root.available-width - 64px);
+    width: min(root.sheet-width, root.available-width - 64px);
     height: min(700px, root.available-height - 64px);
     x: (root.available-width - self.width) / 2;
     y: (root.available-height - self.height) / 2;
