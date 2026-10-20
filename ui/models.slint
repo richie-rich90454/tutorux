@@ -1,0 +1,40 @@
+// Shared row models for the navigator and workbench panes.
+// The C++ controller fills these arrays; the UI never invents rows.
+
+export struct SessionRow {
+    id: string,
+    choice: string,
+    title: string,
+    meta: string,
+    group: string,
+    group-start: bool,
+    state: string,
+}
+
+export struct StudentRow {
+    id: string,
+    choice: string,
+    title: string,
+    meta: string,
+}
+
+export struct MaterialRow {
+    id: string,
+    choice: string,
+    title: string,
+    meta: string,
+}
+
+export struct NoteRow {
+    id: string,
+    choice: string,
+    kind: string,
+    text: string,
+}
+
+export struct MarkerRow {
+    id: string,
+    time: string,
+    label: string,
+    start-seconds: int,
+}
