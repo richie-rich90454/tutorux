@@ -1,0 +1,64 @@
+// Materials scope: archived files for the selected session.
+import { ScrollArea, ScrollText, Theme } from "../theme.slint";
+
+export component MaterialsPage inherits Rectangle {
+    in property <string> session-title;
+    in property <string> preview-kind: "message";
+    in property <string> preview-description;
+    in property <string> preview-body;
+    in property <string> preview-waveform;
+    in property <image> preview-image;
+
+    background: Theme.surface;
+
+    ScrollArea {
+        width: 100%;
+        height: 100%;
+        content-width: self.visible-width;
+        content-height: max(self.visible-height, page.preferred-height);
+
+        page := VerticalLayout {
+            x: max(0px, (parent.visible-width - self.width) / 2);
+            width: min(parent.visible-width, 920px);
+            padding-left: 48px;
+            padding-right: 48px;
+            padding-top: 36px;
+            padding-bottom: 56px;
+            spacing: 18px;
+
+            Text { text: "Materials"; color: Theme.ink; font-size: 30px; font-weight: 700; }
+            Text {
+                text: root.session-title == "" ? "Select a session to see the files archived with it." :
+                      "Files archived with " + root.session-title + ".";
+                color: Theme.muted;
+                font-size: 12.5px;
+                wrap: word-wrap;
+            }
+            Rectangle { height: 1px; background: Theme.line; }
+            Text {
+                text: root.preview-description;
+                color: Theme.body;
+                font-size: 14px;
+                line-height-factor: 1.45;
+                wrap: word-wrap;
+            }
+            if root.preview-kind == "image" : Image {
+                source: root.preview-image;
+                width: min(parent.width, 720px);
+                height: min(parent.width * 0.62, 460px);
+                image-fit: contain;
+            }
+            if root.preview-body != "" : ScrollText {
+                height: 320px;
+                text: root.preview-body;
+                text-color: Theme.body;
+            }
+            if root.preview-waveform != "" : ScrollText {
+                height: 180px;
+                text: root.preview-waveform;
+                text-color: Theme.body;
+                font-size: 11px;
+            }
+        }
+    }
+}
