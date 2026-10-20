@@ -11,6 +11,7 @@ export component RecordingPanel inherits Rectangle {
     in property <string> command-output;
 
     in-out property <string> source: "microphone";
+    in-out property <string> durability: "default";
     in-out property <string> microphone;
     in-out property <string> playback;
     in-out property <string> application;
@@ -51,6 +52,11 @@ export component RecordingPanel inherits Rectangle {
             ComboBox {
                 model: ["microphone", "system-audio", "both", "application", "imported-file"];
                 current-value <=> root.source;
+            }
+            Text { text: "Durability"; color: Theme.faint; font-size: 11px; font-weight: 600; }
+            ComboBox {
+                model: ["default", "maximum", "reduced-write"];
+                current-value <=> root.durability;
             }
 
             HorizontalLayout {
