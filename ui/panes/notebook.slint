@@ -15,7 +15,11 @@ export component Notebook inherits Rectangle {
 
     // action: save | remove | add | format
     callback action(string, string);
+    callback open-journal-tools();
 
+    horizontal-stretch: 1;
+    vertical-stretch: 1;
+    clip: true;
     background: Theme.surface;
     property <bool> composer-open: false;
 
@@ -31,7 +35,11 @@ export component Notebook inherits Rectangle {
         }
     }
 
-    ScrollArea {
+    VerticalLayout {
+        width: 100%;
+        height: 100%;
+        padding: 0px;
+        ScrollArea {
         width: 100%;
         height: 100%;
         content-width: self.visible-width;
@@ -85,6 +93,7 @@ export component Notebook inherits Rectangle {
 
             if root.rows.length == 0 : VerticalLayout {
                 spacing: 10px;
+                vertical-stretch: 0;
                 Text {
                     text: "Start writing.";
                     color: Theme.ink;
@@ -111,11 +120,11 @@ export component Notebook inherits Rectangle {
 
             for note[i] in root.rows : Rectangle {
                 width: parent.width;
-                height: self.preferred-height + 14px;
+                height: note-layout.preferred-height + 14px;
                 background: root.selected-block == note.choice ? Theme.surface-hover : transparent;
                 border-radius: 5px;
 
-                VerticalLayout {
+                note-layout := VerticalLayout {
                     x: 10px;
                     width: parent.width - 20px;
                     padding-top: 7px;
@@ -157,11 +166,18 @@ export component Notebook inherits Rectangle {
 
             HorizontalLayout {
                 spacing: 8px;
+                vertical-stretch: 0;
+                alignment: start;
 
                 Button {
                     text: root.composer-open ? "Close composer" : "Add note";
                     enabled: root.writable;
                     clicked => { root.composer-open = !root.composer-open; }
+                }
+
+                Button {
+                    text: "Journal tools";
+                    clicked => { root.open-journal-tools(); }
                 }
 
                 if root.selected-block != "" : Button {
@@ -188,6 +204,8 @@ export component Notebook inherits Rectangle {
             if root.selected-block != "" : HorizontalLayout {
                 spacing: 4px;
                 padding-top: 8px;
+                vertical-stretch: 0;
+                alignment: start;
                 Text {
                     text: "Format";
                     color: Theme.faint;
@@ -238,6 +256,7 @@ export component Notebook inherits Rectangle {
                 border-color: Theme.line;
                 border-radius: 5px;
                 background: Theme.surface;
+                vertical-stretch: 0;
                 VerticalLayout {
                     padding: 14px;
                     spacing: 9px;
@@ -274,6 +293,14 @@ export component Notebook inherits Rectangle {
                     }
                 }
             }
+
+            // Absorb any spare viewport height so interactive rows keep their
+            // natural height instead of stretching.
+            Rectangle {
+                vertical-stretch: 1;
+                min-height: 0px;
+            }
         }
     }
+}
 }
