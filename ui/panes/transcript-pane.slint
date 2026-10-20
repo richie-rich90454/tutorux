@@ -1,0 +1,132 @@
+// Transcript tab: segment list, correction editor, and honest provenance.
+import { Button, ComboBox, ScrollArea, Theme } from "../theme.slint";
+
+export component TranscriptPane inherits Rectangle {
+    in property <[string]> options: [];
+    in property <string> provenance;
+    in property <bool> writable: true;
+    in property <bool> has-session: false;
+    in-out property <string> selected-segment;
+    in-out property <string> edit-text;
+
+    callback load-segments();
+    callback load-segment();
+    callback save();
+    callback open-console();
+
+    background: Theme.surface;
+
+    ScrollArea {
+        width: 100%;
+        height: 100%;
+        content-width: self.visible-width;
+        content-height: max(self.visible-height, page.preferred-height);
+        vertical-scrollbar-policy: as-needed;
+
+        page := VerticalLayout {
+            x: max(0px, (parent.visible-width - self.width) / 2);
+            width: min(parent.visible-width, 867px);
+            padding-left: 48px;
+            padding-right: 48px;
+            padding-top: 26px;
+            padding-bottom: 64px;
+            spacing: 14px;
+
+            HorizontalLayout {
+                spacing: 10px;
+                Text {
+                    text: "Transcript";
+                    color: Theme.ink;
+                    font-size: 12.5px;
+                    font-weight: 700;
+                    vertical-alignment: center;
+                }
+                Rectangle { }
+                Button {
+                    text: "Load segments";
+                    enabled: root.has-session;
+                    clicked => { root.load-segments(); }
+                }
+            }
+
+            Rectangle { height: 1px; background: Theme.line; }
+
+            Text {
+                text: root.provenance;
+                color: Theme.muted;
+                font-size: 12px;
+                line-height-factor: 1.4;
+                wrap: word-wrap;
+            }
+
+            if root.options.length > 0 : VerticalLayout {
+                spacing: 10px;
+                HorizontalLayout {
+                    spacing: 10px;
+                    VerticalLayout {
+                        horizontal-stretch: 1;
+                        spacing: 5px;
+                        Text { text: "Segment"; color: Theme.faint; font-size: 11px; font-weight: 600; }
+                        ComboBox {
+                            model: root.options;
+                            current-value <=> root.selected-segment;
+                        }
+                    }
+                    VerticalLayout {
+                        spacing: 5px;
+                        Text { text: " "; color: Theme.faint; font-size: 11px; }
+                        Button {
+                            text: "Load segment";
+                            enabled: root.selected-segment != "";
+                            clicked => { root.load-segment(); }
+                        }
+                    }
+                }
+
+                Text { text: "Corrected text"; color: Theme.faint; font-size: 11px; font-weight: 600; }
+                TextInput {
+                    height: 300px;
+                    single-line: false;
+                    wrap: word-wrap;
+                    text <=> root.edit-text;
+                    font-size: 14px;
+                    color: Theme.body;
+                }
+
+                HorizontalLayout {
+                    spacing: 10px;
+                    Button {
+                        text: "Save correction";
+                        variant: "primary";
+                        enabled: root.has-session && root.selected-segment != "" &&
+                                 root.edit-text != "" && root.writable;
+                        clicked => { root.save(); }
+                    }
+                    Rectangle { }
+                }
+            }
+
+            if root.options.length == 0 : VerticalLayout {
+                spacing: 10px;
+                Text {
+                    text: "No transcript segments are loaded for this session.";
+                    color: Theme.body;
+                    font-size: 14px;
+                }
+                Text {
+                    text: "Load segments after transcription, or import a transcript through the command console.";
+                    color: Theme.muted;
+                    font-size: 12px;
+                    wrap: word-wrap;
+                }
+                HorizontalLayout {
+                    spacing: 10px;
+                    Button {
+                        text: "Open command console";
+                        clicked => { root.open-console(); }
+                    }
+                }
+            }
+        }
+    }
+}
