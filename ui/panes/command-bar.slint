@@ -1,0 +1,194 @@
+// Top command bar: breadcrumb plus the small set of contextual commands.
+import { Button, Theme } from "../theme.slint";
+
+export component CommandBar inherits Rectangle {
+    in property <string> archive-path;
+    in property <string> archive-name;
+    in property <string> session-title;
+    in property <bool> inspector-open: true;
+    in-out property <bool> menu-open: false;
+
+    callback action(string);
+
+    height: Theme.toolbar-height;
+    background: Theme.surface;
+
+    Rectangle {
+        y: parent.height - 1px;
+        width: 100%;
+        height: 1px;
+        background: Theme.line;
+    }
+
+    HorizontalLayout {
+        padding-left: 20px;
+        padding-right: 18px;
+        spacing: 10px;
+
+        Image {
+            width: 17px;
+            height: 17px;
+            y: (parent.height - self.height) / 2;
+            source: @image-url("../assets/icons/archive.svg");
+            colorize: Theme.muted;
+            accessible-role: none;
+        }
+
+        Text {
+            text: root.archive-path == "" ? "No archive open" :
+                  root.session-title != "" ? root.archive-name + "  /  " + root.session-title :
+                                              root.archive-name;
+            color: Theme.muted;
+            font-size: 12.5px;
+            vertical-alignment: center;
+            overflow: elide;
+            horizontal-stretch: 1;
+        }
+
+        Button {
+            text: "Search";
+            variant: "ghost";
+            clicked => { root.action("focus-search"); }
+        }
+        Button {
+            text: root.inspector-open ? "Hide details" : "Details";
+            variant: "ghost";
+            enabled: root.session-title != "";
+            clicked => { root.action("toggle-details"); }
+        }
+        Button {
+            text: "Export";
+            enabled: root.archive-path != "" && root.session-title != "";
+            clicked => { root.action("export"); }
+        }
+
+        Rectangle {
+            width: 34px;
+            height: 34px;
+            y: (parent.height - self.height) / 2;
+            border-radius: 5px;
+            background: more-touch.has-hover ? Theme.surface-hover : transparent;
+            accessible-role: button;
+            accessible-label: "More actions";
+
+            Text {
+                text: "···";
+                width: 100%;
+                height: 100%;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+                color: Theme.muted;
+                font-size: 17px;
+                font-weight: 700;
+                accessible-role: none;
+            }
+
+            more-touch := TouchArea {
+                clicked => { root.menu-open = !root.menu-open; }
+            }
+        }
+    }
+
+    if root.menu-open : Rectangle {
+        x: parent.width - 274px;
+        y: 54px;
+        width: 256px;
+        height: self.preferred-height;
+        background: Theme.surface;
+        border-width: 1px;
+        border-color: Theme.line;
+        border-radius: 5px;
+        z: 50;
+
+        VerticalLayout {
+            padding: 7px;
+            spacing: 2px;
+
+            Rectangle {
+                height: 32px;
+                border-radius: 5px;
+                background: audio-touch.has-hover ? Theme.surface-hover : transparent;
+                Text {
+                    x: 9px;
+                    width: parent.width - 18px;
+                    height: parent.height;
+                    vertical-alignment: center;
+                    text: "Configure audio…";
+                    color: Theme.ink;
+                    font-size: 12.5px;
+                }
+                audio-touch := TouchArea {
+                    clicked => { root.menu-open = false; root.action("configure-audio"); }
+                }
+            }
+            Rectangle {
+                height: 32px;
+                border-radius: 5px;
+                background: guide-touch.has-hover ? Theme.surface-hover : transparent;
+                Text {
+                    x: 9px;
+                    width: parent.width - 18px;
+                    height: parent.height;
+                    vertical-alignment: center;
+                    text: "Study guide tools…";
+                    color: Theme.ink;
+                    font-size: 12.5px;
+                }
+                guide-touch := TouchArea {
+                    clicked => { root.menu-open = false; root.action("guide-tools"); }
+                }
+            }
+            Rectangle {
+                height: 32px;
+                border-radius: 5px;
+                background: ai-touch.has-hover ? Theme.surface-hover : transparent;
+                Text {
+                    x: 9px;
+                    width: parent.width - 18px;
+                    height: parent.height;
+                    vertical-alignment: center;
+                    text: "AI actions…";
+                    color: Theme.ink;
+                    font-size: 12.5px;
+                }
+                ai-touch := TouchArea {
+                    clicked => { root.menu-open = false; root.action("ai"); }
+                }
+            }
+            Rectangle {
+                height: 32px;
+                border-radius: 5px;
+                background: console-touch.has-hover ? Theme.surface-hover : transparent;
+                Text {
+                    x: 9px;
+                    width: parent.width - 18px;
+                    height: parent.height;
+                    vertical-alignment: center;
+                    text: "Command console…";
+                    color: Theme.ink;
+                    font-size: 12.5px;
+                }
+                console-touch := TouchArea {
+                    clicked => { root.menu-open = false; root.action("console"); }
+                }
+            }
+            Rectangle {
+                height: 32px;
+                border-radius: 5px;
+                background: settings-touch.has-hover ? Theme.surface-hover : transparent;
+                Text {
+                    x: 9px;
+                    width: parent.width - 18px;
+                    height: parent.height;
+                    vertical-alignment: center;
+                    text: "Settings…";
+                    color: Theme.ink;
+                    font-size: 12.5px;
+                }
+                settings-touch := TouchArea {
+                    clicked => { root.menu-open = false; root.action("settings"); }
+                }
+            }
+        }
+    }
+}
