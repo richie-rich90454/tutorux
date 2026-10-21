@@ -24,9 +24,9 @@ import { NewStudentPanel } from "./overlays/new-student-panel.slint";
 import { PanelShell } from "./overlays/panel-shell.slint";
 import { GuideDocumentEditor } from "./components/guide-document-editor.slint";
 export component MainWindow inherits Window {
-    title: "Tutorux";
-    preferred-width: 1180px;
-    preferred-height: 740px;
+    title: root.selected-session-title == "" ? "Tutorux" : root.selected-session-title + " - Tutorux";
+    preferred-width: 1600px;
+    preferred-height: 930px;
     min-width: 940px;
     min-height: 600px;
     background: Theme.canvas;
@@ -277,8 +277,22 @@ export component MainWindow inherits Window {
     in-out property <[MarkerRow]> marker-rows: [];
     forward-focus: marker-shortcuts;
 
-    init => { Theme.mode = root.theme-mode; }
+    init => {
+        Theme.mode = root.theme-mode;
+        root.navigator-scope = "sessions";
+        root.workbench-tab = "notebook";
+    }
     changed theme-mode => { Theme.mode = root.theme-mode; }
+
+    changed navigator-scope => {
+        if (root.navigator-scope == "students" && root.selected-student != "" &&
+                root.student-profile-name == "") {
+            root.load-student-progress(root.selected-student);
+        }
+        if (root.navigator-scope == "materials" && root.selected-session != "") {
+            root.asset-command(root.selected-session, "list", "");
+        }
+    }
 
     changed selected-journal-session => {
         root.journal-session-id = "";
@@ -498,7 +512,13 @@ export component MainWindow inherits Window {
 
     marker-shortcuts := FocusScope {
         capture-key-pressed(event) => {
-            if event.modifiers.control && !event.repeat && root.selected-session != "" {
+            if (event.text == Key.Escape && root.overlay-panel != "") {
+                root.overlay-panel = "";
+                accept
+            } else if (event.modifiers.control || event.modifiers.meta) && event.text == Key.K {
+                navigator.focus-search-input();
+                accept
+            } else if event.modifiers.control && !event.repeat && root.selected-session != "" {
                 if (event.text == root.shortcut-concept) {
                     root.quick-marker(root.selected-session, "important-concept",
                         root.elapsed-label(), root.annotation-note);
@@ -562,6 +582,9 @@ export component MainWindow inherits Window {
                     root.selected-session = choice;
                     root.open-session-row(id);
                     root.workbench-tab = "notebook";
+                    if (root.navigator-scope == "materials") {
+                        root.asset-command(choice, "list", "");
+                    }
                 }
                 select-student(choice) => {
                     root.selected-student = choice;
@@ -572,15 +595,7 @@ export component MainWindow inherits Window {
                     root.selected-asset = choice;
                     root.asset-command(root.selected-session, "preview", choice);
                 }
-                scope-changed(scope) => {
-                    if (scope == "students" && root.selected-student != "" &&
-                            root.student-profile-name == "") {
-                        root.load-student-progress(root.selected-student);
-                    }
-                    if (scope == "materials" && root.selected-session != "") {
-                        root.asset-command(root.selected-session, "list", "");
-                    }
-                }
+                scope-changed(scope) => { }
                 new-session() => { root.overlay-panel = "new-session"; }
                 open-archive() => { root.overlay-panel = "archive"; }
                 open-settings() => { root.overlay-panel = "settings"; }
@@ -630,12 +645,16 @@ export component MainWindow inherits Window {
 
                         // First launch
                         if root.archive-path == "" : Rectangle {
+                            width: 100%;
+                            height: 100%;
                             background: Theme.surface;
 
                             VerticalLayout {
                                 x: max(48px, (parent.width - Theme.page-max-width) / 2);
-                                y: (parent.height - self.height) / 2 - 24px;
+                                y: (parent.height - self.height) / 2;
                                 width: min(Theme.page-max-width, parent.width - 96px);
+                                height: self.preferred-height;
+                                vertical-stretch: 0;
                                 spacing: 0px;
 
                                 Text {
@@ -785,12 +804,19 @@ export component MainWindow inherits Window {
                                         }
                                     }
 
-                                    HorizontalLayout {
+                                    Rectangle {
                                         width: 100%;
                                         vertical-stretch: 1;
-                                        spacing: 0px;
+                                        background: Theme.surface;
 
+                                        Rectangle {
+                                            x: 0;
+                                            y: 0;
+                                            width: parent.width - (root.inspector-open ? Theme.inspector-width : 0px);
+                                            height: 100%;
                                         if root.workbench-tab == "notebook" : Notebook {
+                                            width: 100%;
+                                            height: 100%;
                                             horizontal-stretch: 1;
                                             vertical-stretch: 1;
                                             rows: root.note-rows;
@@ -807,6 +833,8 @@ export component MainWindow inherits Window {
                                         }
 
                                         if root.workbench-tab == "transcript" : TranscriptPane {
+                                            width: 100%;
+                                            height: 100%;
                                             horizontal-stretch: 1;
                                             vertical-stretch: 1;
                                             options: root.transcript-options;
@@ -838,6 +866,8 @@ export component MainWindow inherits Window {
                                         }
 
                                         if root.workbench-tab == "guide" : StudyGuidePane {
+                                            width: 100%;
+                                            height: 100%;
                                             horizontal-stretch: 1;
                                             vertical-stretch: 1;
                                             guide-options: root.guide-options;
@@ -858,26 +888,33 @@ export component MainWindow inherits Window {
                                             action(action) => { root.guide-command(root.selected-guide, action, "", ""); }
                                             open-ai => { root.overlay-panel = "ai"; }
                                             open-full-editor => { root.overlay-panel = "guide-tools"; }
-                                        }
-
+                                        }                                        }
                                         if root.inspector-open : SessionInspector {
-                                            horizontal-stretch: 0;
-                                            vertical-stretch: 1;
+                                            x: parent.width - Theme.inspector-width;
+                                            y: 0;
+                                            width: Theme.inspector-width;
+                                            height: 100%;
                                             student: root.selected-session-student;
                                             subject: root.selected-session-subject;
                                             started: root.selected-session-started;
                                             microphone: root.recording-microphone-device;
                                             source: root.recording-source;
                                             student-choice <=> root.selected-session-student-choice;
+                                            elapsed-label: root.elapsed-label();
                                             student-options: root.journal-session-student-options;
                                             markers: root.marker-rows;
+                                            marker-time <=> root.annotation-time;
+                                            marker-note <=> root.annotation-note;
                                             update-details(choice, subject) => {
                                                 root.update-session-details(root.selected-session, choice, subject);
                                             }
                                             open-recording => { root.overlay-panel = "recording"; }
-                                            play-marker(startUs) => { root.play-marker(root.selected-session, startUs); }
-                                        }
-                                    }
+                                            play-marker(startSeconds) => { root.play-marker(root.selected-session, startSeconds); }
+                                            mark(type) => {
+                                                root.quick-marker(root.selected-session, type,
+                                                    root.annotation-time, root.annotation-note);
+                                            }
+                                        }                                    }
 
                                     RecordingTransport {
                                         state: root.recording-state;
@@ -1106,10 +1143,10 @@ export component MainWindow inherits Window {
                             }
                         }
 
-                        HorizontalLayout {
+                        VerticalLayout {
                             spacing: 14px;
                             Rectangle {
-                                width: 310px;
+                                width: 100%;
                                 border-width: 1px;
                                 border-color: Theme.line;
                                 border-radius: 5px;
@@ -2232,7 +2269,7 @@ export component MainWindow inherits Window {
                                 HorizontalLayout {
                                     spacing: 8px;
                                     ComboBox {
-                                        model: ["markdown", "html", "pdf", "docx"];
+                                        model: ["markdown", "html", "json", "pdf", "docx"];
                                         current-value <=> root.guide-export-format;
                                     }
                                     LineEdit {
