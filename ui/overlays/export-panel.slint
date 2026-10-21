@@ -51,7 +51,7 @@ export component ExportPanel inherits Rectangle {
                     spacing: 5px;
                     Text { text: "Format"; color: Theme.faint; font-size: 11px; font-weight: 600; }
                     ComboBox {
-                        model: ["markdown", "html", "pdf", "docx"];
+                        model: ["markdown", "html", "json", "pdf", "docx"];
                         current-value <=> root.guide-format;
                     }
                 }
