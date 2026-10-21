@@ -82,6 +82,7 @@ export component Navigator inherits Rectangle {
                 IconButton {
                     icon: @image-url("../assets/icons/plus.svg");
                     label: "New session";
+                    enabled: root.archive-path != "";
                     clicked => { root.new-session(); }
                 }
 
@@ -150,12 +151,12 @@ export component Navigator inherits Rectangle {
         Rectangle {
             height: 58px;
             visible: root.archive-path != "";
-            padding-left: 14px;
-            padding-right: 14px;
-            padding-top: 14px;
-            padding-bottom: 10px;
 
             search-input := LineEdit {
+                x: 14px;
+                y: 14px;
+                width: parent.width - 28px;
+                height: 34px;
                 placeholder-text: root.scope == "sessions" ? "Find a session" :
                                   root.scope == "students" ? "Find a student" : "Find material";
                 text <=> root.query;
@@ -241,6 +242,31 @@ export component Navigator inherits Rectangle {
                         row-touch := TouchArea {
                             clicked => { root.select-session(row.id, row.choice); }
                         }
+
+                        forward-focus: row-focus;
+                        accessible-role: button;
+                        accessible-label: row.title;
+
+                        row-focus := FocusScope {
+                            x: 0;
+                            width: 0;
+                            key-pressed(event) => {
+                                if (event.text == Key.Return || event.text == Key.Space) {
+                                    root.select-session(row.id, row.choice);
+                                    accept
+                                } else {
+                                    reject
+                                }
+                            }
+                        }
+
+                        if row-focus.has-focus : Rectangle {
+                            width: 100%;
+                            height: 100%;
+                            border-width: 2px;
+                            border-color: Theme.focus-ring;
+                            border-radius: 5px;
+                        }
                     }
 
                     if root.session-rows.length == 0 : Rectangle {
@@ -305,6 +331,31 @@ export component Navigator inherits Rectangle {
                         student-touch := TouchArea {
                             clicked => { root.select-student(row.choice); }
                         }
+
+                        forward-focus: student-focus;
+                        accessible-role: button;
+                        accessible-label: row.title;
+
+                        student-focus := FocusScope {
+                            x: 0;
+                            width: 0;
+                            key-pressed(event) => {
+                                if (event.text == Key.Return || event.text == Key.Space) {
+                                    root.select-student(row.choice);
+                                    accept
+                                } else {
+                                    reject
+                                }
+                            }
+                        }
+
+                        if student-focus.has-focus : Rectangle {
+                            width: 100%;
+                            height: 100%;
+                            border-width: 2px;
+                            border-color: Theme.focus-ring;
+                            border-radius: 5px;
+                        }
                     }
 
                     if root.student-rows.length == 0 : Rectangle {
@@ -366,6 +417,31 @@ export component Navigator inherits Rectangle {
 
                         material-touch := TouchArea {
                             clicked => { root.preview-material(row.choice); }
+                        }
+
+                        forward-focus: material-focus;
+                        accessible-role: button;
+                        accessible-label: row.title;
+
+                        material-focus := FocusScope {
+                            x: 0;
+                            width: 0;
+                            key-pressed(event) => {
+                                if (event.text == Key.Return || event.text == Key.Space) {
+                                    root.preview-material(row.choice);
+                                    accept
+                                } else {
+                                    reject
+                                }
+                            }
+                        }
+
+                        if material-focus.has-focus : Rectangle {
+                            width: 100%;
+                            height: 100%;
+                            border-width: 2px;
+                            border-color: Theme.focus-ring;
+                            border-radius: 5px;
                         }
                     }
 
