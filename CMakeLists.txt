@@ -1060,6 +1060,8 @@ if(NOT TUTORUX_BUILD_WASM)
         COMMAND "${CMAKE_COMMAND}" -E make_directory "${CMAKE_SOURCE_DIR}/dist"
         COMMAND "${CMAKE_COMMAND}" -E copy_if_different
             "$<TARGET_FILE:tutorux>" "${CMAKE_SOURCE_DIR}/dist/${TUTORUX_DIST_NAME}"
+        COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+            "${CMAKE_SOURCE_DIR}/ui/fonts/OFL.txt" "${CMAKE_SOURCE_DIR}/dist/NotoSans-OFL.txt"
         COMMAND "${CMAKE_COMMAND}" -E echo
             "Tutorux dist: ${CMAKE_SOURCE_DIR}/dist/${TUTORUX_DIST_NAME}"
         DEPENDS tutorux
@@ -1121,7 +1123,24 @@ if(TUTORUX_BUILD_GUI)
         find_package(Slint 1.18 CONFIG REQUIRED)
     endif()
 
-    target_sources(tutorux PRIVATE src/gui/desktop.cpp)
+    set(TUTORUX_EMBEDDED_FONT_SOURCE "${CMAKE_CURRENT_BINARY_DIR}/font_data.cpp")
+    add_custom_command(
+        OUTPUT "${TUTORUX_EMBEDDED_FONT_SOURCE}"
+        COMMAND "${CMAKE_COMMAND}"
+            "-DOUTPUT=${TUTORUX_EMBEDDED_FONT_SOURCE}"
+            "-DFONT_DIR=${CMAKE_SOURCE_DIR}/ui/fonts"
+            -P "${CMAKE_SOURCE_DIR}/cmake/EmbedFonts.cmake"
+        DEPENDS
+            "${CMAKE_SOURCE_DIR}/ui/fonts/NotoSans-Regular.ttf"
+            "${CMAKE_SOURCE_DIR}/ui/fonts/NotoSans-Medium.ttf"
+            "${CMAKE_SOURCE_DIR}/ui/fonts/NotoSans-SemiBold.ttf"
+            "${CMAKE_SOURCE_DIR}/ui/fonts/NotoSans-Bold.ttf"
+            "${CMAKE_SOURCE_DIR}/cmake/EmbedFonts.cmake"
+        COMMENT "Embedding Noto Sans font weights"
+        VERBATIM
+    )
+    target_sources(tutorux PRIVATE src/gui/desktop.cpp "${TUTORUX_EMBEDDED_FONT_SOURCE}")
+    target_include_directories(tutorux PRIVATE src/gui)
     target_compile_definitions(tutorux PRIVATE TUTORUX_WITH_GUI=1)
     if(TUTORUX_STATIC_RUNTIME AND WIN32)
         target_compile_definitions(tutorux PRIVATE TUTORUX_STATIC_SLINT=1)
