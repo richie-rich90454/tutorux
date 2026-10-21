@@ -153,6 +153,11 @@ export component RecordingPanel inherits Rectangle {
                     enabled: root.has-session && root.export-path != "";
                     clicked => { root.command("export-wav", root.export-path); }
                 }
+                Button {
+                    text: "Export with gap silence";
+                    enabled: root.has-session && root.export-path != "";
+                    clicked => { root.command("export-wav-fill-gaps", root.export-path); }
+                }
             }
             HorizontalLayout {
                 spacing: 8px;
