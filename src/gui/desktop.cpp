@@ -1,6 +1,7 @@
 #include "tutorux/gui/desktop.hpp"
 
 #include "app-window.h"
+#include "font_data.hpp"
 #include "tutorux/assets/import.hpp"
 #include "tutorux/archive/archive.hpp"
 #include "tutorux/audio/capture.hpp"
@@ -2508,6 +2509,14 @@ namespace {
 int launchDesktop(std::optional<std::filesystem::path> archivePath,
                   std::optional<std::filesystem::path> directoryPath) {
     auto window = MainWindow::create();
+    const auto registerFont = [&window](const unsigned char* data, std::size_t size) {
+        static_cast<void>(
+            window->window().window_handle().register_font_from_data(data, size));
+    };
+    registerFont(fonts::NotoSansRegularData, fonts::NotoSansRegularSize);
+    registerFont(fonts::NotoSansMediumData, fonts::NotoSansMediumSize);
+    registerFont(fonts::NotoSansSemiBoldData, fonts::NotoSansSemiBoldSize);
+    registerFont(fonts::NotoSansBoldData, fonts::NotoSansBoldSize);
     auto directory =
         directoryPath ? std::filesystem::absolute(*directoryPath) : std::filesystem::current_path();
     if (archivePath && archivePath->is_relative())
