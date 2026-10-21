@@ -2316,6 +2316,13 @@ namespace {
         window.set_guide_options(
             std::make_shared<slint::VectorModel<slint::SharedString>>(std::move(snapshot.guides)));
         window.set_selected_guide(std::move(snapshot.selectedGuide));
+        const auto currentGuideOutput = window.get_guide_output();
+        if (std::string_view(currentGuideOutput.data(), currentGuideOutput.size()) ==
+            "Choose an archive to view study guides.") {
+            window.set_guide_output(toSharedString(
+                snapshot.guides.empty() ? "No study guides in this archive yet."
+                                        : "Select a study guide and load a block to review it."));
+        }
         window.set_guide_block_options(std::make_shared<slint::VectorModel<slint::SharedString>>(
             std::move(snapshot.guideBlocks)));
         window.set_selected_guide_block(std::move(snapshot.selectedGuideBlock));
@@ -4417,9 +4424,14 @@ int launchDesktop(std::optional<std::filesystem::path> archivePath,
             archiveCommand(path,
                            {"annotation", "add", "--session", id, "--type", markerType, "--at",
                             std::string(timestamp.data(), timestamp.size()), "--text", markerText}),
-            activePassphrase, [](MainWindow& completedWindow, bool, std::string output) {
+            activePassphrase,
+            [weakWindow, &backgroundTasks, &activePassphrase, path](MainWindow& completedWindow,
+                                                                   bool succeeded,
+                                                                   std::string output) {
                 completedWindow.set_command_output(toSharedString(output));
                 completedWindow.set_status_message(toSharedString(std::move(output)));
+                if (succeeded)
+                    refreshWorkspaceAsync(weakWindow, backgroundTasks, path, activePassphrase);
             });
     });
 
