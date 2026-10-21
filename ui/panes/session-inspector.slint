@@ -9,12 +9,27 @@ export component SessionInspector inherits Rectangle {
     in property <string> microphone;
     in property <string> source;
     in property <string> student-choice;
+    in property <string> elapsed-label;
     in property <[string]> student-options: [];
     in property <[MarkerRow]> markers: [];
+    in-out property <string> marker-time;
+    in-out property <string> marker-note;
+    in-out property <string> marker-kind: "Concept";
 
     callback update-details(string, string);
     callback open-recording();
     callback play-marker(int);
+    callback mark(string);
+
+    pure function marker-type() -> string {
+        if root.marker-kind == "Mistake" { return "student-mistake"; }
+        if root.marker-kind == "Correction" { return "tutor-correction"; }
+        if root.marker-kind == "Instruction" { return "explicit-instruction"; }
+        if root.marker-kind == "Example" { return "worked-example"; }
+        if root.marker-kind == "Follow-up" { return "follow-up-priority"; }
+        if root.marker-kind == "Note" { return "general-note"; }
+        return "important-concept";
+    }
 
     width: Theme.inspector-width;
     height: 100%;
@@ -80,7 +95,7 @@ export component SessionInspector inherits Rectangle {
                 VerticalLayout {
                     spacing: 4px;
                     Text { text: "Student"; color: Theme.faint; font-size: 11px; font-weight: 600; }
-                    Text { text: root.student == "" ? "Not assigned" : root.student; color: Theme.ink; font-size: 13px; }
+                    Text { width: 100%; text: root.student == "" ? "Not assigned" : root.student; color: Theme.ink; font-size: 13px; overflow: elide; }
                 }
                 VerticalLayout {
                     spacing: 4px;
@@ -158,6 +173,39 @@ export component SessionInspector inherits Rectangle {
             Rectangle { height: 1px; background: Theme.line; }
             Rectangle { height: 14px; }
 
+            Text { text: "Add marker"; color: Theme.ink; font-size: 12.5px; font-weight: 700; }
+            Rectangle { height: 8px; }
+            HorizontalLayout {
+                spacing: 6px;
+                LineEdit {
+                    placeholder-text: "Time HH:MM:SS";
+                    text <=> root.marker-time;
+                }
+                Button {
+                    text: "Now";
+                    variant: "ghost";
+                    clicked => { root.marker-time = root.elapsed-label; }
+                }
+            }
+            LineEdit {
+                placeholder-text: "Optional marker note";
+                text <=> root.marker-note;
+            }
+            HorizontalLayout {
+                spacing: 8px;
+                ComboBox {
+                    model: ["Concept", "Mistake", "Correction", "Instruction",
+                            "Example", "Follow-up", "Note"];
+                    current-value <=> root.marker-kind;
+                }
+                Button {
+                    text: "Add marker";
+                    variant: "primary";
+                    clicked => { root.mark(root.marker-type()); }
+                }
+            }
+
+            Rectangle { height: 16px; }
             Text { text: "Markers"; color: Theme.ink; font-size: 12.5px; font-weight: 700; }
             Rectangle { height: 10px; }
 
