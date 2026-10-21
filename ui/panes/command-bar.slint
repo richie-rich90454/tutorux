@@ -48,6 +48,7 @@ export component CommandBar inherits Rectangle {
         Button {
             text: "Search";
             variant: "ghost";
+            enabled: root.archive-path != "";
             clicked => { root.action("focus-search"); }
         }
         Button {
