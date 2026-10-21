@@ -201,53 +201,65 @@ export component Notebook inherits Rectangle {
                 Rectangle { }
             }
 
-            if root.selected-block != "" : HorizontalLayout {
+            if root.selected-block != "" : VerticalLayout {
                 spacing: 4px;
                 padding-top: 8px;
                 vertical-stretch: 0;
-                alignment: start;
-                Text {
-                    text: "Format";
-                    color: Theme.faint;
-                    font-size: 11px;
-                    vertical-alignment: center;
+
+                HorizontalLayout {
+                    spacing: 4px;
+                    alignment: start;
+                    Text {
+                        text: "Format";
+                        width: 48px;
+                        color: Theme.faint;
+                        font-size: 11px;
+                        vertical-alignment: center;
+                    }
+                    Button {
+                        text: "Bold";
+                        variant: "ghost";
+                        enabled: root.inline-format-enabled;
+                        clicked => { root.action("format", "bold"); }
+                    }
+                    Button {
+                        text: "Italic";
+                        variant: "ghost";
+                        enabled: root.inline-format-enabled;
+                        clicked => { root.action("format", "italic"); }
+                    }
+                    Button {
+                        text: "Strike";
+                        variant: "ghost";
+                        enabled: root.inline-format-enabled;
+                        clicked => { root.action("format", "strike"); }
+                    }
+                    Rectangle { }
                 }
-                Button {
-                    text: "Bold";
-                    variant: "ghost";
-                    enabled: root.inline-format-enabled;
-                    clicked => { root.action("format", "bold"); }
-                }
-                Button {
-                    text: "Italic";
-                    variant: "ghost";
-                    enabled: root.inline-format-enabled;
-                    clicked => { root.action("format", "italic"); }
-                }
-                Button {
-                    text: "Strike";
-                    variant: "ghost";
-                    enabled: root.inline-format-enabled;
-                    clicked => { root.action("format", "strike"); }
-                }
-                Button {
-                    text: "Code";
-                    variant: "ghost";
-                    enabled: root.inline-format-enabled;
-                    clicked => { root.action("format", "code"); }
-                }
-                Button {
-                    text: "Link";
-                    variant: "ghost";
-                    enabled: root.inline-format-enabled;
-                    clicked => { root.action("format", "link"); }
-                }
-                Rectangle { }
-                Button {
-                    text: "Remove";
-                    variant: "ghost";
-                    enabled: root.writable;
-                    clicked => { root.action("remove", ""); }
+
+                HorizontalLayout {
+                    spacing: 4px;
+                    alignment: start;
+                    Rectangle { width: 48px; }
+                    Button {
+                        text: "Code";
+                        variant: "ghost";
+                        enabled: root.inline-format-enabled;
+                        clicked => { root.action("format", "code"); }
+                    }
+                    Button {
+                        text: "Link";
+                        variant: "ghost";
+                        enabled: root.inline-format-enabled;
+                        clicked => { root.action("format", "link"); }
+                    }
+                    Button {
+                        text: "Remove";
+                        variant: "ghost";
+                        enabled: root.writable;
+                        clicked => { root.action("remove", ""); }
+                    }
+                    Rectangle { }
                 }
             }
 
