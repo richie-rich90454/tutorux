@@ -224,7 +224,7 @@ export component Navigator inherits Rectangle {
 
                         if root.selected-session == row.choice : Rectangle {
                             x: 0px;
-                            y: 8px;
+                            y: (row.group-start && root.query == "") ? 28px : 8px;
                             width: 2px;
                             height: 38px;
                             background: Theme.accent;
@@ -232,7 +232,7 @@ export component Navigator inherits Rectangle {
 
                         if row.state == "recording" : Rectangle {
                             x: parent.width - 20px;
-                            y: 22px;
+                            y: (row.group-start && root.query == "") ? 42px : 22px;
                             width: 6px;
                             height: 6px;
                             border-radius: 3px;
