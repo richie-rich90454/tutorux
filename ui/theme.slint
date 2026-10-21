@@ -184,6 +184,8 @@ export component Button inherits Rectangle {
         animate background, border-color { duration: 90ms; }
 
         i-layout := HorizontalLayout {
+            width: 100%;
+            height: 100%;
             padding-left: 14px;
             padding-right: 14px;
             padding-top: 6px;
@@ -672,6 +674,8 @@ export component ComboBox inherits Rectangle {
     animate border-color { duration: 120ms; }
 
     i-layout := HorizontalLayout {
+        width: 100%;
+        height: 100%;
         padding-left: 12px;
         padding-right: 10px;
         spacing: 8px;
@@ -1002,6 +1006,7 @@ export component TabButton inherits Rectangle {
     accessible-action-default => { i-touch-area.clicked(); }
 
     i-layout := HorizontalLayout {
+        width: 100%;
         padding-left: 2px;
         padding-right: 2px;
         height: parent.height - 2px;
