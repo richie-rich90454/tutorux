@@ -693,6 +693,42 @@ export component MainWindow inherits Window {
                                         clicked => { root.overlay-panel = "archive"; }
                                     }
                                 }
+                                if root.archive-paths.length > 1 : VerticalLayout {
+                                    spacing: 6px;
+                                    padding-top: 22px;
+                                    Text {
+                                        text: "Archives in this folder";
+                                        color: Theme.ink;
+                                        font-size: 12.5px;
+                                        font-weight: 700;
+                                    }
+                                    ScrollArea {
+                                        height: 180px;
+                                        content-width: self.visible-width;
+                                        content-height: max(self.visible-height, archive-list-layout.preferred-height);
+                                        archive-list-layout := VerticalLayout {
+                                            width: parent.visible-width;
+                                            spacing: 2px;
+                                            for path in root.archive-paths : HorizontalLayout {
+                                                height: 34px;
+                                                spacing: 8px;
+                                                Text {
+                                                    horizontal-stretch: 1;
+                                                    vertical-alignment: center;
+                                                    text: path;
+                                                    color: Theme.body;
+                                                    font-size: 12px;
+                                                    overflow: elide;
+                                                }
+                                                Button {
+                                                    text: "Open";
+                                                    clicked => { root.open-archive(path, ""); }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+
                                 Rectangle { height: 30px; }
                                 Text {
                                     text: "Tutorux stores session data inside the archive you choose. No account or background service is required to begin.";
@@ -901,7 +937,7 @@ export component MainWindow inherits Window {
                                             source: root.recording-source;
                                             student-choice <=> root.selected-session-student-choice;
                                             elapsed-label: root.elapsed-label();
-                                            student-options: root.journal-session-student-options;
+                                            student-options: root.student-options;
                                             markers: root.marker-rows;
                                             marker-time <=> root.annotation-time;
                                             marker-note <=> root.annotation-note;
