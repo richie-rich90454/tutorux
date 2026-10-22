@@ -818,7 +818,8 @@ char PieceTable::byteAt(std::size_t offset) const noexcept {
 }
 
 bool PieceTable::isBoundary(std::size_t offset) const noexcept {
-    return offset == 0 || offset == size_ || !isContinuationByte(byteAt(offset));
+    return offset <= size_ &&
+           (offset == 0 || offset == size_ || !isContinuationByte(byteAt(offset)));
 }
 
 TextRange PieceTable::expandedParagraphRange(TextRange changedRange) const noexcept {
