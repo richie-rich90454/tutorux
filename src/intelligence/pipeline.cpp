@@ -299,7 +299,8 @@ core::Status EvidenceAwareInstructionGraph::addEdge(EvidenceEdge edge) {
 }
 
 core::Status EvidenceAwareInstructionGraph::removeNode(std::string_view nodeId) {
-    if (nodes_.erase(nodeId) == 0)
+    const std::string key(nodeId);
+    if (nodes_.erase(key) == 0)
         return std::unexpected(
             core::error("evidence_node_not_found", "The evidence node does not exist."));
     std::erase_if(edges_, [&](const auto& entry) {
