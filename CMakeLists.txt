@@ -1185,6 +1185,7 @@ if(TUTORUX_BUILD_WASM)
     find_program(TUTORUX_TSC_EXECUTABLE NAMES tsc REQUIRED)
     add_executable(tutorux_web src/wasm/web_api.cpp)
     target_link_libraries(tutorux_web PRIVATE tutorux_core)
+    target_include_directories(tutorux_web PRIVATE "${TUTORUX_SODIUM_INCLUDE_DIR}")
     target_compile_features(tutorux_web PRIVATE cxx_std_23)
     set_target_properties(tutorux_web PROPERTIES
         OUTPUT_NAME "tutorux-core"
@@ -1208,7 +1209,7 @@ if(TUTORUX_BUILD_WASM)
         COMMAND "${TUTORUX_TSC_EXECUTABLE}"
                 --target ES2022
                 --module none
-                --lib ES2022,DOM
+                --lib ES2022,DOM,DOM.Iterable
                 --skipLibCheck
                 --outFile "$<TARGET_FILE_DIR:tutorux_web>/tutorux.js"
                 "${CMAKE_CURRENT_SOURCE_DIR}/web/tutorux.ts"
@@ -1758,4 +1759,8 @@ if(BUILD_TESTING AND NOT TUTORUX_BUILD_WASM)
         target_include_directories(tutorux_pdf_export_test PRIVATE ${TUTORUX_PODOFO_INCLUDE_DIRS})
     endif()
     add_test(NAME guide_pdf_export_and_unicode_pagination COMMAND tutorux_pdf_export_test)
+
+    add_executable(tutorux_release_acceptance_test tests/release_acceptance_test.cpp)
+    target_link_libraries(tutorux_release_acceptance_test PRIVATE tutorux_core)
+    add_test(NAME release_acceptance_cli_contracts COMMAND tutorux_release_acceptance_test)
 endif()
