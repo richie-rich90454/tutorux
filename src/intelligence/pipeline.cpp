@@ -232,8 +232,16 @@ std::vector<TranscriptCue> TranscriptAlignmentEngine::overlapping(std::int64_t s
     toleranceUs = std::max<std::int64_t>(toleranceUs, 0);
     const std::int64_t searchStart = saturatedSubtract(startTimeUs, toleranceUs);
     const std::int64_t searchEnd = saturatedAdd(endTimeUs, toleranceUs);
-    for (auto iterator = cuesByTime_.lower_bound({searchStart, {}});
-         iterator != cuesByTime_.end() && iterator->first.first <= searchEnd;
+    auto iterator = cuesByTime_.lower_bound({searchStart, {}});
+    while (iterator != cuesByTime_.begin()) {
+        const auto previous = std::prev(iterator);
+        const auto cue = cuesById_.find(previous->second);
+        if (cue == cuesById_.end() ||
+            saturatedAdd(cue->second.endTimeUs, toleranceUs) < startTimeUs)
+            break;
+        iterator = previous;
+    }
+    for (; iterator != cuesByTime_.end() && iterator->first.first <= searchEnd;
          ++iterator) {
         const auto cue = cuesById_.find(iterator->second);
         if (cue != cuesById_.end() &&
