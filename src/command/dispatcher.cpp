@@ -403,7 +403,11 @@ namespace {
         Handler previousHandler_{};
     };
 
-    constexpr std::array<std::string_view, 38> kBooleanOptions{"full",
+    Result<std::uint32_t> unsignedOption(const ParsedOptions& options, std::string_view name,
+                                         std::uint32_t defaultValue, std::uint32_t minimum,
+                                         std::uint32_t maximum);
+
+    constexpr std::array<std::string_view, 45> kBooleanOptions{"full",
                                                                "quick",
                                                                "include-deleted",
                                                                "archived",
@@ -440,7 +444,14 @@ namespace {
                                                                "include-recordings",
                                                                "include-private-annotations",
                                                                "include-generation-logs",
-                                                               "include-credentials"};
+                                                               "include-credentials",
+                                                               "additional-track",
+                                                               "clear-sources",
+                                                               "fill-gaps",
+                                                               "live-transcribe",
+                                                               "mark-reviewed",
+                                                               "overwrite",
+                                                               "unknown"};
 
     bool isBooleanOption(std::string_view name) {
         return std::find(kBooleanOptions.begin(), kBooleanOptions.end(), name) != kBooleanOptions.end();
@@ -3099,7 +3110,8 @@ namespace {
         if (!options)
             return failed(options.error());
         const bool writable = action == "create" || action == "update" || action == "archive" || action == "delete" || action == "import" ||
-                              action == "start" || action == "complete" || action == "review" || action == "resume";
+                              action == "clone" || action == "start" || action == "complete" || action == "review" ||
+                              action == "resume" || action == "recover";
         auto archive = openArchive(context, "session", action, writable);
         if (!archive)
             return failed(archive.error());
@@ -3331,7 +3343,7 @@ namespace {
                        << "  [" << domain::getField(session, "processing_state") << "]\n";
             return result(output.str(), false);
         }
-        if (action == "show" || action == "verify" || action == "recover" || action == "export") {
+        if (action == "show" || action == "verify" || action == "export") {
             auto idValue = requiredPositional(*options, 0, "Session ID");
             if (!idValue)
                 return failed(idValue.error());
@@ -3356,7 +3368,7 @@ namespace {
                 }
                 return result(context.json ? toJson(response) : recordText(*session), context.json);
             }
-            if (action == "verify" || action == "recover") {
+            if (action == "verify") {
                 auto annotations = archive->list(RecordType::Annotation);
                 auto transcript = archive->list(RecordType::TranscriptSegment);
                 auto assets = archive->list(RecordType::AssetMetadata);
@@ -4074,9 +4086,6 @@ namespace {
             auto sessionId = parseId(*sessionValue);
             if (!sessionId)
                 return failed(sessionId.error());
-            auto archive = openArchive(context, "record", action, true);
-            if (!archive)
-                return failed(archive.error());
             auto session = archive->get(RecordType::Session, *sessionId);
             if (!session)
                 return failed(session.error());
@@ -4988,6 +4997,61 @@ namespace {
             if (!saved || !*saved)
                 return failed(core::error("revision_restore_failed", "Restored transcript segment could not be read."));
             return result(context.json ? toJson(recordObject(**saved)) : "Transcript revision restored as a new revision.\n", context.json);
+        }
+        if (action == "plan") {
+            auto sessionValue = requiredOption(*options, "session");
+            if (!sessionValue)
+                return failed(sessionValue.error());
+            auto sessionId = parseId(*sessionValue);
+            if (!sessionId)
+                return failed(sessionId.error());
+            auto session = archive->get(RecordType::Session, *sessionId);
+            if (!session)
+                return failed(session.error());
+            if (!*session || domain::isDeleted(**session)) {
+                return failed(core::error("session_not_found", "Session was not found in the archive."));
+            }
+            const auto threads = unsignedOption(*options, "threads", 0, 0, 64);
+            const auto modelMemory = unsignedOption(*options, "model-memory-mb", 512, 0, 1'048'576);
+            const auto availableMemory = unsignedOption(*options, "available-memory-mb", 0, 0, 1'048'576);
+            if (!threads || !modelMemory || !availableMemory)
+                return failed(!threads ? threads.error()
+                                       : !modelMemory ? modelMemory.error() : availableMemory.error());
+            const unsigned int hardware = std::thread::hardware_concurrency();
+            const std::uint32_t effectiveThreads =
+                *threads == 0 ? std::clamp(hardware == 0 ? 1U : hardware, 1U, 8U) : *threads;
+            const std::uint64_t estimatedMemory =
+                static_cast<std::uint64_t>(*modelMemory) + 128ULL +
+                static_cast<std::uint64_t>(effectiveThreads) * 16ULL;
+            const bool availableKnown = *availableMemory != 0;
+            const bool feasible = !availableKnown || estimatedMemory <= *availableMemory;
+            const std::string track = optionOr(*options, "track");
+            if (context.json) {
+                JsonObject plan{
+                    {"session_id",          uuid(*sessionId)                              },
+                    {"track_id",            track                                         },
+                    {"duration_us",         domain::getField(**session, "audio_duration_us", "0")},
+                    {"threads",             std::to_string(effectiveThreads)              },
+                    {"model_memory_mb",     std::to_string(*modelMemory)                  },
+                    {"estimated_memory_mb", std::to_string(estimatedMemory)               },
+                    {"available_memory_mb", std::to_string(*availableMemory)              },
+                    {"available_known",     std::string(availableKnown ? "true" : "false")},
+                    {"feasible",            std::string(feasible ? "true" : "false")       }
+                };
+                return result(toJson(plan), true);
+            }
+            std::ostringstream output;
+            output << "Transcription plan\n"
+                   << "  Session: " << uuid(*sessionId) << "\n"
+                   << "  Threads: " << effectiveThreads << "\n"
+                   << "  Model memory: " << *modelMemory << " MB\n"
+                   << "  Estimated working memory: " << estimatedMemory << " MB\n";
+            if (availableKnown)
+                output << "  Available memory: " << *availableMemory << " MB\n"
+                       << "  Feasible: " << (feasible ? "yes" : "no") << "\n";
+            else
+                output << "  Available memory: not supplied\n";
+            return result(output.str(), false);
         }
         if (action == "generate" || action == "refine") {
             auto sessionValue = requiredOption(*options, "session");
@@ -11462,6 +11526,11 @@ namespace {
         if (arguments.size() < 2)
             return result(helpText(), context.json);
         const std::string action = normalize(arguments[1]);
+        if (action == "recover") {
+            std::vector<std::string> forwarded{"session", "recover"};
+            forwarded.insert(forwarded.end(), arguments.begin() + 2, arguments.end());
+            return dispatchSessionCommand(context, forwarded);
+        }
         if (action == "pause" || action == "resume" || action == "stop" || (action == "status" && arguments.size() > 2)) {
             auto controlOptions = commandOptions(arguments, 2);
             if (!controlOptions)
