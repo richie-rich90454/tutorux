@@ -1763,4 +1763,20 @@ if(BUILD_TESTING AND NOT TUTORUX_BUILD_WASM)
     add_executable(tutorux_release_acceptance_test tests/release_acceptance_test.cpp)
     target_link_libraries(tutorux_release_acceptance_test PRIVATE tutorux_core)
     add_test(NAME release_acceptance_cli_contracts COMMAND tutorux_release_acceptance_test)
+
+    add_executable(tutorux_cli_matrix_test tests/cli_matrix_test.cpp)
+    target_link_libraries(tutorux_cli_matrix_test PRIVATE tutorux_core)
+    add_test(NAME cli_command_family_matrix COMMAND tutorux_cli_matrix_test)
+
+    add_executable(tutorux_core_units_test tests/core_units_test.cpp)
+    target_link_libraries(tutorux_core_units_test PRIVATE tutorux_core)
+    add_test(NAME pure_core_units COMMAND tutorux_core_units_test)
+
+    add_executable(tutorux_pipeline_units_test tests/pipeline_units_test.cpp)
+    target_link_libraries(tutorux_pipeline_units_test PRIVATE tutorux_core)
+    add_test(NAME intelligence_pipeline_units COMMAND tutorux_pipeline_units_test)
+
+    add_executable(tutorux_editor_units_test tests/editor_units_test.cpp)
+    target_link_libraries(tutorux_editor_units_test PRIVATE tutorux_core)
+    add_test(NAME document_editor_units COMMAND tutorux_editor_units_test)
 endif()
