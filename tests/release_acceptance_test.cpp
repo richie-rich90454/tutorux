@@ -376,6 +376,19 @@ int verifyJournalLifecycle(const std::filesystem::path& root) {
     auto parsedExchange = parseCommandJson(exchangeSessions);
     if (!parsedExchange || !parsedExchange->asArray() || parsedExchange->asArray()->empty())
         return fail("imported session package did not create a session");
+    auto exchangeEntries = run(exchangeArchive, {"--json", "journal", "entry", "list"});
+    auto parsedExchangeEntries = parseCommandJson(exchangeEntries);
+    if (!parsedExchangeEntries || !parsedExchangeEntries->asArray() ||
+        parsedExchangeEntries->asArray()->size() != 1)
+        return fail("session import did not reuse the packaged journal entry");
+    auto exchangeGuides = run(exchangeArchive, {"--json", "guide", "list"});
+    auto parsedExchangeGuides = parseCommandJson(exchangeGuides);
+    if (!parsedExchangeGuides || !parsedExchangeGuides->asArray() ||
+        parsedExchangeGuides->asArray()->empty())
+        return fail("session import dropped the packaged study guide");
+    auto exchangeVerify = dispatch({"archive", "verify", exchangeArchive.string()});
+    if (!exchangeVerify || exchangeVerify->exitCode != 0)
+        return fail("the exchange archive did not verify after session import");
 
     const auto archiveCopy = exports / "copy.tux";
     auto copied = dispatch({"archive", "copy", archivePath.string(), "--output",
@@ -385,6 +398,23 @@ int verifyJournalLifecycle(const std::filesystem::path& root) {
     auto copiedVerify = dispatch({"archive", "verify", archiveCopy.string()});
     if (!copiedVerify || copiedVerify->exitCode != 0)
         return fail("copied archive did not verify");
+    auto copiedImport = run(archiveCopy, {"session", "import", package.string()});
+    if (!copiedImport || copiedImport->exitCode != 0)
+        return fail("session import into the copied archive failed");
+    auto copiedSessions = run(archiveCopy, {"--json", "session", "list"});
+    auto parsedCopiedSessions = parseCommandJson(copiedSessions);
+    bool preservedStudent = false;
+    if (parsedCopiedSessions && parsedCopiedSessions->asArray()) {
+        for (const auto& row : *parsedCopiedSessions->asArray()) {
+            const auto* student = jsonString(row, "student_id");
+            if (student && *student == *studentId) {
+                preservedStudent = true;
+                break;
+            }
+        }
+    }
+    if (!preservedStudent)
+        return fail("session import did not preserve the destination student reference");
 
     const auto sanitizedPreview = exports / "sanitized.tux";
     auto sanitize = dispatch({"archive", "sanitize", archivePath.string(), "--output",
