@@ -320,6 +320,74 @@ int verifyJournalLifecycle(const std::filesystem::path& root) {
             return fail("guide export failed for " + format);
     }
 
+    auto providers = dispatch({"--json", "ai", "providers"});
+    auto parsedProviders = parseCommandJson(providers);
+    if (!parsedProviders || !parsedProviders->asArray() ||
+        parsedProviders->asArray()->size() < 30)
+        return fail("the provider catalog exposes fewer than thirty integrations");
+
+    auto settingsSet = run(archivePath, {"settings", "set", "--key", "ui.acceptance",
+                                         "--value", "verified"});
+    auto settingsGet = run(archivePath, {"settings", "get", "ui.acceptance"});
+    if (!settingsSet || settingsSet->exitCode != 0 || !settingsGet ||
+        settingsGet->exitCode != 0 || !containsText(outputOf(*settingsGet), "verified"))
+        return fail("archive-scoped settings did not round-trip");
+
+    const auto exports = root / "exports";
+    std::filesystem::create_directories(exports, errorCode);
+    if (errorCode)
+        return fail("unable to create the export fixture directory");
+    const auto package = exports / "session.tux";
+    auto sessionExport = run(archivePath, {"session", "export", *sessionId, "--output",
+                                           package.string()});
+    if (!sessionExport || sessionExport->exitCode != 0 ||
+        !std::filesystem::exists(package)) {
+        const std::string detail = sessionExport ? std::string(outputOf(*sessionExport))
+                                                 : sessionExport.error().message;
+        return fail("session package export failed: " + detail);
+    }
+    const auto exchangeArchive = exports / "exchange.tux";
+    if (auto created = dispatch({"archive", "init", exchangeArchive.string(), "--name",
+                                 "Exchange"});
+        !created || created->exitCode != 0)
+        return fail("unable to create the exchange archive");
+    auto sessionImport = run(exchangeArchive, {"session", "import", package.string()});
+    if (!sessionImport || sessionImport->exitCode != 0)
+        return fail("session package import failed");
+    auto exchangeSessions = run(exchangeArchive, {"--json", "session", "list"});
+    auto parsedExchange = parseCommandJson(exchangeSessions);
+    if (!parsedExchange || !parsedExchange->asArray() || parsedExchange->asArray()->empty())
+        return fail("imported session package did not create a session");
+
+    const auto archiveCopy = exports / "copy.tux";
+    auto copied = dispatch({"archive", "copy", archivePath.string(), "--output",
+                            archiveCopy.string(), "--confirm-sensitive"});
+    if (!copied || copied->exitCode != 0 || !std::filesystem::exists(archiveCopy))
+        return fail("archive copy failed");
+    auto copiedVerify = dispatch({"archive", "verify", archiveCopy.string()});
+    if (!copiedVerify || copiedVerify->exitCode != 0)
+        return fail("copied archive did not verify");
+
+    const auto sanitizedPreview = exports / "sanitized.tux";
+    auto sanitize = dispatch({"archive", "sanitize", archivePath.string(), "--output",
+                              sanitizedPreview.string()});
+    if (!sanitize || sanitize->exitCode != 0 ||
+        !containsText(outputOf(*sanitize), "Review the selection"))
+        return fail("sanitized copy preview did not request an explicit review");
+
+    const auto templateOutput = exports / "template.json";
+    auto templateResult = run(archivePath, {"--json", "template", "create", "--name",
+                                            "Acceptance template"});
+    auto parsedTemplate = parseCommandJson(templateResult);
+    const auto templateId = parsedTemplate ? jsonString(*parsedTemplate, "id") : nullptr;
+    if (!templateId)
+        return fail("guide template creation failed");
+    auto templateExport = run(archivePath, {"template", "export", *templateId, "--output",
+                                            templateOutput.string()});
+    if (!templateExport || templateExport->exitCode != 0 ||
+        !std::filesystem::exists(templateOutput))
+        return fail("guide template export failed");
+
     auto verification = dispatch({"archive", "verify", archivePath.string()});
     if (!verification || verification->exitCode != 0)
         return fail("archive verification failed");
