@@ -1794,4 +1794,12 @@ if(BUILD_TESTING AND NOT TUTORUX_BUILD_WASM)
     add_executable(tutorux_recording_control_test tests/recording_control_test.cpp)
     target_link_libraries(tutorux_recording_control_test PRIVATE tutorux_core)
     add_test(NAME recording_control_ipc_lifecycle COMMAND tutorux_recording_control_test)
+
+    add_executable(tutorux_docx_export_test tests/docx_export_test.cpp)
+    target_link_libraries(tutorux_docx_export_test PRIVATE tutorux_core)
+    add_test(NAME guide_docx_export_blocks COMMAND tutorux_docx_export_test)
+
+    add_executable(tutorux_audio_devices_test tests/audio_devices_test.cpp)
+    target_link_libraries(tutorux_audio_devices_test PRIVATE tutorux_core)
+    add_test(NAME audio_devices_and_failure_paths COMMAND tutorux_audio_devices_test)
 endif()
