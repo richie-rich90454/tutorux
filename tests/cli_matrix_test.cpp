@@ -6,8 +6,11 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cstddef>
 #include <cstdint>
+#include <cstdlib>
 #include <filesystem>
+#include <type_traits>
 #include <fstream>
 #include <iostream>
 #include <optional>
@@ -133,9 +136,55 @@ std::optional<std::string> firstId(const std::optional<tutorux::command::JsonVal
     return id ? std::optional<std::string>(*id) : std::nullopt;
 }
 
+bool setEnvironment(std::string_view name, std::string_view value) {
+    const std::string key(name);
+    const std::string text(value);
+#ifdef _WIN32
+    return _putenv_s(key.c_str(), text.c_str()) == 0;
+#else
+    return ::setenv(key.c_str(), text.c_str(), 1) == 0;
+#endif
+}
+
 bool writeText(const std::filesystem::path& path, std::string_view text) {
     std::ofstream output(path, std::ios::binary | std::ios::trunc);
     output.write(text.data(), static_cast<std::streamsize>(text.size()));
+    return output.good();
+}
+
+template <typename Integer>
+void appendLittle(std::vector<std::byte>& bytes, Integer value) {
+    using Unsigned = std::make_unsigned_t<Integer>;
+    const auto bits = static_cast<Unsigned>(value);
+    for (std::size_t index = 0; index < sizeof(Integer); ++index)
+        bytes.push_back(static_cast<std::byte>((bits >> (index * 8U)) & 0xFFU));
+}
+
+bool writeWave(const std::filesystem::path& path) {
+    constexpr std::uint32_t sampleRate = 8'000;
+    constexpr std::uint32_t sampleCount = 256;
+    constexpr std::uint32_t dataSize = sampleCount * 2;
+    std::vector<std::byte> bytes;
+    const auto appendAscii = [&](std::string_view value) {
+        for (const char character : value)
+            bytes.push_back(static_cast<std::byte>(static_cast<unsigned char>(character)));
+    };
+    appendAscii("RIFF");
+    appendLittle(bytes, std::uint32_t{36} + dataSize);
+    appendAscii("WAVEfmt ");
+    appendLittle(bytes, std::uint32_t{16});
+    appendLittle(bytes, std::uint16_t{1});
+    appendLittle(bytes, std::uint16_t{1});
+    appendLittle(bytes, sampleRate);
+    appendLittle(bytes, sampleRate * 2);
+    appendLittle(bytes, std::uint16_t{2});
+    appendLittle(bytes, std::uint16_t{16});
+    appendAscii("data");
+    appendLittle(bytes, dataSize);
+    bytes.resize(44 + dataSize, std::byte{});
+    std::ofstream output(path, std::ios::binary | std::ios::trunc);
+    output.write(reinterpret_cast<const char*>(bytes.data()),
+                 static_cast<std::streamsize>(bytes.size()));
     return output.good();
 }
 
@@ -179,8 +228,18 @@ int main() {
     h.run("student show", {"--json", "student", "show", *studentId});
     h.run("student list", {"--json", "student", "list"});
     h.run("student update", {"student", "update", *studentId, "--grade", "11"});
+    h.run("student update template",
+          {"student", "update", *studentId, "--preferred-guide-template",
+           "mathematics"});
     h.run("student history", {"--json", "student", "history", *studentId});
     h.run("student progress", {"--json", "student", "progress", *studentId});
+    auto throwawayStudent = h.run(
+        "student create throwaway",
+        {"--json", "student", "create", "--name", "Temporary Student"});
+    const auto throwawayStudentId = textField(throwawayStudent, "id");
+    if (throwawayStudentId)
+        h.run("student delete",
+              {"student", "delete", *throwawayStudentId});
 
     auto session = h.run("session create",
                          {"--json", "session", "create", "--student-id", *studentId,
@@ -204,6 +263,21 @@ int main() {
     h.run("session complete", {"session", "complete", *sessionId});
     h.run("session review", {"session", "review", *sessionId});
     h.run("session resume", {"session", "resume", *sessionId});
+    const auto wavePath = h.root / "lesson.wav";
+    if (!writeWave(wavePath))
+        h.fail("unable to write the WAV fixture");
+    h.run("record import",
+          {"record", "import", "--session", *sessionId, "--input",
+           wavePath.string()});
+    h.run("record status", {"--json", "record", "status", "--session",
+                            *sessionId});
+    h.run("record waveform",
+          {"--json", "record", "waveform", "--session", *sessionId, "--buckets",
+           "32"});
+    h.run("record export-wav",
+          {"record", "export-wav", "--session", *sessionId, "--output",
+           (h.root / "exported.wav").string()});
+    h.run("record recover", {"record", "recover", "--session", *sessionId});
     auto cloned = h.run("session clone",
                         {"--json", "session", "clone", *sessionId});
     const auto clonedId = textField(cloned, "id");
@@ -499,6 +573,11 @@ int main() {
                                  *sessionId});
         h.run("evidence approve", {"evidence", "approve", *evidenceId});
         h.run("evidence verify", {"--json", "evidence", "verify", *evidenceId});
+        h.run("student progress review",
+              {"student", "progress-review", *studentId, "--skill",
+               "Fraction comparison", "--classification", "newly-observed",
+               "--evidence-ids", *evidenceId, "--reviewed-by",
+               "Matrix Tutor"});
     }
 
     auto guide = h.run("guide generate",
@@ -664,6 +743,31 @@ int main() {
     h.run("ai test", {"ai", "test", "--provider", "ollama"}, false);
     h.run("ai jobs", {"--json", "ai", "jobs"});
 
+    const auto encryptedArchive = h.root / "encrypted.tux";
+    h.global("encrypted init",
+             {"archive", "init", encryptedArchive.string(), "--name",
+              "Encrypted"});
+    if (!setEnvironment("TUTORUX_MATRIX_PASS", "matrix-passphrase") ||
+        !setEnvironment("TUTORUX_MATRIX_PASS2", "matrix-passphrase-2")) {
+        h.fail("unable to configure passphrase environment");
+    }
+    h.global("archive encrypt",
+             {"--new-passphrase-env", "TUTORUX_MATRIX_PASS", "archive",
+              "encrypt", encryptedArchive.string()});
+    h.global("encrypted verify",
+             {"--passphrase-env", "TUTORUX_MATRIX_PASS", "archive", "verify",
+              encryptedArchive.string()});
+    h.global("archive change passphrase",
+             {"--passphrase-env", "TUTORUX_MATRIX_PASS",
+              "--new-passphrase-env", "TUTORUX_MATRIX_PASS2", "archive",
+              "change-passphrase", encryptedArchive.string()});
+    h.global("changed passphrase verify",
+             {"--passphrase-env", "TUTORUX_MATRIX_PASS2", "archive", "verify",
+              encryptedArchive.string()});
+    h.expectFailure("wrong passphrase",
+                    {"--passphrase-env", "TUTORUX_MATRIX_PASS", "archive",
+                     "verify", encryptedArchive.string()},
+                    "");
     h.run("archive info", {"--json", "archive", "info", h.archive.string()});
     h.run("archive verify", {"archive", "verify", h.archive.string(), "--full"});
     h.expectFailure("unknown command", {"definitely-not-a-command"},
