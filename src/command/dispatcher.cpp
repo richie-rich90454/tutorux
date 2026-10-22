@@ -3962,34 +3962,81 @@ namespace {
                 return failed(importedSession.error());
             if (!*importedSession || domain::isDeleted(**importedSession))
                 return failed(core::error("session_import_link_failed", "Imported session could not be linked to the journal."));
+            const std::string importedEntryId = domain::getField(**importedSession, "entry_id");
+            const std::string importedNotesId = domain::getField(**importedSession, "notes_document_id");
+            std::optional<domain::JournalEntry> reusableEntry;
+            if (!importedEntryId.empty()) {
+                if (auto parsedEntryId = parseId(importedEntryId)) {
+                    auto entryRecord = archive->get(RecordType::Settings, *parsedEntryId);
+                    if (!entryRecord)
+                        return failed(entryRecord.error());
+                    if (*entryRecord && !domain::isDeleted(**entryRecord) &&
+                        domain::getField(**entryRecord, "record_role") == "journal-entry") {
+                        auto parsedEntry = domain::journalEntryFromRecord(**entryRecord);
+                        if (!parsedEntry)
+                            return failed(parsedEntry.error());
+                        reusableEntry = std::move(*parsedEntry);
+                    }
+                }
+            }
+            bool reusableNotes = false;
+            if (reusableEntry && !importedNotesId.empty()) {
+                if (auto parsedNotesId = parseId(importedNotesId)) {
+                    auto notesRecord = archive->get(RecordType::Settings, *parsedNotesId);
+                    if (!notesRecord)
+                        return failed(notesRecord.error());
+                    reusableNotes = *notesRecord && !domain::isDeleted(**notesRecord) &&
+                                    domain::getField(**notesRecord, "record_role") == "journal-notes";
+                }
+            }
+
             domain::JournalEntry entry;
-            entry.id = archive::randomUuid();
-            entry.title = domain::getField(**importedSession, "title", "Imported tutoring session");
-            entry.sessionIds.push_back(uuid(*imported));
-            const auto today = std::chrono::floor<std::chrono::days>(std::chrono::system_clock::now());
-            const std::chrono::year_month_day date{today};
-            const auto twoDigits = [](unsigned int value) {
-                return value < 10 ? "0" + std::to_string(value) : std::to_string(value);
-            };
-            entry.date = std::to_string(static_cast<int>(date.year())) + "-" + twoDigits(static_cast<unsigned int>(date.month())) + "-" +
-                         twoDigits(static_cast<unsigned int>(date.day()));
-            domain::JournalNotesDocument notes;
-            notes.id = archive::randomUuid();
-            notes.entryId = uuid(entry.id);
-            entry.notesDocumentId = uuid(notes.id);
             domain::JournalNotesDocument sessionNotes;
-            sessionNotes.id = archive::randomUuid();
-            sessionNotes.entryId = uuid(entry.id);
-            sessionNotes.sessionId = uuid(*imported);
-            (**importedSession).fields["entry_id"] = uuid(entry.id);
-            (**importedSession).fields["notes_document_id"] = uuid(sessionNotes.id);
+            std::vector<Record> transaction;
+            if (reusableEntry) {
+                entry = std::move(*reusableEntry);
+                if (std::find(entry.sessionIds.begin(), entry.sessionIds.end(), uuid(*imported)) ==
+                    entry.sessionIds.end()) {
+                    entry.sessionIds.push_back(uuid(*imported));
+                    entry.updatedAtUs = std::to_string(nowUnixMicroseconds());
+                    transaction.push_back(domain::toRecord(entry));
+                }
+            } else {
+                entry.id = archive::randomUuid();
+                entry.title = domain::getField(**importedSession, "title", "Imported tutoring session");
+                entry.sessionIds.push_back(uuid(*imported));
+                const auto today =
+                    std::chrono::floor<std::chrono::days>(std::chrono::system_clock::now());
+                const std::chrono::year_month_day date{today};
+                const auto twoDigits = [](unsigned int value) {
+                    return value < 10 ? "0" + std::to_string(value) : std::to_string(value);
+                };
+                entry.date = std::to_string(static_cast<int>(date.year())) + "-" +
+                             twoDigits(static_cast<unsigned int>(date.month())) + "-" +
+                             twoDigits(static_cast<unsigned int>(date.day()));
+                domain::JournalNotesDocument notes;
+                notes.id = archive::randomUuid();
+                notes.entryId = uuid(entry.id);
+                entry.notesDocumentId = uuid(notes.id);
+                transaction.push_back(domain::toRecord(notes));
+                transaction.push_back(domain::toRecord(entry));
+                (**importedSession).fields["entry_id"] = uuid(entry.id);
+            }
+            if (!reusableNotes) {
+                sessionNotes.id = archive::randomUuid();
+                sessionNotes.entryId = uuid(entry.id);
+                sessionNotes.sessionId = uuid(*imported);
+                (**importedSession).fields["notes_document_id"] = uuid(sessionNotes.id);
+                transaction.push_back(domain::toRecord(sessionNotes));
+            }
             if (!(**importedSession).fields.contains("session_type"))
                 (**importedSession).fields["session_type"] = "import-recording";
             if (!(**importedSession).fields.contains("session_state"))
                 (**importedSession).fields["session_state"] = "active";
             (**importedSession).fields["started_at_us"] =
                 domain::getField(**importedSession, "started_at_us",
-                                 domain::getField(**importedSession, "created_at_us", std::to_string(nowUnixMicroseconds())));
+                                 domain::getField(**importedSession, "created_at_us",
+                                                  std::to_string(nowUnixMicroseconds())));
             (**importedSession).fields["updated_at_us"] = std::to_string(nowUnixMicroseconds());
             auto journalRecords = archive->list(RecordType::Settings);
             if (!journalRecords)
@@ -3997,7 +4044,6 @@ namespace {
             const bool hasJournal = std::any_of(journalRecords->begin(), journalRecords->end(), [](const Record& record) {
                 return domain::getField(record, "record_role") == "journal" && !domain::isDeleted(record);
             });
-            std::vector<Record> transaction{domain::toRecord(notes), domain::toRecord(sessionNotes), domain::toRecord(entry)};
             if (!hasJournal) {
                 domain::Journal journal;
                 journal.id = archive::randomUuid();
@@ -4006,10 +4052,12 @@ namespace {
             transaction.push_back(std::move(**importedSession));
             if (auto status = archive->putMany(std::move(transaction)); !status)
                 return failed(status.error());
+            const std::string entryId = reusableEntry ? importedEntryId : uuid(entry.id);
+            const std::string notesId = reusableNotes ? importedNotesId : uuid(sessionNotes.id);
             return result(context.json ? toJson({
                                              {"session_id",        uuid(*imported)                                        },
-                                             {"entry_id",          uuid(entry.id)                                         },
-                                             {"notes_document_id", uuid(sessionNotes.id)                                  },
+                                             {"entry_id",          entryId                                                },
+                                             {"notes_document_id", notesId                                                },
                                              {"student_id",        studentId ? uuid(*studentId) : "preserved-or-anonymous"},
                                              {"status",            "imported"                                             }
             })
@@ -12868,7 +12916,8 @@ Archive:
   archive discover [--directory DIR]     Scan immediate directory level
   archive init FILE --name NAME          Create a portable .tux archive
   archive list | info [FILE] | verify [FILE] [--full]
-  archive backup FILE --output FILE --confirm-sensitive | copy FILE --output FILE
+  archive backup FILE --output FILE --confirm-sensitive
+  archive copy FILE --output FILE --confirm-sensitive
   archive sanitize FILE --output COPY.tux [selection options]
       preview first; repeat with --confirm-sensitive --expected-generation N
       --expected-selection SHA256 --expected-output FILE to create the reviewed copy
