@@ -231,6 +231,9 @@ namespace {
         if (!session)
             return std::unexpected(session.error());
 
+        const std::string sessionEntryId = domain::getField(*session, "entry_id");
+        const std::string sessionDocumentId = domain::getField(*session, "notes_document_id");
+
         std::vector<Record> records;
         std::set<std::string> recordKeys;
         std::set<std::string> evidenceIds;
@@ -377,12 +380,64 @@ namespace {
                 core::error("session_package_asset_missing",
                             "A session reference points to asset metadata that is not available."));
         }
+
+        const auto includeSettings = [&](std::string_view id,
+                                         std::string_view label) -> core::Status {
+            if (id.empty())
+                return {};
+            const auto uuid = archive::uuidFromString(id);
+            if (!uuid) {
+                return std::unexpected(
+                    core::error("session_package_reference_invalid",
+                                std::string(label) + " has an invalid identifier."));
+            }
+            auto record = source.get(RecordType::Settings, *uuid);
+            if (!record)
+                return std::unexpected(record.error());
+            if (!*record || domain::isDeleted(**record)) {
+                return std::unexpected(
+                    core::error("session_package_reference_invalid",
+                                std::string(label) + " is missing from the selected archive."));
+            }
+            addRecord(records, recordKeys, std::move(**record));
+            return {};
+        };
+
+        if (auto status = includeSettings(sessionEntryId, "Session journal entry"); !status)
+            return std::unexpected(status.error());
+        if (auto status = includeSettings(sessionDocumentId, "Session notes document"); !status)
+            return std::unexpected(status.error());
+        for (const Record& record : records) {
+            if (record.type != RecordType::Guide)
+                continue;
+            if (auto status =
+                    includeSettings(domain::getField(record, "entry_id"), "Guide journal entry");
+                !status) {
+                return std::unexpected(status.error());
+            }
+        }
+        std::vector<std::string> entryDocuments;
+        for (const Record& record : records) {
+            if (record.type == RecordType::Settings &&
+                domain::getField(record, "record_role") == "journal-entry") {
+                entryDocuments.push_back(domain::getField(record, "notes_document_id"));
+            }
+        }
+        for (const std::string& documentId : entryDocuments) {
+            if (auto status = includeSettings(documentId, "Journal notes document"); !status)
+                return std::unexpected(status.error());
+        }
+
         auto complete = includeRecordHistory(source, std::move(records));
         if (!complete)
             return std::unexpected(complete.error());
         if (auto status = validateSessionRecords(*complete, archive::uuidToString(sessionId));
             !status) {
             return std::unexpected(status.error());
+        }
+        for (Record& record : *complete) {
+            if (record.type == RecordType::Session)
+                record.fields["student_id"] = "anonymous";
         }
         return complete;
     }
@@ -453,10 +508,10 @@ namespace {
         auto settings = package.list(RecordType::Settings, true);
         if (!settings)
             return std::unexpected(settings.error());
-        if (!students->empty() || settings->size() != 1) {
+        if (!students->empty()) {
             return std::unexpected(
                 core::error("session_package_records_invalid",
-                            "Session packages cannot contain student profiles or extra settings."));
+                            "Session packages cannot contain student profiles."));
         }
         constexpr std::array supportedTypes{RecordType::Session,
                                             RecordType::AudioChunk,
@@ -468,6 +523,17 @@ namespace {
                                             RecordType::EvidenceEdge,
                                             RecordType::Guide,
                                             RecordType::AiJob};
+        for (Record& record : *settings) {
+            if (record.id == package.header().id)
+                continue;
+            const std::string role = domain::getField(record, "record_role");
+            if (role != "journal-entry" && role != "journal-notes") {
+                return std::unexpected(
+                    core::error("session_package_records_invalid",
+                                "Session packages cannot contain unrelated settings."));
+            }
+            records.push_back(std::move(record));
+        }
         for (const RecordType type : supportedTypes) {
             auto listed = package.list(type, true);
             if (!listed)
@@ -565,6 +631,16 @@ core::Status exportSessionPackage(const Archive& source,
                                            "The output directory must already exist."));
     }
 
+    auto sourceSession = source.get(RecordType::Session, sessionId);
+    if (!sourceSession)
+        return std::unexpected(sourceSession.error());
+    if (!*sourceSession || domain::isDeleted(**sourceSession)) {
+        return std::unexpected(
+            core::error("session_package_session_missing",
+                        "The selected session is missing from the source archive."));
+    }
+    const std::string sourceStudentId = domain::getField(**sourceSession, "student_id");
+
     auto records = collectSessionRecords(source, sessionId);
     if (!records)
         return std::unexpected(records.error());
@@ -587,6 +663,8 @@ core::Status exportSessionPackage(const Archive& source,
         (*manifest)->fields["record_role"] = "tutorux-session-package";
         (*manifest)->fields["package_version"] = "1";
         (*manifest)->fields["source_session_id"] = archive::uuidToString(sessionId);
+        if (!sourceStudentId.empty() && sourceStudentId != "anonymous")
+            (*manifest)->fields["source_student_id"] = sourceStudentId;
         if (auto status = package->put(std::move(**manifest)); !status)
             return status;
         if (auto status = package->putMany(std::move(*records)); !status)
@@ -595,9 +673,12 @@ core::Status exportSessionPackage(const Archive& source,
         if (!verification)
             return std::unexpected(verification.error());
         if (!verification->valid) {
+            std::string message =
+                "The generated session package failed integrity verification.";
+            if (!verification->issues.empty())
+                message += " " + verification->issues.front();
             return std::unexpected(
-                core::error("session_package_verify_failed",
-                            "The generated session package failed integrity verification."));
+                core::error("session_package_verify_failed", std::move(message)));
         }
     }
 
@@ -658,7 +739,16 @@ core::Result<Uuid> importSessionPackage(Archive& destination,
         }
         mappedStudent = archive::uuidToString(*studentId);
     } else {
-        const std::string sourceStudent = domain::getField(*sessionRecord, "student_id");
+        std::string sourceStudent = domain::getField(*sessionRecord, "student_id");
+        auto packageManifest = package->get(RecordType::Settings, package->header().id);
+        if (!packageManifest)
+            return std::unexpected(packageManifest.error());
+        if (*packageManifest) {
+            const std::string recordedStudent =
+                domain::getField(**packageManifest, "source_student_id");
+            if (!recordedStudent.empty())
+                sourceStudent = recordedStudent;
+        }
         auto parsedStudent = archive::uuidFromString(sourceStudent);
         if (parsedStudent) {
             auto existing = destination.get(RecordType::Student, *parsedStudent);
