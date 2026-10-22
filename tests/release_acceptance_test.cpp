@@ -351,6 +351,24 @@ int verifyJournalLifecycle(const std::filesystem::path& root) {
                                  "Exchange"});
         !created || created->exitCode != 0)
         return fail("unable to create the exchange archive");
+    const auto settingsInput = exports / "settings.txt";
+    if (!writeText(settingsInput, "ui.imported=from-file\n"))
+        return fail("unable to write the settings import fixture");
+    auto importedSettings = run(exchangeArchive, {"settings", "import", "--input",
+                                                  settingsInput.string()});
+    auto importedSetting = run(exchangeArchive, {"settings", "get", "ui.imported"});
+    if (!importedSettings || importedSettings->exitCode != 0 || !importedSetting ||
+        importedSetting->exitCode != 0 ||
+        !containsText(outputOf(*importedSetting), "from-file"))
+        return fail("settings import did not round-trip");
+    auto copiedSettings = run(exchangeArchive, {"settings", "copy-to-archive",
+                                                "--source-archive", archivePath.string(),
+                                                "--key", "ui.acceptance"});
+    auto copiedSetting = run(exchangeArchive, {"settings", "get", "ui.acceptance"});
+    if (!copiedSettings || copiedSettings->exitCode != 0 || !copiedSetting ||
+        copiedSetting->exitCode != 0 ||
+        !containsText(outputOf(*copiedSetting), "verified"))
+        return fail("settings copy-to-archive did not copy the selected setting");
     auto sessionImport = run(exchangeArchive, {"session", "import", package.string()});
     if (!sessionImport || sessionImport->exitCode != 0)
         return fail("session package import failed");
