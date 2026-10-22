@@ -205,6 +205,17 @@ int verifyJournalLifecycle(const std::filesystem::path& root) {
     const auto sessionId = jsonField(session->output, "id");
     if (!sessionId || sessionId->empty())
         return fail("session creation did not return an id");
+    auto sessionDetails = run(archivePath, {"--json", "session", "show", *sessionId});
+    const auto notesDocumentId = sessionDetails
+                                     ? jsonField(sessionDetails->output, "notes_document_id")
+                                     : std::nullopt;
+    if (!notesDocumentId || notesDocumentId->empty())
+        return fail("session details omitted the notes document id");
+    auto sessionNote = run(archivePath, {"journal", "document", "add-block",
+                                         *notesDocumentId, "--kind", "paragraph", "--text",
+                                         "The student compared fractions using a number line."});
+    if (!sessionNote || sessionNote->exitCode != 0)
+        return fail("session notebook note creation failed");
 
     auto entries = run(archivePath, {"--json", "journal", "entry", "list"});
     if (!entries || entries->exitCode != 0)
