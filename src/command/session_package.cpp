@@ -428,14 +428,14 @@ namespace {
                 return std::unexpected(status.error());
         }
 
-        auto complete = includeRecordHistory(source, std::move(records));
-        if (!complete)
-            return std::unexpected(complete.error());
-        if (auto status = validateSessionRecords(*complete, archive::uuidToString(sessionId));
+        std::vector<Record> complete = std::move(records);
+        if (auto status = validateSessionRecords(complete, archive::uuidToString(sessionId));
             !status) {
             return std::unexpected(status.error());
         }
-        for (Record& record : *complete) {
+        for (Record& record : complete) {
+            record.revision = 0;
+            record.previousOffset = 0;
             if (record.type == RecordType::Session)
                 record.fields["student_id"] = "anonymous";
         }
