@@ -13042,6 +13042,7 @@ Template / settings:
   template update ID [TEMPLATE FIELDS] | template import [--name NAME] --input FILE
   template export ID --output FILE | template delete ID
   settings list|get KEY|set --key KEY --value VALUE|reset [--key KEY]
+  settings import --input FILE | copy-to-archive --source-archive FILE [--key KEY]
   settings credential-list|credential-remove --key KEY
   Sensitive settings: --value-env NAME --store-credential (encrypted archives only)
 Model / recording:
