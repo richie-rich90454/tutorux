@@ -1,3 +1,8 @@
+interface TutoruxPickerWindow extends Window {
+    showSaveFilePicker?: (options?: unknown) => Promise<any>;
+    showOpenFilePicker?: (options?: unknown) => Promise<any[]>;
+}
+
 (() => {
     "use strict";
 
@@ -333,9 +338,8 @@
         const available = Boolean(activeArchivePath && activeSessionId && !archiveRecoveryNeedsReview);
         const busy = remoteTranscriptionInProgress;
         const fieldsAvailable = Boolean(activeArchivePath && !archiveRecoveryNeedsReview && !busy);
-        for (const field of elements["remote-transcription-form"].querySelectorAll<HTMLInputElement>(
-            "input:not([type=checkbox])",
-        )) {
+        for (const field of (elements["remote-transcription-form"] as HTMLElement)
+            .querySelectorAll<HTMLInputElement>("input:not([type=checkbox])")) {
             field.disabled = !fieldsAvailable;
         }
         let validFile = Boolean(file);
@@ -815,7 +819,7 @@
                     return;
                 }
                 if (message.type === "ready") {
-                    resolve();
+                    resolve(undefined);
                     return;
                 }
                 const pending = workerRequests.get(message.id);
@@ -858,7 +862,8 @@
             );
         }
         if (response.ok !== true && response.ok !== "true") {
-            const error = new Error(response.error || response.output || "The command failed.");
+            const error = new Error(response.error || response.output || "The command failed.") as
+                Error & { code?: string };
             error.code = response.error_code || "command_failed";
             throw error;
         }
@@ -1347,7 +1352,9 @@
     async function persistBrowserArchive() {
         if (!browserArchiveDatabase || !activeArchivePath) return;
         const source = await readArchiveBytes();
-        const stored = await readBrowserArchive(archiveStorageKey(source));
+        const stored = (await readBrowserArchive(archiveStorageKey(source))) as
+            | { name?: string; bytes?: ArrayBuffer; savedAt?: number }
+            | null;
         if (!stored || !(stored.bytes instanceof ArrayBuffer)) {
             throw new Error("The browser could not retain the latest archive snapshot.");
         }
@@ -1365,7 +1372,9 @@
     }
 
     async function restoreBrowserArchive() {
-        const stored = await readBrowserArchive();
+        const stored = (await readBrowserArchive()) as
+            | { name?: string; bytes?: ArrayBuffer; savedAt?: number }
+            | null;
         if (!stored || !(stored.bytes instanceof ArrayBuffer)) {
             setStorageStatus(
                 "No browser recovery copy",
@@ -1481,8 +1490,9 @@
             }
             if (permission !== "granted") destinationHandle = null;
         }
-        if (!destinationHandle && window.showSaveFilePicker) {
-            destinationHandle = await window.showSaveFilePicker({
+        const pickerWindow = window as TutoruxPickerWindow;
+        if (!destinationHandle && pickerWindow.showSaveFilePicker) {
+            destinationHandle = await pickerWindow.showSaveFilePicker({
                 suggestedName: activeArchiveName.endsWith(".tux")
                     ? activeArchiveName
                     : `${activeArchiveName}.tux`,
@@ -1865,7 +1875,7 @@
         const select = elements["annotation-merge-select"] as HTMLSelectElement;
         const submit = elements["annotation-merge-submit"] as HTMLButtonElement;
         if (!select || !submit) return;
-        const selected = [...select.selectedOptions];
+        const selected = Array.from(select.selectedOptions);
         const compatible = selected.length >= 2 && selected.every((option) =>
             option.dataset.annotationType === selected[0].dataset.annotationType &&
             option.dataset.priority === selected[0].dataset.priority,
@@ -2633,8 +2643,9 @@
                 blockForm.addEventListener("submit", async (event) => {
                     event.preventDefault();
                     try {
-                        const reviewOnly = (event as SubmitEvent).submitter?.value === "review";
-                        const removeBlock = (event as SubmitEvent).submitter?.value === "remove";
+                        const submitter = (event as SubmitEvent).submitter as HTMLButtonElement | null;
+                        const reviewOnly = submitter?.value === "review";
+                        const removeBlock = submitter?.value === "remove";
                         if (removeBlock) {
                             if (!window.confirm("Remove this block from the guide? This creates a new revision.")) return;
                             await runWriteCommand([
@@ -2837,8 +2848,8 @@
         for (const view of views) {
             view.classList.toggle("is-visible", view.dataset.panel === viewName);
         }
-        for (const button of document.querySelectorAll("[data-view]")) {
-            button.classList.toggle("is-active", button.dataset.view === viewName);
+        for (const button of Array.from(document.querySelectorAll("[data-view]"))) {
+            button.classList.toggle("is-active", (button as HTMLElement).dataset.view === viewName);
         }
     }
 
@@ -2851,8 +2862,9 @@
             showNotice("Save or download the current archive before opening another one.", true);
             return;
         }
-        if (window.showOpenFilePicker) {
-            const [handle] = await window.showOpenFilePicker({
+        const pickerWindow = window as TutoruxPickerWindow;
+        if (pickerWindow.showOpenFilePicker) {
+            const [handle] = await pickerWindow.showOpenFilePicker({
                 multiple: false,
                 types: [
                     {
@@ -3070,8 +3082,10 @@
     });
     elements["annotation-marker-jump"].addEventListener("click", () => {
         const markerId = elements["annotation-marker-select"].value;
-        const marker = [...elements["annotations-list"].querySelectorAll<HTMLElement>("[data-annotation-id]")]
-            .find((row) => row.dataset.annotationId === markerId);
+        const marker = Array.from(
+            (elements["annotations-list"] as HTMLElement)
+                .querySelectorAll<HTMLElement>("[data-annotation-id]"),
+        ).find((row) => row.dataset.annotationId === markerId);
         if (!marker) return;
         marker.scrollIntoView({ block: "center", behavior: "smooth" });
         marker.focus({ preventScroll: true });
@@ -3145,7 +3159,7 @@
         event.preventDefault();
         const select = elements["annotation-merge-select"] as HTMLSelectElement;
         const submit = elements["annotation-merge-submit"] as HTMLButtonElement;
-        const selectedOptions = [...select.selectedOptions];
+        const selectedOptions = Array.from(select.selectedOptions);
         if (selectedOptions.length < 2 || submit.disabled) {
             showNotice("Choose two or more notes with matching type and priority to merge.", true);
             return;
@@ -3695,9 +3709,10 @@
         }
     });
 
-    for (const button of document.querySelectorAll("[data-view], [data-open-view]")) {
+    for (const button of Array.from(document.querySelectorAll("[data-view], [data-open-view]"))) {
         button.addEventListener("click", async () => {
-            const viewName = button.dataset.view || button.dataset.openView;
+            const buttonElement = button as HTMLElement;
+            const viewName = buttonElement.dataset.view || buttonElement.dataset.openView;
             switchView(viewName);
             if (activeArchivePath) {
                 try {
