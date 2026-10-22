@@ -38,8 +38,8 @@ export component StudentPage inherits Rectangle {
         content-height: max(self.visible-height, page.preferred-height);
 
         page := VerticalLayout {
-            x: max(0px, (parent.visible-width - self.width) / 2);
-            width: min(parent.visible-width, 920px);
+            x: max(0px, (root.width - self.width) / 2);
+            width: min(root.width - 14px, 920px);
             padding-left: 48px;
             padding-right: 48px;
             padding-top: 36px;
