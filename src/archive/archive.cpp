@@ -3234,9 +3234,23 @@ core::Result<VerificationReport> Archive::verify(bool full) const {
                         }
                         for (const std::string& sourceId : sourceIds) {
                             auto id = uuidFromString(sourceId);
-                            if (!id ||
-                                !hasAnyLiveRevision(*id, {RecordType::TranscriptSegment, RecordType::Annotation, RecordType::EvidenceNode,
-                                                          RecordType::AssetMetadata, RecordType::Session, RecordType::Student})) {
+                            bool liveSource =
+                                id && hasAnyLiveRevision(*id, {RecordType::TranscriptSegment, RecordType::Annotation,
+                                                               RecordType::EvidenceNode, RecordType::AssetMetadata,
+                                                               RecordType::Session, RecordType::Student});
+                            if (!liveSource && id) {
+                                const Record* notes = findLiveRevision(RecordType::Settings, *id);
+                                if (notes && domain::getField(*notes, "record_role") == "journal-notes") {
+                                    const std::string notesEntryId =
+                                        domain::getField(*notes, "entry_id");
+                                    const std::string notesSessionId =
+                                        domain::getField(*notes, "session_id");
+                                    liveSource =
+                                        (!guide->entryId.empty() && notesEntryId == guide->entryId) ||
+                                        (!guide->sessionId.empty() && notesSessionId == guide->sessionId);
+                                }
+                            }
+                            if (!liveSource) {
                                 report.issues.push_back("Historical guide " + uuidToString(record.id) + " references a missing source " +
                                                         sourceId + ".");
                             }
