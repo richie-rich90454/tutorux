@@ -312,42 +312,44 @@ namespace {
     }
 
     core::Result<std::string> transact(const std::wstring& endpoint, std::string_view command) {
-        if (!WaitNamedPipeW(endpoint.c_str(), 500)) {
-            return std::unexpected(
-                core::error("recording_worker_not_found", "No recording worker is listening."));
-        }
-        HANDLE pipe = CreateFileW(endpoint.c_str(),
-                                  GENERIC_READ | GENERIC_WRITE,
-                                  0,
-                                  nullptr,
-                                  OPEN_EXISTING,
-                                  0,
-                                  nullptr);
-        if (pipe == INVALID_HANDLE_VALUE) {
-            return std::unexpected(core::error("recording_worker_not_found",
-                                               "Unable to connect to the recording worker."));
-        }
         const std::string request = std::string(command) + "\n";
-        DWORD bytesWritten = 0;
-        const BOOL writeSucceeded = WriteFile(pipe,
-                                              request.data(),
-                                              static_cast<DWORD>(request.size()),
-                                              &bytesWritten,
-                                              nullptr);
-        std::array<char, 4096> response{};
-        DWORD bytesRead = 0;
-        const BOOL readSucceeded =
-            writeSucceeded && ReadFile(pipe,
-                                       response.data(),
-                                       static_cast<DWORD>(response.size() - 1),
-                                       &bytesRead,
-                                       nullptr);
-        CloseHandle(pipe);
-        if (!readSucceeded || bytesRead == 0) {
-            return std::unexpected(core::error("recording_ipc_connection_failed",
-                                               "The recording worker closed its pipe."));
+        for (int attempt = 0; attempt < 10; ++attempt) {
+            if (!WaitNamedPipeW(endpoint.c_str(), 500)) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(20));
+                continue;
+            }
+            HANDLE pipe = CreateFileW(endpoint.c_str(),
+                                      GENERIC_READ | GENERIC_WRITE,
+                                      0,
+                                      nullptr,
+                                      OPEN_EXISTING,
+                                      0,
+                                      nullptr);
+            if (pipe == INVALID_HANDLE_VALUE) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(20));
+                continue;
+            }
+            DWORD bytesWritten = 0;
+            const BOOL writeSucceeded = WriteFile(pipe,
+                                                  request.data(),
+                                                  static_cast<DWORD>(request.size()),
+                                                  &bytesWritten,
+                                                  nullptr);
+            std::array<char, 4096> response{};
+            DWORD bytesRead = 0;
+            const BOOL readSucceeded =
+                writeSucceeded && ReadFile(pipe,
+                                           response.data(),
+                                           static_cast<DWORD>(response.size() - 1),
+                                           &bytesRead,
+                                           nullptr);
+            CloseHandle(pipe);
+            if (readSucceeded && bytesRead != 0)
+                return std::string(response.data(), bytesRead);
+            std::this_thread::sleep_for(std::chrono::milliseconds(20));
         }
-        return std::string(response.data(), bytesRead);
+        return std::unexpected(core::error("recording_ipc_connection_failed",
+                                           "The recording worker closed its pipe."));
     }
 #else
     std::filesystem::path currentExecutablePath() {
