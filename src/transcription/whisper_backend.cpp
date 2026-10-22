@@ -112,12 +112,12 @@ namespace {
     constexpr std::size_t kRecordsPerBatch = 64;
     constexpr std::size_t kMaximumTrackCount = 32;
 
-#ifdef TUTORUX_WITH_WHISPER
-
     std::uint64_t nowUnixMicroseconds() {
         return static_cast<std::uint64_t>(
             std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::system_clock::now().time_since_epoch()).count());
     }
+
+#ifdef TUTORUX_WITH_WHISPER
 
     Result<std::uint64_t> parseUnsigned(std::string_view value, std::string_view name) {
         std::uint64_t result = 0;
