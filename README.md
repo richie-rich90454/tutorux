@@ -33,7 +33,7 @@ No account. No hosted service. No database to install. The archive is the applic
 
 ### Run the Windows build
 
-The portable executable is self-contained:
+The portable release is one self-contained executable. After building the portable target below, run:
 
 ```powershell
 dist\Tutorux.exe
