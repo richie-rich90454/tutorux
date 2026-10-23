@@ -229,6 +229,16 @@ namespace {
         return keys;
     }
 
+    std::set<std::string, std::less<>> transcriptSessionIndexKeys(const Record& record) {
+        std::set<std::string, std::less<>> keys;
+        if (record.type != RecordType::TranscriptSegment)
+            return keys;
+        auto sessionId = uuidFromString(domain::getField(record, "session_id"));
+        if (sessionId)
+            keys.insert("TRANSCRIPTSESSION:" + uuidToString(*sessionId) + ":" + uuidToString(record.id));
+        return keys;
+    }
+
     std::set<std::string, std::less<>> evidenceAdjacencyIndexKeys(const Record& record) {
         std::set<std::string, std::less<>> keys;
         if (record.type != RecordType::EvidenceEdge)
@@ -1711,6 +1721,49 @@ core::Status Archive::forEachSessionForStudent(const Uuid& studentId, const std:
     return {};
 }
 
+core::Result<std::size_t> Archive::countTranscriptSegments(const Uuid& sessionId, bool includeDeleted) const {
+    std::lock_guard lock(*mutex_);
+    auto manifest = get(RecordType::Settings, header_.id);
+    if (!manifest)
+        return std::unexpected(manifest.error());
+    const std::string sessionIdText = uuidToString(sessionId);
+    if (!*manifest || domain::getField(**manifest, "transcript_session_index_version") != "1") {
+        std::size_t count = 0;
+        auto status = forEach(
+            RecordType::TranscriptSegment,
+            [&](Record&& record) {
+                if (domain::getField(record, "session_id") == sessionIdText)
+                    ++count;
+                return true;
+            },
+            includeDeleted);
+        if (!status)
+            return std::unexpected(status.error());
+        return count;
+    }
+
+    std::size_t count = 0;
+    bool invalidIndex = false;
+    auto status = forEachIndexPrefix(
+        "TRANSCRIPTSESSION:" + sessionIdText + ":",
+        [&](Record&& record) {
+            if (record.type != RecordType::TranscriptSegment ||
+                domain::getField(record, "session_id") != sessionIdText) {
+                invalidIndex = true;
+                return false;
+            }
+            ++count;
+            return true;
+        },
+        includeDeleted);
+    if (!status)
+        return std::unexpected(status.error());
+    if (invalidIndex)
+        return std::unexpected(
+            core::error("transcript_session_index_invalid", "Transcript session index points to an invalid segment."));
+    return count;
+}
+
 core::Status Archive::forEachEvidenceAdjacent(const Uuid& nodeId, const std::function<bool(Record&&)>& visitor, bool includeDeleted) const {
     std::lock_guard lock(*mutex_);
     if (!visitor)
@@ -2254,10 +2307,12 @@ core::Status Archive::putManyInternal(std::vector<Record> records, bool invalida
     const bool migrateAnnotationSessionTimeIndex = !manifest || domain::getField(*manifest, "annotation_session_time_index_version") != "1";
     const bool migrateStudentSessionIndex = !manifest || domain::getField(*manifest, "student_session_index_version") != "1";
     const bool migrateEvidenceAdjacencyIndex = !manifest || domain::getField(*manifest, "evidence_adjacency_index_version") != "1";
+    const bool migrateTranscriptSessionIndex = !manifest || domain::getField(*manifest, "transcript_session_index_version") != "1";
     const auto markSecondaryIndexes = [](Record& record) {
         record.fields["annotation_session_time_index_version"] = "1";
         record.fields["student_session_index_version"] = "1";
         record.fields["evidence_adjacency_index_version"] = "1";
+        record.fields["transcript_session_index_version"] = "1";
     };
     if (manifest)
         markSecondaryIndexes(*manifest);
@@ -2391,6 +2446,8 @@ core::Status Archive::putManyInternal(std::vector<Record> records, bool invalida
             return status;
         if (auto status = indexSecondaryKeys(evidenceAdjacencyIndexKeys(record)); !status)
             return status;
+        if (auto status = indexSecondaryKeys(transcriptSessionIndexKeys(record)); !status)
+            return status;
         if (record.type == RecordType::Guide) {
             const auto currentAliases = guideSourceIndexKeys(record);
             guideSourceAliases.insert(currentAliases.begin(), currentAliases.end());
@@ -2482,6 +2539,12 @@ core::Status Archive::putManyInternal(std::vector<Record> records, bool invalida
     }
     if (migrateEvidenceAdjacencyIndex) {
         if (auto status = migrateSecondaryIndex(RecordType::EvidenceEdge, evidenceAdjacencyIndexKeys, "evidence-adjacency"); !status)
+            return status;
+    }
+    if (migrateTranscriptSessionIndex) {
+        if (auto status =
+                migrateSecondaryIndex(RecordType::TranscriptSegment, transcriptSessionIndexKeys, "transcript-by-session");
+            !status)
             return status;
     }
 
@@ -2788,6 +2851,8 @@ core::Result<VerificationReport> Archive::verify(bool full) const {
         *manifest && !domain::isDeleted(**manifest) && domain::getField(**manifest, "student_session_index_version") == "1";
     const bool evidenceAdjacencyIndexEnabled =
         *manifest && !domain::isDeleted(**manifest) && domain::getField(**manifest, "evidence_adjacency_index_version") == "1";
+    const bool transcriptSessionIndexEnabled =
+        *manifest && !domain::isDeleted(**manifest) && domain::getField(**manifest, "transcript_session_index_version") == "1";
     auto root = readIndexPage(commit_.rootOffset);
     if (!root) {
         report.issues.push_back(root.error().message);
@@ -3028,6 +3093,8 @@ core::Result<VerificationReport> Archive::verify(bool full) const {
                     checkCurrentSecondaryIndex(studentSessionIndexKeys, "Student-to-session");
                 if (latest->type == RecordType::EvidenceEdge && evidenceAdjacencyIndexEnabled)
                     checkCurrentSecondaryIndex(evidenceAdjacencyIndexKeys, "Evidence adjacency");
+                if (latest->type == RecordType::TranscriptSegment && transcriptSessionIndexEnabled)
+                    checkCurrentSecondaryIndex(transcriptSessionIndexKeys, "Transcript-by-session");
             } else if (key.starts_with("AUDIOSESSION:")) {
                 const auto expectedKey = audioSessionIndexKey(*latest);
                 auto primaryOffset = findOffset(indexKey(latest->type, latest->id));
@@ -3068,6 +3135,13 @@ core::Result<VerificationReport> Archive::verify(bool full) const {
                 if (!evidenceAdjacencyIndexEnabled || latest->type != RecordType::EvidenceEdge ||
                     !evidenceAdjacencyIndexKeys(*latest).contains(key) || !primaryOffset || !*primaryOffset) {
                     report.issues.push_back("Evidence adjacency index key does not match an evidence-edge revision.");
+                }
+                checkedSecondaryIndexOffsets.emplace_back(key, latestOffset);
+            } else if (key.starts_with("TRANSCRIPTSESSION:")) {
+                auto primaryOffset = findOffset(indexKey(RecordType::TranscriptSegment, latest->id));
+                if (!transcriptSessionIndexEnabled || latest->type != RecordType::TranscriptSegment ||
+                    !transcriptSessionIndexKeys(*latest).contains(key) || !primaryOffset || !*primaryOffset) {
+                    report.issues.push_back("Transcript session index key does not match a transcript segment revision.");
                 }
                 checkedSecondaryIndexOffsets.emplace_back(key, latestOffset);
             }
