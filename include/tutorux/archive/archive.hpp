@@ -123,6 +123,7 @@ class Archive final {
                                           bool includeDeleted = false) const;
     core::Status forEachEvidenceAdjacent(const Uuid& nodeId, const std::function<bool(Record&&)>& visitor,
                                          bool includeDeleted = false) const;
+    core::Result<std::size_t> countTranscriptSegments(const Uuid& sessionId, bool includeDeleted = false) const;
     core::Status forEachAudioChunk(const Uuid& sessionId, const std::optional<Uuid>& trackId, const std::function<bool(Record&&)>& visitor,
                                    bool includeDeleted = false) const;
     core::Result<std::vector<Record>> list(RecordType type, bool includeDeleted = false) const;
