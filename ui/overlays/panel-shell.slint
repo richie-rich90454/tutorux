@@ -22,6 +22,19 @@ export component PanelShell inherits Rectangle {
     accessible-role: AccessibleRole.region;
     accessible-label: root.heading;
 
+    focus-scope := FocusScope {
+        x: 0;
+        width: 0;
+        init => { self.focus(); }
+        key-pressed(event) => {
+            if (event.text == Key.Escape) {
+                root.close();
+                return accept;
+            }
+            reject
+        }
+    }
+
     TouchArea {
         width: 100%;
         height: 100%;
@@ -53,13 +66,13 @@ export component PanelShell inherits Rectangle {
                     Text {
                         text: root.heading;
                         color: Theme.ink;
-                        font-size: 15px;
+                        font-size: 16px;
                         font-weight: 700;
                     }
                     Text {
                         text: root.detail;
                         color: Theme.muted;
-                        font-size: 11.5px;
+                        font-size: 12px;
                         overflow: elide;
                     }
                 }
@@ -94,7 +107,7 @@ export component FieldLabel inherits Text {
     height: 17px;
     vertical-alignment: bottom;
     color: Theme.faint;
-    font-size: 11px;
+    font-size: 12px;
     font-weight: 600;
     letter-spacing: 0.1px;
 }
