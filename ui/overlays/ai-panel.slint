@@ -41,20 +41,20 @@ export component AiPanel inherits Rectangle {
                 wrap: word-wrap;
             }
 
-            Text { text: "Provider"; color: Theme.faint; font-size: 11px; font-weight: 600; }
+            Text { text: "Provider"; color: Theme.faint; font-size: 12px; font-weight: 600; }
             LineEdit { placeholder-text: "Provider ID, such as openai, ollama, llama.cpp-embedded"; text <=> root.provider; }
             HorizontalLayout {
                 spacing: 8px;
                 VerticalLayout {
                     horizontal-stretch: 1;
                     spacing: 5px;
-                    Text { text: "Endpoint"; color: Theme.faint; font-size: 11px; font-weight: 600; }
+                    Text { text: "Endpoint"; color: Theme.faint; font-size: 12px; font-weight: 600; }
                     LineEdit { placeholder-text: "Optional provider endpoint"; text <=> root.endpoint; }
                 }
                 VerticalLayout {
                     horizontal-stretch: 1;
                     spacing: 5px;
-                    Text { text: "Model ID"; color: Theme.faint; font-size: 11px; font-weight: 600; }
+                    Text { text: "Model ID"; color: Theme.faint; font-size: 12px; font-weight: 600; }
                     LineEdit { placeholder-text: "Model ID"; text <=> root.model-id; }
                 }
             }
