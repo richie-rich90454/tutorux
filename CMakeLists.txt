@@ -71,6 +71,11 @@ option(TUTORUX_LLAMA_METAL "Build embedded llama.cpp with Metal support" OFF)
 option(TUTORUX_ENABLE_LTO "Enable link-time optimization for release builds" ON)
 option(TUTORUX_STATIC_RUNTIME "Statically link bundled third-party dependencies" OFF)
 option(TUTORUX_BUILD_WASM "Build the static browser edition with Emscripten" OFF)
+option(TUTORUX_STRIP_RUNTIME "Strip the release executable after linking" ON)
+option(TUTORUX_SLINT_TESTING "Build the Slint headless testing backend" OFF)
+set(TUTORUX_SIZE_LIMIT_BYTES "65000000" CACHE STRING
+    "Maximum accepted size for the release executable in bytes"
+)
 
 if(TUTORUX_FETCH_LLAMA)
     set(TUTORUX_ENABLE_LLAMA ON)
@@ -205,6 +210,8 @@ set(TUTORUX_CORE_SOURCES
     src/archive/file.cpp
     src/archive/format.cpp
     src/archive/sanitized_copy.cpp
+    src/application/task-executor.cpp
+    src/application/workspace-service.cpp
     src/command/dispatcher.cpp
     src/command/json.cpp
     src/command/session_package.cpp
@@ -1054,6 +1061,14 @@ if(NOT TUTORUX_BUILD_WASM)
 endif()
 
 if(NOT TUTORUX_BUILD_WASM)
+    if(TUTORUX_STRIP_RUNTIME AND CMAKE_BUILD_TYPE MATCHES "^(Release|MinSizeRel)$" AND CMAKE_STRIP)
+        add_custom_command(
+            TARGET tutorux POST_BUILD
+            COMMAND "${CMAKE_STRIP}" --strip-unneeded "$<TARGET_FILE:tutorux>"
+            COMMENT "Stripping release symbols from tutorux"
+            VERBATIM
+        )
+    endif()
     # Portable handoff artifact: cmake --build <build dir> --target dist
     set(TUTORUX_DIST_NAME "Tutorux${CMAKE_EXECUTABLE_SUFFIX}")
     add_custom_target(dist
@@ -1067,6 +1082,28 @@ if(NOT TUTORUX_BUILD_WASM)
         DEPENDS tutorux
         VERBATIM
         COMMENT "Staging ${TUTORUX_DIST_NAME} into dist/"
+    )
+
+    add_custom_target(size
+        COMMAND "${CMAKE_COMMAND}"
+            "-DTUTORUX_BINARY=$<TARGET_FILE:tutorux>"
+            "-DTUTORUX_SIZE_LIMIT_BYTES=${TUTORUX_SIZE_LIMIT_BYTES}"
+            "-DTUTORUX_SIZE_PROFILE=${CMAKE_BUILD_TYPE}"
+            "-DTUTORUX_SIZE_REPORT=${CMAKE_CURRENT_BINARY_DIR}/size-report.txt"
+            "-DTUTORUX_OBJDUMP=${CMAKE_OBJDUMP}"
+            -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/size/size_report.cmake"
+        DEPENDS tutorux
+        VERBATIM
+        COMMENT "Checking the Tutorux executable size budget"
+    )
+    add_test(NAME binary_size_budget
+        COMMAND "${CMAKE_COMMAND}"
+            "-DTUTORUX_BINARY=$<TARGET_FILE:tutorux>"
+            "-DTUTORUX_SIZE_LIMIT_BYTES=${TUTORUX_SIZE_LIMIT_BYTES}"
+            "-DTUTORUX_SIZE_PROFILE=${CMAKE_BUILD_TYPE}"
+            "-DTUTORUX_SIZE_REPORT=${CMAKE_CURRENT_BINARY_DIR}/size-report.txt"
+            "-DTUTORUX_OBJDUMP=${CMAKE_OBJDUMP}"
+            -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/size/size_report.cmake"
     )
 endif()
 
@@ -1085,6 +1122,18 @@ endif()
 
 if(TUTORUX_BUILD_GUI)
     if(TUTORUX_FETCH_SLINT)
+        # Release builds keep only the features the desktop shell needs. The
+        # interpreter, live preview, system tray, and test backend are development
+        # and size liabilities.
+        set(SLINT_FEATURE_INTERPRETER OFF CACHE BOOL "" FORCE)
+        set(SLINT_FEATURE_LIVE_PREVIEW OFF CACHE BOOL "" FORCE)
+        set(SLINT_FEATURE_SYSTEM_TRAY OFF CACHE BOOL "" FORCE)
+        set(SLINT_FEATURE_ACCESSIBILITY ON CACHE BOOL "" FORCE)
+        set(SLINT_FEATURE_RENDERER_FEMTOVG OFF CACHE BOOL "" FORCE)
+        set(SLINT_FEATURE_RENDERER_SOFTWARE ON CACHE BOOL "" FORCE)
+        set(SLINT_FEATURE_TESTING ${TUTORUX_SLINT_TESTING} CACHE BOOL "" FORCE)
+        set(SLINT_FEATURE_SYSTEM_TESTING ${TUTORUX_SLINT_TESTING} CACHE BOOL "" FORCE)
+        set(SLINT_FEATURE_EXPERIMENTAL ${TUTORUX_SLINT_TESTING} CACHE BOOL "" FORCE)
         include(FetchContent)
         set(CORROSION_BUILD_TESTS OFF CACHE BOOL "" FORCE)
         FetchContent_Declare(
@@ -1802,4 +1851,37 @@ if(BUILD_TESTING AND NOT TUTORUX_BUILD_WASM)
     add_executable(tutorux_audio_devices_test tests/audio_devices_test.cpp)
     target_link_libraries(tutorux_audio_devices_test PRIVATE tutorux_core)
     add_test(NAME audio_devices_and_failure_paths COMMAND tutorux_audio_devices_test)
+
+    if(TUTORUX_BUILD_GUI AND TUTORUX_SLINT_TESTING AND TARGET Slint::Slint)
+        add_executable(tutorux_ui_layout_test
+            tests/ui/layout_test.cpp
+            "${CMAKE_CURRENT_BINARY_DIR}/slint_generated_app-window_1.cpp"
+        )
+        add_dependencies(tutorux_ui_layout_test tutorux)
+        target_include_directories(tutorux_ui_layout_test PRIVATE
+            "${CMAKE_CURRENT_BINARY_DIR}"
+            "${TUTORUX_SLINT_SOURCE_DIR}/api/cpp/include"
+        )
+        target_link_libraries(tutorux_ui_layout_test PRIVATE Slint::Slint)
+        add_test(NAME ui_layout_matrix COMMAND tutorux_ui_layout_test)
+
+        add_executable(tutorux_ui_screenshot
+            tests/ui/screenshot_tool.cpp
+            "${CMAKE_CURRENT_BINARY_DIR}/slint_generated_app-window_1.cpp"
+        )
+        add_dependencies(tutorux_ui_screenshot tutorux)
+        target_include_directories(tutorux_ui_screenshot PRIVATE
+            "${CMAKE_CURRENT_BINARY_DIR}"
+            "${TUTORUX_SLINT_SOURCE_DIR}/api/cpp/include"
+        )
+        target_link_libraries(tutorux_ui_screenshot PRIVATE Slint::Slint)
+    endif()
+
+    add_executable(tutorux_task_executor_test tests/performance/task_executor_test.cpp)
+    target_link_libraries(tutorux_task_executor_test PRIVATE tutorux_core)
+    add_test(NAME bounded_task_executor COMMAND tutorux_task_executor_test)
+
+    add_executable(tutorux_workspace_snapshot_test tests/workspace_snapshot_test.cpp)
+    target_link_libraries(tutorux_workspace_snapshot_test PRIVATE tutorux_core)
+    add_test(NAME typed_workspace_overview COMMAND tutorux_workspace_snapshot_test)
 endif()
