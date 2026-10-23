@@ -1,6 +1,7 @@
 // Left navigator: scopes, filtering, session/student/material lists, archive
 // footer. All rows come from the controller; nothing here is sample data.
 import { IconButton, LineEdit, ScrollArea, TabButton, Theme } from "../theme.slint";
+import { ListView } from "std-widgets.slint";
 import { MaterialRow, SessionRow, StudentRow } from "../models.slint";
 
 export component Navigator inherits Rectangle {
@@ -9,6 +10,7 @@ export component Navigator inherits Rectangle {
     in property <string> archive-status;
     in property <bool> archive-busy: false;
     in property <bool> archive-writable: true;
+    in property <bool> compact: false;
     in property <[SessionRow]> session-rows: [];
     in property <[StudentRow]> student-rows: [];
     in property <[MaterialRow]> material-rows: [];
@@ -39,7 +41,7 @@ export component Navigator inherits Rectangle {
         search-input.focus-input();
     }
 
-    width: Theme.navigator-width;
+    width: root.compact ? 208px : Theme.navigator-width;
     height: 100%;
     background: Theme.sidebar;
 
@@ -72,7 +74,7 @@ export component Navigator inherits Rectangle {
                 Text {
                     text: "Sessions";
                     color: Theme.ink;
-                    font-size: 18px;
+                    font-size: 16px;
                     font-weight: 700;
                     vertical-alignment: center;
                 }
@@ -101,7 +103,7 @@ export component Navigator inherits Rectangle {
                         horizontal-alignment: center;
                         vertical-alignment: center;
                         color: Theme.muted;
-                        font-size: 17px;
+                        font-size: 16px;
                         font-weight: 700;
                         accessible-role: none;
                     }
@@ -163,309 +165,310 @@ export component Navigator inherits Rectangle {
             }
         }
 
-        // List
-        ScrollArea {
+        // Long lists are virtualized: only visible rows are instantiated.
+        Rectangle {
             vertical-stretch: 1;
-            content-width: self.visible-width;
-            content-height: max(self.visible-height, nav-list.preferred-height);
-            vertical-scrollbar-policy: as-needed;
+            clip: true;
 
-            nav-list := VerticalLayout {
-                width: parent.visible-width;
-                padding-left: 8px;
-                padding-right: 8px;
-                padding-top: 4px;
-                padding-bottom: 16px;
-                spacing: 2px;
+            if root.scope == "sessions" : ListView {
+                width: 100%;
+                height: 100%;
 
-                if root.scope == "sessions" : VerticalLayout {
-                    spacing: 2px;
+                for row in root.session-rows : Rectangle {
+                    x: 8px;
+                    width: parent.width - 16px;
+                    height: !root.matches(row.title + " " + row.meta, root.query) ? 0px :
+                            (row.group-start && root.query == "" ? 74px : 54px);
+                    border-radius: 5px;
+                    background: root.selected-session == row.choice ? Theme.accent-soft :
+                                row-touch.has-hover ? Theme.surface-hover : transparent;
 
-                    for row[i] in root.session-rows : Rectangle {
-                        visible: root.matches(row.title + " " + row.meta, root.query);
-                        height: row.group-start && root.query == "" ? 74px : 54px;
-                        border-radius: 5px;
-                        background: root.selected-session == row.choice ? Theme.accent-soft :
-                                    row-touch.has-hover ? Theme.surface-hover : transparent;
+                    if row.group-start && root.query == "" : Text {
+                        x: 12px;
+                        y: 6px;
+                        width: parent.width - 24px;
+                        height: 16px;
+                        vertical-alignment: center;
+                        text: row.group;
+                        color: Theme.faint;
+                        font-size: 12px;
+                        font-weight: 600;
+                    }
 
-                        if row.group-start && root.query == "" : Text {
-                            x: 12px;
-                            y: 6px;
-                            width: parent.width - 24px;
-                            height: 16px;
-                            vertical-alignment: center;
-                            text: row.group;
-                            color: Theme.faint;
-                            font-size: 11px;
+                    VerticalLayout {
+                        padding-left: 12px;
+                        padding-right: 10px;
+                        padding-top: (row.group-start && root.query == "") ? 26px : 9px;
+                        padding-bottom: 8px;
+                        spacing: 2px;
+
+                        Text {
+                            text: row.title;
+                            color: Theme.ink;
+                            font-size: 14px;
                             font-weight: 600;
+                            overflow: elide;
                         }
-
-                        VerticalLayout {
-                            padding-left: 12px;
-                            padding-right: 10px;
-                            padding-top: (row.group-start && root.query == "") ? 26px : 9px;
-                            padding-bottom: 8px;
-                            spacing: 2px;
-
-                            Text {
-                                text: row.title;
-                                color: Theme.ink;
-                                font-size: 13.5px;
-                                font-weight: 600;
-                                overflow: elide;
-                            }
-                            Text {
-                                text: row.meta;
-                                color: Theme.muted;
-                                font-size: 12px;
-                                overflow: elide;
-                            }
-                        }
-
-                        if root.selected-session == row.choice : Rectangle {
-                            x: 0px;
-                            y: (row.group-start && root.query == "") ? 28px : 8px;
-                            width: 2px;
-                            height: 38px;
-                            background: Theme.accent;
-                        }
-
-                        if row.state == "recording" : Rectangle {
-                            x: parent.width - 20px;
-                            y: (row.group-start && root.query == "") ? 42px : 22px;
-                            width: 6px;
-                            height: 6px;
-                            border-radius: 3px;
-                            background: Theme.recording;
-                        }
-
-                        row-touch := TouchArea {
-                            clicked => { root.select-session(row.id, row.choice); }
-                        }
-
-                        forward-focus: row-focus;
-                        accessible-role: button;
-                        accessible-label: row.title;
-
-                        row-focus := FocusScope {
-                            x: 0;
-                            width: 0;
-                            key-pressed(event) => {
-                                if (event.text == Key.Return || event.text == Key.Space) {
-                                    root.select-session(row.id, row.choice);
-                                    accept
-                                } else {
-                                    reject
-                                }
-                            }
-                        }
-
-                        if row-focus.has-focus : Rectangle {
-                            width: 100%;
-                            height: 100%;
-                            border-width: 2px;
-                            border-color: Theme.focus-ring;
-                            border-radius: 5px;
+                        Text {
+                            text: row.meta;
+                            color: Theme.muted;
+                            font-size: 12px;
+                            overflow: elide;
                         }
                     }
 
-                    if root.session-rows.length == 0 : Rectangle {
-                        height: empty-session-text.preferred-height + 18px;
-                        VerticalLayout {
-                            padding-left: 12px;
-                            padding-right: 12px;
-                            padding-top: 8px;
-                            empty-session-text := Text {
-                                text: root.archive-path == "" ?
-                                    "Open an existing archive or create a new one to see sessions, students, and materials here." :
-                                    root.query == "" ? "No sessions yet. Create a session to start the journal." :
-                                                       "No sessions match this search.";
-                                color: Theme.muted;
-                                font-size: 12px;
-                                line-height-factor: 1.35;
-                                wrap: word-wrap;
+                    if root.selected-session == row.choice : Rectangle {
+                        x: 0px;
+                        y: (row.group-start && root.query == "") ? 28px : 8px;
+                        width: 2px;
+                        height: 38px;
+                        background: Theme.accent;
+                    }
+
+                    if row.state == "recording" : Rectangle {
+                        x: parent.width - 20px;
+                        y: (row.group-start && root.query == "") ? 42px : 22px;
+                        width: 6px;
+                        height: 6px;
+                        border-radius: 3px;
+                        background: Theme.recording;
+                    }
+
+                    row-touch := TouchArea {
+                        clicked => { root.select-session(row.id, row.choice); }
+                    }
+
+                    forward-focus: row-focus;
+                    accessible-role: button;
+                    accessible-label: row.title;
+
+                    row-focus := FocusScope {
+                        x: 0;
+                        width: 0;
+                        key-pressed(event) => {
+                            if (event.text == Key.Return || event.text == Key.Space) {
+                                root.select-session(row.id, row.choice);
+                                accept
+                            } else {
+                                reject
                             }
                         }
+                    }
+
+                    if row-focus.has-focus : Rectangle {
+                        width: 100%;
+                        height: 100%;
+                        border-width: 2px;
+                        border-color: Theme.focus-ring;
+                        border-radius: 5px;
                     }
                 }
+            }
 
-                if root.scope == "students" : VerticalLayout {
-                    spacing: 2px;
+            if root.scope == "students" : ListView {
+                width: 100%;
+                height: 100%;
 
-                    for row[i] in root.student-rows : Rectangle {
-                        visible: root.matches(row.title + " " + row.meta, root.query);
-                        height: 50px;
-                        border-radius: 5px;
-                        background: root.selected-student == row.choice ? Theme.accent-soft :
-                                    student-touch.has-hover ? Theme.surface-hover : transparent;
+                for row in root.student-rows : Rectangle {
+                    x: 8px;
+                    width: parent.width - 16px;
+                    height: !root.matches(row.title + " " + row.meta, root.query) ? 0px : 50px;
+                    border-radius: 5px;
+                    background: root.selected-student == row.choice ? Theme.accent-soft :
+                                student-touch.has-hover ? Theme.surface-hover : transparent;
 
-                        VerticalLayout {
-                            padding-left: 12px;
-                            padding-right: 10px;
-                            padding-top: 7px;
-                            padding-bottom: 7px;
-                            spacing: 2px;
-                            Text {
-                                text: row.title;
-                                color: Theme.ink;
-                                font-size: 13.5px;
-                                font-weight: 600;
-                                overflow: elide;
-                            }
-                            Text {
-                                text: row.meta;
-                                color: Theme.muted;
-                                font-size: 12px;
-                                overflow: elide;
-                            }
+                    VerticalLayout {
+                        padding-left: 12px;
+                        padding-right: 10px;
+                        padding-top: 7px;
+                        padding-bottom: 7px;
+                        spacing: 2px;
+                        Text {
+                            text: row.title;
+                            color: Theme.ink;
+                            font-size: 14px;
+                            font-weight: 600;
+                            overflow: elide;
                         }
-
-                        if root.selected-student == row.choice : Rectangle {
-                            x: 0px;
-                            y: 7px;
-                            width: 2px;
-                            height: 36px;
-                            background: Theme.accent;
-                        }
-
-                        student-touch := TouchArea {
-                            clicked => { root.select-student(row.choice); }
-                        }
-
-                        forward-focus: student-focus;
-                        accessible-role: button;
-                        accessible-label: row.title;
-
-                        student-focus := FocusScope {
-                            x: 0;
-                            width: 0;
-                            key-pressed(event) => {
-                                if (event.text == Key.Return || event.text == Key.Space) {
-                                    root.select-student(row.choice);
-                                    accept
-                                } else {
-                                    reject
-                                }
-                            }
-                        }
-
-                        if student-focus.has-focus : Rectangle {
-                            width: 100%;
-                            height: 100%;
-                            border-width: 2px;
-                            border-color: Theme.focus-ring;
-                            border-radius: 5px;
+                        Text {
+                            text: row.meta;
+                            color: Theme.muted;
+                            font-size: 12px;
+                            overflow: elide;
                         }
                     }
 
-                    if root.student-rows.length == 0 : Rectangle {
-                        height: empty-student-text.preferred-height + 18px;
-                        VerticalLayout {
-                            padding-left: 12px;
-                            padding-right: 12px;
-                            padding-top: 8px;
-                            empty-student-text := Text {
-                                text: root.archive-path == "" ? "Open an archive to see its student records." :
-                                      root.query == "" ? "No students in this archive yet." :
-                                                         "No students match this search.";
-                                color: Theme.muted;
-                                font-size: 12px;
-                                wrap: word-wrap;
+                    if root.selected-student == row.choice : Rectangle {
+                        x: 0px;
+                        y: 7px;
+                        width: 2px;
+                        height: 36px;
+                        background: Theme.accent;
+                    }
+
+                    student-touch := TouchArea {
+                        clicked => { root.select-student(row.choice); }
+                    }
+
+                    forward-focus: student-focus;
+                    accessible-role: button;
+                    accessible-label: row.title;
+
+                    student-focus := FocusScope {
+                        x: 0;
+                        width: 0;
+                        key-pressed(event) => {
+                            if (event.text == Key.Return || event.text == Key.Space) {
+                                root.select-student(row.choice);
+                                accept
+                            } else {
+                                reject
                             }
                         }
+                    }
+
+                    if student-focus.has-focus : Rectangle {
+                        width: 100%;
+                        height: 100%;
+                        border-width: 2px;
+                        border-color: Theme.focus-ring;
+                        border-radius: 5px;
                     }
                 }
+            }
 
-                if root.scope == "materials" : VerticalLayout {
-                    spacing: 2px;
+            if root.scope == "materials" : ListView {
+                width: 100%;
+                height: 100%;
 
-                    for row[i] in root.material-rows : Rectangle {
-                        visible: root.matches(row.title + " " + row.meta, root.query);
-                        height: 50px;
-                        border-radius: 5px;
-                        background: root.selected-asset == row.choice ? Theme.accent-soft :
-                                    material-touch.has-hover ? Theme.surface-hover : transparent;
+                for row in root.material-rows : Rectangle {
+                    x: 8px;
+                    width: parent.width - 16px;
+                    height: !root.matches(row.title + " " + row.meta, root.query) ? 0px : 50px;
+                    border-radius: 5px;
+                    background: root.selected-asset == row.choice ? Theme.accent-soft :
+                                material-touch.has-hover ? Theme.surface-hover : transparent;
 
-                        VerticalLayout {
-                            padding-left: 12px;
-                            padding-right: 10px;
-                            padding-top: 7px;
-                            padding-bottom: 7px;
-                            spacing: 2px;
-                            Text {
-                                text: row.title;
-                                color: Theme.ink;
-                                font-size: 13.5px;
-                                font-weight: 600;
-                                overflow: elide;
-                            }
-                            Text {
-                                text: row.meta;
-                                color: Theme.muted;
-                                font-size: 12px;
-                                overflow: elide;
-                            }
+                    VerticalLayout {
+                        padding-left: 12px;
+                        padding-right: 10px;
+                        padding-top: 7px;
+                        padding-bottom: 7px;
+                        spacing: 2px;
+                        Text {
+                            text: row.title;
+                            color: Theme.ink;
+                            font-size: 14px;
+                            font-weight: 600;
+                            overflow: elide;
                         }
-
-                        if root.selected-asset == row.choice : Rectangle {
-                            x: 0px;
-                            y: 7px;
-                            width: 2px;
-                            height: 36px;
-                            background: Theme.accent;
-                        }
-
-                        material-touch := TouchArea {
-                            clicked => { root.preview-material(row.choice); }
-                        }
-
-                        forward-focus: material-focus;
-                        accessible-role: button;
-                        accessible-label: row.title;
-
-                        material-focus := FocusScope {
-                            x: 0;
-                            width: 0;
-                            key-pressed(event) => {
-                                if (event.text == Key.Return || event.text == Key.Space) {
-                                    root.preview-material(row.choice);
-                                    accept
-                                } else {
-                                    reject
-                                }
-                            }
-                        }
-
-                        if material-focus.has-focus : Rectangle {
-                            width: 100%;
-                            height: 100%;
-                            border-width: 2px;
-                            border-color: Theme.focus-ring;
-                            border-radius: 5px;
+                        Text {
+                            text: row.meta;
+                            color: Theme.muted;
+                            font-size: 12px;
+                            overflow: elide;
                         }
                     }
 
-                    if root.material-rows.length == 0 : Rectangle {
-                        height: empty-material-text.preferred-height + 18px;
-                        VerticalLayout {
-                            padding-left: 12px;
-                            padding-right: 12px;
-                            padding-top: 8px;
-                            empty-material-text := Text {
-                                text: root.archive-path == "" ? "Open an archive to see its materials." :
-                                      root.selected-session == "" ? "Select a session to see its materials." :
-                                      root.query == "" ? "No materials are linked to this session." :
-                                                         "No materials match this search.";
-                                color: Theme.muted;
-                                font-size: 12px;
-                                wrap: word-wrap;
+                    if root.selected-asset == row.choice : Rectangle {
+                        x: 0px;
+                        y: 7px;
+                        width: 2px;
+                        height: 36px;
+                        background: Theme.accent;
+                    }
+
+                    material-touch := TouchArea {
+                        clicked => { root.preview-material(row.choice); }
+                    }
+
+                    forward-focus: material-focus;
+                    accessible-role: button;
+                    accessible-label: row.title;
+
+                    material-focus := FocusScope {
+                        x: 0;
+                        width: 0;
+                        key-pressed(event) => {
+                            if (event.text == Key.Return || event.text == Key.Space) {
+                                root.preview-material(row.choice);
+                                accept
+                            } else {
+                                reject
                             }
                         }
+                    }
+
+                    if material-focus.has-focus : Rectangle {
+                        width: 100%;
+                        height: 100%;
+                        border-width: 2px;
+                        border-color: Theme.focus-ring;
+                        border-radius: 5px;
+                    }
+                }
+            }
+
+            if root.scope == "sessions" && root.session-rows.length == 0 : Rectangle {
+                x: 0;
+                y: 0;
+                height: empty-session-text.preferred-height + 18px;
+                VerticalLayout {
+                    padding-left: 20px;
+                    padding-right: 20px;
+                    padding-top: 8px;
+                    empty-session-text := Text {
+                        text: root.archive-path == "" ?
+                            "Open an existing archive or create a new one to see sessions, students, and materials here." :
+                            root.query == "" ? "No sessions yet. Create a session to start the journal." :
+                                               "No sessions match this search.";
+                        color: Theme.muted;
+                        font-size: 12px;
+                        line-height-factor: 1.35;
+                        wrap: word-wrap;
+                    }
+                }
+            }
+
+            if root.scope == "students" && root.student-rows.length == 0 : Rectangle {
+                x: 0;
+                y: 0;
+                height: empty-student-text.preferred-height + 18px;
+                VerticalLayout {
+                    padding-left: 20px;
+                    padding-right: 20px;
+                    padding-top: 8px;
+                    empty-student-text := Text {
+                        text: root.archive-path == "" ? "Open an archive to see its student records." :
+                              root.query == "" ? "No students in this archive yet." :
+                                                 "No students match this search.";
+                        color: Theme.muted;
+                        font-size: 12px;
+                        wrap: word-wrap;
+                    }
+                }
+            }
+
+            if root.scope == "materials" && root.material-rows.length == 0 : Rectangle {
+                x: 0;
+                y: 0;
+                height: empty-material-text.preferred-height + 18px;
+                VerticalLayout {
+                    padding-left: 20px;
+                    padding-right: 20px;
+                    padding-top: 8px;
+                    empty-material-text := Text {
+                        text: root.archive-path == "" ? "Open an archive to see its materials." :
+                              root.selected-session == "" ? "Select a session to see its materials." :
+                              root.query == "" ? "No materials are linked to this session." :
+                                                 "No materials match this search.";
+                        color: Theme.muted;
+                        font-size: 12px;
+                        wrap: word-wrap;
                     }
                 }
             }
         }
-
         // Footer
         Rectangle {
             height: 68px;
@@ -487,7 +490,7 @@ export component Navigator inherits Rectangle {
                     Text {
                         text: root.archive-path == "" ? "No archive open" : root.archive-name;
                         color: Theme.ink;
-                        font-size: 12.5px;
+                        font-size: 12px;
                         font-weight: 600;
                         overflow: elide;
                     }
@@ -507,7 +510,7 @@ export component Navigator inherits Rectangle {
                                   root.archive-writable ? "All changes saved to this archive" :
                                                           "Read-only archive";
                             color: Theme.muted;
-                            font-size: 11px;
+                            font-size: 12px;
                             overflow: elide;
                         }
                     }
@@ -549,7 +552,7 @@ export component Navigator inherits Rectangle {
                     vertical-alignment: center;
                     text: "Open or create archive…";
                     color: Theme.ink;
-                    font-size: 12.5px;
+                    font-size: 12px;
                 }
                 open-touch := TouchArea {
                     clicked => { root.menu-open = false; root.open-archive(); }
@@ -566,7 +569,7 @@ export component Navigator inherits Rectangle {
                     vertical-alignment: center;
                     text: "Archive operations…";
                     color: Theme.ink;
-                    font-size: 12.5px;
+                    font-size: 12px;
                 }
                 ops-touch := TouchArea {
                     clicked => { root.menu-open = false; root.open-archive(); }
@@ -583,7 +586,7 @@ export component Navigator inherits Rectangle {
                     vertical-alignment: center;
                     text: "Settings…";
                     color: Theme.ink;
-                    font-size: 12.5px;
+                    font-size: 12px;
                 }
                 settings-touch := TouchArea {
                     clicked => { root.menu-open = false; root.open-settings(); }
