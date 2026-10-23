@@ -23,12 +23,13 @@ import { NewSessionPanel } from "./overlays/new-session-panel.slint";
 import { NewStudentPanel } from "./overlays/new-student-panel.slint";
 import { PanelShell } from "./overlays/panel-shell.slint";
 import { GuideDocumentEditor } from "./components/guide-document-editor.slint";
+import { CommandPalette } from "./overlays/command-palette.slint";
 export component MainWindow inherits Window {
     title: root.selected-session-title == "" ? "Tutorux" : root.selected-session-title + " — Tutorux";
-    preferred-width: 1600px;
-    preferred-height: 930px;
-    min-width: 940px;
-    min-height: 600px;
+    preferred-width: 1280px;
+    preferred-height: 800px;
+    min-width: 900px;
+    min-height: 560px;
     background: Theme.canvas;
     default-font-family: "Noto Sans";
     default-font-size: 14px;
@@ -250,6 +251,20 @@ export component MainWindow inherits Window {
     in-out property <string> navigator-scope: "sessions";
     in-out property <string> navigator-query;
     in-out property <bool> inspector-open: true;
+    in-out property <bool> effective-inspector-open: true;
+    in-out property <bool> compact-navigator: false;
+    in-out property <bool> command-palette-open: false;
+    in-out property <string> command-palette-query;
+
+
+    layout-timer := Timer {
+        interval: 120ms;
+        running: true;
+        triggered() => {
+            root.compact-navigator = root.width < 1100px;
+            root.effective-inspector-open = root.inspector-open && root.width >= 1280px;
+        }
+    }
     in-out property <bool> archive-menu-open: false;
     in-out property <bool> workspace-menu-open: false;
     in-out property <string> overlay-panel: "";
@@ -281,6 +296,7 @@ export component MainWindow inherits Window {
         Theme.mode = root.theme-mode;
         root.navigator-scope = "sessions";
         root.workbench-tab = "notebook";
+        root.archive-menu-open = false;
     }
     changed theme-mode => { Theme.mode = root.theme-mode; }
 
@@ -466,12 +482,7 @@ export component MainWindow inherits Window {
     }
 
     function notebook-action(action: string, argument: string) {
-        if (action == "save") {
-            root.journal-action("document-block-update",
-                root.journal-document-id, root.selected-journal-note-block,
-                root.journal-document-block-kind, root.journal-document-block-text,
-                "", "");
-        } else if (action == "format") {
+        if (action == "format") {
             root.journal-action("document-block-format",
                 root.journal-document-id, root.selected-journal-note-block,
                 argument, "", "", "");
@@ -512,11 +523,18 @@ export component MainWindow inherits Window {
 
     marker-shortcuts := FocusScope {
         capture-key-pressed(event) => {
-            if (event.text == Key.Escape && root.overlay-panel != "") {
-                root.overlay-panel = "";
-                accept
+            if (event.text == Key.Escape) {
+                if (root.command-palette-open) {
+                    root.command-palette-open = false;
+                    accept
+                } else if (root.overlay-panel != "") {
+                    root.overlay-panel = "";
+                    accept
+                } else {
+                    reject
+                }
             } else if (event.modifiers.control || event.modifiers.meta) && event.text == Key.K {
-                navigator.focus-search-input();
+                root.command-palette-open = !root.command-palette-open;
                 accept
             } else if event.modifiers.control && !event.repeat && root.selected-session != "" {
                 if (event.text == root.shortcut-concept) {
@@ -554,7 +572,6 @@ export component MainWindow inherits Window {
                 reject
             }
         }
-    }
 
     Rectangle {
         background: Theme.canvas;
@@ -562,12 +579,13 @@ export component MainWindow inherits Window {
         HorizontalLayout {
             spacing: 0px;
 
-            navigator := Navigator {
+            main-navigator := Navigator {
                 archive-path: root.archive-path;
                 archive-name: root.selected-archive;
                 archive-status: root.archive-status;
                 archive-busy: root.archive-busy;
                 archive-writable: root.archive-writable;
+                compact: root.compact-navigator;
                 session-rows: root.session-rows;
                 student-rows: root.student-rows;
                 material-rows: root.material-rows;
@@ -611,11 +629,13 @@ export component MainWindow inherits Window {
                         archive-path: root.archive-path;
                         archive-name: root.selected-archive;
                         session-title: root.selected-session-title;
-                        inspector-open: root.inspector-open;
+                        inspector-open: root.effective-inspector-open;
                         menu-open <=> root.workspace-menu-open;
                         action(command) => {
                             if (command == "focus-search") {
-                                navigator.focus-search-input();
+                                main-navigator.focus-search-input();
+                            } else if (command == "command-palette") {
+                                root.command-palette-open = true;
                             } else if (command == "toggle-details") {
                                 root.inspector-open = !root.inspector-open;
                             } else if (command == "export") {
@@ -660,7 +680,7 @@ export component MainWindow inherits Window {
                                 Text {
                                     text: "Portable workspace";
                                     color: Theme.accent;
-                                    font-size: 12.5px;
+                                    font-size: 12px;
                                     font-weight: 700;
                                     letter-spacing: 0.2px;
                                 }
@@ -668,7 +688,7 @@ export component MainWindow inherits Window {
                                 Text {
                                     text: "Open your tutoring archive.";
                                     color: Theme.ink;
-                                    font-size: 30px;
+                                    font-size: 28px;
                                     font-weight: 700;
                                     line-height-factor: 1.3;
                                 }
@@ -699,7 +719,7 @@ export component MainWindow inherits Window {
                                     Text {
                                         text: "Archives in this folder";
                                         color: Theme.ink;
-                                        font-size: 12.5px;
+                                        font-size: 12px;
                                         font-weight: 700;
                                     }
                                     ScrollArea {
@@ -733,7 +753,7 @@ export component MainWindow inherits Window {
                                 Text {
                                     text: "Tutorux stores session data inside the archive you choose. No account or background service is required to begin.";
                                     color: Theme.faint;
-                                    font-size: 11.5px;
+                                    font-size: 12px;
                                     line-height-factor: 1.4;
                                     wrap: word-wrap;
                                 }
@@ -793,16 +813,27 @@ export component MainWindow inherits Window {
                             }
 
                             if root.navigator-scope == "sessions" : VerticalLayout {
+                                width: 100%;
+                                vertical-stretch: 1;
                                 spacing: 0px;
 
                                 if root.selected-session-title == "" : Rectangle {
+                                    width: 100%;
+                                    height: 100%;
                                     background: Theme.surface;
                                     VerticalLayout {
                                         x: max(48px, (parent.width - Theme.page-max-width) / 2);
-                                        y: (parent.height - self.height) / 2 - 24px;
+                                        y: (parent.height - self.height) / 2;
                                         width: min(Theme.page-max-width, parent.width - 96px);
-                                        spacing: 12px;
-                                        Text { text: "No session selected."; color: Theme.ink; font-size: 30px; font-weight: 700; }
+                                        height: self.preferred-height;
+                                        spacing: 16px;
+
+                                        Text {
+                                            text: "No session selected.";
+                                            color: Theme.ink;
+                                            font-size: 28px;
+                                            font-weight: 700;
+                                        }
                                         Text {
                                             text: "Create a session to start the notebook, or choose one in the navigator.";
                                             color: Theme.body;
@@ -840,94 +871,99 @@ export component MainWindow inherits Window {
                                         }
                                     }
 
-                                    Rectangle {
-                                        width: 100%;
+                                    HorizontalLayout {
                                         vertical-stretch: 1;
-                                        background: Theme.surface;
+                                        spacing: 0px;
 
-                                        Rectangle {
-                                            x: 0;
-                                            y: 0;
-                                            width: parent.width - (root.inspector-open ? Theme.inspector-width : 0px);
-                                            height: 100%;
-                                        if root.workbench-tab == "notebook" : Notebook {
-                                            width: 100%;
-                                            height: 100%;
+                                        content-pane := Rectangle {
                                             horizontal-stretch: 1;
+                                            min-width: 0px;
                                             vertical-stretch: 1;
-                                            rows: root.note-rows;
-                                            document-id: root.journal-document-id;
-                                            selected-block <=> root.selected-journal-note-block;
-                                            block-text <=> root.journal-document-block-text;
-                                            block-kind <=> root.journal-document-block-kind;
-                                            inline-format-enabled: root.journal-inline-format-enabled;
-                                            writable: root.archive-writable;
-                                            save-state <=> root.note-save-state;
-                                            new-block-text <=> root.journal-document-new-block-text;
-                                            action(action, argument) => { root.notebook-action(action, argument); }
-                                            open-journal-tools => { root.overlay-panel = "journal-tools"; }
+                                            clip: true;
+                                            background: Theme.surface;
+
+                                            if root.workbench-tab == "notebook" : Notebook {
+                                                width: 100%;
+                                                height: 100%;
+                                                horizontal-stretch: 1;
+                                                vertical-stretch: 1;
+                                                rows: root.note-rows;
+                                                document-id: root.journal-document-id;
+                                                selected-block <=> root.selected-journal-note-block;
+                                                block-text <=> root.journal-document-block-text;
+                                                block-kind <=> root.journal-document-block-kind;
+                                                inline-format-enabled: root.journal-inline-format-enabled;
+                                                writable: root.archive-writable;
+                                                save-state <=> root.note-save-state;
+                                                new-block-text <=> root.journal-document-new-block-text;
+                                                action(action, argument) => { root.notebook-action(action, argument); }
+                                                save-block(id, text, kind) => {
+                                                    root.journal-action("document-block-update",
+                                                        root.journal-document-id, id, kind, text, "", "");
+                                                }
+                                                open-journal-tools => { root.overlay-panel = "journal-tools"; }
+                                            }
+
+                                            if root.workbench-tab == "transcript" : TranscriptPane {
+                                                width: 100%;
+                                                height: 100%;
+                                                horizontal-stretch: 1;
+                                                vertical-stretch: 1;
+                                                options: root.transcript-options;
+                                                evidence-options: root.evidence-options;
+                                                provenance: root.transcript-provenance;
+                                                command-output: root.command-output;
+                                                evidence-output: root.evidence-output;
+                                                writable: root.archive-writable;
+                                                has-session: root.selected-session != "";
+                                                selected-segment <=> root.selected-transcript;
+                                                selected-evidence <=> root.selected-evidence;
+                                                edit-text <=> root.transcript-edit-text;
+                                                reject-reason <=> root.evidence-reject-reason;
+                                                load-segments => { root.review-transcript(root.selected-session); }
+                                                load-segment => {
+                                                    root.load-transcript(root.selected-session, root.selected-transcript);
+                                                }
+                                                play => { root.recording-command(root.selected-session, "play-transcript", ""); }
+                                                stop-playback => { root.recording-command(root.selected-session, "stop-playback", ""); }
+                                                save => {
+                                                    root.save-transcript(root.selected-session,
+                                                        root.selected-transcript, root.transcript-edit-text);
+                                                }
+                                                open-console => { root.overlay-panel = "console"; }
+                                                evidence(action, reason) => {
+                                                    root.evidence-command(root.selected-session, action,
+                                                        root.selected-evidence, reason);
+                                                }
+                                            }
+
+                                            if root.workbench-tab == "guide" : StudyGuidePane {
+                                                width: 100%;
+                                                height: 100%;
+                                                horizontal-stretch: 1;
+                                                vertical-stretch: 1;
+                                                guide-options: root.guide-options;
+                                                block-options: root.guide-block-options;
+                                                output: root.guide-output;
+                                                writable: root.archive-writable;
+                                                selected-guide <=> root.selected-guide;
+                                                selected-block <=> root.selected-guide-block;
+                                                edit-text <=> root.guide-edit-text;
+                                                tools-open <=> root.guide-tools-open;
+                                                load-block => {
+                                                    root.load-guide-block(root.selected-guide, root.selected-guide-block);
+                                                }
+                                                save-block => {
+                                                    root.save-guide-block(root.selected-guide,
+                                                        root.selected-guide-block, root.guide-edit-text);
+                                                }
+                                                action(action) => { root.guide-command(root.selected-guide, action, "", ""); }
+                                                open-ai => { root.overlay-panel = "ai"; }
+                                                open-full-editor => { root.overlay-panel = "guide-tools"; }
+                                            }
                                         }
 
-                                        if root.workbench-tab == "transcript" : TranscriptPane {
-                                            width: 100%;
-                                            height: 100%;
-                                            horizontal-stretch: 1;
-                                            vertical-stretch: 1;
-                                            options: root.transcript-options;
-                                            evidence-options: root.evidence-options;
-                                            provenance: root.transcript-provenance;
-                                            command-output: root.command-output;
-                                            evidence-output: root.evidence-output;
-                                            writable: root.archive-writable;
-                                            has-session: root.selected-session != "";
-                                            selected-segment <=> root.selected-transcript;
-                                            selected-evidence <=> root.selected-evidence;
-                                            edit-text <=> root.transcript-edit-text;
-                                            reject-reason <=> root.evidence-reject-reason;
-                                            load-segments => { root.review-transcript(root.selected-session); }
-                                            load-segment => {
-                                                root.load-transcript(root.selected-session, root.selected-transcript);
-                                            }
-                                            play => { root.recording-command(root.selected-session, "play-transcript", ""); }
-                                            stop-playback => { root.recording-command(root.selected-session, "stop-playback", ""); }
-                                            save => {
-                                                root.save-transcript(root.selected-session,
-                                                    root.selected-transcript, root.transcript-edit-text);
-                                            }
-                                            open-console => { root.overlay-panel = "console"; }
-                                            evidence(action, reason) => {
-                                                root.evidence-command(root.selected-session, action,
-                                                    root.selected-evidence, reason);
-                                            }
-                                        }
-
-                                        if root.workbench-tab == "guide" : StudyGuidePane {
-                                            width: 100%;
-                                            height: 100%;
-                                            horizontal-stretch: 1;
-                                            vertical-stretch: 1;
-                                            guide-options: root.guide-options;
-                                            block-options: root.guide-block-options;
-                                            output: root.guide-output;
-                                            writable: root.archive-writable;
-                                            selected-guide <=> root.selected-guide;
-                                            selected-block <=> root.selected-guide-block;
-                                            edit-text <=> root.guide-edit-text;
-                                            tools-open <=> root.guide-tools-open;
-                                            load-block => {
-                                                root.load-guide-block(root.selected-guide, root.selected-guide-block);
-                                            }
-                                            save-block => {
-                                                root.save-guide-block(root.selected-guide,
-                                                    root.selected-guide-block, root.guide-edit-text);
-                                            }
-                                            action(action) => { root.guide-command(root.selected-guide, action, "", ""); }
-                                            open-ai => { root.overlay-panel = "ai"; }
-                                            open-full-editor => { root.overlay-panel = "guide-tools"; }
-                                        }                                        }
-                                        if root.inspector-open : SessionInspector {
-                                            x: parent.width - Theme.inspector-width;
-                                            y: 0;
+                                        if root.effective-inspector-open : session-inspector := SessionInspector {
                                             width: Theme.inspector-width;
                                             height: 100%;
                                             student: root.selected-session-student;
@@ -950,9 +986,9 @@ export component MainWindow inherits Window {
                                                 root.quick-marker(root.selected-session, type,
                                                     root.annotation-time, root.annotation-note);
                                             }
-                                        }                                    }
-
-                                    RecordingTransport {
+                                        }
+                                    }
+                                    recording-transport := RecordingTransport {
                                         state: root.recording-state;
                                         microphone: root.recording-microphone-device;
                                         writable: root.archive-writable;
@@ -968,7 +1004,7 @@ export component MainWindow inherits Window {
                                         open-config => { root.overlay-panel = "recording"; }
                                     }
 
-                                    if root.show-status() : Rectangle {
+                                    if root.show-status() : status-line := Rectangle {
                                         height: 24px;
                                         background: Theme.surface;
 
@@ -985,7 +1021,7 @@ export component MainWindow inherits Window {
                                             vertical-alignment: center;
                                             text: root.status-message;
                                             color: Theme.faint;
-                                            font-size: 10.5px;
+                                            font-size: 12px;
                                             overflow: elide;
                                         }
                                     }
@@ -997,11 +1033,46 @@ export component MainWindow inherits Window {
             }
         }
 
+        // Command palette: always available with Ctrl+K.
+        if root.command-palette-open : CommandPalette {
+            query <=> root.command-palette-query;
+            close => {
+                root.command-palette-open = false;
+                root.command-palette-query = "";
+            }
+            action(name) => {
+                root.command-palette-open = false;
+                root.command-palette-query = "";
+                if (name == "journal") {
+                    root.overlay-panel = "journal-tools";
+                } else if (name == "sessions") {
+                    root.navigator-scope = "sessions";
+                } else if (name == "students") {
+                    root.navigator-scope = "students";
+                } else if (name == "materials") {
+                    root.navigator-scope = "materials";
+                } else if (name == "guides") {
+                    root.navigator-scope = "sessions";
+                    root.workbench-tab = "guide";
+                } else if (name == "new-session") {
+                    root.overlay-panel = "new-session";
+                } else if (name == "new-student") {
+                    root.overlay-panel = "new-student";
+                } else if (name == "export") {
+                    root.overlay-panel = "export";
+                } else if (name == "settings") {
+                    root.overlay-panel = "settings";
+                } else if (name == "console") {
+                    root.overlay-panel = "console";
+                }
+            }
+        }
+
         // One overlay at a time, above the workbench.
         if root.overlay-panel != "" : Rectangle {
             width: parent.width;
             height: parent.height;
-            background: #0000002e;
+            background: Theme.scrim;
             z: 100;
 
             TouchArea {
@@ -1025,14 +1096,14 @@ export component MainWindow inherits Window {
                                 Text {
                                     text: "Journal";
                                     color: Theme.ink;
-                                    font-size: 11px;
+                                    font-size: 12px;
                                     font-weight: 700;
                                     letter-spacing: 1.2px;
                                 }
                                 Text {
                                     text: "Entries and sessions";
                                     color: Theme.ink;
-                                    font-size: 30px;
+                                    font-size: 28px;
                                     font-weight: 700;
                                 }
                             }
@@ -1111,7 +1182,7 @@ export component MainWindow inherits Window {
                                 Text {
                                     text: "Find an entry";
                                     color: Theme.ink;
-                                    font-size: 15px;
+                                    font-size: 16px;
                                     font-weight: 600;
                                 }
                                 HorizontalLayout {
@@ -1195,7 +1266,7 @@ export component MainWindow inherits Window {
                                     Text {
                                         text: "Entries";
                                         color: Theme.ink;
-                                        font-size: 17px;
+                                        font-size: 16px;
                                         font-weight: 600;
                                     }
                                     if root.journal-entry-options.length > 0: ComboBox {
@@ -1223,7 +1294,7 @@ export component MainWindow inherits Window {
                                     Text {
                                         text: "Newest entries appear first. Search and filters preserve this journal view.";
                                         color: Theme.ink;
-                                        font-size: 11px;
+                                        font-size: 12px;
                                         wrap: word-wrap;
                                     }
                                 }
@@ -1244,7 +1315,7 @@ export component MainWindow inherits Window {
                                         Text {
                                             text: "Entry workspace";
                                             color: Theme.ink;
-                                            font-size: 17px;
+                                            font-size: 16px;
                                             font-weight: 600;
                                         }
                                         LineEdit {
@@ -1341,7 +1412,7 @@ export component MainWindow inherits Window {
                                         Text {
                                             text: "Session timeline";
                                             color: Theme.ink;
-                                            font-size: 17px;
+                                            font-size: 16px;
                                             font-weight: 600;
                                         }
                                         HorizontalLayout {
@@ -1513,7 +1584,7 @@ export component MainWindow inherits Window {
                                                         if root.selected-journal-session == session && root.journal-session-expanded: Text {
                                                             text: root.journal-session-detail-output;
                                                             color: Theme.ink;
-                                                            font-size: 11px;
+                                                            font-size: 12px;
                                                             wrap: word-wrap;
                                                             accessible-role: AccessibleRole.text;
                                                             accessible-label: "Expanded session details";
@@ -1685,13 +1756,13 @@ export component MainWindow inherits Window {
                                         Text {
                                             text: "Audio starts only after microphone access, input level, and consent are confirmed.";
                                             color: Theme.ink;
-                                            font-size: 11px;
+                                            font-size: 12px;
                                             wrap: word-wrap;
                                         }
                                         Text {
                                             text: root.journal-timeline-output;
                                             color: Theme.ink;
-                                            font-size: 11px;
+                                            font-size: 12px;
                                             wrap: word-wrap;
                                             accessible-role: AccessibleRole.text;
                                             accessible-label: "Session timeline results";
@@ -1711,7 +1782,7 @@ export component MainWindow inherits Window {
                                         Text {
                                             text: "Entry notes";
                                             color: Theme.ink;
-                                            font-size: 17px;
+                                            font-size: 16px;
                                             font-weight: 600;
                                         }
                                         HorizontalLayout {
@@ -1734,7 +1805,7 @@ export component MainWindow inherits Window {
                                         Text {
                                             text: "Notes are edited as separate blocks, so each block keeps its type and identity.";
                                             color: Theme.ink;
-                                            font-size: 11px;
+                                            font-size: 12px;
                                             wrap: word-wrap;
                                         }
                                         HorizontalLayout {
@@ -1815,7 +1886,7 @@ export component MainWindow inherits Window {
                                         Text {
                                             text: "Select text to format, or place the cursor to insert a span. Formatting uses portable Markdown; Ctrl+B, Ctrl+I, and Ctrl+K also work. Save the block to keep your edits.";
                                             color: Theme.ink;
-                                            font-size: 11px;
+                                            font-size: 12px;
                                             wrap: word-wrap;
                                         }
                                         TextInput {
@@ -1823,7 +1894,7 @@ export component MainWindow inherits Window {
                                             single-line: false;
                                             wrap: word-wrap;
                                             text <=> root.journal-document-block-text;
-                                            font-size: 13px;
+                                            font-size: 14px;
                                             color: Theme.ink;
                                             enabled: root.journal-document-block-count > 0;
                                             edited => { root.journal-document-block-text = self.text; }
@@ -1937,7 +2008,7 @@ export component MainWindow inherits Window {
                                             single-line: false;
                                             wrap: word-wrap;
                                             text <=> root.journal-document-new-block-text;
-                                            font-size: 13px;
+                                            font-size: 14px;
                                             color: Theme.ink;
                                             enabled: root.journal-document-id != "";
                                             edited => {
@@ -1988,7 +2059,7 @@ export component MainWindow inherits Window {
                                         Text {
                                             text: "Organize this journal";
                                             color: Theme.ink;
-                                            font-size: 17px;
+                                            font-size: 16px;
                                             font-weight: 600;
                                         }
                                         LineEdit {
@@ -2100,7 +2171,7 @@ export component MainWindow inherits Window {
                                     text: "Review source-linked content, validate it, explicitly approve " +
                                           "the guide, then export a copy.";
                                     color: Theme.ink;
-                                    font-size: 13px;
+                                    font-size: 14px;
                                     wrap: word-wrap;
                                 }
                                 if root.guide-options.length > 0: ComboBox {
@@ -2131,7 +2202,7 @@ export component MainWindow inherits Window {
                                 Text {
                                     text: root.guide-provenance;
                                     color: Theme.ink;
-                                    font-size: 11px;
+                                    font-size: 12px;
                                     wrap: word-wrap;
                                 }
                                 HorizontalLayout {
@@ -2523,5 +2594,6 @@ export component MainWindow inherits Window {
                 }
             }
         }
+    }
     }
 }
