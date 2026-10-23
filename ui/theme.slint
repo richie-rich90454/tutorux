@@ -1,9 +1,10 @@
 // Tutorux design system: tokens plus the widget set used across the app.
 //
-// These widgets intentionally replace the std-widgets ones: the standard
+// These widgets intentionally replace most std-widgets ones: the standard
 // fluent widgets follow the OS color scheme, and on a light application
 // surface the dark scheme made scrollbar thumbs, placeholder text and
 // control borders invisible. Everything here is scheme-independent.
+import { TextEdit } from "std-widgets.slint";
 
 export global Theme {
     // "light" | "dark". MainWindow writes this from its theme-mode property.
@@ -43,9 +44,17 @@ export global Theme {
     out property <color> danger-soft: Theme.mode == "dark" ? #2c1614 : #fdf1f2;
     out property <color> danger-soft-hover: Theme.mode == "dark" ? #3b1c18 : #fbe4e6;
     out property <color> danger-line: Theme.mode == "dark" ? #7a2f28 : #e8a6ac;
-    out property <color> success: Theme.mode == "dark" ? #57c99a : #21845c;
-    out property <color> warning: Theme.mode == "dark" ? #e0a44a : #a86810;
+    // The palette stays blue, black, white, and red. Success is expressed as
+    // the accent and warnings share the danger family instead of green/amber.
+    out property <color> success: Theme.mode == "dark" ? #8eabff : #2554c7;
+    out property <color> warning: Theme.danger;
     out property <color> recording: #e34a52;
+    out property <color> on-accent: #ffffff;
+    out property <color> on-danger: #ffffff;
+    out property <color> on-surface: Theme.ink;
+    out property <color> disabled-text: Theme.mode == "dark" ? #6b7482 : #98a1ae;
+    out property <color> disabled-surface: Theme.mode == "dark" ? #14161b : #f4f6fa;
+    out property <color> disabled-line: Theme.mode == "dark" ? #262a32 : #e2e7ef;
 
     // Navigator
     out property <color> sidebar: Theme.mode == "dark" ? #0f1115 : #ffffff;
@@ -64,6 +73,8 @@ export global Theme {
     out property <color> transport-wave: #78a1ff;
     out property <color> transport-quiet: #5b6779;
     out property <color> transport-line: #2a2f38;
+    out property <color> transport-hover: #1d2129;
+    out property <color> scrim: #0000002e;
 
     // Command console: intentionally dark in both modes.
     out property <color> console-bg: Theme.mode == "dark" ? #0b0e14 : #0e1626;
@@ -85,6 +96,13 @@ export global Theme {
     out property <length> tab-height: 52px;
     out property <length> transport-height: 105px;
     out property <length> page-max-width: 819px;
+
+    // Motion tokens. Content never animates its layout, only color/opacity.
+    out property <duration> motion-hover: 120ms;
+    out property <duration> motion-press: 80ms;
+    out property <duration> motion-selection: 160ms;
+    out property <duration> motion-expander: 180ms;
+    out property <duration> motion-overlay: 180ms;
 }
 
 // Accent halo drawn on the focused control.
@@ -104,8 +122,9 @@ export component Button inherits Rectangle {
     // "primary" | "secondary" | "ghost" | "danger"
     in property <string> variant: "secondary";
     in property <bool> enabled: true;
+    in property <bool> busy: false;
     out property <bool> has-focus: i-focus-scope.has-focus;
-    out property <bool> pressed: self.enabled && i-touch-area.pressed;
+    out property <bool> pressed: self.enabled && !self.busy && i-touch-area.pressed;
 
     callback clicked;
 
@@ -135,9 +154,22 @@ export component Button inherits Rectangle {
         return Theme.surface-hover;
     }
 
+    pure function press-color() -> brush {
+        if (root.variant == "primary") {
+            return Theme.accent-press;
+        }
+        if (root.variant == "danger") {
+            return Theme.danger-line;
+        }
+        if (root.variant == "ghost") {
+            return Theme.ink.with-alpha(0.1);
+        }
+        return Theme.surface-inset;
+    }
+
     pure function label-color() -> brush {
         if (root.variant == "primary") {
-            return #ffffff;
+            return Theme.on-accent;
         }
         if (root.variant == "danger") {
             return Theme.danger;
@@ -149,7 +181,7 @@ export component Button inherits Rectangle {
     }
 
     width: max(60px, i-layout.preferred-width);
-    height: max(34px, i-layout.preferred-height);
+    height: max(36px, i-layout.preferred-height);
     horizontal-stretch: 0;
     vertical-stretch: 0;
     forward-focus: i-focus-scope;
@@ -160,16 +192,16 @@ export component Button inherits Rectangle {
     accessible-action-default => { i-touch-area.clicked(); }
 
     states [
-        disabled when !root.enabled : {
-            i-background.background: Theme.surface-inset;
-            i-background.border-color: Theme.line;
-            i-label.color: Theme.faint;
+        disabled when !root.enabled || root.busy : {
+            i-background.background: root.variant == "ghost" ? transparent : Theme.disabled-surface;
+            i-background.border-color: root.variant == "ghost" ? transparent : Theme.disabled-line;
+            i-label.color: Theme.disabled-text;
         }
         pressed when root.pressed : {
-            i-background.background: root.hover-color();
+            i-background.background: root.press-color();
             i-label.color: root.label-color();
         }
-        hover when i-touch-area.has-hover : {
+        hover when root.enabled && !root.busy && i-touch-area.has-hover : {
             i-background.background: root.hover-color();
         }
     ]
@@ -181,7 +213,7 @@ export component Button inherits Rectangle {
         border-color: root.variant == "primary" ? transparent :
                       root.variant == "danger" ? Theme.danger-line : Theme.line;
 
-        animate background, border-color { duration: 90ms; }
+        animate background, border-color { duration: Theme.motion-hover; }
 
         i-layout := HorizontalLayout {
             width: 100%;
@@ -197,16 +229,17 @@ export component Button inherits Rectangle {
                 vertical-alignment: center;
                 text: root.text;
                 color: root.label-color();
-                font-size: 13px;
-                font-weight: 550;
+                font-size: 14px;
+                font-weight: 600;
                 overflow: elide;
                 accessible-role: none;
-                animate color { duration: 90ms; }
+                animate color { duration: Theme.motion-hover; }
             }
         }
     }
 
     i-touch-area := TouchArea {
+        enabled: root.enabled && !root.busy;
         clicked => { root.clicked(); }
     }
 
@@ -288,9 +321,9 @@ export component LineEdit inherits Rectangle {
             height: 100%;
             vertical-alignment: center;
             single-line: true;
-            color: root.enabled ? Theme.ink : Theme.faint;
+            color: root.enabled ? Theme.ink : Theme.disabled-text;
             selection-background-color: Theme.accent;
-            selection-foreground-color: #ffffff;
+            selection-foreground-color: Theme.on-accent;
             // The widget root exposes the accessibility information.
             accessible-role: none;
 
@@ -327,7 +360,7 @@ export component CheckBox inherits Rectangle {
 
     callback toggled;
 
-    private property <color> text-color: root.enabled ? Theme.ink : Theme.faint;
+    private property <color> text-color: root.enabled ? Theme.ink : Theme.disabled-text;
 
     min-height: 22px;
     horizontal-stretch: 0;
@@ -347,15 +380,20 @@ export component CheckBox inherits Rectangle {
     }
 
     states [
-        pressed when touch-area.pressed : {
+        disabled when !root.enabled : {
+            background.background: Theme.disabled-surface;
+            background.border-color: Theme.disabled-line;
+            icon.colorize: Theme.disabled-text;
+        }
+        pressed when root.enabled && touch-area.pressed : {
             background.background: root.checked ? Theme.accent-press : Theme.surface-hover;
         }
-        hover when touch-area.has-hover : {
+        hover when root.enabled && touch-area.has-hover : {
             background.background: root.checked ? Theme.accent-hover : Theme.accent-soft;
         }
     ]
 
-    animate text-color { duration: 150ms; }
+    animate text-color { duration: Theme.motion-hover; }
 
     layout := HorizontalLayout {
         spacing: 9px;
@@ -380,7 +418,7 @@ export component CheckBox inherits Rectangle {
                 y: (parent.height - self.height) / 2;
                 visible: root.checked;
                 source: @image-url("assets/icons/check.svg");
-                colorize: #ffffff;
+                colorize: Theme.on-accent;
                 accessible-role: none;
             }
         }
@@ -573,8 +611,8 @@ export component ScrollArea inherits Rectangle {
     }
 }
 
-// Scrollable block of wrapped text that always sizes its content to the full
-// text height, so long output is readable and its scrollbar is visible.
+// Scrollable block of wrapped, selectable text. Read-only text stays in a real
+// text editor so users can select and copy output in both themes.
 export component ScrollText inherits Rectangle {
     in property <string> text;
     in property <color> text-color: Theme.muted;
@@ -591,14 +629,19 @@ export component ScrollText inherits Rectangle {
         content-height: max(self.visible-height, body.preferred-height);
         vertical-scrollbar-policy: as-needed;
 
-        body := Text {
+        body := TextInput {
             width: parent.visible-width - 14px;
             text: root.text;
+            read-only: true;
+            single-line: false;
+            wrap: word-wrap;
             color: root.text-color;
             font-size: root.font-size;
             font-family: root.font-family;
-            wrap: word-wrap;
-            accessible-role: none;
+            selection-background-color: Theme.accent;
+            selection-foreground-color: Theme.on-accent;
+            accessible-role: AccessibleRole.text;
+            accessible-label: root.text;
         }
     }
 }
@@ -661,7 +704,7 @@ export component ComboBox inherits Rectangle {
     border-radius: Theme.radius-input;
     border-width: 1px;
     border-color: i-focus-scope.has-focus && root.enabled ? Theme.accent : Theme.line;
-    background: root.enabled ? Theme.surface : Theme.surface-inset;
+    background: root.enabled ? Theme.surface : Theme.disabled-surface;
     forward-focus: i-focus-scope;
 
     accessible-role: combobox;
@@ -684,7 +727,7 @@ export component ComboBox inherits Rectangle {
             horizontal-stretch: 1;
             horizontal-alignment: left;
             vertical-alignment: center;
-            color: root.enabled ? Theme.ink : Theme.faint;
+            color: root.enabled ? Theme.ink : Theme.disabled-text;
             text: root.current-value;
             overflow: elide;
             accessible-role: none;
@@ -860,10 +903,10 @@ export component NavItem inherits Rectangle {
         selected when root.selected : {
             background: Theme.sidebar-active;
             i-indicator.background: Theme.accent-bright;
-            i-icon.colorize: #ffffff;
+            i-icon.colorize: Theme.on-accent;
             i-label.color: Theme.sidebar-ink;
         }
-        hover when i-touch-area.has-hover : {
+        hover when root.enabled && i-touch-area.has-hover : {
             background: Theme.sidebar-hover;
             i-label.color: Theme.sidebar-ink;
         }
@@ -899,7 +942,7 @@ export component NavItem inherits Rectangle {
             horizontal-alignment: left;
             text: root.text;
             color: Theme.sidebar-muted;
-            font-size: 13.5px;
+            font-size: 14px;
             font-weight: root.selected ? 600 : 500;
             overflow: elide;
             accessible-role: none;
@@ -987,8 +1030,8 @@ export component TabButton inherits Rectangle {
     in property <string> text;
     in property <bool> selected: false;
     in property <bool> enabled: true;
-    in property <length> font-size: 13px;
-    in property <int> font-weight: 500;
+    in property <length> font-size: 14px;
+    in property <int> font-weight: 400;
 
 
     callback clicked;
@@ -1005,6 +1048,14 @@ export component TabButton inherits Rectangle {
     accessible-checked: root.selected;
     accessible-action-default => { i-touch-area.clicked(); }
 
+    states [
+        hover when root.enabled && !root.selected && i-touch-area.has-hover : {
+            i-label.color: Theme.ink;
+        }
+    ]
+
+
+
     i-layout := HorizontalLayout {
         width: 100%;
         padding-left: 2px;
@@ -1015,11 +1066,12 @@ export component TabButton inherits Rectangle {
             vertical-alignment: center;
             horizontal-alignment: center;
             text: root.text;
-            color: root.enabled ? (root.selected ? Theme.ink : Theme.muted) : Theme.faint;
+            color: root.enabled ? (root.selected ? Theme.ink : Theme.muted) : Theme.disabled-text;
             font-size: root.font-size;
             font-weight: root.selected ? 700 : root.font-weight;
             overflow: elide;
             accessible-role: none;
+            animate color { duration: Theme.motion-hover; }
         }
     }
 
