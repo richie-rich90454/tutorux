@@ -6,6 +6,15 @@ No account. No hosted service. No database to install. The archive is the applic
 
 ![Tutorux workspace](docs/images/workspace.png)
 
+The same workspace in dark mode. Both themes are first-class and share one
+token system.
+
+![Tutorux dark workspace](docs/images/workspace-dark.png)
+
+`Ctrl+K` opens the command palette over every primary action.
+
+![Tutorux command palette](docs/images/command-palette.png)
+
 ## Why Tutorux
 
 - **One file, every record.** Students, sessions, recordings, transcripts, annotations, materials, evidence, guides, settings, and credentials live in a single portable archive.
@@ -63,6 +72,18 @@ dist\Tutorux.exe --version
 ```
 
 The `portable` preset statically links the GUI and runtime dependencies and embeds the Noto Sans font family. It includes local Whisper support; model weights remain external and are selected explicitly.
+
+The release profile uses the Slint software renderer with the interpreter, testing backend, live preview, and system tray disabled, then strips the executable. A full one-file Windows build measures about 56.7 MB, under the 65 MB budget. Check the measured artifact with:
+
+```powershell
+cmake --build build/portable-min --target size
+```
+
+See `docs/performance/BUDGETS.md` for the complete budget and current measurements.
+
+### Interface
+
+The desktop shell is a navigator, a main page, and a session inspector. The navigator and inspector collapse at the supported breakpoints, long lists are virtualized, and the notebook wraps inside its pane instead of running under the inspector. All colors come from `ui/theme.slint`; light and dark mode are first-class. The headless layout gate renders every supported window size in both themes (`docs/development/UI-TESTING.md`).
 
 Linux and macOS use the matching static release presets. They must be built and qualified on their target operating systems:
 
