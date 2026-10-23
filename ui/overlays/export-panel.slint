@@ -31,7 +31,7 @@ export component ExportPanel inherits Rectangle {
         VerticalLayout {
             spacing: 14px;
 
-            Text { text: "Study guide"; color: Theme.ink; font-size: 15px; font-weight: 700; }
+            Text { text: "Study guide"; color: Theme.ink; font-size: 16px; font-weight: 700; }
             Text {
                 text: "Export the selected guide using a format the guide exporter implements.";
                 color: Theme.muted;
@@ -43,13 +43,13 @@ export component ExportPanel inherits Rectangle {
                 VerticalLayout {
                     horizontal-stretch: 1;
                     spacing: 5px;
-                    Text { text: "Guide"; color: Theme.faint; font-size: 11px; font-weight: 600; }
+                    Text { text: "Guide"; color: Theme.faint; font-size: 12px; font-weight: 600; }
                     ComboBox { model: root.guide-options; current-value <=> root.selected-guide; }
                 }
                 VerticalLayout {
                     width: 150px;
                     spacing: 5px;
-                    Text { text: "Format"; color: Theme.faint; font-size: 11px; font-weight: 600; }
+                    Text { text: "Format"; color: Theme.faint; font-size: 12px; font-weight: 600; }
                     ComboBox {
                         model: ["markdown", "html", "json", "pdf", "docx"];
                         current-value <=> root.guide-format;
@@ -70,7 +70,7 @@ export component ExportPanel inherits Rectangle {
 
             Rectangle { height: 1px; background: Theme.line; }
 
-            Text { text: "Session audio"; color: Theme.ink; font-size: 15px; font-weight: 700; }
+            Text { text: "Session audio"; color: Theme.ink; font-size: 16px; font-weight: 700; }
             LineEdit { placeholder-text: "WAV export path"; text <=> root.wav-path; }
             LineEdit { placeholder-text: "Track ID (optional)"; text <=> root.wav-track; }
             HorizontalLayout {
@@ -85,7 +85,7 @@ export component ExportPanel inherits Rectangle {
 
             Rectangle { height: 1px; background: Theme.line; }
 
-            Text { text: "Session package"; color: Theme.ink; font-size: 15px; font-weight: 700; }
+            Text { text: "Session package"; color: Theme.ink; font-size: 16px; font-weight: 700; }
             Text {
                 text: "Exports the session as a portable package that can be imported into another archive.";
                 color: Theme.muted;
