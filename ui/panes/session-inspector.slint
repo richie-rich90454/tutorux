@@ -68,11 +68,16 @@ export component SessionInspector inherits Rectangle {
                 Text {
                     text: "Session details";
                     color: Theme.ink;
-                    font-size: 12.5px;
+                    font-size: 12px;
                     font-weight: 700;
                     vertical-alignment: center;
                 }
                 Rectangle { }
+                Button {
+                    text: "Audio";
+                    variant: "ghost";
+                    clicked => { root.open-recording(); }
+                }
                 Button {
                     text: root.editing ? "Cancel" : "Edit";
                     variant: "ghost";
@@ -94,18 +99,18 @@ export component SessionInspector inherits Rectangle {
                 spacing: 14px;
                 VerticalLayout {
                     spacing: 4px;
-                    Text { text: "Student"; color: Theme.faint; font-size: 11px; font-weight: 600; }
-                    Text { width: 100%; text: root.student == "" ? "Not assigned" : root.student; color: Theme.ink; font-size: 13px; overflow: elide; }
+                    Text { text: "Student"; color: Theme.faint; font-size: 12px; font-weight: 600; }
+                    Text { width: 100%; text: root.student == "" ? "Not assigned" : root.student; color: Theme.ink; font-size: 14px; overflow: elide; }
                 }
                 VerticalLayout {
                     spacing: 4px;
-                    Text { text: "Subject"; color: Theme.faint; font-size: 11px; font-weight: 600; }
-                    Text { text: root.subject == "" ? "Not recorded" : root.subject; color: Theme.ink; font-size: 13px; wrap: word-wrap; }
+                    Text { text: "Subject"; color: Theme.faint; font-size: 12px; font-weight: 600; }
+                    Text { text: root.subject == "" ? "Not recorded" : root.subject; color: Theme.ink; font-size: 14px; wrap: word-wrap; }
                 }
                 VerticalLayout {
                     spacing: 4px;
-                    Text { text: "Started"; color: Theme.faint; font-size: 11px; font-weight: 600; }
-                    Text { text: root.started == "" ? "Not started" : root.started; color: Theme.ink; font-size: 13px; }
+                    Text { text: "Started"; color: Theme.faint; font-size: 12px; font-weight: 600; }
+                    Text { text: root.started == "" ? "Not started" : root.started; color: Theme.ink; font-size: 14px; }
                 }
             }
 
@@ -113,7 +118,7 @@ export component SessionInspector inherits Rectangle {
                 spacing: 12px;
                 VerticalLayout {
                     spacing: 4px;
-                    Text { text: "Student"; color: Theme.faint; font-size: 11px; font-weight: 600; }
+                    Text { text: "Student"; color: Theme.faint; font-size: 12px; font-weight: 600; }
                     ComboBox {
                         model: root.student-options;
                         current-value <=> root.draft-student;
@@ -121,7 +126,7 @@ export component SessionInspector inherits Rectangle {
                 }
                 VerticalLayout {
                     spacing: 4px;
-                    Text { text: "Subject"; color: Theme.faint; font-size: 11px; font-weight: 600; }
+                    Text { text: "Subject"; color: Theme.faint; font-size: 12px; font-weight: 600; }
                     LineEdit { text <=> root.draft-subject; }
                 }
                 HorizontalLayout {
@@ -147,7 +152,7 @@ export component SessionInspector inherits Rectangle {
             Rectangle { height: 1px; background: Theme.line; }
             Rectangle { height: 14px; }
 
-            Text { text: "Audio capture"; color: Theme.ink; font-size: 12.5px; font-weight: 700; }
+            Text { text: "Audio capture"; color: Theme.ink; font-size: 12px; font-weight: 700; }
             Rectangle { height: 12px; }
 
             VerticalLayout {
@@ -171,18 +176,13 @@ export component SessionInspector inherits Rectangle {
                         font-size: 12px;
                     }
                 }
-                Button {
-                    text: "Configure audio →";
-                    variant: "ghost";
-                    clicked => { root.open-recording(); }
-                }
             }
 
             Rectangle { height: 14px; }
             Rectangle { height: 1px; background: Theme.line; }
             Rectangle { height: 14px; }
 
-            Text { text: "Add marker"; color: Theme.ink; font-size: 12.5px; font-weight: 700; }
+            Text { text: "Add marker"; color: Theme.ink; font-size: 12px; font-weight: 700; }
             Rectangle { height: 8px; }
             HorizontalLayout {
                 spacing: 6px;
@@ -215,13 +215,13 @@ export component SessionInspector inherits Rectangle {
             }
 
             Rectangle { height: 16px; }
-            Text { text: "Markers"; color: Theme.ink; font-size: 12.5px; font-weight: 700; }
+            Text { text: "Markers"; color: Theme.ink; font-size: 12px; font-weight: 700; }
             Rectangle { height: 10px; }
 
             if root.markers.length == 0 : Text {
                 text: "No markers yet.";
                 color: Theme.faint;
-                font-size: 11.5px;
+                font-size: 12px;
             }
 
             for marker[i] in root.markers : HorizontalLayout {
@@ -233,7 +233,7 @@ export component SessionInspector inherits Rectangle {
                 Text {
                     text: marker.time;
                     color: Theme.accent;
-                    font-size: 11.5px;
+                    font-size: 12px;
                     vertical-alignment: center;
                 }
                 Text {
