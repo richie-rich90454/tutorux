@@ -1,5 +1,80 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" width="96" height="96">
-  <rect x="27" y="24" width="42" height="11" rx="3.5" fill="#FFFFFF"/>
-  <path d="M42 35 L54 35 L56 72 L51 72 L48 65 L45 72 L40 72 Z" fill="#FFFFFF"/>
-  <path d="M76.5 10.5 Q79.5 15 84 18 Q79.5 21 76.5 25.5 Q73.5 21 69 18 Q73.5 15 76.5 10.5 Z" fill="#FFFFFF" opacity="0.85"/>
+
+<svg
+    xmlns="http://www.w3.org/2000/svg"
+    width="96"
+    height="96"
+    viewBox="0 0 96 96"
+    fill="none"
+    role="img"
+    aria-labelledby="tutorux-mono-title"
+>
+    <title id="tutorux-mono-title">Tutorux</title>
+
+    <!-- Session folio -->
+    <path
+        d="
+            M18 29
+            C18 22.92 22.92 18 29 18
+            H40
+            C43.2 18 46 19.5 48 22
+            C50 19.5 52.8 18 56 18
+            H67
+            C73.08 18 78 22.92 78 29
+            V62
+            C78 68.08 73.08 73 67 73
+            H55
+            C52.2 73 49.7 74.1 48 76
+            C46.3 74.1 43.8 73 41 73
+            H29
+            C22.92 73 18 68.08 18 62
+            Z
+        "
+        stroke="#315B4A"
+        stroke-width="5"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+    />
+
+    <!-- The center seam -->
+    <path
+        d="M48 25V68"
+        stroke="#315B4A"
+        stroke-width="4"
+        stroke-linecap="round"
+    />
+
+    <!-- Recorded speech -->
+    <path
+        d="
+            M25 46
+            H27
+            C29 46 29 40 32 40
+            S35 54 38 54
+            S41 40 44 40
+            S46 46 47 46
+        "
+        stroke="#315B4A"
+        stroke-width="3.5"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+    />
+
+    <!-- Structured transcript and notes -->
+    <g
+        stroke="#315B4A"
+        stroke-width="3.5"
+        stroke-linecap="round"
+    >
+        <path d="M55 37H68"/>
+        <path d="M55 46H70"/>
+        <path d="M55 55H65"/>
+    </g>
+
+    <!-- Recording indicator, monochrome -->
+    <circle
+        cx="78"
+        cy="12"
+        r="4.5"
+        fill="#315B4A"
+    />
 </svg>
