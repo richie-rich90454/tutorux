@@ -50,18 +50,18 @@ export component StudentPage inherits Rectangle {
                 spacing: 12px;
                 VerticalLayout {
                     spacing: 6px;
-                    Text { text: "Student record"; color: Theme.faint; font-size: 11px; font-weight: 600; }
+                    Text { text: "Student record"; color: Theme.faint; font-size: 12px; font-weight: 600; }
                     Text {
                         text: root.name == "" ? "Select a student" : root.name;
                         color: Theme.ink;
-                        font-size: 30px;
+                        font-size: 28px;
                         font-weight: 700;
                         line-height-factor: 1.3;
                     }
                     Text {
                         text: root.grade == "" ? "No grade recorded" : root.grade;
                         color: Theme.muted;
-                        font-size: 12.5px;
+                        font-size: 12px;
                     }
                 }
                 Rectangle { }
@@ -85,26 +85,26 @@ export component StudentPage inherits Rectangle {
             if root.name != "" : VerticalLayout {
                 spacing: 16px;
 
-                Text { text: "Profile"; color: Theme.ink; font-size: 17px; font-weight: 700; }
+                Text { text: "Profile"; color: Theme.ink; font-size: 16px; font-weight: 700; }
 
                 HorizontalLayout {
                     spacing: 14px;
                     VerticalLayout {
                         horizontal-stretch: 1;
                         spacing: 5px;
-                        Text { text: "Name"; color: Theme.faint; font-size: 11px; font-weight: 600; }
+                        Text { text: "Name"; color: Theme.faint; font-size: 12px; font-weight: 600; }
                         LineEdit { text <=> root.name; }
                     }
                     VerticalLayout {
                         horizontal-stretch: 1;
                         spacing: 5px;
-                        Text { text: "Grade or level"; color: Theme.faint; font-size: 11px; font-weight: 600; }
+                        Text { text: "Grade or level"; color: Theme.faint; font-size: 12px; font-weight: 600; }
                         LineEdit { text <=> root.grade; }
                     }
                     VerticalLayout {
                         horizontal-stretch: 1;
                         spacing: 5px;
-                        Text { text: "Subjects"; color: Theme.faint; font-size: 11px; font-weight: 600; }
+                        Text { text: "Subjects"; color: Theme.faint; font-size: 12px; font-weight: 600; }
                         LineEdit { text <=> root.subjects; }
                     }
                 }
@@ -113,13 +113,13 @@ export component StudentPage inherits Rectangle {
                     VerticalLayout {
                         horizontal-stretch: 1;
                         spacing: 5px;
-                        Text { text: "Learning objectives"; color: Theme.faint; font-size: 11px; font-weight: 600; }
+                        Text { text: "Learning objectives"; color: Theme.faint; font-size: 12px; font-weight: 600; }
                         LineEdit { text <=> root.objectives; }
                     }
                     VerticalLayout {
                         horizontal-stretch: 1;
                         spacing: 5px;
-                        Text { text: "Known difficulties"; color: Theme.faint; font-size: 11px; font-weight: 600; }
+                        Text { text: "Known difficulties"; color: Theme.faint; font-size: 12px; font-weight: 600; }
                         LineEdit { text <=> root.difficulties; }
                     }
                 }
@@ -128,19 +128,19 @@ export component StudentPage inherits Rectangle {
                     VerticalLayout {
                         horizontal-stretch: 1;
                         spacing: 5px;
-                        Text { text: "Demonstrated improvements"; color: Theme.faint; font-size: 11px; font-weight: 600; }
+                        Text { text: "Demonstrated improvements"; color: Theme.faint; font-size: 12px; font-weight: 600; }
                         LineEdit { text <=> root.improvements; }
                     }
                     VerticalLayout {
                         horizontal-stretch: 1;
                         spacing: 5px;
-                        Text { text: "Preferred guide template"; color: Theme.faint; font-size: 11px; font-weight: 600; }
+                        Text { text: "Preferred guide template"; color: Theme.faint; font-size: 12px; font-weight: 600; }
                         LineEdit { text <=> root.template; }
                     }
                     VerticalLayout {
                         horizontal-stretch: 1;
                         spacing: 5px;
-                        Text { text: "Tutor notes"; color: Theme.faint; font-size: 11px; font-weight: 600; }
+                        Text { text: "Tutor notes"; color: Theme.faint; font-size: 12px; font-weight: 600; }
                         LineEdit { text <=> root.notes; }
                     }
                 }
@@ -162,7 +162,7 @@ export component StudentPage inherits Rectangle {
 
                 Rectangle { height: 1px; background: Theme.line; }
 
-                Text { text: "Learning history"; color: Theme.ink; font-size: 17px; font-weight: 700; }
+                Text { text: "Learning history"; color: Theme.ink; font-size: 16px; font-weight: 700; }
                 ScrollText {
                     height: 300px;
                     text: root.progress-output;
@@ -171,11 +171,11 @@ export component StudentPage inherits Rectangle {
 
                 Rectangle { height: 1px; background: Theme.line; }
 
-                Text { text: "Tutor review"; color: Theme.ink; font-size: 17px; font-weight: 700; }
+                Text { text: "Tutor review"; color: Theme.ink; font-size: 16px; font-weight: 700; }
                 Text {
                     text: "Classifications require source evidence from this student's archive. Mastery requires human-verified evidence.";
                     color: Theme.muted;
-                    font-size: 11.5px;
+                    font-size: 12px;
                     wrap: word-wrap;
                 }
                 HorizontalLayout {
@@ -183,13 +183,13 @@ export component StudentPage inherits Rectangle {
                     VerticalLayout {
                         horizontal-stretch: 1;
                         spacing: 5px;
-                        Text { text: "Skill"; color: Theme.faint; font-size: 11px; font-weight: 600; }
+                        Text { text: "Skill"; color: Theme.faint; font-size: 12px; font-weight: 600; }
                         LineEdit { text <=> root.review-skill; }
                     }
                     VerticalLayout {
                         horizontal-stretch: 1;
                         spacing: 5px;
-                        Text { text: "Classification"; color: Theme.faint; font-size: 11px; font-weight: 600; }
+                        Text { text: "Classification"; color: Theme.faint; font-size: 12px; font-weight: 600; }
                         ComboBox {
                             model: ["newly-observed", "recurring", "partial-improvement",
                                     "demonstrated-mastery", "unverified-improvement", "not-revisited"];
@@ -199,7 +199,7 @@ export component StudentPage inherits Rectangle {
                     VerticalLayout {
                         horizontal-stretch: 1;
                         spacing: 5px;
-                        Text { text: "Evidence node IDs"; color: Theme.faint; font-size: 11px; font-weight: 600; }
+                        Text { text: "Evidence node IDs"; color: Theme.faint; font-size: 12px; font-weight: 600; }
                         LineEdit { text <=> root.review-evidence; }
                     }
                 }
@@ -208,18 +208,18 @@ export component StudentPage inherits Rectangle {
                     VerticalLayout {
                         horizontal-stretch: 1;
                         spacing: 5px;
-                        Text { text: "Reviewed by"; color: Theme.faint; font-size: 11px; font-weight: 600; }
+                        Text { text: "Reviewed by"; color: Theme.faint; font-size: 12px; font-weight: 600; }
                         LineEdit { text <=> root.review-reviewer; }
                     }
                     VerticalLayout {
                         horizontal-stretch: 1;
                         spacing: 5px;
-                        Text { text: "Review note"; color: Theme.faint; font-size: 11px; font-weight: 600; }
+                        Text { text: "Review note"; color: Theme.faint; font-size: 12px; font-weight: 600; }
                         LineEdit { text <=> root.review-note; }
                     }
                     VerticalLayout {
                         spacing: 5px;
-                        Text { text: " "; color: Theme.faint; font-size: 11px; }
+                        Text { text: " "; color: Theme.faint; font-size: 12px; }
                         Button {
                             text: "Save reviewed progress";
                             variant: "primary";
