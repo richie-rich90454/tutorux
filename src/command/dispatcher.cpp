@@ -3240,12 +3240,11 @@ namespace {
             }
             std::map<std::string, std::size_t, std::less<>> transcriptCounts;
             if (context.json) {
-                auto transcriptSegments = archive->list(RecordType::TranscriptSegment);
-                if (!transcriptSegments)
-                    return failed(transcriptSegments.error());
-                for (const auto& segment : *transcriptSegments) {
-                    if (!domain::isDeleted(segment))
-                        ++transcriptCounts[domain::getField(segment, "session_id")];
+                for (const auto& session : *sessions) {
+                    auto count = archive->countTranscriptSegments(session.id);
+                    if (!count)
+                        return failed(count.error());
+                    transcriptCounts[uuid(session.id)] = *count;
                 }
             }
             const auto studentFilter = option(*options, "student-id");
@@ -3330,7 +3329,8 @@ namespace {
                     row["has_audio"] = audioChunkCount != "0" || audioDuration != "0" ? "true" : "false";
                     row["transcript_segment_count"] =
                         std::to_string(transcriptCount == transcriptCounts.end() ? 0 : transcriptCount->second);
-                    row["has_transcript"] = transcriptCount != transcriptCounts.end() ? "true" : "false";
+                    row["has_transcript"] =
+                        transcriptCount != transcriptCounts.end() && transcriptCount->second > 0 ? "true" : "false";
                     rows.push_back(std::move(row));
                 }
                 return result(toJsonArray(rows), true);
