@@ -47,7 +47,7 @@ namespace {
         return archive.put(**session);
     }
 
-    bool hasHumanTranscriptEdits(const Record& segment) {
+    [[maybe_unused]] bool hasHumanTranscriptEdits(const Record& segment) {
         const std::string verificationState = domain::getField(segment, "verification_state");
         const std::string speakerAssignmentState = domain::getField(segment, "speaker_assignment_state");
         return verificationState == "human-corrected" || verificationState == "human-verified" ||
