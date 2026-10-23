@@ -58,7 +58,7 @@ export component RecordingTransport inherits Rectangle {
                   root.state == "completed" ? "Recording complete" :
                   root.state == "partial" ? "Partial recording" : "Ready to record";
             color: Theme.ink;
-            font-size: 12.5px;
+            font-size: 12px;
             font-weight: 600;
             vertical-alignment: center;
         }
@@ -107,7 +107,7 @@ export component RecordingTransport inherits Rectangle {
             Text {
                 text: root.elapsed-label();
                 color: Theme.transport-text;
-                font-size: 29px;
+                font-size: 24px;
                 font-weight: 600;
                 letter-spacing: -0.4px;
             }
@@ -145,7 +145,7 @@ export component RecordingTransport inherits Rectangle {
                 border-radius: 5px;
                 border-width: 1px;
                 border-color: Theme.transport-line;
-                background: mark-touch.has-hover ? #14171c : transparent;
+                background: mark-touch.has-hover ? Theme.transport-hover : transparent;
                 Text {
                     text: "Mark";
                     width: 100%;
@@ -153,8 +153,8 @@ export component RecordingTransport inherits Rectangle {
                     horizontal-alignment: center;
                     vertical-alignment: center;
                     color: Theme.transport-text;
-                    font-size: 12.5px;
-                    font-weight: 550;
+                    font-size: 12px;
+                    font-weight: 600;
                 }
                 mark-touch := TouchArea {
                     clicked => { root.mark(root.elapsed-label()); }
@@ -166,7 +166,7 @@ export component RecordingTransport inherits Rectangle {
                 border-radius: 5px;
                 border-width: 1px;
                 border-color: Theme.transport-line;
-                background: pause-touch.has-hover ? #14171c : transparent;
+                background: pause-touch.has-hover ? Theme.transport-hover : transparent;
                 Text {
                     text: root.state == "paused" ? "Resume" : "Pause";
                     width: 100%;
@@ -174,8 +174,8 @@ export component RecordingTransport inherits Rectangle {
                     horizontal-alignment: center;
                     vertical-alignment: center;
                     color: Theme.transport-text;
-                    font-size: 12.5px;
-                    font-weight: 550;
+                    font-size: 12px;
+                    font-weight: 600;
                 }
                 pause-touch := TouchArea {
                     clicked => { root.command(root.state == "paused" ? "resume" : "pause"); }
@@ -185,16 +185,16 @@ export component RecordingTransport inherits Rectangle {
                 width: 82px;
                 height: 36px;
                 border-radius: 5px;
-                background: stop-touch.has-hover ? #24282f : Theme.transport-text;
+                background: stop-touch.has-hover ? Theme.danger : Theme.transport-text;
                 Text {
                     text: "Stop";
                     width: 100%;
                     height: 100%;
                     horizontal-alignment: center;
                     vertical-alignment: center;
-                    color: Theme.transport;
-                    font-size: 12.5px;
-                    font-weight: 650;
+                    color: stop-touch.has-hover ? Theme.on-danger : Theme.transport;
+                    font-size: 12px;
+                    font-weight: 700;
                 }
                 stop-touch := TouchArea {
                     clicked => { root.command("stop"); }
@@ -205,7 +205,7 @@ export component RecordingTransport inherits Rectangle {
         Text {
             text: root.microphone == "" ? "Default input" : root.microphone;
             color: Theme.transport-muted;
-            font-size: 11px;
+            font-size: 12px;
             vertical-alignment: center;
             width: 118px;
             overflow: elide;
