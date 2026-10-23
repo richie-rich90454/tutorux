@@ -92,7 +92,7 @@ export component ArchivePanel inherits Rectangle {
                 }
             }
 
-            Text { text: "Open an archive"; color: Theme.ink; font-size: 15px; font-weight: 700; }
+            Text { text: "Open an archive"; color: Theme.ink; font-size: 16px; font-weight: 700; }
             if root.archive-paths.length > 0 : ComboBox {
                 model: root.archive-paths;
                 current-value <=> root.archive-path;
@@ -115,7 +115,7 @@ export component ArchivePanel inherits Rectangle {
 
             Rectangle { height: 1px; background: Theme.line; }
 
-            Text { text: "Create an archive"; color: Theme.ink; font-size: 15px; font-weight: 700; }
+            Text { text: "Create an archive"; color: Theme.ink; font-size: 16px; font-weight: 700; }
             LineEdit { placeholder-text: "Tutorux.tux"; text <=> root.name; }
             LineEdit { placeholder-text: "Optional archive passphrase"; input-type: password; text <=> root.new-passphrase; }
             LineEdit { placeholder-text: "Archive description (optional)"; text <=> root.description; }
@@ -135,7 +135,7 @@ export component ArchivePanel inherits Rectangle {
 
             Rectangle { height: 1px; background: Theme.line; }
 
-            Text { text: "Create a sanitized copy"; color: Theme.ink; font-size: 15px; font-weight: 700; }
+            Text { text: "Create a sanitized copy"; color: Theme.ink; font-size: 16px; font-weight: 700; }
             Text {
                 text: "Preview first. Track filters opt in recordings; other sensitive categories default off.";
                 color: Theme.muted;
@@ -215,7 +215,7 @@ export component ArchivePanel inherits Rectangle {
                 Text {
                     text: "Reclaims space in the open .tux file. History stays verifiable.";
                     color: Theme.muted;
-                    font-size: 11.5px;
+                    font-size: 12px;
                     vertical-alignment: center;
                     wrap: word-wrap;
                 }
