@@ -28,7 +28,7 @@ export component SessionHeader inherits Rectangle {
 
             if root.editing : TextInput {
                 text <=> root.draft;
-                font-size: 30px;
+                font-size: 28px;
                 font-weight: 700;
                 color: Theme.ink;
                 height: 40px;
@@ -65,7 +65,7 @@ export component SessionHeader inherits Rectangle {
                     vertical-alignment: center;
                     text: root.title;
                     color: Theme.ink;
-                    font-size: 30px;
+                    font-size: 28px;
                     font-weight: 700;
                     line-height-factor: 1.3;
                     overflow: elide;
@@ -106,7 +106,7 @@ export component SessionHeader inherits Rectangle {
                 height: 20px;
                 alignment: start;
                 Text {
-                    width: min(self.preferred-width, 280px);
+                    horizontal-stretch: 1;
                     text: (root.student == "" ? "No student assigned" : root.student) + " · " +
                           (root.started == "" ? "Not started" : root.started);
                     color: Theme.muted;
@@ -157,7 +157,7 @@ export component SessionHeader inherits Rectangle {
             }
 
             HorizontalLayout {
-                spacing: 28px;
+                spacing: 16px;
                 alignment: start;
                 TabButton {
                     text: "Notebook";
