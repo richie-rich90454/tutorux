@@ -33,10 +33,10 @@ export component SettingsPanel inherits Rectangle {
         VerticalLayout {
             spacing: 16px;
 
-            Text { text: "Appearance"; color: Theme.ink; font-size: 15px; font-weight: 700; }
+            Text { text: "Appearance"; color: Theme.ink; font-size: 16px; font-weight: 700; }
             HorizontalLayout {
                 spacing: 12px;
-                Text { text: "Theme"; color: Theme.body; font-size: 13px; vertical-alignment: center; }
+                Text { text: "Theme"; color: Theme.body; font-size: 14px; vertical-alignment: center; }
                 ComboBox {
                     model: ["light", "dark"];
                     current-value <=> root.theme-mode;
@@ -52,7 +52,7 @@ export component SettingsPanel inherits Rectangle {
 
             Rectangle { height: 1px; background: Theme.line; }
 
-            Text { text: "Archive-specific configuration"; color: Theme.ink; font-size: 15px; font-weight: 700; }
+            Text { text: "Archive-specific configuration"; color: Theme.ink; font-size: 16px; font-weight: 700; }
             Text {
                 text: "Tutorux stores workspace settings in the selected .tux archive. API keys are read from environment variables unless you explicitly save an encrypted credential record.";
                 color: Theme.muted;
@@ -63,10 +63,10 @@ export component SettingsPanel inherits Rectangle {
             Text {
                 text: "settings list · settings get KEY · settings set --key KEY --value VALUE · archive verify --full";
                 color: Theme.accent-text;
-                font-size: 11.5px;
+                font-size: 12px;
                 wrap: word-wrap;
             }
-            Text { text: "Quick marker keys (Control on Windows and Linux, Command on macOS)"; color: Theme.ink; font-size: 12.5px; font-weight: 600; }
+            Text { text: "Quick marker keys (Control on Windows and Linux, Command on macOS)"; color: Theme.ink; font-size: 12px; font-weight: 600; }
             HorizontalLayout {
                 spacing: 8px;
                 LineEdit { placeholder-text: "Concept"; text <=> root.shortcut-concept; }
@@ -97,7 +97,7 @@ export component SettingsPanel inherits Rectangle {
 
             Rectangle { height: 1px; background: Theme.line; }
 
-            Text { text: "Diagnostics"; color: Theme.ink; font-size: 15px; font-weight: 700; }
+            Text { text: "Diagnostics"; color: Theme.ink; font-size: 16px; font-weight: 700; }
             Text {
                 text: "Inspect the integrity of the open archive, or export a JSON report for support. Nothing is uploaded.";
                 color: Theme.muted;
@@ -119,7 +119,7 @@ export component SettingsPanel inherits Rectangle {
                     clicked => { root.diagnostics("report", root.diagnostics-output); }
                 }
             }
-            Text { text: "Tutorux · portable tutoring workbench"; color: Theme.faint; font-size: 11.5px; }
+            Text { text: "Tutorux · portable tutoring workbench"; color: Theme.faint; font-size: 12px; }
         }
     }
 }
