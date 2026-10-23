@@ -39,7 +39,7 @@ export component CommandBar inherits Rectangle {
                   root.session-title != "" ? root.archive-name + "  /  " + root.session-title :
                                               root.archive-name;
             color: Theme.muted;
-            font-size: 12.5px;
+            font-size: 12px;
             vertical-alignment: center;
             overflow: elide;
             horizontal-stretch: 1;
@@ -52,6 +52,11 @@ export component CommandBar inherits Rectangle {
             clicked => { root.action("focus-search"); }
         }
         Button {
+            text: "Commands";
+            variant: "ghost";
+            clicked => { root.action("command-palette"); }
+        }
+        Button {
             text: root.inspector-open ? "Hide details" : "Details";
             variant: "ghost";
             enabled: root.session-title != "";
@@ -59,6 +64,7 @@ export component CommandBar inherits Rectangle {
         }
         Button {
             text: "Export";
+            variant: "ghost";
             enabled: root.archive-path != "" && root.session-title != "";
             clicked => { root.action("export"); }
         }
@@ -79,7 +85,7 @@ export component CommandBar inherits Rectangle {
                 horizontal-alignment: center;
                 vertical-alignment: center;
                 color: Theme.muted;
-                font-size: 17px;
+                font-size: 16px;
                 font-weight: 700;
                 accessible-role: none;
             }
@@ -116,7 +122,7 @@ export component CommandBar inherits Rectangle {
                     vertical-alignment: center;
                     text: "Journal tools…";
                     color: Theme.ink;
-                    font-size: 12.5px;
+                    font-size: 12px;
                 }
                 journal-touch := TouchArea {
                     clicked => { root.menu-open = false; root.action("journal-tools"); }
@@ -133,7 +139,7 @@ export component CommandBar inherits Rectangle {
                     vertical-alignment: center;
                     text: "Full guide editor…";
                     color: Theme.ink;
-                    font-size: 12.5px;
+                    font-size: 12px;
                 }
                 full-guide-touch := TouchArea {
                     clicked => { root.menu-open = false; root.action("guide-editor"); }
@@ -150,7 +156,7 @@ export component CommandBar inherits Rectangle {
                     vertical-alignment: center;
                     text: "Configure audio…";
                     color: Theme.ink;
-                    font-size: 12.5px;
+                    font-size: 12px;
                 }
                 audio-touch := TouchArea {
                     clicked => { root.menu-open = false; root.action("configure-audio"); }
@@ -167,7 +173,7 @@ export component CommandBar inherits Rectangle {
                     vertical-alignment: center;
                     text: "Study guide tools…";
                     color: Theme.ink;
-                    font-size: 12.5px;
+                    font-size: 12px;
                 }
                 guide-touch := TouchArea {
                     clicked => { root.menu-open = false; root.action("guide-tools"); }
@@ -184,7 +190,7 @@ export component CommandBar inherits Rectangle {
                     vertical-alignment: center;
                     text: "AI actions…";
                     color: Theme.ink;
-                    font-size: 12.5px;
+                    font-size: 12px;
                 }
                 ai-touch := TouchArea {
                     clicked => { root.menu-open = false; root.action("ai"); }
@@ -201,7 +207,7 @@ export component CommandBar inherits Rectangle {
                     vertical-alignment: center;
                     text: "Command console…";
                     color: Theme.ink;
-                    font-size: 12.5px;
+                    font-size: 12px;
                 }
                 console-touch := TouchArea {
                     clicked => { root.menu-open = false; root.action("console"); }
@@ -218,7 +224,7 @@ export component CommandBar inherits Rectangle {
                     vertical-alignment: center;
                     text: "Settings…";
                     color: Theme.ink;
-                    font-size: 12.5px;
+                    font-size: 12px;
                 }
                 settings-touch := TouchArea {
                     clicked => { root.menu-open = false; root.action("settings"); }
