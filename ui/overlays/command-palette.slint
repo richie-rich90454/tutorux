@@ -1,0 +1,228 @@
+// Command palette: one search field over every primary action.
+import { LineEdit, Theme } from "../theme.slint";
+
+export component CommandPalette inherits Rectangle {
+    in property <string> query;
+    callback close;
+    callback action(string);
+
+    width: 100%;
+    height: 100%;
+    background: Theme.scrim;
+    z: 200;
+
+    init => { search.focus-input(); }
+
+    TouchArea {
+        clicked => { root.close(); }
+    }
+
+    Rectangle {
+        x: (parent.width - self.width) / 2;
+        y: max(48px, parent.height / 5);
+        width: min(560px, parent.width - 48px);
+        height: palette-content.preferred-height + 24px;
+        background: Theme.surface;
+        border-width: 1px;
+        border-color: Theme.line;
+        border-radius: 5px;
+
+        palette-content := VerticalLayout {
+            padding: 12px;
+            spacing: 6px;
+
+            search := LineEdit {
+                placeholder-text: "Find an action";
+                text: root.query;
+            }
+
+            Text {
+                text: "Actions";
+                color: Theme.faint;
+                font-size: 12px;
+                font-weight: 600;
+                height: 20px;
+            }
+
+            if root.matches("Journal") : Rectangle {
+                height: 36px;
+                border-radius: 5px;
+                background: journal-touch.has-hover ? Theme.surface-hover : transparent;
+                Text {
+                    x: 10px;
+                    width: parent.width - 20px;
+                    height: parent.height;
+                    vertical-alignment: center;
+                    text: "Open journal";
+                    color: Theme.ink;
+                    font-size: 14px;
+                }
+                journal-touch := TouchArea {
+                    clicked => { root.action("journal"); }
+                }
+            }
+            if root.matches("Sessions") : Rectangle {
+                height: 36px;
+                border-radius: 5px;
+                background: sessions-touch.has-hover ? Theme.surface-hover : transparent;
+                Text {
+                    x: 10px;
+                    width: parent.width - 20px;
+                    height: parent.height;
+                    vertical-alignment: center;
+                    text: "Go to sessions";
+                    color: Theme.ink;
+                    font-size: 14px;
+                }
+                sessions-touch := TouchArea {
+                    clicked => { root.action("sessions"); }
+                }
+            }
+            if root.matches("Students") : Rectangle {
+                height: 36px;
+                border-radius: 5px;
+                background: students-touch.has-hover ? Theme.surface-hover : transparent;
+                Text {
+                    x: 10px;
+                    width: parent.width - 20px;
+                    height: parent.height;
+                    vertical-alignment: center;
+                    text: "Go to students";
+                    color: Theme.ink;
+                    font-size: 14px;
+                }
+                students-touch := TouchArea {
+                    clicked => { root.action("students"); }
+                }
+            }
+            if root.matches("Materials") : Rectangle {
+                height: 36px;
+                border-radius: 5px;
+                background: materials-touch.has-hover ? Theme.surface-hover : transparent;
+                Text {
+                    x: 10px;
+                    width: parent.width - 20px;
+                    height: parent.height;
+                    vertical-alignment: center;
+                    text: "Go to materials";
+                    color: Theme.ink;
+                    font-size: 14px;
+                }
+                materials-touch := TouchArea {
+                    clicked => { root.action("materials"); }
+                }
+            }
+            if root.matches("Study guide") : Rectangle {
+                height: 36px;
+                border-radius: 5px;
+                background: guides-touch.has-hover ? Theme.surface-hover : transparent;
+                Text {
+                    x: 10px;
+                    width: parent.width - 20px;
+                    height: parent.height;
+                    vertical-alignment: center;
+                    text: "Open study guide";
+                    color: Theme.ink;
+                    font-size: 14px;
+                }
+                guides-touch := TouchArea {
+                    clicked => { root.action("guides"); }
+                }
+            }
+            if root.matches("New session") : Rectangle {
+                height: 36px;
+                border-radius: 5px;
+                background: new-session-touch.has-hover ? Theme.surface-hover : transparent;
+                Text {
+                    x: 10px;
+                    width: parent.width - 20px;
+                    height: parent.height;
+                    vertical-alignment: center;
+                    text: "New session";
+                    color: Theme.ink;
+                    font-size: 14px;
+                }
+                new-session-touch := TouchArea {
+                    clicked => { root.action("new-session"); }
+                }
+            }
+            if root.matches("New student") : Rectangle {
+                height: 36px;
+                border-radius: 5px;
+                background: new-student-touch.has-hover ? Theme.surface-hover : transparent;
+                Text {
+                    x: 10px;
+                    width: parent.width - 20px;
+                    height: parent.height;
+                    vertical-alignment: center;
+                    text: "New student";
+                    color: Theme.ink;
+                    font-size: 14px;
+                }
+                new-student-touch := TouchArea {
+                    clicked => { root.action("new-student"); }
+                }
+            }
+            if root.matches("Export") : Rectangle {
+                height: 36px;
+                border-radius: 5px;
+                background: export-touch.has-hover ? Theme.surface-hover : transparent;
+                Text {
+                    x: 10px;
+                    width: parent.width - 20px;
+                    height: parent.height;
+                    vertical-alignment: center;
+                    text: "Export…";
+                    color: Theme.ink;
+                    font-size: 14px;
+                }
+                export-touch := TouchArea {
+                    clicked => { root.action("export"); }
+                }
+            }
+            if root.matches("Settings") : Rectangle {
+                height: 36px;
+                border-radius: 5px;
+                background: settings-touch.has-hover ? Theme.surface-hover : transparent;
+                Text {
+                    x: 10px;
+                    width: parent.width - 20px;
+                    height: parent.height;
+                    vertical-alignment: center;
+                    text: "Settings";
+                    color: Theme.ink;
+                    font-size: 14px;
+                }
+                settings-touch := TouchArea {
+                    clicked => { root.action("settings"); }
+                }
+            }
+            if root.matches("Command console") : Rectangle {
+                height: 36px;
+                border-radius: 5px;
+                background: console-touch.has-hover ? Theme.surface-hover : transparent;
+                Text {
+                    x: 10px;
+                    width: parent.width - 20px;
+                    height: parent.height;
+                    vertical-alignment: center;
+                    text: "Command console";
+                    color: Theme.ink;
+                    font-size: 14px;
+                }
+                console-touch := TouchArea {
+                    clicked => { root.action("console"); }
+                }
+            }
+        }
+    }
+
+    public function focus-search() {
+        search.focus-input();
+    }
+
+    pure function matches(label: string) -> bool {
+        return root.query == "" ||
+               label.to-lowercase().replace-all(root.query.to-lowercase(), "") != label.to-lowercase();
+    }
+}
