@@ -70,7 +70,7 @@ export component PanelShell inherits Rectangle {
 
                 Button {
                     text: root.close-label;
-                    variant: "ghost";
+                    variant: "secondary";
                     visible: !root.inline;
                     clicked => { root.close(); }
                 }
@@ -98,6 +98,7 @@ export component PanelShell inherits Rectangle {
                     width: parent.visible-width;
                     padding: 22px;
                     spacing: 14px;
+                    alignment: start;
 
                     @children
                 }

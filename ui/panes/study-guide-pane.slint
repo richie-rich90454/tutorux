@@ -1,5 +1,5 @@
-// Study guide tab: guide selection, block editing, review actions, export route.
 import { Button, ComboBox, ScrollArea, TextArea, Theme } from "../theme.slint";
+import { ActionWrap, Field, FormWrap } from "../components/page-parts.slint";
 
 export component StudyGuidePane inherits Rectangle {
     in property <[string]> guide-options: [];
@@ -37,16 +37,16 @@ export component StudyGuidePane inherits Rectangle {
         vertical-scrollbar-policy: as-needed;
 
         page := VerticalLayout {
-            x: max(0px, (root.width - self.width) / 2);
             width: min(root.width - 14px, 867px);
+            x: max(0px, (root.width - self.width) / 2);
             padding-left: 48px;
             padding-right: 48px;
             padding-top: 26px;
             padding-bottom: 64px;
             spacing: 14px;
+            alignment: start;
 
-            HorizontalLayout {
-                spacing: 10px;
+            ActionWrap {
                 Text {
                     text: "Study guide";
                     color: Theme.ink;
@@ -54,7 +54,6 @@ export component StudyGuidePane inherits Rectangle {
                     font-weight: 700;
                     vertical-alignment: center;
                 }
-                Rectangle { }
                 Button {
                     text: root.tools-open ? "Hide guide tools" : "Guide tools";
                     clicked => { root.tools-open = !root.tools-open; }
@@ -73,52 +72,37 @@ export component StudyGuidePane inherits Rectangle {
 
             if root.tools-open : VerticalLayout {
                 spacing: 10px;
-                HorizontalLayout {
-                    spacing: 10px;
-                    VerticalLayout {
-                        horizontal-stretch: 1;
-                        spacing: 5px;
-                        Text { text: "Guide"; color: Theme.faint; font-size: 12px; font-weight: 600; }
+
+                FormWrap {
+                    Field {
+                        label: "Guide";
                         ComboBox {
                             model: root.guide-options;
                             current-value <=> root.selected-guide;
                         }
                     }
-                    VerticalLayout {
-                        horizontal-stretch: 2;
-                        spacing: 5px;
-                        Text { text: "Block"; color: Theme.faint; font-size: 12px; font-weight: 600; }
+                    Field {
+                        label: "Block";
                         ComboBox {
                             model: root.block-options;
                             current-value <=> root.selected-block;
                         }
                     }
-                    VerticalLayout {
-                        spacing: 5px;
-                        Text { text: " "; color: Theme.faint; font-size: 12px; }
-                        Button {
-                            text: "Load block";
-                            enabled: root.selected-guide != "" && root.selected-block != "";
-                            clicked => { root.load-block(); }
-                        }
-                    }
                 }
-
-                HorizontalLayout {
-                    spacing: 8px;
+                ActionWrap {
+                    Button {
+                        text: "Load block";
+                        enabled: root.selected-guide != "" && root.selected-block != "";
+                        clicked => { root.load-block(); }
+                    }
                     Button { text: "Validate"; enabled: root.selected-guide != ""; clicked => { root.action("validate"); } }
                     Button { text: "Approve"; enabled: root.selected-guide != ""; clicked => { root.action("approve"); } }
                     Button { text: "Regenerate section"; enabled: root.selected-guide != ""; clicked => { root.action("regenerate-section"); } }
                     Button { text: "Add example"; enabled: root.selected-guide != ""; clicked => { root.action("add-example"); } }
-                    Rectangle { }
-                }
-                HorizontalLayout {
-                    spacing: 8px;
                     Button { text: "Move section up"; enabled: root.selected-guide != ""; clicked => { root.action("move-section-up"); } }
                     Button { text: "Move section down"; enabled: root.selected-guide != ""; clicked => { root.action("move-section-down"); } }
                     Button { text: "Compare with prior"; enabled: root.selected-guide != ""; clicked => { root.action("compare"); } }
                     Button { text: "Remove block"; variant: "danger"; enabled: root.selected-guide != ""; clicked => { root.action("remove-block"); } }
-                    Rectangle { }
                 }
             }
 
@@ -132,15 +116,13 @@ export component StudyGuidePane inherits Rectangle {
                     font-size: 14px;
                     enabled: root.writable;
                 }
-                HorizontalLayout {
-                    spacing: 8px;
+                ActionWrap {
                     Button {
                         text: "Save block";
                         variant: "primary";
                         enabled: root.selected-guide != "" && root.selected-block != "" && root.writable;
                         clicked => { root.save-block(); }
                     }
-                    Rectangle { }
                 }
             }
 
@@ -166,19 +148,13 @@ export component StudyGuidePane inherits Rectangle {
                     font-size: 14px;
                     wrap: word-wrap;
                 }
-                HorizontalLayout {
-                    spacing: 10px;
+                ActionWrap {
                     Button {
                         text: "AI actions";
                         variant: "primary";
                         clicked => { root.open-ai(); }
                     }
                 }
-            }
-
-            Rectangle {
-                vertical-stretch: 1;
-                min-height: 0px;
             }
         }
     }

@@ -1,6 +1,6 @@
-// Archive panel: open/create, recovery, sanitized copy, compaction.
 import { Button, CheckBox, ComboBox, LineEdit, ScrollText, Theme } from "../theme.slint";
-import { FieldLabel, PanelShell } from "./panel-shell.slint";
+import { ActionWrap, Field, FormWrap } from "../components/page-parts.slint";
+import { PanelShell } from "./panel-shell.slint";
 
 export component ArchivePanel inherits Rectangle {
     in-out property <string> archive-path;
@@ -55,172 +55,206 @@ export component ArchivePanel inherits Rectangle {
         detail: root.archive-path == "" ? "Portable .tux workspace" : root.selected-archive;
         close => { root.close(); }
 
-        VerticalLayout {
-            spacing: 14px;
+        if root.recovery-needed : Rectangle {
+            border-width: 1px;
+            border-color: Theme.danger-line;
+            border-radius: Theme.radius-card;
+            background: Theme.danger-soft;
 
-            if root.recovery-needed : Rectangle {
-                border-width: 1px;
-                border-color: Theme.danger-line;
-                border-radius: 5px;
-                background: Theme.danger-soft;
-                VerticalLayout {
-                    padding: 14px;
-                    spacing: 8px;
-                    Text { text: "This archive needs recovery review"; color: Theme.danger; font-size: 14px; font-weight: 700; }
-                    Text { text: root.recovery-status; color: Theme.body; font-size: 12px; wrap: word-wrap; }
-                    HorizontalLayout {
-                        spacing: 8px;
-                        if root.recovery-recoverable : Button {
-                            text: "Recover verified work";
-                            clicked => { root.recovery("recover-unpublished"); }
-                        }
-                        if root.recovery-tail-present : Button {
-                            text: "Discard incomplete tail";
-                            variant: "danger";
-                            clicked => { root.recovery("discard-tail"); }
-                        }
-                    }
-                    if root.header-repair-candidate : HorizontalLayout {
-                        spacing: 8px;
-                        LineEdit { placeholder-text: "Path for a separate repaired copy"; text <=> root.repair-copy-path; }
-                        Button {
-                            text: "Create repaired copy";
-                            enabled: root.header-repair-available && root.repair-copy-path != "";
-                            clicked => { root.recovery("repair-copy"); }
-                        }
-                    }
-                }
-            }
-
-            Text { text: "Open an archive"; color: Theme.ink; font-size: 16px; font-weight: 700; }
-            if root.archive-paths.length > 0 : ComboBox {
-                model: root.archive-paths;
-                current-value <=> root.archive-path;
-            }
-            LineEdit { placeholder-text: "Path to a .tux archive"; text <=> root.archive-path; }
-            LineEdit { placeholder-text: "Archive passphrase"; input-type: password; text <=> root.passphrase; }
-            HorizontalLayout {
+            VerticalLayout {
+                padding: 14px;
                 spacing: 8px;
-                Button {
-                    text: "Open archive";
-                    variant: "primary";
-                    clicked => {
-                        root.open(root.archive-path, root.passphrase);
-                        root.passphrase = "";
-                    }
-                }
-                Button { text: "Forget passphrase"; variant: "ghost"; clicked => { root.forget(); } }
-                Rectangle { }
-            }
-
-            Rectangle { height: 1px; background: Theme.line; }
-
-            Text { text: "Create an archive"; color: Theme.ink; font-size: 16px; font-weight: 700; }
-            LineEdit { placeholder-text: "Tutorux.tux"; text <=> root.name; }
-            LineEdit { placeholder-text: "Optional archive passphrase"; input-type: password; text <=> root.new-passphrase; }
-            LineEdit { placeholder-text: "Archive description (optional)"; text <=> root.description; }
-            HorizontalLayout {
-                spacing: 8px;
-                Button {
-                    text: "Create archive";
-                    variant: "primary";
-                    clicked => {
-                        root.create(root.name, root.new-passphrase, root.description);
-                        root.new-passphrase = "";
-                        root.description = "";
-                    }
-                }
-                Rectangle { }
-            }
-
-            Rectangle { height: 1px; background: Theme.line; }
-
-            Text { text: "Create a sanitized copy"; color: Theme.ink; font-size: 16px; font-weight: 700; }
-            Text {
-                text: "Preview first. Track filters opt in recordings; other sensitive categories default off.";
-                color: Theme.muted;
-                font-size: 12px;
-                wrap: word-wrap;
-            }
-            LineEdit { placeholder-text: "Output path, for example Share.tux"; text <=> root.sanitized-output; }
-            HorizontalLayout {
-                spacing: 8px;
-                LineEdit { placeholder-text: "Include student IDs, comma separated"; text <=> root.include-students; }
-                LineEdit { placeholder-text: "Exclude student IDs, comma separated"; text <=> root.exclude-students; }
-            }
-            HorizontalLayout {
-                spacing: 8px;
-                LineEdit { placeholder-text: "Include session IDs, comma separated"; text <=> root.include-sessions; }
-                LineEdit { placeholder-text: "Exclude session IDs, comma separated"; text <=> root.exclude-sessions; }
-            }
-            HorizontalLayout {
-                spacing: 8px;
-                LineEdit { placeholder-text: "Include track IDs, comma separated"; text <=> root.include-tracks; }
-                LineEdit { placeholder-text: "Exclude track IDs, comma separated"; text <=> root.exclude-tracks; }
-            }
-            HorizontalLayout {
-                spacing: 12px;
-                CheckBox { text: "Recordings"; checked <=> root.include-recordings; }
-                CheckBox { text: "Private annotations"; checked <=> root.include-private-annotations; }
-                CheckBox { text: "Generation logs"; checked <=> root.include-generation-logs; }
-                CheckBox { text: "Credentials"; checked <=> root.include-credentials; }
-            }
-            LineEdit { placeholder-text: "Output passphrase (needed for credentials or an encrypted source)"; input-type: password; text <=> root.sanitized-passphrase; }
-            HorizontalLayout {
-                spacing: 8px;
-                Button {
-                    text: "Preview selection";
-                    clicked => {
-                        root.sanitize(root.sanitized-output,
-                            root.include-students, root.exclude-students,
-                            root.include-sessions, root.exclude-sessions,
-                            root.include-tracks, root.exclude-tracks,
-                            root.include-recordings, root.include-private-annotations,
-                            root.include-generation-logs, root.include-credentials,
-                            root.sanitized-passphrase, false);
-                    }
-                }
-                Button {
-                    text: "Create reviewed copy";
-                    variant: "primary";
-                    enabled: root.sanitized-copy-ready;
-                    clicked => {
-                        root.sanitize(root.sanitized-output,
-                            root.include-students, root.exclude-students,
-                            root.include-sessions, root.exclude-sessions,
-                            root.include-tracks, root.exclude-tracks,
-                            root.include-recordings, root.include-private-annotations,
-                            root.include-generation-logs, root.include-credentials,
-                            root.sanitized-passphrase, true);
-                    }
-                }
-                Rectangle { }
-            }
-            Text { text: root.sanitized-copy-status; color: Theme.muted; font-size: 12px; wrap: word-wrap; }
-
-            Rectangle { height: 1px; background: Theme.line; }
-
-            HorizontalLayout {
-                spacing: 8px;
-                Button {
-                    text: "Compact archive";
-                    enabled: root.archive-path != "";
-                    clicked => { root.compact(); }
-                }
-                Button {
-                    text: "Verify archive";
-                    enabled: root.archive-path != "";
-                    clicked => { root.verify(); }
-                }
                 Text {
-                    text: "Reclaims space in the open .tux file. History stays verifiable.";
-                    color: Theme.muted;
-                    font-size: 12px;
-                    vertical-alignment: center;
-                    wrap: word-wrap;
+                    text: "This archive needs recovery review";
+                    color: Theme.danger;
+                    font-size: 14px;
+                    font-weight: 700;
+                }
+                Text { text: root.recovery-status; color: Theme.body; font-size: 12px; wrap: word-wrap; }
+                ActionWrap {
+                    if root.recovery-recoverable : Button {
+                        text: "Recover verified work";
+                        clicked => { root.recovery("recover-unpublished"); }
+                    }
+                    if root.recovery-tail-present : Button {
+                        text: "Discard incomplete tail";
+                        variant: "danger";
+                        clicked => { root.recovery("discard-tail"); }
+                    }
+                }
+                if root.header-repair-candidate : FormWrap {
+                    Field {
+                        label: "Repaired copy";
+                        LineEdit {
+                            placeholder-text: "Path for a separate repaired copy";
+                            text <=> root.repair-copy-path;
+                        }
+                    }
+                }
+                if root.header-repair-candidate : ActionWrap {
+                    Button {
+                        text: "Create repaired copy";
+                        enabled: root.header-repair-available && root.repair-copy-path != "";
+                        clicked => { root.recovery("repair-copy"); }
+                    }
                 }
             }
-            ScrollText { height: 140px; text: root.archive-list; text-color: Theme.body; }
         }
+
+        Text { text: "Open an archive"; color: Theme.ink; font-size: 16px; font-weight: 700; }
+        if root.archive-paths.length > 0 : ComboBox {
+            model: root.archive-paths;
+            current-value <=> root.archive-path;
+        }
+        FormWrap {
+            Field {
+                label: "Archive path";
+                LineEdit { placeholder-text: "Path to a .tux archive"; text <=> root.archive-path; }
+            }
+            Field {
+                label: "Passphrase";
+                LineEdit {
+                    placeholder-text: "Archive passphrase";
+                    input-type: password;
+                    text <=> root.passphrase;
+                }
+            }
+        }
+        ActionWrap {
+            Button {
+                text: "Open archive";
+                variant: "primary";
+                clicked => {
+                    root.open(root.archive-path, root.passphrase);
+                    root.passphrase = "";
+                }
+            }
+            Button { text: "Forget passphrase"; variant: "ghost"; clicked => { root.forget(); } }
+        }
+
+        Rectangle { height: 1px; background: Theme.line; }
+
+        Text { text: "Create an archive"; color: Theme.ink; font-size: 16px; font-weight: 700; }
+        FormWrap {
+            Field {
+                label: "Name";
+                LineEdit { placeholder-text: "Tutorux.tux"; text <=> root.name; }
+            }
+            Field {
+                label: "Passphrase";
+                LineEdit {
+                    placeholder-text: "Optional archive passphrase";
+                    input-type: password;
+                    text <=> root.new-passphrase;
+                }
+            }
+        }
+        Field {
+            label: "Description";
+            LineEdit { placeholder-text: "Optional description"; text <=> root.description; }
+        }
+        ActionWrap {
+            Button {
+                text: "Create archive";
+                variant: "primary";
+                clicked => {
+                    root.create(root.name, root.new-passphrase, root.description);
+                    root.new-passphrase = "";
+                    root.description = "";
+                }
+            }
+        }
+
+        Rectangle { height: 1px; background: Theme.line; }
+
+        Text { text: "Create a sanitized copy"; color: Theme.ink; font-size: 16px; font-weight: 700; }
+        Text {
+            text: "Preview first. Track filters opt in recordings; other sensitive categories default off.";
+            color: Theme.muted;
+            font-size: 12px;
+            wrap: word-wrap;
+        }
+        Field {
+            label: "Output";
+            LineEdit { placeholder-text: "Output path, for example Share.tux"; text <=> root.sanitized-output; }
+        }
+        FormWrap {
+            Field { label: "Include students"; LineEdit { placeholder-text: "Comma-separated IDs"; text <=> root.include-students; } }
+            Field { label: "Exclude students"; LineEdit { placeholder-text: "Comma-separated IDs"; text <=> root.exclude-students; } }
+            Field { label: "Include sessions"; LineEdit { placeholder-text: "Comma-separated IDs"; text <=> root.include-sessions; } }
+            Field { label: "Exclude sessions"; LineEdit { placeholder-text: "Comma-separated IDs"; text <=> root.exclude-sessions; } }
+            Field { label: "Include tracks"; LineEdit { placeholder-text: "Comma-separated IDs"; text <=> root.include-tracks; } }
+            Field { label: "Exclude tracks"; LineEdit { placeholder-text: "Comma-separated IDs"; text <=> root.exclude-tracks; } }
+        }
+        ActionWrap {
+            CheckBox { text: "Recordings"; checked <=> root.include-recordings; }
+            CheckBox { text: "Private annotations"; checked <=> root.include-private-annotations; }
+            CheckBox { text: "Generation logs"; checked <=> root.include-generation-logs; }
+            CheckBox { text: "Credentials"; checked <=> root.include-credentials; }
+        }
+        Field {
+            label: "Output passphrase";
+            LineEdit {
+                placeholder-text: "Needed for credentials or an encrypted source";
+                input-type: password;
+                text <=> root.sanitized-passphrase;
+            }
+        }
+        ActionWrap {
+            Button {
+                text: "Preview selection";
+                clicked => {
+                    root.sanitize(root.sanitized-output,
+                        root.include-students, root.exclude-students,
+                        root.include-sessions, root.exclude-sessions,
+                        root.include-tracks, root.exclude-tracks,
+                        root.include-recordings, root.include-private-annotations,
+                        root.include-generation-logs, root.include-credentials,
+                        root.sanitized-passphrase, false);
+                }
+            }
+            Button {
+                text: "Create reviewed copy";
+                variant: "primary";
+                enabled: root.sanitized-copy-ready;
+                clicked => {
+                    root.sanitize(root.sanitized-output,
+                        root.include-students, root.exclude-students,
+                        root.include-sessions, root.exclude-sessions,
+                        root.include-tracks, root.exclude-tracks,
+                        root.include-recordings, root.include-private-annotations,
+                        root.include-generation-logs, root.include-credentials,
+                        root.sanitized-passphrase, true);
+                }
+            }
+        }
+        Text {
+            text: root.sanitized-copy-status;
+            color: Theme.muted;
+            font-size: 12px;
+            wrap: word-wrap;
+        }
+
+        Rectangle { height: 1px; background: Theme.line; }
+
+        ActionWrap {
+            Button {
+                text: "Compact archive";
+                enabled: root.archive-path != "";
+                clicked => { root.compact(); }
+            }
+            Button {
+                text: "Verify archive";
+                enabled: root.archive-path != "";
+                clicked => { root.verify(); }
+            }
+        }
+        Text {
+            text: "Reclaims space in the open .tux file. History stays verifiable.";
+            color: Theme.muted;
+            font-size: 12px;
+            wrap: word-wrap;
+        }
+        ScrollText { height: 140px; text: root.archive-list; text-color: Theme.body; }
     }
 }

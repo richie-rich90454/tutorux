@@ -21,10 +21,10 @@ Refresh the numbers with `tools/Measure-Tutorux.ps1` and `cmake --build <dir>
 
 ## Current measured profile
 
-- Base single-file Windows build: 37,994,319 bytes (38 MB), MinSizeRel,
+- Base single-file Windows build: 37,807,879 bytes (37.8 MB), MinSizeRel,
   stripped, Slint software renderer, no PoDoFo, no network transport, no
   Whisper, no interpreter, no testing backend, no system tray.
-- Full single-file Windows build: 53,832,412 bytes (53.8 MB), MinSizeRel, stripped, WinHTTP.
+- Full single-file Windows build: 54,341,340 bytes (54.3 MB), MinSizeRel, stripped, WinHTTP.
 - Developer shared build: about 20.7 MB.
 - Size gates: `build/base --target size` (45 MB limit) and
   `build/portable --target size` (65 MB limit).

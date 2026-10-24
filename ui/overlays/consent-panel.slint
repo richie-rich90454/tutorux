@@ -1,10 +1,13 @@
-// Concise consent gate before capture.
 import { Button, CheckBox, Theme } from "../theme.slint";
+import { ActionWrap } from "../components/page-parts.slint";
 import { PanelShell } from "./panel-shell.slint";
 
 export component ConsentPanel inherits Rectangle {
     in property <string> preflight-output;
     in property <int> input-level: 0;
+    in property <bool> preflight-ready: false;
+    in property <string> preflight-requested-device-id;
+    in property <string> microphone;
     in property <bool> writable: true;
     in property <bool> has-session: false;
     in property <string> source: "microphone";
@@ -18,6 +21,15 @@ export component ConsentPanel inherits Rectangle {
     height: 100%;
     background: transparent;
 
+    property <bool> needs-preflight: root.source == "microphone" || root.source == "both";
+    property <bool> preflight-matches:
+        root.preflight-requested-device-id == root.microphone;
+    property <bool> preflight-ok:
+        !root.needs-preflight || (root.preflight-ready && root.preflight-matches);
+    property <bool> can-start:
+        root.consent && root.writable && root.has-session &&
+        root.source != "imported-file" && root.preflight-ok;
+
     PanelShell {
         available-width: root.width;
         available-height: root.height;
@@ -25,53 +37,61 @@ export component ConsentPanel inherits Rectangle {
         detail: "Capture starts only after consent is confirmed";
         close => { root.close(); }
 
-        VerticalLayout {
-            spacing: 14px;
+        Text {
+            text: "Record only people who have agreed to be recorded. Tutorux writes audio directly into this archive.";
+            color: Theme.body;
+            font-size: 14px;
+            line-height-factor: 1.45;
+            wrap: word-wrap;
+        }
 
-            Text {
-                text: "Record only people who have agreed to be recorded. Tutorux writes audio directly into this archive.";
-                color: Theme.body;
-                font-size: 14px;
-                line-height-factor: 1.45;
-                wrap: word-wrap;
+        CheckBox {
+            text: "I confirm that everyone being recorded has agreed to this recording.";
+            checked <=> root.consent;
+        }
+
+        ActionWrap {
+            Button {
+                text: "Check microphone";
+                enabled: root.needs-preflight;
+                clicked => { root.check-device(); }
             }
-            CheckBox {
-                text: "I confirm that everyone being recorded has agreed to this recording.";
-                checked <=> root.consent;
-            }
-            HorizontalLayout {
-                spacing: 10px;
-                Button {
-                    text: "Check microphone";
-                    clicked => { root.check-device(); }
-                }
+            Rectangle {
+                width: 220px;
+                height: 8px;
+                border-radius: 4px;
+                background: Theme.surface-inset;
                 Rectangle {
-                    width: 220px;
-                    height: 8px;
-                    y: (parent.height - self.height) / 2;
+                    width: parent.width * root.input-level / 100;
+                    height: parent.height;
                     border-radius: 4px;
-                    background: Theme.surface-inset;
-                    Rectangle {
-                        width: parent.width * root.input-level / 100;
-                        height: parent.height;
-                        border-radius: 4px;
-                        background: Theme.accent;
-                    }
+                    background: Theme.accent;
                 }
-                Rectangle { }
             }
-            Text { text: root.preflight-output; color: Theme.muted; font-size: 12px; line-height-factor: 1.4; wrap: word-wrap; }
-            HorizontalLayout {
-                spacing: 10px;
-                Button {
-                    text: "Start recording";
-                    variant: "primary";
-                    enabled: root.consent && root.writable && root.has-session && root.source != "imported-file";
-                    clicked => { root.start(); }
-                }
-                Button { text: "Cancel"; variant: "ghost"; clicked => { root.close(); } }
-                Rectangle { }
+        }
+
+        Text {
+            text: root.preflight-output;
+            color: Theme.muted;
+            font-size: 12px;
+            line-height-factor: 1.4;
+            wrap: word-wrap;
+        }
+        Text {
+            text: "Check the selected microphone before starting.";
+            color: Theme.faint;
+            font-size: 12px;
+            visible: !root.preflight-ok;
+        }
+
+        ActionWrap {
+            Button {
+                text: "Start recording";
+                variant: "primary";
+                enabled: root.can-start;
+                clicked => { root.start(); }
             }
+            Button { text: "Cancel"; variant: "ghost"; clicked => { root.close(); } }
         }
     }
 }

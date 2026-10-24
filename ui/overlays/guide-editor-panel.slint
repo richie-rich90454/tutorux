@@ -1,0 +1,264 @@
+import { Button, ComboBox, LineEdit, ScrollText, Theme } from "../theme.slint";
+import { ActionWrap, Field, FormWrap } from "../components/page-parts.slint";
+import { GuideDocumentEditor } from "../components/guide-document-editor.slint";
+import { PanelShell } from "./panel-shell.slint";
+
+export component GuideEditorPanel inherits Rectangle {
+    in property <[string]> guide-options: [];
+    in property <[string]> block-options: [];
+    in property <string> provenance;
+    in property <string> output;
+
+    in-out property <string> selected-guide;
+    in-out property <string> selected-block;
+    in-out property <string> reference-id;
+    in-out property <string> block-kind: "paragraph";
+    in-out property <string> find-query;
+    in-out property <string> replace-text;
+    in-out property <string> edit-text;
+    in-out property <int> edit-anchor: 0;
+    in-out property <int> edit-focus: 0;
+    in-out property <string> export-format: "markdown";
+    in-out property <string> export-path;
+
+    callback close();
+    callback load-block(string, string);
+    callback save-block(string, string, string);
+    callback command(string, string, string, string);
+    callback insert-markup(string, string);
+    callback find-next(string);
+    callback replace-match(string, string);
+    callback replace-all(string, string);
+    callback edit-changed(string, int, int);
+    callback selection-changed(int, int);
+    callback undo();
+    callback redo();
+
+    width: 100%;
+    height: 100%;
+    background: transparent;
+
+    PanelShell {
+        available-width: root.width;
+        available-height: root.height;
+        heading: "Guide editor";
+        detail: "Review, edit, validate, template, and export the study guide";
+        sheet-width: 1100px;
+        close => { root.close(); }
+
+        Text {
+            text: "Review source-linked content, validate it, explicitly approve the guide, then export a copy.";
+            color: Theme.muted;
+            font-size: 12px;
+            wrap: word-wrap;
+        }
+
+        FormWrap {
+            Field {
+                label: "Guide";
+                ComboBox {
+                    model: root.guide-options;
+                    current-value <=> root.selected-guide;
+                }
+            }
+            Field {
+                label: "Block";
+                ComboBox {
+                    model: root.block-options;
+                    current-value <=> root.selected-block;
+                }
+            }
+        }
+        ActionWrap {
+            Button {
+                text: "Load block";
+                enabled: root.selected-guide != "" && root.selected-block != "";
+                clicked => { root.load-block(root.selected-guide, root.selected-block); }
+            }
+            Button {
+                text: "Save reviewed block";
+                enabled: root.selected-guide != "" && root.selected-block != "";
+                clicked => {
+                    root.save-block(root.selected-guide, root.selected-block, root.edit-text);
+                }
+            }
+        }
+
+        Text {
+            text: root.provenance;
+            color: Theme.muted;
+            font-size: 12px;
+            wrap: word-wrap;
+        }
+
+        FormWrap {
+            Field {
+                label: "Source or asset";
+                LineEdit {
+                    placeholder-text: "Source or asset UUID";
+                    text <=> root.reference-id;
+                }
+            }
+            Field {
+                label: "Block type";
+                max-width: 260px;
+                ComboBox {
+                    model: ["paragraph", "list-item", "quote", "code", "equation",
+                            "table", "image", "figure", "example", "instruction",
+                            "recommendation", "worked-example"];
+                    current-value <=> root.block-kind;
+                }
+            }
+        }
+        ActionWrap {
+            Button {
+                text: "Insert source";
+                clicked => { root.insert-markup("source", root.reference-id); }
+            }
+            Button {
+                text: "Insert image";
+                clicked => { root.insert-markup("image", root.reference-id); }
+            }
+            Button { text: "Code"; clicked => { root.insert-markup("code", ""); } }
+            Button { text: "Equation"; clicked => { root.insert-markup("equation", ""); } }
+            Button { text: "Table"; clicked => { root.insert-markup("table", ""); } }
+            Button {
+                text: "Set block type";
+                clicked => { root.insert-markup(root.block-kind, ""); }
+            }
+        }
+
+        FormWrap {
+            Field {
+                label: "Find";
+                LineEdit {
+                    placeholder-text: "Find in this block";
+                    text <=> root.find-query;
+                }
+            }
+            Field {
+                label: "Replace with";
+                LineEdit {
+                    placeholder-text: "Replacement text";
+                    text <=> root.replace-text;
+                }
+            }
+        }
+        ActionWrap {
+            Button {
+                text: "Find next";
+                enabled: root.find-query != "";
+                clicked => { root.find-next(root.find-query); }
+            }
+            Button {
+                text: "Replace";
+                enabled: root.find-query != "";
+                clicked => { root.replace-match(root.find-query, root.replace-text); }
+            }
+            Button {
+                text: "Replace all";
+                enabled: root.find-query != "";
+                clicked => { root.replace-all(root.find-query, root.replace-text); }
+            }
+        }
+
+        editor := GuideDocumentEditor {
+            height: 200px;
+            text <=> root.edit-text;
+            anchor-offset <=> root.edit-anchor;
+            focus-offset <=> root.edit-focus;
+            edited(text, focus, anchor) => { root.edit-changed(text, focus, anchor); }
+            selection-changed(focus, anchor) => {
+                root.edit-anchor = anchor;
+                root.edit-focus = focus;
+                root.selection-changed(focus, anchor);
+            }
+            undo-requested => { root.undo(); }
+            redo-requested => { root.redo(); }
+        }
+
+        ActionWrap {
+            Button {
+                text: "Open guide";
+                enabled: root.selected-guide != "";
+                clicked => { root.command("show", "", "", ""); }
+            }
+            Button {
+                text: "Validate sources";
+                enabled: root.selected-guide != "";
+                clicked => { root.command("validate", "", "", ""); }
+            }
+            Button {
+                text: "Approve guide";
+                variant: "primary";
+                enabled: root.selected-guide != "";
+                clicked => { root.command("approve", "", "", ""); }
+            }
+            Button {
+                text: "Compare revisions";
+                enabled: root.selected-guide != "";
+                clicked => { root.command("compare", "", "", ""); }
+            }
+            Button {
+                text: "Regenerate this section";
+                enabled: root.selected-guide != "";
+                clicked => { root.command("regenerate-section", "", "", ""); }
+            }
+            Button {
+                text: "Add example";
+                enabled: root.selected-guide != "";
+                clicked => { root.command("add-example", "", "", ""); }
+            }
+            Button {
+                text: "Remove block";
+                variant: "danger";
+                enabled: root.selected-guide != "";
+                clicked => { root.command("remove-block", "", "", ""); }
+            }
+            Button {
+                text: "Move section up";
+                enabled: root.selected-guide != "";
+                clicked => { root.command("move-section-up", "", "", ""); }
+            }
+            Button {
+                text: "Move section down";
+                enabled: root.selected-guide != "";
+                clicked => { root.command("move-section-down", "", "", ""); }
+            }
+        }
+
+        FormWrap {
+            Field {
+                label: "Format";
+                max-width: 200px;
+                ComboBox {
+                    model: ["markdown", "html", "json", "pdf", "docx"];
+                    current-value <=> root.export-format;
+                }
+            }
+            Field {
+                label: "Export file";
+                LineEdit {
+                    placeholder-text: "Export file path";
+                    text <=> root.export-path;
+                }
+            }
+        }
+        ActionWrap {
+            Button {
+                text: "Export";
+                variant: "primary";
+                enabled: root.selected-guide != "" && root.export-path != "";
+                clicked => {
+                    root.command("export", root.export-format, root.export-path, "");
+                }
+            }
+        }
+
+        ScrollText {
+            height: 220px;
+            text: root.output;
+            text-color: Theme.ink;
+        }
+    }
+}

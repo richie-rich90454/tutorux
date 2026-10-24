@@ -89,11 +89,15 @@ int main(int argc, char** argv) {
     auto window = MainWindow::create();
     const bool paletteMode = mode == "palette";
     const bool darkMode = mode == "dark";
-    const bool journalMode = mode == "journal";
+    const bool journalMode = mode == "journal" || mode == "journal-tall";
+    const bool journalTall = mode == "journal-tall";
     const bool guidesMode = mode == "guides";
     const bool settingsMode = mode == "settings";
     const bool compactMode = mode == "compact";
     const bool minMode = mode == "min" || mode == "minimum";
+    const bool aiMode = mode == "ai";
+    const bool recordingMode = mode == "recording";
+    const bool consentMode = mode == "consent";
     if (mode == "empty") {
         window->set_theme_mode(slint::SharedString("light"));
         window->set_effective_inspector_open(false);
@@ -131,8 +135,6 @@ int main(int argc, char** argv) {
             window->set_journal_entry_options(
                 std::make_shared<slint::VectorModel<slint::SharedString>>(entries));
             window->set_selected_journal_entry(entries.front());
-            window->set_journal_entry_id(
-                slint::SharedString("11111111-1111-4111-8111-111111111111"));
             window->set_journal_entry_title(slint::SharedString("Fractions and equivalence"));
             window->set_journal_entry_date(slint::SharedString("2026-10-21"));
             window->set_journal_document_id(
@@ -179,7 +181,7 @@ int main(int argc, char** argv) {
 
         slint::LogicalSize pageSize;
         pageSize.width = minMode ? 900.F : compactMode ? 1024.F : 1280.F;
-        pageSize.height = minMode ? 560.F : compactMode ? 768.F : 800.F;
+        pageSize.height = minMode ? 560.F : compactMode ? 768.F : journalTall ? 2400.F : 800.F;
         window->window().set_size(pageSize);
         settle(window);
         const auto pageSnapshot = window->window().take_snapshot();
@@ -247,9 +249,15 @@ int main(int argc, char** argv) {
     window->set_marker_rows(std::make_shared<slint::VectorModel<MarkerRow>>(markers));
 
     window->set_theme_mode(slint::SharedString(darkMode ? "dark" : "light"));
-    window->set_effective_inspector_open(true);
+    window->set_effective_inspector_open(!(aiMode || recordingMode || consentMode));
     if (paletteMode)
         window->set_command_palette_open(true);
+    if (aiMode)
+        window->set_overlay_panel(slint::SharedString("ai"));
+    if (recordingMode)
+        window->set_overlay_panel(slint::SharedString("recording"));
+    if (consentMode)
+        window->set_overlay_panel(slint::SharedString("recording-consent"));
     slint::LogicalSize size;
     size.width = 1280.F;
     size.height = 800.F;

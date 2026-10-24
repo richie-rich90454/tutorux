@@ -22,13 +22,13 @@ export component CommandBar inherits Rectangle {
 
     HorizontalLayout {
         padding-left: 20px;
-        padding-right: 18px;
-        spacing: 10px;
+        padding-right: 14px;
+        spacing: 4px;
+        cross-axis-alignment: center;
 
         Image {
             width: 17px;
             height: 17px;
-            y: (parent.height - self.height) / 2;
             source: @image-url("../assets/icons/archive.svg");
             colorize: Theme.muted;
             accessible-role: none;
@@ -56,6 +56,12 @@ export component CommandBar inherits Rectangle {
             variant: "ghost";
             clicked => { root.action("command-palette"); }
         }
+        Rectangle {
+            width: 1px;
+            height: 20px;
+            background: Theme.line;
+            cross-axis-self-alignment: center;
+        }
         Button {
             text: root.inspector-open ? "Hide details" : "Details";
             variant: "ghost";
@@ -72,7 +78,6 @@ export component CommandBar inherits Rectangle {
         Rectangle {
             width: 34px;
             height: 34px;
-            y: (parent.height - self.height) / 2;
             border-radius: 5px;
             background: more-touch.has-hover ? Theme.surface-hover : transparent;
             accessible-role: button;

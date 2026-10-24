@@ -1,5 +1,5 @@
-// New student: archive-backed student creation.
-import { Button, LineEdit, Theme } from "../theme.slint";
+import { Button, LineEdit } from "../theme.slint";
+import { ActionWrap, Field, FormWrap } from "../components/page-parts.slint";
 import { PanelShell } from "./panel-shell.slint";
 
 export component NewStudentPanel inherits Rectangle {
@@ -26,44 +26,23 @@ export component NewStudentPanel inherits Rectangle {
         detail: "Add a student to this archive";
         close => { root.close(); }
 
-        VerticalLayout {
-            spacing: 12px;
+        FormWrap {
+            Field { label: "Name"; LineEdit { text <=> root.name; } }
+            Field { label: "Grade or level"; max-width: 240px; LineEdit { text <=> root.grade; } }
+            Field { label: "Subjects"; LineEdit { text <=> root.subjects; } }
+            Field { label: "Learning objectives"; LineEdit { text <=> root.objectives; } }
+            Field { label: "Known difficulties"; LineEdit { text <=> root.difficulties; } }
+            Field { label: "Tutor notes"; LineEdit { text <=> root.notes; } }
+        }
 
-            HorizontalLayout {
-                spacing: 12px;
-                VerticalLayout {
-                    horizontal-stretch: 1;
-                    spacing: 5px;
-                    Text { text: "Name"; color: Theme.faint; font-size: 12px; font-weight: 600; }
-                    LineEdit { text <=> root.name; }
-                }
-                VerticalLayout {
-                    horizontal-stretch: 1;
-                    spacing: 5px;
-                    Text { text: "Grade or level"; color: Theme.faint; font-size: 12px; font-weight: 600; }
-                    LineEdit { text <=> root.grade; }
-                }
+        ActionWrap {
+            Button {
+                text: "Add student";
+                variant: "primary";
+                enabled: root.can-create;
+                clicked => { root.create(); }
             }
-            Text { text: "Subjects"; color: Theme.faint; font-size: 12px; font-weight: 600; }
-            LineEdit { text <=> root.subjects; }
-            Text { text: "Learning objectives"; color: Theme.faint; font-size: 12px; font-weight: 600; }
-            LineEdit { text <=> root.objectives; }
-            Text { text: "Known difficulties"; color: Theme.faint; font-size: 12px; font-weight: 600; }
-            LineEdit { text <=> root.difficulties; }
-            Text { text: "Tutor notes"; color: Theme.faint; font-size: 12px; font-weight: 600; }
-            LineEdit { text <=> root.notes; }
-
-            HorizontalLayout {
-                spacing: 8px;
-                Button {
-                    text: "Add student";
-                    variant: "primary";
-                    enabled: root.can-create;
-                    clicked => { root.create(); }
-                }
-                Button { text: "Cancel"; variant: "ghost"; clicked => { root.close(); } }
-                Rectangle { }
-            }
+            Button { text: "Cancel"; variant: "ghost"; clicked => { root.close(); } }
         }
     }
 }

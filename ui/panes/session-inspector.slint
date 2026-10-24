@@ -1,4 +1,3 @@
-// Session inspector: factual details, audio source state, and real markers.
 import { Button, ComboBox, LineEdit, ScrollArea, Theme } from "../theme.slint";
 import { MarkerRow } from "../models.slint";
 
@@ -33,6 +32,7 @@ export component SessionInspector inherits Rectangle {
 
     width: Theme.inspector-width;
     height: 100%;
+    min-height: 0px;
     horizontal-stretch: 0;
     vertical-stretch: 1;
     clip: true;
@@ -53,26 +53,27 @@ export component SessionInspector inherits Rectangle {
         height: 100%;
         content-width: self.visible-width;
         content-height: max(self.visible-height, body.preferred-height);
-        vertical-scrollbar-policy: as-needed;
+        vertical-scrollbar-policy: ScrollBarPolicy.always-off;
 
         body := VerticalLayout {
             width: parent.visible-width;
             padding-left: 22px;
             padding-right: 22px;
-            padding-top: 26px;
+            padding-top: 20px;
             padding-bottom: 20px;
             spacing: 0px;
+            alignment: start;
 
             HorizontalLayout {
-                spacing: 8px;
+                spacing: 2px;
                 Text {
                     text: "Session details";
                     color: Theme.ink;
                     font-size: 12px;
                     font-weight: 700;
                     vertical-alignment: center;
+                    horizontal-stretch: 1;
                 }
-                Rectangle { }
                 Button {
                     text: "Audio";
                     variant: "ghost";
@@ -93,24 +94,42 @@ export component SessionInspector inherits Rectangle {
                 }
             }
 
-            Rectangle { height: 16px; }
+            Rectangle { height: 12px; }
 
             if !root.editing : VerticalLayout {
-                spacing: 14px;
+                spacing: 10px;
                 VerticalLayout {
                     spacing: 4px;
                     Text { text: "Student"; color: Theme.faint; font-size: 12px; font-weight: 600; }
-                    Text { width: 100%; text: root.student == "" ? "Not assigned" : root.student; color: Theme.ink; font-size: 14px; overflow: elide; }
+                    Text {
+                        width: 100%;
+                        text: root.student == "" ? "Not assigned" : root.student;
+                        color: Theme.ink;
+                        font-size: 14px;
+                        overflow: elide;
+                    }
                 }
                 VerticalLayout {
                     spacing: 4px;
                     Text { text: "Subject"; color: Theme.faint; font-size: 12px; font-weight: 600; }
-                    Text { text: root.subject == "" ? "Not recorded" : root.subject; color: Theme.ink; font-size: 14px; wrap: word-wrap; }
+                    Text {
+                        width: 100%;
+                        text: root.subject == "" ? "Not recorded" : root.subject;
+                        color: Theme.ink;
+                        font-size: 14px;
+                        wrap: word-wrap;
+                    }
                 }
                 VerticalLayout {
                     spacing: 4px;
                     Text { text: "Started"; color: Theme.faint; font-size: 12px; font-weight: 600; }
-                    Text { text: root.started == "" ? "Not started" : root.started; color: Theme.ink; font-size: 14px; }
+                    Text {
+                        width: 100%;
+                        text: root.started == "" ? "Not started" : root.started;
+                        color: Theme.ink;
+                        font-size: 14px;
+                        overflow: elide;
+                    }
                 }
             }
 
@@ -129,79 +148,80 @@ export component SessionInspector inherits Rectangle {
                     Text { text: "Subject"; color: Theme.faint; font-size: 12px; font-weight: 600; }
                     LineEdit { text <=> root.draft-subject; }
                 }
-                HorizontalLayout {
-                    spacing: 8px;
-                    Button {
-                        text: "Save details";
-                        variant: "primary";
-                        clicked => {
-                            root.update-details(root.draft-student, root.draft-subject);
-                            root.editing = false;
-                        }
+                Button {
+                    text: "Save details";
+                    variant: "primary";
+                    fill: true;
+                    clicked => {
+                        root.update-details(root.draft-student, root.draft-subject);
+                        root.editing = false;
                     }
-                    Button {
-                        text: "Unassign student";
-                        variant: "ghost";
-                        clicked => { root.draft-student = "Anonymous session"; }
-                    }
-                    Rectangle { }
+                }
+                Button {
+                    text: "Unassign student";
+                    variant: "ghost";
+                    fill: true;
+                    clicked => { root.draft-student = "Anonymous session"; }
                 }
             }
 
-            Rectangle { height: 14px; }
+            Rectangle { height: 10px; }
             Rectangle { height: 1px; background: Theme.line; }
-            Rectangle { height: 14px; }
+            Rectangle { height: 10px; }
 
             Text { text: "Audio capture"; color: Theme.ink; font-size: 12px; font-weight: 700; }
-            Rectangle { height: 12px; }
+            Rectangle { height: 10px; }
 
             VerticalLayout {
-                spacing: 9px;
+                spacing: 8px;
                 HorizontalLayout {
                     Text { text: "Microphone"; color: Theme.muted; font-size: 12px; }
-                    Rectangle { }
                     Text {
                         text: root.microphone == "" ? "Default input" : root.microphone;
                         color: Theme.ink;
                         font-size: 12px;
+                        horizontal-stretch: 1;
+                        horizontal-alignment: right;
                         overflow: elide;
                     }
                 }
                 HorizontalLayout {
                     Text { text: "System audio"; color: Theme.muted; font-size: 12px; }
-                    Rectangle { }
                     Text {
                         text: root.source == "system-audio" || root.source == "both" ? "On" : "Off";
                         color: Theme.ink;
                         font-size: 12px;
+                        horizontal-stretch: 1;
+                        horizontal-alignment: right;
                     }
                 }
             }
 
-            Rectangle { height: 14px; }
+            Rectangle { height: 10px; }
             Rectangle { height: 1px; background: Theme.line; }
-            Rectangle { height: 14px; }
+            Rectangle { height: 10px; }
 
             Text { text: "Add marker"; color: Theme.ink; font-size: 12px; font-weight: 700; }
-            Rectangle { height: 8px; }
-            HorizontalLayout {
+            Rectangle { height: 6px; }
+
+            VerticalLayout {
                 spacing: 6px;
+                HorizontalLayout {
+                    spacing: 6px;
+                    LineEdit {
+                        placeholder-text: "00:00:00";
+                        text <=> root.marker-time;
+                    }
+                    Button {
+                        text: "Now";
+                        variant: "ghost";
+                        clicked => { root.marker-time = root.elapsed-label; }
+                    }
+                }
                 LineEdit {
-                    placeholder-text: "Time HH:MM:SS";
-                    text <=> root.marker-time;
+                    placeholder-text: "Optional marker note";
+                    text <=> root.marker-note;
                 }
-                Button {
-                    text: "Now";
-                    variant: "ghost";
-                    clicked => { root.marker-time = root.elapsed-label; }
-                }
-            }
-            LineEdit {
-                placeholder-text: "Optional marker note";
-                text <=> root.marker-note;
-            }
-            HorizontalLayout {
-                spacing: 8px;
                 ComboBox {
                     model: ["Concept", "Mistake", "Correction", "Instruction",
                             "Example", "Follow-up", "Note"];
@@ -210,6 +230,7 @@ export component SessionInspector inherits Rectangle {
                 Button {
                     text: "Add marker";
                     variant: "primary";
+                    fill: true;
                     clicked => { root.mark(root.marker-type()); }
                 }
             }
@@ -244,11 +265,6 @@ export component SessionInspector inherits Rectangle {
                     overflow: elide;
                     horizontal-stretch: 1;
                 }
-            }
-
-            Rectangle {
-                vertical-stretch: 1;
-                min-height: 0px;
             }
         }
     }

@@ -1,5 +1,5 @@
-// Materials scope: archived files for the selected session.
 import { Button, LineEdit, ScrollArea, ScrollText, Theme } from "../theme.slint";
+import { ActionWrap, Field, FormWrap } from "../components/page-parts.slint";
 
 export component MaterialsPage inherits Rectangle {
     in property <string> session-title;
@@ -35,6 +35,7 @@ export component MaterialsPage inherits Rectangle {
             padding-top: 36px;
             padding-bottom: 56px;
             spacing: 18px;
+            alignment: start;
 
             Text { text: "Materials"; color: Theme.ink; font-size: 28px; font-weight: 700; }
             Text {
@@ -44,12 +45,17 @@ export component MaterialsPage inherits Rectangle {
                 font-size: 12px;
                 wrap: word-wrap;
             }
-            HorizontalLayout {
-                spacing: 8px;
-                LineEdit {
-                    placeholder-text: "File path to import into this session";
-                    text <=> root.input-path;
+
+            FormWrap {
+                Field {
+                    label: "Import";
+                    LineEdit {
+                        placeholder-text: "File path to import into this session";
+                        text <=> root.input-path;
+                    }
                 }
+            }
+            ActionWrap {
                 Button {
                     text: "Import";
                     enabled: root.session-title != "" && root.input-path != "";
@@ -99,11 +105,6 @@ export component MaterialsPage inherits Rectangle {
                 text: root.command-output;
                 text-color: Theme.body;
                 font-size: 12px;
-            }
-
-            Rectangle {
-                vertical-stretch: 1;
-                min-height: 0px;
             }
         }
     }

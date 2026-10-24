@@ -86,7 +86,7 @@ cmake --preset portable-base
 cmake --build build/base --target size dist-base
 ```
 
-The base executable is 37,994,319 bytes (38 MB), under the 45,000,000-byte budget. PDF import/export and network providers report a typed unavailable error in this profile; use the full build when those engines are required.
+The base executable is 37,807,879 bytes (37.8 MB), under the 45,000,000-byte budget. PDF import/export and network providers report a typed unavailable error in this profile; use the full build when those engines are required.
 
 See `docs/performance/BUDGETS.md` for the complete budget and current measurements.
 

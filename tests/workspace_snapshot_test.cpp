@@ -81,6 +81,8 @@ int main() {
         return fail("selected session was not resolved");
     if (overview.selectedSession.title != "Fractions review")
         return fail("selected session inspector was not populated");
+    if (overview.selectedSession.startedAtUs != "2023-11-14 22:13")
+        return fail("selected session start time was not formatted as a date");
     if (overview.generation == 0)
         return fail("overview did not report the archive generation");
 

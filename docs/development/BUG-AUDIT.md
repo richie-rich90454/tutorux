@@ -43,6 +43,22 @@ fixed and what remains.
 
 ### Layout and interaction
 
+- The journal screen was one long hand-built page with packed action rows and
+  a nested scroll area. It is now a separate `JournalPage` with shared cards,
+  wrapped action rows, labelled form fields, and one scroll owner.
+- The session inspector could paint into the recording transport. The page,
+  inspector, transport, and status line now have explicit height constraints;
+  the inspector scrolls independently inside the content row.
+- The guide editor, archive, export, AI, recording, consent, student, materials,
+  and settings surfaces all use the same card/form/action primitives and wrap
+  at narrow widths instead of drawing past their containers.
+- Recording controls opened from the journal did not show the recording sheet.
+  The action now selects the session and opens the panel.
+- The consent and recording panels exposed an enabled Start button even when
+  microphone preflight was not ready. Start is now disabled until the selected
+  microphone has passed preflight, with the preflight result visible.
+- Absolute session start timestamps were formatted as durations
+  (`497983:48:38`). They now render as dates.
 - The status line was clipped at the 900×560 minimum. It has a 28 px line box.
 - The navigator's three tabs overflowed the 208 px compact width. It now has
   two rows of three and shorter type at compact width.
@@ -64,7 +80,7 @@ fixed and what remains.
 
 - The base profile exceeded 45 MB because it linked PoDoFo, libcurl/OpenSSL,
   and Whisper. The new `portable-base` profile excludes all three and measures
-  37,994,319 bytes (38 MB).
+  37,807,879 bytes (37.8 MB).
 - Windows provider traffic now uses WinHTTP and the Windows trust store instead
   of libcurl/OpenSSL.
 - Empty audio timelines divided by zero while building a waveform. The
@@ -87,9 +103,8 @@ fixed and what remains.
   Guides page itself is a first-class editor surface.
 - Student progress evidence is still entered as advanced ids; there is no
   evidence picker yet.
-- At 150% scaling the session inspector can paint below the recording transport;
-  the page content and transport themselves stay aligned. This is the clearest
-  remaining visual defect.
+- The session inspector hides its scrollbar to keep it from painting into the
+  transport. Wheel and trackpad scrolling still reveal the marker section.
 - ComboBox popups opened near the bottom of a ScrollArea can be clipped by the
   scroll viewport.
 - DPI rendering was verified with 125%/150% headless snapshots. Physical

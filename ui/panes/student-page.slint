@@ -1,5 +1,5 @@
-// Students scope: profile, learning history, and tutor-reviewed progress.
 import { Button, CheckBox, ComboBox, LineEdit, ScrollArea, ScrollText, Theme } from "../theme.slint";
+import { ActionWrap, Field, FormWrap } from "../components/page-parts.slint";
 
 export component StudentPage inherits Rectangle {
     in property <string> selected-student;
@@ -46,9 +46,14 @@ export component StudentPage inherits Rectangle {
             padding-top: 36px;
             padding-bottom: 56px;
             spacing: 22px;
+            alignment: start;
 
-            HorizontalLayout {
+            FlexboxLayout {
+                flex-wrap: wrap;
+                alignment: space-between;
+                cross-axis-alignment: center;
                 spacing: 12px;
+
                 VerticalLayout {
                     spacing: 6px;
                     Text { text: "Student record"; color: Theme.faint; font-size: 12px; font-weight: 600; }
@@ -65,15 +70,17 @@ export component StudentPage inherits Rectangle {
                         font-size: 12px;
                     }
                 }
-                Rectangle { }
-                CheckBox {
-                    text: "Advanced IDs";
-                    checked <=> root.advanced;
-                }
-                Button {
-                    text: "New student";
-                    enabled: root.writable;
-                    clicked => { root.new-student(); }
+
+                ActionWrap {
+                    CheckBox {
+                        text: "Advanced IDs";
+                        checked <=> root.advanced;
+                    }
+                    Button {
+                        text: "New student";
+                        enabled: root.writable;
+                        clicked => { root.new-student(); }
+                    }
                 }
             }
 
@@ -91,66 +98,17 @@ export component StudentPage inherits Rectangle {
                 spacing: 16px;
 
                 Text { text: "Profile"; color: Theme.ink; font-size: 16px; font-weight: 700; }
-
-                HorizontalLayout {
-                    spacing: 14px;
-                    VerticalLayout {
-                        horizontal-stretch: 1;
-                        spacing: 5px;
-                        Text { text: "Name"; color: Theme.faint; font-size: 12px; font-weight: 600; }
-                        LineEdit { text <=> root.name; }
-                    }
-                    VerticalLayout {
-                        horizontal-stretch: 1;
-                        spacing: 5px;
-                        Text { text: "Grade or level"; color: Theme.faint; font-size: 12px; font-weight: 600; }
-                        LineEdit { text <=> root.grade; }
-                    }
-                    VerticalLayout {
-                        horizontal-stretch: 1;
-                        spacing: 5px;
-                        Text { text: "Subjects"; color: Theme.faint; font-size: 12px; font-weight: 600; }
-                        LineEdit { text <=> root.subjects; }
-                    }
+                FormWrap {
+                    Field { label: "Name"; LineEdit { text <=> root.name; } }
+                    Field { label: "Grade or level"; LineEdit { text <=> root.grade; } }
+                    Field { label: "Subjects"; LineEdit { text <=> root.subjects; } }
+                    Field { label: "Learning objectives"; LineEdit { text <=> root.objectives; } }
+                    Field { label: "Known difficulties"; LineEdit { text <=> root.difficulties; } }
+                    Field { label: "Demonstrated improvements"; LineEdit { text <=> root.improvements; } }
+                    Field { label: "Preferred guide template"; LineEdit { text <=> root.template; } }
+                    Field { label: "Tutor notes"; LineEdit { text <=> root.notes; } }
                 }
-                HorizontalLayout {
-                    spacing: 14px;
-                    VerticalLayout {
-                        horizontal-stretch: 1;
-                        spacing: 5px;
-                        Text { text: "Learning objectives"; color: Theme.faint; font-size: 12px; font-weight: 600; }
-                        LineEdit { text <=> root.objectives; }
-                    }
-                    VerticalLayout {
-                        horizontal-stretch: 1;
-                        spacing: 5px;
-                        Text { text: "Known difficulties"; color: Theme.faint; font-size: 12px; font-weight: 600; }
-                        LineEdit { text <=> root.difficulties; }
-                    }
-                }
-                HorizontalLayout {
-                    spacing: 14px;
-                    VerticalLayout {
-                        horizontal-stretch: 1;
-                        spacing: 5px;
-                        Text { text: "Demonstrated improvements"; color: Theme.faint; font-size: 12px; font-weight: 600; }
-                        LineEdit { text <=> root.improvements; }
-                    }
-                    VerticalLayout {
-                        horizontal-stretch: 1;
-                        spacing: 5px;
-                        Text { text: "Preferred guide template"; color: Theme.faint; font-size: 12px; font-weight: 600; }
-                        LineEdit { text <=> root.template; }
-                    }
-                    VerticalLayout {
-                        horizontal-stretch: 1;
-                        spacing: 5px;
-                        Text { text: "Tutor notes"; color: Theme.faint; font-size: 12px; font-weight: 600; }
-                        LineEdit { text <=> root.notes; }
-                    }
-                }
-                HorizontalLayout {
-                    spacing: 10px;
+                ActionWrap {
                     Button {
                         text: "Save profile";
                         variant: "primary";
@@ -162,7 +120,6 @@ export component StudentPage inherits Rectangle {
                         enabled: root.selected-student != "";
                         clicked => { root.load-history(); }
                     }
-                    Rectangle { }
                 }
 
                 Rectangle { height: 1px; background: Theme.line; }
@@ -183,61 +140,32 @@ export component StudentPage inherits Rectangle {
                     font-size: 12px;
                     wrap: word-wrap;
                 }
-                HorizontalLayout {
-                    spacing: 12px;
-                    VerticalLayout {
-                        horizontal-stretch: 1;
-                        spacing: 5px;
-                        Text { text: "Skill"; color: Theme.faint; font-size: 12px; font-weight: 600; }
-                        LineEdit { text <=> root.review-skill; }
-                    }
-                    VerticalLayout {
-                        horizontal-stretch: 1;
-                        spacing: 5px;
-                        Text { text: "Classification"; color: Theme.faint; font-size: 12px; font-weight: 600; }
+                FormWrap {
+                    Field { label: "Skill"; LineEdit { text <=> root.review-skill; } }
+                    Field {
+                        label: "Classification";
+                        max-width: 280px;
                         ComboBox {
                             model: ["newly-observed", "recurring", "partial-improvement",
                                     "demonstrated-mastery", "unverified-improvement", "not-revisited"];
                             current-value <=> root.review-classification;
                         }
                     }
-                    if root.advanced : VerticalLayout {
-                        horizontal-stretch: 1;
-                        spacing: 5px;
-                        Text { text: "Evidence node IDs"; color: Theme.faint; font-size: 12px; font-weight: 600; }
+                    if root.advanced : Field {
+                        label: "Evidence node IDs";
                         LineEdit { text <=> root.review-evidence; }
                     }
+                    Field { label: "Reviewed by"; LineEdit { text <=> root.review-reviewer; } }
+                    Field { label: "Review note"; LineEdit { text <=> root.review-note; } }
                 }
-                HorizontalLayout {
-                    spacing: 12px;
-                    VerticalLayout {
-                        horizontal-stretch: 1;
-                        spacing: 5px;
-                        Text { text: "Reviewed by"; color: Theme.faint; font-size: 12px; font-weight: 600; }
-                        LineEdit { text <=> root.review-reviewer; }
-                    }
-                    VerticalLayout {
-                        horizontal-stretch: 1;
-                        spacing: 5px;
-                        Text { text: "Review note"; color: Theme.faint; font-size: 12px; font-weight: 600; }
-                        LineEdit { text <=> root.review-note; }
-                    }
-                    VerticalLayout {
-                        spacing: 5px;
-                        Text { text: " "; color: Theme.faint; font-size: 12px; }
-                        Button {
-                            text: "Save reviewed progress";
-                            variant: "primary";
-                            enabled: root.selected-student != "" && root.writable;
-                            clicked => { root.review-progress(); }
-                        }
+                ActionWrap {
+                    Button {
+                        text: "Save reviewed progress";
+                        variant: "primary";
+                        enabled: root.selected-student != "" && root.writable;
+                        clicked => { root.review-progress(); }
                     }
                 }
-            }
-
-            Rectangle {
-                vertical-stretch: 1;
-                min-height: 0px;
             }
         }
     }

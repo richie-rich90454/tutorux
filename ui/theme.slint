@@ -123,6 +123,7 @@ export component Button inherits Rectangle {
     in property <string> variant: "secondary";
     in property <bool> enabled: true;
     in property <bool> busy: false;
+    in property <bool> fill: false;
     out property <bool> has-focus: i-focus-scope.has-focus;
     out property <bool> pressed: self.enabled && !self.busy && i-touch-area.pressed;
 
@@ -180,9 +181,11 @@ export component Button inherits Rectangle {
         return Theme.ink;
     }
 
-    width: max(60px, i-layout.preferred-width);
+    min-width: 60px;
+    max-width: root.fill ? 100000px : max(60px, i-layout.preferred-width);
+    preferred-width: max(60px, i-layout.preferred-width);
     height: max(36px, i-layout.preferred-height);
-    horizontal-stretch: 0;
+    horizontal-stretch: root.fill ? 1 : 0;
     vertical-stretch: 0;
     forward-focus: i-focus-scope;
 

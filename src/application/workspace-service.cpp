@@ -7,6 +7,8 @@
 #include <algorithm>
 #include <cctype>
 #include <charconv>
+#include <chrono>
+#include <iomanip>
 #include <map>
 #include <set>
 #include <sstream>
@@ -99,7 +101,19 @@ namespace {
             std::from_chars(value.data(), value.data() + value.size(), timestampUs);
         if (errorCode != std::errc{} || end != value.data() + value.size() || timestampUs < 0)
             return value;
-        return tutorux::domain::formatTimestampUs(timestampUs);
+
+        using namespace std::chrono;
+        const sys_time<microseconds> timestamp{microseconds{timestampUs}};
+        const auto day = floor<days>(timestamp);
+        const year_month_day date{day};
+        const hh_mm_ss time{floor<seconds>(timestamp - day)};
+        std::ostringstream output;
+        output << std::setfill('0') << std::setw(4) << static_cast<int>(date.year()) << '-'
+               << std::setw(2) << static_cast<unsigned int>(date.month()) << '-'
+               << std::setw(2) << static_cast<unsigned int>(date.day()) << ' '
+               << std::setw(2) << time.hours().count() << ':' << std::setw(2)
+               << time.minutes().count();
+        return output.str();
     }
 
     std::int64_t timestampValue(std::string_view value) {
