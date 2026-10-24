@@ -33,8 +33,6 @@ export component Notebook inherits Rectangle {
         if (root.pending-block != "" && root.writable) {
             root.save-state = "saving";
             root.save-block(root.pending-block, root.pending-text, root.pending-kind);
-            root.pending-block = "";
-            root.pending-text = "";
         }
     }
 
@@ -86,8 +84,12 @@ export component Notebook inherits Rectangle {
                     variant: "ghost";
                     enabled: root.writable && root.selected-block != "";
                     clicked => {
-                        root.save-state = "saving";
-                        root.save-block(root.selected-block, root.block-text, root.block-kind);
+                        if (root.pending-block != "") {
+                            root.flush-pending();
+                        } else {
+                            root.save-state = "saving";
+                            root.save-block(root.selected-block, root.block-text, root.block-kind);
+                        }
                     }
                 }
             }
@@ -125,23 +127,33 @@ export component Notebook inherits Rectangle {
                         padding-bottom: 7px;
                         spacing: 4px;
 
-                        if root.selected-block == note.choice : TextInput {
-                            text <=> root.block-text;
-                            single-line: false;
-                            wrap: word-wrap;
-                            font-size: note.kind == "Heading" ? 28px : 14px;
-                            font-weight: note.kind == "Heading" ? 700 : 400;
-                            color: Theme.ink;
-                            height: max(28px, self.preferred-height);
-                            selection-background-color: Theme.accent;
-                            selection-foreground-color: Theme.on-accent;
-                            edited => {
-                                root.block-text = self.text;
-                                root.pending-block = root.selected-block;
-                                root.pending-text = self.text;
-                                root.pending-kind = root.block-kind;
-                                root.save-state = "unsaved";
-                                save-timer.restart();
+                        if root.selected-block == note.choice : Rectangle {
+                            border-width: 1px;
+                            border-color: Theme.focus-ring;
+                            border-radius: 5px;
+                            background: Theme.surface;
+
+                            VerticalLayout {
+                                padding: 6px;
+                                note-editor := TextInput {
+                                    text <=> root.block-text;
+                                    single-line: false;
+                                    wrap: word-wrap;
+                                    font-size: note.kind == "Heading" ? 28px : 14px;
+                                    font-weight: note.kind == "Heading" ? 700 : 400;
+                                    color: Theme.ink;
+                                    height: max(28px, self.preferred-height);
+                                    selection-background-color: Theme.accent;
+                                    selection-foreground-color: Theme.on-accent;
+                                    edited => {
+                                        root.block-text = self.text;
+                                        root.pending-block = root.selected-block;
+                                        root.pending-text = self.text;
+                                        root.pending-kind = root.block-kind;
+                                        root.save-state = "unsaved";
+                                        save-timer.restart();
+                                    }
+                                }
                             }
                         }
                         if root.selected-block != note.choice : Text {
@@ -160,7 +172,6 @@ export component Notebook inherits Rectangle {
                                 root.flush-pending();
                                 root.selected-block = note.choice;
                                 root.block-text = note.text;
-                                root.pending-block = "";
                             }
                         }
                     }

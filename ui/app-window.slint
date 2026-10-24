@@ -1,6 +1,6 @@
 // Tutorux editorial workbench. The window binds the controller surface; each
 // visual region lives in a focused component under panes/ or overlays/.
-import { Button, CheckBox, ComboBox, LineEdit, ScrollArea, ScrollText, Theme } from "./theme.slint";
+import { Button, CheckBox, ComboBox, LineEdit, ScrollArea, ScrollText, TextArea, Theme } from "./theme.slint";
 import { MarkerRow, MaterialRow, NoteRow, SessionRow, StudentRow } from "./models.slint";
 import { Navigator } from "./panes/navigator.slint";
 import { CommandBar } from "./panes/command-bar.slint";
@@ -91,6 +91,7 @@ export component MainWindow inherits Window {
     in-out property <string> recording-preflight-requested-device-id;
     in-out property <[string]> guide-options;
     in-out property <string> selected-guide;
+    in-out property <string> pending-guide-id;
     in-out property <[string]> guide-block-options;
     in-out property <string> selected-guide-block;
     in-out property <string> guide-edit-text;
@@ -212,6 +213,11 @@ export component MainWindow inherits Window {
     in-out property <bool> journal-entry-create-open: false;
     in-out property <string> journal-entry-collections;
     in-out property <string> journal-entry-tags;
+    in-out property <string> journal-entry-collection: "All collections";
+    in-out property <string> journal-entry-tag: "All tags";
+    in-out property <bool> journal-advanced-open: false;
+    in-out property <bool> student-advanced-open: false;
+    property <length> session-page-height: max(0px, root.height - 156px);
     in-out property <string> journal-entry-id;
     in-out property <bool> journal-entry-delete-confirmed: false;
     in-out property <string> journal-session-title;
@@ -242,10 +248,13 @@ export component MainWindow inherits Window {
     in-out property <bool> journal-document-show-preview: false;
     in-out property <string> journal-item-name;
     in-out property <string> journal-item-id;
+    in-out property <string> journal-item-collection: "All collections";
+    in-out property <string> journal-item-tag: "All tags";
     in-out property <bool> journal-item-delete-confirmed: false;
     in-out property <string> journal-item-description;
     in-out property <string> journal-item-color;
     in-out property <string> theme-mode: "light";
+    in-out property <string> effective-theme-mode: "light";
     // Editorial workbench state
     in-out property <string> workbench-tab: "notebook";
     in-out property <string> navigator-scope: "sessions";
@@ -264,6 +273,12 @@ export component MainWindow inherits Window {
             root.compact-navigator = root.width < 1100px;
             root.effective-inspector-open = root.inspector-open && root.width >= 1280px;
         }
+    }
+
+    system-theme-timer := Timer {
+        interval: 2s;
+        running: root.theme-mode == "system";
+        triggered() => { root.system-theme-check(); }
     }
     in-out property <bool> archive-menu-open: false;
     in-out property <bool> workspace-menu-open: false;
@@ -293,14 +308,28 @@ export component MainWindow inherits Window {
     forward-focus: marker-shortcuts;
 
     init => {
-        Theme.mode = root.theme-mode;
+        Theme.mode = root.theme-mode == "system" ? root.effective-theme-mode : root.theme-mode;
         root.navigator-scope = "sessions";
         root.workbench-tab = "notebook";
         root.archive-menu-open = false;
     }
-    changed theme-mode => { Theme.mode = root.theme-mode; }
+    changed theme-mode => {
+        Theme.mode = root.theme-mode == "system" ? root.effective-theme-mode : root.theme-mode;
+    }
+    changed effective-theme-mode => {
+        if (root.theme-mode == "system") {
+            Theme.mode = root.effective-theme-mode;
+        }
+    }
 
     changed navigator-scope => {
+        root.navigator-query = "";
+        if (root.navigator-scope == "journal") {
+            root.run-journal-search();
+        }
+        if (root.navigator-scope == "guides" && root.selected-guide != "") {
+            root.load-guide(root.selected-guide);
+        }
         if (root.navigator-scope == "students" && root.selected-student != "" &&
                 root.student-profile-name == "") {
             root.load-student-progress(root.selected-student);
@@ -321,7 +350,17 @@ export component MainWindow inherits Window {
         root.journal-session-delete-scope-token = "";
     }
     changed selected-session => {
+        root.transcript-options = [];
+        root.evidence-options = [];
+        root.selected-transcript = "";
+        root.selected-evidence = "";
+        root.transcript-edit-text = "";
+        root.transcript-provenance = "";
+        root.evidence-output = "Select a session to extract or list its evidence.";
         root.asset-command(root.selected-session, "reset", "");
+        if (root.workbench-tab == "transcript" && root.selected-session != "") {
+            root.review-transcript(root.selected-session);
+        }
     }
     changed journal-session-id => {
         root.recording-status-output =
@@ -336,8 +375,19 @@ export component MainWindow inherits Window {
     }
     changed journal-entry-id => {
         root.journal-entry-delete-confirmed = false;
+        root.journal-session-options = [];
+        root.selected-journal-session = "";
+        if (root.journal-entry-id != "") {
+            root.journal-action("session-list", root.journal-entry-id, "", "", "", "", "");
+        }
     }
     changed journal-item-id => {
+        root.journal-item-delete-confirmed = false;
+    }
+    changed journal-item-collection => {
+        root.journal-item-delete-confirmed = false;
+    }
+    changed journal-item-tag => {
         root.journal-item-delete-confirmed = false;
     }
     changed template-panel-open => {
@@ -394,6 +444,8 @@ export component MainWindow inherits Window {
     callback save-student-profile(string, string, string, string, string, string, string, string, string);
     callback create-session(string, string, string, string);
     callback journal-action(string, string, string, string, string, string, string);
+    callback system-theme-check();
+    callback load-guide(string);
     callback journal-session-create(string, string, string, string, string, string, string, string, string, string, string);
     callback open-session(string);
     callback review-transcript(string);
@@ -473,6 +525,15 @@ export component MainWindow inherits Window {
 
     pure function pad2(value: int) -> string {
         return (value < 10 ? "0" : "") + (value * 1.0).to-fixed(0);
+    }
+
+    pure function collection-choice() -> string {
+        return root.journal-item-collection != "All collections" ? root.journal-item-collection
+                                                                 : root.journal-item-id;
+    }
+
+    pure function tag-choice() -> string {
+        return root.journal-item-tag != "All tags" ? root.journal-item-tag : root.journal-item-id;
     }
 
     pure function elapsed-label() -> string {
@@ -589,9 +650,13 @@ export component MainWindow inherits Window {
                 session-rows: root.session-rows;
                 student-rows: root.student-rows;
                 material-rows: root.material-rows;
+                journal-options: root.journal-entry-options;
+                guide-options: root.guide-options;
                 selected-session: root.selected-session;
                 selected-student: root.selected-student;
                 selected-asset: root.selected-asset;
+                selected-journal-entry: root.selected-journal-entry;
+                selected-guide: root.selected-guide;
                 scope <=> root.navigator-scope;
                 query <=> root.navigator-query;
                 menu-open <=> root.archive-menu-open;
@@ -613,10 +678,39 @@ export component MainWindow inherits Window {
                     root.selected-asset = choice;
                     root.asset-command(root.selected-session, "preview", choice);
                 }
-                scope-changed(scope) => { }
-                new-session() => { root.overlay-panel = "new-session"; }
+                select-journal-entry(choice) => {
+                    root.selected-journal-entry = choice;
+                    root.journal-action("entry-show", choice, "", "", "", "", "");
+                }
+                select-guide(choice) => {
+                    root.selected-guide = choice;
+                    root.load-guide(choice);
+                }
+                scope-changed(scope) => {
+                    root.navigator-query = "";
+                    if (scope == "journal") {
+                        root.run-journal-search();
+                    } else if (scope == "guides" && root.selected-guide != "") {
+                        root.guide-command(root.selected-guide, "list", "", "");
+                    } else if (scope == "settings") {
+                        root.overlay-panel = "";
+                    }
+                }
+                new-session() => {
+                    if (root.navigator-scope == "journal") {
+                        root.journal-entry-title = "";
+                        root.journal-entry-date = "";
+                        root.journal-entry-collection = "All collections";
+                        root.journal-entry-tag = "All tags";
+                        root.journal-entry-create-open = true;
+                    } else if (root.navigator-scope == "students") {
+                        root.overlay-panel = "new-student";
+                    } else {
+                        root.overlay-panel = "new-session";
+                    }
+                }
                 open-archive() => { root.overlay-panel = "archive"; }
-                open-settings() => { root.overlay-panel = "settings"; }
+                open-settings() => { root.navigator-scope = "settings"; }
             }
 
             Rectangle {
@@ -641,20 +735,21 @@ export component MainWindow inherits Window {
                             } else if (command == "export") {
                                 root.overlay-panel = "export";
                             } else if (command == "journal-tools") {
-                                root.overlay-panel = "journal-tools";
+                                root.navigator-scope = "journal";
                             } else if (command == "guide-editor") {
-                                root.overlay-panel = "guide-tools";
+                                root.navigator-scope = "guides";
+                                root.guide-tools-open = true;
                             } else if (command == "configure-audio") {
                                 root.overlay-panel = "recording";
                             } else if (command == "guide-tools") {
-                                root.workbench-tab = "guide";
+                                root.navigator-scope = "guides";
                                 root.guide-tools-open = true;
                             } else if (command == "ai") {
                                 root.overlay-panel = "ai";
                             } else if (command == "console") {
                                 root.overlay-panel = "console";
                             } else if (command == "settings") {
-                                root.overlay-panel = "settings";
+                                root.navigator-scope = "settings";
                             }
                         }
                     }
@@ -767,6 +862,7 @@ export component MainWindow inherits Window {
                                 selected-student: root.selected-student;
                                 progress-output: root.student-progress-output;
                                 writable: root.archive-writable;
+                                advanced <=> root.student-advanced-open;
                                 name <=> root.student-profile-name;
                                 grade <=> root.student-profile-grade;
                                 subjects <=> root.student-profile-subjects;
@@ -812,283 +908,23 @@ export component MainWindow inherits Window {
                                 preview(asset) => { root.asset-command(root.selected-session, "preview", asset); }
                             }
 
-                            if root.navigator-scope == "sessions" : VerticalLayout {
+                            if root.navigator-scope == "journal" : journal-page-root := Rectangle {
                                 width: 100%;
-                                vertical-stretch: 1;
-                                spacing: 0px;
+                                height: 100%;
+                                background: Theme.surface;
 
-                                if root.selected-session-title == "" : Rectangle {
+                                ScrollArea {
                                     width: 100%;
                                     height: 100%;
-                                    background: Theme.surface;
-                                    VerticalLayout {
-                                        x: max(48px, (parent.width - Theme.page-max-width) / 2);
-                                        y: (parent.height - self.height) / 2;
-                                        width: min(Theme.page-max-width, parent.width - 96px);
-                                        height: self.preferred-height;
+                                    content-width: self.visible-width;
+                                    content-height: max(self.visible-height, journal-page.preferred-height);
+
+                                    journal-page := VerticalLayout {
+                                        width: parent.visible-width;
+                                        padding: 24px;
                                         spacing: 16px;
 
-                                        Text {
-                                            text: "No session selected.";
-                                            color: Theme.ink;
-                                            font-size: 28px;
-                                            font-weight: 700;
-                                        }
-                                        Text {
-                                            text: "Create a session to start the notebook, or choose one in the navigator.";
-                                            color: Theme.body;
-                                            font-size: 14px;
-                                            line-height-factor: 1.45;
-                                            wrap: word-wrap;
-                                        }
-                                        HorizontalLayout {
-                                            spacing: 10px;
-                                            Button {
-                                                text: "Create session";
-                                                variant: "primary";
-                                                clicked => { root.overlay-panel = "new-session"; }
-                                            }
-                                        }
-                                    }
-                                }
-
-                                if root.selected-session-title != "" : VerticalLayout {
-                                    spacing: 0px;
-
-                                    SessionHeader {
-                                        title: root.selected-session-title;
-                                        student: root.selected-session-student;
-                                        started: root.selected-session-started;
-                                        state: root.selected-session-state;
-                                        recording-state: root.recording-state;
-                                        tab <=> root.workbench-tab;
-                                        rename(title) => { root.rename-session(root.selected-session, title); }
-                                        tab-changed(tab) => {
-                                            if (tab == "transcript" && root.transcript-options.length == 0 &&
-                                                    root.selected-session != "") {
-                                                root.review-transcript(root.selected-session);
-                                            }
-                                        }
-                                    }
-
-                                    HorizontalLayout {
-                                        vertical-stretch: 1;
-                                        spacing: 0px;
-
-                                        content-pane := Rectangle {
-                                            horizontal-stretch: 1;
-                                            min-width: 0px;
-                                            vertical-stretch: 1;
-                                            clip: true;
-                                            background: Theme.surface;
-
-                                            if root.workbench-tab == "notebook" : Notebook {
-                                                width: 100%;
-                                                height: 100%;
-                                                horizontal-stretch: 1;
-                                                vertical-stretch: 1;
-                                                rows: root.note-rows;
-                                                document-id: root.journal-document-id;
-                                                selected-block <=> root.selected-journal-note-block;
-                                                block-text <=> root.journal-document-block-text;
-                                                block-kind <=> root.journal-document-block-kind;
-                                                inline-format-enabled: root.journal-inline-format-enabled;
-                                                writable: root.archive-writable;
-                                                save-state <=> root.note-save-state;
-                                                new-block-text <=> root.journal-document-new-block-text;
-                                                action(action, argument) => { root.notebook-action(action, argument); }
-                                                save-block(id, text, kind) => {
-                                                    root.journal-action("document-block-update",
-                                                        root.journal-document-id, id, kind, text, "", "");
-                                                }
-                                                open-journal-tools => { root.overlay-panel = "journal-tools"; }
-                                            }
-
-                                            if root.workbench-tab == "transcript" : TranscriptPane {
-                                                width: 100%;
-                                                height: 100%;
-                                                horizontal-stretch: 1;
-                                                vertical-stretch: 1;
-                                                options: root.transcript-options;
-                                                evidence-options: root.evidence-options;
-                                                provenance: root.transcript-provenance;
-                                                command-output: root.command-output;
-                                                evidence-output: root.evidence-output;
-                                                writable: root.archive-writable;
-                                                has-session: root.selected-session != "";
-                                                selected-segment <=> root.selected-transcript;
-                                                selected-evidence <=> root.selected-evidence;
-                                                edit-text <=> root.transcript-edit-text;
-                                                reject-reason <=> root.evidence-reject-reason;
-                                                load-segments => { root.review-transcript(root.selected-session); }
-                                                load-segment => {
-                                                    root.load-transcript(root.selected-session, root.selected-transcript);
-                                                }
-                                                play => { root.recording-command(root.selected-session, "play-transcript", ""); }
-                                                stop-playback => { root.recording-command(root.selected-session, "stop-playback", ""); }
-                                                save => {
-                                                    root.save-transcript(root.selected-session,
-                                                        root.selected-transcript, root.transcript-edit-text);
-                                                }
-                                                open-console => { root.overlay-panel = "console"; }
-                                                evidence(action, reason) => {
-                                                    root.evidence-command(root.selected-session, action,
-                                                        root.selected-evidence, reason);
-                                                }
-                                            }
-
-                                            if root.workbench-tab == "guide" : StudyGuidePane {
-                                                width: 100%;
-                                                height: 100%;
-                                                horizontal-stretch: 1;
-                                                vertical-stretch: 1;
-                                                guide-options: root.guide-options;
-                                                block-options: root.guide-block-options;
-                                                output: root.guide-output;
-                                                writable: root.archive-writable;
-                                                selected-guide <=> root.selected-guide;
-                                                selected-block <=> root.selected-guide-block;
-                                                edit-text <=> root.guide-edit-text;
-                                                tools-open <=> root.guide-tools-open;
-                                                load-block => {
-                                                    root.load-guide-block(root.selected-guide, root.selected-guide-block);
-                                                }
-                                                save-block => {
-                                                    root.save-guide-block(root.selected-guide,
-                                                        root.selected-guide-block, root.guide-edit-text);
-                                                }
-                                                action(action) => { root.guide-command(root.selected-guide, action, "", ""); }
-                                                open-ai => { root.overlay-panel = "ai"; }
-                                                open-full-editor => { root.overlay-panel = "guide-tools"; }
-                                            }
-                                        }
-
-                                        if root.effective-inspector-open : session-inspector := SessionInspector {
-                                            width: Theme.inspector-width;
-                                            height: 100%;
-                                            student: root.selected-session-student;
-                                            subject: root.selected-session-subject;
-                                            started: root.selected-session-started;
-                                            microphone: root.recording-microphone-device;
-                                            source: root.recording-source;
-                                            student-choice <=> root.selected-session-student-choice;
-                                            elapsed-label: root.elapsed-label();
-                                            student-options: root.student-options;
-                                            markers: root.marker-rows;
-                                            marker-time <=> root.annotation-time;
-                                            marker-note <=> root.annotation-note;
-                                            update-details(choice, subject) => {
-                                                root.update-session-details(root.selected-session, choice, subject);
-                                            }
-                                            open-recording => { root.overlay-panel = "recording"; }
-                                            play-marker(startSeconds) => { root.play-marker(root.selected-session, startSeconds); }
-                                            mark(type) => {
-                                                root.quick-marker(root.selected-session, type,
-                                                    root.annotation-time, root.annotation-note);
-                                            }
-                                        }
-                                    }
-                                    recording-transport := RecordingTransport {
-                                        state: root.recording-state;
-                                        microphone: root.recording-microphone-device;
-                                        writable: root.archive-writable;
-                                        elapsed <=> root.recording-elapsed-seconds;
-                                        command(action) => {
-                                            root.recording-command(root.selected-session, action, "");
-                                        }
-                                        mark(time) => {
-                                            root.quick-marker(root.selected-session, "general-note",
-                                                time, root.annotation-note);
-                                        }
-                                        open-consent => { root.overlay-panel = "recording-consent"; }
-                                        open-config => { root.overlay-panel = "recording"; }
-                                    }
-
-                                    if root.show-status() : status-line := Rectangle {
-                                        height: 24px;
-                                        background: Theme.surface;
-
-                                        Rectangle {
-                                            width: 100%;
-                                            height: 1px;
-                                            background: Theme.line;
-                                        }
-
-                                        Text {
-                                            x: 20px;
-                                            width: parent.width - 40px;
-                                            height: parent.height;
-                                            vertical-alignment: center;
-                                            text: root.status-message;
-                                            color: Theme.faint;
-                                            font-size: 12px;
-                                            overflow: elide;
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        // Command palette: always available with Ctrl+K.
-        if root.command-palette-open : CommandPalette {
-            query <=> root.command-palette-query;
-            close => {
-                root.command-palette-open = false;
-                root.command-palette-query = "";
-            }
-            action(name) => {
-                root.command-palette-open = false;
-                root.command-palette-query = "";
-                if (name == "journal") {
-                    root.overlay-panel = "journal-tools";
-                } else if (name == "sessions") {
-                    root.navigator-scope = "sessions";
-                } else if (name == "students") {
-                    root.navigator-scope = "students";
-                } else if (name == "materials") {
-                    root.navigator-scope = "materials";
-                } else if (name == "guides") {
-                    root.navigator-scope = "sessions";
-                    root.workbench-tab = "guide";
-                } else if (name == "new-session") {
-                    root.overlay-panel = "new-session";
-                } else if (name == "new-student") {
-                    root.overlay-panel = "new-student";
-                } else if (name == "export") {
-                    root.overlay-panel = "export";
-                } else if (name == "settings") {
-                    root.overlay-panel = "settings";
-                } else if (name == "console") {
-                    root.overlay-panel = "console";
-                }
-            }
-        }
-
-        // One overlay at a time, above the workbench.
-        if root.overlay-panel != "" : Rectangle {
-            width: parent.width;
-            height: parent.height;
-            background: Theme.scrim;
-            z: 100;
-
-            TouchArea {
-                clicked => { root.overlay-panel = ""; }
-            }
-
-
-            if root.overlay-panel == "journal-tools" : PanelShell {
-                available-width: parent.width;
-                available-height: parent.height;
-                heading: "Journal tools";
-                detail: "Entries, sessions, timeline, and structured notes";
-                sheet-width: 1100px;
-                close => { root.overlay-panel = ""; }
-
-                VerticalLayout {
+                                        VerticalLayout {
                     spacing: 16px;                        HorizontalLayout {
                             spacing: 14px;
                             VerticalLayout {
@@ -1108,14 +944,18 @@ export component MainWindow inherits Window {
                                 }
                             }
                             Rectangle { }
+                            CheckBox {
+                                text: "Advanced IDs";
+                                checked <=> root.journal-advanced-open;
+                            }
                             Button {
                                 text: "+ New entry";
                                 variant: "primary";
                                 clicked => {
                                     root.journal-entry-title = "";
                                     root.journal-entry-date = "";
-                                    root.journal-entry-collections = "";
-                                    root.journal-entry-tags = "";
+                                    root.journal-entry-collection = "All collections";
+                                    root.journal-entry-tag = "All tags";
                                     root.journal-entry-create-open = true;
                                     root.status-message = "Add a title, then create the entry in the workspace.";
                                 }
@@ -1156,8 +996,8 @@ export component MainWindow inherits Window {
                                             root.journal-action("entry-create",
                                                 root.journal-entry-title,
                                                 root.journal-entry-date,
-                                                root.journal-entry-collections,
-                                                root.journal-entry-tags,
+                                                root.journal-entry-collection,
+                                                root.journal-entry-tag,
                                                 "", "");
                                         }
                                     }
@@ -1269,33 +1109,22 @@ export component MainWindow inherits Window {
                                         font-size: 16px;
                                         font-weight: 600;
                                     }
-                                    if root.journal-entry-options.length > 0: ComboBox {
-                                        model: root.journal-entry-options;
-                                        current-value <=> root.selected-journal-entry;
-                                        accessible-label: "Select a journal entry";
-                                    }
-                                    Button {
-                                        text: "Open selected entry";
-                                        enabled: root.selected-journal-entry != "";
-                                        clicked => {
-                                            root.journal-action("entry-show",
-                                                root.selected-journal-entry,
-                                                "", "", "", "", "");
-                                        }
-                                        accessible-label: "Open the selected journal entry";
-                                    }
-                                    ScrollText {
-                                        height: 330px;
-                                        text: root.journal-list-output;
-                                        text-color: Theme.ink;
-                                        accessible-label: "Journal search results";
-                                        accessible-live-region: AccessibleLiveness.polite;
+                                    Text {
+                                        text: root.selected-journal-entry == "" ?
+                                            "Choose an entry in the navigator." :
+                                            root.selected-journal-entry;
+                                        color: Theme.ink;
+                                        font-size: 14px;
+                                        font-weight: 600;
+                                        overflow: elide;
                                     }
                                     Text {
-                                        text: "Newest entries appear first. Search and filters preserve this journal view.";
-                                        color: Theme.ink;
+                                        text: root.journal-list-output;
+                                        color: Theme.muted;
                                         font-size: 12px;
+                                        line-height-factor: 1.4;
                                         wrap: word-wrap;
+                                        accessible-live-region: AccessibleLiveness.polite;
                                     }
                                 }
                             }
@@ -1318,10 +1147,12 @@ export component MainWindow inherits Window {
                                             font-size: 16px;
                                             font-weight: 600;
                                         }
-                                        LineEdit {
-                                            placeholder-text: "Entry ID";
-                                            text <=> root.journal-entry-id;
-                                            accessible-label: "Journal entry identifier";
+                                        Text {
+                                            text: root.selected-journal-entry == "" ?
+                                                "No entry selected." : root.selected-journal-entry;
+                                            color: Theme.muted;
+                                            font-size: 12px;
+                                            overflow: elide;
                                         }
                                         HorizontalLayout {
                                             spacing: 8px;
@@ -1339,8 +1170,8 @@ export component MainWindow inherits Window {
                                                         root.journal-entry-id,
                                                         root.journal-entry-title,
                                                         root.journal-entry-date,
-                                                        root.journal-entry-collections,
-                                                        root.journal-entry-tags, "");
+                                                        root.journal-entry-collection,
+                                                        root.journal-entry-tag, "");
                                                 }
                                             }
                                             Button {
@@ -1351,6 +1182,10 @@ export component MainWindow inherits Window {
                                                         root.journal-entry-id,
                                                         "", "", "", "", "");
                                                 }
+                                            }
+                                            CheckBox {
+                                                text: "Confirm delete";
+                                                checked <=> root.journal-entry-delete-confirmed;
                                             }
                                             Button {
                                                 text: "Delete entry";
@@ -1376,24 +1211,15 @@ export component MainWindow inherits Window {
                                         }
                                         HorizontalLayout {
                                             spacing: 8px;
-                                            LineEdit {
-                                                placeholder-text: "Collection IDs, comma-separated";
-                                                text <=> root.journal-entry-collections;
+                                            ComboBox {
+                                                model: root.journal-collection-options;
+                                                current-value <=> root.journal-entry-collection;
+                                                accessible-label: "Entry collection";
                                             }
-                                            LineEdit {
-                                                placeholder-text: "Tag IDs, comma-separated";
-                                                text <=> root.journal-entry-tags;
-                                            }
-                                        }
-                                        Button {
-                                            text: "Create entry";
-                                            clicked => {
-                                                root.journal-action("entry-create",
-                                                    root.journal-entry-title,
-                                                    root.journal-entry-date,
-                                                    root.journal-entry-collections,
-                                                    root.journal-entry-tags,
-                                                    "", "");
+                                            ComboBox {
+                                                model: root.journal-tag-options;
+                                                current-value <=> root.journal-entry-tag;
+                                                accessible-label: "Entry tag";
                                             }
                                         }
                                     }
@@ -1600,7 +1426,7 @@ export component MainWindow inherits Window {
                                             font-size: 12px;
                                         }
                                         }
-                                        LineEdit {
+                                        if root.journal-advanced-open : LineEdit {
                                             placeholder-text: "Session ID";
                                             text <=> root.journal-session-id;
                                             accessible-label: "Session identifier";
@@ -1787,7 +1613,7 @@ export component MainWindow inherits Window {
                                         }
                                         HorizontalLayout {
                                             spacing: 8px;
-                                            LineEdit {
+                                            if root.journal-advanced-open : LineEdit {
                                                 placeholder-text: "Notes document ID";
                                                 text <=> root.journal-document-id;
                                                 enabled: root.journal-entry-id != "";
@@ -1889,7 +1715,17 @@ export component MainWindow inherits Window {
                                             font-size: 12px;
                                             wrap: word-wrap;
                                         }
+                                        Rectangle {
+                                            height: 176px;
+                                            border-width: 1px;
+                                            border-color: Theme.line;
+                                            border-radius: 5px;
+                                            background: Theme.surface;
+
                                         TextInput {
+                                            x: 9px;
+                                            y: 8px;
+                                            width: parent.width - 18px;
                                             height: 160px;
                                             single-line: false;
                                             wrap: word-wrap;
@@ -1935,6 +1771,7 @@ export component MainWindow inherits Window {
                                                     reject
                                                 }
                                             }
+                                        }
                                         }
                                         HorizontalLayout {
                                             spacing: 8px;
@@ -2003,17 +1840,12 @@ export component MainWindow inherits Window {
                                                 }
                                             }
                                         }
-                                        TextInput {
+                                        TextArea {
                                             height: 90px;
-                                            single-line: false;
-                                            wrap: word-wrap;
                                             text <=> root.journal-document-new-block-text;
+                                            placeholder-text: "Write a new note block…";
                                             font-size: 14px;
-                                            color: Theme.ink;
                                             enabled: root.journal-document-id != "";
-                                            edited => {
-                                                root.journal-document-new-block-text = self.text;
-                                            }
                                         }
                                         CheckBox {
                                             text: "Show saved notes as a whole document";
@@ -2036,7 +1868,7 @@ export component MainWindow inherits Window {
                                             }
                                             Button {
                                                 text: "Open study guides";
-                                                clicked => { root.overlay-panel = "guide-tools"; }
+                                                clicked => { root.navigator-scope = "guides"; }
                                             }
                                         }
                                         Text {
@@ -2062,7 +1894,20 @@ export component MainWindow inherits Window {
                                             font-size: 16px;
                                             font-weight: 600;
                                         }
-                                        LineEdit {
+                                        HorizontalLayout {
+                                            spacing: 8px;
+                                            ComboBox {
+                                                model: root.journal-collection-options;
+                                                current-value <=> root.journal-item-collection;
+                                                accessible-label: "Collection to update or delete";
+                                            }
+                                            ComboBox {
+                                                model: root.journal-tag-options;
+                                                current-value <=> root.journal-item-tag;
+                                                accessible-label: "Tag to update or delete";
+                                            }
+                                        }
+                                        if root.journal-advanced-open : LineEdit {
                                             placeholder-text: "Collection or tag ID";
                                             text <=> root.journal-item-id;
                                         }
@@ -2107,7 +1952,7 @@ export component MainWindow inherits Window {
                                                 text: "Update collection";
                                                 clicked => {
                                                     root.journal-action("collection-update",
-                                                        root.journal-item-id,
+                                                        root.collection-choice(),
                                                         root.journal-item-name,
                                                         root.journal-item-description,
                                                         root.journal-item-color,
@@ -2118,7 +1963,7 @@ export component MainWindow inherits Window {
                                                 text: "Update tag";
                                                 clicked => {
                                                     root.journal-action("tag-update",
-                                                        root.journal-item-id,
+                                                        root.tag-choice(),
                                                         root.journal-item-name,
                                                         root.journal-item-description,
                                                         root.journal-item-color,
@@ -2128,12 +1973,16 @@ export component MainWindow inherits Window {
                                         }
                                         HorizontalLayout {
                                             spacing: 8px;
+                                            CheckBox {
+                                                text: "Confirm delete";
+                                                checked <=> root.journal-item-delete-confirmed;
+                                            }
                                             Button {
                                                 text: "Delete collection";
                                                 variant: "danger";
                                                 clicked => {
                                                     root.journal-action("collection-delete",
-                                                        root.journal-item-id,
+                                                        root.collection-choice(),
                                                         "", "", "", "", "");
                                                 }
                                             }
@@ -2142,7 +1991,7 @@ export component MainWindow inherits Window {
                                                 variant: "danger";
                                                 clicked => {
                                                     root.journal-action("tag-delete",
-                                                        root.journal-item-id,
+                                                        root.tag-choice(),
                                                         "", "", "", "", "");
                                                 }
                                             }
@@ -2150,7 +1999,354 @@ export component MainWindow inherits Window {
                                     }
                                 }
                             }                }
+                                    }
+                                }
+                            }
+
+                            if root.navigator-scope == "guides" : guides-page-root := StudyGuidePane {
+                                width: 100%;
+                                height: 100%;
+                                guide-options: root.guide-options;
+                                block-options: root.guide-block-options;
+                                output: root.guide-output;
+                                writable: root.archive-writable;
+                                selected-guide <=> root.selected-guide;
+                                selected-block <=> root.selected-guide-block;
+                                edit-text <=> root.guide-edit-text;
+                                tools-open: true;
+                                load-block => {
+                                    root.load-guide-block(root.selected-guide, root.selected-guide-block);
+                                }
+                                save-block => {
+                                    root.save-guide-block(root.selected-guide,
+                                        root.selected-guide-block, root.guide-edit-text);
+                                }
+                                action(action) => {
+                                    root.guide-command(root.selected-guide, action, "", "");
+                                }
+                                open-ai => { root.overlay-panel = "ai"; }
+                                open-full-editor => { root.overlay-panel = "guide-tools"; }
+                                guide-changed(choice) => { root.load-guide(choice); }
+                            }
+
+                            if root.navigator-scope == "settings" : settings-page-root := SettingsPanel {
+                                width: 100%;
+                                height: 100%;
+                                inline: true;
+                                archive-path: root.archive-path;
+                                theme-mode <=> root.theme-mode;
+                                shortcut-concept <=> root.shortcut-concept;
+                                shortcut-mistake <=> root.shortcut-mistake;
+                                shortcut-correction <=> root.shortcut-correction;
+                                shortcut-instruction <=> root.shortcut-instruction;
+                                shortcut-example <=> root.shortcut-example;
+                                shortcut-follow-up <=> root.shortcut-follow-up;
+                                shortcut-note <=> root.shortcut-note;
+                                diagnostics-output <=> root.diagnostics-output;
+                                close => { root.navigator-scope = "sessions"; }
+                                set-theme(mode) => { root.set-theme-mode(mode); }
+                                save-shortcuts(a, b, c, d, e, f, g) => {
+                                    root.save-marker-shortcuts(a, b, c, d, e, f, g);
+                                }
+                                diagnostics(action, path) => { root.diagnostics-command(action, path); }
+                                archive-action(action) => {
+                                    if (action == "verify") {
+                                        root.diagnostics-command("archive", "");
+                                    } else if (action == "compact") {
+                                        root.compact-archive();
+                                    } else if (action == "tools") {
+                                        root.overlay-panel = "archive";
+                                    } else if (action == "console") {
+                                        root.overlay-panel = "console";
+                                    }
+                                }
+                            }
+
+                            if root.navigator-scope == "sessions" : VerticalLayout {
+                                width: 100%;
+                                height: root.selected-session-title != "" ?
+                                    root.session-page-height : max(0px, root.height - 64px);
+                                vertical-stretch: 0;
+                                spacing: 0px;
+
+                                if root.selected-session-title == "" : Rectangle {
+                                    width: 100%;
+                                    height: 100%;
+                                    background: Theme.surface;
+                                    VerticalLayout {
+                                        x: max(48px, (parent.width - Theme.page-max-width) / 2);
+                                        y: (parent.height - self.height) / 2;
+                                        width: min(Theme.page-max-width, parent.width - 96px);
+                                        height: self.preferred-height;
+                                        spacing: 16px;
+
+                                        Text {
+                                            text: "No session selected.";
+                                            color: Theme.ink;
+                                            font-size: 28px;
+                                            font-weight: 700;
+                                        }
+                                        Text {
+                                            text: "Create a session to start the notebook, or choose one in the navigator.";
+                                            color: Theme.body;
+                                            font-size: 14px;
+                                            line-height-factor: 1.45;
+                                            wrap: word-wrap;
+                                        }
+                                        HorizontalLayout {
+                                            spacing: 10px;
+                                            Button {
+                                                text: "Create session";
+                                                variant: "primary";
+                                                clicked => { root.overlay-panel = "new-session"; }
+                                            }
+                                        }
+                                    }
+                                }
+
+                                if root.selected-session-title != "" : VerticalLayout {
+                                    spacing: 0px;
+
+                                    SessionHeader {
+                                        title: root.selected-session-title;
+                                        student: root.selected-session-student;
+                                        started: root.selected-session-started;
+                                        state: root.selected-session-state;
+                                        recording-state: root.recording-state;
+                                        tab <=> root.workbench-tab;
+                                        rename(title) => { root.rename-session(root.selected-session, title); }
+                                        tab-changed(tab) => {
+                                            if (tab == "transcript" && root.transcript-options.length == 0 &&
+                                                    root.selected-session != "") {
+                                                root.review-transcript(root.selected-session);
+                                            }
+                                        }
+                                    }
+
+                                    Rectangle {
+                                        width: 100%;
+                                        min-height: 0px;
+                                        vertical-stretch: 1;
+                                        clip: true;
+
+                                    HorizontalLayout {
+                                        width: 100%;
+                                        height: 100%;
+                                        min-height: 0px;
+                                        spacing: 0px;
+
+                                        content-pane := Rectangle {
+                                            horizontal-stretch: 1;
+                                            min-width: 0px;
+                                            vertical-stretch: 1;
+                                            clip: true;
+                                            background: Theme.surface;
+
+                                            if root.workbench-tab == "notebook" : Notebook {
+                                                width: 100%;
+                                                height: 100%;
+                                                horizontal-stretch: 1;
+                                                vertical-stretch: 1;
+                                                rows: root.note-rows;
+                                                document-id: root.journal-document-id;
+                                                selected-block <=> root.selected-journal-note-block;
+                                                block-text <=> root.journal-document-block-text;
+                                                block-kind <=> root.journal-document-block-kind;
+                                                inline-format-enabled: root.journal-inline-format-enabled;
+                                                writable: root.archive-writable;
+                                                save-state <=> root.note-save-state;
+                                                new-block-text <=> root.journal-document-new-block-text;
+                                                action(action, argument) => { root.notebook-action(action, argument); }
+                                                save-block(id, text, kind) => {
+                                                    root.journal-action("document-block-update",
+                                                        root.journal-document-id, id, kind, text, "", "");
+                                                }
+                                                open-journal-tools => { root.navigator-scope = "journal"; }
+                                            }
+
+                                            if root.workbench-tab == "transcript" : TranscriptPane {
+                                                width: 100%;
+                                                height: 100%;
+                                                horizontal-stretch: 1;
+                                                vertical-stretch: 1;
+                                                options: root.transcript-options;
+                                                evidence-options: root.evidence-options;
+                                                provenance: root.transcript-provenance;
+                                                command-output: root.command-output;
+                                                evidence-output: root.evidence-output;
+                                                writable: root.archive-writable;
+                                                has-session: root.selected-session != "";
+                                                selected-segment <=> root.selected-transcript;
+                                                selected-evidence <=> root.selected-evidence;
+                                                edit-text <=> root.transcript-edit-text;
+                                                reject-reason <=> root.evidence-reject-reason;
+                                                load-segments => { root.review-transcript(root.selected-session); }
+                                                load-segment => {
+                                                    root.load-transcript(root.selected-session, root.selected-transcript);
+                                                }
+                                                play => { root.recording-command(root.selected-session, "play-transcript", ""); }
+                                                stop-playback => { root.recording-command(root.selected-session, "stop-playback", ""); }
+                                                save => {
+                                                    root.save-transcript(root.selected-session,
+                                                        root.selected-transcript, root.transcript-edit-text);
+                                                }
+                                                open-console => { root.overlay-panel = "console"; }
+                                                evidence(action, reason) => {
+                                                    root.evidence-command(root.selected-session, action,
+                                                        root.selected-evidence, reason);
+                                                }
+                                            }
+
+                                            if root.workbench-tab == "guide" : StudyGuidePane {
+                                                width: 100%;
+                                                height: 100%;
+                                                horizontal-stretch: 1;
+                                                vertical-stretch: 1;
+                                                guide-options: root.guide-options;
+                                                block-options: root.guide-block-options;
+                                                output: root.guide-output;
+                                                writable: root.archive-writable;
+                                                selected-guide <=> root.selected-guide;
+                                                selected-block <=> root.selected-guide-block;
+                                                edit-text <=> root.guide-edit-text;
+                                                tools-open <=> root.guide-tools-open;
+                                                load-block => {
+                                                    root.load-guide-block(root.selected-guide, root.selected-guide-block);
+                                                }
+                                                save-block => {
+                                                    root.save-guide-block(root.selected-guide,
+                                                        root.selected-guide-block, root.guide-edit-text);
+                                                }
+                                                action(action) => { root.guide-command(root.selected-guide, action, "", ""); }
+                                                open-ai => { root.overlay-panel = "ai"; }
+                                                open-full-editor => { root.overlay-panel = "guide-tools"; }
+                                                guide-changed(choice) => { root.load-guide(choice); }
+                                            }
+                                        }
+
+                                        if root.effective-inspector-open : session-inspector := SessionInspector {
+                                            width: Theme.inspector-width;
+                                            height: 100%;
+                                            min-height: 0px;
+                                            vertical-stretch: 1;
+                                            student: root.selected-session-student;
+                                            subject: root.selected-session-subject;
+                                            started: root.selected-session-started;
+                                            microphone: root.recording-microphone-device;
+                                            source: root.recording-source;
+                                            student-choice <=> root.selected-session-student-choice;
+                                            elapsed-label: root.elapsed-label();
+                                            student-options: root.student-options;
+                                            markers: root.marker-rows;
+                                            marker-time <=> root.annotation-time;
+                                            marker-note <=> root.annotation-note;
+                                            update-details(choice, subject) => {
+                                                root.update-session-details(root.selected-session, choice, subject);
+                                            }
+                                            open-recording => { root.overlay-panel = "recording"; }
+                                            play-marker(startSeconds) => { root.play-marker(root.selected-session, startSeconds); }
+                                            mark(type) => {
+                                                root.quick-marker(root.selected-session, type,
+                                                    root.annotation-time, root.annotation-note);
+                                            }
+                                        }
+                                    }
+                                    }
+                                }
+                            }
+
+                            if root.navigator-scope == "sessions" && root.selected-session-title != "" : RecordingTransport {
+                                state: root.recording-state;
+                                microphone: root.recording-microphone-device;
+                                writable: root.archive-writable;
+                                elapsed <=> root.recording-elapsed-seconds;
+                                command(action) => {
+                                    root.recording-command(root.selected-session, action, "");
+                                }
+                                mark(time) => {
+                                    root.quick-marker(root.selected-session, "general-note",
+                                        time, root.annotation-note);
+                                }
+                                open-consent => { root.overlay-panel = "recording-consent"; }
+                                open-config => { root.overlay-panel = "recording"; }
+                            }
+
+                            if root.navigator-scope == "sessions" && root.selected-session-title != "" &&
+                                    root.show-status() : status-line := Rectangle {
+                                height: 28px;
+                                background: Theme.surface;
+
+                                Rectangle {
+                                    width: 100%;
+                                    height: 1px;
+                                    background: Theme.line;
+                                }
+
+                                Text {
+                                    x: 20px;
+                                    width: parent.width - 40px;
+                                    height: parent.height;
+                                    vertical-alignment: center;
+                                    text: root.status-message;
+                                    color: Theme.faint;
+                                    font-size: 12px;
+                                    overflow: elide;
+                                }
+                            }
+                        }
+                    }
+                }
             }
+        }
+
+        // Command palette: always available with Ctrl+K.
+        if root.command-palette-open : CommandPalette {
+            query <=> root.command-palette-query;
+            close => {
+                root.command-palette-open = false;
+                root.command-palette-query = "";
+            }
+            action(name) => {
+                root.command-palette-open = false;
+                root.command-palette-query = "";
+                if (name == "journal") {
+                    root.navigator-scope = "journal";
+                } else if (name == "sessions") {
+                    root.navigator-scope = "sessions";
+                } else if (name == "students") {
+                    root.navigator-scope = "students";
+                } else if (name == "materials") {
+                    root.navigator-scope = "materials";
+                } else if (name == "guides") {
+                    root.navigator-scope = "guides";
+                } else if (name == "new-session") {
+                    root.navigator-scope = "sessions";
+                    root.overlay-panel = "new-session";
+                } else if (name == "new-student") {
+                    root.navigator-scope = "students";
+                    root.overlay-panel = "new-student";
+                } else if (name == "export") {
+                    root.overlay-panel = "export";
+                } else if (name == "settings") {
+                    root.navigator-scope = "settings";
+                } else if (name == "console") {
+                    root.overlay-panel = "console";
+                }
+            }
+        }
+
+        // One overlay at a time, above the workbench.
+        if root.overlay-panel != "" : Rectangle {
+            width: parent.width;
+            height: parent.height;
+            background: Theme.scrim;
+            z: 100;
+
+            TouchArea {
+                clicked => { root.overlay-panel = ""; }
+            }
+
+
 
             if root.overlay-panel == "guide-tools" : PanelShell {
                 available-width: parent.width;
@@ -2463,6 +2659,17 @@ export component MainWindow inherits Window {
                     root.save-marker-shortcuts(a, b, c, d, e, f, g);
                 }
                 diagnostics(action, path) => { root.diagnostics-command(action, path); }
+                archive-action(action) => {
+                    if (action == "verify") {
+                        root.diagnostics-command("archive", "");
+                    } else if (action == "compact") {
+                        root.compact-archive();
+                    } else if (action == "tools") {
+                        root.overlay-panel = "archive";
+                    } else if (action == "console") {
+                        root.overlay-panel = "console";
+                    }
+                }
             }
 
             if root.overlay-panel == "recording" : RecordingPanel {

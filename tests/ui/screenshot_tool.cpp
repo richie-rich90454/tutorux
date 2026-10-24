@@ -3,7 +3,9 @@
 #include "app-window.h"
 
 
+#include <chrono>
 #include <cstdint>
+#include <cstdlib>
 #include <fstream>
 #include <iostream>
 #include <string>
@@ -60,18 +62,38 @@ void writeBmp(const std::string& path, const slint::SharedPixelBuffer<slint::Rgb
     }
 }
 
+void settle(slint::ComponentHandle<MainWindow> window) {
+    window->show();
+    slint::Timer::single_shot(std::chrono::milliseconds(250), [] { slint::quit_event_loop(); });
+    slint::run_event_loop();
+}
+
 } // namespace
 
 int main(int argc, char** argv) {
     if (argc < 2) {
-        std::cerr << "usage: tutorux_ui_screenshot OUTPUT.bmp\n";
+        std::cerr << "usage: tutorux_ui_screenshot OUTPUT.bmp [mode] [scale]\n";
         return 2;
     }
 
-    auto window = MainWindow::create();
     const std::string mode = argc > 2 ? argv[2] : "session";
+    const std::string scale = argc > 3 ? argv[3] : "";
+    if (!scale.empty()) {
+#ifdef _WIN32
+        _putenv_s("SLINT_SCALE_FACTOR", scale.c_str());
+#else
+        setenv("SLINT_SCALE_FACTOR", scale.c_str(), 1);
+#endif
+    }
+
+    auto window = MainWindow::create();
     const bool paletteMode = mode == "palette";
     const bool darkMode = mode == "dark";
+    const bool journalMode = mode == "journal";
+    const bool guidesMode = mode == "guides";
+    const bool settingsMode = mode == "settings";
+    const bool compactMode = mode == "compact";
+    const bool minMode = mode == "min" || mode == "minimum";
     if (mode == "empty") {
         window->set_theme_mode(slint::SharedString("light"));
         window->set_effective_inspector_open(false);
@@ -79,9 +101,7 @@ int main(int argc, char** argv) {
         emptySize.width = 1280.F;
         emptySize.height = 800.F;
         window->window().set_size(emptySize);
-        window->show();
-        static_cast<void>(slint::invoke_from_event_loop([] { slint::quit_event_loop(); }));
-        slint::run_event_loop();
+        settle(window);
         const auto emptySnapshot = window->window().take_snapshot();
         if (!emptySnapshot) return 1;
         writeBmp(argv[1], *emptySnapshot);
@@ -91,6 +111,84 @@ int main(int argc, char** argv) {
     window->set_archive_path(slint::SharedString("C:/tutorux-demo/Demo.tux"));
     window->set_selected_archive(slint::SharedString("Demo.tux"));
     window->set_archive_status(slint::SharedString("Read/Write · Unencrypted"));
+    window->set_theme_mode(slint::SharedString(darkMode ? "dark" : "light"));
+    window->set_effective_inspector_open(false);
+    if (journalMode || guidesMode || settingsMode || compactMode || minMode) {
+        if (compactMode || minMode)
+            window->set_navigator_scope(slint::SharedString("sessions"));
+        else if (journalMode)
+            window->set_navigator_scope(slint::SharedString("journal"));
+        else if (guidesMode)
+            window->set_navigator_scope(slint::SharedString("guides"));
+        else
+            window->set_navigator_scope(slint::SharedString("settings"));
+
+        if (journalMode) {
+            std::vector<slint::SharedString> entries{
+                slint::SharedString("2026-10-21 · Fractions and equivalence · 1 session"),
+                slint::SharedString("2026-10-18 · Rhetorical analysis · 2 sessions"),
+                slint::SharedString("2026-10-12 · Independent reading")};
+            window->set_journal_entry_options(
+                std::make_shared<slint::VectorModel<slint::SharedString>>(entries));
+            window->set_selected_journal_entry(entries.front());
+            window->set_journal_entry_id(
+                slint::SharedString("11111111-1111-4111-8111-111111111111"));
+            window->set_journal_entry_title(slint::SharedString("Fractions and equivalence"));
+            window->set_journal_entry_date(slint::SharedString("2026-10-21"));
+            window->set_journal_document_id(
+                slint::SharedString("22222222-2222-4222-8222-222222222222"));
+            window->set_journal_document_blocks_json(slint::SharedString(
+                R"([{"id":"33333333-3333-4333-8333-333333333333","kind":"paragraph","text":"Ada compared 3/4 and 5/8 on a number line."}])"));
+            window->set_journal_document_block_count(1);
+            window->set_journal_note_block_options(
+                std::make_shared<slint::VectorModel<slint::SharedString>>(
+                    std::vector<slint::SharedString>{
+                        slint::SharedString("Paragraph · Block 1")}));
+            window->set_selected_journal_note_block(
+                slint::SharedString("Paragraph · Block 1"));
+            window->set_journal_document_block_text(slint::SharedString(
+                "Ada compared 3/4 and 5/8 on a number line before choosing a common denominator."));
+            window->set_journal_document_new_block_text(
+                slint::SharedString("Add the next observation here."));
+            window->set_journal_session_options(
+                std::make_shared<slint::VectorModel<slint::SharedString>>(
+                    std::vector<slint::SharedString>{
+                        slint::SharedString("Mathematics · Fractions and equivalence")}));
+            window->set_selected_journal_session(
+                slint::SharedString("Mathematics · Fractions and equivalence"));
+            window->set_status_message(slint::SharedString("Journal entry loaded."));
+        } else if (guidesMode) {
+            std::vector<slint::SharedString> guides{
+                slint::SharedString("Fractions and equivalence"),
+                slint::SharedString("Rhetorical analysis")};
+            window->set_guide_options(
+                std::make_shared<slint::VectorModel<slint::SharedString>>(guides));
+            window->set_selected_guide(guides.front());
+            std::vector<slint::SharedString> blocks{
+                slint::SharedString("Learning objective · Paragraph"),
+                slint::SharedString("Worked example · Paragraph"),
+                slint::SharedString("Practice · Bulleted list")};
+            window->set_guide_block_options(
+                std::make_shared<slint::VectorModel<slint::SharedString>>(blocks));
+            window->set_selected_guide_block(blocks.front());
+            window->set_guide_edit_text(slint::SharedString(
+                "Compare fractions by building equivalent fractions with a common denominator."));
+            window->set_guide_output(slint::SharedString(
+                "3 blocks · validated 2026-10-21 · 1 stale source"));
+        }
+
+        slint::LogicalSize pageSize;
+        pageSize.width = minMode ? 900.F : compactMode ? 1024.F : 1280.F;
+        pageSize.height = minMode ? 560.F : compactMode ? 768.F : 800.F;
+        window->window().set_size(pageSize);
+        settle(window);
+        const auto pageSnapshot = window->window().take_snapshot();
+        if (!pageSnapshot)
+            return 1;
+        writeBmp(argv[1], *pageSnapshot);
+        window->hide();
+        return 0;
+    }
     if (mode == "no-session") {
         window->set_archive_status(slint::SharedString("Read/Write · Unencrypted"));
         window->set_theme_mode(slint::SharedString("light"));
@@ -99,9 +197,7 @@ int main(int argc, char** argv) {
         emptySessionSize.width = 1280.F;
         emptySessionSize.height = 800.F;
         window->window().set_size(emptySessionSize);
-        window->show();
-        static_cast<void>(slint::invoke_from_event_loop([] { slint::quit_event_loop(); }));
-        slint::run_event_loop();
+        settle(window);
         const auto emptySessionSnapshot = window->window().take_snapshot();
         if (!emptySessionSnapshot) return 1;
         writeBmp(argv[1], *emptySessionSnapshot);
@@ -158,9 +254,7 @@ int main(int argc, char** argv) {
     size.width = 1280.F;
     size.height = 800.F;
     window->window().set_size(size);
-    window->show();
-    static_cast<void>(slint::invoke_from_event_loop([] { slint::quit_event_loop(); }));
-    slint::run_event_loop();
+    settle(window);
 
     const auto snapshot = window->window().take_snapshot();
     if (!snapshot) {

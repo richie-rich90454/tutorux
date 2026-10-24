@@ -2,6 +2,7 @@
 
 #include "app-window.h"
 #include "font_data.hpp"
+#include "system-theme.hpp"
 #include "tutorux/application/task-executor.hpp"
 #include "tutorux/application/workspace-service.hpp"
 #include "tutorux/assets/import.hpp"
@@ -188,7 +189,12 @@ namespace {
                 ++index;
                 continue;
             }
-            if (sequenceLength == 1 && (first < 0x20U || first == 0x7fU)) {
+            if (sequenceLength == 1 && first == '\n') {
+                result.push_back('\n');
+            } else if (sequenceLength == 1 && first == '\r') {
+                if (index + 1 >= value.size() || value[index + 1] != '\n')
+                    result.push_back('\n');
+            } else if (sequenceLength == 1 && (first < 0x20U || first == 0x7fU)) {
                 result.push_back(' ');
             } else {
                 if (result.size() + sequenceLength > maximumBytes)
@@ -217,6 +223,13 @@ namespace {
             output << "\n\n";
         }
         return output.str();
+    }
+
+    void applyEffectiveTheme(MainWindow& window, std::string_view mode) {
+        const bool dark =
+            mode == "dark" || (mode == "system" && detail::systemPrefersDark());
+        window.set_effective_theme_mode(
+            toSharedString(dark ? "dark" : "light"));
     }
 
     std::shared_ptr<slint::VectorModel<slint::SharedString>>
@@ -263,6 +276,8 @@ namespace {
 
     std::string registerChoice(std::string label, std::string id) {
         label = sanitizeUtf8(label);
+        std::replace(label.begin(), label.end(), '\n', ' ');
+        std::replace(label.begin(), label.end(), '\r', ' ');
         if (label.empty() || id.empty())
             return label;
         const std::scoped_lock lock(choiceRegistry().mutex);
@@ -291,6 +306,17 @@ namespace {
         const std::scoped_lock lock(choiceRegistry().mutex);
         const auto found = choiceRegistry().idsByLabel.find(std::string(label));
         return found == choiceRegistry().idsByLabel.end() ? std::string{} : found->second;
+    }
+
+    std::string choiceLabelForId(std::string_view id) {
+        if (id.empty())
+            return {};
+        const std::scoped_lock lock(choiceRegistry().mutex);
+        for (const auto& [label, value] : choiceRegistry().idsByLabel) {
+            if (value == id)
+                return label;
+        }
+        return {};
     }
 
     std::string lookupChoiceKey(std::string_view label) {
@@ -555,8 +581,7 @@ namespace {
 
     void setJournalDocumentBlocks(MainWindow& window, std::string_view documentId,
                                   const std::vector<JournalNoteBlockView>& blocks) {
-        if (!documentId.empty())
-            window.set_journal_document_id(toSharedString(documentId));
+        window.set_journal_document_id(toSharedString(documentId));
         const auto choices = journalNoteBlockChoices(blocks);
         const auto selectedShared = window.get_selected_journal_note_block();
         const std::string selectedId = selectionId(selectedShared);
@@ -599,7 +624,8 @@ namespace {
             std::make_shared<slint::VectorModel<NoteRow>>(std::move(noteRows)));
         window.set_note_save_state(toSharedString("saved"));
         window.set_selected_journal_note_block(toSharedString(selectedChoice));
-        setSelectedJournalNoteBlock(window, selectedId);
+        if (!blocks.empty())
+            setSelectedJournalNoteBlock(window, blocks[selectedIndex].id);
     }
 
     void setJournalDocumentFromJson(MainWindow& window, std::string_view json) {
@@ -760,12 +786,22 @@ namespace {
         };
         append("Subject", jsonStringField(json, "subject").value_or(""));
         append("State", jsonStringField(json, "session_state").value_or(""));
-        append("Type", jsonStringField(json, "session_type").value_or(""));
-        append("Student", jsonStringField(json, "student_id").value_or("Anonymous session"));
+        const auto sessionType = jsonStringField(json, "session_type").value_or("");
+        append("Type", sessionType == "notes-only" ? "Notes only" :
+                      sessionType == "record-audio" ? "Record audio" :
+                      sessionType == "import-recording" ? "Imported recording" : sessionType);
+        const auto studentId = jsonStringField(json, "student_id").value_or("");
+        const std::string studentLabel = choiceLabelForId(studentId);
+        append("Student", studentId.empty() || studentId == "anonymous"
+                              ? "Anonymous session"
+                              : studentLabel.empty() ? "Assigned student" : studentLabel);
         append("Transcription language",
                jsonStringField(json, "transcription_language").value_or("auto"));
+        const auto templateId = jsonStringField(json, "guide_template_id").value_or("");
+        const std::string templateLabel = choiceLabelForId(templateId);
         append("Guide template",
-               jsonStringField(json, "guide_template_id").value_or("Recommended"));
+               templateId.empty() ? "Recommended"
+                                  : templateLabel.empty() ? "Assigned template" : templateLabel);
         append("Recording source", jsonStringField(json, "recording_source").value_or(""));
         append("Learning objectives", jsonStringField(json, "learning_objectives").value_or(""));
         return summary;
@@ -778,7 +814,7 @@ namespace {
         const auto choices = journalEntryChoices(json);
         if (choices.empty())
             return "No journal entries yet. Create an entry to start the journal.";
-        return "Select an entry above to open it. " + std::to_string(choices.size()) +
+        return "Choose an entry in the navigator. " + std::to_string(choices.size()) +
                (choices.size() == 1 ? " entry found." : " entries found.");
     }
 
@@ -1225,6 +1261,10 @@ namespace {
             return command->output;
         }
         constexpr std::size_t maximumDisplayedBytes = 256U * 1024U;
+        constexpr std::size_t maximumStructuredResultBytes = 16U * 1024U * 1024U;
+        const bool structured = command->output.starts_with("{") || command->output.starts_with("[");
+        if (structured && command->output.size() <= maximumStructuredResultBytes)
+            return command->output;
         if (command->output.size() > maximumDisplayedBytes) {
             return "Command completed, but its " + std::to_string(command->output.size()) +
                    "-byte result is too large to display here. Use the CLI to save or inspect "
@@ -1821,7 +1861,10 @@ namespace {
         applyRecoverySnapshot(window, loadRecoverySnapshot(path, passphrase));
     }
 
+    void clearWorkspaceView(MainWindow& window);
+
     void showMetadataOnlyArchive(MainWindow& window, const ArchiveInfo& info) {
+        clearWorkspaceView(window);
         clearAssetPanel(window, "Asset previews are unavailable in metadata-only archive mode.");
         const std::string version =
             std::to_string(info.formatMajor) + "." + std::to_string(info.formatMinor);
@@ -1869,6 +1912,7 @@ namespace {
     }
 
     void showLockedArchive(MainWindow& window, const ArchiveInfo& info) {
+        clearWorkspaceView(window);
         clearAssetPanel(window, "Unlock this archive to list or preview its materials.");
         const std::string status = "Locked · Encrypted · Format " +
                                    std::to_string(info.formatMajor) + "." +
@@ -2089,6 +2133,7 @@ namespace {
         request.selectedGuideBlockKey = lookupChoiceKey(selectedGuideBlock);
 
         const auto overview = tutorux::application::WorkspaceService{}.snapshotOverview(request);
+        eraseSecret(request.passphrase);
         snapshot.errorMessage = overview.errorMessage;
         snapshot.archiveList = overview.archiveListText;
         {
@@ -2311,12 +2356,66 @@ namespace {
     }
 
 
+    void clearWorkspaceView(MainWindow& window) {
+        window.set_archive_path(toSharedString(""));
+        window.set_selected_archive(toSharedString(""));
+        window.set_archive_status(toSharedString(""));
+        window.set_archive_writable(false);
+        window.set_students_text(toSharedString(""));
+        window.set_sessions_text(toSharedString(""));
+        window.set_journal_list_output(toSharedString(""));
+        window.set_journal_entry_options(
+            std::make_shared<slint::VectorModel<slint::SharedString>>());
+        window.set_journal_collection_options(
+            std::make_shared<slint::VectorModel<slint::SharedString>>());
+        window.set_journal_tag_options(
+            std::make_shared<slint::VectorModel<slint::SharedString>>());
+        window.set_student_options(std::make_shared<slint::VectorModel<slint::SharedString>>());
+        window.set_session_options(std::make_shared<slint::VectorModel<slint::SharedString>>());
+        window.set_session_rows(std::make_shared<slint::VectorModel<SessionRow>>());
+        window.set_student_rows(std::make_shared<slint::VectorModel<StudentRow>>());
+        window.set_material_rows(std::make_shared<slint::VectorModel<MaterialRow>>());
+        window.set_marker_rows(std::make_shared<slint::VectorModel<MarkerRow>>());
+        window.set_note_rows(std::make_shared<slint::VectorModel<NoteRow>>());
+        window.set_guide_options(std::make_shared<slint::VectorModel<slint::SharedString>>());
+        window.set_guide_block_options(
+            std::make_shared<slint::VectorModel<slint::SharedString>>());
+        window.set_transcript_options(
+            std::make_shared<slint::VectorModel<slint::SharedString>>());
+        window.set_evidence_options(std::make_shared<slint::VectorModel<slint::SharedString>>());
+        window.set_asset_options(std::make_shared<slint::VectorModel<slint::SharedString>>());
+        window.set_selected_session(toSharedString(""));
+        window.set_selected_student(toSharedString(""));
+        window.set_selected_journal_entry(toSharedString(""));
+        window.set_selected_guide(toSharedString(""));
+        window.set_pending_guide_id(toSharedString(""));
+        window.set_selected_guide_block(toSharedString(""));
+        window.set_selected_transcript(toSharedString(""));
+        window.set_selected_evidence(toSharedString(""));
+        window.set_selected_asset(toSharedString(""));
+        window.set_selected_session_title(toSharedString(""));
+        window.set_selected_session_student(toSharedString(""));
+        window.set_selected_session_student_choice(toSharedString(""));
+        window.set_selected_session_subject(toSharedString(""));
+        window.set_selected_session_started(toSharedString(""));
+        window.set_selected_session_state(toSharedString(""));
+        window.set_recording_state(toSharedString("not-started"));
+        window.set_recording_elapsed_seconds(0);
+        window.set_journal_document_id(toSharedString(""));
+        window.set_journal_document_blocks_json(toSharedString("[]"));
+        window.set_journal_note_block_options(
+            std::make_shared<slint::VectorModel<slint::SharedString>>());
+        window.set_selected_journal_note_block(toSharedString(""));
+        window.set_journal_document_block_text(toSharedString(""));
+        window.set_journal_document_block_count(0);
+        window.set_note_save_state(toSharedString("saved"));
+        clearAssetPanel(window, "Choose a session, list its materials, then preview a selected file.");
+    }
+
     void applyWorkspaceSnapshot(MainWindow& window, WorkspaceSnapshot snapshot) {
         window.set_archive_busy(false);
         if (!snapshot.errorMessage.empty()) {
-            window.set_archive_path(toSharedString(""));
-            window.set_selected_archive(toSharedString(""));
-            window.set_archive_status(toSharedString(""));
+            clearWorkspaceView(window);
             window.set_status_message(toSharedString("Archive refresh failed: " +
                                                      snapshot.errorMessage));
             return;
@@ -2368,6 +2467,10 @@ namespace {
         window.set_journal_tag_options(std::make_shared<slint::VectorModel<slint::SharedString>>(
             std::move(snapshot.journalTags)));
         window.set_selected_journal_entry(std::move(snapshot.selectedJournalEntry));
+        const auto selectedEntryChoice = window.get_selected_journal_entry();
+        const std::string selectedEntryId = selectionId(selectedEntryChoice);
+        if (tutorux::archive::uuidFromString(selectedEntryId))
+            window.set_journal_entry_id(toSharedString(selectedEntryId));
         window.set_selected_archive(toSharedString(snapshot.path.filename().string()));
         window.set_student_options(std::make_shared<slint::VectorModel<slint::SharedString>>(
             std::move(snapshot.students)));
@@ -2397,24 +2500,39 @@ namespace {
         window.set_selected_session_state(toSharedString(snapshot.selectedSessionState));
         window.set_recording_state(toSharedString(snapshot.selectedSessionRecordingState));
         window.set_recording_elapsed_seconds(snapshot.selectedSessionElapsed);
-        window.set_note_save_state(toSharedString("saved"));
-        if (snapshot.selectedSessionNotesAvailable) {
-            setJournalDocumentBlocks(window, snapshot.selectedSessionDocumentId,
-                                     snapshot.selectedSessionDocumentBlocks);
+        const auto currentDocument = window.get_journal_document_id();
+        const std::string currentDocumentId(currentDocument.data(), currentDocument.size());
+        const auto currentSaveState = window.get_note_save_state();
+        const std::string saveState(currentSaveState.data(), currentSaveState.size());
+        const bool preservePendingNotebook =
+            currentDocumentId == snapshot.selectedSessionDocumentId &&
+            (saveState == "unsaved" || saveState == "saving");
+        if (preservePendingNotebook) {
+            if (saveState == "saving")
+                window.set_note_save_state(toSharedString("saved"));
         } else {
-            window.set_journal_document_id(toSharedString(""));
-            window.set_journal_document_blocks_json(toSharedString("[]"));
-            window.set_note_rows(std::make_shared<slint::VectorModel<NoteRow>>());
-            window.set_journal_note_block_options(
-                std::make_shared<slint::VectorModel<slint::SharedString>>());
-            window.set_selected_journal_note_block(toSharedString(""));
+            window.set_note_save_state(toSharedString("saved"));
+            if (snapshot.selectedSessionNotesAvailable) {
+                setJournalDocumentBlocks(window, snapshot.selectedSessionDocumentId,
+                                         snapshot.selectedSessionDocumentBlocks);
+            } else {
+                window.set_journal_document_id(toSharedString(""));
+                window.set_journal_document_blocks_json(toSharedString("[]"));
+                window.set_note_rows(std::make_shared<slint::VectorModel<NoteRow>>());
+                window.set_journal_note_block_options(
+                    std::make_shared<slint::VectorModel<slint::SharedString>>());
+                window.set_selected_journal_note_block(toSharedString(""));
+            }
         }
         window.set_guide_options(
             std::make_shared<slint::VectorModel<slint::SharedString>>(std::move(snapshot.guides)));
         window.set_selected_guide(std::move(snapshot.selectedGuide));
+        window.set_pending_guide_id(toSharedString(""));
         const auto currentGuideOutput = window.get_guide_output();
-        if (std::string_view(currentGuideOutput.data(), currentGuideOutput.size()) ==
-            "Choose an archive to view study guides.") {
+        const std::string_view currentGuideTextView(currentGuideOutput.data(),
+                                                    currentGuideOutput.size());
+        if (currentGuideTextView == "Choose an archive to view study guides." ||
+            currentGuideTextView == "Loading study guide…") {
             window.set_guide_output(toSharedString(
                 snapshot.guides.empty() ? "No study guides in this archive yet."
                                         : "Select a study guide and load a block to review it."));
@@ -2429,8 +2547,10 @@ namespace {
         window.set_shortcut_example(toSharedString(snapshot.shortcuts[4]));
         window.set_shortcut_follow_up(toSharedString(snapshot.shortcuts[5]));
         window.set_shortcut_note(toSharedString(snapshot.shortcuts[6]));
-        if (!snapshot.themeMode.empty())
+        if (!snapshot.themeMode.empty()) {
             window.set_theme_mode(toSharedString(snapshot.themeMode));
+            applyEffectiveTheme(window, snapshot.themeMode);
+        }
         window.set_archive_writable(snapshot.writableOnDisk);
         window.set_archive_status(toSharedString(std::move(snapshot.archiveStatus)));
     }
@@ -2441,8 +2561,14 @@ namespace {
         const auto selectedEntry = window.get_journal_entry_id();
         const auto selectedJournalStudent = window.get_journal_session_student();
         const auto selectedStudent = window.get_selected_student();
-        const auto selectedSession = window.get_selected_session();
-        const auto selectedGuide = window.get_selected_guide();
+        const auto journalSession = window.get_journal_session_id();
+        const auto selectedSession = std::string_view(journalSession.data(), journalSession.size()).empty()
+                                         ? window.get_selected_session()
+                                         : journalSession;
+        const auto pendingGuide = window.get_pending_guide_id();
+        const auto selectedGuide = std::string_view(pendingGuide.data(), pendingGuide.size()).empty()
+                                       ? window.get_selected_guide()
+                                       : pendingGuide;
         const auto selectedGuideBlock = window.get_selected_guide_block();
         applyWorkspaceSnapshot(
             window,
@@ -2469,8 +2595,16 @@ namespace {
         const auto selectedEntry = (*strongWindow)->get_journal_entry_id();
         const auto selectedJournalStudent = (*strongWindow)->get_journal_session_student();
         const auto selectedStudent = (*strongWindow)->get_selected_student();
-        const auto selectedSession = (*strongWindow)->get_selected_session();
-        const auto selectedGuide = (*strongWindow)->get_selected_guide();
+        const auto journalSession = (*strongWindow)->get_journal_session_id();
+        const auto selectedSession =
+            std::string_view(journalSession.data(), journalSession.size()).empty()
+                ? (*strongWindow)->get_selected_session()
+                : journalSession;
+        const auto pendingGuide = (*strongWindow)->get_pending_guide_id();
+        const auto selectedGuide =
+            std::string_view(pendingGuide.data(), pendingGuide.size()).empty()
+                ? (*strongWindow)->get_selected_guide()
+                : pendingGuide;
         const auto selectedGuideBlock = (*strongWindow)->get_selected_guide_block();
         const std::string sortText(journalSort.data(), journalSort.size());
         const std::string entryId(selectedEntry.data(), selectedEntry.size());
@@ -2515,7 +2649,7 @@ namespace {
                         .lexically_normal() != path.lexically_normal())
                     return;
                 if (!snapshot.errorMessage.empty()) {
-                    (*completedWindow)->set_archive_status(toSharedString(snapshot.errorMessage));
+                    clearWorkspaceView(**completedWindow);
                     (*completedWindow)
                         ->set_status_message(toSharedString(std::move(snapshot.errorMessage)));
                     return;
@@ -3230,8 +3364,8 @@ int launchDesktop(std::optional<std::filesystem::path> archivePath,
             }
             arguments = {"--json", "journal", "entry", "create", "--title", values[0]};
             addOption("date", values[1]);
-            addOption("collection-ids", values[2]);
-            addOption("tag-ids", values[3]);
+            addOption("collection-ids", journalTaxonomyFilterId(values[2]));
+            addOption("tag-ids", journalTaxonomyFilterId(values[3]));
         } else if (action == "entry-show") {
             const auto selectedEntryId = tutorux::archive::uuidFromString(values[0])
                                              ? values[0]
@@ -3250,8 +3384,8 @@ int launchDesktop(std::optional<std::filesystem::path> archivePath,
             arguments = {"--json", "journal", "entry", "update", values[0]};
             addOption("title", values[1]);
             addOption("date", values[2]);
-            addOption("collection-ids", values[3]);
-            addOption("tag-ids", values[4]);
+            addOption("collection-ids", journalTaxonomyFilterId(values[3]));
+            addOption("tag-ids", journalTaxonomyFilterId(values[4]));
             if (arguments.size() == 5) {
                 window->set_status_message(toSharedString("Enter at least one entry change."));
                 return;
@@ -3313,6 +3447,7 @@ int launchDesktop(std::optional<std::filesystem::path> archivePath,
                 return;
             }
             arguments = {"--json", "session", "show", selectedSessionId};
+            window->set_journal_session_id(toSharedString(selectedSessionId));
         } else if (action == "session-resume" || action == "session-complete" ||
                    action == "session-review" || action == "session-delete-preview" ||
                    action == "session-delete-confirm") {
@@ -3476,12 +3611,14 @@ int launchDesktop(std::optional<std::filesystem::path> archivePath,
             addOption("description", values[1]);
             addOption("color", values[2]);
         } else if (action == "collection-update" || action == "tag-update") {
-            if (!tutorux::archive::uuidFromString(values[0])) {
-                window->set_status_message(toSharedString("Enter a valid collection or tag ID."));
+            const std::string targetId = journalTaxonomyFilterId(values[0]);
+            if (!tutorux::archive::uuidFromString(targetId)) {
+                window->set_status_message(
+                    toSharedString("Select a collection or tag from this archive."));
                 return;
             }
             arguments = {"journal", action == "collection-update" ? "collection" : "tag", "update",
-                         values[0]};
+                         targetId};
             addOption("name", values[1]);
             addOption("description", values[2]);
             addOption("color", values[3]);
@@ -3490,8 +3627,10 @@ int launchDesktop(std::optional<std::filesystem::path> archivePath,
                 return;
             }
         } else if (action == "collection-delete" || action == "tag-delete") {
-            if (!tutorux::archive::uuidFromString(values[0])) {
-                window->set_status_message(toSharedString("Enter a valid collection or tag ID."));
+            const std::string targetId = journalTaxonomyFilterId(values[0]);
+            if (!tutorux::archive::uuidFromString(targetId)) {
+                window->set_status_message(
+                    toSharedString("Select a collection or tag from this archive."));
                 return;
             }
             if (!window->get_journal_item_delete_confirmed()) {
@@ -3500,7 +3639,7 @@ int launchDesktop(std::optional<std::filesystem::path> archivePath,
                 return;
             }
             arguments = {"journal", action == "collection-delete" ? "collection" : "tag", "delete",
-                         values[0]};
+                         targetId};
             window->set_journal_item_delete_confirmed(false);
         } else {
             window->set_status_message(toSharedString("Unsupported journal action."));
@@ -6253,10 +6392,19 @@ int launchDesktop(std::optional<std::filesystem::path> archivePath,
                 });
         });
 
+    window->on_system_theme_check([&] {
+        const auto mode = window->get_theme_mode();
+        if (std::string_view(mode.data(), mode.size()) == "system")
+            applyEffectiveTheme(*window, "system");
+    });
+
     window->on_set_theme_mode([&](slint::SharedString mode) {
         const std::filesystem::path path(window->get_archive_path().data());
         const std::string requested(mode.data(), mode.size());
-        if (path.empty() || (requested != "light" && requested != "dark"))
+        if (requested != "light" && requested != "dark" && requested != "system")
+            return;
+        applyEffectiveTheme(*window, requested);
+        if (path.empty())
             return;
         dispatchCommandAsync(
             weakWindow, backgroundTasks,
@@ -6265,6 +6413,22 @@ int launchDesktop(std::optional<std::filesystem::path> archivePath,
             [](MainWindow& completedWindow, bool saved, std::string output) {
                 if (!saved)
                     completedWindow.set_status_message(toSharedString(output));
+            });
+    });
+
+    window->on_load_guide([&](slint::SharedString guide) {
+        const std::filesystem::path path(window->get_archive_path().data());
+        if (path.empty())
+            return;
+        window->set_selected_guide(guide);
+        window->set_guide_output(toSharedString("Loading study guide…"));
+        refreshWorkspaceAsync(
+            weakWindow, backgroundTasks, path, activePassphrase,
+            [](MainWindow& refreshed) {
+                const auto block = refreshed.get_selected_guide_block();
+                if (!block.empty()) {
+                    refreshed.invoke_load_guide_block(refreshed.get_selected_guide(), block);
+                }
             });
     });
 
@@ -7074,7 +7238,7 @@ int launchDesktop(std::optional<std::filesystem::path> archivePath,
                 (*strongWindow)
                     ->set_status_message(
                         toSharedString(exitCode == 0 ? "Command completed." : "Command failed."));
-                if (exitCode == 0 &&
+                if (exitCode == 0 && !journalEntryListResponse && !journalSessionListResponse &&
                     std::filesystem::path((*strongWindow)->get_archive_path().data()) ==
                         selectedPath) {
                     if (changesPassphrase) {
@@ -7120,8 +7284,6 @@ int launchDesktop(std::optional<std::filesystem::path> archivePath,
                 if (exitCode == 0 && journalSessionCreateResponse) {
                     if (auto sessionId = jsonStringField(output, "id")) {
                         (*strongWindow)->set_journal_session_id(toSharedString(*sessionId));
-                        (*strongWindow)
-                            ->set_selected_session(toSharedString("Session · " + *sessionId));
                         const auto sessionType = jsonStringField(output, "session_type");
                         const std::string recordingSource =
                             jsonStringField(output, "recording_source")
@@ -7174,11 +7336,14 @@ int launchDesktop(std::optional<std::filesystem::path> archivePath,
                         choices.begin(), choices.end(), [&](const slint::SharedString& choice) {
                             return selectionId(choice) == selectedEntryId;
                         });
-                    (*strongWindow)
-                        ->set_selected_journal_entry(selectedChoice != choices.end()
-                                                         ? *selectedChoice
-                                                     : choices.empty() ? toSharedString("")
-                                                                       : choices.front());
+                    const auto effectiveChoice =
+                        selectedChoice != choices.end()
+                            ? *selectedChoice
+                            : choices.empty() ? toSharedString("") : choices.front();
+                    (*strongWindow)->set_selected_journal_entry(effectiveChoice);
+                    const std::string effectiveId = selectionId(effectiveChoice);
+                    if (tutorux::archive::uuidFromString(effectiveId))
+                        (*strongWindow)->set_journal_entry_id(toSharedString(effectiveId));
                 }
                 if (exitCode == 0 && journalSessionListResponse) {
                     const auto choices = journalSessionChoices(output);
@@ -7216,14 +7381,11 @@ int launchDesktop(std::optional<std::filesystem::path> archivePath,
                 }
                 if (exitCode == 0 && journalEntryGuideResponse) {
                     if (const auto guideId = jsonStringField(output, "id")) {
-                        const std::string title =
-                            jsonStringField(output, "title").value_or("Study Guide");
-                        (*strongWindow)
-                            ->set_selected_guide(toSharedString(title + " · " + *guideId));
+                        (*strongWindow)->set_pending_guide_id(toSharedString(*guideId));
                         (*strongWindow)
                             ->set_journal_guide_output(toSharedString(
-                                "Draft guide created for this entry. Review it before approval: " +
-                                *guideId));
+                                "Draft guide created for this entry. Review it in Study guides "
+                                "before approval."));
                     }
                 }
                 if (exitCode == 0 && journalSessionDeleteResponse) {

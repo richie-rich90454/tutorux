@@ -71,19 +71,28 @@ cmake --build build/portable --target dist
 dist\Tutorux.exe --version
 ```
 
-The `portable` preset statically links the GUI and runtime dependencies and embeds the Noto Sans font family. It includes local Whisper support; model weights remain external and are selected explicitly.
+The `portable` preset statically links the GUI and runtime dependencies and embeds the Noto Sans font family. It includes local Whisper support; model weights remain external and are selected explicitly. Windows builds use WinHTTP and the platform trust store, so libcurl/OpenSSL are not in the Windows runtime.
 
-The release profile uses the Slint software renderer with the interpreter, testing backend, live preview, and system tray disabled, then strips the executable. A full one-file Windows build measures about 56.7 MB, under the 65 MB budget. Check the measured artifact with:
+The release profile uses the Slint software renderer with the interpreter, testing backend, live preview, and system tray disabled, then strips the executable. A full one-file Windows build stays under the 65 MB budget. Check the measured artifact with:
 
 ```powershell
-cmake --build build/portable-min --target size
+cmake --build build/portable --target size
 ```
+
+The base profile is the smallest usable desktop build. It excludes PoDoFo, the network transport, and Whisper, while keeping archives, students, sessions, journals, notes, transcripts, guides, materials, settings, DOCX, and the CLI:
+
+```powershell
+cmake --preset portable-base
+cmake --build build/base --target size dist-base
+```
+
+The base executable is 37,994,319 bytes (38 MB), under the 45,000,000-byte budget. PDF import/export and network providers report a typed unavailable error in this profile; use the full build when those engines are required.
 
 See `docs/performance/BUDGETS.md` for the complete budget and current measurements.
 
 ### Interface
 
-The desktop shell is a navigator, a main page, and a session inspector. The navigator and inspector collapse at the supported breakpoints, long lists are virtualized, and the notebook wraps inside its pane instead of running under the inspector. All colors come from `ui/theme.slint`; light and dark mode are first-class. The headless layout gate renders every supported window size in both themes (`docs/development/UI-TESTING.md`).
+The desktop shell is a navigator, a main page, and a session inspector. Journal, Sessions, Students, Materials, Guides, and Settings are first-class pages. The navigator and inspector collapse at the supported breakpoints, long lists are virtualized, and the notebook wraps inside its pane instead of running under the inspector. All colors come from `ui/theme.slint`; light, dark, and system themes are first-class. The headless layout gate renders every supported window size in both themes (`docs/development/UI-TESTING.md`). The current defect audit and remaining gaps are recorded in `docs/development/BUG-AUDIT.md`.
 
 Linux and macOS use the matching static release presets. They must be built and qualified on their target operating systems:
 

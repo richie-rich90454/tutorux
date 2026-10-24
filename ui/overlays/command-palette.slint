@@ -2,7 +2,7 @@
 import { LineEdit, Theme } from "../theme.slint";
 
 export component CommandPalette inherits Rectangle {
-    in property <string> query;
+    in-out property <string> query;
     callback close;
     callback action(string);
 
@@ -33,7 +33,30 @@ export component CommandPalette inherits Rectangle {
 
             search := LineEdit {
                 placeholder-text: "Find an action";
-                text: root.query;
+                text <=> root.query;
+                accepted => {
+                    if (root.matches("Journal")) {
+                        root.action("journal");
+                    } else if (root.matches("Sessions")) {
+                        root.action("sessions");
+                    } else if (root.matches("Students")) {
+                        root.action("students");
+                    } else if (root.matches("Materials")) {
+                        root.action("materials");
+                    } else if (root.matches("Study guide")) {
+                        root.action("guides");
+                    } else if (root.matches("New session")) {
+                        root.action("new-session");
+                    } else if (root.matches("New student")) {
+                        root.action("new-student");
+                    } else if (root.matches("Export")) {
+                        root.action("export");
+                    } else if (root.matches("Settings")) {
+                        root.action("settings");
+                    } else if (root.matches("Command console")) {
+                        root.action("console");
+                    }
+                }
             }
 
             Text {

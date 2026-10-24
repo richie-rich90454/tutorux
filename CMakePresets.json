@@ -52,6 +52,20 @@
       }
     },
     {
+      "name": "portable-base",
+      "displayName": "Portable base build (no PDF, network, or Whisper)",
+      "inherits": "portable",
+      "binaryDir": "${sourceDir}/build/base",
+      "cacheVariables": {
+        "BUILD_TESTING": "OFF",
+        "TUTORUX_ENABLE_NETWORK": "OFF",
+        "TUTORUX_ENABLE_PDF": "OFF",
+        "TUTORUX_ENABLE_WHISPER": "OFF",
+        "TUTORUX_FETCH_WHISPER": "OFF",
+        "TUTORUX_SIZE_LIMIT_BYTES": "45000000"
+      }
+    },
+    {
       "name": "portable-wasm-release",
       "displayName": "Portable static browser release",
       "generator": "Ninja",
@@ -431,6 +445,16 @@
     {
       "name": "portable",
       "configurePreset": "portable",
+      "jobs": 4,
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Windows"
+      }
+    },
+    {
+      "name": "portable-base",
+      "configurePreset": "portable-base",
       "jobs": 4,
       "condition": {
         "type": "equals",

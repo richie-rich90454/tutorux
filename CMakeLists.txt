@@ -55,6 +55,8 @@ include(CTest)
 option(TUTORUX_BUILD_GUI "Build the optional Slint desktop interface" OFF)
 option(TUTORUX_FETCH_SLINT "Fetch the pinned Slint C++ dependency when building the GUI" OFF)
 option(TUTORUX_FETCH_PODOFO "Build the pinned PoDoFo dependency from its upstream source" OFF)
+option(TUTORUX_ENABLE_PDF "Enable PoDoFo-backed PDF import and export" ON)
+option(TUTORUX_ENABLE_NETWORK "Enable libcurl-backed HTTPS providers" ON)
 option(TUTORUX_ENABLE_WHISPER "Enable local transcription with whisper.cpp" OFF)
 option(TUTORUX_FETCH_WHISPER "Fetch the pinned whisper.cpp dependency" OFF)
 option(TUTORUX_ENABLE_FFMPEG "Enable local FLAC, MP3, and M4A decoding" OFF)
@@ -125,8 +127,8 @@ if((TUTORUX_LLAMA_CUDA OR TUTORUX_LLAMA_VULKAN OR TUTORUX_LLAMA_METAL) AND
 endif()
 
 if(TUTORUX_STATIC_RUNTIME)
-    if(NOT TUTORUX_FETCH_PODOFO)
-        message(FATAL_ERROR "Static runtime builds require TUTORUX_FETCH_PODOFO=ON.")
+    if(TUTORUX_ENABLE_PDF AND NOT TUTORUX_FETCH_PODOFO)
+        message(FATAL_ERROR "Static PDF builds require TUTORUX_FETCH_PODOFO=ON.")
     endif()
     if(TUTORUX_BUILD_GUI AND NOT TUTORUX_FETCH_SLINT)
         message(FATAL_ERROR "Static GUI builds require TUTORUX_FETCH_SLINT=ON.")
@@ -267,6 +269,18 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND NOT TUTORUX_BUILD_WASM)
     list(APPEND TUTORUX_CORE_SOURCES src/audio/playback_alsa.cpp)
 elseif(WIN32)
     list(APPEND TUTORUX_CORE_SOURCES src/audio/playback_wasapi.cpp)
+endif()
+
+if(NOT TUTORUX_ENABLE_PDF AND NOT TUTORUX_BUILD_WASM)
+    list(REMOVE_ITEM TUTORUX_CORE_SOURCES src/document/pdf_export.cpp)
+    list(APPEND TUTORUX_CORE_SOURCES src/document/pdf_export_unavailable.cpp)
+endif()
+if(NOT TUTORUX_ENABLE_NETWORK AND NOT TUTORUX_BUILD_WASM)
+    list(REMOVE_ITEM TUTORUX_CORE_SOURCES src/ai/http.cpp)
+    list(APPEND TUTORUX_CORE_SOURCES src/ai/http_unavailable.cpp)
+elseif(WIN32 AND NOT TUTORUX_BUILD_WASM)
+    list(REMOVE_ITEM TUTORUX_CORE_SOURCES src/ai/http.cpp)
+    list(APPEND TUTORUX_CORE_SOURCES src/ai/http_winhttp.cpp)
 endif()
 
 add_library(tutorux_core STATIC ${TUTORUX_CORE_SOURCES})
@@ -460,6 +474,11 @@ endif()
 
 if(TUTORUX_BUILD_WASM)
     # Browser requests use the Emscripten Fetch API implementation in http_wasm.cpp.
+elseif(NOT TUTORUX_ENABLE_NETWORK)
+    # The base profile ships no TLS or HTTP client; provider calls return a typed error.
+elseif(WIN32)
+    # Windows uses WinHTTP and the platform trust store; no libcurl/OpenSSL closure.
+    target_link_libraries(tutorux_core PRIVATE winhttp)
 elseif(TUTORUX_STATIC_RUNTIME AND NOT MSVC)
     find_package(PkgConfig REQUIRED)
     set(PKG_CONFIG_ARGN --static)
@@ -854,6 +873,7 @@ if(TUTORUX_ENABLE_FFMPEG)
     endif()
 endif()
 
+if(TUTORUX_ENABLE_PDF)
 if(TUTORUX_BUILD_WASM)
     # The browser target uses the self-contained portable PDF writer.
 elseif(TUTORUX_FETCH_PODOFO)
@@ -936,6 +956,7 @@ if(TUTORUX_STATIC_RUNTIME AND NOT MSVC AND NOT TUTORUX_BUILD_WASM)
         PkgConfig::TUTORUX_STATIC_LIBXML2
     )
 endif()
+endif()
 
 if(WIN32)
     target_compile_definitions(tutorux_core PUBLIC WINVER=0x0A00 _WIN32_WINNT=0x0A00)
@@ -952,6 +973,8 @@ endif()
 target_compile_definitions(tutorux_core PRIVATE
     TUTORUX_BUILD_GUI=$<BOOL:${TUTORUX_BUILD_GUI}>
     TUTORUX_ENABLE_WHISPER=$<BOOL:${TUTORUX_ENABLE_WHISPER}>
+    TUTORUX_WITH_PDF=$<BOOL:${TUTORUX_ENABLE_PDF}>
+    TUTORUX_WITH_NETWORK=$<BOOL:${TUTORUX_ENABLE_NETWORK}>
 )
 
 if(TUTORUX_ENABLE_WHISPER)
@@ -1084,6 +1107,19 @@ if(NOT TUTORUX_BUILD_WASM)
         COMMENT "Staging ${TUTORUX_DIST_NAME} into dist/"
     )
 
+    add_custom_target(dist-base
+        COMMAND "${CMAKE_COMMAND}" -E make_directory "${CMAKE_SOURCE_DIR}/dist"
+        COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+            "$<TARGET_FILE:tutorux>" "${CMAKE_SOURCE_DIR}/dist/Tutorux-base${CMAKE_EXECUTABLE_SUFFIX}"
+        COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+            "${CMAKE_SOURCE_DIR}/ui/fonts/OFL.txt" "${CMAKE_SOURCE_DIR}/dist/NotoSans-OFL.txt"
+        COMMAND "${CMAKE_COMMAND}" -E echo
+            "Tutorux base dist: ${CMAKE_SOURCE_DIR}/dist/Tutorux-base${CMAKE_EXECUTABLE_SUFFIX}"
+        DEPENDS tutorux
+        VERBATIM
+        COMMENT "Staging the base profile into dist/"
+    )
+
     add_custom_target(size
         COMMAND "${CMAKE_COMMAND}"
             "-DTUTORUX_BINARY=$<TARGET_FILE:tutorux>"
@@ -1107,7 +1143,7 @@ if(NOT TUTORUX_BUILD_WASM)
     )
 endif()
 
-if(TUTORUX_ENABLE_LTO AND CMAKE_BUILD_TYPE STREQUAL "Release" AND NOT MINGW)
+if(TUTORUX_ENABLE_LTO AND CMAKE_BUILD_TYPE MATCHES "^(Release|MinSizeRel)$" AND NOT MINGW)
     include(CheckIPOSupported)
     check_ipo_supported(RESULT TUTORUX_LTO_SUPPORTED OUTPUT TUTORUX_LTO_ERROR)
     if(TUTORUX_LTO_SUPPORTED)
@@ -1116,7 +1152,7 @@ if(TUTORUX_ENABLE_LTO AND CMAKE_BUILD_TYPE STREQUAL "Release" AND NOT MINGW)
             set_property(TARGET tutorux PROPERTY INTERPROCEDURAL_OPTIMIZATION TRUE)
         endif()
     endif()
-elseif(TUTORUX_ENABLE_LTO AND CMAKE_BUILD_TYPE STREQUAL "Release" AND MINGW)
+elseif(TUTORUX_ENABLE_LTO AND CMAKE_BUILD_TYPE MATCHES "^(Release|MinSizeRel)$" AND MINGW)
     message(STATUS "Skipping IPO/LTO for MinGW; GCC LTO cannot reliably merge the COFF archive.")
 endif()
 
@@ -1188,13 +1224,23 @@ if(TUTORUX_BUILD_GUI)
         COMMENT "Embedding Noto Sans font weights"
         VERBATIM
     )
-    target_sources(tutorux PRIVATE src/gui/desktop.cpp "${TUTORUX_EMBEDDED_FONT_SOURCE}")
+    target_sources(tutorux PRIVATE src/gui/desktop.cpp src/gui/system-theme.cpp
+        "${TUTORUX_EMBEDDED_FONT_SOURCE}"
+    )
     target_include_directories(tutorux PRIVATE src/gui)
     target_compile_definitions(tutorux PRIVATE TUTORUX_WITH_GUI=1)
     if(TUTORUX_STATIC_RUNTIME AND WIN32)
         target_compile_definitions(tutorux PRIVATE TUTORUX_STATIC_SLINT=1)
     endif()
     slint_target_sources(tutorux ui/app-window.slint)
+    if(TUTORUX_SLINT_TESTING AND CMAKE_BUILD_TYPE STREQUAL "Release" AND NOT MSVC)
+        # The generated translation unit is very large; keep developer builds
+        # responsive while shipped profiles still use -Os/-O3.
+        set_source_files_properties(
+            "${CMAKE_CURRENT_BINARY_DIR}/slint_generated_app-window_1.cpp"
+            PROPERTIES COMPILE_OPTIONS "-O0"
+        )
+    endif()
     target_link_libraries(tutorux PRIVATE Slint::Slint)
 endif()
 
@@ -1339,7 +1385,7 @@ elseif(TARGET tutorux AND UNIX)
     set_target_properties(tutorux PROPERTIES BUILD_RPATH "$ORIGIN" INSTALL_RPATH "$ORIGIN")
 endif()
 
-if(TUTORUX_FETCH_PODOFO)
+if(TUTORUX_ENABLE_PDF AND TUTORUX_FETCH_PODOFO)
     install(FILES
         "${TUTORUX_PODOFO_SOURCE_DIR}/COPYING.LGPL"
         "${TUTORUX_PODOFO_SOURCE_DIR}/COPYING.MPL"
@@ -1758,13 +1804,15 @@ if(BUILD_TESTING AND NOT TUTORUX_BUILD_WASM)
     target_link_libraries(tutorux_asset_import_test PRIVATE tutorux_core)
     add_test(NAME streaming_asset_import_and_content_deduplication COMMAND tutorux_asset_import_test)
 
-    add_executable(tutorux_http_transport_test tests/http_transport_test.cpp)
-    target_link_libraries(tutorux_http_transport_test PRIVATE tutorux_core)
-    if(WIN32)
-        # The test hosts throwaway loopback servers with the Winsock API directly.
-        target_link_libraries(tutorux_http_transport_test PRIVATE ws2_32)
+    if(TUTORUX_ENABLE_NETWORK)
+        add_executable(tutorux_http_transport_test tests/http_transport_test.cpp)
+        target_link_libraries(tutorux_http_transport_test PRIVATE tutorux_core)
+        if(WIN32)
+            # The test hosts throwaway loopback servers with the Winsock API directly.
+            target_link_libraries(tutorux_http_transport_test PRIVATE ws2_32)
+        endif()
+        add_test(NAME bounded_https_transport COMMAND tutorux_http_transport_test)
     endif()
-    add_test(NAME bounded_https_transport COMMAND tutorux_http_transport_test)
 
     add_executable(tutorux_archive_reopen_test tests/archive_reopen_test.cpp)
     target_link_libraries(tutorux_archive_reopen_test PRIVATE tutorux_core)
@@ -1802,12 +1850,14 @@ if(BUILD_TESTING AND NOT TUTORUX_BUILD_WASM)
     target_link_libraries(tutorux_session_configuration_test PRIVATE tutorux_core)
     add_test(NAME journal_session_configuration COMMAND tutorux_session_configuration_test)
 
-    add_executable(tutorux_pdf_export_test tests/pdf_export_test.cpp)
-    target_link_libraries(tutorux_pdf_export_test PRIVATE tutorux_core podofo::podofo)
-    if(TUTORUX_FETCH_PODOFO)
-        target_include_directories(tutorux_pdf_export_test PRIVATE ${TUTORUX_PODOFO_INCLUDE_DIRS})
+    if(TUTORUX_ENABLE_PDF)
+        add_executable(tutorux_pdf_export_test tests/pdf_export_test.cpp)
+        target_link_libraries(tutorux_pdf_export_test PRIVATE tutorux_core podofo::podofo)
+        if(TUTORUX_FETCH_PODOFO)
+            target_include_directories(tutorux_pdf_export_test PRIVATE ${TUTORUX_PODOFO_INCLUDE_DIRS})
+        endif()
+        add_test(NAME guide_pdf_export_and_unicode_pagination COMMAND tutorux_pdf_export_test)
     endif()
-    add_test(NAME guide_pdf_export_and_unicode_pagination COMMAND tutorux_pdf_export_test)
 
     add_executable(tutorux_release_acceptance_test tests/release_acceptance_test.cpp)
     target_link_libraries(tutorux_release_acceptance_test PRIVATE tutorux_core)
@@ -1829,12 +1879,14 @@ if(BUILD_TESTING AND NOT TUTORUX_BUILD_WASM)
     target_link_libraries(tutorux_editor_units_test PRIVATE tutorux_core)
     add_test(NAME document_editor_units COMMAND tutorux_editor_units_test)
 
-    add_executable(tutorux_native_protocol_test tests/native_protocol_test.cpp)
-    target_link_libraries(tutorux_native_protocol_test PRIVATE tutorux_core)
-    if(WIN32)
-        target_link_libraries(tutorux_native_protocol_test PRIVATE ws2_32)
+    if(TUTORUX_ENABLE_NETWORK)
+        add_executable(tutorux_native_protocol_test tests/native_protocol_test.cpp)
+        target_link_libraries(tutorux_native_protocol_test PRIVATE tutorux_core)
+        if(WIN32)
+            target_link_libraries(tutorux_native_protocol_test PRIVATE ws2_32)
+        endif()
+        add_test(NAME native_provider_protocols COMMAND tutorux_native_protocol_test)
     endif()
-    add_test(NAME native_provider_protocols COMMAND tutorux_native_protocol_test)
 
     add_executable(tutorux_sanitized_copy_test tests/sanitized_copy_test.cpp)
     target_link_libraries(tutorux_sanitized_copy_test PRIVATE tutorux_core)
@@ -1852,18 +1904,20 @@ if(BUILD_TESTING AND NOT TUTORUX_BUILD_WASM)
     target_link_libraries(tutorux_audio_devices_test PRIVATE tutorux_core)
     add_test(NAME audio_devices_and_failure_paths COMMAND tutorux_audio_devices_test)
 
-    if(TUTORUX_BUILD_GUI AND TUTORUX_SLINT_TESTING AND TARGET Slint::Slint)
-        add_executable(tutorux_ui_layout_test
-            tests/ui/layout_test.cpp
-            "${CMAKE_CURRENT_BINARY_DIR}/slint_generated_app-window_1.cpp"
-        )
-        add_dependencies(tutorux_ui_layout_test tutorux)
-        target_include_directories(tutorux_ui_layout_test PRIVATE
-            "${CMAKE_CURRENT_BINARY_DIR}"
-            "${TUTORUX_SLINT_SOURCE_DIR}/api/cpp/include"
-        )
-        target_link_libraries(tutorux_ui_layout_test PRIVATE Slint::Slint)
-        add_test(NAME ui_layout_matrix COMMAND tutorux_ui_layout_test)
+    if(TUTORUX_BUILD_GUI AND TARGET Slint::Slint)
+        if(TUTORUX_SLINT_TESTING)
+            add_executable(tutorux_ui_layout_test
+                tests/ui/layout_test.cpp
+                "${CMAKE_CURRENT_BINARY_DIR}/slint_generated_app-window_1.cpp"
+            )
+            add_dependencies(tutorux_ui_layout_test tutorux)
+            target_include_directories(tutorux_ui_layout_test PRIVATE
+                "${CMAKE_CURRENT_BINARY_DIR}"
+                "${TUTORUX_SLINT_SOURCE_DIR}/api/cpp/include"
+            )
+            target_link_libraries(tutorux_ui_layout_test PRIVATE Slint::Slint)
+            add_test(NAME ui_layout_matrix COMMAND tutorux_ui_layout_test)
+        endif()
 
         add_executable(tutorux_ui_screenshot
             tests/ui/screenshot_tool.cpp

@@ -14,9 +14,13 @@ export component Navigator inherits Rectangle {
     in property <[SessionRow]> session-rows: [];
     in property <[StudentRow]> student-rows: [];
     in property <[MaterialRow]> material-rows: [];
+    in property <[string]> journal-options: [];
+    in property <[string]> guide-options: [];
     in property <string> selected-session;
     in property <string> selected-student;
     in property <string> selected-asset;
+    in property <string> selected-journal-entry;
+    in property <string> selected-guide;
 
     in-out property <string> scope: "sessions";
     in-out property <string> query;
@@ -25,6 +29,8 @@ export component Navigator inherits Rectangle {
     callback select-session(string, string);
     callback select-student(string);
     callback preview-material(string);
+    callback select-journal-entry(string);
+    callback select-guide(string);
     callback scope-changed(string);
     callback new-session();
     callback open-archive();
@@ -72,18 +78,26 @@ export component Navigator inherits Rectangle {
                 spacing: 4px;
 
                 Text {
-                    text: "Sessions";
+                    text: root.scope == "journal" ? "Journal" :
+                          root.scope == "students" ? "Students" :
+                          root.scope == "materials" ? "Materials" :
+                          root.scope == "guides" ? "Guides" :
+                          root.scope == "settings" ? "Settings" : "Sessions";
                     color: Theme.ink;
                     font-size: 16px;
                     font-weight: 700;
                     vertical-alignment: center;
+                    overflow: elide;
                 }
 
                 Rectangle { }
 
                 IconButton {
                     icon: @image-url("../assets/icons/plus.svg");
-                    label: "New session";
+                    label: root.scope == "journal" ? "New entry" :
+                           root.scope == "students" ? "New student" : "New session";
+                    visible: root.scope == "sessions" || root.scope == "students" ||
+                             root.scope == "journal";
                     enabled: root.archive-path != "";
                     clicked => { root.new-session(); }
                 }
@@ -115,9 +129,9 @@ export component Navigator inherits Rectangle {
             }
         }
 
-        // Scope tabs
+        // Primary areas. Two rows keep all six reachable at the compact width.
         Rectangle {
-            height: 48px;
+            height: 66px;
 
             Rectangle {
                 y: parent.height - 1px;
@@ -126,33 +140,82 @@ export component Navigator inherits Rectangle {
                 background: Theme.sidebar-line;
             }
 
-            HorizontalLayout {
-                padding-left: 12px;
-                padding-right: 12px;
-                spacing: 10px;
+            VerticalLayout {
+                width: 100%;
+                height: 100%;
+                padding-left: 8px;
+                padding-right: 8px;
+                padding-top: 5px;
+                padding-bottom: 5px;
+                spacing: 2px;
 
-                TabButton {
-                    text: "Sessions";
-                    selected: root.scope == "sessions";
-                    clicked => { root.scope = "sessions"; root.scope-changed("sessions"); }
+                HorizontalLayout {
+                    spacing: 2px;
+                    TabButton {
+                        text: "Journal";
+                        font-size: root.compact ? 11px : 12px;
+                        min-width: 0px;
+                        height: 26px;
+                        horizontal-stretch: 1;
+                        selected: root.scope == "journal";
+                        clicked => { root.scope = "journal"; root.scope-changed("journal"); }
+                    }
+                    TabButton {
+                        text: "Sessions";
+                        font-size: root.compact ? 11px : 12px;
+                        min-width: 0px;
+                        height: 26px;
+                        horizontal-stretch: 1;
+                        selected: root.scope == "sessions";
+                        clicked => { root.scope = "sessions"; root.scope-changed("sessions"); }
+                    }
+                    TabButton {
+                        text: "Students";
+                        font-size: root.compact ? 11px : 12px;
+                        min-width: 0px;
+                        height: 26px;
+                        horizontal-stretch: 1;
+                        selected: root.scope == "students";
+                        clicked => { root.scope = "students"; root.scope-changed("students"); }
+                    }
                 }
-                TabButton {
-                    text: "Students";
-                    selected: root.scope == "students";
-                    clicked => { root.scope = "students"; root.scope-changed("students"); }
-                }
-                TabButton {
-                    text: "Materials";
-                    selected: root.scope == "materials";
-                    clicked => { root.scope = "materials"; root.scope-changed("materials"); }
+                HorizontalLayout {
+                    spacing: 2px;
+                    TabButton {
+                        text: "Materials";
+                        font-size: root.compact ? 11px : 12px;
+                        min-width: 0px;
+                        height: 26px;
+                        horizontal-stretch: 1;
+                        selected: root.scope == "materials";
+                        clicked => { root.scope = "materials"; root.scope-changed("materials"); }
+                    }
+                    TabButton {
+                        text: "Guides";
+                        font-size: root.compact ? 11px : 12px;
+                        min-width: 0px;
+                        height: 26px;
+                        horizontal-stretch: 1;
+                        selected: root.scope == "guides";
+                        clicked => { root.scope = "guides"; root.scope-changed("guides"); }
+                    }
+                    TabButton {
+                        text: "Settings";
+                        font-size: root.compact ? 11px : 12px;
+                        min-width: 0px;
+                        height: 26px;
+                        horizontal-stretch: 1;
+                        selected: root.scope == "settings";
+                        clicked => { root.scope = "settings"; root.scope-changed("settings"); }
+                    }
                 }
             }
         }
 
         // Search
         Rectangle {
-            height: 58px;
-            visible: root.archive-path != "";
+            height: root.scope == "settings" ? 0px : 58px;
+            visible: root.archive-path != "" && root.scope != "settings";
 
             search-input := LineEdit {
                 x: 14px;
@@ -160,7 +223,11 @@ export component Navigator inherits Rectangle {
                 width: parent.width - 28px;
                 height: 34px;
                 placeholder-text: root.scope == "sessions" ? "Find a session" :
-                                  root.scope == "students" ? "Find a student" : "Find material";
+                                  root.scope == "students" ? "Find a student" :
+                                  root.scope == "materials" ? "Find material" :
+                                  root.scope == "journal" ? "Find an entry" :
+                                  root.scope == "guides" ? "Find a guide" : "Search";
+                visible: root.scope != "settings";
                 text <=> root.query;
             }
         }
@@ -405,6 +472,160 @@ export component Navigator inherits Rectangle {
                         border-width: 2px;
                         border-color: Theme.focus-ring;
                         border-radius: 5px;
+                    }
+                }
+            }
+
+            if root.scope == "journal" : ListView {
+                width: 100%;
+                height: 100%;
+
+                for entry in root.journal-options : Rectangle {
+                    x: 8px;
+                    width: parent.width - 16px;
+                    height: !root.matches(entry, root.query) ? 0px : 50px;
+                    border-radius: 5px;
+                    background: root.selected-journal-entry == entry ? Theme.accent-soft :
+                                journal-touch.has-hover ? Theme.surface-hover : transparent;
+
+                    VerticalLayout {
+                        padding-left: 12px;
+                        padding-right: 10px;
+                        padding-top: 8px;
+                        padding-bottom: 8px;
+                        spacing: 2px;
+                        Text {
+                            text: entry;
+                            color: Theme.ink;
+                            font-size: 13px;
+                            font-weight: 600;
+                            overflow: elide;
+                        }
+                    }
+
+                    if root.selected-journal-entry == entry : Rectangle {
+                        x: 0px;
+                        y: 7px;
+                        width: 2px;
+                        height: 36px;
+                        background: Theme.accent;
+                    }
+
+                    journal-touch := TouchArea {
+                        clicked => { root.select-journal-entry(entry); }
+                    }
+
+                    forward-focus: journal-focus;
+                    accessible-role: button;
+                    accessible-label: entry;
+
+                    journal-focus := FocusScope {
+                        x: 0;
+                        width: 0;
+                        key-pressed(event) => {
+                            if (event.text == Key.Return || event.text == Key.Space) {
+                                root.select-journal-entry(entry);
+                                accept
+                            } else {
+                                reject
+                            }
+                        }
+                    }
+                }
+            }
+
+            if root.scope == "guides" : ListView {
+                width: 100%;
+                height: 100%;
+
+                for guide in root.guide-options : Rectangle {
+                    x: 8px;
+                    width: parent.width - 16px;
+                    height: !root.matches(guide, root.query) ? 0px : 50px;
+                    border-radius: 5px;
+                    background: root.selected-guide == guide ? Theme.accent-soft :
+                                guide-touch.has-hover ? Theme.surface-hover : transparent;
+
+                    VerticalLayout {
+                        padding-left: 12px;
+                        padding-right: 10px;
+                        padding-top: 8px;
+                        padding-bottom: 8px;
+                        spacing: 2px;
+                        Text {
+                            text: guide;
+                            color: Theme.ink;
+                            font-size: 13px;
+                            font-weight: 600;
+                            overflow: elide;
+                        }
+                    }
+
+                    if root.selected-guide == guide : Rectangle {
+                        x: 0px;
+                        y: 7px;
+                        width: 2px;
+                        height: 36px;
+                        background: Theme.accent;
+                    }
+
+                    guide-touch := TouchArea {
+                        clicked => { root.select-guide(guide); }
+                    }
+
+                    forward-focus: guide-focus;
+                    accessible-role: button;
+                    accessible-label: guide;
+
+                    guide-focus := FocusScope {
+                        x: 0;
+                        width: 0;
+                        key-pressed(event) => {
+                            if (event.text == Key.Return || event.text == Key.Space) {
+                                root.select-guide(guide);
+                                accept
+                            } else {
+                                reject
+                            }
+                        }
+                    }
+                }
+            }
+
+            if root.scope == "journal" && root.journal-options.length == 0 : Rectangle {
+                x: 0;
+                y: 0;
+                height: empty-journal-text.preferred-height + 18px;
+                VerticalLayout {
+                    padding-left: 20px;
+                    padding-right: 20px;
+                    padding-top: 8px;
+                    empty-journal-text := Text {
+                        text: root.archive-path == "" ? "Open an archive to see journal entries." :
+                              root.query == "" ? "No journal entries yet." :
+                                                 "No entries match this search.";
+                        color: Theme.muted;
+                        font-size: 12px;
+                        wrap: word-wrap;
+                    }
+                }
+            }
+
+            if root.scope == "guides" && root.guide-options.length == 0 : Rectangle {
+                x: 0;
+                y: 0;
+                height: empty-guide-text.preferred-height + 18px;
+                VerticalLayout {
+                    padding-left: 20px;
+                    padding-right: 20px;
+                    padding-top: 8px;
+                    empty-guide-text := Text {
+                        text: root.archive-path == "" ? "Open an archive to see study guides." :
+                              root.query == "" ? "No study guides yet." :
+                                                 "No guides match this search.";
+                        color: Theme.muted;
+                        font-size: 12px;
+                        wrap: word-wrap;
                     }
                 }
             }

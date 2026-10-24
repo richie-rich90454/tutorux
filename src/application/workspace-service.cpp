@@ -89,7 +89,8 @@ namespace {
         if (record == settings->end())
             return {};
         const std::string value = field(*record, "value");
-        return value == "light" || value == "dark" ? value : std::string{};
+        return value == "light" || value == "dark" || value == "system" ? value
+                                                                       : std::string{};
     }
 
     std::string sessionDateText(const std::string& value) {
@@ -149,21 +150,24 @@ WorkspaceOverview WorkspaceService::snapshotOverview(const OverviewRequest& requ
     overview.shortcuts = markerShortcuts(*opened);
 
     std::unordered_map<std::string, std::string> studentNames;
-    if (auto students = opened->list(RecordType::Student)) {
-        overview.students.reserve(students->size());
-        for (const auto& student : *students) {
-            if (tutorux::domain::isDeleted(student))
-                continue;
-            StudentSummary summary;
-            summary.id = tutorux::archive::uuidToString(student.id);
-            summary.name = field(student, "display_name");
-            if (summary.name.empty())
-                summary.name = "Unnamed student";
-            summary.grade = field(student, "grade");
-            summary.subjects = field(student, "subjects");
-            studentNames[summary.id] = summary.name;
-            overview.students.push_back(std::move(summary));
-        }
+    auto students = opened->list(RecordType::Student);
+    if (!students) {
+        overview.errorMessage = students.error().message;
+        return overview;
+    }
+    overview.students.reserve(students->size());
+    for (const auto& student : *students) {
+        if (tutorux::domain::isDeleted(student))
+            continue;
+        StudentSummary summary;
+        summary.id = tutorux::archive::uuidToString(student.id);
+        summary.name = field(student, "display_name");
+        if (summary.name.empty())
+            summary.name = "Unnamed student";
+        summary.grade = field(student, "grade");
+        summary.subjects = field(student, "subjects");
+        studentNames[summary.id] = summary.name;
+        overview.students.push_back(std::move(summary));
     }
     std::stable_sort(overview.students.begin(), overview.students.end(),
                      [](const StudentSummary& left, const StudentSummary& right) {
@@ -171,39 +175,47 @@ WorkspaceOverview WorkspaceService::snapshotOverview(const OverviewRequest& requ
                      });
 
     std::unordered_map<std::string, std::size_t> sessionsByEntry;
-    if (auto sessions = opened->list(RecordType::Session)) {
-        overview.sessions.reserve(sessions->size());
-        for (const auto& session : *sessions) {
-            if (tutorux::domain::isDeleted(session))
-                continue;
-            SessionSummary summary;
-            summary.id = tutorux::archive::uuidToString(session.id);
-            summary.title = field(session, "title");
-            if (summary.title.empty())
-                summary.title = "Untitled session";
-            summary.subject = field(session, "subject");
-            summary.studentId = field(session, "student_id");
-            const auto student = studentNames.find(summary.studentId);
-            if (student != studentNames.end())
-                summary.studentName = student->second;
-            summary.entryId = field(session, "entry_id");
-            summary.startedAtUs = field(session, "started_at_us");
-            summary.audioDurationUs = field(session, "audio_duration_us");
-            summary.notesDocumentId = field(session, "notes_document_id");
-            summary.sessionState = field(session, "session_state");
-            summary.recordingState = field(session, "recording_state");
-            if (!summary.entryId.empty()) {
-                ++sessionsByEntry[summary.entryId];
-            }
-            overview.sessions.push_back(std::move(summary));
+    auto sessions = opened->list(RecordType::Session);
+    if (!sessions) {
+        overview.errorMessage = sessions.error().message;
+        return overview;
+    }
+    overview.sessions.reserve(sessions->size());
+    for (const auto& session : *sessions) {
+        if (tutorux::domain::isDeleted(session))
+            continue;
+        SessionSummary summary;
+        summary.id = tutorux::archive::uuidToString(session.id);
+        summary.title = field(session, "title");
+        if (summary.title.empty())
+            summary.title = "Untitled session";
+        summary.subject = field(session, "subject");
+        summary.studentId = field(session, "student_id");
+        const auto student = studentNames.find(summary.studentId);
+        if (student != studentNames.end())
+            summary.studentName = student->second;
+        summary.entryId = field(session, "entry_id");
+        summary.startedAtUs = field(session, "started_at_us");
+        summary.audioDurationUs = field(session, "audio_duration_us");
+        summary.notesDocumentId = field(session, "notes_document_id");
+        summary.sessionState = field(session, "session_state");
+        summary.recordingState = field(session, "recording_state");
+        if (!summary.entryId.empty()) {
+            ++sessionsByEntry[summary.entryId];
         }
+        overview.sessions.push_back(std::move(summary));
     }
     std::stable_sort(overview.sessions.begin(), overview.sessions.end(),
                      [](const SessionSummary& left, const SessionSummary& right) {
                          return timestampValue(left.startedAtUs) > timestampValue(right.startedAtUs);
                      });
 
-    if (auto settings = opened->list(RecordType::Settings)) {
+    auto settings = opened->list(RecordType::Settings);
+    if (!settings) {
+        overview.errorMessage = settings.error().message;
+        return overview;
+    }
+    {
         for (const auto& record : *settings) {
             const std::string role = field(record, "record_role");
             if (role == "journal-entry") {
@@ -256,7 +268,12 @@ WorkspaceOverview WorkspaceService::snapshotOverview(const OverviewRequest& requ
                          return left.createdAtUs > right.createdAtUs;
                      });
 
-    if (auto guides = opened->list(RecordType::Guide)) {
+    auto guides = opened->list(RecordType::Guide);
+    if (!guides) {
+        overview.errorMessage = guides.error().message;
+        return overview;
+    }
+    {
         overview.guides.reserve(guides->size());
         for (const auto& record : *guides) {
             if (tutorux::domain::isDeleted(record))
@@ -325,6 +342,10 @@ WorkspaceOverview WorkspaceService::snapshotOverview(const OverviewRequest& requ
     else if (!overview.guides.empty())
         overview.selectedGuideId = overview.guides.front().id;
 
+    std::erase_if(overview.guideBlocks, [&](const GuideBlockRef& block) {
+        return block.guideId != overview.selectedGuideId;
+    });
+
     const auto blockStillPresent =
         std::find_if(overview.guideBlocks.begin(), overview.guideBlocks.end(),
                      [&](const GuideBlockRef& block) {
@@ -364,7 +385,12 @@ WorkspaceOverview WorkspaceService::snapshotOverview(const OverviewRequest& requ
             detail->recordingState.empty() ? "not-started" : detail->recordingState;
         overview.selectedSession.audioDurationUs = timestampValue(detail->audioDurationUs);
 
-        if (auto annotations = opened->list(RecordType::Annotation)) {
+        auto annotations = opened->list(RecordType::Annotation);
+        if (!annotations) {
+            overview.errorMessage = annotations.error().message;
+            return overview;
+        }
+        {
             for (const auto& annotation : *annotations) {
                 if (tutorux::domain::isDeleted(annotation) ||
                     field(annotation, "session_id") != detail->id)

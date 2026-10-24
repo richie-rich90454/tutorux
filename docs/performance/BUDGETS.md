@@ -21,15 +21,17 @@ Refresh the numbers with `tools/Measure-Tutorux.ps1` and `cmake --build <dir>
 
 ## Current measured profile
 
-- Full single-file Windows build: 56,732,334 bytes (56.7 MB), MinSizeRel, stripped,
-  Slint software renderer, no interpreter, no testing backend, no system tray.
+- Base single-file Windows build: 37,994,319 bytes (38 MB), MinSizeRel,
+  stripped, Slint software renderer, no PoDoFo, no network transport, no
+  Whisper, no interpreter, no testing backend, no system tray.
+- Full single-file Windows build: 53,832,412 bytes (53.8 MB), MinSizeRel, stripped, WinHTTP.
 - Developer shared build: about 20.7 MB.
-- Size gate: `cmake --build build/portable-min --target size` (65 MB limit).
-
-The base profile below 45 MB still depends on optional native packs for PDF,
-Whisper, and network providers. Those packs are not yet split out of the
-one-file build, so the base budget is tracked as an open item rather than
-claimed.
+- Size gates: `build/base --target size` (45 MB limit) and
+  `build/portable --target size` (65 MB limit).
+- Windows network transport: WinHTTP with the platform trust store; no libcurl
+  or OpenSSL in the Windows runtime.
+- Optional engines: PoDoFo (PDF), WinHTTP (network), and whisper.cpp are
+  compile-time profiles. The base excludes them; the full build includes them.
 
 ## Threads
 

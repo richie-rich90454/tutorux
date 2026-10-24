@@ -646,6 +646,77 @@ export component ScrollText inherits Rectangle {
     }
 }
 
+// Multi-line editor surface with a visible border, internal scrolling, and the
+// same focus ring as the other controls.
+export component TextArea inherits Rectangle {
+    in-out property <string> text <=> editor.text;
+    in property <string> placeholder-text;
+    in property <bool> enabled: true;
+    in property <bool> read-only: false;
+    in property <length> font-size: 14px;
+    out property <bool> has-focus: editor.has-focus;
+
+    height: 120px;
+    border-width: 1px;
+    border-color: editor.has-focus ? Theme.focus-ring : Theme.line;
+    border-radius: Theme.radius-input;
+    background: root.read-only ? Theme.surface-inset : Theme.surface;
+    clip: true;
+
+    accessible-role: AccessibleRole.text;
+    accessible-label: root.text;
+
+    ScrollArea {
+        x: 1px;
+        y: 1px;
+        width: parent.width - 2px;
+        height: parent.height - 2px;
+        content-width: self.visible-width;
+        content-height: max(self.visible-height, editor.preferred-height + 16px);
+        vertical-scrollbar-policy: as-needed;
+
+        editor := TextInput {
+            x: 9px;
+            y: 8px;
+            width: parent.visible-width - 18px;
+            height: max(parent.visible-height - 16px, self.preferred-height);
+            single-line: false;
+            wrap: word-wrap;
+            color: root.read-only ? Theme.muted : Theme.ink;
+            font-size: root.font-size;
+            enabled: root.enabled;
+            read-only: root.read-only;
+            selection-background-color: Theme.accent-soft;
+            selection-foreground-color: Theme.ink;
+            accessible-role: AccessibleRole.text;
+            accessible-label: root.placeholder-text;
+        }
+    }
+
+    if root.text == "" && !root.read-only : Rectangle {
+        x: 1px;
+        y: 1px;
+        width: parent.width - 2px;
+        height: parent.height - 2px;
+        background: transparent;
+
+        Text {
+            x: 10px;
+            y: 9px;
+            width: parent.width - 20px;
+            text: root.placeholder-text;
+            color: Theme.faint;
+            font-size: root.font-size;
+            wrap: word-wrap;
+            accessible-role: none;
+        }
+
+        TouchArea {
+            clicked => { editor.focus(); }
+        }
+    }
+}
+
 export component ComboBox inherits Rectangle {
     in property <[string]> model;
     in property <bool> enabled: true;

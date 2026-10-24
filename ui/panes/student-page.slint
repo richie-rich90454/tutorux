@@ -1,10 +1,11 @@
 // Students scope: profile, learning history, and tutor-reviewed progress.
-import { Button, ComboBox, LineEdit, ScrollArea, ScrollText, Theme } from "../theme.slint";
+import { Button, CheckBox, ComboBox, LineEdit, ScrollArea, ScrollText, Theme } from "../theme.slint";
 
 export component StudentPage inherits Rectangle {
     in property <string> selected-student;
     in property <string> progress-output;
     in property <bool> writable: true;
+    in-out property <bool> advanced: false;
 
     in-out property <string> name;
     in-out property <string> grade;
@@ -65,6 +66,10 @@ export component StudentPage inherits Rectangle {
                     }
                 }
                 Rectangle { }
+                CheckBox {
+                    text: "Advanced IDs";
+                    checked <=> root.advanced;
+                }
                 Button {
                     text: "New student";
                     enabled: root.writable;
@@ -196,7 +201,7 @@ export component StudentPage inherits Rectangle {
                             current-value <=> root.review-classification;
                         }
                     }
-                    VerticalLayout {
+                    if root.advanced : VerticalLayout {
                         horizontal-stretch: 1;
                         spacing: 5px;
                         Text { text: "Evidence node IDs"; color: Theme.faint; font-size: 12px; font-weight: 600; }

@@ -1,5 +1,5 @@
 // Study guide tab: guide selection, block editing, review actions, export route.
-import { Button, ComboBox, ScrollArea, Theme } from "../theme.slint";
+import { Button, ComboBox, ScrollArea, TextArea, Theme } from "../theme.slint";
 
 export component StudyGuidePane inherits Rectangle {
     in property <[string]> guide-options: [];
@@ -16,11 +16,18 @@ export component StudyGuidePane inherits Rectangle {
     callback action(string);
     callback open-ai();
     callback open-full-editor();
+    callback guide-changed(string);
 
     horizontal-stretch: 1;
     vertical-stretch: 1;
     clip: true;
     background: Theme.surface;
+
+    changed selected-guide => {
+        if (root.selected-guide != "") {
+            root.guide-changed(root.selected-guide);
+        }
+    }
 
     ScrollArea {
         width: 100%;
@@ -118,13 +125,12 @@ export component StudyGuidePane inherits Rectangle {
             if root.selected-block != "" : VerticalLayout {
                 spacing: 8px;
                 Text { text: "Block text"; color: Theme.faint; font-size: 12px; font-weight: 600; }
-                TextInput {
+                TextArea {
                     height: 280px;
-                    single-line: false;
-                    wrap: word-wrap;
                     text <=> root.edit-text;
+                    placeholder-text: "Write the selected guide block…";
                     font-size: 14px;
-                    color: Theme.body;
+                    enabled: root.writable;
                 }
                 HorizontalLayout {
                     spacing: 8px;

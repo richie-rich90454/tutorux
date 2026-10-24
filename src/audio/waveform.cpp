@@ -228,6 +228,8 @@ namespace {
         const std::uint64_t frameCount = timeline.timelineFrameCount;
         const std::size_t targetCount =
             static_cast<std::size_t>(std::min<std::uint64_t>(maximumBuckets, frameCount));
+        if (targetCount == 0 || pyramid.levels.empty())
+            return summary;
         const std::vector<WaveformBucket>* source = &pyramid.levels.front();
         for (const auto& level : pyramid.levels) {
             if (level.size() < targetCount)
@@ -343,6 +345,8 @@ core::Result<WaveformSummary> buildWaveform(archive::Archive& archive,
     if (auto status = cancellationCheck(); !status)
         return std::unexpected(status.error());
     const AudioTimelineInfo timeline = reader->info();
+    if (timeline.timelineFrameCount == 0 || maximumBuckets == 0)
+        return WaveformSummary{timeline, {}};
     auto cached = loadCachedPyramid(archive, sessionId, timeline);
     if (!cached)
         return std::unexpected(cached.error());

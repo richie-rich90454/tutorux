@@ -75,8 +75,9 @@ int main() {
         int height;
         bool inspector;
     };
-    constexpr std::array sizes{Size{1024, 768, false}, Size{1280, 800, true},
-                               Size{1440, 900, true}, Size{1600, 1000, true}};
+    constexpr std::array sizes{Size{900, 560, false}, Size{1024, 768, false},
+                               Size{1280, 800, true}, Size{1440, 900, true},
+                               Size{1600, 1000, true}, Size{1920, 1200, true}};
     constexpr std::array themes{"light", "dark"};
 
     bool ok = true;
@@ -122,6 +123,9 @@ int main() {
                                "notebook never renders under the inspector") && ok;
                     ok = check(inspectorPosition.x + inspectorSize.width <= size.width + 1,
                                "inspector stays inside the window") && ok;
+                    ok = check(inspectorPosition.y + inspectorSize.height <=
+                                   transportPosition.y + 1,
+                               "inspector stays above the transport") && ok;
                 }
             } else {
                 ok = check(!inspector.has_value(), "inspector collapses on narrow windows") && ok;
@@ -133,6 +137,29 @@ int main() {
                 ok = check(statusPosition.y + statusSize.height <= size.height + 1,
                            "status line stays reachable") && ok;
             }
+        }
+    }
+
+    // First-class pages must render inside the content pane, not as modal sheets.
+    window->set_theme_mode(slint::SharedString("light"));
+    window->set_effective_inspector_open(true);
+    slint::LogicalSize pageSize;
+    pageSize.width = 1280.F;
+    pageSize.height = 800.F;
+    window->window().set_size(pageSize);
+    for (const std::string scope : {"journal", "guides", "settings"}) {
+        window->set_navigator_scope(slint::SharedString(scope));
+        settle(window);
+        const auto page = element(window, scope == "journal"   ? "MainWindow::journal-page-root"
+                                           : scope == "guides" ? "MainWindow::guides-page-root"
+                                                               : "MainWindow::settings-page-root");
+        ok = check(page.has_value(), scope + " page exists") && ok;
+        if (page.has_value()) {
+            const auto position = page->absolute_position();
+            const auto size = page->size();
+            ok = check(size.width > 320, scope + " page keeps a usable width") && ok;
+            ok = check(position.x + size.width <= pageSize.width + 1,
+                       scope + " page stays inside the window") && ok;
         }
     }
 

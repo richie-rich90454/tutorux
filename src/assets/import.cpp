@@ -21,7 +21,9 @@
 #include <zlib.h>
 
 #ifndef __EMSCRIPTEN__
+#if defined(TUTORUX_WITH_PDF) && TUTORUX_WITH_PDF && !defined(__EMSCRIPTEN__)
 #include <podofo/podofo.h>
+#endif
 #endif
 
 namespace tutorux::assets {
@@ -492,7 +494,7 @@ namespace {
         return extractDocxXmlText(std::string_view(reinterpret_cast<const char*>(xmlBytes.data()), xmlBytes.size()));
     }
 
-#ifndef __EMSCRIPTEN__
+#if defined(TUTORUX_WITH_PDF) && TUTORUX_WITH_PDF && !defined(__EMSCRIPTEN__)
     core::Result<std::string> extractPdfText(std::span<const std::byte> bytes) {
         if (bytes.empty())
             return std::unexpected(documentError("PDF file is empty."));
@@ -542,7 +544,7 @@ namespace {
         if (inspection.byteSize > documentExtractionInputLimit) {
             return ExtractedDocumentText{{}, "size-limit"};
         }
-#ifdef __EMSCRIPTEN__
+#if !defined(TUTORUX_WITH_PDF) || !TUTORUX_WITH_PDF || defined(__EMSCRIPTEN__)
         if (isPdf)
             return ExtractedDocumentText{{}, "extractor-unavailable"};
 #endif
@@ -551,7 +553,7 @@ namespace {
             return std::unexpected(bytes.error());
         core::Result<std::string> extracted = std::string{};
         if (isPdf) {
-#ifndef __EMSCRIPTEN__
+#if defined(TUTORUX_WITH_PDF) && TUTORUX_WITH_PDF && !defined(__EMSCRIPTEN__)
             extracted = extractPdfText(*bytes);
 #endif
         } else {

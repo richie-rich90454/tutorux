@@ -67,3 +67,52 @@ jobs:
           name: size-report
           path: build/dev/size-report.txt
           if-no-files-found: ignore
+
+  windows-base:
+    name: Windows x64 base profile budget
+    runs-on: windows-2025
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Prepare MSYS2 UCRT64 dependencies
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: true
+          install: >-
+            git
+            make
+            mingw-w64-ucrt-x86_64-toolchain
+            mingw-w64-ucrt-x86_64-cmake
+            mingw-w64-ucrt-x86_64-ninja
+            mingw-w64-ucrt-x86_64-pkgconf
+            mingw-w64-ucrt-x86_64-python
+            mingw-w64-ucrt-x86_64-libsodium
+            mingw-w64-ucrt-x86_64-freetype
+            mingw-w64-ucrt-x86_64-libxml2
+            mingw-w64-ucrt-x86_64-alsa-lib
+
+      - name: Install Rust GNU target
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          target: x86_64-pc-windows-gnu
+
+      - name: Configure base profile
+        shell: msys2 {0}
+        run: cmake --preset portable-base
+
+      - name: Build base profile
+        shell: msys2 {0}
+        run: cmake --build build/base --target tutorux -j 4
+
+      - name: Check base size budget
+        shell: msys2 {0}
+        run: cmake --build build/base --target size
+
+      - name: Upload base size report
+        uses: actions/upload-artifact@v4
+        with:
+          name: base-size-report
+          path: build/base/size-report.txt
+          if-no-files-found: ignore

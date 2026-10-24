@@ -1,5 +1,5 @@
 // Transcript tab: segment list, correction editor, and honest provenance.
-import { Button, ComboBox, LineEdit, ScrollArea, ScrollText, Theme } from "../theme.slint";
+import { Button, ComboBox, LineEdit, ScrollArea, ScrollText, TextArea, Theme } from "../theme.slint";
 
 export component TranscriptPane inherits Rectangle {
     in property <[string]> options: [];
@@ -110,13 +110,12 @@ export component TranscriptPane inherits Rectangle {
                 }
 
                 Text { text: "Corrected text"; color: Theme.faint; font-size: 12px; font-weight: 600; }
-                TextInput {
+                TextArea {
                     height: 300px;
-                    single-line: false;
-                    wrap: word-wrap;
                     text <=> root.edit-text;
+                    placeholder-text: "Correct the selected transcript segment…";
                     font-size: 14px;
-                    color: Theme.body;
+                    enabled: root.writable;
                 }
 
                 HorizontalLayout {

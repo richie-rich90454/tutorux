@@ -21,9 +21,10 @@ Use only 4, 8, 12, 16, 24, and 32 px. Panel padding is 24 px, compact rows use
 
 ## Color
 
-All colors live in `ui/theme.slint`. Both themes are first-class. The palette is
-blue, black, white, and red. Success uses the accent family and warnings use the
-danger family, so color is never the only carrier of meaning.
+All colors live in `ui/theme.slint`. Light, dark, and system themes are
+first-class; system follows the Windows personalization preference. The palette
+is blue, black, white, and red. Success uses the accent family and warnings use
+the danger family, so color is never the only carrier of meaning.
 
 ## Shape and elevation
 
