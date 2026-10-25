@@ -1192,6 +1192,12 @@ if(TUTORUX_BUILD_GUI)
         # Release builds keep only the features the desktop shell needs. The
         # interpreter, live preview, system tray, and test backend are development
         # and size liabilities.
+        # The custom ComboBox uses the pinned compiler's index-of array helper
+        # to keep its keyboard cursor synchronized with externally updated values.
+        # This helper is gated by Slint's experimental feature switch in 1.18.1.
+        # Keep that switch on for application builds instead of making release UI
+        # compilation depend on whether the test backend is enabled.
+        set(SLINT_FEATURE_EXPERIMENTAL ON CACHE BOOL "" FORCE)
         set(SLINT_FEATURE_INTERPRETER OFF CACHE BOOL "" FORCE)
         set(SLINT_FEATURE_LIVE_PREVIEW OFF CACHE BOOL "" FORCE)
         set(SLINT_FEATURE_SYSTEM_TRAY OFF CACHE BOOL "" FORCE)
@@ -1200,7 +1206,10 @@ if(TUTORUX_BUILD_GUI)
         set(SLINT_FEATURE_RENDERER_SOFTWARE ON CACHE BOOL "" FORCE)
         set(SLINT_FEATURE_TESTING ${TUTORUX_SLINT_TESTING} CACHE BOOL "" FORCE)
         set(SLINT_FEATURE_SYSTEM_TESTING ${TUTORUX_SLINT_TESTING} CACHE BOOL "" FORCE)
-        set(SLINT_FEATURE_EXPERIMENTAL ${TUTORUX_SLINT_TESTING} CACHE BOOL "" FORCE)
+        # UI images and icons must travel with the executable. Absolute build-tree
+        # paths work locally but break the portable distribution when moved.
+        set(DEFAULT_SLINT_EMBED_RESOURCES "embed-files" CACHE STRING
+            "Embed Slint UI resources in the Tutorux executable" FORCE)
         include(FetchContent)
         set(CORROSION_BUILD_TESTS OFF CACHE BOOL "" FORCE)
         FetchContent_Declare(
@@ -1280,6 +1289,16 @@ if(TUTORUX_BUILD_GUI)
         set_source_files_properties(
             "${CMAKE_CURRENT_BINARY_DIR}/slint_generated_app-window_1.cpp"
             PROPERTIES COMPILE_OPTIONS "-O0"
+        )
+    elseif(MINGW AND CMAKE_BUILD_TYPE MATCHES "^(Release|MinSizeRel)$")
+        # GCC spends several minutes optimizing Slint's generated 20+ MB UI
+        # translation unit at -Os. Keep normal optimization for the UI while
+        # avoiding a release build that appears stalled for first-time users.
+        # All handwritten code and linked dependencies retain the profile's
+        # size optimization.
+        set_source_files_properties(
+            "${CMAKE_CURRENT_BINARY_DIR}/slint_generated_app-window_1.cpp"
+            PROPERTIES COMPILE_OPTIONS "-O1"
         )
     endif()
     target_link_libraries(tutorux PRIVATE tutorux_slint_ui Slint::Slint)
