@@ -4,18 +4,21 @@ import { PanelShell } from "./panel-shell.slint";
 
 export component ExportPanel inherits Rectangle {
     in property <[string]> guide-options: [];
+    in property <[string]> track-options: [];
     in property <bool> has-session: false;
+    in property <bool> has-audio: root.track-options.length > 0;
     in-out property <string> selected-guide;
+    in-out property <string> selected-track;
     in-out property <string> guide-format: "markdown";
     in-out property <string> guide-path;
     in-out property <string> wav-path;
-    in-out property <string> wav-track;
     in-out property <string> session-path;
 
     callback close();
     callback export-guide(string, string, string);
     callback export-wav(string);
     callback export-session(string);
+    callback track-selected(string);
 
     width: 100%;
     height: 100%;
@@ -65,6 +68,12 @@ export component ExportPanel inherits Rectangle {
         Rectangle { height: 1px; background: Theme.line; }
 
         Text { text: "Session audio"; color: Theme.ink; font-size: 16px; font-weight: 700; }
+        Text {
+            text: "Choose a track from the current take in the recording dock.";
+            color: Theme.muted;
+            font-size: 12px;
+            wrap: word-wrap;
+        }
         FormWrap {
             Field {
                 label: "WAV file";
@@ -73,13 +82,19 @@ export component ExportPanel inherits Rectangle {
             Field {
                 label: "Track";
                 max-width: 240px;
-                LineEdit { placeholder-text: "Track ID (optional)"; text <=> root.wav-track; }
+                ComboBox {
+                    model: root.track-options;
+                    current-value <=> root.selected-track;
+                    enabled: root.has-audio;
+                    accessible-label: "Track to export";
+                    selected(value) => { root.track-selected(value); }
+                }
             }
         }
         ActionWrap {
             Button {
                 text: "Export WAV";
-                enabled: root.has-session && root.wav-path != "";
+                enabled: root.has-session && root.has-audio && root.wav-path != "";
                 clicked => { root.export-wav(root.wav-path); }
             }
         }
