@@ -216,9 +216,10 @@ fixed and what remains.
   duplicating, importing/exporting, and moving custom templates to Trash.
   Guides can also be duplicated or moved to Trash, with guide-to-journal links
   snapshotted and restored.
-- Native Windows file and folder pickers now cover archive open, transcript
-  import, material file/folder import, recording import, and template import.
-  Other platforms still require a native picker implementation.
+- Native file and folder pickers now cover archive open, transcript import,
+  material file/folder import, recording import, and template import on Windows
+  and macOS. Linux uses the installed Zenity, KDialog, or Yad desktop chooser;
+  verify cancellation, filters, and behavior on each supported desktop.
 - Transcript speaker assignment, timestamp editing, and previous-version
   restore are now reachable from the session transcript pane.
 - Evidence can now be created with a transcript source, edited, reviewed,
