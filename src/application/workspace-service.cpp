@@ -438,6 +438,8 @@ WorkspaceOverview WorkspaceService::snapshotOverview(const OverviewRequest& requ
                     if (parsed) {
                         overview.selectedSession.notes.available = true;
                         overview.selectedSession.notes.id = detail->notesDocumentId;
+                        overview.selectedSession.notes.lastRemovedBlockId =
+                            field(**document, "last_removed_block_id");
                         overview.selectedSession.notes.blocks.reserve(parsed->blocks.size());
                         for (const auto& block : parsed->blocks)
                             overview.selectedSession.notes.blocks.push_back(

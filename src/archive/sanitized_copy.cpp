@@ -88,7 +88,8 @@ namespace {
     bool recordingAsset(const Record& record) {
         const std::string role = lower(domain::getField(record, "record_role"));
         const std::string mime = lower(domain::getField(record, "mime_type"));
-        return role.find("audio") != std::string::npos || role.find("waveform") != std::string::npos ||
+        return role == "recording-take" || role.find("audio") != std::string::npos ||
+               role.find("waveform") != std::string::npos ||
                role.find("seek-index") != std::string::npos || !domain::getField(record, "capture_source").empty() ||
                mime.starts_with("audio/");
     }
@@ -351,18 +352,34 @@ namespace {
                 }
             }
         }
-        for (const auto& record : plan.metadata[RecordType::AssetMetadata]) {
+        for (auto& record : plan.metadata[RecordType::AssetMetadata]) {
             if (domain::isDeleted(record) || !sessionIsKept(plan, record))
                 continue;
             if (recordingAsset(record)) {
                 if (!recordingsRequested(options))
                     continue;
-                if (lower(domain::getField(record, "record_role")) == "audio-track") {
+                const std::string role = lower(domain::getField(record, "record_role"));
+                if (role == "audio-track") {
                     const auto session = uuidFromString(domain::getField(record, "session_id"));
                     const auto track = uuidFromString(domain::getField(record, "track_id"));
                     const auto tracks = session ? plan.recordingTracksBySession.find(*session) : plan.recordingTracksBySession.end();
                     if (!session || !track || tracks == plan.recordingTracksBySession.end() || !tracks->second.contains(*track))
                         continue;
+                } else if (role == "recording-take") {
+                    const auto session = uuidFromString(domain::getField(record, "session_id"));
+                    const auto tracks = session ? plan.recordingTracksBySession.find(*session)
+                                                : plan.recordingTracksBySession.end();
+                    if (!session || tracks == plan.recordingTracksBySession.end())
+                        continue;
+                    std::vector<std::string> retainedTrackIds;
+                    for (const auto& trackId : splitIds(domain::getField(record, "track_ids"))) {
+                        const auto track = uuidFromString(trackId);
+                        if (track && tracks->second.contains(*track))
+                            retainedTrackIds.push_back(trackId);
+                    }
+                    if (retainedTrackIds.empty())
+                        continue;
+                    record.fields["track_ids"] = joinIds(retainedTrackIds);
                 } else {
                     const auto trackText = domain::getField(record, "track_id");
                     const auto session = uuidFromString(domain::getField(record, "session_id"));

@@ -2,6 +2,7 @@ import { Button, CheckBox, ComboBox, LineEdit, ScrollArea, ScrollText, TextArea,
 import { ActionWrap, Card, Field, FormWrap } from "../components/page-parts.slint";
 
 export component JournalPage inherits Rectangle {
+    in property <bool> writable: true;
     in-out property <string> query;
     in-out property <string> sort: "Newest first";
     in-out property <[string]> collection-options;
@@ -51,6 +52,7 @@ export component JournalPage inherits Rectangle {
     in-out property <string> session-delete-scope-output;
 
     in-out property <string> document-id;
+    in property <string> document-removed-block-id;
     in-out property <string> document-text;
     in-out property <[string]> note-block-options;
     in-out property <string> selected-note-block;
@@ -868,6 +870,14 @@ export component JournalPage inherits Rectangle {
                         clicked => {
                             root.action("document-block-remove", root.document-id,
                                         root.selected-note-block, "", "", "", "");
+                        }
+                    }
+                    if root.document-removed-block-id != "" : Button {
+                        text: "Undo remove";
+                        enabled: root.writable;
+                        clicked => {
+                            root.action("document-block-restore", root.document-id,
+                                        root.document-removed-block-id, "", "", "", "");
                         }
                     }
                 }

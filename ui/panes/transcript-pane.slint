@@ -1,26 +1,51 @@
 // Transcript tab: segment list, correction editor, and honest provenance.
 import { Button, ComboBox, LineEdit, ScrollArea, ScrollText, TextArea, Theme } from "../theme.slint";
+import { Field, FormWrap } from "../components/page-parts.slint";
 
 export component TranscriptPane inherits Rectangle {
     in property <[string]> options: [];
+    in property <[string]> revision-options: [];
     in property <[string]> evidence-options: [];
     in property <string> provenance;
     in property <string> command-output;
     in property <string> evidence-output;
+    in property <[string]> evidence-edge-options: [];
     in property <bool> writable: true;
     in property <bool> has-session: false;
     in-out property <string> selected-segment;
     in-out property <string> selected-evidence;
+    in-out property <string> selected-evidence-target;
+    in-out property <string> selected-evidence-edge;
+    in-out property <string> evidence-title;
+    in-out property <string> evidence-type: "concept";
+    in-out property <string> evidence-content;
+    in-out property <string> evidence-relationship: "supports";
     in-out property <string> edit-text;
+    in-out property <string> speaker-name;
+    in-out property <string> start-time;
+    in-out property <string> end-time;
+    in-out property <string> selected-revision;
     in-out property <string> reject-reason;
+    in-out property <string> import-path;
+    in-out property <string> split-before;
+    in-out property <string> split-after;
+    in-out property <string> merge-target;
 
     callback load-segments();
+    callback browse-import();
     callback load-segment();
     callback play();
     callback stop-playback();
     callback save();
+    callback save-speaker(string, bool);
+    callback save-timestamps(string, string);
+    callback restore-revision(string);
     callback open-console();
-    callback evidence(string, string);
+    callback evidence(string, string, string, string, string);
+    callback import-transcript(string);
+    callback split-segment(string, string, string);
+    callback merge-segments(string, string);
+    callback remove-segment(string);
 
     horizontal-stretch: 1;
     vertical-stretch: 1;
@@ -55,8 +80,27 @@ export component TranscriptPane inherits Rectangle {
                 Rectangle { }
                 Button {
                     text: "Load segments";
-                    enabled: root.has-session;
+                    enabled: root.has-session && root.writable;
                     clicked => { root.load-segments(); }
+                }
+            }
+
+            HorizontalLayout {
+                spacing: 8px;
+                LineEdit {
+                    horizontal-stretch: 1;
+                    placeholder-text: "Transcript file path (.txt, .srt, .vtt)";
+                    text <=> root.import-path;
+                    enabled: root.writable;
+                }
+                Button {
+                    text: "Browse…";
+                    clicked => { root.browse-import(); }
+                }
+                Button {
+                    text: "Import";
+                    enabled: root.has-session && root.import-path != "" && root.writable;
+                    clicked => { root.import-transcript(root.import-path); }
                 }
             }
 
@@ -109,7 +153,92 @@ export component TranscriptPane inherits Rectangle {
                     Rectangle { }
                 }
 
+                HorizontalLayout {
+                    spacing: 8px;
+                    LineEdit {
+                        horizontal-stretch: 1;
+                        placeholder-text: "Text before split";
+                        text <=> root.split-before;
+                        enabled: root.writable;
+                    }
+                    LineEdit {
+                        horizontal-stretch: 1;
+                        placeholder-text: "Text after split";
+                        text <=> root.split-after;
+                        enabled: root.writable;
+                    }
+                    Button {
+                        text: "Split";
+                        enabled: root.has-session && root.selected-segment != "" &&
+                                 root.split-before != "" && root.split-after != "" && root.writable;
+                        clicked => {
+                            root.split-segment(root.selected-segment,
+                                               root.split-before, root.split-after);
+                        }
+                    }
+                }
+
+                HorizontalLayout {
+                    spacing: 8px;
+                    ComboBox {
+                        horizontal-stretch: 1;
+                        model: root.options;
+                        current-value <=> root.merge-target;
+                    }
+                    Button {
+                        text: "Merge with selected";
+                        enabled: root.selected-segment != "" && root.merge-target != "" &&
+                                 root.merge-target != root.selected-segment && root.writable;
+                        clicked => { root.merge-segments(root.selected-segment, root.merge-target); }
+                    }
+                    Button {
+                        text: "Move to Trash";
+                        variant: "danger";
+                        enabled: root.selected-segment != "" && root.writable;
+                        clicked => { root.remove-segment(root.selected-segment); }
+                    }
+                }
+
                 Text { text: "Corrected text"; color: Theme.faint; font-size: 12px; font-weight: 600; }
+                HorizontalLayout {
+                    spacing: 8px;
+                    LineEdit {
+                        horizontal-stretch: 1;
+                        placeholder-text: "Speaker name";
+                        text <=> root.speaker-name;
+                        enabled: root.writable;
+                    }
+                    Button {
+                        text: "Save speaker";
+                        enabled: root.has-session && root.selected-segment != "" && root.writable;
+                        clicked => { root.save-speaker(root.speaker-name, false); }
+                    }
+                    Button {
+                        text: "Mark unknown";
+                        enabled: root.has-session && root.selected-segment != "" && root.writable;
+                        clicked => { root.save-speaker("", true); }
+                    }
+                }
+                HorizontalLayout {
+                    spacing: 8px;
+                    LineEdit {
+                        horizontal-stretch: 1;
+                        placeholder-text: "Start (HH:MM:SS.mmm)";
+                        text <=> root.start-time;
+                        enabled: root.writable;
+                    }
+                    LineEdit {
+                        horizontal-stretch: 1;
+                        placeholder-text: "End (HH:MM:SS.mmm)";
+                        text <=> root.end-time;
+                        enabled: root.writable;
+                    }
+                    Button {
+                        text: "Save times";
+                        enabled: root.has-session && root.selected-segment != "" && root.writable;
+                        clicked => { root.save-timestamps(root.start-time, root.end-time); }
+                    }
+                }
                 TextArea {
                     height: 300px;
                     text <=> root.edit-text;
@@ -129,6 +258,20 @@ export component TranscriptPane inherits Rectangle {
                     }
                     Rectangle { }
                 }
+                if root.revision-options.length > 0 : HorizontalLayout {
+                    spacing: 8px;
+                    ComboBox {
+                        horizontal-stretch: 1;
+                        model: root.revision-options;
+                        current-value <=> root.selected-revision;
+                    }
+                    Button {
+                        text: "Restore selected version";
+                        variant: "ghost";
+                        enabled: root.selected-revision != "" && root.writable;
+                        clicked => { root.restore-revision(root.selected-revision); }
+                    }
+                }
             }
 
             if root.options.length == 0 : VerticalLayout {
@@ -139,24 +282,17 @@ export component TranscriptPane inherits Rectangle {
                     font-size: 14px;
                 }
                 Text {
-                    text: "Load segments after transcription, or import a transcript through the command console.";
+                    text: "Import a transcript file above, or load segments after transcription.";
                     color: Theme.muted;
                     font-size: 12px;
                     wrap: word-wrap;
                 }
-                HorizontalLayout {
-                    spacing: 10px;
-                    Button {
-                        text: "Open command console";
-                        clicked => { root.open-console(); }
-                    }
-                }
             }
 
             Rectangle { height: 1px; background: Theme.line; }
-            Text { text: "Evidence review"; color: Theme.ink; font-size: 14px; font-weight: 700; }
+            Text { text: "Evidence"; color: Theme.ink; font-size: 18px; font-weight: 700; }
             Text {
-                text: "Evidence is attached to the selected session. Approvals and rejections are recorded in the archive.";
+                text: "Create session evidence, correct extracted details, review it, and connect related items.";
                 color: Theme.muted;
                 font-size: 12px;
                 wrap: word-wrap;
@@ -165,29 +301,29 @@ export component TranscriptPane inherits Rectangle {
                 spacing: 8px;
                 alignment: start;
                 Button {
-                    text: "Extract";
-                    enabled: root.has-session;
-                    clicked => { root.evidence("extract", ""); }
+                    text: "Extract from session";
+                    enabled: root.has-session && root.writable;
+                    clicked => { root.evidence("extract", "", "", "", ""); }
                 }
                 Button {
-                    text: "List";
+                    text: "Refresh evidence";
                     enabled: root.has-session;
-                    clicked => { root.evidence("list", ""); }
+                    clicked => { root.evidence("list", "", "", "", ""); }
                 }
                 Button {
                     text: "Show";
                     enabled: root.selected-evidence != "";
-                    clicked => { root.evidence("show", ""); }
+                    clicked => { root.evidence("show", "", "", "", ""); }
                 }
                 Button {
                     text: "Approve";
-                    enabled: root.selected-evidence != "";
-                    clicked => { root.evidence("approve", ""); }
+                    enabled: root.selected-evidence != "" && root.writable;
+                    clicked => { root.evidence("approve", "", "", "", ""); }
                 }
                 Button {
                     text: "Verify";
                     enabled: root.selected-evidence != "";
-                    clicked => { root.evidence("verify", ""); }
+                    clicked => { root.evidence("verify", "", "", "", ""); }
                 }
                 Rectangle { }
             }
@@ -204,10 +340,87 @@ export component TranscriptPane inherits Rectangle {
                 Button {
                     text: "Reject";
                     variant: "danger";
-                    enabled: root.selected-evidence != "";
-                    clicked => { root.evidence("reject", root.reject-reason); }
+                    enabled: root.selected-evidence != "" && root.writable;
+                    clicked => { root.evidence("reject", root.reject-reason, "", "", ""); }
                 }
                 Rectangle { }
+            }
+            FormWrap {
+                Field { label: "Title"; LineEdit { text <=> root.evidence-title; enabled: root.writable; } }
+                Field { label: "Type"; LineEdit { text <=> root.evidence-type; enabled: root.writable; } }
+                Field {
+                    label: "Content";
+                    TextArea { height: 108px; text <=> root.evidence-content; enabled: root.writable; }
+                }
+            }
+            Text {
+                text: root.selected-segment == "" ?
+                    "Select a transcript segment above to attach it as the evidence source." :
+                    "Source: the selected transcript segment. Its revision is recorded with this item.";
+                color: Theme.muted;
+                font-size: 12px;
+                wrap: word-wrap;
+            }
+            HorizontalLayout {
+                spacing: 8px;
+                Button {
+                    text: "Create evidence";
+                    variant: "primary";
+                    enabled: root.writable && root.has-session && root.selected-segment != "" &&
+                             root.evidence-title != "" && root.evidence-content != "";
+                    clicked => { root.evidence("create", "", "", "", root.selected-segment); }
+                }
+                Button {
+                    text: "Save edits";
+                    enabled: root.writable && root.selected-evidence != "" && root.evidence-title != "" && root.evidence-content != "";
+                    clicked => { root.evidence("update", "", "", "", ""); }
+                }
+                Button {
+                    text: "Move to Trash";
+                    variant: "danger";
+                    enabled: root.writable && root.selected-evidence != "";
+                    clicked => { root.evidence("delete", "", "", "", ""); }
+                }
+            }
+            HorizontalLayout {
+                spacing: 8px;
+                ComboBox {
+                    model: root.evidence-options;
+                    current-value <=> root.selected-evidence-target;
+                    horizontal-stretch: 1;
+                }
+                ComboBox {
+                    model: ["supports", "explains", "corrects", "demonstrates", "contradicts",
+                            "references", "depends-on", "reinforces", "recommends", "derived-from"];
+                    current-value <=> root.evidence-relationship;
+                    horizontal-stretch: 1;
+                }
+                Button {
+                    text: "Link selected items";
+                    enabled: root.writable && root.selected-evidence != "" &&
+                             root.selected-evidence-target != "" &&
+                             root.selected-evidence != root.selected-evidence-target;
+                    clicked => { root.evidence("link", "", root.selected-evidence-target, root.evidence-relationship, ""); }
+                }
+            }
+            HorizontalLayout {
+                spacing: 8px;
+                ComboBox {
+                    model: root.evidence-edge-options;
+                    current-value <=> root.selected-evidence-edge;
+                    horizontal-stretch: 1;
+                }
+                Button {
+                    text: "Refresh links";
+                    enabled: root.has-session;
+                    clicked => { root.evidence("edges", "", "", "", ""); }
+                }
+                Button {
+                    text: "Remove link";
+                    variant: "danger";
+                    enabled: root.writable && root.selected-evidence-edge != "";
+                    clicked => { root.evidence("unlink", "", root.selected-evidence-edge, "", ""); }
+                }
             }
             ScrollText {
                 height: 160px;

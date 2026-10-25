@@ -1,7 +1,7 @@
 // Tutorux editorial workbench. The window binds the controller surface; each
 // visual region lives in a focused component under panes/ or overlays/.
 import { Button, CheckBox, ComboBox, LineEdit, ScrollArea, ScrollText, TextArea, Theme } from "./theme.slint";
-import { MarkerRow, MaterialRow, NoteRow, SessionRow, StudentRow } from "./models.slint";
+import { MarkerRow, MaterialRow, NoteRow, SessionRow, StudentRow, TrashRow, WaveformBucketRow } from "./models.slint";
 import { Navigator } from "./panes/navigator.slint";
 import { CommandBar } from "./panes/command-bar.slint";
 import { SessionHeader } from "./panes/session-header.slint";
@@ -12,6 +12,7 @@ import { SessionInspector } from "./panes/session-inspector.slint";
 import { JournalPage } from "./panes/journal-page.slint";
 import { StudentPage } from "./panes/student-page.slint";
 import { MaterialsPage } from "./panes/materials-page.slint";
+import { TrashPage } from "./panes/trash-page.slint";
 import { RecordingTransport } from "./transport.slint";
 import { ArchivePanel } from "./overlays/archive-panel.slint";
 import { SettingsPanel } from "./overlays/settings-panel.slint";
@@ -24,6 +25,7 @@ import { NewSessionPanel } from "./overlays/new-session-panel.slint";
 import { NewStudentPanel } from "./overlays/new-student-panel.slint";
 import { PanelShell } from "./overlays/panel-shell.slint";
 import { GuideEditorPanel } from "./overlays/guide-editor-panel.slint";
+import { GuideTemplateManager } from "./panes/guide-template-manager.slint";
 import { CommandPalette } from "./overlays/command-palette.slint";
 export component MainWindow inherits Window {
     title: root.selected-session-title == "" ? "Tutorux" : root.selected-session-title + " — Tutorux";
@@ -85,6 +87,18 @@ export component MainWindow inherits Window {
     in-out property <bool> recording-panel-open: false;
     in-out property <string> recording-status-output:
         "Select a session and check its recording status before continuing.";
+    in-out property <[string]> recording-take-options;
+    in-out property <string> selected-recording-take-label;
+    in-out property <string> recording-undo-take-id;
+    in-out property <bool> recording-take-mutable: false;
+    in-out property <string> recording-rename-take-label;
+    in-out property <[string]> recording-track-options;
+    in-out property <string> selected-recording-track-label;
+    in-out property <[WaveformBucketRow]> recording-waveform-buckets;
+    in-out property <string> recording-waveform-state: "empty";
+    in-out property <string> recording-waveform-message;
+    in-out property <string> recording-duration-us: "0";
+    in-out property <int> recording-duration-seconds: 0;
     in-out property <string> recording-preflight-output: "Choose a microphone and check its input level before recording.";
     in-out property <int> recording-input-level: 0;
     in-out property <bool> recording-preflight-ready: false;
@@ -110,14 +124,20 @@ export component MainWindow inherits Window {
     in-out property <[string]> template-options;
     in-out property <string> selected-template;
     in-out property <string> template-name;
+    in-out property <string> template-subject;
+    in-out property <string> template-description;
+    in-out property <string> template-sections;
+    in-out property <string> template-body;
     in-out property <string> template-path;
     in-out property <string> template-output:
         "Open templates to list the guide templates in this archive.";
     in-out property <string> annotation-time: "00:00:00";
     in-out property <string> annotation-note;
+    in-out property <string> selected-marker;
     in-out property <string> asset-input-path;
     in-out property <[string]> asset-options;
     in-out property <string> selected-asset;
+    in-out property <string> asset-undo-id;
     in-out property <string> asset-preview-kind: "message";
     in-out property <string> asset-preview-description:
         "Choose a session, list its materials, then preview a selected file.";
@@ -136,9 +156,25 @@ export component MainWindow inherits Window {
     in-out property <[string]> transcript-options;
     in-out property <string> selected-transcript;
     in-out property <string> transcript-edit-text;
+    in-out property <string> transcript-speaker-name;
+    in-out property <string> transcript-start-time;
+    in-out property <string> transcript-end-time;
+    in-out property <[string]> transcript-revision-options;
+    in-out property <string> selected-transcript-revision;
+    in-out property <string> transcript-import-path;
+    in-out property <string> transcript-split-before;
+    in-out property <string> transcript-split-after;
+    in-out property <string> transcript-merge-target;
     in-out property <string> transcript-provenance;
     in-out property <[string]> evidence-options;
     in-out property <string> selected-evidence;
+    in-out property <string> selected-evidence-target;
+    in-out property <[string]> evidence-edge-options;
+    in-out property <string> selected-evidence-edge;
+    in-out property <string> evidence-title;
+    in-out property <string> evidence-type: "concept";
+    in-out property <string> evidence-content;
+    in-out property <string> evidence-relationship: "supports";
     in-out property <string> evidence-output:
         "Select a session to extract or list its evidence.";
     in-out property <string> evidence-reject-reason;
@@ -161,6 +197,8 @@ export component MainWindow inherits Window {
     in-out property <string> student-progress-skill;
     in-out property <string> student-progress-classification: "newly-observed";
     in-out property <string> student-progress-evidence-ids;
+    in-out property <[string]> student-evidence-options;
+    in-out property <string> selected-student-evidence;
     in-out property <string> student-progress-reviewer;
     in-out property <string> student-progress-note;
     in-out property <string> student-progress-output: "Select a student to review learning history.";
@@ -232,6 +270,7 @@ export component MainWindow inherits Window {
     in-out property <string> journal-session-delete-scope-output:
         "Review the deletion scope before confirming.";
     in-out property <string> journal-document-id;
+    in-out property <string> journal-document-removed-block-id;
     in-out property <string> journal-document-text;
     in-out property <string> journal-document-blocks-json: "[]";
     in-out property <[string]> journal-note-block-options;
@@ -280,6 +319,23 @@ export component MainWindow inherits Window {
         running: root.theme-mode == "system";
         triggered() => { root.system-theme-check(); }
     }
+
+    recording-meter-timer := Timer {
+        interval: 100ms;
+        running: root.recording-state == "recording" || root.recording-state == "paused";
+        triggered() => { root.recording-meter(root.selected-session); }
+    }
+
+    recording-playback-timer := Timer {
+        interval: 1s;
+        running: root.recording-playback-active;
+        triggered() => {
+            root.recording-playback-position-seconds = min(
+                root.recording-playback-position-seconds + 1,
+                root.recording-duration-seconds
+            );
+        }
+    }
     in-out property <bool> archive-menu-open: false;
     in-out property <bool> workspace-menu-open: false;
     in-out property <string> overlay-panel: "";
@@ -300,9 +356,14 @@ export component MainWindow inherits Window {
     in-out property <string> session-package-path;
     in-out property <string> recording-state: "not-started";
     in-out property <int> recording-elapsed-seconds: 0;
+    in-out property <int> recording-playback-position-seconds: 0;
+    in-out property <bool> recording-playback-active: false;
     in-out property <[SessionRow]> session-rows: [];
     in-out property <[StudentRow]> student-rows: [];
     in-out property <[MaterialRow]> material-rows: [];
+    in-out property <[TrashRow]> trash-rows: [];
+    in-out property <string> trash-error;
+    in-out property <bool> trash-busy: false;
     in-out property <[NoteRow]> note-rows: [];
     in-out property <[MarkerRow]> marker-rows: [];
     forward-focus: marker-shortcuts;
@@ -357,8 +418,14 @@ export component MainWindow inherits Window {
     changed selected-session => {
         root.transcript-options = [];
         root.evidence-options = [];
+        root.evidence-edge-options = [];
+        root.journal-document-removed-block-id = "";
         root.selected-transcript = "";
         root.selected-evidence = "";
+        root.selected-evidence-target = "";
+        root.selected-evidence-edge = "";
+        root.evidence-title = "";
+        root.evidence-content = "";
         root.transcript-edit-text = "";
         root.transcript-provenance = "";
         root.evidence-output = "Select a session to extract or list its evidence.";
@@ -436,6 +503,7 @@ export component MainWindow inherits Window {
     changed sanitized-copy-include-credentials => { root.sanitized-copy-ready = false; }
 
     callback open-archive(string, string);
+    callback browse-file(string);
     callback archive-recovery-action(string);
     callback sanitized-copy(
         string, string, string, string, string, string, string,
@@ -446,7 +514,9 @@ export component MainWindow inherits Window {
     callback create-student(string, string, string, string, string, string);
     callback load-student-progress(string);
     callback review-student-progress(string, string, string, string, string, string);
+    callback add-student-evidence(string);
     callback save-student-profile(string, string, string, string, string, string, string, string, string);
+    callback delete-student(string);
     callback create-session(string, string, string, string);
     callback journal-action(string, string, string, string, string, string, string);
     callback system-theme-check();
@@ -456,9 +526,22 @@ export component MainWindow inherits Window {
     callback review-transcript(string);
     callback load-transcript(string, string);
     callback save-transcript(string, string, string);
-    callback evidence-command(string, string, string, string);
+    callback save-transcript-speaker(string, string, string, bool);
+    callback save-transcript-timestamps(string, string, string, string);
+    callback restore-transcript-revision(string, string, string);
+    callback transcript-import(string, string);
+    callback transcript-split(string, string, string, string);
+    callback transcript-merge(string, string, string);
+    callback transcript-remove(string, string);
+    callback evidence-command(string, string, string, string, string, string, string, string, string, string);
     callback quick-marker(string, string, string, string);
+    callback edit-marker(string, string, string);
+    callback remove-marker(string);
     callback recording-command(string, string, string);
+    callback recording-meter(string);
+    callback select-recording-take(string);
+    callback select-recording-track(string);
+    callback seek-recording(string, float);
     callback check-recording-device(string);
     pure callback accepts-dropped-files(data-transfer) -> bool;
     callback import-dropped-files(data-transfer);
@@ -479,6 +562,9 @@ export component MainWindow inherits Window {
     callback guide-edit-redo();
     callback save-guide-block(string, string, string);
     callback save-marker-shortcuts(string, string, string, string, string, string, string);
+    callback load-trash();
+    callback restore-trash-item(string, string);
+    callback purge-trash();
     callback run-command(string, string);
 
     callback cancel-command();
@@ -558,6 +644,9 @@ export component MainWindow inherits Window {
             root.journal-action("document-block-remove",
                 root.journal-document-id, root.selected-journal-note-block,
                 "", "", "", "");
+        } else if (action == "restore") {
+            root.journal-action("document-block-restore",
+                root.journal-document-id, argument, "", "", "", "");
         } else if (action == "add") {
             root.journal-action("document-block-add",
                 root.journal-document-id, root.journal-document-block-kind,
@@ -679,6 +768,9 @@ export component MainWindow inherits Window {
                 select-student(choice) => {
                     root.selected-student = choice;
                     root.student-profile-name = "";
+                    root.student-progress-evidence-ids = "";
+                    root.student-evidence-options = [];
+                    root.selected-student-evidence = "";
                     root.load-student-progress(choice);
                 }
                 preview-material(choice) => {
@@ -699,6 +791,8 @@ export component MainWindow inherits Window {
                         root.run-journal-search();
                     } else if (scope == "guides" && root.selected-guide != "") {
                         root.guide-command(root.selected-guide, "list", "", "");
+                    } else if (scope == "trash") {
+                        root.load-trash();
                     } else if (scope == "settings") {
                         root.overlay-panel = "";
                     }
@@ -890,6 +984,8 @@ export component MainWindow inherits Window {
                                 review-skill <=> root.student-progress-skill;
                                 review-classification <=> root.student-progress-classification;
                                 review-evidence <=> root.student-progress-evidence-ids;
+                                evidence-options: root.student-evidence-options;
+                                selected-evidence-option <=> root.selected-student-evidence;
                                 review-reviewer <=> root.student-progress-reviewer;
                                 review-note <=> root.student-progress-note;
                                 save-profile => {
@@ -905,6 +1001,8 @@ export component MainWindow inherits Window {
                                         root.student-progress-evidence-ids, root.student-progress-reviewer,
                                         root.student-progress-note);
                                 }
+                                add-evidence(choice) => { root.add-student-evidence(choice); }
+                                delete-student => { root.delete-student(root.selected-student); }
                                 load-history => { root.load-student-progress(root.selected-student); }
                                 new-student => { root.overlay-panel = "new-student"; }
                             }
@@ -916,17 +1014,36 @@ export component MainWindow inherits Window {
                                 preview-body: root.asset-preview-body;
                                 preview-waveform: root.asset-preview-waveform;
                                 command-output: root.command-output;
+                                writable: root.archive-writable;
                                 preview-image: root.asset-preview-image;
                                 input-path <=> root.asset-input-path;
                                 selected-asset <=> root.selected-asset;
+                                undo-asset-id: root.asset-undo-id;
                                 import-file(path) => { root.asset-command(root.selected-session, "add", path); }
+                                import-folder(path) => { root.asset-command(root.selected-session, "import-folder", path); }
+                                browse-import => { root.browse-file("material"); }
+                                browse-folder => { root.browse-file("material-folder"); }
                                 list-materials => { root.asset-command(root.selected-session, "list", ""); }
                                 preview(asset) => { root.asset-command(root.selected-session, "preview", asset); }
+                                remove-file(asset) => { root.asset-command(root.selected-session, "remove", asset); }
+                                restore-file(id) => { root.asset-command(root.selected-session, "restore", id); }
+                            }
+
+                            if root.navigator-scope == "trash" : TrashPage {
+                                width: 100%;
+                                height: 100%;
+                                items: root.trash-rows;
+                                error-message: root.trash-error;
+                                busy: root.trash-busy;
+                                refresh => { root.load-trash(); }
+                                restore(type, id) => { root.restore-trash-item(type, id); }
+                                purge => { root.purge-trash(); }
                             }
 
                             if root.navigator-scope == "journal" : journal-page-root := JournalPage {
                                 width: 100%;
                                 height: 100%;
+                                writable: root.archive-writable;
                                 query <=> root.journal-query;
                                 sort <=> root.journal-sort;
                                 collection-options: root.journal-collection-options;
@@ -973,6 +1090,7 @@ export component MainWindow inherits Window {
                                 session-delete-scope-token <=> root.journal-session-delete-scope-token;
                                 session-delete-scope-output: root.journal-session-delete-scope-output;
                                 document-id <=> root.journal-document-id;
+                                document-removed-block-id: root.journal-document-removed-block-id;
                                 document-text: root.journal-document-text;
                                 note-block-options: root.journal-note-block-options;
                                 selected-note-block <=> root.selected-journal-note-block;
@@ -1028,6 +1146,10 @@ export component MainWindow inherits Window {
                                 }
                                 open-ai => { root.overlay-panel = "ai"; }
                                 open-full-editor => { root.overlay-panel = "guide-tools"; }
+                                manage-templates => {
+                                    root.template-panel-open = true;
+                                    root.overlay-panel = "templates";
+                                }
                                 guide-changed(choice) => { root.load-guide(choice); }
                             }
 
@@ -1151,6 +1273,7 @@ export component MainWindow inherits Window {
                                                 vertical-stretch: 1;
                                                 rows: root.note-rows;
                                                 document-id: root.journal-document-id;
+                                                undo-block-id: root.journal-document-removed-block-id;
                                                 selected-block <=> root.selected-journal-note-block;
                                                 block-text <=> root.journal-document-block-text;
                                                 block-kind <=> root.journal-document-block-kind;
@@ -1173,6 +1296,7 @@ export component MainWindow inherits Window {
                                                 vertical-stretch: 1;
                                                 options: root.transcript-options;
                                                 evidence-options: root.evidence-options;
+                                                evidence-edge-options: root.evidence-edge-options;
                                                 provenance: root.transcript-provenance;
                                                 command-output: root.command-output;
                                                 evidence-output: root.evidence-output;
@@ -1180,7 +1304,22 @@ export component MainWindow inherits Window {
                                                 has-session: root.selected-session != "";
                                                 selected-segment <=> root.selected-transcript;
                                                 selected-evidence <=> root.selected-evidence;
+                                                selected-evidence-target <=> root.selected-evidence-target;
+                                                selected-evidence-edge <=> root.selected-evidence-edge;
+                                                evidence-title <=> root.evidence-title;
+                                                evidence-type <=> root.evidence-type;
+                                                evidence-content <=> root.evidence-content;
+                                                evidence-relationship <=> root.evidence-relationship;
                                                 edit-text <=> root.transcript-edit-text;
+                                                speaker-name <=> root.transcript-speaker-name;
+                                                start-time <=> root.transcript-start-time;
+                                                end-time <=> root.transcript-end-time;
+                                                revision-options: root.transcript-revision-options;
+                                                selected-revision <=> root.selected-transcript-revision;
+                                                import-path <=> root.transcript-import-path;
+                                                split-before <=> root.transcript-split-before;
+                                                split-after <=> root.transcript-split-after;
+                                                merge-target <=> root.transcript-merge-target;
                                                 reject-reason <=> root.evidence-reject-reason;
                                                 load-segments => { root.review-transcript(root.selected-session); }
                                                 load-segment => {
@@ -1192,10 +1331,37 @@ export component MainWindow inherits Window {
                                                     root.save-transcript(root.selected-session,
                                                         root.selected-transcript, root.transcript-edit-text);
                                                 }
+                                                save-speaker(name, unknown) => {
+                                                    root.save-transcript-speaker(root.selected-session,
+                                                        root.selected-transcript, name, unknown);
+                                                }
+                                                save-timestamps(start, end) => {
+                                                    root.save-transcript-timestamps(root.selected-session,
+                                                        root.selected-transcript, start, end);
+                                                }
+                                                restore-revision(revision) => {
+                                                    root.restore-transcript-revision(root.selected-session,
+                                                        root.selected-transcript, revision);
+                                                }
+                                                browse-import => { root.browse-file("transcript"); }
+                                                import-transcript(path) => {
+                                                    root.transcript-import(root.selected-session, path);
+                                                }
+                                                split-segment(id, before, after) => {
+                                                    root.transcript-split(root.selected-session, id, before, after);
+                                                }
+                                                merge-segments(first, second) => {
+                                                    root.transcript-merge(root.selected-session, first, second);
+                                                }
+                                                remove-segment(id) => {
+                                                    root.transcript-remove(root.selected-session, id);
+                                                }
                                                 open-console => { root.overlay-panel = "console"; }
-                                                evidence(action, reason) => {
+                                                evidence(action, reason, target, relationship, source-segment) => {
                                                     root.evidence-command(root.selected-session, action,
-                                                        root.selected-evidence, reason);
+                                                        root.selected-evidence, reason, target, relationship,
+                                                        root.evidence-title, root.evidence-type,
+                                                        root.evidence-content, source-segment);
                                                 }
                                             }
 
@@ -1222,6 +1388,10 @@ export component MainWindow inherits Window {
                                                 action(action) => { root.guide-command(root.selected-guide, action, "", ""); }
                                                 open-ai => { root.overlay-panel = "ai"; }
                                                 open-full-editor => { root.overlay-panel = "guide-tools"; }
+                                                manage-templates => {
+                                                    root.template-panel-open = true;
+                                                    root.overlay-panel = "templates";
+                                                }
                                                 guide-changed(choice) => { root.load-guide(choice); }
                                             }
                                         }
@@ -1237,6 +1407,7 @@ export component MainWindow inherits Window {
                                             elapsed-label: root.elapsed-label();
                                             student-options: root.student-options;
                                             markers: root.marker-rows;
+                                            selected-marker <=> root.selected-marker;
                                             marker-time <=> root.annotation-time;
                                             marker-note <=> root.annotation-note;
                                             update-details(choice, subject) => {
@@ -1251,6 +1422,10 @@ export component MainWindow inherits Window {
                                                 root.quick-marker(root.selected-session, type,
                                                     root.annotation-time, root.annotation-note);
                                             }
+                                            edit-marker(id, time, note) => {
+                                                root.edit-marker(id, time, note);
+                                            }
+                                            remove-marker(id) => { root.remove-marker(id); }
                                         }
                                     }
                                     }
@@ -1258,15 +1433,33 @@ export component MainWindow inherits Window {
                             }
                             }
 
-                            if root.navigator-scope == "sessions" && root.selected-session-title != "" : RecordingTransport {
+                            if root.navigator-scope == "sessions" && root.selected-session-title != "" : recording-transport := RecordingTransport {
                                 z: 10;
                                 state: root.recording-state;
                                 microphone: root.recording-microphone-device;
                                 writable: root.archive-writable;
                                 elapsed <=> root.recording-elapsed-seconds;
+                                take-options: root.recording-take-options;
+                                track-options: root.recording-track-options;
+                                selected-take-label <=> root.selected-recording-take-label;
+                                selected-track-label <=> root.selected-recording-track-label;
+                                waveform-buckets: root.recording-waveform-buckets;
+                                markers: root.marker-rows;
+                                duration-seconds: root.recording-duration-seconds;
+                                playback-position: root.recording-duration-seconds > 0
+                                    ? root.recording-playback-position-seconds * 1.0 /
+                                      root.recording-duration-seconds : 0;
+                                playback-active: root.recording-playback-active;
+                                playback-position-seconds: root.recording-playback-position-seconds;
+                                waveform-state: root.recording-waveform-state;
+                                waveform-message: root.recording-waveform-message;
+                                live-level: root.recording-input-level;
                                 command(action) => {
                                     root.recording-command(root.selected-session, action, "");
                                 }
+                                take-selected(label) => { root.select-recording-take(label); }
+                                track-selected(label) => { root.select-recording-track(label); }
+                                seek(position) => { root.seek-recording(root.selected-session, position); }
                                 mark(time) => {
                                     root.quick-marker(root.selected-session, "general-note",
                                         time, root.annotation-note);
@@ -1431,6 +1624,7 @@ export component MainWindow inherits Window {
                 sanitized-passphrase <=> root.sanitized-copy-passphrase;
                 close => { root.overlay-panel = ""; }
                 open(path, passphrase) => { root.open-archive(path, passphrase); }
+                browse-open => { root.browse-file("archive"); }
                 forget => { root.forget-passphrase(); }
                 create(name, passphrase, description) => {
                     root.create-archive(name, passphrase, description);
@@ -1480,6 +1674,14 @@ export component MainWindow inherits Window {
             if root.overlay-panel == "recording" : RecordingPanel {
                 has-session: root.selected-session != "";
                 writable: root.archive-writable;
+                recording-state: root.recording-state;
+                take-options: root.recording-take-options;
+                track-options: root.recording-track-options;
+                selected-take <=> root.selected-recording-take-label;
+                selected-track <=> root.selected-recording-track-label;
+                rename-take-label <=> root.recording-rename-take-label;
+                undo-take-id: root.recording-undo-take-id;
+                can-manage-take: root.recording-take-mutable;
                 preflight-output: root.recording-preflight-output;
                 input-level: root.recording-input-level;
                 preflight-ready: root.recording-preflight-ready;
@@ -1504,6 +1706,9 @@ export component MainWindow inherits Window {
                 command(action, argument) => {
                     root.recording-command(root.selected-session, action, argument);
                 }
+                browse-import => { root.browse-file("recording"); }
+                take-selected(label) => { root.select-recording-take(label); }
+                track-selected(label) => { root.select-recording-track(label); }
                 check-device => { root.check-recording-device(root.recording-microphone-device); }
             }
 
@@ -1550,6 +1755,28 @@ export component MainWindow inherits Window {
                 close => { root.overlay-panel = ""; }
                 run(input) => { root.run-command(input, root.new-archive-passphrase); }
                 cancel => { root.cancel-command(); }
+            }
+
+            if root.overlay-panel == "templates" : GuideTemplateManager {
+                options: root.template-options;
+                output: root.template-output;
+                writable: root.archive-writable;
+                selected-template <=> root.selected-template;
+                name <=> root.template-name;
+                subject <=> root.template-subject;
+                description <=> root.template-description;
+                sections <=> root.template-sections;
+                body <=> root.template-body;
+                path <=> root.template-path;
+                close => {
+                    root.template-panel-open = false;
+                    root.overlay-panel = "";
+                }
+                action(action) => {
+                    root.template-command(action, root.selected-template,
+                        root.template-name, root.template-path);
+                }
+                browse => { root.browse-file("template"); }
             }
 
             if root.overlay-panel == "export" : ExportPanel {

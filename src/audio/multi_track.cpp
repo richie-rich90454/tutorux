@@ -1,4 +1,5 @@
 #include "tutorux/audio/capture.hpp"
+#include "tutorux/audio/recording_take.hpp"
 
 #include "tutorux/domain/entities.hpp"
 
@@ -64,7 +65,7 @@ namespace {
     };
 
     archive::Record makeTrackRecord(const archive::Uuid& sessionId, const archive::Uuid& trackId, DeviceKind source, std::string state,
-                                    std::string message = {}) {
+                                    std::string message = {}, std::string takeId = {}) {
         archive::Record record;
         record.type = archive::RecordType::AssetMetadata;
         record.id = trackId;
@@ -72,6 +73,7 @@ namespace {
             {"record_role",                       "audio-track"                        },
             {"session_id",                        archive::uuidToString(sessionId)     },
             {"track_id",                          archive::uuidToString(trackId)       },
+            {"recording_take_id",                 std::move(takeId)                    },
             {"source",                            sourceName(source)                   },
             {"state",                             std::move(state)                     },
             {"message",                           std::move(message)                   },
@@ -180,6 +182,9 @@ core::Result<MultiTrackCaptureSummary> captureNativeTracks(archive::Archive& arc
     }
 
     std::array<archive::Uuid, 2> trackIds{archive::randomUuid(), archive::randomUuid()};
+    const archive::Uuid takeId = microphone.takeId.value_or(archive::randomUuid());
+    microphone.takeId = takeId;
+    systemAudio.takeId = takeId;
     const std::string microphoneId = archive::uuidToString(trackIds[0]);
     const std::string systemAudioId = archive::uuidToString(trackIds[1]);
     session.fields["recording_track_id"] = microphoneId;
@@ -191,10 +196,16 @@ core::Result<MultiTrackCaptureSummary> captureNativeTracks(archive::Archive& arc
     session.fields["recording_state"] = "multi-track-initializing";
     session.fields["recording_started_at_us"] = std::to_string(nowUnixMicroseconds());
     session.fields["recording_error"] = "";
+    const std::uint64_t startedAtUs = nowUnixMicroseconds();
+    auto takeRecord = makeRecordingTakeRecord(takeId, sessionId, combinedSource,
+                                               "multi-track-initializing",
+                                               {trackIds[0], trackIds[1]}, startedAtUs);
     std::vector<archive::Record> initialRecords;
-    initialRecords.reserve(3);
+    initialRecords.reserve(4);
     initialRecords.push_back(std::move(session));
-    auto microphoneTrack = makeTrackRecord(sessionId, trackIds[0], DeviceKind::microphone, "initializing");
+    initialRecords.push_back(std::move(takeRecord));
+    auto microphoneTrack = makeTrackRecord(sessionId, trackIds[0], DeviceKind::microphone,
+                                           "initializing", {}, archive::uuidToString(takeId));
     microphoneTrack.fields["device_id"] = microphone.deviceId;
     microphoneTrack.fields["consent_confirmed_by"] = microphone.consentConfirmedBy;
     microphoneTrack.fields["durability"] = microphone.durability == DurabilityPolicy::maximum        ? "maximum"
@@ -202,7 +213,8 @@ core::Result<MultiTrackCaptureSummary> captureNativeTracks(archive::Archive& arc
                                                                                                      : "default";
     microphoneTrack.fields["consent"] = "explicit";
     microphoneTrack.fields["consent_policy_version"] = "1";
-    auto systemAudioTrack = makeTrackRecord(sessionId, trackIds[1], systemAudio.source, "initializing");
+    auto systemAudioTrack = makeTrackRecord(sessionId, trackIds[1], systemAudio.source,
+                                             "initializing", {}, archive::uuidToString(takeId));
     systemAudioTrack.fields["device_id"] = systemAudio.deviceId;
     systemAudioTrack.fields["consent_confirmed_by"] = systemAudio.consentConfirmedBy;
     systemAudioTrack.fields["durability"] = systemAudio.durability == DurabilityPolicy::maximum        ? "maximum"
@@ -419,6 +431,10 @@ core::Result<MultiTrackCaptureSummary> captureNativeTracks(archive::Archive& arc
     finalSession.fields["recording_stopped_at_us"] = std::to_string(nowUnixMicroseconds());
     finalSession.fields["updated_at_us"] = finalSession.fields["recording_stopped_at_us"];
     if (auto status = archive.put(std::move(finalSession)); !status)
+        return std::unexpected(status.error());
+    if (auto status = updateRecordingTake(archive, takeId,
+                                         combined.completed ? "completed" : combined.chunkCount > 0 ? "partial" : "failed",
+                                         combined.durationUs, nowUnixMicroseconds()); !status)
         return std::unexpected(status.error());
     if (persistenceFailure)
         return std::unexpected(*persistenceFailure);

@@ -1,0 +1,203 @@
+import { Button, ScrollArea, Theme } from "../theme.slint";
+import { TrashRow } from "../models.slint";
+import { ListView } from "std-widgets.slint";
+
+export component TrashPage inherits Rectangle {
+    in property <[TrashRow]> items: [];
+    in property <string> error-message;
+    in property <bool> busy: false;
+    in-out property <bool> purge-armed: false;
+
+    callback refresh();
+    callback restore(string, string);
+    callback purge();
+
+    background: Theme.canvas;
+
+    VerticalLayout {
+        padding-left: 28px;
+        padding-right: 28px;
+        padding-top: 24px;
+        padding-bottom: 18px;
+        spacing: 14px;
+
+        HorizontalLayout {
+            height: 42px;
+            spacing: 10px;
+
+            VerticalLayout {
+                spacing: 2px;
+                Text {
+                    text: "Trash";
+                    color: Theme.ink;
+                    font-size: 23px;
+                    font-weight: 700;
+                }
+                Text {
+                    text: root.items.length == 1 ? "1 recoverable item" :
+                          root.items.length + " recoverable items";
+                    color: Theme.muted;
+                    font-size: 12px;
+                }
+            }
+
+            Rectangle { horizontal-stretch: 1; }
+
+            Button {
+                text: "Refresh";
+                enabled: !root.busy;
+                clicked => { root.refresh(); }
+            }
+        }
+
+        if root.error-message != "" : Rectangle {
+            height: 42px;
+            border-radius: Theme.radius-input;
+            border-width: 1px;
+            border-color: Theme.danger-line;
+            background: Theme.danger-soft;
+            Text {
+                x: 12px;
+                y: 0px;
+                width: parent.width - 24px;
+                height: parent.height;
+                vertical-alignment: center;
+                text: root.error-message;
+                color: Theme.danger;
+                font-size: 13px;
+                wrap: word-wrap;
+            }
+        }
+
+        if root.busy : Text {
+            text: "Loading recoverable records…";
+            color: Theme.muted;
+            font-size: 13px;
+        }
+
+        if !root.busy && root.items.length == 0 && root.error-message == "" : Rectangle {
+            vertical-stretch: 1;
+            background: Theme.surface;
+            border-radius: Theme.radius-card;
+            border-width: 1px;
+            border-color: Theme.line;
+
+            VerticalLayout {
+                alignment: center;
+                spacing: 8px;
+                Text {
+                    text: "Trash is empty";
+                    horizontal-alignment: center;
+                    color: Theme.ink;
+                    font-size: 17px;
+                    font-weight: 650;
+                }
+                Text {
+                    text: "Deleted sessions, recordings, notes, and materials appear here for recovery.";
+                    horizontal-alignment: center;
+                    color: Theme.muted;
+                    font-size: 13px;
+                    wrap: word-wrap;
+                }
+            }
+        }
+
+        if root.items.length > 0 : ScrollArea {
+            vertical-stretch: 1;
+            min-height: 0px;
+
+            ListView {
+                width: 100%;
+                height: 100%;
+                for item in root.items : Rectangle {
+                    width: parent.width;
+                    height: 78px;
+                    background: Theme.surface;
+                    border-radius: Theme.radius-card;
+                    border-width: 1px;
+                    border-color: Theme.line;
+
+                    HorizontalLayout {
+                        padding-left: 14px;
+                        padding-right: 12px;
+                        spacing: 14px;
+
+                        VerticalLayout {
+                            alignment: center;
+                            spacing: 3px;
+                            Text {
+                                text: item.title;
+                                color: Theme.ink;
+                                font-size: 14px;
+                                font-weight: 650;
+                                overflow: elide;
+                            }
+                            HorizontalLayout {
+                                spacing: 7px;
+                                Text {
+                                    text: item.type-label;
+                                    color: Theme.accent-text;
+                                    font-size: 12px;
+                                    font-weight: 600;
+                                }
+                                Text {
+                                    text: item.detail;
+                                    color: Theme.muted;
+                                    font-size: 12px;
+                                    overflow: elide;
+                                }
+                                Text {
+                                    text: item.deleted-at;
+                                    color: Theme.faint;
+                                    font-size: 12px;
+                                    overflow: elide;
+                                }
+                            }
+                        }
+
+                        Rectangle { horizontal-stretch: 1; }
+
+                        Button {
+                            text: item.restores-group ? "Restore session" : "Restore";
+                            enabled: !root.busy;
+                            clicked => { root.restore(item.type-key, item.id); }
+                        }
+                    }
+                }
+            }
+        }
+
+        HorizontalLayout {
+            height: 40px;
+            spacing: 10px;
+
+            Text {
+                horizontal-stretch: 1;
+                vertical-alignment: center;
+                text: "Purge checks active links first. Records with live references must be restored or detached.";
+                color: Theme.faint;
+                font-size: 11px;
+                wrap: word-wrap;
+            }
+
+            Button {
+                text: root.purge-armed ? "Confirm permanent purge" : "Permanently purge Trash";
+                enabled: !root.busy && root.items.length > 0;
+                clicked => {
+                    if root.purge-armed {
+                        root.purge-armed = false;
+                        root.purge();
+                    } else {
+                        root.purge-armed = true;
+                    }
+                }
+            }
+
+            if root.purge-armed : Button {
+                text: "Cancel";
+                enabled: !root.busy;
+                clicked => { root.purge-armed = false; }
+            }
+        }
+    }
+}

@@ -36,6 +36,7 @@ export component ArchivePanel inherits Rectangle {
 
     callback close();
     callback open(string, string);
+    callback browse-open();
     callback forget();
     callback create(string, string, string);
     callback recovery(string);
@@ -121,6 +122,10 @@ export component ArchivePanel inherits Rectangle {
             }
         }
         ActionWrap {
+            Button {
+                text: "Browse…";
+                clicked => { root.browse-open(); }
+            }
             Button {
                 text: "Open archive";
                 variant: "primary";

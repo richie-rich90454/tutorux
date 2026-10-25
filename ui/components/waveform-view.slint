@@ -1,0 +1,153 @@
+import { Theme } from "../theme.slint";
+import { MarkerRow, WaveformBucketRow } from "../models.slint";
+
+export component WaveformView inherits Rectangle {
+    in property <[WaveformBucketRow]> buckets;
+    in property <[MarkerRow]> markers: [];
+    in property <int> duration-seconds: 0;
+    in property <string> state: "empty";
+    in property <string> message;
+    in property <string> duration-label;
+    in property <string> playhead-label;
+    in property <bool> live: false;
+    in property <int> live-level: 0;
+    in property <float> playhead-position: 0;
+    in property <bool> playback-active: false;
+    in property <float> zoom-scale: 1;
+    in property <float> viewport-start: 0;
+    in property <bool> seek-enabled: true;
+    callback seek(float);
+
+    height: 54px;
+    background: Theme.waveform-background;
+    border-radius: 4px;
+    clip: true;
+
+    if root.state == "ready" || root.live : Rectangle {
+        x: 0px;
+        y: 0px;
+        width: 100%;
+        height: 100%;
+        background: Theme.waveform-background;
+        clip: true;
+
+        Rectangle {
+            x: 0px;
+            y: parent.height / 2;
+            width: parent.width;
+            height: 1px;
+            background: Theme.waveform-baseline;
+        }
+
+        if root.live : Rectangle {
+            x: parent.width - 3px;
+            y: parent.height * (0.5 - max(0.04, root.live-level / 100 * 0.46));
+            width: 3px;
+            height: max(4px, parent.height * root.live-level / 100 * 0.92);
+            background: Theme.recording;
+            border-radius: 1px;
+        }
+
+        for bucket[index] in root.buckets : Rectangle {
+            x: parent.width * (bucket.position - root.viewport-start) * root.zoom-scale;
+            width: max(1px, parent.width * bucket.width * root.zoom-scale);
+            height: parent.height;
+            background: transparent;
+
+            if bucket.maximum > 0 || bucket.minimum < 0 : Rectangle {
+                x: 0px;
+                y: parent.height * (0.5 - max(0.035, bucket.maximum * 0.46));
+                width: parent.width;
+                height: max(2px, parent.height * max(0.035, bucket.maximum * 0.46));
+                background: Theme.waveform-ink;
+                border-radius: 1px;
+            }
+            if bucket.maximum > 0 || bucket.minimum < 0 : Rectangle {
+                x: 0px;
+                y: parent.height * 0.5;
+                width: parent.width;
+                height: max(2px, parent.height * max(0.035, -bucket.minimum * 0.46));
+                background: Theme.waveform-ink;
+                border-radius: 1px;
+            }
+            if bucket.contains-gap : Rectangle {
+                x: max(0px, parent.width / 2 - 1px);
+                y: 3px;
+                width: min(2px, parent.width);
+                height: parent.height - 6px;
+                background: Theme.waveform-gap;
+                border-radius: 1px;
+            }
+        }
+
+        for marker[index] in root.markers : Rectangle {
+            visible: root.duration-seconds > 0;
+            x: parent.width * (marker.start-seconds / max(1, root.duration-seconds) -
+                root.viewport-start) * root.zoom-scale;
+            y: 1px;
+            width: 2px;
+            height: parent.height - 2px;
+            background: Theme.recording;
+            border-radius: 1px;
+        }
+
+        if root.state == "ready" && !root.live : Rectangle {
+            x: parent.width * (root.playhead-position.clamp(0, 1) - root.viewport-start) *
+                root.zoom-scale;
+            y: 1px;
+            width: 2px;
+            height: parent.height - 2px;
+            background: root.playback-active ? Theme.recording : Theme.waveform-playhead;
+            border-radius: 1px;
+        }
+
+        if root.state == "ready" && !root.live : Rectangle {
+            x: 4px;
+            y: parent.height - 14px;
+            width: parent.width - 8px;
+            height: 12px;
+            background: Theme.waveform-background;
+            opacity: 0.88;
+            Text {
+                text: root.playhead-label;
+                color: Theme.muted;
+                font-size: 9px;
+                vertical-alignment: center;
+            }
+            Text {
+                x: parent.width - self.width;
+                text: root.duration-label;
+                color: Theme.muted;
+                font-size: 9px;
+                vertical-alignment: center;
+            }
+        }
+
+        if root.state == "ready" && !root.live && root.seek-enabled : TouchArea {
+            x: 0px;
+            y: 0px;
+            width: 100%;
+            height: 100%;
+            clicked => {
+                root.seek((root.viewport-start + self.mouse-x /
+                    max(1px, self.width) / root.zoom-scale).clamp(0, 1));
+            }
+        }
+    }
+
+    if root.state != "ready" && !root.live : Text {
+        x: 12px;
+        y: 0px;
+        width: parent.width - 24px;
+        height: parent.height;
+        text: root.state == "loading" ? "Loading waveform…" :
+              root.state == "error" ? root.message :
+              root.state == "unavailable" ? root.message :
+              root.state == "silent" ? "This recording is silent." :
+              root.message == "" ? "No audio in this recording." : root.message;
+        color: Theme.muted;
+        font-size: 12px;
+        vertical-alignment: center;
+        overflow: elide;
+    }
+}

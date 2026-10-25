@@ -8,13 +8,20 @@ export component MaterialsPage inherits Rectangle {
     in property <string> preview-body;
     in property <string> preview-waveform;
     in property <string> command-output;
+    in property <bool> writable: true;
     in property <image> preview-image;
     in-out property <string> input-path;
     in-out property <string> selected-asset;
+    in property <string> undo-asset-id;
 
     callback import-file(string);
+    callback import-folder(string);
+    callback browse-import();
+    callback browse-folder();
     callback list-materials();
     callback preview(string);
+    callback remove-file(string);
+    callback restore-file(string);
 
     horizontal-stretch: 1;
     vertical-stretch: 1;
@@ -52,14 +59,30 @@ export component MaterialsPage inherits Rectangle {
                     LineEdit {
                         placeholder-text: "File path to import into this session";
                         text <=> root.input-path;
+                        enabled: root.writable;
                     }
                 }
             }
             ActionWrap {
                 Button {
+                    text: "Browse file…";
+                    enabled: root.writable;
+                    clicked => { root.browse-import(); }
+                }
+                Button {
                     text: "Import";
-                    enabled: root.session-title != "" && root.input-path != "";
+                    enabled: root.writable && root.session-title != "" && root.input-path != "";
                     clicked => { root.import-file(root.input-path); }
+                }
+                Button {
+                    text: "Browse folder…";
+                    enabled: root.writable;
+                    clicked => { root.browse-folder(); }
+                }
+                Button {
+                    text: "Import folder";
+                    enabled: root.writable && root.session-title != "" && root.input-path != "";
+                    clicked => { root.import-folder(root.input-path); }
                 }
                 Button {
                     text: "List materials";
@@ -70,6 +93,18 @@ export component MaterialsPage inherits Rectangle {
                     text: "Preview selected";
                     enabled: root.selected-asset != "";
                     clicked => { root.preview(root.selected-asset); }
+                }
+                Button {
+                    text: "Move to Trash";
+                    variant: "danger";
+                    enabled: root.writable && root.selected-asset != "";
+                    clicked => { root.remove-file(root.selected-asset); }
+                }
+                Button {
+                    text: "Undo remove";
+                    visible: root.undo-asset-id != "";
+                    enabled: root.writable;
+                    clicked => { root.restore-file(root.undo-asset-id); }
                 }
             }
 

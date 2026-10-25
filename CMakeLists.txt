@@ -195,6 +195,7 @@ set(TUTORUX_CORE_SOURCES
     src/ai/replicate.cpp
     src/audio/capture.cpp
     src/audio/multi_track.cpp
+    src/audio/recording_take.cpp
     src/audio/capture_alsa.cpp
     src/audio/capture_pipewire.cpp
     src/audio/capture_coreaudio.cpp
@@ -213,6 +214,8 @@ set(TUTORUX_CORE_SOURCES
     src/archive/format.cpp
     src/archive/sanitized_copy.cpp
     src/application/task-executor.cpp
+    src/application/recording-service.cpp
+    src/application/trash-service.cpp
     src/application/workspace-service.cpp
     src/command/dispatcher.cpp
     src/command/json.cpp
@@ -960,7 +963,7 @@ endif()
 
 if(WIN32)
     target_compile_definitions(tutorux_core PUBLIC WINVER=0x0A00 _WIN32_WINNT=0x0A00)
-    target_link_libraries(tutorux_core PUBLIC ole32 propsys uuid advapi32 Psapi)
+    target_link_libraries(tutorux_core PUBLIC ole32 shell32 propsys uuid advapi32 Psapi)
 endif()
 
 if(MSVC)
@@ -1938,4 +1941,8 @@ if(BUILD_TESTING AND NOT TUTORUX_BUILD_WASM)
     add_executable(tutorux_workspace_snapshot_test tests/workspace_snapshot_test.cpp)
     target_link_libraries(tutorux_workspace_snapshot_test PRIVATE tutorux_core)
     add_test(NAME typed_workspace_overview COMMAND tutorux_workspace_snapshot_test)
+
+    add_executable(tutorux_trash_service_test tests/trash_service_test.cpp)
+    target_link_libraries(tutorux_trash_service_test PRIVATE tutorux_core)
+    add_test(NAME recoverable_trash_group_restore_and_safe_purge COMMAND tutorux_trash_service_test)
 endif()

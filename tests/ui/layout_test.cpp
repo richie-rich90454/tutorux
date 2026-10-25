@@ -104,13 +104,16 @@ int main() {
 
             const auto contentSize = content->size();
             const auto contentPosition = content->absolute_position();
-            const auto transportSize = transport->size();
-            const auto transportPosition = transport->absolute_position();
             ok = check(contentSize.width > 320, "content pane keeps a usable width") && ok;
             ok = check(contentPosition.x + contentSize.width <= size.width + 1,
                        "content pane stays inside the window") && ok;
-            ok = check(transportPosition.y + transportSize.height <= size.height + 1,
-                       "transport stays above the bottom edge") && ok;
+            if (transport.has_value()) {
+                const auto transportSize = transport->size();
+                const auto transportPosition = transport->absolute_position();
+                ok = check(transportSize.height > 0, "transport has a visible height") && ok;
+                ok = check(transportPosition.y + transportSize.height <= size.height + 1,
+                           "transport stays above the bottom edge") && ok;
+            }
 
             if (size.inspector) {
                 ok = check(inspector.has_value(), "inspector exists for a selected session") && ok;
@@ -123,9 +126,12 @@ int main() {
                                "notebook never renders under the inspector") && ok;
                     ok = check(inspectorPosition.x + inspectorSize.width <= size.width + 1,
                                "inspector stays inside the window") && ok;
-                    ok = check(inspectorPosition.y + inspectorSize.height <=
-                                   transportPosition.y + 1,
-                               "inspector stays above the transport") && ok;
+                    if (transport.has_value()) {
+                        const auto transportPosition = transport->absolute_position();
+                        ok = check(inspectorPosition.y + inspectorSize.height <=
+                                       transportPosition.y + 1,
+                                   "inspector stays above the transport") && ok;
+                    }
                 }
             } else {
                 ok = check(!inspector.has_value(), "inspector collapses on narrow windows") && ok;

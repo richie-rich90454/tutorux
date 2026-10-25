@@ -11,6 +11,7 @@ export component SessionInspector inherits Rectangle {
     in property <string> elapsed-label;
     in property <[string]> student-options: [];
     in property <[MarkerRow]> markers: [];
+    in-out property <string> selected-marker;
     in-out property <string> marker-time;
     in-out property <string> marker-note;
     in-out property <string> marker-kind: "Concept";
@@ -19,6 +20,8 @@ export component SessionInspector inherits Rectangle {
     callback open-recording();
     callback play-marker(int);
     callback mark(string);
+    callback edit-marker(string, string, string);
+    callback remove-marker(string);
 
     pure function marker-type() -> string {
         if root.marker-kind == "Mistake" { return "student-mistake"; }
@@ -53,7 +56,7 @@ export component SessionInspector inherits Rectangle {
         height: 100%;
         content-width: self.visible-width;
         content-height: max(self.visible-height, body.preferred-height);
-        vertical-scrollbar-policy: ScrollBarPolicy.always-off;
+        vertical-scrollbar-policy: as-needed;
 
         body := VerticalLayout {
             width: parent.visible-width;
@@ -249,7 +252,12 @@ export component SessionInspector inherits Rectangle {
                 height: 30px;
                 spacing: 10px;
                 marker-touch := TouchArea {
-                    clicked => { root.play-marker(marker.start-seconds); }
+                    clicked => {
+                        root.selected-marker = marker.id;
+                        root.marker-time = marker.time;
+                        root.marker-note = marker.label;
+                        root.play-marker(marker.start-seconds);
+                    }
                 }
                 Text {
                     text: marker.time;
@@ -264,6 +272,27 @@ export component SessionInspector inherits Rectangle {
                     vertical-alignment: center;
                     overflow: elide;
                     horizontal-stretch: 1;
+                }
+            }
+
+            if root.markers.length > 0 : HorizontalLayout {
+                spacing: 8px;
+                Button {
+                    text: "Save marker";
+                    enabled: root.selected-marker != "";
+                    clicked => {
+                        root.edit-marker(root.selected-marker, root.marker-time, root.marker-note);
+                        root.selected-marker = "";
+                    }
+                }
+                Button {
+                    text: "Remove";
+                    variant: "danger";
+                    enabled: root.selected-marker != "";
+                    clicked => {
+                        root.remove-marker(root.selected-marker);
+                        root.selected-marker = "";
+                    }
                 }
             }
         }

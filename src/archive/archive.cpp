@@ -3365,7 +3365,10 @@ core::Result<VerificationReport> Archive::verify(bool full) const {
                        record.type == RecordType::EvidenceNode || record.type == RecordType::Guide) {
                 checkSessionReference(record);
             }
-            if (record.type == RecordType::AssetMetadata) {
+            const std::string metadataRole = domain::getField(record, "record_role");
+            const bool internalAudioMetadata = metadataRole == "audio-track" ||
+                                               metadataRole == "recording-take";
+            if (record.type == RecordType::AssetMetadata && !internalAudioMetadata) {
                 auto blobId = uuidFromString(domain::getField(record, "blob_id"));
                 auto blob = blobId ? get(RecordType::AssetBlob, *blobId)
                                    : Result<std::optional<Record>>(std::unexpected(core::error("id_invalid", "Invalid asset blob ID.")));
@@ -4135,10 +4138,16 @@ core::Status Archive::repairCopy(const std::filesystem::path& source, const std:
 
 core::Status Archive::compact() {
     std::lock_guard lock(*mutex_);
-    return rewrite(encryptionEnabled_, encryptionEnvelope_, dataKey_ ? &*dataKey_ : nullptr);
+    return rewrite(encryptionEnabled_, encryptionEnvelope_, dataKey_ ? &*dataKey_ : nullptr, false);
 }
 
-core::Status Archive::rewrite(bool encrypted, std::optional<EncryptionEnvelope> envelope, const SecretKey* key) {
+core::Status Archive::purgeDeleted() {
+    std::lock_guard lock(*mutex_);
+    return rewrite(encryptionEnabled_, encryptionEnvelope_, dataKey_ ? &*dataKey_ : nullptr, true);
+}
+
+core::Status Archive::rewrite(bool encrypted, std::optional<EncryptionEnvelope> envelope,
+                              const SecretKey* key, bool purgeDeletedRecords) {
     if (!writable())
         return std::unexpected(core::error("archive_read_only", "Archive must be opened for writing to compact."));
     if (encrypted && (!envelope || !key || !*key)) {
@@ -4258,6 +4267,11 @@ core::Status Archive::rewrite(bool encrypted, std::optional<EncryptionEnvelope> 
             return std::unexpected(latest.error());
         }
         Record current = std::move(*latest);
+        const std::string metadataRole = domain::getField(current, "record_role");
+        if (purgeDeletedRecords && domain::isDeleted(current))
+            continue;
+        if (metadataRole == "audio-track" || metadataRole == "recording-take")
+            continue;
         while (true) {
             auto blobId = uuidFromString(domain::getField(current, "blob_id"));
             if (!blobId) {
@@ -4352,6 +4366,8 @@ core::Status Archive::rewrite(bool encrypted, std::optional<EncryptionEnvelope> 
         if (latest->type == RecordType::AssetBlob && !retainedAssetBlobIds.contains(uuidToString(latest->id)))
             continue;
         if (latest->type == RecordType::Encryption)
+            continue;
+        if (purgeDeletedRecords && domain::isDeleted(*latest))
             continue;
         std::vector<Record> revisions;
         Record current = std::move(*latest);

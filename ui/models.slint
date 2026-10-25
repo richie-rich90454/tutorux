@@ -38,3 +38,23 @@ export struct MarkerRow {
     label: string,
     start-seconds: int,
 }
+
+export struct WaveformBucketRow {
+    position: float,
+    width: float,
+    start-seconds: float,
+    end-seconds: float,
+    minimum: float,
+    maximum: float,
+    contains-gap: bool,
+}
+
+export struct TrashRow {
+    id: string,
+    type-key: string,
+    type-label: string,
+    title: string,
+    detail: string,
+    deleted-at: string,
+    restores-group: bool,
+}

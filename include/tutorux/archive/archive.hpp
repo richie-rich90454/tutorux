@@ -137,6 +137,7 @@ class Archive final {
     static core::Status repairCopy(const std::filesystem::path& source, const std::filesystem::path& destination,
                                    std::string_view passphrase = {}, RepairReport* report = nullptr);
     core::Status compact();
+    core::Status purgeDeleted();
     core::Status enableEncryption(std::string_view passphrase);
     core::Status changePassphrase(std::string_view passphrase);
 
@@ -166,7 +167,8 @@ class Archive final {
     core::Status verifyIndexAuthentication() const;
     core::Status verifyCommitAuthentication(const CommitInfo& commit) const;
     core::Status verifyCommitChain(bool full) const;
-    core::Status rewrite(bool encrypted, std::optional<EncryptionEnvelope> envelope, const SecretKey* key);
+    core::Status rewrite(bool encrypted, std::optional<EncryptionEnvelope> envelope,
+                         const SecretKey* key, bool purgeDeletedRecords = false);
     core::Result<Record> encryptionMetadata() const;
     core::Status writeEncryptionMetadata(const EncryptionEnvelope& envelope);
     core::Status putManyInternal(std::vector<Record> records, bool invalidateGuides);

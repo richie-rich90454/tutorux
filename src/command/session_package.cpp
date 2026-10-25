@@ -29,7 +29,7 @@ namespace {
         if (record.type != RecordType::AssetMetadata)
             return false;
         const std::string role = domain::getField(record, "record_role");
-        return role == "audio-track" || role == "waveform-pyramid" ||
+        return role == "audio-track" || role == "recording-take" || role == "waveform-pyramid" ||
                role == "sparse-timestamp-seek-index" || role == "asset-blob-manifest" ||
                role == "asset-blob-chunk";
     }

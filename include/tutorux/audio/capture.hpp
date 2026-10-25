@@ -83,6 +83,8 @@ struct CaptureOptions final {
     std::string consentConfirmedBy{"not-specified"};
     std::optional<std::chrono::milliseconds> maximumDuration;
     std::optional<archive::Uuid> trackId;
+    // Shared by all tracks in one take. Empty means captureNative creates one.
+    std::optional<archive::Uuid> takeId;
     std::function<bool()> waitForSynchronizedStart;
     std::function<bool()> stopRequested;
     std::function<bool()> pauseRequested;
@@ -128,6 +130,10 @@ struct MultiTrackCaptureSummary final {
 };
 
 core::Result<CaptureSummary> captureNative(archive::Archive& archive, const archive::Uuid& sessionId, CaptureOptions options);
+
+// Returns the most recent normalized peak across active capture tracks for this session.
+// The value is process-local telemetry and is never persisted into the archive.
+double activeCapturePeak(const archive::Uuid& sessionId) noexcept;
 core::Result<MultiTrackCaptureSummary> captureNativeTracks(archive::Archive& archive, const archive::Uuid& sessionId,
                                                            CaptureOptions microphone, CaptureOptions systemAudio);
 core::Result<CaptureDeviceProbe> probeCaptureDevice(DeviceKind source, std::string deviceId);

@@ -12,6 +12,7 @@
 #include "tutorux/audio/capture.hpp"
 #include "tutorux/audio/devices.hpp"
 #include "tutorux/audio/recording_control.hpp"
+#include "tutorux/audio/recording_take.hpp"
 #include "tutorux/audio/playback.hpp"
 #include "tutorux/audio/wav_import.hpp"
 #include "tutorux/audio/wav_export.hpp"
@@ -694,7 +695,9 @@ namespace {
 
     bool isInternalAssetMetadata(const Record& record) {
         const std::string role = domain::getField(record, "record_role");
-        return role == "audio-track" || role == "waveform-pyramid" || role == "sparse-timestamp-seek-index";
+        return role == "audio-track" || role == "recording-take" || role == "waveform-pyramid" ||
+               role == "sparse-timestamp-seek-index" || role == "asset-blob-manifest" ||
+               role == "asset-blob-chunk";
     }
 
     std::string recordText(const Record& record) {
@@ -1811,7 +1814,7 @@ namespace {
             return failed(options.error());
 
         const bool writable = action == "create" || action == "update" || action == "delete" || action == "add-block" ||
-                              action == "remove-block" || action == "move-block";
+                              action == "remove-block" || action == "restore-block" || action == "move-block";
         if (hasFlag(*options, "clear-date") && !(resource == "entry" && action == "update")) {
             return failed(core::error("journal_date_option_invalid", "--clear-date is only valid with 'journal entry update'."));
         }
@@ -2329,6 +2332,7 @@ namespace {
                                               "the entry."));
                 }
                 record->fields["_deleted"] = "true";
+                record->fields["_trash_group_id"] = entryId;
                 std::vector<Record> deletion{*record};
                 if (!entry.notesDocumentId.empty()) {
                     auto document = getRoleRecord(entry.notesDocumentId, "journal-notes", "Journal notes document");
@@ -2338,6 +2342,7 @@ namespace {
                                                       "The entry's notes document points to a different journal entry."));
                         }
                         document->fields["_deleted"] = "true";
+                        document->fields["_trash_group_id"] = entryId;
                         deletion.push_back(std::move(*document));
                     } else if (document.error().code != "journal_record_not_found") {
                         return failed(document.error());
@@ -2380,7 +2385,8 @@ namespace {
         }
 
         if (resource == "document" &&
-            (action == "show" || action == "update" || action == "add-block" || action == "remove-block" || action == "move-block")) {
+            (action == "show" || action == "update" || action == "add-block" || action == "remove-block" ||
+             action == "restore-block" || action == "move-block")) {
             auto idValue = requiredPositional(*options, 0, "Notes document ID");
             if (!idValue)
                 return failed(idValue.error());
@@ -2408,6 +2414,60 @@ namespace {
             auto document = domain::journalNotesDocumentFromRecord(**loaded);
             if (!document)
                 return failed(document.error());
+            struct RemovedNoteBlock final {
+                std::string id;
+                std::string kind;
+                std::string text;
+                std::size_t index{};
+            };
+            std::vector<RemovedNoteBlock> removedBlocks;
+            const auto removedCountText = domain::getField(**loaded, "removed_block_count");
+            if (!removedCountText.empty()) {
+                std::size_t removedCount{};
+                const auto [end, errorCode] = std::from_chars(removedCountText.data(),
+                                                              removedCountText.data() + removedCountText.size(),
+                                                              removedCount);
+                if (errorCode == std::errc{} && end == removedCountText.data() + removedCountText.size() &&
+                    removedCount <= 256) {
+                    removedBlocks.reserve(removedCount);
+                    for (std::size_t index = 0; index < removedCount; ++index) {
+                        const auto prefix = "removed_block_" + std::to_string(index) + "_";
+                        const auto id = domain::getField(**loaded, prefix + "id");
+                        const auto kind = domain::getField(**loaded, prefix + "kind");
+                        const auto text = domain::getField(**loaded, prefix + "text");
+                        const auto indexText = domain::getField(**loaded, prefix + "index");
+                        std::size_t blockIndex{};
+                        const auto [indexEnd, indexError] = std::from_chars(indexText.data(),
+                                                                            indexText.data() + indexText.size(),
+                                                                            blockIndex);
+                        if (id.empty() || !domain::isValidJournalNoteBlockKind(kind) || indexError != std::errc{} ||
+                            indexEnd != indexText.data() + indexText.size()) {
+                            removedBlocks.clear();
+                            break;
+                        }
+                        removedBlocks.push_back({id, kind, text, blockIndex});
+                    }
+                    if (removedBlocks.size() != removedCount)
+                        removedBlocks.clear();
+                }
+            }
+            // Archives created before recovery stacks used a single snapshot. Treat it as
+            // the first stack entry so users can still restore it after reopening.
+            if (removedBlocks.empty()) {
+                const auto legacyId = domain::getField(**loaded, "last_removed_block_id");
+                const auto legacyKind = domain::getField(**loaded, "last_removed_block_kind");
+                const auto legacyText = domain::getField(**loaded, "last_removed_block_text");
+                const auto legacyIndexText = domain::getField(**loaded, "last_removed_block_index");
+                std::size_t legacyIndex{};
+                const auto [legacyEnd, legacyError] = std::from_chars(legacyIndexText.data(),
+                                                                       legacyIndexText.data() + legacyIndexText.size(),
+                                                                       legacyIndex);
+                if (!legacyId.empty() && domain::isValidJournalNoteBlockKind(legacyKind) &&
+                    legacyError == std::errc{} && legacyEnd == legacyIndexText.data() + legacyIndexText.size())
+                    removedBlocks.push_back({legacyId, legacyKind, legacyText, legacyIndex});
+            }
+            std::optional<domain::JournalNoteBlock> removedBlock;
+            std::size_t removedBlockIndex{};
             if (action == "show") {
                 std::string text;
                 std::vector<JsonObject> blocks;
@@ -2455,6 +2515,9 @@ namespace {
                 document->blocks.insert(document->blocks.begin() + static_cast<std::ptrdiff_t>(index),
                                         {uuid(archive::randomUuid()), *kind, *text});
             } else if (action == "remove-block") {
+                if (removedBlocks.size() >= 256)
+                    return failed(core::error("journal_block_recovery_limit",
+                                              "Restore or permanently clear a removed block before deleting more."));
                 auto blockId = requiredOption(*options, "block-id");
                 if (!blockId)
                     return failed(blockId.error());
@@ -2464,7 +2527,23 @@ namespace {
                     });
                 if (block == document->blocks.end())
                     return failed(core::error("journal_block_not_found", "Note block was not found."));
+                removedBlock = *block;
+                removedBlockIndex = static_cast<std::size_t>(std::distance(document->blocks.begin(), block));
+                removedBlocks.push_back({removedBlock->id, removedBlock->kind, removedBlock->text, removedBlockIndex});
                 document->blocks.erase(block);
+            } else if (action == "restore-block") {
+                auto blockId = requiredOption(*options, "block-id");
+                if (!blockId)
+                    return failed(blockId.error());
+                if (removedBlocks.empty() || *blockId != removedBlocks.back().id)
+                    return failed(core::error("journal_block_restore_unavailable",
+                                              "Restore removed note blocks in reverse order."));
+                auto savedBlock = std::move(removedBlocks.back());
+                removedBlocks.pop_back();
+                auto index = savedBlock.index;
+                index = std::min(index, document->blocks.size());
+                document->blocks.insert(document->blocks.begin() + static_cast<std::ptrdiff_t>(index),
+                                        {savedBlock.id, savedBlock.kind, savedBlock.text});
             } else if (action == "move-block") {
                 auto fromValue = requiredOption(*options, "from");
                 auto toValue = requiredOption(*options, "to");
@@ -2506,7 +2585,40 @@ namespace {
             } else {
                 return failed(core::error("journal_document_update_required", "Provide --text TEXT, optionally with --block-id ID."));
             }
+            auto recoveryFields = (**loaded).fields;
             (**loaded).fields = domain::toRecord(*document).fields;
+            for (const auto& [key, value] : recoveryFields) {
+                if (key == "removed_block_count" || key.starts_with("removed_block_") ||
+                    key == "last_removed_block_id" || key == "last_removed_block_kind" ||
+                    key == "last_removed_block_text" || key == "last_removed_block_index")
+                    (**loaded).fields[key] = value;
+            }
+            if (removedBlock)
+                removedBlocks.back() = {removedBlock->id, removedBlock->kind, removedBlock->text, removedBlockIndex};
+            // Rewrite the compact stack after remove/restore. The legacy fields remain a
+            // read-compatible mirror of the newest item for older desktop builds.
+            std::erase_if((**loaded).fields, [](const auto& item) {
+                return item.first.starts_with("removed_block_");
+            });
+            (**loaded).fields["removed_block_count"] = std::to_string(removedBlocks.size());
+            for (std::size_t index = 0; index < removedBlocks.size(); ++index) {
+                const auto prefix = "removed_block_" + std::to_string(index) + "_";
+                (**loaded).fields[prefix + "id"] = removedBlocks[index].id;
+                (**loaded).fields[prefix + "kind"] = removedBlocks[index].kind;
+                (**loaded).fields[prefix + "text"] = removedBlocks[index].text;
+                (**loaded).fields[prefix + "index"] = std::to_string(removedBlocks[index].index);
+            }
+            if (removedBlocks.empty()) {
+                for (const auto key : {"last_removed_block_id", "last_removed_block_kind",
+                                       "last_removed_block_text", "last_removed_block_index"})
+                    (**loaded).fields.erase(key);
+            } else {
+                const auto& newest = removedBlocks.back();
+                (**loaded).fields["last_removed_block_id"] = newest.id;
+                (**loaded).fields["last_removed_block_kind"] = newest.kind;
+                (**loaded).fields["last_removed_block_text"] = newest.text;
+                (**loaded).fields["last_removed_block_index"] = std::to_string(newest.index);
+            }
             (**loaded).fields["updated_at_us"] = std::to_string(nowUnixMicroseconds());
             if (auto status = archive->put(**loaded); !status)
                 return failed(status.error());
@@ -2621,6 +2733,8 @@ namespace {
                         std::erase(ids, id);
                         if (ids.size() != oldSize) {
                             entryRecord.fields[isCollection ? "collection_ids" : "tag_ids"] = join(ids, ",");
+                            entryRecord.fields[isCollection ? "_trash_restore_collection_refs" :
+                                                             "_trash_restore_tag_refs"] = id;
                             entryRecord.fields["updated_at_us"] = std::to_string(nowUnixMicroseconds());
                             transaction.push_back(std::move(entryRecord));
                         }
@@ -3435,6 +3549,7 @@ namespace {
                             continue;
                         }
                         record.fields["_deleted"] = "true";
+                        record.fields["_trash_group_id"] = sessionIdText;
                         record.fields["updated_at_us"] = std::to_string(nowUnixMicroseconds());
                         target.push_back(std::move(record));
                     }
@@ -3446,6 +3561,7 @@ namespace {
                                                                  if (domain::isDeleted(chunk))
                                                                      return true;
                                                                  chunk.fields["_deleted"] = "true";
+                                                                 chunk.fields["_trash_group_id"] = sessionIdText;
                                                                  chunk.fields["updated_at_us"] = std::to_string(nowUnixMicroseconds());
                                                                  audioChunks.push_back(std::move(chunk));
                                                                  return true;
@@ -3474,6 +3590,7 @@ namespace {
                         continue;
                     }
                     record.fields["_deleted"] = "true";
+                    record.fields["_trash_group_id"] = sessionIdText;
                     record.fields["updated_at_us"] = std::to_string(nowUnixMicroseconds());
                     deletedSessionNotes.push_back(std::move(record));
                 }
@@ -3493,6 +3610,7 @@ namespace {
                                                      removedRecordIds.contains(domain::getField(edge, "from_id")) ||
                                                      removedRecordIds.contains(domain::getField(edge, "to_id")))) {
                         edge.fields["_deleted"] = "true";
+                        edge.fields["_trash_group_id"] = sessionIdText;
                         edge.fields["updated_at_us"] = std::to_string(nowUnixMicroseconds());
                         deletionRecords.push_back(std::move(edge));
                     }
@@ -3591,11 +3709,16 @@ namespace {
                 for (auto& entryRecord : *entries) {
                     if (domain::getField(entryRecord, "record_role") != "journal-entry" || domain::isDeleted(entryRecord))
                         continue;
-                    const auto removeReferences = [&](std::string_view field, const std::set<std::string, std::less<>>& ids) {
+                    const auto removeReferences = [&](std::string_view field,
+                                                      const std::set<std::string, std::less<>>& ids,
+                                                      std::vector<std::string>& restoreIds) {
                         auto references = splitCommaList(domain::getField(entryRecord, field));
                         const auto before = references.size();
                         std::erase_if(references, [&](const std::string& reference) {
-                            return reference == sessionIdText || ids.contains(reference);
+                            const bool remove = reference == sessionIdText || ids.contains(reference);
+                            if (remove)
+                                restoreIds.push_back(reference);
+                            return remove;
                         });
                         if (before != references.size()) {
                             entryRecord.fields[std::string(field)] = join(references, ",");
@@ -3603,10 +3726,20 @@ namespace {
                         }
                         return false;
                     };
-                    bool changed = removeReferences("session_ids", {});
-                    changed = removeReferences("study_guide_ids", removedGuideIds) || changed;
-                    changed = removeReferences("attachment_ids", removedAssetIds) || changed;
+                    std::vector<std::string> restoreSessionIds;
+                    std::vector<std::string> restoreGuideIds;
+                    std::vector<std::string> restoreAssetIds;
+                    bool changed = removeReferences("session_ids", {}, restoreSessionIds);
+                    changed = removeReferences("study_guide_ids", removedGuideIds, restoreGuideIds) || changed;
+                    changed = removeReferences("attachment_ids", removedAssetIds, restoreAssetIds) || changed;
                     if (changed) {
+                        entryRecord.fields["_trash_session_group_id"] = sessionIdText;
+                        if (!restoreSessionIds.empty())
+                            entryRecord.fields["_trash_restore_session_refs"] = join(restoreSessionIds, ",");
+                        if (!restoreGuideIds.empty())
+                            entryRecord.fields["_trash_restore_guide_refs"] = join(restoreGuideIds, ",");
+                        if (!restoreAssetIds.empty())
+                            entryRecord.fields["_trash_restore_asset_refs"] = join(restoreAssetIds, ",");
                         entryRecord.fields["updated_at_us"] = std::to_string(nowUnixMicroseconds());
                         updatedEntries.push_back(std::move(entryRecord));
                     }
@@ -3691,6 +3824,7 @@ namespace {
                 deletionRecords.insert(deletionRecords.end(), std::make_move_iterator(updatedEntries.begin()),
                                        std::make_move_iterator(updatedEntries.end()));
                 session->fields["_deleted"] = "true";
+                session->fields["_trash_group_id"] = sessionIdText;
                 session->fields["updated_at_us"] = std::to_string(nowUnixMicroseconds());
                 deletionRecords.push_back(*session);
                 if (auto status = archive->putMany(std::move(deletionRecords)); !status)
@@ -4679,7 +4813,8 @@ namespace {
         auto options = commandOptions(arguments, 2);
         if (!options)
             return failed(options.error());
-        const bool writable = action == "add" || action == "import-folder" || action == "remove" || action == "link" || action == "unlink";
+        const bool writable = action == "add" || action == "import-folder" || action == "remove" ||
+                              action == "restore" || action == "link" || action == "unlink";
         auto archive = openArchive(context, "asset", action, writable);
         if (!archive)
             return failed(archive.error());
@@ -4798,15 +4933,39 @@ namespace {
                 output << "No assets found.\n";
             return result(output.str(), false);
         }
-        if (action == "show" || action == "preview" || action == "verify" || action == "extract" || action == "remove") {
+        if (action == "show" || action == "preview" || action == "verify" || action == "extract" ||
+            action == "remove" || action == "restore") {
             auto idValue = requiredPositional(*options, 0, "Asset ID");
             if (!idValue)
                 return failed(idValue.error());
-            auto asset = getRequiredRecord(*archive, RecordType::AssetMetadata, *idValue, "Asset");
-            if (!asset)
-                return failed(asset.error());
+            std::optional<Record> assetRecord;
+            if (action == "restore") {
+                auto assetId = parseId(*idValue);
+                if (!assetId)
+                    return failed(assetId.error());
+                auto loaded = archive->get(RecordType::AssetMetadata, *assetId);
+                if (!loaded)
+                    return failed(loaded.error());
+                if (!*loaded || !domain::isDeleted(**loaded))
+                    return failed(core::error("asset_restore_unavailable", "Asset is not in Trash."));
+                assetRecord = std::move(**loaded);
+            } else {
+                auto loaded = getRequiredRecord(*archive, RecordType::AssetMetadata, *idValue, "Asset");
+                if (!loaded)
+                    return failed(loaded.error());
+                assetRecord = std::move(*loaded);
+            }
+            auto& asset = assetRecord;
             if (action == "show" || action == "preview")
                 return result(context.json ? toJson(recordObject(*asset)) : recordText(*asset), context.json);
+            if (action == "restore") {
+                asset->fields.erase("_deleted");
+                asset->fields["restored_at_us"] = std::to_string(nowUnixMicroseconds());
+                if (auto status = archive->put(*asset); !status)
+                    return failed(status.error());
+                return result(context.json ? toJson(recordObject(*asset)) : "Asset restored from Trash.\n",
+                              context.json);
+            }
             auto blobId = parseId(domain::getField(*asset, "blob_id"));
             if (!blobId)
                 return failed(blobId.error());
@@ -5674,7 +5833,9 @@ namespace {
         auto options = commandOptions(arguments, 2);
         if (!options)
             return failed(options.error());
-        const bool writable = action == "extract" || action == "approve" || action == "reject" || action == "link";
+        const bool writable = action == "extract" || action == "create" || action == "update" ||
+                              action == "delete" || action == "restore" || action == "approve" ||
+                              action == "reject" || action == "link" || action == "unlink";
         auto archive = openArchive(context, "evidence", action, writable);
         if (!archive)
             return failed(archive.error());
@@ -5877,6 +6038,56 @@ namespace {
                 output << "  " << pair.at("first_evidence_id") << " contradicts " << pair.at("second_evidence_id") << "\n";
             return result(output.str(), false);
         }
+        if (action == "create") {
+            auto sessionValue = requiredOption(*options, "session");
+            auto type = requiredOption(*options, "type");
+            auto title = requiredOption(*options, "title");
+            auto content = requiredOption(*options, "content");
+            auto sourceSegmentValue = requiredOption(*options, "source-segment");
+            if (!sessionValue) return failed(sessionValue.error());
+            if (!type) return failed(type.error());
+            if (!title) return failed(title.error());
+            if (!content) return failed(content.error());
+            if (!sourceSegmentValue) return failed(sourceSegmentValue.error());
+            if (auto status = ensureSession(*archive, *sessionValue); !status)
+                return failed(status.error());
+            if (title->empty() || content->empty())
+                return failed(core::error("evidence_content_required", "Evidence needs a title and content."));
+            auto session = getRequiredRecord(*archive, RecordType::Session, *sessionValue, "Session");
+            if (!session) return failed(session.error());
+            auto sourceSegmentId = parseId(*sourceSegmentValue);
+            if (!sourceSegmentId) return failed(sourceSegmentId.error());
+            auto sourceSegment = archive->get(RecordType::TranscriptSegment, *sourceSegmentId);
+            if (!sourceSegment) return failed(sourceSegment.error());
+            if (!*sourceSegment || domain::isDeleted(**sourceSegment) ||
+                domain::getField(**sourceSegment, "session_id") != *sessionValue)
+                return failed(core::error("evidence_source_invalid", "Choose a transcript segment from the selected session."));
+            Record node;
+            node.type = RecordType::EvidenceNode;
+            node.id = archive::randomUuid();
+            node.fields = {
+                {"session_id", *sessionValue},
+                {"student_id", domain::getField(*session, "student_id")},
+                {"type", normalize(*type)},
+                {"title", *title},
+                {"content", *content},
+                {"priority", optionOr(*options, "priority", "normal")},
+                {"origin", "tutor-authored"},
+                {"source_annotation_id", ""},
+                {"source_segment_ids", *sourceSegmentValue},
+                {"source_segment_revision", std::to_string((**sourceSegment).revision)},
+                {"source_segment_revisions", *sourceSegmentValue + "=" + std::to_string((**sourceSegment).revision)},
+                {"source_asset_ids", ""},
+                {"source_speaker_label", domain::getField(**sourceSegment, "speaker_label")},
+                {"start_time_us", domain::getField(**sourceSegment, "start_time_us", "0")},
+                {"end_time_us", domain::getField(**sourceSegment, "end_time_us", "0")},
+                {"verification_state", "needs-review"},
+                {"created_at_us", std::to_string(nowUnixMicroseconds())}
+            };
+            if (auto status = archive->put(node); !status)
+                return failed(status.error());
+            return result(context.json ? toJson(recordObject(node)) : "Evidence created and added to review.\n", context.json);
+        }
         if (action == "list" || action == "review") {
             auto nodes = archive->list(RecordType::EvidenceNode, hasFlag(*options, "include-deleted"));
             if (!nodes)
@@ -5901,28 +6112,127 @@ namespace {
                 output << (action == "review" ? "No evidence needs review.\n" : "No evidence found.\n");
             return result(output.str(), false);
         }
-        if (action == "show" || action == "approve" || action == "reject" || action == "verify") {
+        if (action == "edges") {
+            auto sessionValue = requiredOption(*options, "session");
+            if (!sessionValue) return failed(sessionValue.error());
+            if (auto status = ensureSession(*archive, *sessionValue); !status)
+                return failed(status.error());
+            auto nodes = archive->list(RecordType::EvidenceNode);
+            auto edges = archive->list(RecordType::EvidenceEdge);
+            if (!nodes || !edges)
+                return failed(core::error("evidence_graph_unavailable", "Unable to load evidence relationships."));
+            std::set<std::string, std::less<>> nodeIds;
+            std::map<std::string, std::string, std::less<>> nodeTitles;
+            for (const auto& node : *nodes)
+                if (!domain::isDeleted(node) && domain::getField(node, "session_id") == *sessionValue) {
+                    const std::string nodeId = uuid(node.id);
+                    nodeIds.insert(nodeId);
+                    const std::string title = domain::getField(node, "title");
+                    nodeTitles[nodeId] = title.empty() ? domain::getField(node, "type", "Evidence") : title;
+                }
+            std::vector<JsonObject> rows;
+            for (const auto& edge : *edges) {
+                if (domain::isDeleted(edge) || !nodeIds.contains(domain::getField(edge, "from_id")) ||
+                    !nodeIds.contains(domain::getField(edge, "to_id")))
+                    continue;
+                JsonObject row = recordObject(edge);
+                row["from_title"] = nodeTitles[domain::getField(edge, "from_id")];
+                row["to_title"] = nodeTitles[domain::getField(edge, "to_id")];
+                rows.push_back(std::move(row));
+            }
+            return result(context.json ? toJsonArray(rows) :
+                (rows.empty() ? "No evidence relationships in this session.\n" :
+                 "Evidence relationships are available in JSON output.\n"), context.json);
+        }
+        if (action == "show" || action == "update" || action == "delete" || action == "restore" ||
+            action == "approve" || action == "reject" || action == "verify") {
             auto idValue = requiredPositional(*options, 0, "Evidence ID");
             if (!idValue)
                 return failed(idValue.error());
-            auto node = getRequiredRecord(*archive, RecordType::EvidenceNode, *idValue, "Evidence node");
-            if (!node)
-                return failed(node.error());
+            auto parsedId = parseId(*idValue);
+            if (!parsedId) return failed(parsedId.error());
+            auto loadedNode = archive->get(RecordType::EvidenceNode, *parsedId);
+            if (!loadedNode) return failed(loadedNode.error());
+            if (!*loadedNode || (domain::isDeleted(**loadedNode) && action != "restore"))
+                return failed(core::error("evidence_node_missing", "Evidence node was not found."));
+            if (action == "restore" && !domain::isDeleted(**loadedNode))
+                return failed(core::error("evidence_restore_unavailable", "Evidence node is not in Trash."));
+            auto node = std::move(**loadedNode);
             if (action == "show")
-                return result(context.json ? toJson(recordObject(*node)) : recordText(*node), context.json);
+                return result(context.json ? toJson(recordObject(node)) : recordText(node), context.json);
+            if (action == "restore") {
+                node.fields.erase("_deleted");
+                node.fields.erase("_trash_group_id");
+                node.fields["restored_at_us"] = std::to_string(nowUnixMicroseconds());
+                std::vector<Record> transaction{node};
+                auto edges = archive->list(RecordType::EvidenceEdge, true);
+                if (!edges) return failed(edges.error());
+                for (auto& edge : *edges) {
+                    if (domain::isDeleted(edge) && domain::getField(edge, "_trash_group_id") == *idValue) {
+                        edge.fields.erase("_deleted");
+                        edge.fields.erase("_trash_group_id");
+                        edge.fields["restored_at_us"] = std::to_string(nowUnixMicroseconds());
+                        transaction.push_back(std::move(edge));
+                    }
+                }
+                if (auto status = archive->putMany(std::move(transaction)); !status)
+                    return failed(status.error());
+                return result(context.json ? toJson(recordObject(node)) : "Evidence and its relationships restored.\n", context.json);
+            }
+            if (action == "update") {
+                const auto title = option(*options, "title");
+                const auto content = option(*options, "content");
+                const auto type = option(*options, "type");
+                const auto priority = option(*options, "priority");
+                if (!title && !content && !type && !priority)
+                    return failed(core::error("evidence_update_required", "Provide at least one evidence field to update."));
+                if (title) {
+                    if (title->empty()) return failed(core::error("evidence_title_required", "Evidence title cannot be empty."));
+                    node.fields["title"] = *title;
+                }
+                if (content) {
+                    if (content->empty()) return failed(core::error("evidence_content_required", "Evidence content cannot be empty."));
+                    node.fields["content"] = *content;
+                }
+                if (type) node.fields["type"] = normalize(*type);
+                if (priority) node.fields["priority"] = *priority;
+                node.fields["verification_state"] = "needs-review";
+                node.fields["reviewed_at_us"] = "";
+                node.fields["updated_at_us"] = std::to_string(nowUnixMicroseconds());
+                if (auto status = archive->put(node); !status) return failed(status.error());
+                return result(context.json ? toJson(recordObject(node)) : "Evidence updated and returned to review.\n", context.json);
+            }
+            if (action == "delete") {
+                node.fields["_deleted"] = "true";
+                node.fields["_trash_group_id"] = *idValue;
+                node.fields["deleted_at_us"] = std::to_string(nowUnixMicroseconds());
+                std::vector<Record> transaction{node};
+                auto edges = archive->list(RecordType::EvidenceEdge);
+                if (!edges) return failed(edges.error());
+                for (auto& edge : *edges) {
+                    if (domain::getField(edge, "from_id") == *idValue || domain::getField(edge, "to_id") == *idValue) {
+                        edge.fields["_deleted"] = "true";
+                        edge.fields["_trash_group_id"] = *idValue;
+                        edge.fields["deleted_at_us"] = std::to_string(nowUnixMicroseconds());
+                        transaction.push_back(std::move(edge));
+                    }
+                }
+                if (auto status = archive->putMany(std::move(transaction)); !status) return failed(status.error());
+                return result(context.json ? toJson(recordObject(node)) : "Evidence moved to Trash with its relationships.\n", context.json);
+            }
             if (action == "approve") {
-                auto sourcesValid = validateEvidenceReferences(*archive, *node);
+                auto sourcesValid = validateEvidenceReferences(*archive, node);
                 if (!sourcesValid)
                     return failed(sourcesValid.error());
                 if (!*sourcesValid)
                     return failed(core::error("evidence_source_invalid",
                                               "Evidence cannot be approved because its sources are missing, stale, or cross-session."));
-                node->fields["verification_state"] = "human-verified";
+                node.fields["verification_state"] = "human-verified";
             }
             if (action == "reject")
-                node->fields["verification_state"] = "rejected";
+                node.fields["verification_state"] = "rejected";
             if (action == "verify") {
-                auto sourceCheck = validateEvidenceReferences(*archive, *node);
+                auto sourceCheck = validateEvidenceReferences(*archive, node);
                 if (!sourceCheck)
                     return failed(sourceCheck.error());
                 const bool valid = *sourceCheck;
@@ -5934,10 +6244,10 @@ namespace {
                                            : (valid ? "Evidence source reference is valid.\n" : "Evidence source reference is missing.\n"),
                               context.json, valid ? 0 : 2);
             }
-            node->fields["reviewed_at_us"] = std::to_string(nowUnixMicroseconds());
-            if (auto status = archive->put(*node); !status)
+            node.fields["reviewed_at_us"] = std::to_string(nowUnixMicroseconds());
+            if (auto status = archive->put(node); !status)
                 return failed(status.error());
-            return result(context.json ? toJson(recordObject(*node)) : "Evidence marked " + action + ".\n", context.json);
+            return result(context.json ? toJson(recordObject(node)) : "Evidence marked " + action + ".\n", context.json);
         }
         if (action == "link") {
             auto fromValue = requiredOption(*options, "from");
@@ -5957,13 +6267,25 @@ namespace {
                 return failed(toId.error());
             auto from = archive->get(RecordType::EvidenceNode, *fromId);
             auto to = archive->get(RecordType::EvidenceNode, *toId);
-            if (!from || !to || !*from || !*to)
+            if (!from || !to || !*from || !*to || domain::isDeleted(**from) || domain::isDeleted(**to))
                 return failed(core::error("evidence_node_missing", "Both evidence nodes must exist."));
+            if (*fromId == *toId)
+                return failed(core::error("evidence_relationship_self_link", "An evidence item cannot be linked to itself."));
+            if (domain::getField(**from, "session_id") != domain::getField(**to, "session_id"))
+                return failed(core::error("evidence_relationship_session_mismatch", "Evidence relationships must stay within one session."));
             static constexpr std::array relationships{"explains",   "corrects",   "demonstrates", "supports",   "contradicts",
                                                       "references", "depends-on", "reinforces",   "recommends", "derived-from"};
             const auto normalizedRelationship = normalize(*relationship);
             if (std::find(relationships.begin(), relationships.end(), normalizedRelationship) == relationships.end())
                 return failed(core::error("evidence_relationship_invalid", "Unsupported evidence relationship."));
+            auto existingEdges = archive->list(RecordType::EvidenceEdge);
+            if (!existingEdges) return failed(existingEdges.error());
+            if (std::any_of(existingEdges->begin(), existingEdges->end(), [&](const Record& edge) {
+                    return domain::getField(edge, "from_id") == *fromValue &&
+                           domain::getField(edge, "to_id") == *toValue &&
+                           domain::getField(edge, "relationship") == normalizedRelationship;
+                }))
+                return failed(core::error("evidence_relationship_duplicate", "That evidence relationship already exists."));
             Record edge;
             edge.type = RecordType::EvidenceEdge;
             edge.id = archive::randomUuid();
@@ -5976,6 +6298,22 @@ namespace {
             if (auto status = archive->put(edge); !status)
                 return failed(status.error());
             return result(context.json ? toJson(recordObject(edge)) : "Evidence relationship created.\n", context.json);
+        }
+        if (action == "unlink") {
+            auto idValue = requiredPositional(*options, 0, "Evidence relationship ID");
+            if (!idValue) return failed(idValue.error());
+            auto edgeId = parseId(*idValue);
+            if (!edgeId) return failed(edgeId.error());
+            auto loaded = archive->get(RecordType::EvidenceEdge, *edgeId);
+            if (!loaded) return failed(loaded.error());
+            if (!*loaded || domain::isDeleted(**loaded))
+                return failed(core::error("evidence_relationship_missing", "Evidence relationship was not found."));
+            Record edge = std::move(**loaded);
+            edge.fields["_deleted"] = "true";
+            edge.fields["_trash_group_id"] = uuid(edge.id);
+            edge.fields["deleted_at_us"] = std::to_string(nowUnixMicroseconds());
+            if (auto status = archive->put(edge); !status) return failed(status.error());
+            return result(context.json ? toJson(recordObject(edge)) : "Evidence relationship moved to Trash.\n", context.json);
         }
         if (action == "approve")
             return failed(core::error("evidence_approval_requires_id", "Provide one evidence node ID to approve."));
@@ -7070,7 +7408,8 @@ namespace {
             return failed(options.error());
         const bool writable = action == "create" || action == "generate" || action == "edit" || action == "section" ||
                               action == "move-section" || action == "add-block" || action == "remove-block" || action == "move-block" ||
-                              action == "regenerate" || action == "approve";
+                              action == "regenerate" || action == "approve" || action == "delete" ||
+                              action == "duplicate";
         auto archive = openArchive(context, "guide", action, writable);
         if (!archive)
             return failed(archive.error());
@@ -7197,6 +7536,79 @@ namespace {
             if (guides->empty())
                 output << "No guides found.\n";
             return result(output.str(), false);
+        }
+        if (action == "delete") {
+            auto idValue = requiredPositional(*options, 0, "Guide ID");
+            if (!idValue)
+                return failed(idValue.error());
+            auto guideId = parseId(*idValue);
+            if (!guideId)
+                return failed(guideId.error());
+            auto guide = archive->get(RecordType::Guide, *guideId);
+            if (!guide)
+                return failed(guide.error());
+            if (!*guide || domain::isDeleted(**guide))
+                return failed(core::error("guide_not_found", "Guide was not found."));
+            Record trashedGuide = std::move(**guide);
+            const std::string guideIdText = uuid(trashedGuide.id);
+            trashedGuide.fields["_deleted"] = "true";
+            trashedGuide.fields["deleted_at_us"] = std::to_string(nowUnixMicroseconds());
+            trashedGuide.fields["_trash_group_id"] = guideIdText;
+            trashedGuide.fields["updated_at_us"] = std::to_string(nowUnixMicroseconds());
+            std::vector<Record> transaction{std::move(trashedGuide)};
+            const std::string entryIdText = domain::getField(transaction.front(), "entry_id");
+            if (!entryIdText.empty()) {
+                auto entryId = parseId(entryIdText);
+                if (!entryId)
+                    return failed(entryId.error());
+                auto entry = archive->get(RecordType::Settings, *entryId);
+                if (!entry)
+                    return failed(entry.error());
+                if (*entry && !domain::isDeleted(**entry) &&
+                    domain::getField(**entry, "record_role") == "journal-entry") {
+                    auto guideIds = splitCommaList(domain::getField(**entry, "study_guide_ids"));
+                    const auto found = std::find(guideIds.begin(), guideIds.end(), guideIdText);
+                    if (found != guideIds.end()) {
+                        guideIds.erase(found);
+                        (**entry).fields["study_guide_ids"] = join(guideIds, ",");
+                        auto restoreIds = splitCommaList(
+                            domain::getField(**entry, "_trash_restore_guide_refs"));
+                        if (std::find(restoreIds.begin(), restoreIds.end(), guideIdText) ==
+                            restoreIds.end())
+                            restoreIds.push_back(guideIdText);
+                        (**entry).fields["_trash_restore_guide_refs"] = join(restoreIds, ",");
+                        (**entry).fields["_trash_guide_group_id"] = guideIdText;
+                        (**entry).fields["updated_at_us"] =
+                            std::to_string(nowUnixMicroseconds());
+                        transaction.push_back(std::move(**entry));
+                    }
+                }
+            }
+            if (auto status = archive->putMany(std::move(transaction)); !status)
+                return failed(status.error());
+            return result("Guide moved to Trash.\n", false);
+        }
+        if (action == "duplicate") {
+            auto idValue = requiredPositional(*options, 0, "Guide ID");
+            if (!idValue)
+                return failed(idValue.error());
+            auto guide = getGuide(*archive, *idValue);
+            if (!guide)
+                return failed(guide.error());
+            guide->id = archive::randomUuid();
+            guide->title += " (copy)";
+            guide->approvalState = "draft";
+            if (auto status = domain::validateGuide(*guide, *archive); !status)
+                return failed(status.error());
+            auto records = guideRecordsWithEntryLink(*archive, *guide);
+            if (!records)
+                return failed(records.error());
+            if (auto status = archive->putMany(std::move(*records)); !status)
+                return failed(status.error());
+            JsonObject summary{{"id", uuid(guide->id)}, {"title", guide->title}};
+            return result(context.json ? toJson(summary)
+                                       : "Duplicated guide " + uuid(guide->id) + ".\n",
+                          context.json);
         }
         if (action == "show" || action == "validate" || action == "export") {
             auto idValue = requiredPositional(*options, 0, "Guide ID");
@@ -11051,6 +11463,47 @@ namespace {
                     output << uuid(entry.id) << "  " << domain::getField(entry, "name") << "  custom\n";
             return result(output.str(), false);
         }
+        if (action == "show") {
+            auto idValue = requiredPositional(*options, 0, "Template ID");
+            if (!idValue)
+                return failed(idValue.error());
+            const auto builtin = std::find_if(
+                builtInTemplates.begin(), builtInTemplates.end(), [&](const auto& definition) {
+                    return normalize(definition.id) == normalize(*idValue);
+                });
+            GuideTemplateDefinition definition;
+            if (builtin != builtInTemplates.end()) {
+                auto resolved = resolveGuideTemplate(*archive, builtin->id, {});
+                if (!resolved)
+                    return failed(resolved.error());
+                definition = std::move(*resolved);
+            } else {
+                auto id = parseId(*idValue);
+                if (!id)
+                    return failed(id.error());
+                auto entry = archive->get(RecordType::Settings, *id);
+                if (!entry || !*entry || domain::isDeleted(**entry) ||
+                    domain::getField(**entry, "record_role") != "guide-template")
+                    return failed(core::error("template_not_found", "Template was not found."));
+                definition = {uuid((**entry).id),
+                              domain::getField(**entry, "name"),
+                              domain::getField(**entry, "subject"),
+                              domain::getField(**entry, "description"),
+                              parseGuideTemplateSections(domain::getField(**entry, "sections")),
+                              domain::getField(**entry, "body")};
+            }
+            JsonObject object{
+                {"id",          definition.id                          },
+                {"name",        definition.name                        },
+                {"subject",     definition.subject                     },
+                {"description", definition.description                 },
+                {"sections",    join(definition.sections, "\n")       },
+                {"body",        definition.body                        }
+            };
+            return result(context.json ? toJson(object)
+                                       : definition.name + "\n" + definition.description + "\n",
+                          context.json);
+        }
         if (action == "create" || action == "update" || action == "import") {
             const auto requestedName = option(*options, "name");
             const bool descriptionProvided = option(*options, "description").has_value();
@@ -11526,6 +11979,51 @@ namespace {
         if (arguments.size() < 2)
             return result(helpText(), context.json);
         const std::string action = normalize(arguments[1]);
+        if (action == "take-rename" || action == "take-delete" || action == "take-restore") {
+            auto options = commandOptions(arguments, 2);
+            if (!options)
+                return failed(options.error());
+            auto sessionValue = requiredOption(*options, "session");
+            auto takeValue = requiredOption(*options, "take");
+            if (!sessionValue || !takeValue)
+                return failed(core::error("recording_take_options_required",
+                                          "Recording take changes require '--session UUID' and '--take UUID'."));
+            auto sessionId = parseId(*sessionValue);
+            auto takeId = parseId(*takeValue);
+            if (!sessionId)
+                return failed(sessionId.error());
+            if (!takeId)
+                return failed(takeId.error());
+            auto archive = openArchive(context, "record", action, true);
+            if (!archive)
+                return failed(archive.error());
+            if (auto status = ensureSession(*archive, *sessionValue); !status)
+                return failed(status.error());
+            auto take = archive->get(RecordType::AssetMetadata, *takeId);
+            if (!take)
+                return failed(take.error());
+            if (!*take || domain::getField(**take, "record_role") != "recording-take" ||
+                domain::getField(**take, "session_id") != *sessionValue) {
+                return failed(core::error("recording_take_not_found",
+                                          "The selected take does not belong to this session."));
+            }
+            if (action == "take-rename") {
+                const auto label = requiredOption(*options, "label");
+                if (!label)
+                    return failed(label.error());
+                if (auto status = audio::renameRecordingTake(*archive, *takeId, *label); !status)
+                    return failed(status.error());
+                return result("Recording take renamed.\n", false);
+            }
+            if (action == "take-delete") {
+                if (auto status = audio::setRecordingTakeDeleted(*archive, *takeId, true); !status)
+                    return failed(status.error());
+                return result("Recording take moved to Trash. Its tracks remain recoverable.\n", false);
+            }
+            if (auto status = audio::setRecordingTakeDeleted(*archive, *takeId, false); !status)
+                return failed(status.error());
+            return result("Recording take restored.\n", false);
+        }
         if (action == "recover") {
             std::vector<std::string> forwarded{"session", "recover"};
             forwarded.insert(forwarded.end(), arguments.begin() + 2, arguments.end());
@@ -13025,7 +13523,8 @@ Journal:
                  [--from YYYY-MM-DD] [--to YYYY-MM-DD] [--has-sessions true|false]
   journal document show ID [--revision N] | update ID --text TEXT [--block-id ID]
   journal document add-block ID --kind KIND --text TEXT [--block-index N]
-  journal document remove-block ID --block-id ID | move-block ID --from N --to N
+  journal document remove-block ID --block-id ID | restore-block ID --block-id ID
+  journal document move-block ID --from N --to N
 Session:
   session create [--entry-id UUID] [--type notes-only|record-audio|import-recording]
                  [--student-id UUID] [--subject SUBJECT] [--title TITLE]
@@ -13063,12 +13562,15 @@ Transcript:
   verify ID [--state STATE]
 Asset:
   asset add FILE [--session UUID] | import-folder DIR | list | show ID | verify ID
-  asset extract ID --output FILE | remove ID
+  asset extract ID --output FILE | remove ID | restore ID
   asset link ID --to annotation|transcript --target-id ID
   asset unlink ID --to TYPE --target-id ID
 Evidence:
-  evidence extract --session UUID | graph --session UUID | list [--session UUID] | show ID
-  evidence approve ID | reject ID | verify ID
+  evidence extract --session UUID | graph --session UUID | edges --session UUID
+  evidence list [--session UUID] | show ID | create --session UUID --source-segment ID --title TEXT --type TYPE --content TEXT
+  evidence update ID [--title TEXT] [--type TYPE] [--content TEXT] | delete ID | restore ID
+  evidence approve ID | reject ID [--reason TEXT] | verify ID
+  evidence link --from ID --to ID --relationship TYPE | unlink EDGE_ID
 AI:
   ai providers | models --provider ID [--refresh|--refresh-if-stale [--api-key-env NAME]]
   ai context --session UUID [--token-budget N] [--max-item-tokens N]
@@ -13094,7 +13596,7 @@ AI:
 Guide:
   guide create --session UUID [--title TITLE] [--template ID]
                | guide generate --session UUID|--entry-id UUID [--template ID|auto]
-               | list | show ID [--revision N]
+               | list | show ID [--revision N] | duplicate ID | delete ID
   guide edit ID [--title TITLE] [--section-index N --block-index N --text TEXT|--kind KIND|--sources UUID,...|--mark-reviewed|--clear-sources]
   guide regenerate ID [--section-index N] | guide regenerate --session UUID|--entry-id UUID
                   [--template ID]
@@ -13105,7 +13607,7 @@ Guide:
   guide move-block ID --section-index N --from N --to N
   guide export ID --format markdown|html|json|docx|pdf --output FILE
 Template / settings:
-  template list
+  template list|show ID
   template create --name NAME [--subject SUBJECT] [--description TEXT]
                   [--sections "HEADING;HEADING;..."] [--body TEXT]
   template update ID [TEMPLATE FIELDS] | template import [--name NAME] --input FILE

@@ -1,11 +1,14 @@
 #include "tutorux/archive/archive.hpp"
+#include "tutorux/application/recording-service.hpp"
 #include "tutorux/audio/timeline.hpp"
 #include "tutorux/audio/wav_export.hpp"
 #include "tutorux/audio/wav_import.hpp"
+#include "tutorux/audio/recording_take.hpp"
 #include "tutorux/audio/waveform.hpp"
 #include "tutorux/domain/entities.hpp"
 
 #include <array>
+#include <algorithm>
 #include <bit>
 #include <chrono>
 #include <cstddef>
@@ -131,6 +134,7 @@ int main() {
 
     const auto archivePath = temporary.path / "audio.tux";
     const auto sourceWavePath = temporary.path / "source.wav";
+    const auto silentWavePath = temporary.path / "silent.wav";
     const auto exportedWavePath = temporary.path / "exported.wav";
     auto archive = archive::Archive::create(archivePath, "Audio timeline test");
     if (!archive)
@@ -151,6 +155,82 @@ int main() {
     if (!imported || !imported->completed || imported->sampleCount != firstSamples.size())
         return fail(imported ? "The source WAV was not completely imported."
                              : imported.error().message);
+
+    const archive::Uuid secondTakeId = archive::randomUuid();
+    const archive::Uuid microphoneTrackId = archive::randomUuid();
+    const archive::Uuid systemTrackId = archive::randomUuid();
+    auto synchronizedTake = audio::makeRecordingTakeRecord(
+        secondTakeId, session.id, "microphone+system-audio", "completed",
+        {microphoneTrackId, systemTrackId}, 2);
+    if (auto status = archive->put(std::move(synchronizedTake)); !status)
+        return fail(status.error().message);
+    for (const auto& [trackId, source] :
+         std::array<std::pair<archive::Uuid, std::string_view>, 2>{
+             std::pair{microphoneTrackId, "microphone"},
+             std::pair{systemTrackId, "system-audio-loopback"}}) {
+        archive::Record track;
+        track.type = archive::RecordType::AssetMetadata;
+        track.id = trackId;
+        track.fields = {{"record_role", "audio-track"},
+                        {"session_id", archive::uuidToString(session.id)},
+                        {"track_id", archive::uuidToString(trackId)},
+                        {"recording_take_id", archive::uuidToString(secondTakeId)},
+                        {"source", std::string(source)}};
+        if (auto status = archive->put(std::move(track)); !status)
+            return fail(status.error().message);
+    }
+    constexpr std::array<std::int16_t, 4> synchronizedSamples{-8'000, -2'000, 4'000, 12'000};
+    if (auto status = archive->put(makeAudioChunk(session.id, microphoneTrackId, 0, 0, 0,
+                                                   synchronizedSamples));
+        !status)
+        return fail(status.error().message);
+    if (auto status = archive->put(makeAudioChunk(session.id, systemTrackId, 0, 0, 0,
+                                                   firstSamples));
+        !status)
+        return fail(status.error().message);
+    auto takes = audio::listRecordingTakes(*archive, session.id);
+    bool synchronizedGroupingPreserved = false;
+    if (takes) {
+        const auto synchronized = std::find_if(takes->begin(), takes->end(), [&](const auto& take) {
+            return take.id == archive::uuidToString(secondTakeId);
+        });
+        synchronizedGroupingPreserved =
+            synchronized != takes->end() && synchronized->trackIds.size() == 2 &&
+            synchronized->trackIds[0] == archive::uuidToString(microphoneTrackId) &&
+            synchronized->trackIds[1] == archive::uuidToString(systemTrackId);
+    }
+    if (!takes || takes->size() != 2 || !synchronizedGroupingPreserved) {
+        return fail(takes ? "Two sequential takes or synchronized track grouping were not preserved."
+                          : takes.error().message);
+    }
+    if (auto status = audio::renameRecordingTake(*archive, secondTakeId, "Synced interview");
+        !status)
+        return fail(status.error().message);
+    if (auto status = audio::setRecordingTakeDeleted(*archive, secondTakeId, true); !status)
+        return fail(status.error().message);
+    auto takesAfterDelete = audio::listRecordingTakes(*archive, session.id);
+    if (!takesAfterDelete || takesAfterDelete->size() != 1 ||
+        takesAfterDelete->front().trackIds.size() != 1) {
+        return fail(takesAfterDelete
+                        ? "A take in Trash remained selectable or hid an unrelated take."
+                        : takesAfterDelete.error().message);
+    }
+    if (auto status = audio::setRecordingTakeDeleted(*archive, secondTakeId, false); !status)
+        return fail(status.error().message);
+    takes = audio::listRecordingTakes(*archive, session.id);
+    bool restoredTakeFound = false;
+    if (takes) {
+        const auto restoredTake = std::find_if(takes->begin(), takes->end(), [&](const auto& take) {
+            return take.id == archive::uuidToString(secondTakeId);
+        });
+        restoredTakeFound = restoredTake != takes->end() &&
+                            restoredTake->label == "Synced interview" &&
+                            restoredTake->trackIds.size() == 2;
+    }
+    if (!takes || takes->size() != 2 || !restoredTakeFound) {
+        return fail(takes ? "Restoring a take did not restore its name and synchronized tracks."
+                          : takes.error().message);
+    }
 
     constexpr std::array<std::int16_t, 4> secondSamples{2'000, -3'000, 50, 100};
     auto secondChunk = makeAudioChunk(session.id, imported->trackId, 1, 7, 3, secondSamples);
@@ -246,10 +326,32 @@ int main() {
         return fail("WAV export did not preserve PCM samples and insert timeline silence.");
     }
 
+    constexpr std::array<std::int16_t, 8> silentSamples{};
+    if (!writeWave(silentWavePath, silentSamples))
+        return fail("Unable to write the deterministic silent WAV fixture.");
+    auto silentImport = audio::importWave(*archive, session.id, silentWavePath, true);
+    if (!silentImport || !silentImport->completed)
+        return fail(silentImport ? "The silent WAV fixture was not fully imported."
+                                 : silentImport.error().message);
     if (auto status = archive->compact(); !status)
         return fail(status.error().message);
     auto verification = archive->verify(true);
     if (!verification || !verification->valid)
         return fail("Archive verification failed after waveform-index compaction.");
+
+    // Release the writer lock so the same read-only service path used by the
+    // desktop can reopen the archive from disk.
+    archive = std::unexpected(core::error("test_archive_closed", "Test archive closed."));
+    const auto silentOverview = application::RecordingService{}.snapshot(
+        archivePath, {}, archive::uuidToString(session.id),
+        archive::uuidToString(silentImport->takeId),
+        archive::uuidToString(silentImport->trackId), 8);
+    if (silentOverview.waveformState != "silent" || silentOverview.buckets.size() != 8 ||
+        std::any_of(silentOverview.buckets.begin(), silentOverview.buckets.end(),
+                    [](const auto& bucket) { return bucket.minimum != 0 || bucket.maximum != 0; })) {
+        return fail("A persisted silent take did not return explicit silent waveform data: " +
+                    silentOverview.waveformState + " · " + silentOverview.errorMessage + " · " +
+                    std::to_string(silentOverview.buckets.size()) + " buckets.");
+    }
     return 0;
 }

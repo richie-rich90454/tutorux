@@ -75,13 +75,23 @@ export component Navigator inherits Rectangle {
             HorizontalLayout {
                 padding-left: 20px;
                 padding-right: 14px;
-                spacing: 4px;
+                spacing: 8px;
+
+                Image {
+                    source: @image-url("../assets/logo.svg");
+                    width: 24px;
+                    height: 24px;
+                    image-fit: contain;
+                    accessible-role: image;
+                    accessible-label: "Tutorux";
+                }
 
                 Text {
                     text: root.scope == "journal" ? "Journal" :
                           root.scope == "students" ? "Students" :
                           root.scope == "materials" ? "Materials" :
                           root.scope == "guides" ? "Guides" :
+                          root.scope == "trash" ? "Trash" :
                           root.scope == "settings" ? "Settings" : "Sessions";
                     color: Theme.ink;
                     font-size: 16px;
@@ -129,9 +139,9 @@ export component Navigator inherits Rectangle {
             }
         }
 
-        // Primary areas. Two rows keep all six reachable at the compact width.
+        // Primary and recovery areas remain reachable at the compact width.
         Rectangle {
-            height: 66px;
+            height: 92px;
 
             Rectangle {
                 y: parent.height - 1px;
@@ -145,8 +155,8 @@ export component Navigator inherits Rectangle {
                 height: 100%;
                 padding-left: 8px;
                 padding-right: 8px;
-                padding-top: 5px;
-                padding-bottom: 5px;
+                padding-top: 4px;
+                padding-bottom: 4px;
                 spacing: 2px;
 
                 HorizontalLayout {
@@ -209,13 +219,26 @@ export component Navigator inherits Rectangle {
                         clicked => { root.scope = "settings"; root.scope-changed("settings"); }
                     }
                 }
+                HorizontalLayout {
+                    spacing: 2px;
+                    TabButton {
+                        text: "Trash";
+                        font-size: root.compact ? 11px : 12px;
+                        min-width: 0px;
+                        height: 26px;
+                        horizontal-stretch: 1;
+                        selected: root.scope == "trash";
+                        clicked => { root.scope = "trash"; root.scope-changed("trash"); }
+                    }
+                    Rectangle { horizontal-stretch: 2; }
+                }
             }
         }
 
         // Search
         Rectangle {
-            height: root.scope == "settings" ? 0px : 58px;
-            visible: root.archive-path != "" && root.scope != "settings";
+            height: root.scope == "settings" || root.scope == "trash" ? 0px : 58px;
+            visible: root.archive-path != "" && root.scope != "settings" && root.scope != "trash";
 
             search-input := LineEdit {
                 x: 14px;
@@ -227,7 +250,7 @@ export component Navigator inherits Rectangle {
                                   root.scope == "materials" ? "Find material" :
                                   root.scope == "journal" ? "Find an entry" :
                                   root.scope == "guides" ? "Find a guide" : "Search";
-                visible: root.scope != "settings";
+                visible: root.scope != "settings" && root.scope != "trash";
                 text <=> root.query;
             }
         }

@@ -5,6 +5,7 @@ import { PanelShell } from "./panel-shell.slint";
 export component RecordingPanel inherits Rectangle {
     in property <bool> has-session: false;
     in property <bool> writable: true;
+    in property <string> recording-state: "not-started";
     in property <string> preflight-output;
     in property <int> input-level: 0;
     in property <bool> preflight-ready: false;
@@ -12,6 +13,10 @@ export component RecordingPanel inherits Rectangle {
     in-out property <string> microphone;
     in property <string> status-output;
     in property <string> command-output;
+    in property <[string]> take-options: [];
+    in property <[string]> track-options: [];
+    in property <string> undo-take-id;
+    in property <bool> can-manage-take: false;
 
     in-out property <string> source: "microphone";
     in-out property <string> durability: "default";
@@ -20,13 +25,19 @@ export component RecordingPanel inherits Rectangle {
     in-out property <string> import-path;
     in-out property <string> export-path;
     in-out property <string> export-track;
+    in-out property <string> selected-take;
+    in-out property <string> selected-track;
+    in-out property <string> rename-take-label;
     in-out property <bool> consent: false;
     in-out property <bool> live-transcription: false;
     in-out property <string> live-model-path;
 
     callback close();
     callback command(string, string);
+    callback browse-import();
     callback check-device();
+    callback take-selected(string);
+    callback track-selected(string);
 
     width: 100%;
     height: 100%;
@@ -148,6 +159,13 @@ export component RecordingPanel inherits Rectangle {
             Button { text: "Resume"; enabled: root.has-session; clicked => { root.command("resume", ""); } }
             Button { text: "Stop"; enabled: root.has-session; clicked => { root.command("stop", ""); } }
             Button { text: "Status"; enabled: root.has-session; clicked => { root.command("status", ""); } }
+            Button {
+                text: "Recover partial recording";
+                visible: root.recording-state == "partial" || root.recording-state == "interrupted" ||
+                         root.recording-state == "failed";
+                enabled: root.writable && root.has-session;
+                clicked => { root.command("recover", ""); }
+            }
         }
 
         CheckBox {
@@ -161,6 +179,50 @@ export component RecordingPanel inherits Rectangle {
 
         Rectangle { height: 1px; background: Theme.line; }
 
+        Text { text: "Recording takes"; color: Theme.ink; font-size: 14px; font-weight: 700; }
+        FormWrap {
+            Field {
+                label: "Take";
+                ComboBox {
+                    model: root.take-options;
+                    current-value <=> root.selected-take;
+                    selected(value) => { root.take-selected(value); }
+                }
+            }
+            Field {
+                label: "Track";
+                ComboBox {
+                    model: root.track-options;
+                    current-value <=> root.selected-track;
+                    selected(value) => { root.track-selected(value); }
+                }
+            }
+            Field {
+                label: "Rename selected take";
+                LineEdit { placeholder-text: "Take name"; text <=> root.rename-take-label; }
+            }
+        }
+        ActionWrap {
+            Button {
+                text: "Rename";
+                enabled: root.writable && root.can-manage-take && root.rename-take-label != "";
+                clicked => { root.command("take-rename", root.rename-take-label); }
+            }
+            Button {
+                text: "Move take to Trash";
+                variant: "danger";
+                enabled: root.writable && root.can-manage-take;
+                clicked => { root.command("take-delete", ""); }
+            }
+            Button {
+                text: "Undo remove";
+                visible: root.undo-take-id != "";
+                enabled: root.writable;
+                clicked => { root.command("take-restore", root.undo-take-id); }
+            }
+        }
+
+        Rectangle { height: 1px; background: Theme.line; }
         Text { text: "Import or export audio"; color: Theme.ink; font-size: 14px; font-weight: 700; }
         FormWrap {
             Field {
@@ -173,10 +235,19 @@ export component RecordingPanel inherits Rectangle {
             }
             Field {
                 label: "Track";
-                LineEdit { placeholder-text: "Track ID (optional)"; text <=> root.export-track; }
+                Text {
+                    text: root.selected-track == "" ? "Select a track above" : root.selected-track;
+                    color: Theme.body;
+                    font-size: 12px;
+                    vertical-alignment: center;
+                }
             }
         }
         ActionWrap {
+            Button {
+                text: "Browse…";
+                clicked => { root.browse-import(); }
+            }
             Button {
                 text: "Import";
                 enabled: root.writable && root.has-session;
@@ -191,16 +262,6 @@ export component RecordingPanel inherits Rectangle {
                 text: "Export with gap silence";
                 enabled: root.has-session && root.export-path != "";
                 clicked => { root.command("export-wav-fill-gaps", root.export-path); }
-            }
-            Button {
-                text: "Build waveform";
-                enabled: root.has-session;
-                clicked => { root.command("waveform", ""); }
-            }
-            Button {
-                text: "Cancel waveform";
-                variant: "ghost";
-                clicked => { root.command("stop-waveform", ""); }
             }
         }
 

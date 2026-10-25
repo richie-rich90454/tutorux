@@ -85,6 +85,7 @@ struct NotesBlock final {
 struct NotesDocument final {
     bool available{};
     std::string id;
+    std::string lastRemovedBlockId;
     std::vector<NotesBlock> blocks;
 };
 

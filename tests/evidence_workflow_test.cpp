@@ -235,5 +235,86 @@ int main() {
         std::cerr << "AI context omitted evidence with a valid current transcript source.\n";
         return 1;
     }
+
+    auto createdFirst = dispatchJson(archivePath, {"evidence", "create", "--session", sessionIdText,
+                                                    "--source-segment", segmentIdText,
+                                                    "--title", "Tutor observation", "--type", "observation",
+                                                    "--content", "The learner explained the common denominator."});
+    const std::string* firstId = createdFirst ? jsonString(*createdFirst, "id") : nullptr;
+    if (!firstId) {
+        std::cerr << "The GUI-backed evidence create operation did not return a saved item.\n";
+        return 1;
+    }
+    if (!jsonString(*createdFirst, "source_segment_ids") ||
+        *jsonString(*createdFirst, "source_segment_ids") != segmentIdText ||
+        !jsonString(*createdFirst, "source_segment_revision")) {
+        std::cerr << "Created evidence did not retain the selected transcript source revision.\n";
+        return 1;
+    }
+    auto tutorEvidenceApproval = command::dispatch({"--archive", archivePath.string(), "evidence", "approve", *firstId});
+    if (!tutorEvidenceApproval || tutorEvidenceApproval->exitCode != 0) {
+        std::cerr << "Evidence created from a current transcript source could not be approved.\n";
+        return 1;
+    }
+    auto createdSecond = dispatchJson(archivePath, {"evidence", "create", "--session", sessionIdText,
+                                                     "--source-segment", segmentIdText,
+                                                     "--title", "Tutor follow-up", "--type", "follow-up",
+                                                     "--content", "Ask the learner to solve one independently."});
+    const std::string* secondId = createdSecond ? jsonString(*createdSecond, "id") : nullptr;
+    if (!secondId || *secondId == *firstId) {
+        std::cerr << "A second evidence item could not be created in the same session.\n";
+        return 1;
+    }
+    auto updated = dispatchJson(archivePath, {"evidence", "update", *firstId,
+                                               "--title", "Revised tutor observation",
+                                               "--content", "The learner solved a fraction example independently."});
+    if (!updated || !jsonString(*updated, "title") || *jsonString(*updated, "title") != "Revised tutor observation" ||
+        !jsonString(*updated, "verification_state") || *jsonString(*updated, "verification_state") != "needs-review") {
+        std::cerr << "Evidence edits did not persist or return the changed item to review.\n";
+        return 1;
+    }
+    auto linked = dispatchJson(archivePath, {"evidence", "link", "--from", *firstId, "--to", *secondId,
+                                             "--relationship", "supports"});
+    const std::string* edgeId = linked ? jsonString(*linked, "id") : nullptr;
+    if (!edgeId) {
+        std::cerr << "Evidence link creation failed.\n";
+        return 1;
+    }
+    auto edgeList = dispatchJson(archivePath, {"evidence", "edges", "--session", sessionIdText});
+    const auto* edgeRows = edgeList ? edgeList->asArray() : nullptr;
+    if (!edgeRows || edgeRows->size() != 1 || !jsonString(edgeRows->front(), "from_title") ||
+        *jsonString(edgeRows->front(), "from_title") != "Revised tutor observation") {
+        std::cerr << "The session evidence link list omitted readable endpoints.\n";
+        return 1;
+    }
+    auto removedLink = dispatchJson(archivePath, {"evidence", "unlink", *edgeId});
+    if (!removedLink || !jsonString(*removedLink, "_deleted") || *jsonString(*removedLink, "_deleted") != "true") {
+        std::cerr << "Removing an evidence link did not move it into recoverable Trash.\n";
+        return 1;
+    }
+    auto relinked = dispatchJson(archivePath, {"evidence", "link", "--from", *firstId, "--to", *secondId,
+                                               "--relationship", "supports"});
+    const std::string* restoredEdgeId = relinked ? jsonString(*relinked, "id") : nullptr;
+    if (!restoredEdgeId) {
+        std::cerr << "Evidence could not be linked again after removal.\n";
+        return 1;
+    }
+    auto deletedEvidence = dispatchJson(archivePath, {"evidence", "delete", *firstId});
+    if (!deletedEvidence || !jsonString(*deletedEvidence, "_deleted") || *jsonString(*deletedEvidence, "_deleted") != "true") {
+        std::cerr << "Evidence removal did not move the item into Trash.\n";
+        return 1;
+    }
+    auto restoredEvidence = dispatchJson(archivePath, {"evidence", "restore", *firstId});
+    if (!restoredEvidence || !jsonString(*restoredEvidence, "id") || *jsonString(*restoredEvidence, "id") != *firstId) {
+        std::cerr << "Evidence restore did not restore the selected item.\n";
+        return 1;
+    }
+    auto restoredEdges = dispatchJson(archivePath, {"evidence", "edges", "--session", sessionIdText});
+    const auto* restoredEdgeRows = restoredEdges ? restoredEdges->asArray() : nullptr;
+    if (!restoredEdgeRows || restoredEdgeRows->size() != 1 ||
+        !jsonString(restoredEdgeRows->front(), "id") || *jsonString(restoredEdgeRows->front(), "id") != *restoredEdgeId) {
+        std::cerr << "Restoring evidence did not restore its grouped relationship.\n";
+        return 1;
+    }
     return 0;
 }

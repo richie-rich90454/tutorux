@@ -10,80 +10,81 @@ export global Theme {
     // "light" | "dark". MainWindow writes this from its theme-mode property.
     in-out property <string> mode: "light";
 
-    // Surfaces. The product surface is white; secondary fills are reserved for
-    // transient hover states and inset controls.
-    out property <color> canvas: Theme.mode == "dark" ? #0f1115 : #ffffff;
-    out property <color> surface: Theme.mode == "dark" ? #16181d : #ffffff;
-    out property <color> surface-inset: Theme.mode == "dark" ? #111318 : #f7f9fc;
-    out property <color> surface-hover: Theme.mode == "dark" ? #1d2026 : #f3f6fc;
+    // Archive-paper surfaces follow the green folio mark; red marks recording.
+    out property <color> canvas: Theme.mode == "dark" ? #101713 : #f7f8f5;
+    out property <color> surface: Theme.mode == "dark" ? #171f19 : #ffffff;
+    out property <color> surface-inset: Theme.mode == "dark" ? #121a15 : #f0f3ef;
+    out property <color> surface-hover: Theme.mode == "dark" ? #1d2921 : #edf2ee;
 
     // Text
-    out property <color> ink: Theme.mode == "dark" ? #f2f4f8 : #000000;
-    out property <color> body: Theme.mode == "dark" ? #d5dbe5 : #26313f;
-    out property <color> muted: Theme.mode == "dark" ? #a7b0bd : #626d7e;
-    out property <color> faint: Theme.mode == "dark" ? #8b94a3 : #8590a0;
+    out property <color> ink: Theme.mode == "dark" ? #f1f5f1 : #18211b;
+    out property <color> body: Theme.mode == "dark" ? #d1dbd3 : #35443a;
+    out property <color> muted: Theme.mode == "dark" ? #a5b5a9 : #637267;
+    out property <color> faint: Theme.mode == "dark" ? #87968b : #839087;
 
     // Hairlines
-    out property <color> line: Theme.mode == "dark" ? #262a32 : #dfe4ed;
-    out property <color> line-subtle: Theme.mode == "dark" ? #1d202674 : #eef1f5;
-    out property <color> line-strong: Theme.mode == "dark" ? #363b45 : #c9d1de;
+    out property <color> line: Theme.mode == "dark" ? #2a3830 : #dfe6df;
+    out property <color> line-subtle: Theme.mode == "dark" ? #23302874 : #edf1ed;
+    out property <color> line-strong: Theme.mode == "dark" ? #405147 : #c5d0c6;
 
-    // Accent (white / black / blue / red only)
-    out property <color> accent: #2554c7;
-    out property <color> accent-hover: Theme.mode == "dark" ? #3d67d8 : #1f48b0;
-    out property <color> accent-press: Theme.mode == "dark" ? #2f55c0 : #1a3c93;
-    out property <color> accent-soft: Theme.mode == "dark" ? #1c2440 : #eef3ff;
-    out property <color> accent-bright: #78a1ff;
-    // Accent used as text on surfaces; lightened on dark to keep AA contrast.
-    out property <color> accent-text: Theme.mode == "dark" ? #8eabff : #2554c7;
-    // Focus halo; opaque enough to stay visible against dark surfaces.
-    out property <color> focus-ring: Theme.mode == "dark" ? #78a1ffcc : Theme.accent.with-alpha(0.4);
+    // Archival green from logo.svg, with quieter leafy tints for selected and
+    // focus states. Red is reserved for capture and destructive feedback.
+    out property <color> accent: #315b4a;
+    out property <color> accent-hover: Theme.mode == "dark" ? #3e705a : #294e3e;
+    out property <color> accent-press: Theme.mode == "dark" ? #355f4c : #203f32;
+    out property <color> accent-soft: Theme.mode == "dark" ? #22372b : #eaf0eb;
+    out property <color> accent-bright: #9bc8aa;
+    out property <color> accent-text: Theme.mode == "dark" ? #a8d4b6 : #315b4a;
+    out property <color> focus-ring: Theme.mode == "dark" ? #9bc8aa99 : #315b4a66;
 
     // Semantic
-    out property <color> danger: Theme.mode == "dark" ? #f97066 : #bc303b;
-    out property <color> danger-soft: Theme.mode == "dark" ? #2c1614 : #fdf1f2;
-    out property <color> danger-soft-hover: Theme.mode == "dark" ? #3b1c18 : #fbe4e6;
-    out property <color> danger-line: Theme.mode == "dark" ? #7a2f28 : #e8a6ac;
-    // The palette stays blue, black, white, and red. Success is expressed as
-    // the accent and warnings share the danger family instead of green/amber.
-    out property <color> success: Theme.mode == "dark" ? #8eabff : #2554c7;
+    out property <color> danger: Theme.mode == "dark" ? #ff8278 : #b83d36;
+    out property <color> danger-soft: Theme.mode == "dark" ? #351f1d : #faeeec;
+    out property <color> danger-soft-hover: Theme.mode == "dark" ? #462522 : #f5dfdc;
+    out property <color> danger-line: Theme.mode == "dark" ? #884841 : #e6b4ae;
+    out property <color> success: Theme.mode == "dark" ? #a8d4b6 : #315b4a;
     out property <color> warning: Theme.danger;
-    out property <color> recording: #e34a52;
+    out property <color> recording: #e34d47;
+    out property <color> waveform-background: Theme.mode == "dark" ? #142019 : #f1f5f1;
+    out property <color> waveform-baseline: Theme.mode == "dark" ? #3b4c40 : #c8d4ca;
+    out property <color> waveform-ink: Theme.mode == "dark" ? #9bc8aa : #315b4a;
+    out property <color> waveform-gap: Theme.mode == "dark" ? #58302e : #f3dfdc;
+    out property <color> waveform-playhead: Theme.mode == "dark" ? #e6f1e8 : #244736;
     out property <color> on-accent: #ffffff;
     out property <color> on-danger: #ffffff;
     out property <color> on-surface: Theme.ink;
-    out property <color> disabled-text: Theme.mode == "dark" ? #6b7482 : #98a1ae;
-    out property <color> disabled-surface: Theme.mode == "dark" ? #14161b : #f4f6fa;
-    out property <color> disabled-line: Theme.mode == "dark" ? #262a32 : #e2e7ef;
+    out property <color> disabled-text: Theme.mode == "dark" ? #707e74 : #9ba59d;
+    out property <color> disabled-surface: Theme.mode == "dark" ? #151c17 : #f2f5f1;
+    out property <color> disabled-line: Theme.mode == "dark" ? #2a3830 : #e2e8e1;
 
     // Navigator
-    out property <color> sidebar: Theme.mode == "dark" ? #0f1115 : #ffffff;
-    out property <color> sidebar-hover: Theme.mode == "dark" ? #1a1d23 : #f3f6fc;
-    out property <color> sidebar-active: Theme.mode == "dark" ? #1c2440 : #eef3ff;
-    out property <color> sidebar-line: Theme.mode == "dark" ? #262a32 : #dfe4ed;
-    out property <color> sidebar-card: Theme.mode == "dark" ? #16181d : #ffffff;
-    out property <color> sidebar-ink: Theme.mode == "dark" ? #f2f4f8 : #000000;
-    out property <color> sidebar-muted: Theme.mode == "dark" ? #a7b0bd : #626d7e;
-    out property <color> sidebar-faint: Theme.mode == "dark" ? #8b94a3 : #8590a0;
+    out property <color> sidebar: Theme.mode == "dark" ? #101713 : #f9faf8;
+    out property <color> sidebar-hover: Theme.mode == "dark" ? #1b271f : #edf2ee;
+    out property <color> sidebar-active: Theme.mode == "dark" ? #22372b : #eaf0eb;
+    out property <color> sidebar-line: Theme.mode == "dark" ? #2a3830 : #dfe6df;
+    out property <color> sidebar-card: Theme.mode == "dark" ? #171f19 : #ffffff;
+    out property <color> sidebar-ink: Theme.mode == "dark" ? #f1f5f1 : #18211b;
+    out property <color> sidebar-muted: Theme.mode == "dark" ? #a5b5a9 : #637267;
+    out property <color> sidebar-faint: Theme.mode == "dark" ? #87968b : #839087;
 
-    // Recording transport: intentionally black in both modes.
-    out property <color> transport: #000000;
+    // Active capture uses the folio green rather than a generic black strip.
+    out property <color> transport: #244638;
     out property <color> transport-text: #ffffff;
-    out property <color> transport-muted: #a7b0bd;
-    out property <color> transport-wave: #78a1ff;
-    out property <color> transport-quiet: #5b6779;
-    out property <color> transport-line: #2a2f38;
-    out property <color> transport-hover: #1d2129;
+    out property <color> transport-muted: #c0d0c4;
+    out property <color> transport-wave: #a8d4b6;
+    out property <color> transport-quiet: #a9beb0;
+    out property <color> transport-line: #496757;
+    out property <color> transport-hover: #315b4a;
     out property <color> scrim: #0000002e;
 
     // Command console: intentionally dark in both modes.
-    out property <color> console-bg: Theme.mode == "dark" ? #0b0e14 : #0e1626;
-    out property <color> console-line: Theme.mode == "dark" ? #242c3a : #1e2b47;
-    out property <color> console-ink: Theme.mode == "dark" ? #cfd9ec : #c7d4ea;
+    out property <color> console-bg: Theme.mode == "dark" ? #0d1510 : #122019;
+    out property <color> console-line: Theme.mode == "dark" ? #26372c : #315442;
+    out property <color> console-ink: Theme.mode == "dark" ? #d3e3d7 : #d8e9dd;
 
     // Scrollbars. Kept visible against white surfaces.
-    out property <color> scrollbar: Theme.mode == "dark" ? #3a3f4a : #d2d8e2;
-    out property <color> scrollbar-hover: Theme.mode == "dark" ? #565c68 : #aeb7c5;
+    out property <color> scrollbar: Theme.mode == "dark" ? #405247 : #c8d3ca;
+    out property <color> scrollbar-hover: Theme.mode == "dark" ? #5d7163 : #9aaa9d;
 
     // Geometry (exactly 5 px on every rounded surface)
     out property <length> radius-card: 5px;
@@ -94,7 +95,7 @@ export global Theme {
     out property <length> inspector-width: 284px;
     out property <length> toolbar-height: 62px;
     out property <length> tab-height: 52px;
-    out property <length> transport-height: 105px;
+    out property <length> transport-height: 132px;
     out property <length> page-max-width: 819px;
 
     // Motion tokens. Content never animates its layout, only color/opacity.

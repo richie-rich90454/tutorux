@@ -4,11 +4,13 @@
 
 
 #include <chrono>
+#include <cmath>
 #include <cstdint>
 #include <cstdlib>
 #include <fstream>
 #include <iostream>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace {
@@ -88,7 +90,8 @@ int main(int argc, char** argv) {
 
     auto window = MainWindow::create();
     const bool paletteMode = mode == "palette";
-    const bool darkMode = mode == "dark";
+    const bool darkMode = mode == "dark" || mode == "recording-dark" ||
+                          mode == "waveform-dark";
     const bool journalMode = mode == "journal" || mode == "journal-tall";
     const bool journalTall = mode == "journal-tall";
     const bool guidesMode = mode == "guides";
@@ -96,7 +99,9 @@ int main(int argc, char** argv) {
     const bool compactMode = mode == "compact";
     const bool minMode = mode == "min" || mode == "minimum";
     const bool aiMode = mode == "ai";
-    const bool recordingMode = mode == "recording";
+    const bool waveformMode = mode == "waveform" || mode == "waveform-dark";
+    const bool recordingMode = mode == "recording" || mode == "recording-dark" ||
+                               mode == "recording-silent" || mode == "recording-error";
     const bool consentMode = mode == "consent";
     if (mode == "empty") {
         window->set_theme_mode(slint::SharedString("light"));
@@ -248,8 +253,55 @@ int main(int argc, char** argv) {
                                 slint::SharedString("Number line comparison"), 760});
     window->set_marker_rows(std::make_shared<slint::VectorModel<MarkerRow>>(markers));
 
+    if (recordingMode || waveformMode) {
+        std::vector<slint::SharedString> takes{
+            slint::SharedString("Take 1 · Imported audio · 00:04:20"),
+            slint::SharedString("Take 2 · Microphone + system audio · 00:12:40")};
+        std::vector<slint::SharedString> tracks{
+            slint::SharedString("Microphone 1"), slint::SharedString("System audio 2")};
+        window->set_recording_take_options(
+            std::make_shared<slint::VectorModel<slint::SharedString>>(takes));
+        window->set_selected_recording_take_label(takes.back());
+        window->set_recording_take_mutable(true);
+        window->set_recording_track_options(
+            std::make_shared<slint::VectorModel<slint::SharedString>>(tracks));
+        window->set_selected_recording_track_label(tracks.front());
+        window->set_recording_state(slint::SharedString("recording"));
+        window->set_recording_elapsed_seconds(760);
+        window->set_recording_duration_seconds(760);
+        window->set_recording_duration_us(slint::SharedString("760000000"));
+        window->set_recording_input_level(43);
+        std::vector<WaveformBucketRow> waveform;
+        waveform.reserve(96);
+        for (int index = 0; index < 96; ++index) {
+            const float phase = static_cast<float>(index % 19) / 19.0F;
+            const float envelope = 0.16F + 0.56F * (1.0F - std::abs(phase - 0.5F) * 1.55F);
+            WaveformBucketRow bucket;
+            bucket.position = static_cast<float>(index) / 96.0F;
+            bucket.width = 1.0F / 96.0F;
+            bucket.start_seconds = static_cast<float>(index) * 8.0F;
+            bucket.end_seconds = static_cast<float>(index + 1) * 8.0F;
+            bucket.minimum = -envelope * 0.72F;
+            bucket.maximum = envelope;
+            bucket.contains_gap = index == 39 || index == 40;
+            waveform.push_back(bucket);
+        }
+        window->set_recording_waveform_buckets(
+            std::make_shared<slint::VectorModel<WaveformBucketRow>>(std::move(waveform)));
+        window->set_recording_waveform_state(
+            slint::SharedString(mode == "recording-silent" ? "silent" :
+                                mode == "recording-error" ? "error" : "ready"));
+        if (mode == "recording-silent" || mode == "recording-error")
+            window->set_recording_state(slint::SharedString("completed"));
+        if (mode == "recording-error")
+            window->set_recording_waveform_message(
+                slint::SharedString("The waveform index could not be loaded."));
+        window->set_recording_playback_position_seconds(432);
+    }
+
     window->set_theme_mode(slint::SharedString(darkMode ? "dark" : "light"));
-    window->set_effective_inspector_open(!(aiMode || recordingMode || consentMode));
+    window->set_effective_inspector_open(
+        !(aiMode || recordingMode || waveformMode || consentMode));
     if (paletteMode)
         window->set_command_palette_open(true);
     if (aiMode)

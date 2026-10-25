@@ -4,8 +4,10 @@ import { ActionWrap, Field, FormWrap } from "../components/page-parts.slint";
 export component StudentPage inherits Rectangle {
     in property <string> selected-student;
     in property <string> progress-output;
+    in property <[string]> evidence-options: [];
     in property <bool> writable: true;
     in-out property <bool> advanced: false;
+    in-out property <bool> delete-confirmed: false;
 
     in-out property <string> name;
     in-out property <string> grade;
@@ -19,11 +21,14 @@ export component StudentPage inherits Rectangle {
     in-out property <string> review-skill;
     in-out property <string> review-classification;
     in-out property <string> review-evidence;
+    in-out property <string> selected-evidence-option;
     in-out property <string> review-reviewer;
     in-out property <string> review-note;
 
     callback save-profile();
     callback review-progress();
+    callback add-evidence(string);
+    callback delete-student();
     callback load-history();
     callback new-student();
 
@@ -31,6 +36,8 @@ export component StudentPage inherits Rectangle {
     vertical-stretch: 1;
     clip: true;
     background: Theme.surface;
+
+    changed selected-student => { root.delete-confirmed = false; }
 
     ScrollArea {
         width: 100%;
@@ -99,14 +106,14 @@ export component StudentPage inherits Rectangle {
 
                 Text { text: "Profile"; color: Theme.ink; font-size: 16px; font-weight: 700; }
                 FormWrap {
-                    Field { label: "Name"; LineEdit { text <=> root.name; } }
-                    Field { label: "Grade or level"; LineEdit { text <=> root.grade; } }
-                    Field { label: "Subjects"; LineEdit { text <=> root.subjects; } }
-                    Field { label: "Learning objectives"; LineEdit { text <=> root.objectives; } }
-                    Field { label: "Known difficulties"; LineEdit { text <=> root.difficulties; } }
-                    Field { label: "Demonstrated improvements"; LineEdit { text <=> root.improvements; } }
-                    Field { label: "Preferred guide template"; LineEdit { text <=> root.template; } }
-                    Field { label: "Tutor notes"; LineEdit { text <=> root.notes; } }
+                    Field { label: "Name"; LineEdit { text <=> root.name; enabled: root.writable; } }
+                    Field { label: "Grade or level"; LineEdit { text <=> root.grade; enabled: root.writable; } }
+                    Field { label: "Subjects"; LineEdit { text <=> root.subjects; enabled: root.writable; } }
+                    Field { label: "Learning objectives"; LineEdit { text <=> root.objectives; enabled: root.writable; } }
+                    Field { label: "Known difficulties"; LineEdit { text <=> root.difficulties; enabled: root.writable; } }
+                    Field { label: "Demonstrated improvements"; LineEdit { text <=> root.improvements; enabled: root.writable; } }
+                    Field { label: "Preferred guide template"; LineEdit { text <=> root.template; enabled: root.writable; } }
+                    Field { label: "Tutor notes"; LineEdit { text <=> root.notes; enabled: root.writable; } }
                 }
                 ActionWrap {
                     Button {
@@ -114,6 +121,23 @@ export component StudentPage inherits Rectangle {
                         variant: "primary";
                         enabled: root.selected-student != "" && root.writable;
                         clicked => { root.save-profile(); }
+                    }
+                    Button {
+                        text: root.delete-confirmed ? "Confirm move to Trash" : "Move student to Trash";
+                        variant: "danger";
+                        enabled: root.writable && root.selected-student != "";
+                        clicked => {
+                            if root.delete-confirmed {
+                                root.delete-confirmed = false;
+                                root.delete-student();
+                            } else {
+                                root.delete-confirmed = true;
+                            }
+                        }
+                    }
+                    if root.delete-confirmed : Button {
+                        text: "Cancel";
+                        clicked => { root.delete-confirmed = false; }
                     }
                     Button {
                         text: "Load learning history";
@@ -149,14 +173,40 @@ export component StudentPage inherits Rectangle {
                             model: ["newly-observed", "recurring", "partial-improvement",
                                     "demonstrated-mastery", "unverified-improvement", "not-revisited"];
                             current-value <=> root.review-classification;
+                            enabled: root.writable;
                         }
                     }
                     if root.advanced : Field {
-                        label: "Evidence node IDs";
-                        LineEdit { text <=> root.review-evidence; }
+                        label: "Evidence IDs (advanced)";
+                        LineEdit { text <=> root.review-evidence; enabled: root.writable; }
                     }
-                    Field { label: "Reviewed by"; LineEdit { text <=> root.review-reviewer; } }
-                    Field { label: "Review note"; LineEdit { text <=> root.review-note; } }
+                    Field { label: "Reviewed by"; LineEdit { text <=> root.review-reviewer; enabled: root.writable; } }
+                    Field { label: "Review note"; LineEdit { text <=> root.review-note; enabled: root.writable; } }
+                }
+                FormWrap {
+                    Field {
+                        label: "Evidence from this student's sessions";
+                        HorizontalLayout {
+                            spacing: 8px;
+                            ComboBox {
+                                horizontal-stretch: 1;
+                                model: root.evidence-options;
+                                current-value <=> root.selected-evidence-option;
+                                enabled: root.writable;
+                            }
+                            Button {
+                                text: "Add source";
+                                enabled: root.writable && root.selected-evidence-option != "";
+                                clicked => { root.add-evidence(root.selected-evidence-option); }
+                            }
+                        }
+                    }
+                }
+                Text {
+                    text: root.review-evidence == "" ? "No evidence sources selected" :
+                          "Evidence sources selected for this review";
+                    color: Theme.muted;
+                    font-size: 12px;
                 }
                 ActionWrap {
                     Button {

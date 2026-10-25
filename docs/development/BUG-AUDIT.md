@@ -90,21 +90,62 @@ fixed and what remains.
   refresh errors.
 - Request passphrases copied into the overview request are wiped after use.
 
+## Recording and waveform overhaul
+
+- The session transport previously drew only a baseline and playhead even when
+  a waveform index existed. It now loads cached min/max buckets from the
+  selected take and track and renders the amplitude envelope, local gap marks,
+  playhead, markers, seek position, zoom, and live input level.
+- Tracks containing only zero samples now report a silent state. Buckets that
+  contain both samples and a discontinuity keep their amplitude and mark the
+  missing interval instead of suppressing the whole bucket.
+- Capture and WAV import now create additive take metadata. Multiple sequential
+  takes and synchronized tracks within a take are grouped without changing the
+  archive format version. Older archives appear as a read-only synthesized
+  take and are not rewritten just to add grouping.
+- Recovering an interrupted native capture now updates the state and duration
+  on each affected take while leaving other takes in that session unchanged.
+- The recording panel now selects takes and tracks, renames a take, moves it to
+  recoverable Trash, restores the last removed take, exposes partial recovery,
+  and uses the selected track for playback and WAV export.
+- `RecordingService` provides structured waveform/take snapshots and typed
+  rename/delete/restore requests for these UI actions. The CLI dispatcher
+  remains available for command-line workflows.
+- Preserved the green folio logo and aligned the application palette with its
+  archival green (`#315B4A`), white pages, and recording red (`#E34D47`).
+
 ## Remaining known gaps
 
-- Most GUI commands still pass through the command dispatcher internally.
-  `WorkspaceService` is the only fully typed, archive-backed service. The
-  remaining domains have CLI-shaped adapters rather than independent service
-  objects.
+- Most GUI mutations still pass through command-shaped adapters. `WorkspaceService`
+  and `RecordingService` provide structured archive-backed paths; transcript,
+  marker, materials, journal, guide, and settings mutations still need typed
+  request/result services.
 - The base/full split is compile-time. Dynamic native packs for PDF, network,
   and Whisper are not loaded at runtime; the base reports a typed unavailable
   error instead.
 - The full guide editor is still an overlay reached from the Guides page. The
   Guides page itself is a first-class editor surface.
-- Student progress evidence is still entered as advanced ids; there is no
-  evidence picker yet.
-- The session inspector hides its scrollbar to keep it from painting into the
-  transport. Wheel and trackpad scrolling still reveal the marker section.
+- Student progress now has a picker filtered to evidence from the selected
+  student's sessions. Verify cross-session requirements and mastery validation
+  through the UI, and retain the raw ID field only under Advanced.
+- Guide templates now have a reachable manager for loading, creating, editing,
+  duplicating, importing/exporting, and moving custom templates to Trash.
+  Guides can also be duplicated or moved to Trash, with guide-to-journal links
+  snapshotted and restored.
+- Native Windows file and folder pickers now cover archive open, transcript
+  import, material file/folder import, recording import, and template import.
+  Other platforms still require a native picker implementation.
+- Transcript speaker assignment, timestamp editing, and previous-version
+  restore are now reachable from the session transcript pane.
+- Evidence can now be created with a transcript source, edited, reviewed,
+  linked, unlinked, and restored as a group with its links. Orphan repair and
+  broader graph visualization are still not implemented.
+- The recording matrix in `GUI-CAPABILITY-MATRIX.md` tracks the remaining CRUD
+  and interaction gaps, including typed mutation services, decoder-backed
+  material audio playback, and full layout/recovery acceptance coverage.
+- The session inspector shows a vertical scrollbar when its marker form extends
+  below the visible pane, so lower controls remain discoverable while the
+  inspector scrolls independently above the recording transport.
 - ComboBox popups opened near the bottom of a ScrollArea can be clipped by the
   scroll viewport.
 - DPI rendering was verified with 125%/150% headless snapshots. Physical

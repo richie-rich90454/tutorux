@@ -1,4 +1,5 @@
 #include "tutorux/audio/capture.hpp"
+#include "tutorux/audio/recording_take.hpp"
 
 #include "tutorux/domain/entities.hpp"
 #include "capture_observer.hpp"
@@ -13,8 +14,10 @@
 #endif
 
 #include <algorithm>
+#include <bit>
 #include <charconv>
 #include <chrono>
+#include <cmath>
 #include <cstring>
 #include <limits>
 #include <new>
@@ -22,6 +25,7 @@
 #include <optional>
 #include <string_view>
 #include <thread>
+#include <unordered_map>
 #include <vector>
 
 #ifdef _WIN32
@@ -40,6 +44,89 @@
 namespace tutorux::audio {
 namespace {
 
+    struct LiveCaptureTrack final {
+        std::string sessionId;
+        double peak{};
+    };
+
+    std::mutex liveCaptureMutex;
+    std::unordered_map<std::string, LiveCaptureTrack> liveCaptureTracks;
+
+    void updateLiveCapturePeak(const archive::Uuid& sessionId, const archive::Uuid& trackId,
+                               double peak) noexcept {
+        try {
+            const std::scoped_lock lock(liveCaptureMutex);
+            liveCaptureTracks.insert_or_assign(
+                archive::uuidToString(trackId),
+                LiveCaptureTrack{archive::uuidToString(sessionId), std::clamp(peak, 0.0, 1.0)});
+        } catch (...) {
+        }
+    }
+
+    void removeLiveCaptureTrack(const archive::Uuid& trackId) noexcept {
+        try {
+            const std::scoped_lock lock(liveCaptureMutex);
+            liveCaptureTracks.erase(archive::uuidToString(trackId));
+        } catch (...) {
+        }
+    }
+
+    double pcmPeakLevel(const PcmCaptureChunk& chunk) noexcept {
+        const std::string_view format = chunk.sampleFormat;
+        const auto bytes = chunk.samples;
+        double peak = 0.0;
+        if (format == "pcm_u8") {
+            for (const std::byte value : bytes) {
+                const auto sample = static_cast<int>(std::to_integer<unsigned char>(value)) - 128;
+                peak = std::max(peak, std::abs(static_cast<double>(sample)) / 128.0);
+            }
+        } else if (format == "pcm_s16le") {
+            for (std::size_t offset = 0; offset + 2 <= bytes.size(); offset += 2) {
+                const auto bits = static_cast<std::uint16_t>(
+                    static_cast<std::uint16_t>(std::to_integer<unsigned char>(bytes[offset])) |
+                    static_cast<std::uint16_t>(
+                        static_cast<std::uint16_t>(std::to_integer<unsigned char>(bytes[offset + 1]))
+                        << 8U));
+                const auto sample = std::bit_cast<std::int16_t>(bits);
+                peak = std::max(peak, std::abs(static_cast<double>(sample)) / 32768.0);
+            }
+        } else if (format == "pcm_s24le") {
+            for (std::size_t offset = 0; offset + 3 <= bytes.size(); offset += 3) {
+                std::int32_t sample = static_cast<std::int32_t>(std::to_integer<unsigned char>(bytes[offset])) |
+                                      (static_cast<std::int32_t>(std::to_integer<unsigned char>(bytes[offset + 1])) << 8U) |
+                                      (static_cast<std::int32_t>(std::to_integer<unsigned char>(bytes[offset + 2])) << 16U);
+                if ((sample & 0x00800000) != 0)
+                    sample |= static_cast<std::int32_t>(0xff000000U);
+                peak = std::max(peak, std::abs(static_cast<double>(sample)) / 8388608.0);
+            }
+        } else if (format == "pcm_s32le") {
+            for (std::size_t offset = 0; offset + 4 <= bytes.size(); offset += 4) {
+                const auto bits = static_cast<std::uint32_t>(std::to_integer<unsigned char>(bytes[offset])) |
+                                  (static_cast<std::uint32_t>(std::to_integer<unsigned char>(bytes[offset + 1])) << 8U) |
+                                  (static_cast<std::uint32_t>(std::to_integer<unsigned char>(bytes[offset + 2])) << 16U) |
+                                  (static_cast<std::uint32_t>(std::to_integer<unsigned char>(bytes[offset + 3])) << 24U);
+                const auto sample = std::bit_cast<std::int32_t>(bits);
+                peak = std::max(peak, std::abs(static_cast<double>(sample)) / 2147483648.0);
+            }
+        } else if (format == "pcm_f32le") {
+            for (std::size_t offset = 0; offset + 4 <= bytes.size(); offset += 4) {
+                const auto bits = static_cast<std::uint32_t>(std::to_integer<unsigned char>(bytes[offset])) |
+                                  (static_cast<std::uint32_t>(std::to_integer<unsigned char>(bytes[offset + 1])) << 8U) |
+                                  (static_cast<std::uint32_t>(std::to_integer<unsigned char>(bytes[offset + 2])) << 16U) |
+                                  (static_cast<std::uint32_t>(std::to_integer<unsigned char>(bytes[offset + 3])) << 24U);
+                const float sample = std::bit_cast<float>(bits);
+                if (std::isfinite(sample))
+                    peak = std::max(peak, std::abs(static_cast<double>(sample)));
+            }
+        }
+        return std::clamp(peak, 0.0, 1.0);
+    }
+
+    struct LiveCaptureLease final {
+        archive::Uuid trackId;
+        ~LiveCaptureLease() { removeLiveCaptureTrack(trackId); }
+    };
+
     std::uint64_t samplesToMicroseconds(std::uint64_t samples, std::uint32_t sampleRateHz) {
         const std::uint64_t seconds = samples / sampleRateHz;
         const std::uint64_t remainder = samples % sampleRateHz;
@@ -49,6 +136,18 @@ namespace {
     std::uint64_t nowUnixMicroseconds() {
         return static_cast<std::uint64_t>(
             std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::system_clock::now().time_since_epoch()).count());
+    }
+
+    std::string recordingSourceName(DeviceKind source) {
+        switch (source) {
+        case DeviceKind::microphone:
+            return "microphone";
+        case DeviceKind::playback:
+            return "system-audio";
+        case DeviceKind::application:
+            return "application-audio";
+        }
+        return "audio";
     }
 
     core::Status updateRecordingSession(archive::Archive& archive, archive::Record& session, std::string state, std::uint64_t chunks,
@@ -1390,6 +1489,22 @@ namespace {
 
 } // namespace
 
+double activeCapturePeak(const archive::Uuid& sessionId) noexcept {
+    try {
+        const std::string expectedSession = archive::uuidToString(sessionId);
+        const std::scoped_lock lock(liveCaptureMutex);
+        double peak = 0.0;
+        for (const auto& [trackId, track] : liveCaptureTracks) {
+            static_cast<void>(trackId);
+            if (track.sessionId == expectedSession)
+                peak = std::max(peak, track.peak);
+        }
+        return peak;
+    } catch (...) {
+        return 0.0;
+    }
+}
+
 core::Result<CaptureDeviceProbe> probeCaptureDevice(DeviceKind source, std::string deviceId) {
 #ifdef _WIN32
     return probeWasapi(source, std::move(deviceId));
@@ -1680,6 +1795,60 @@ core::Result<MultiTrackCaptureSummary> recoverNativeCaptureTracks(archive::Archi
         combined.tracks.push_back(std::move(outcome));
     }
 
+    // A recovered session summary is not enough: each imported or captured
+    // take has its own lifecycle. Update only take records linked to one of
+    // the tracks recovered above, preserving older takes in the same session.
+    auto takeRecords = archive.list(archive::RecordType::AssetMetadata, true);
+    if (!takeRecords)
+        return std::unexpected(takeRecords.error());
+    const std::vector<std::string> recoveredTrackIds = [&] {
+        std::vector<std::string> ids;
+        ids.reserve(trackIds.size());
+        for (const auto& id : trackIds)
+            ids.push_back(archive::uuidToString(id));
+        return ids;
+    }();
+    const std::string sessionText = archive::uuidToString(sessionId);
+    for (const auto& take : *takeRecords) {
+        if (domain::isDeleted(take) ||
+            domain::getField(take, "record_role") != "recording-take" ||
+            domain::getField(take, "session_id") != sessionText) {
+            continue;
+        }
+        const std::string encodedLinks = domain::getField(take, "track_ids");
+        std::vector<std::string> linkedTrackIds;
+        for (std::size_t start = 0; start < encodedLinks.size();) {
+            const std::size_t separator = encodedLinks.find(',', start);
+            const std::size_t end = separator == std::string::npos ? encodedLinks.size() : separator;
+            if (end > start)
+                linkedTrackIds.emplace_back(encodedLinks.substr(start, end - start));
+            if (separator == std::string::npos)
+                break;
+            start = separator + 1;
+        }
+        const bool affected = std::any_of(linkedTrackIds.begin(), linkedTrackIds.end(),
+                                          [&](const auto& id) {
+                                              return std::find(recoveredTrackIds.begin(),
+                                                               recoveredTrackIds.end(), id) !=
+                                                     recoveredTrackIds.end();
+                                          });
+        if (!affected)
+            continue;
+        const bool allTracksRecovered = !linkedTrackIds.empty() &&
+            std::all_of(linkedTrackIds.begin(), linkedTrackIds.end(), [&](const auto& id) {
+                return std::find(recoveredTrackIds.begin(), recoveredTrackIds.end(), id) !=
+                       recoveredTrackIds.end();
+            });
+        const std::string takeState = combined.chunkCount == 0 ? "failed"
+                                      : combined.completed && allTracksRecovered ? "completed"
+                                                                                : "partial";
+        if (auto status = updateRecordingTake(archive, take.id, takeState,
+                                              combined.durationUs);
+            !status) {
+            return std::unexpected(status.error());
+        }
+    }
+
     auto latestSession = archive.get(archive::RecordType::Session, sessionId);
     if (!latestSession)
         return std::unexpected(latestSession.error());
@@ -1700,32 +1869,82 @@ core::Result<MultiTrackCaptureSummary> recoverNativeCaptureTracks(archive::Archi
 }
 
 core::Result<CaptureSummary> captureNative(archive::Archive& archive, const archive::Uuid& sessionId, CaptureOptions options) {
+    // Assign stable IDs before dispatching to a platform backend. This lets a
+    // session receive successive captures while preserving the old session
+    // summary fields for clients that predate take metadata.
+    options.trackId = options.trackId.value_or(archive::randomUuid());
+    const archive::Uuid trackId = *options.trackId;
+    updateLiveCapturePeak(sessionId, trackId, 0.0);
+    const LiveCaptureLease liveCaptureLease{trackId};
+    auto previousPcmChunk = std::move(options.pcmChunk);
+    options.pcmChunk = [sessionId, trackId, callback = std::move(previousPcmChunk)](
+                           const PcmCaptureChunk& chunk) mutable {
+        updateLiveCapturePeak(sessionId, trackId, pcmPeakLevel(chunk));
+        if (callback)
+            callback(chunk);
+    };
+    const bool ownsTakeMetadata = !options.takeId.has_value();
+    if (ownsTakeMetadata) {
+        options.takeId = archive::randomUuid();
+        const std::uint64_t startedAtUs = nowUnixMicroseconds();
+        auto take = makeRecordingTakeRecord(*options.takeId, sessionId,
+                                            recordingSourceName(options.source), "initializing",
+                                            {*options.trackId}, startedAtUs);
+        if (auto status = archive.put(std::move(take)); !status)
+            return std::unexpected(status.error());
+    }
+
+    const archive::Uuid takeId = *options.takeId;
+    if (ownsTakeMetadata) {
+        auto previousStateChanged = std::move(options.stateChanged);
+        options.stateChanged = [&archive, takeId, callback = std::move(previousStateChanged)](
+                                   std::string state, std::string message) mutable {
+            static_cast<void>(updateRecordingTake(archive, takeId, state, 0));
+            if (callback)
+                callback(std::move(state), std::move(message));
+        };
+    }
+
+    auto finishTake = [&](core::Result<CaptureSummary> captured) -> core::Result<CaptureSummary> {
+        const std::string state = !captured ? "failed" : captured->completed ? "completed" : "partial";
+        const std::uint64_t duration = captured ? captured->durationUs : 0;
+        if (ownsTakeMetadata) {
+            if (auto status = updateRecordingTake(archive, takeId, state, duration); !status) {
+                if (!captured)
+                    return std::unexpected(core::error(captured.error().code,
+                                                       captured.error().message +
+                                                           " Recording take metadata could not be saved: " +
+                                                           status.error().message));
+                return std::unexpected(status.error());
+            }
+        }
+        return captured;
+    };
+
 #ifdef _WIN32
     if (options.maximumDuration && options.maximumDuration->count() <= 0) {
-        return std::unexpected(core::error("audio_capture_duration_invalid", "Maximum capture duration must be positive."));
+        return finishTake(std::unexpected(core::error("audio_capture_duration_invalid", "Maximum capture duration must be positive.")));
     }
-    return captureWasapi(archive, sessionId, std::move(options));
+    return finishTake(captureWasapi(archive, sessionId, std::move(options)));
 #elif defined(__linux__)
     if (isPipeWireDevice(options.deviceId))
-        return capturePipeWire(archive, sessionId, std::move(options));
+        return finishTake(capturePipeWire(archive, sessionId, std::move(options)));
     if (options.source == DeviceKind::application) {
-        return std::unexpected(core::error("audio_application_capture_unsupported",
-                                           "This Linux build uses ALSA capture and does not expose PipeWire application streams."));
+        return finishTake(std::unexpected(core::error("audio_application_capture_unsupported",
+                                                      "This Linux build uses ALSA capture and does not expose PipeWire application streams.")));
     }
-    return captureAlsa(archive, sessionId, std::move(options));
+    return finishTake(captureAlsa(archive, sessionId, std::move(options)));
 #elif defined(__APPLE__)
     if (options.source == DeviceKind::application)
-        return captureScreenCaptureKit(archive, sessionId, std::move(options));
+        return finishTake(captureScreenCaptureKit(archive, sessionId, std::move(options)));
     if (options.source == DeviceKind::playback &&
         (options.deviceId.empty() || options.deviceId == "default" || options.deviceId == "screen-capture-kit")) {
-        return captureScreenCaptureKit(archive, sessionId, std::move(options));
+        return finishTake(captureScreenCaptureKit(archive, sessionId, std::move(options)));
     }
-    return captureCoreAudio(archive, sessionId, std::move(options));
+    return finishTake(captureCoreAudio(archive, sessionId, std::move(options)));
 #else
-    static_cast<void>(archive);
-    static_cast<void>(sessionId);
     static_cast<void>(options);
-    return std::unexpected(core::error("audio_backend_unavailable", "Native recording is not implemented for this platform."));
+    return finishTake(std::unexpected(core::error("audio_backend_unavailable", "Native recording is not implemented for this platform.")));
 #endif
 }
 

@@ -12,6 +12,7 @@ namespace tutorux::audio {
 
 struct ImportSummary final {
     archive::Uuid trackId{};
+    archive::Uuid takeId{};
     std::uint32_t sampleRateHz{};
     std::uint16_t channelCount{};
     std::uint64_t sampleCount{};

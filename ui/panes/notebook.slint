@@ -7,6 +7,7 @@ import { NoteRow } from "../models.slint";
 export component Notebook inherits Rectangle {
     in property <[NoteRow]> rows: [];
     in property <string> document-id;
+    in property <string> undo-block-id;
     in-out property <string> selected-block;
     in-out property <string> block-text;
     in-out property <string> block-kind: "Paragraph";
@@ -60,6 +61,12 @@ export component Notebook inherits Rectangle {
                     font-size: 12px;
                     font-weight: 600;
                     vertical-alignment: center;
+                }
+                if root.undo-block-id != "" : Button {
+                    text: "Undo remove";
+                    variant: "ghost";
+                    enabled: root.writable;
+                    clicked => { root.action("restore", root.undo-block-id); }
                 }
                 Rectangle { }
                 Rectangle {

@@ -1,4 +1,5 @@
 #include "tutorux/audio/wav_import.hpp"
+#include "tutorux/audio/recording_take.hpp"
 
 #include "tutorux/domain/entities.hpp"
 
@@ -271,11 +272,16 @@ core::Result<ImportSummary> importPcmStream(Archive& archive, const Uuid& sessio
 
     ImportSummary summary;
     summary.trackId = archive::randomUuid();
+    summary.takeId = archive::randomUuid();
     summary.sampleRateHz = format.sampleRateHz;
     summary.channelCount = format.channelCount;
     summary.sampleCount = format.sampleCount;
     summary.durationUs = samplesToMicroseconds(summary.sampleCount, summary.sampleRateHz);
     summary.byteCount = expectedBytes;
+    const std::uint64_t takeStartedAtUs = nowUnixMicroseconds();
+    auto takeRecord = makeRecordingTakeRecord(summary.takeId, sessionId, "imported-file",
+                                               "importing", {summary.trackId}, takeStartedAtUs);
+    session.fields["audio_import_take_id"] = archive::uuidToString(summary.takeId);
     session.fields["audio_import_track_id"] = archive::uuidToString(summary.trackId);
     session.fields["audio_import_expected_chunks"] = std::to_string(expectedChunkCount);
     session.fields["audio_import_expected_samples"] = std::to_string(summary.sampleCount);
@@ -286,7 +292,7 @@ core::Result<ImportSummary> importPcmStream(Archive& archive, const Uuid& sessio
     session.fields["audio_import_sample_format"] = format.sampleFormat;
     session.fields["audio_import_source_codec"] = format.sourceCodec;
     session.fields["audio_import_bytes"] = "0";
-    if (auto status = updateSession(archive, session, "initializing", "importing", 0, 0); !status)
+    if (auto status = archive.putMany({std::move(takeRecord), session}); !status)
         return std::unexpected(status.error());
 
     std::uint64_t sequenceNumber = 0;
@@ -319,10 +325,16 @@ core::Result<ImportSummary> importPcmStream(Archive& archive, const Uuid& sessio
         session.fields.erase("audio_imported_at_us");
         session.fields["audio_import_bytes"] = std::to_string(committedSamples * blockAlign);
         auto status = updateSession(archive, session, "interrupted", "interrupted", committedChunkCount, committedSamples, failure.message);
+        const auto takeStatus = updateRecordingTake(archive, summary.takeId,
+                                                    committedChunkCount == 0 ? "failed" : "partial",
+                                                    samplesToMicroseconds(committedSamples, summary.sampleRateHz));
         if (!status) {
             return std::unexpected(
                 core::error(failure.code, failure.message + " Unable to persist interrupted state: " + status.error().message));
         }
+        if (!takeStatus)
+            return std::unexpected(core::error(failure.code, failure.message +
+                                                              " Unable to persist take state: " + takeStatus.error().message));
         return std::unexpected(failure);
     };
 
@@ -402,6 +414,8 @@ core::Result<ImportSummary> importPcmStream(Archive& archive, const Uuid& sessio
     if (auto status = updateSession(archive, session, "completed", "completed", sequenceNumber, summary.sampleCount); !status) {
         return failImport(status.error());
     }
+    if (auto status = updateRecordingTake(archive, summary.takeId, "completed", summary.durationUs); !status)
+        return std::unexpected(status.error());
     summary.chunkCount = sequenceNumber;
     summary.completed = true;
     return summary;
@@ -461,11 +475,15 @@ core::Result<ImportSummary> importWave(Archive& archive, const Uuid& sessionId, 
 
     ImportSummary summary;
     summary.trackId = archive::randomUuid();
+    summary.takeId = archive::randomUuid();
     summary.sampleRateHz = format->sampleRateHz;
     summary.channelCount = format->channelCount;
     summary.sampleCount = format->dataBytes / format->blockAlign;
     summary.durationUs = samplesToMicroseconds(summary.sampleCount, summary.sampleRateHz);
     summary.byteCount = format->dataBytes;
+    const std::uint64_t takeStartedAtUs = nowUnixMicroseconds();
+    auto takeRecord = makeRecordingTakeRecord(summary.takeId, sessionId, "imported-file",
+                                               "importing", {summary.trackId}, takeStartedAtUs);
     constexpr std::uint64_t maximumChunkBytes = 1024ULL * 1024ULL;
     constexpr std::size_t chunksPerTransaction = 8;
     const std::uint64_t alignedChunkBytes = (maximumChunkBytes / format->blockAlign) * format->blockAlign;
@@ -478,6 +496,7 @@ core::Result<ImportSummary> importWave(Archive& archive, const Uuid& sessionId, 
         expectedChunkCount += rangeChunkCount;
     }
     session.fields["audio_import_track_id"] = archive::uuidToString(summary.trackId);
+    session.fields["audio_import_take_id"] = archive::uuidToString(summary.takeId);
     session.fields["audio_import_expected_chunks"] = std::to_string(expectedChunkCount);
     session.fields["audio_import_expected_samples"] = std::to_string(summary.sampleCount);
     session.fields["audio_import_expected_bytes"] = std::to_string(summary.byteCount);
@@ -486,7 +505,7 @@ core::Result<ImportSummary> importWave(Archive& archive, const Uuid& sessionId, 
     session.fields["audio_import_channel_mask"] = std::to_string(format->channelMask);
     session.fields["audio_import_sample_format"] = format->sampleFormat;
     session.fields["audio_import_bytes"] = "0";
-    if (auto status = updateSession(archive, session, "initializing", "importing", 0, 0); !status) {
+    if (auto status = archive.putMany({std::move(takeRecord), session}); !status) {
         return std::unexpected(status.error());
     }
 
@@ -521,10 +540,16 @@ core::Result<ImportSummary> importWave(Archive& archive, const Uuid& sessionId, 
         session.fields.erase("audio_imported_at_us");
         session.fields["audio_import_bytes"] = std::to_string(committedSamples * static_cast<std::uint64_t>(format->blockAlign));
         auto status = updateSession(archive, session, "interrupted", "interrupted", committedChunkCount, committedSamples, failure.message);
+        const auto takeStatus = updateRecordingTake(
+            archive, summary.takeId, committedChunkCount == 0 ? "failed" : "partial",
+            samplesToMicroseconds(committedSamples, summary.sampleRateHz));
         if (!status) {
             return std::unexpected(
                 core::error(failure.code, failure.message + " Unable to persist interrupted state: " + status.error().message));
         }
+        if (!takeStatus)
+            return std::unexpected(core::error(failure.code, failure.message +
+                                                              " Unable to persist take state: " + takeStatus.error().message));
         return std::unexpected(failure);
     };
 
@@ -598,6 +623,8 @@ core::Result<ImportSummary> importWave(Archive& archive, const Uuid& sessionId, 
     if (auto status = updateSession(archive, session, "completed", "completed", sequenceNumber, summary.sampleCount); !status) {
         return failImport(status.error());
     }
+    if (auto status = updateRecordingTake(archive, summary.takeId, "completed", summary.durationUs); !status)
+        return std::unexpected(status.error());
     summary.chunkCount = sequenceNumber;
     summary.completed = true;
     return summary;
@@ -611,6 +638,13 @@ core::Result<ImportSummary> recoverWaveImport(Archive& archive, const Uuid& sess
         return std::unexpected(core::error("session_not_found", "Session was not found in the selected archive."));
     }
     Record session = std::move(**sessionResult);
+    const auto importTakeId = archive::uuidFromString(
+        domain::getField(session, "audio_import_take_id"));
+    const auto persistTakeRecoveryState = [&](std::string state, std::uint64_t durationUs) {
+        return importTakeId ? updateRecordingTake(archive, *importTakeId, std::move(state),
+                                                  durationUs)
+                            : core::Status{};
+    };
     const std::string importState = domain::getField(session, "audio_import_state");
     if (importState != "importing" && importState != "finalizing" && importState != "interrupted" && importState != "completed") {
         return std::unexpected(core::error("audio_recovery_unavailable", "Session has no recoverable WAV import metadata."));
@@ -630,6 +664,8 @@ core::Result<ImportSummary> recoverWaveImport(Archive& archive, const Uuid& sess
         auto status = updateSession(archive, session, "interrupted", "interrupted", 0, 0, reason);
         if (!status)
             return std::unexpected(status.error());
+        if (auto takeStatus = persistTakeRecoveryState("failed", 0); !takeStatus)
+            return std::unexpected(takeStatus.error());
         return std::unexpected(core::error("audio_recovery_metadata_invalid", reason));
     }
 
@@ -651,11 +687,14 @@ core::Result<ImportSummary> recoverWaveImport(Archive& archive, const Uuid& sess
         auto status = updateSession(archive, session, "interrupted", "interrupted", 0, 0, reason);
         if (!status)
             return std::unexpected(status.error());
+        if (auto takeStatus = persistTakeRecoveryState("failed", 0); !takeStatus)
+            return std::unexpected(takeStatus.error());
         return std::unexpected(core::error("audio_recovery_metadata_invalid", reason));
     }
 
     ImportSummary summary;
     summary.trackId = *trackId;
+    summary.takeId = importTakeId.value_or(Uuid{});
     summary.sampleRateHz = static_cast<std::uint32_t>(*sampleRate);
     summary.channelCount = static_cast<std::uint16_t>(*channelCount);
     const std::uint64_t maximumTimestampSample = (std::numeric_limits<std::uint64_t>::max() / 1'000'000ULL) * *sampleRate;
@@ -710,6 +749,10 @@ core::Result<ImportSummary> recoverWaveImport(Archive& archive, const Uuid& sess
                       summary.chunkCount, summary.sampleCount, summary.completed ? std::string{} : failureReason);
     if (!status)
         return std::unexpected(status.error());
+    if (auto takeStatus = persistTakeRecoveryState(summary.completed ? "completed" : "partial",
+                                                   summary.durationUs);
+        !takeStatus)
+        return std::unexpected(takeStatus.error());
     return summary;
 }
 

@@ -10,12 +10,14 @@ export component StudyGuidePane inherits Rectangle {
     in-out property <string> selected-block;
     in-out property <string> edit-text;
     in-out property <bool> tools-open: false;
+    in-out property <bool> delete-armed: false;
 
     callback load-block();
     callback save-block();
     callback action(string);
     callback open-ai();
     callback open-full-editor();
+    callback manage-templates();
     callback guide-changed(string);
 
     horizontal-stretch: 1;
@@ -24,6 +26,7 @@ export component StudyGuidePane inherits Rectangle {
     background: Theme.surface;
 
     changed selected-guide => {
+        root.delete-armed = false;
         if (root.selected-guide != "") {
             root.guide-changed(root.selected-guide);
         }
@@ -66,6 +69,10 @@ export component StudyGuidePane inherits Rectangle {
                     text: "Full editor";
                     clicked => { root.open-full-editor(); }
                 }
+                Button {
+                    text: "Manage templates";
+                    clicked => { root.manage-templates(); }
+                }
             }
 
             Rectangle { height: 1px; background: Theme.line; }
@@ -96,13 +103,28 @@ export component StudyGuidePane inherits Rectangle {
                         clicked => { root.load-block(); }
                     }
                     Button { text: "Validate"; enabled: root.selected-guide != ""; clicked => { root.action("validate"); } }
-                    Button { text: "Approve"; enabled: root.selected-guide != ""; clicked => { root.action("approve"); } }
-                    Button { text: "Regenerate section"; enabled: root.selected-guide != ""; clicked => { root.action("regenerate-section"); } }
-                    Button { text: "Add example"; enabled: root.selected-guide != ""; clicked => { root.action("add-example"); } }
-                    Button { text: "Move section up"; enabled: root.selected-guide != ""; clicked => { root.action("move-section-up"); } }
-                    Button { text: "Move section down"; enabled: root.selected-guide != ""; clicked => { root.action("move-section-down"); } }
+                    Button { text: "Approve"; enabled: root.selected-guide != "" && root.writable; clicked => { root.action("approve"); } }
+                    Button { text: "Regenerate section"; enabled: root.selected-guide != "" && root.writable; clicked => { root.action("regenerate-section"); } }
+                    Button { text: "Add example"; enabled: root.selected-guide != "" && root.writable; clicked => { root.action("add-example"); } }
+                    Button { text: "Move section up"; enabled: root.selected-guide != "" && root.writable; clicked => { root.action("move-section-up"); } }
+                    Button { text: "Move section down"; enabled: root.selected-guide != "" && root.writable; clicked => { root.action("move-section-down"); } }
                     Button { text: "Compare with prior"; enabled: root.selected-guide != ""; clicked => { root.action("compare"); } }
-                    Button { text: "Remove block"; variant: "danger"; enabled: root.selected-guide != ""; clicked => { root.action("remove-block"); } }
+                    Button { text: "Duplicate guide"; enabled: root.selected-guide != "" && root.writable; clicked => { root.action("duplicate"); } }
+                    Button {
+                        text: root.delete-armed ? "Confirm move to Trash" : "Move guide to Trash";
+                        variant: "danger";
+                        enabled: root.selected-guide != "" && root.writable;
+                        clicked => {
+                            if root.delete-armed {
+                                root.delete-armed = false;
+                                root.action("delete");
+                            } else {
+                                root.delete-armed = true;
+                            }
+                        }
+                    }
+                    if root.delete-armed : Button { text: "Cancel"; clicked => { root.delete-armed = false; } }
+                    Button { text: "Remove block"; variant: "danger"; enabled: root.selected-guide != "" && root.writable; clicked => { root.action("remove-block"); } }
                 }
             }
 
