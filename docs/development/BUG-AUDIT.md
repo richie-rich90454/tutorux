@@ -90,6 +90,12 @@ fixed and what remains.
 - Session detail controls previously stayed enabled in a read-only archive.
   The inspector now receives the archive's writability state and disables
   session and marker mutations while preserving marker playback.
+- Notebook autosaves could overlap, a workspace refresh could label an active
+  write as saved, and its delayed reload could replace newer typing. Saves now
+  use a typed `JournalService` request, serialize per document, track edit and
+  request revisions, and refresh the visible blocks only when the matching
+  draft is still current. A failed save keeps Retry and a confirmed reload of
+  the saved version; updating a block preserves the recoverable-removal stack.
 - The consent and recording panels exposed an enabled Start button even when
   microphone preflight was not ready. Start is now disabled until the selected
   microphone has passed preflight, with the preflight result visible.
@@ -217,6 +223,9 @@ fixed and what remains.
 - The recording matrix in `GUI-CAPABILITY-MATRIX.md` tracks the remaining CRUD
   and interaction gaps, including typed mutation services, decoder-backed
   material audio playback, and full layout/recovery acceptance coverage.
+- The notebook reload-confirmation interaction is covered in
+  `tests/ui/layout_test.cpp`; its source compiles, but the updated UI test binary
+  still needs a full generated-window rebuild before that interaction can run.
 - The session inspector shows a vertical scrollbar when its marker form extends
   below the visible pane, so lower controls remain discoverable while the
   inspector scrolls independently above the recording transport.
