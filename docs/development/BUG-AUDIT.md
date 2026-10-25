@@ -129,6 +129,10 @@ fixed and what remains.
 - The recording panel also renames tracks, moves one track to Trash, restores
   the most recent removal, and creates a linked stereo mixdown from two
   synchronized tracks without changing either source.
+- The recording waveform seek area only responded to pointer clicks and was
+  invisible to assistive technology. It now exposes a normalized slider value,
+  accessible set/increment/decrement actions, a visible focus ring, and
+  one-second arrow-key seeking (ten seconds with Shift).
 - Materials render signed amplitude buckets for supported PCM WAV previews
   through the shared timeline component, and supported PCM WAV files play through
   the same native output backends as session recordings. The prior glyph preview

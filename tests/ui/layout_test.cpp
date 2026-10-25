@@ -583,6 +583,61 @@ int main() {
                    "Escape closes the keyboard-accessible overflow menu") && ok;
     }
 
+    window->set_recording_state("completed");
+    window->set_recording_waveform_state("ready");
+    window->set_recording_duration_seconds(120);
+    window->set_recording_duration_us("120000000");
+    window->set_recording_playback_position_seconds(60);
+    WaveformBucketRow seekBucket;
+    seekBucket.position = 0;
+    seekBucket.width = 1;
+    seekBucket.start_seconds = 0;
+    seekBucket.end_seconds = 120;
+    seekBucket.minimum = -0.5F;
+    seekBucket.maximum = 0.5F;
+    window->set_recording_waveform_buckets(
+        std::make_shared<slint::VectorModel<WaveformBucketRow>>(
+            std::vector<WaveformBucketRow>{seekBucket}));
+    window->on_seek_recording([&](slint::SharedString, float position) {
+        window->set_recording_playback_position_seconds(
+            static_cast<int>(position * 120 + 0.5F));
+    });
+    settle(window);
+    const auto audioSlider = ElementHandle::find_by_accessible_label(
+        window, "Audio position 00:01:00 of 00:02:00");
+    ok = check(!audioSlider.empty(), "recording waveform exposes the current time as a slider") && ok;
+    if (!audioSlider.empty()) {
+        auto slider = audioSlider[0];
+        ok = check(slider.accessible_role() ==
+                       std::optional<slint::language::AccessibleRole>(
+                           slint::language::AccessibleRole::Slider),
+                   "recording waveform has the slider accessibility role") && ok;
+        ok = check(slider.accessible_enabled() == std::optional<bool>(true),
+                   "completed recording timeline is seekable") && ok;
+        ok = check(slider.accessible_value_minimum() == std::optional<float>(0) &&
+                       slider.accessible_value_maximum() == std::optional<float>(1),
+                   "recording timeline exposes a normalized seek range") && ok;
+        slider.invoke_accessible_increment_action();
+        settle(window);
+        ok = check(window->get_recording_playback_position_seconds() == 61,
+                   "accessible increment seeks one second forward") && ok;
+        slider.set_accessible_value("0.75");
+        settle(window);
+        ok = check(window->get_recording_playback_position_seconds() == 90,
+                   "assistive technology can set the timeline position") && ok;
+        const auto position = slider.absolute_position();
+        const auto size = slider.size();
+        slint::private_api::testing::send_mouse_click(
+            &*window, position.x + size.width / 2, position.y + size.height / 2);
+        slint::private_api::testing::send_keyboard_key_text(
+            &*window, slint::SharedString("\xef\x9c\x82"), true);
+        slint::private_api::testing::send_keyboard_key_text(
+            &*window, slint::SharedString("\xef\x9c\x82"), false);
+        settle(window);
+        ok = check(window->get_recording_playback_position_seconds() == 59,
+                   "left-arrow seeks the focused waveform by one second") && ok;
+    }
+
     window->hide();
     return ok ? 0 : 1;
 }
