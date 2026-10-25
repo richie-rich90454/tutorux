@@ -40,12 +40,12 @@ export component StudyGuidePane inherits Rectangle {
         vertical-scrollbar-policy: as-needed;
 
         page := VerticalLayout {
-            width: min(root.width - 14px, 867px);
+            width: min(root.width - 16px, 1000px);
             x: max(0px, (root.width - self.width) / 2);
-            padding-left: 48px;
-            padding-right: 48px;
-            padding-top: 26px;
-            padding-bottom: 64px;
+            padding-left: 24px;
+            padding-right: 24px;
+            padding-top: 24px;
+            padding-bottom: 40px;
             spacing: 14px;
             alignment: start;
 
@@ -77,31 +77,31 @@ export component StudyGuidePane inherits Rectangle {
 
             Rectangle { height: 1px; background: Theme.line; }
 
-            if root.tools-open : VerticalLayout {
-                spacing: 10px;
-
-                FormWrap {
-                    Field {
-                        label: "Guide";
-                        ComboBox {
-                            model: root.guide-options;
-                            current-value <=> root.selected-guide;
-                        }
-                    }
-                    Field {
-                        label: "Block";
-                        ComboBox {
-                            model: root.block-options;
-                            current-value <=> root.selected-block;
-                        }
+            FormWrap {
+                Field {
+                    label: "Guide";
+                    ComboBox {
+                        model: root.guide-options;
+                        current-value <=> root.selected-guide;
                     }
                 }
-                ActionWrap {
-                    Button {
-                        text: "Load block";
-                        enabled: root.selected-guide != "" && root.selected-block != "";
-                        clicked => { root.load-block(); }
+                Field {
+                    label: "Block";
+                    ComboBox {
+                        model: root.block-options;
+                        current-value <=> root.selected-block;
                     }
+                }
+                Button {
+                    text: "Load block";
+                    enabled: root.selected-guide != "" && root.selected-block != "";
+                    clicked => { root.load-block(); }
+                }
+            }
+
+            if root.tools-open : VerticalLayout {
+                spacing: 10px;
+                ActionWrap {
                     Button { text: "Validate"; enabled: root.selected-guide != ""; clicked => { root.action("validate"); } }
                     Button { text: "Approve"; enabled: root.selected-guide != "" && root.writable; clicked => { root.action("approve"); } }
                     Button { text: "Regenerate section"; enabled: root.selected-guide != "" && root.writable; clicked => { root.action("regenerate-section"); } }

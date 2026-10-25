@@ -1,6 +1,7 @@
 #include "tutorux/application/recording-service.hpp"
 
 #include "tutorux/archive/archive.hpp"
+#include "tutorux/audio/mix.hpp"
 #include "tutorux/domain/entities.hpp"
 
 #include <algorithm>
@@ -86,12 +87,19 @@ RecordingOverview RecordingService::snapshot(const std::filesystem::path& archiv
             const auto& trackId = take.trackIds[index];
             std::string trackSource;
             archive::Uuid parsedTrack{};
+            core::Result<std::optional<archive::Record>> metadata =
+                std::optional<archive::Record>{};
             if (parseUuid(trackId, parsedTrack)) {
-                auto metadata = opened->get(archive::RecordType::AssetMetadata, parsedTrack);
+                metadata = opened->get(archive::RecordType::AssetMetadata, parsedTrack);
                 if (metadata && *metadata && !domain::isDeleted(**metadata))
                     trackSource = domain::getField(**metadata, "source");
             }
             std::string label = friendlySource(trackSource);
+            if (metadata && *metadata && !domain::isDeleted(**metadata)) {
+                const auto savedLabel = domain::getField(**metadata, "label");
+                if (!savedLabel.empty())
+                    label = savedLabel;
+            }
             if (label == "Audio")
                 label = source == "Earlier audio" || source == "Imported audio" ? source : "Track";
             if (take.trackIds.size() > 1)
@@ -190,6 +198,75 @@ core::Status RecordingService::mutateTake(
     }
     return std::unexpected(core::error("recording_take_mutation_invalid",
                                        "The requested take change is not supported."));
+}
+
+core::Status RecordingService::mutateTrack(
+    const std::filesystem::path& archivePath, std::string_view passphrase,
+    const RecordingTrackMutationRequest& request) const {
+    archive::Uuid sessionId{};
+    archive::Uuid takeId{};
+    archive::Uuid trackId{};
+    if (!parseUuid(request.sessionId, sessionId) || !parseUuid(request.trackId, trackId)) {
+        return std::unexpected(core::error(
+            "recording_track_id_invalid", "Select a saved track from the current recording take."));
+    }
+    auto opened = archive::Archive::open(archivePath, true, passphrase);
+    if (!opened)
+        return std::unexpected(opened.error());
+    auto track = opened->get(archive::RecordType::AssetMetadata, trackId);
+    if (!track)
+        return std::unexpected(track.error());
+    if (!*track || domain::getField(**track, "record_role") != "audio-track" ||
+        domain::getField(**track, "session_id") != request.sessionId) {
+        return std::unexpected(core::error(
+            "recording_track_not_found", "The selected track does not belong to this take."));
+    }
+    const std::string actualTakeId = domain::getField(**track, "recording_take_id");
+    if (!parseUuid(actualTakeId, takeId) ||
+        (!request.takeId.empty() && request.takeId != actualTakeId)) {
+        return std::unexpected(core::error(
+            "recording_track_not_found", "The selected track does not belong to this take."));
+    }
+    switch (request.mutation) {
+    case RecordingTrackMutation::rename:
+        return audio::renameRecordingTrack(*opened, trackId, request.label);
+    case RecordingTrackMutation::moveToTrash:
+        return audio::setRecordingTrackDeleted(*opened, trackId, true);
+    case RecordingTrackMutation::restore:
+        return audio::setRecordingTrackDeleted(*opened, trackId, false);
+    }
+    return std::unexpected(core::error(
+        "recording_track_mutation_invalid", "The requested track change is not supported."));
+}
+
+core::Result<RecordingTrackMixResult> RecordingService::mixTracks(
+    const std::filesystem::path& archivePath, std::string_view passphrase,
+    const RecordingTrackMixRequest& request) const {
+    archive::Uuid sessionId{};
+    archive::Uuid takeId{};
+    if (!parseUuid(request.sessionId, sessionId) || !parseUuid(request.takeId, takeId)) {
+        return std::unexpected(core::error(
+            "recording_mix_selection_invalid", "Choose a saved take before mixing tracks."));
+    }
+    std::vector<archive::Uuid> trackIds;
+    trackIds.reserve(request.trackIds.size());
+    for (const auto& id : request.trackIds) {
+        archive::Uuid parsed{};
+        if (!parseUuid(id, parsed)) {
+            return std::unexpected(core::error(
+                "recording_mix_track_invalid", "One of the selected source tracks is no longer available."));
+        }
+        trackIds.push_back(parsed);
+    }
+    auto opened = archive::Archive::open(archivePath, true, passphrase);
+    if (!opened)
+        return std::unexpected(opened.error());
+    const std::string label = request.label.empty() ? "Mixdown" : request.label;
+    auto mix = audio::mixTracksIntoTake(*opened, sessionId, takeId, trackIds, label);
+    if (!mix)
+        return std::unexpected(mix.error());
+    return RecordingTrackMixResult{archive::uuidToString(mix->trackId), label,
+                                   mix->durationUs};
 }
 
 } // namespace tutorux::application

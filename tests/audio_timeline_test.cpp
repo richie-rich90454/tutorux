@@ -1,6 +1,7 @@
 #include "tutorux/archive/archive.hpp"
 #include "tutorux/application/recording-service.hpp"
 #include "tutorux/audio/timeline.hpp"
+#include "tutorux/audio/mix.hpp"
 #include "tutorux/audio/wav_export.hpp"
 #include "tutorux/audio/wav_import.hpp"
 #include "tutorux/audio/recording_take.hpp"
@@ -79,7 +80,8 @@ tutorux::archive::Record makeAudioChunk(const tutorux::archive::Uuid& sessionId,
                                         const tutorux::archive::Uuid& trackId,
                                         std::uint64_t sequence, std::uint64_t firstSample,
                                         std::uint64_t gapBefore,
-                                        std::span<const std::int16_t> samples) {
+                                        std::span<const std::int16_t> samples,
+                                        std::uint32_t sampleRate = 8'000) {
     using namespace tutorux;
     archive::Record record;
     record.type = archive::RecordType::AudioChunk;
@@ -91,7 +93,7 @@ tutorux::archive::Record makeAudioChunk(const tutorux::archive::Uuid& sessionId,
         {"first_sample_index", std::to_string(firstSample)     },
         {"sample_count",       std::to_string(samples.size())  },
         {"gap_before_samples", std::to_string(gapBefore)       },
-        {"sample_rate_hz",     "8000"                          },
+        {"sample_rate_hz",     std::to_string(sampleRate)       },
         {"channel_count",      "1"                             },
         {"sample_format",      "pcm_s16le"                     },
         {"codec",              "none"                          },
@@ -232,6 +234,199 @@ int main() {
                           : takes.error().message);
     }
 
+    // Trash restore state belongs to each take. Deleting a second take before
+    // restoring the first must not overwrite the first take's saved session links.
+    domain::Session restoreSession;
+    restoreSession.id = archive::randomUuid();
+    restoreSession.studentId = "anonymous";
+    restoreSession.subject = "Audio";
+    restoreSession.title = "Multiple take restore regression";
+    const auto restoreTakeA = archive::randomUuid();
+    const auto restoreTakeB = archive::randomUuid();
+    const auto restoreTrackA = archive::randomUuid();
+    const auto restoreTrackB = archive::randomUuid();
+    if (auto status = archive->put(domain::toRecord(restoreSession)); !status)
+        return fail(status.error().message);
+    for (const auto& [takeId, trackId] :
+         std::array<std::pair<archive::Uuid, archive::Uuid>, 2>{
+             std::pair{restoreTakeA, restoreTrackA}, std::pair{restoreTakeB, restoreTrackB}}) {
+        if (auto status = archive->put(audio::makeRecordingTakeRecord(
+                takeId, restoreSession.id, "Restore test", "completed", {trackId}, 1));
+            !status)
+            return fail(status.error().message);
+        archive::Record track;
+        track.type = archive::RecordType::AssetMetadata;
+        track.id = trackId;
+        track.fields = {{"record_role", "audio-track"},
+                        {"session_id", archive::uuidToString(restoreSession.id)},
+                        {"track_id", archive::uuidToString(trackId)},
+                        {"recording_take_id", archive::uuidToString(takeId)}};
+        if (auto status = archive->put(std::move(track)); !status)
+            return fail(status.error().message);
+    }
+    auto restoreSessionRecord = archive->get(archive::RecordType::Session, restoreSession.id);
+    if (!restoreSessionRecord || !*restoreSessionRecord)
+        return fail("The multiple take restore session could not be loaded.");
+    auto sessionWithRestoreTracks = std::move(**restoreSessionRecord);
+    const auto restoreTrackAText = archive::uuidToString(restoreTrackA);
+    const auto restoreTrackBText = archive::uuidToString(restoreTrackB);
+    sessionWithRestoreTracks.fields["recording_track_ids"] =
+        restoreTrackAText + "," + restoreTrackBText;
+    sessionWithRestoreTracks.fields["recording_track_id"] = restoreTrackAText;
+    if (auto status = archive->put(std::move(sessionWithRestoreTracks)); !status)
+        return fail(status.error().message);
+    for (const auto& takeId : {restoreTakeA, restoreTakeB}) {
+        if (auto status = audio::setRecordingTakeDeleted(*archive, takeId, true); !status)
+            return fail(status.error().message);
+    }
+    for (const auto& takeId : {restoreTakeA, restoreTakeB}) {
+        if (auto status = audio::setRecordingTakeDeleted(*archive, takeId, false); !status)
+            return fail(status.error().message);
+    }
+    auto multipleRestoreSession = archive->get(archive::RecordType::Session, restoreSession.id);
+    if (!multipleRestoreSession || !*multipleRestoreSession)
+        return fail("The multiple take restore session could not be reloaded.");
+    const auto restoredTrackList = domain::getField(**multipleRestoreSession,
+                                                     "recording_track_ids");
+    if (restoredTrackList.find(restoreTrackAText) == std::string::npos ||
+        restoredTrackList.find(restoreTrackBText) == std::string::npos ||
+        domain::getField(**multipleRestoreSession, "recording_track_id") != restoreTrackAText)
+        return fail("Restoring two trashed takes lost a session track or its primary track.");
+
+    auto mixed = audio::mixTracksIntoTake(*archive, session.id, secondTakeId,
+                                           {microphoneTrackId, systemTrackId}, "Session mix");
+    if (!mixed || mixed->sampleRateHz != 8'000 || mixed->channelCount != 2 ||
+        mixed->frameCount != synchronizedSamples.size() || mixed->chunkCount != 1) {
+        return fail(mixed ? "The selected synchronized tracks were not mixed into one stereo track."
+                          : mixed.error().message);
+    }
+    auto mixedTimeline = audio::AudioTimelineReader::open(*archive, session.id, mixed->trackId);
+    std::array<std::int16_t, 8> mixedSamples{};
+    if (!mixedTimeline)
+        return fail(mixedTimeline.error().message);
+    auto mixedRead = mixedTimeline->readFrames(mixedSamples);
+    if (!mixedRead || mixedRead->framesRead != 4 ||
+        mixedSamples[0] != -4'500 || mixedSamples[1] != -4'500 ||
+        mixedSamples[2] != -750 || mixedSamples[3] != -750 ||
+        mixedSamples[4] != 1'990 || mixedSamples[5] != 1'990 ||
+        mixedSamples[6] != 6'500 || mixedSamples[7] != 6'500) {
+        return fail(mixedRead ? "The synchronized track mix changed the expected PCM samples."
+                              : mixedRead.error().message);
+    }
+
+    // A slower source may need one more frame than floor(outputEnd * rate ratio)
+    // at an output block boundary. Exercise the final frame of the 2,048-frame block.
+    domain::Session resampleSession;
+    resampleSession.id = archive::randomUuid();
+    resampleSession.studentId = "anonymous";
+    resampleSession.subject = "Audio";
+    resampleSession.title = "Upsampling block boundary regression";
+    if (auto status = archive->put(domain::toRecord(resampleSession)); !status)
+        return fail(status.error().message);
+    const auto resampleTakeId = archive::randomUuid();
+    const auto highRateTrackId = archive::randomUuid();
+    const auto lowRateTrackId = archive::randomUuid();
+    if (auto status = archive->put(audio::makeRecordingTakeRecord(
+            resampleTakeId, resampleSession.id, "Mixed rate test", "completed",
+            {highRateTrackId, lowRateTrackId}, 2)); !status)
+        return fail(status.error().message);
+    for (const auto& [trackId, sampleRate] :
+         std::array<std::pair<archive::Uuid, std::uint32_t>, 2>{
+             std::pair{highRateTrackId, 48'000U}, std::pair{lowRateTrackId, 8'000U}}) {
+        archive::Record track;
+        track.type = archive::RecordType::AssetMetadata;
+        track.id = trackId;
+        track.fields = {{"record_role", "audio-track"},
+                        {"session_id", archive::uuidToString(resampleSession.id)},
+                        {"track_id", archive::uuidToString(trackId)},
+                        {"recording_take_id", archive::uuidToString(resampleTakeId)},
+                        {"sample_rate_hz", std::to_string(sampleRate)}};
+        if (auto status = archive->put(std::move(track)); !status)
+            return fail(status.error().message);
+    }
+    const std::vector<std::int16_t> highRateSamples(2'048, 3'000);
+    const std::vector<std::int16_t> lowRateSamples(342, 6'000);
+    if (auto status = archive->put(makeAudioChunk(resampleSession.id, highRateTrackId, 0, 0, 0,
+                                                   highRateSamples, 48'000)); !status)
+        return fail(status.error().message);
+    if (auto status = archive->put(makeAudioChunk(resampleSession.id, lowRateTrackId, 0, 0, 0,
+                                                   lowRateSamples, 8'000)); !status)
+        return fail(status.error().message);
+    auto boundaryMix = audio::mixTracksIntoTake(*archive, resampleSession.id, resampleTakeId,
+                                                  {highRateTrackId, lowRateTrackId}, "Boundary mix");
+    if (!boundaryMix || boundaryMix->sampleRateHz != 48'000 || boundaryMix->frameCount < 2'048)
+        return fail(boundaryMix ? "The mixed-rate block-boundary fixture has an invalid duration."
+                                : boundaryMix.error().message);
+    auto boundaryTimeline = audio::AudioTimelineReader::open(
+        *archive, resampleSession.id, boundaryMix->trackId);
+    if (!boundaryTimeline)
+        return fail(boundaryTimeline.error().message);
+    if (auto status = boundaryTimeline->seek(2'047); !status)
+        return fail(status.error().message);
+    std::array<std::int16_t, 2> boundarySamples{};
+    auto boundaryRead = boundaryTimeline->readFrames(boundarySamples);
+    if (!boundaryRead || boundaryRead->framesRead != 1 || boundarySamples[0] != 4'500 ||
+        boundarySamples[1] != 4'500)
+        return fail(boundaryRead ? "Upsampling omitted the low-rate track at the output block boundary."
+                                 : boundaryRead.error().message);
+
+    auto mixedWaveform = audio::buildWaveform(*archive, session.id, mixed->trackId, 1);
+    if (!mixedWaveform || mixedWaveform->buckets.empty() ||
+        mixedWaveform->buckets.front().minimum >= mixedWaveform->buckets.front().maximum) {
+        return fail(mixedWaveform ? "The new mix track did not produce signed waveform intensity."
+                                  : mixedWaveform.error().message);
+    }
+    auto mixedTakes = audio::listRecordingTakes(*archive, session.id);
+    const auto mixedTake = mixedTakes ? std::find_if(mixedTakes->begin(), mixedTakes->end(),
+        [&](const auto& take) { return take.id == archive::uuidToString(secondTakeId); })
+        : std::vector<audio::RecordingTake>::const_iterator{};
+    if (!mixedTakes || mixedTake == mixedTakes->end() || mixedTake->trackIds.size() != 3)
+        return fail("The mixdown track was not attached to its source take.");
+
+    auto storedSession = archive->get(archive::RecordType::Session, session.id);
+    if (!storedSession || !*storedSession)
+        return fail("The session could not be loaded to establish track selection order.");
+    auto orderedSession = std::move(**storedSession);
+    const auto microphoneText = archive::uuidToString(microphoneTrackId);
+    const auto systemText = archive::uuidToString(systemTrackId);
+    const auto mixText = archive::uuidToString(mixed->trackId);
+    orderedSession.fields["recording_track_ids"] = systemText + "," + mixText + "," + microphoneText;
+    orderedSession.fields["recording_track_id"] = mixText;
+    if (auto status = archive->put(std::move(orderedSession)); !status)
+        return fail(status.error().message);
+
+    if (auto status = audio::setRecordingTrackDeleted(*archive, mixed->trackId, true); !status)
+        return fail(status.error().message);
+    auto afterTrackRemoval = audio::listRecordingTakes(*archive, session.id);
+    const auto takeAfterTrackRemoval = afterTrackRemoval ? std::find_if(
+        afterTrackRemoval->begin(), afterTrackRemoval->end(), [&](const auto& take) {
+            return take.id == archive::uuidToString(secondTakeId);
+        }) : std::vector<audio::RecordingTake>::const_iterator{};
+    if (!afterTrackRemoval || takeAfterTrackRemoval == afterTrackRemoval->end() ||
+        takeAfterTrackRemoval->trackIds.size() != 2)
+        return fail("Removing one track also removed its parent take or unrelated tracks.");
+    if (auto status = audio::setRecordingTrackDeleted(*archive, mixed->trackId, false); !status)
+        return fail(status.error().message);
+    auto afterTrackRestore = audio::listRecordingTakes(*archive, session.id);
+    const auto takeAfterTrackRestore = afterTrackRestore ? std::find_if(
+        afterTrackRestore->begin(), afterTrackRestore->end(), [&](const auto& take) {
+            return take.id == archive::uuidToString(secondTakeId);
+        }) : std::vector<audio::RecordingTake>::const_iterator{};
+    if (!afterTrackRestore || takeAfterTrackRestore == afterTrackRestore->end() ||
+        takeAfterTrackRestore->trackIds.size() != 3)
+        return fail("Restoring one track did not put it back into the original take.");
+    if (takeAfterTrackRestore->trackIds[0] != microphoneText ||
+        takeAfterTrackRestore->trackIds[1] != systemText ||
+        takeAfterTrackRestore->trackIds[2] != mixText)
+        return fail("Restoring a track changed the source take track order.");
+    auto restoredSession = archive->get(archive::RecordType::Session, session.id);
+    if (!restoredSession || !*restoredSession)
+        return fail("The session could not be reloaded after track restore.");
+    const auto restoredSessionTracks = domain::getField(**restoredSession, "recording_track_ids");
+    if (restoredSessionTracks != systemText + "," + mixText + "," + microphoneText ||
+        domain::getField(**restoredSession, "recording_track_id") != mixText)
+        return fail("Track restore did not preserve session ordering and the prior primary track.");
+
     constexpr std::array<std::int16_t, 4> secondSamples{2'000, -3'000, 50, 100};
     auto secondChunk = makeAudioChunk(session.id, imported->trackId, 1, 7, 3, secondSamples);
     const archive::Uuid secondChunkId = secondChunk.id;
@@ -267,8 +462,18 @@ int main() {
                              : waveform.error().message);
     }
     auto indexes = archive->list(archive::RecordType::WaveformIndex);
-    if (!indexes || indexes->size() != 1)
-        return fail("Waveform generation did not save its dedicated archive index.");
+    const auto countWaveformIndexesFor = [&](const archive::Uuid& trackId) {
+        if (!indexes)
+            return std::size_t{0};
+        const auto trackIdText = archive::uuidToString(trackId);
+        return static_cast<std::size_t>(std::count_if(indexes->begin(), indexes->end(),
+            [&](const auto& index) {
+                return domain::getField(index, "track_id") == trackIdText;
+            }));
+    };
+    if (countWaveformIndexesFor(imported->trackId) != 1 ||
+        countWaveformIndexesFor(mixed->trackId) != 1)
+        return fail("Waveform generation did not save a dedicated archive index per track.");
 
     auto cachedWaveform = audio::buildWaveform(*archive, session.id, imported->trackId, 11);
     if (!cachedWaveform ||

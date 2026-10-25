@@ -3,13 +3,13 @@
     <head>
         <meta charset="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
-        <meta name="theme-color" content="#ffffff" />
+        <meta name="theme-color" content="#315b4a" />
         <script>
             const darkTheme = window.matchMedia("(prefers-color-scheme: dark)").matches;
             document.documentElement.dataset.theme = darkTheme ? "dark" : "light";
             document.querySelector('meta[name="theme-color"]').content = darkTheme
-                ? "#000000"
-                : "#ffffff";
+                ? "#101713"
+                : "#315b4a";
         </script>
         <meta
             name="description"
@@ -17,6 +17,9 @@
         />
         <link rel="manifest" href="./manifest.webmanifest" />
         <link rel="icon" href="./assets/tutorux.svg" type="image/svg+xml" />
+        <link rel="icon" href="./assets/favicon.ico" type="image/x-icon" sizes="16x16 32x32 48x48 64x64 128x128 256x256" />
+        <link rel="icon" href="./assets/tutorux-32.png" type="image/png" sizes="32x32" />
+        <link rel="apple-touch-icon" href="./assets/tutorux-180.png" sizes="180x180" />
         <link rel="stylesheet" href="./tutorux.css" />
         <title>Tutorux — Journal</title>
     </head>
@@ -25,7 +28,7 @@
         <main class="app-shell">
             <header class="topbar">
                 <a class="wordmark" href="#home" aria-label="Tutorux home">
-                    <span class="wordmark-mark" aria-hidden="true">t.</span>
+                    <img class="wordmark-mark" src="./assets/tutorux.svg" alt="" />
                     <span>Tutorux</span>
                 </a>
                 <div class="archive-state" id="archive-state" role="status">
@@ -139,9 +142,12 @@
                                 <h1 class="page-title" id="journal-title" tabindex="-1">Journal</h1>
                                 <p class="journal-subtitle">A chronological record of lessons, notes, and learning.</p>
                             </div>
-                            <button class="button button-primary" id="new-entry" type="button" data-requires-archive disabled>
-                                <span aria-hidden="true">＋</span> New entry
-                            </button>
+                            <div class="journal-heading-actions">
+                                <a class="button button-outline" href="./docs/tutorial/quick-guide.mp4" target="_blank" rel="noopener">Watch quick guide</a>
+                                <button class="button button-primary" id="new-entry" type="button" data-requires-archive disabled>
+                                    <span aria-hidden="true">＋</span> New entry
+                                </button>
+                            </div>
                         </header>
                         <form class="journal-search-form" id="journal-search-form" role="search">
                             <label class="search-box" for="journal-search">

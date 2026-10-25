@@ -3,6 +3,7 @@
 #include "tutorux/archive/archive.hpp"
 #include "tutorux/audio/recording_take.hpp"
 #include "tutorux/domain/entities.hpp"
+#include "tutorux/domain/journal.hpp"
 
 #include <algorithm>
 #include <chrono>
@@ -60,6 +61,9 @@ int main() {
     archive::Uuid evidenceEdgeId{};
     archive::Uuid studentId{};
     archive::Uuid purgeMarkerId{};
+    archive::Uuid notesDocumentId{};
+    archive::Uuid noteBlockRestoreId{};
+    archive::Uuid noteBlockPurgeId{};
     {
         auto created = archive::Archive::create(archivePath, "Trash service test");
         if (!created)
@@ -195,6 +199,76 @@ int main() {
     snapshot = service.snapshot(archivePath, {});
     if (!snapshot.errorMessage.empty() || snapshot.items.size() != 2)
         return fail("restoring the collection should leave only unrelated Trash items");
+
+    notesDocumentId = archive::randomUuid();
+    noteBlockRestoreId = archive::randomUuid();
+    noteBlockPurgeId = archive::randomUuid();
+    {
+        auto opened = archive::Archive::open(archivePath, true);
+        if (!opened)
+            return fail(opened.error().message);
+        domain::JournalNotesDocument notes;
+        notes.id = notesDocumentId;
+        notes.entryId = archive::uuidToString(entryId);
+        notes.sessionId = archive::uuidToString(sessionId);
+        notes.createdAtUs = "1700000000000000";
+        notes.updatedAtUs = notes.createdAtUs;
+        auto noteRecord = domain::toRecord(notes);
+        noteRecord.fields["removed_block_count"] = "2";
+        noteRecord.fields["removed_block_0_id"] = archive::uuidToString(noteBlockRestoreId);
+        noteRecord.fields["removed_block_0_kind"] = "paragraph";
+        noteRecord.fields["removed_block_0_text"] = "Restore this observation";
+        noteRecord.fields["removed_block_0_index"] = "0";
+        noteRecord.fields["removed_block_1_id"] = archive::uuidToString(noteBlockPurgeId);
+        noteRecord.fields["removed_block_1_kind"] = "heading";
+        noteRecord.fields["removed_block_1_text"] = "Purge this removed heading";
+        noteRecord.fields["removed_block_1_index"] = "1";
+        noteRecord.fields["last_removed_block_id"] = archive::uuidToString(noteBlockPurgeId);
+        noteRecord.fields["last_removed_block_kind"] = "heading";
+        noteRecord.fields["last_removed_block_text"] = "Purge this removed heading";
+        noteRecord.fields["last_removed_block_index"] = "1";
+        if (auto status = opened->put(std::move(noteRecord)); !status)
+            return fail(status.error().message);
+    }
+    snapshot = service.snapshot(archivePath, {});
+    const std::string restoreBlockToken = "note-block:" + archive::uuidToString(notesDocumentId) + ":" +
+                                          archive::uuidToString(noteBlockRestoreId);
+    const std::string purgeBlockToken = "note-block:" + archive::uuidToString(notesDocumentId) + ":" +
+                                        archive::uuidToString(noteBlockPurgeId);
+    if (!snapshot.errorMessage.empty() ||
+        std::none_of(snapshot.items.begin(), snapshot.items.end(), [&](const auto& item) {
+            return item.id == restoreBlockToken && item.typeLabel == "Session note block";
+        }) ||
+        std::none_of(snapshot.items.begin(), snapshot.items.end(), [&](const auto& item) {
+            return item.id == purgeBlockToken;
+        }))
+        return fail("removed note blocks should appear as individually recoverable Trash items");
+    if (auto status = service.restore(archivePath, {}, archive::RecordType::Settings,
+                                      restoreBlockToken); !status)
+        return fail(status.error().message);
+    snapshot = service.snapshot(archivePath, {});
+    if (!snapshot.errorMessage.empty() ||
+        std::any_of(snapshot.items.begin(), snapshot.items.end(), [&](const auto& item) {
+            return item.id == restoreBlockToken;
+        }) ||
+        std::none_of(snapshot.items.begin(), snapshot.items.end(), [&](const auto& item) {
+            return item.id == purgeBlockToken;
+        }))
+        return fail("restoring a note block should remove only that block from Trash");
+    {
+        auto opened = archive::Archive::open(archivePath, false);
+        if (!opened)
+            return fail(opened.error().message);
+        auto stored = opened->get(archive::RecordType::Settings, notesDocumentId);
+        if (!stored || !*stored)
+            return fail("restored note block document is missing");
+        auto notes = domain::journalNotesDocumentFromRecord(**stored);
+        if (!notes || notes->blocks.size() != 1 ||
+            notes->blocks.front().id != archive::uuidToString(noteBlockRestoreId) ||
+            notes->blocks.front().text != "Restore this observation" ||
+            domain::getField(**stored, "removed_block_count") != "1")
+            return fail("restoring a note block did not preserve its content or the remaining recovery item");
+    }
 
     // A recording take is one Trash item. Its tracks and chunks move with it,
     // and the active session stops referencing the removed track until Undo.
@@ -335,6 +409,10 @@ int main() {
         auto purged = opened->get(archive::RecordType::Annotation, purgeMarkerId);
         if (!purged || *purged)
             return fail("permanent purge did not remove the trashed marker");
+        auto notes = opened->get(archive::RecordType::Settings, notesDocumentId);
+        if (!notes || !*notes || domain::getField(**notes, "removed_block_count") != "0" ||
+            !domain::getField(**notes, "last_removed_block_id").empty())
+            return fail("permanent Trash purge did not clear unrecovered note blocks");
     }
     return 0;
 }

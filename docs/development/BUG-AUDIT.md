@@ -108,6 +108,27 @@ fixed and what remains.
 - The recording panel now selects takes and tracks, renames a take, moves it to
   recoverable Trash, restores the last removed take, exposes partial recovery,
   and uses the selected track for playback and WAV export.
+- The recording panel also renames tracks, moves one track to Trash, restores
+  the most recent removal, and creates a linked stereo mixdown from two
+  synchronized tracks without changing either source.
+- Materials render signed amplitude buckets for supported PCM WAV previews
+  through the shared timeline component. The prior glyph preview is gone;
+  unsupported formats show their unavailable state.
+- The session dock shows a bounded rolling capture history, and recording
+  selectors/actions wrap on compact widths. Inspector marker controls stay
+  inside their pane; notebook formatting is collapsed until requested; guide
+  and block selection stays visible while advanced guide tools are closed.
+- Journal copy now distinguishes a teaching journal spanning lessons from the
+  notes and recordings owned by one lesson, and removes a duplicate entry card.
+- The green favicon artwork is embedded in the Windows executable and macOS
+  app bundle, set on the Slint window, installed for Linux launchers, and shipped
+  as browser, Apple-touch, and PWA icons at their platform sizes.
+- The browser workspace now uses the same green action and focus palette as the
+  desktop UI, with a matching dark green surface. Its service worker caches the
+  ICO, SVG, touch, and PWA icons; the guide video is discoverable from Journal,
+  included in web builds, and cached when the installed package contains it.
+- Native installs include the guide beside the application, and the macOS app
+  bundle carries a copy in its Resources folder.
 - `RecordingService` provides structured waveform/take snapshots and typed
   rename/delete/restore requests for these UI actions. The CLI dispatcher
   remains available for command-line workflows.

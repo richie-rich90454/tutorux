@@ -4,11 +4,13 @@
 
 #include <slint-testing.h>
 
+#include <algorithm>
 #include <array>
 #include <cstdlib>
 #include <iostream>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace {
@@ -34,6 +36,106 @@ std::optional<ElementHandle> element(slint::ComponentHandle<MainWindow> window, 
     return found[0];
 }
 
+bool inside(const ElementHandle& parent, const ElementHandle& child) {
+    const auto parentPosition = parent.absolute_position();
+    const auto parentSize = parent.size();
+    const auto childPosition = child.absolute_position();
+    const auto childSize = child.size();
+    return childSize.width > 0 && childSize.height > 0 &&
+           childPosition.x >= parentPosition.x - 1 &&
+           childPosition.y >= parentPosition.y - 1 &&
+           childPosition.x + childSize.width <= parentPosition.x + parentSize.width + 1 &&
+           childPosition.y + childSize.height <= parentPosition.y + parentSize.height + 1;
+}
+
+std::string bounds(const ElementHandle& element) {
+    const auto position = element.absolute_position();
+    const auto size = element.size();
+    return "x=" + std::to_string(position.x) + ",y=" + std::to_string(position.y) +
+           ",w=" + std::to_string(size.width) + ",h=" + std::to_string(size.height);
+}
+
+bool horizontallyInside(const ElementHandle& parent, const ElementHandle& child) {
+    const auto parentPosition = parent.absolute_position();
+    const auto parentSize = parent.size();
+    const auto childPosition = child.absolute_position();
+    const auto childSize = child.size();
+    return childSize.width > 0 && childPosition.x >= parentPosition.x - 1 &&
+           childPosition.x + childSize.width <= parentPosition.x + parentSize.width + 1;
+}
+
+bool overlaps(const ElementHandle& first, const ElementHandle& second) {
+    const auto firstPosition = first.absolute_position();
+    const auto firstSize = first.size();
+    const auto secondPosition = second.absolute_position();
+    const auto secondSize = second.size();
+    const float intersectionWidth = std::min(firstPosition.x + firstSize.width,
+                                             secondPosition.x + secondSize.width) -
+                                   std::max(firstPosition.x, secondPosition.x);
+    const float intersectionHeight = std::min(firstPosition.y + firstSize.height,
+                                              secondPosition.y + secondSize.height) -
+                                    std::max(firstPosition.y, secondPosition.y);
+    return intersectionWidth > 1 && intersectionHeight > 1;
+}
+
+bool isInteractive(const ElementHandle& element) {
+    const auto role = element.accessible_role();
+    if (!role)
+        return false;
+    using slint::language::AccessibleRole;
+    switch (*role) {
+    case AccessibleRole::Button:
+    case AccessibleRole::Checkbox:
+    case AccessibleRole::Combobox:
+    case AccessibleRole::RadioButton:
+    case AccessibleRole::Slider:
+    case AccessibleRole::Spinbox:
+    case AccessibleRole::Switch:
+    case AccessibleRole::Tab:
+    case AccessibleRole::TextInput:
+        return true;
+    default:
+        return false;
+    }
+}
+
+std::vector<ElementHandle> visibleControls(slint::ComponentHandle<MainWindow> window) {
+    std::vector<ElementHandle> controls;
+    ElementHandle::visit_elements(window, [&](ElementHandle element) {
+        if (isInteractive(element))
+            controls.push_back(std::move(element));
+    });
+    return controls;
+}
+
+std::string controlName(const ElementHandle& control) {
+    if (const auto label = control.accessible_label())
+        return std::string(label->data(), label->size());
+    if (const auto id = control.id())
+        return std::string(id->data(), id->size());
+    if (const auto type = control.type_name())
+        return std::string(type->data(), type->size());
+    return "unnamed control";
+}
+
+bool controlsDoNotOverlap(slint::ComponentHandle<MainWindow> window,
+                          std::string_view scope, int width, int height) {
+    const auto controls = visibleControls(window);
+    bool ok = true;
+    for (std::size_t first = 0; first < controls.size(); ++first) {
+        for (std::size_t second = first + 1; second < controls.size(); ++second) {
+            if (!overlaps(controls[first], controls[second]))
+                continue;
+            const auto message = std::string(scope) + " interactive controls overlap at " +
+                                 std::to_string(width) + "x" + std::to_string(height) + ": " +
+                                 controlName(controls[first]) + " / " +
+                                 controlName(controls[second]);
+            ok = check(false, message) && ok;
+        }
+    }
+    return ok;
+}
+
 } // namespace
 
 int main() {
@@ -48,8 +150,21 @@ int main() {
     window->set_selected_session_subject("Mathematics");
     window->set_selected_session_started("2026-10-23 10:00");
     window->set_selected_session_state("In progress");
+    window->set_marker_rows(std::make_shared<slint::VectorModel<MarkerRow>>(
+        std::vector<MarkerRow>{
+            MarkerRow{slint::SharedString("marker-one"), slint::SharedString("00:12:30"),
+                      slint::SharedString("Student explains a multi-step solution clearly."), 750},
+            MarkerRow{slint::SharedString("marker-two"), slint::SharedString("00:20:00"),
+                      slint::SharedString("Return to the diagram and check the scale."), 1200},
+        }));
     window->set_status_message("Layout gate is running.");
     window->set_note_save_state("saved");
+    // Exercise the expanded transport layout throughout the responsive matrix.
+    window->set_recording_state("recording");
+    window->set_recording_elapsed_seconds(760);
+    window->set_recording_duration_seconds(760);
+    window->set_recording_duration_us("760000000");
+    window->set_recording_input_level(43);
 
     std::vector<SessionRow> sessions;
     sessions.push_back(SessionRow{slint::SharedString("session-1"),
@@ -84,6 +199,7 @@ int main() {
     for (const auto& size : sizes) {
         for (const char* theme : themes) {
             window->set_theme_mode(slint::SharedString(theme));
+            window->set_compact_navigator(size.width < 1100);
             window->set_effective_inspector_open(size.inspector);
             slint::LogicalSize windowSize;
             windowSize.width = static_cast<float>(size.width);
@@ -104,15 +220,50 @@ int main() {
 
             const auto contentSize = content->size();
             const auto contentPosition = content->absolute_position();
+            const auto navigatorPosition = navigator->absolute_position();
+            const auto navigatorSize = navigator->size();
+            if (size.width < 1100) {
+                ok = check(navigatorSize.width <= 209,
+                           "compact navigator respects its fixed width") && ok;
+            }
             ok = check(contentSize.width > 320, "content pane keeps a usable width") && ok;
             ok = check(contentPosition.x + contentSize.width <= size.width + 1,
                        "content pane stays inside the window") && ok;
+            ok = check(navigatorPosition.x + navigatorSize.width <= contentPosition.x + 1,
+                       "navigator does not intrude into the content pane") && ok;
+            ok = check(!overlaps(*navigator, *content),
+                       "navigator and content pane do not overlap") && ok;
+            std::vector<ElementHandle> notebookActions;
+            for (const std::string_view label : {
+                     "Add or close notebook composer", "Open journal tools",
+                     "Toggle notebook formatting", "Notebook block type",
+                     "Remove notebook block"}) {
+                const auto matches = ElementHandle::find_by_accessible_label(window, label);
+                if (matches.empty())
+                    continue;
+                notebookActions.push_back(matches[0]);
+                ok = check(horizontallyInside(*content, matches[0]),
+                           std::string(label) + " stays horizontally inside the notebook content pane (pane " +
+                               bounds(*content) + "; control " + bounds(matches[0]) + ")") && ok;
+            }
+            for (std::size_t first = 0; first < notebookActions.size(); ++first) {
+                for (std::size_t second = first + 1; second < notebookActions.size(); ++second) {
+                    ok = check(!overlaps(notebookActions[first], notebookActions[second]),
+                               "notebook action controls do not overlap") && ok;
+                }
+            }
             if (transport.has_value()) {
                 const auto transportSize = transport->size();
                 const auto transportPosition = transport->absolute_position();
                 ok = check(transportSize.height > 0, "transport has a visible height") && ok;
                 ok = check(transportPosition.y + transportSize.height <= size.height + 1,
                            "transport stays above the bottom edge") && ok;
+                ok = check(contentPosition.y + contentSize.height <= transportPosition.y + 1,
+                           "content pane stays above the recording dock") && ok;
+                if (status.has_value()) {
+                    ok = check(!overlaps(*transport, *status),
+                               "recording dock and status line do not overlap") && ok;
+                }
             }
 
             if (size.inspector) {
@@ -126,6 +277,51 @@ int main() {
                                "notebook never renders under the inspector") && ok;
                     ok = check(inspectorPosition.x + inspectorSize.width <= size.width + 1,
                                "inspector stays inside the window") && ok;
+                    std::vector<ElementHandle> inspectorHeaderControls;
+                    for (const std::string_view label : {
+                             "Session inspector heading", "Edit session details",
+                             "Manage session recordings"}) {
+                        const auto matches = ElementHandle::find_by_accessible_label(window, label);
+                        ok = check(!matches.empty(),
+                                   std::string("inspector exposes ") + std::string(label)) && ok;
+                        if (!matches.empty()) {
+                            inspectorHeaderControls.push_back(matches[0]);
+                            ok = check(inside(*inspector, matches[0]),
+                                       std::string(label) + " stays inside inspector") && ok;
+                        }
+                    }
+                    for (std::size_t first = 0; first < inspectorHeaderControls.size(); ++first) {
+                        for (std::size_t second = first + 1;
+                             second < inspectorHeaderControls.size(); ++second) {
+                            ok = check(!overlaps(inspectorHeaderControls[first],
+                                                 inspectorHeaderControls[second]),
+                                       "inspector heading and actions do not overlap") && ok;
+                        }
+                    }
+                    std::vector<ElementHandle> markerControls;
+                    for (const std::string_view label : {
+                             "Session marker time", "Use current recording time",
+                             "Session marker note", "Session marker type",
+                             "Add session marker"}) {
+                        const auto matches = ElementHandle::find_by_accessible_label(window, label);
+                        const bool mayRequireInspectorScroll =
+                            (label == "Add session marker" || label == "Session marker note" ||
+                             label == "Session marker type") && size.height < 1000;
+                        ok = check(!matches.empty() || mayRequireInspectorScroll,
+                                   std::string("inspector exposes ") + std::string(label)) && ok;
+                        if (!matches.empty()) {
+                            markerControls.push_back(matches[0]);
+                            ok = check(horizontallyInside(*inspector, matches[0]),
+                                       std::string(label) + " stays horizontally inside the scrollable inspector (pane " +
+                                           bounds(*inspector) + "; control " + bounds(matches[0]) + ")") && ok;
+                        }
+                    }
+                    for (std::size_t first = 0; first < markerControls.size(); ++first) {
+                        for (std::size_t second = first + 1; second < markerControls.size(); ++second) {
+                            ok = check(!overlaps(markerControls[first], markerControls[second]),
+                                       "marker form controls do not overlap") && ok;
+                        }
+                    }
                     if (transport.has_value()) {
                         const auto transportPosition = transport->absolute_position();
                         ok = check(inspectorPosition.y + inspectorSize.height <=
@@ -143,29 +339,45 @@ int main() {
                 ok = check(statusPosition.y + statusSize.height <= size.height + 1,
                            "status line stays reachable") && ok;
             }
+            ok = controlsDoNotOverlap(window, "session", size.width, size.height) && ok;
         }
     }
 
-    // First-class pages must render inside the content pane, not as modal sheets.
-    window->set_theme_mode(slint::SharedString("light"));
-    window->set_effective_inspector_open(true);
-    slint::LogicalSize pageSize;
-    pageSize.width = 1280.F;
-    pageSize.height = 800.F;
-    window->window().set_size(pageSize);
-    for (const std::string scope : {"journal", "guides", "settings"}) {
-        window->set_navigator_scope(slint::SharedString(scope));
-        settle(window);
-        const auto page = element(window, scope == "journal"   ? "MainWindow::journal-page-root"
-                                           : scope == "guides" ? "MainWindow::guides-page-root"
-                                                               : "MainWindow::settings-page-root");
-        ok = check(page.has_value(), scope + " page exists") && ok;
-        if (page.has_value()) {
-            const auto position = page->absolute_position();
-            const auto size = page->size();
-            ok = check(size.width > 320, scope + " page keeps a usable width") && ok;
-            ok = check(position.x + size.width <= pageSize.width + 1,
-                       scope + " page stays inside the window") && ok;
+    // Every primary page must remain inside the content pane in empty and
+    // populated states, across narrow/large windows and both palettes.
+    constexpr std::array pageScopes{"students", "materials", "trash", "journal", "guides",
+                                    "settings"};
+    for (const auto& size : sizes) {
+        for (const char* theme : themes) {
+            window->set_theme_mode(slint::SharedString(theme));
+            window->set_compact_navigator(size.width < 1100);
+            window->set_effective_inspector_open(false);
+            slint::LogicalSize pageSize;
+            pageSize.width = static_cast<float>(size.width);
+            pageSize.height = static_cast<float>(size.height);
+            window->window().set_size(pageSize);
+            for (const std::string_view scope : pageScopes) {
+                window->set_navigator_scope(slint::SharedString(scope));
+                settle(window);
+                const std::string_view pageName =
+                    scope == "journal"   ? "MainWindow::journal-page-root"
+                    : scope == "guides"  ? "MainWindow::guides-page-root"
+                    : scope == "settings" ? "MainWindow::settings-page-root"
+                    : scope == "students" ? "MainWindow::students-page-root"
+                    : scope == "materials" ? "MainWindow::materials-page-root"
+                                             : "MainWindow::trash-page-root";
+                const auto page = element(window, pageName);
+                const auto pageContent = element(window, "MainWindow::content-pane");
+                ok = check(page.has_value(), std::string(scope) + " page exists") && ok;
+                if (page.has_value() && pageContent.has_value()) {
+                    const auto pageSizeActual = page->size();
+                    ok = check(pageSizeActual.width > 320,
+                               std::string(scope) + " page keeps a usable width") && ok;
+                    ok = check(inside(*pageContent, *page),
+                               std::string(scope) + " page stays inside the content pane") && ok;
+                }
+                ok = controlsDoNotOverlap(window, scope, size.width, size.height) && ok;
+            }
         }
     }
 

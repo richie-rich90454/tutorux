@@ -1,12 +1,16 @@
 import { Button, LineEdit, ScrollArea, ScrollText, Theme } from "../theme.slint";
 import { ActionWrap, Field, FormWrap } from "../components/page-parts.slint";
+import { WaveformBucketRow } from "../models.slint";
+import { WaveformView } from "../components/waveform-view.slint";
 
 export component MaterialsPage inherits Rectangle {
     in property <string> session-title;
     in property <string> preview-kind: "message";
     in property <string> preview-description;
     in property <string> preview-body;
-    in property <string> preview-waveform;
+    in property <[WaveformBucketRow]> preview-waveform-buckets: [];
+    in property <string> preview-waveform-state: "empty";
+    in property <int> preview-waveform-duration-seconds: 0;
     in property <string> command-output;
     in property <bool> writable: true;
     in property <image> preview-image;
@@ -36,12 +40,12 @@ export component MaterialsPage inherits Rectangle {
 
         page := VerticalLayout {
             x: max(0px, (root.width - self.width) / 2);
-            width: min(root.width - 14px, 920px);
-            padding-left: 48px;
-            padding-right: 48px;
-            padding-top: 36px;
-            padding-bottom: 56px;
-            spacing: 18px;
+            width: min(root.width - 16px, 1040px);
+            padding-left: 24px;
+            padding-right: 24px;
+            padding-top: 24px;
+            padding-bottom: 40px;
+            spacing: 14px;
             alignment: start;
 
             Text { text: "Materials"; color: Theme.ink; font-size: 28px; font-weight: 700; }
@@ -54,9 +58,14 @@ export component MaterialsPage inherits Rectangle {
             }
 
             FormWrap {
+                width: 100%;
                 Field {
                     label: "Import";
+                    width: 100%;
+                    min-width: 0px;
+                    max-width: 720px;
                     LineEdit {
+                        width: 100%;
                         placeholder-text: "File path to import into this session";
                         text <=> root.input-path;
                         enabled: root.writable;
@@ -64,6 +73,7 @@ export component MaterialsPage inherits Rectangle {
                 }
             }
             ActionWrap {
+                width: 100%;
                 Button {
                     text: "Browse file…";
                     enabled: root.writable;
@@ -127,19 +137,31 @@ export component MaterialsPage inherits Rectangle {
                 text: root.preview-body;
                 text-color: Theme.body;
             }
-            if root.preview-waveform != "" : ScrollText {
-                height: 180px;
-                text: root.preview-waveform;
-                text-color: Theme.body;
-                font-size: 12px;
+            if root.preview-kind == "audio" : VerticalLayout {
+                spacing: 8px;
+                Text { text: "Audio waveform"; color: Theme.ink; font-size: 13px; font-weight: 600; }
+                WaveformView {
+                    height: 104px;
+                    buckets: root.preview-waveform-buckets;
+                    duration-seconds: root.preview-waveform-duration-seconds;
+                    duration-label: "";
+                    playhead-label: "";
+                    state: root.preview-waveform-state;
+                    message: root.preview-waveform-state == "silent" ? "This audio is silent." :
+                            "Waveform data is unavailable for this file.";
+                    seek-enabled: false;
+                }
             }
 
-            Text { text: "Command output"; color: Theme.faint; font-size: 12px; font-weight: 600; }
-            ScrollText {
-                height: 160px;
-                text: root.command-output;
-                text-color: Theme.body;
-                font-size: 12px;
+            if root.command-output != "" : VerticalLayout {
+                spacing: 6px;
+                Text { text: "Status"; color: Theme.faint; font-size: 12px; font-weight: 600; }
+                ScrollText {
+                    height: min(96px, self.preferred-height);
+                    text: root.command-output;
+                    text-color: Theme.body;
+                    font-size: 12px;
+                }
             }
         }
     }

@@ -67,33 +67,39 @@ export component SessionInspector inherits Rectangle {
             spacing: 0px;
             alignment: start;
 
-            HorizontalLayout {
-                spacing: 2px;
-                Text {
-                    text: "Session details";
-                    color: Theme.ink;
-                    font-size: 12px;
-                    font-weight: 700;
-                    vertical-alignment: center;
-                    horizontal-stretch: 1;
-                }
-                Button {
-                    text: "Audio";
-                    variant: "ghost";
-                    clicked => { root.open-recording(); }
-                }
-                Button {
-                    text: root.editing ? "Cancel" : "Edit";
-                    variant: "ghost";
-                    clicked => {
-                        if root.editing {
-                            root.editing = false;
-                        } else {
-                            root.draft-student = root.student-choice;
-                            root.draft-subject = root.subject;
-                            root.editing = true;
+            VerticalLayout {
+                spacing: 6px;
+                HorizontalLayout {
+                    Text {
+                        text: "Session details";
+                        color: Theme.ink;
+                        font-size: 12px;
+                        font-weight: 700;
+                        vertical-alignment: center;
+                        horizontal-stretch: 1;
+                        accessible-label: "Session inspector heading";
+                    }
+                    Button {
+                        text: root.editing ? "Cancel" : "Edit";
+                        variant: "ghost";
+                        accessible-label: root.editing ? "Cancel session edit" : "Edit session details";
+                        clicked => {
+                            if root.editing {
+                                root.editing = false;
+                            } else {
+                                root.draft-student = root.student-choice;
+                                root.draft-subject = root.subject;
+                                root.editing = true;
+                            }
                         }
                     }
+                }
+                Button {
+                    text: "Manage recordings";
+                    variant: "ghost";
+                    fill: true;
+                    accessible-label: "Manage session recordings";
+                    clicked => { root.open-recording(); }
                 }
             }
 
@@ -214,27 +220,34 @@ export component SessionInspector inherits Rectangle {
                     LineEdit {
                         placeholder-text: "00:00:00";
                         text <=> root.marker-time;
+                        min-width: 0px;
+                        horizontal-stretch: 1;
+                        accessible-label: "Session marker time";
                     }
                     Button {
                         text: "Now";
                         variant: "ghost";
                         clicked => { root.marker-time = root.elapsed-label; }
+                        accessible-label: "Use current recording time";
                     }
                 }
                 LineEdit {
                     placeholder-text: "Optional marker note";
                     text <=> root.marker-note;
+                    accessible-label: "Session marker note";
                 }
                 ComboBox {
                     model: ["Concept", "Mistake", "Correction", "Instruction",
                             "Example", "Follow-up", "Note"];
                     current-value <=> root.marker-kind;
+                    accessible-label: "Session marker type";
                 }
                 Button {
                     text: "Add marker";
                     variant: "primary";
                     fill: true;
                     clicked => { root.mark(root.marker-type()); }
+                    accessible-label: "Add session marker";
                 }
             }
 
@@ -248,9 +261,28 @@ export component SessionInspector inherits Rectangle {
                 font-size: 12px;
             }
 
-            for marker[i] in root.markers : HorizontalLayout {
-                height: 30px;
-                spacing: 10px;
+            for marker[i] in root.markers : Rectangle {
+                height: 34px;
+                width: 100%;
+                background: root.selected-marker == marker.id ? Theme.surface-hover : transparent;
+                border-radius: 4px;
+                HorizontalLayout {
+                    spacing: 8px;
+                    Text {
+                        text: marker.time;
+                        color: Theme.accent;
+                        font-size: 12px;
+                        vertical-alignment: center;
+                    }
+                    Text {
+                        text: marker.label;
+                        color: Theme.body;
+                        font-size: 12px;
+                        vertical-alignment: center;
+                        overflow: elide;
+                        horizontal-stretch: 1;
+                    }
+                }
                 marker-touch := TouchArea {
                     clicked => {
                         root.selected-marker = marker.id;
@@ -258,20 +290,6 @@ export component SessionInspector inherits Rectangle {
                         root.marker-note = marker.label;
                         root.play-marker(marker.start-seconds);
                     }
-                }
-                Text {
-                    text: marker.time;
-                    color: Theme.accent;
-                    font-size: 12px;
-                    vertical-alignment: center;
-                }
-                Text {
-                    text: marker.label;
-                    color: Theme.body;
-                    font-size: 12px;
-                    vertical-alignment: center;
-                    overflow: elide;
-                    horizontal-stretch: 1;
                 }
             }
 

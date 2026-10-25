@@ -1613,8 +1613,10 @@ namespace {
     }
 
     struct PcmWavePreview final {
-        std::string waveform;
         std::string details;
+        std::vector<WaveformBucketRow> buckets;
+        int durationSeconds{};
+        bool silent{};
     };
 
     std::optional<PcmWavePreview> previewPcmWave(std::span<const std::uint8_t> bytes) {
@@ -1676,15 +1678,16 @@ namespace {
             return std::nullopt;
 
         const std::size_t frameCount = dataLength / blockAlign;
-        constexpr std::size_t barCount = 56;
-        constexpr std::array<std::string_view, 8> bars{"▁", "▂", "▃", "▄", "▅", "▆", "▇", "█"};
-        std::string waveform;
-        waveform.reserve(barCount * 3);
+        const std::size_t barCount = std::min<std::size_t>(56, frameCount);
+        std::vector<WaveformBucketRow> buckets;
+        buckets.reserve(barCount);
+        bool silent = true;
         for (std::size_t bar = 0; bar < barCount; ++bar) {
             const std::size_t firstFrame = bar * frameCount / barCount;
             const std::size_t lastFrame =
                 std::max(firstFrame + 1, (bar + 1) * frameCount / barCount);
-            double peak = 0.0;
+            double minimum = 0.0;
+            double maximum = 0.0;
             for (std::size_t frame = firstFrame; frame < std::min(lastFrame, frameCount); ++frame) {
                 const std::size_t frameOffset = dataOffset + frame * blockAlign;
                 for (std::size_t channel = 0; channel < channels; ++channel) {
@@ -1718,12 +1721,26 @@ namespace {
                                     : static_cast<std::int64_t>(raw);
                         scale = 2147483648.0;
                     }
-                    peak = std::max(peak, std::abs(static_cast<double>(value) / scale));
+                    const double normalized = static_cast<double>(value) / scale;
+                    minimum = std::min(minimum, normalized);
+                    maximum = std::max(maximum, normalized);
                 }
             }
-            const std::size_t level = std::min<std::size_t>(
-                bars.size() - 1, static_cast<std::size_t>(std::round(peak * (bars.size() - 1))));
-            waveform += bars[level];
+            WaveformBucketRow bucket;
+            const auto firstBucketFrame = bar * frameCount / barCount;
+            const auto lastBucketFrame = std::max(firstBucketFrame + 1,
+                                                  (bar + 1) * frameCount / barCount);
+            bucket.position = static_cast<float>(firstBucketFrame) / static_cast<float>(frameCount);
+            bucket.width = static_cast<float>(std::min(lastBucketFrame, frameCount) - firstBucketFrame) /
+                           static_cast<float>(frameCount);
+            bucket.start_seconds = static_cast<float>(firstBucketFrame) / static_cast<float>(sampleRate);
+            bucket.end_seconds = static_cast<float>(std::min(lastBucketFrame, frameCount)) /
+                                 static_cast<float>(sampleRate);
+            bucket.minimum = static_cast<float>(minimum);
+            bucket.maximum = static_cast<float>(maximum);
+            bucket.contains_gap = false;
+            silent = silent && minimum == 0.0 && maximum == 0.0;
+            buckets.push_back(bucket);
         }
         std::ostringstream details;
         details << "PCM WAV · " << sampleRate << " Hz · " << channels << " channels · "
@@ -1731,14 +1748,20 @@ namespace {
                 << static_cast<double>(frameCount) / sampleRate
                 << " s · waveform only; this view "
                    "does not play audio.";
-        return PcmWavePreview{std::move(waveform), details.str()};
+        const auto seconds = static_cast<double>(frameCount) / sampleRate;
+        return PcmWavePreview{details.str(), std::move(buckets),
+                              static_cast<int>(std::min<double>(std::ceil(seconds),
+                                  static_cast<double>(std::numeric_limits<int>::max()))), silent};
     }
 
     void resetAssetPreview(MainWindow& window, std::string_view message) {
         window.set_asset_preview_kind(toSharedString("message"));
         window.set_asset_preview_description(toSharedString(message));
         window.set_asset_preview_body(toSharedString(""));
-        window.set_asset_preview_waveform(toSharedString(""));
+        window.set_asset_preview_waveform_buckets(
+            std::make_shared<slint::VectorModel<WaveformBucketRow>>());
+        window.set_asset_preview_waveform_state(toSharedString("empty"));
+        window.set_asset_preview_waveform_duration_seconds(0);
         window.set_asset_preview_image(slint::Image{});
     }
 
@@ -2238,6 +2261,7 @@ namespace {
         std::vector<slint::SharedString> recordingTracks;
         slint::SharedString selectedRecordingTake;
         slint::SharedString selectedRecordingTrack;
+        slint::SharedString selectedRecordingMixTrack;
         bool recordingTakeMutable{};
         std::vector<WaveformBucketRow> recordingWaveformBuckets;
         std::uint64_t recordingDurationUs{};
@@ -2520,6 +2544,8 @@ namespace {
                     snapshot.recordingTracks.emplace_back(registerChoice(track.label, track.id));
                     if (track.id == recording.selectedTrackId)
                         snapshot.selectedRecordingTrack = snapshot.recordingTracks.back();
+                    else if (snapshot.selectedRecordingMixTrack.empty())
+                        snapshot.selectedRecordingMixTrack = snapshot.recordingTracks.back();
                 }
             }
             snapshot.recordingWaveformBuckets.reserve(recording.buckets.size());
@@ -2605,11 +2631,16 @@ namespace {
             std::make_shared<slint::VectorModel<slint::SharedString>>());
         window.set_selected_recording_take_label(toSharedString(""));
         window.set_recording_undo_take_id(toSharedString(""));
+        window.set_recording_undo_track_id(toSharedString(""));
         window.set_recording_take_mutable(false);
         window.set_recording_rename_take_label(toSharedString(""));
         window.set_recording_track_options(
             std::make_shared<slint::VectorModel<slint::SharedString>>());
         window.set_selected_recording_track_label(toSharedString(""));
+        window.set_selected_recording_mix_track_label(toSharedString(""));
+        window.set_recording_rename_track_label(toSharedString(""));
+        window.set_recording_live_peaks(
+            std::make_shared<slint::VectorModel<int>>());
         window.set_recording_waveform_buckets(
             std::make_shared<slint::VectorModel<WaveformBucketRow>>());
         window.set_recording_waveform_state(toSharedString("empty"));
@@ -2727,6 +2758,8 @@ namespace {
             std::make_shared<slint::VectorModel<slint::SharedString>>(
                 std::move(snapshot.recordingTracks)));
         window.set_selected_recording_track_label(std::move(snapshot.selectedRecordingTrack));
+        window.set_selected_recording_mix_track_label(
+            std::move(snapshot.selectedRecordingMixTrack));
         const std::string selectedRecordingTrackId =
             selectionId(window.get_selected_recording_track_label());
         window.set_recording_export_track(toSharedString(selectedRecordingTrackId));
@@ -2988,7 +3021,9 @@ namespace {
         case RecordType::TranscriptSegment: return "transcript-segment";
         case RecordType::Annotation: return "marker";
         case RecordType::AssetMetadata:
-            return item.typeLabel == "Recording take" ? "recording-take" : "material";
+            if (item.typeLabel == "Recording take") return "recording-take";
+            if (item.typeLabel == "Audio track") return "audio-track";
+            return "material";
         case RecordType::EvidenceNode: return "evidence";
         case RecordType::EvidenceEdge: return "evidence-link";
         case RecordType::Guide: return "study-guide";
@@ -2996,6 +3031,7 @@ namespace {
             if (item.typeLabel == "Journal entry") return "journal-entry";
             if (item.typeLabel == "Collection") return "journal-collection";
             if (item.typeLabel == "Tag") return "journal-tag";
+            if (item.typeLabel == "Session note block") return "journal-notes";
             if (item.typeLabel == "Notes") return "journal-notes";
             if (item.typeLabel == "Guide template") return "guide-template";
             return "record";
@@ -3009,7 +3045,7 @@ namespace {
         if (key == "session") return RecordType::Session;
         if (key == "transcript-segment") return RecordType::TranscriptSegment;
         if (key == "marker") return RecordType::Annotation;
-        if (key == "recording-take" || key == "material") return RecordType::AssetMetadata;
+        if (key == "recording-take" || key == "audio-track" || key == "material") return RecordType::AssetMetadata;
         if (key == "evidence") return RecordType::EvidenceNode;
         if (key == "evidence-link") return RecordType::EvidenceEdge;
         if (key == "study-guide") return RecordType::Guide;
@@ -4604,6 +4640,7 @@ int launchDesktop(std::optional<std::filesystem::path> archivePath,
         window->set_recording_playback_active(false);
         window->set_recording_playback_position_seconds(0);
         window->set_recording_undo_take_id(toSharedString(""));
+        window->set_recording_undo_track_id(toSharedString(""));
         window->set_journal_session_id(toSharedString(id));
         window->set_journal_document_id(toSharedString(""));
         window->set_journal_document_blocks_json(toSharedString("[]"));
@@ -5673,8 +5710,14 @@ int launchDesktop(std::optional<std::filesystem::path> archivePath,
             }
         }
     });
+    std::vector<int> recordingLivePeaks;
+    std::string recordingLivePeakSession;
     window->on_recording_meter([&](slint::SharedString selectedSession) {
         const std::string sessionId = selectionId(selectedSession);
+        if (sessionId != recordingLivePeakSession) {
+            recordingLivePeakSession = sessionId;
+            recordingLivePeaks.clear();
+        }
         const auto sessionUuid = tutorux::archive::uuidFromString(sessionId);
         const auto state = window->get_recording_state();
         const bool capturing = std::string_view(state.data(), state.size()) == "recording";
@@ -5684,6 +5727,14 @@ int launchDesktop(std::optional<std::filesystem::path> archivePath,
                                            0, 100)
                               : 0;
         window->set_recording_input_level(level);
+        if (capturing) {
+            recordingLivePeaks.push_back(level);
+            constexpr std::size_t maximumLivePeaks = 96;
+            if (recordingLivePeaks.size() > maximumLivePeaks)
+                recordingLivePeaks.erase(recordingLivePeaks.begin());
+        }
+        window->set_recording_live_peaks(
+            std::make_shared<slint::VectorModel<int>>(recordingLivePeaks));
     });
     window->on_select_recording_take([&](slint::SharedString label) {
         if (playbackStop)
@@ -5767,6 +5818,12 @@ int launchDesktop(std::optional<std::filesystem::path> archivePath,
             return;
         }
         const std::string requestedSource(source.data(), source.size());
+        if (commandAction == "start") {
+            recordingLivePeaks.clear();
+            recordingLivePeakSession = id;
+            window->set_recording_live_peaks(
+                std::make_shared<slint::VectorModel<int>>());
+        }
         const bool microphoneTrackRequested =
             commandAction == "start" &&
             (requestedSource == "microphone" || requestedSource == "both");
@@ -5790,6 +5847,168 @@ int launchDesktop(std::optional<std::filesystem::path> archivePath,
                 startSeconds = 0;
             static_cast<void>(startTrackPlayback(
                 path, id, static_cast<std::uint64_t>(std::max(startSeconds, 0)) * 1'000'000ULL));
+            return;
+        }
+        if (commandAction == "track-rename" || commandAction == "track-delete" ||
+            commandAction == "track-restore") {
+            const std::string trackId = commandAction == "track-restore"
+                                            ? std::string(source.data(), source.size())
+                                            : selectionId(window->get_selected_recording_track_label());
+            const std::string takeId = selectionId(window->get_selected_recording_take_label());
+            if (!tutorux::archive::uuidFromString(trackId) ||
+                (commandAction != "track-restore" &&
+                 !tutorux::archive::uuidFromString(takeId))) {
+                window->set_status_message(toSharedString(
+                    commandAction == "track-restore"
+                        ? "The removed track is no longer available to restore."
+                        : "Choose a track from the current recording take first."));
+                return;
+            }
+            if (commandAction != "track-restore" && !window->get_recording_take_mutable()) {
+                window->set_status_message(toSharedString(
+                    "This legacy recording has no editable track metadata."));
+                return;
+            }
+            tutorux::application::RecordingTrackMutationRequest request;
+            request.sessionId = id;
+            request.takeId = commandAction == "track-restore" ? "" : takeId;
+            request.trackId = trackId;
+            if (commandAction == "track-rename") {
+                request.mutation = tutorux::application::RecordingTrackMutation::rename;
+                request.label = std::string(source.data(), source.size());
+                if (request.label.empty()) {
+                    window->set_status_message(toSharedString("Enter a name for this track."));
+                    return;
+                }
+            } else if (commandAction == "track-delete") {
+                request.mutation = tutorux::application::RecordingTrackMutation::moveToTrash;
+            } else {
+                request.mutation = tutorux::application::RecordingTrackMutation::restore;
+            }
+            window->set_status_message(toSharedString(
+                commandAction == "track-delete" ? "Moving track to Trash…" :
+                commandAction == "track-restore" ? "Restoring recording track…" :
+                                                    "Renaming recording track…"));
+            window->set_archive_busy(true);
+            std::string passphrase = activePassphrase;
+            const bool started = backgroundTasks.spawn(
+                [weakWindow, &backgroundTasks, &activePassphrase, path, id, trackId,
+                 commandAction, request = std::move(request), passphrase = std::move(passphrase)]() mutable {
+                    const auto status = tutorux::application::RecordingService{}.mutateTrack(
+                        path, passphrase, request);
+                    const bool succeeded = static_cast<bool>(status);
+                    std::string output = succeeded
+                        ? commandAction == "track-delete" ? "Track moved to Trash. You can restore it from here."
+                          : commandAction == "track-restore" ? "Recording track restored."
+                                                               : "Recording track renamed."
+                        : status.error().message;
+                    eraseSecret(passphrase);
+                    static_cast<void>(slint::invoke_from_event_loop(
+                        [weakWindow, &backgroundTasks, &activePassphrase, path, id, trackId,
+                         commandAction, succeeded, output = std::move(output)]() mutable {
+                            auto strongWindow = weakWindow.lock();
+                            if (!strongWindow)
+                                return;
+                            auto& completedWindow = **strongWindow;
+                            completedWindow.set_archive_busy(false);
+                            const auto currentPath = completedWindow.get_archive_path();
+                            if (std::filesystem::path(
+                                    std::string(currentPath.data(), currentPath.size())) != path ||
+                                selectionId(completedWindow.get_selected_session()) != id)
+                                return;
+                            completedWindow.set_command_output(toSharedString(output));
+                            completedWindow.set_status_message(toSharedString(output));
+                            if (!succeeded)
+                                return;
+                            if (commandAction == "track-delete") {
+                                completedWindow.set_recording_undo_track_id(toSharedString(trackId));
+                            } else if (commandAction == "track-restore" &&
+                                       std::string(
+                                           completedWindow.get_recording_undo_track_id().data(),
+                                           completedWindow.get_recording_undo_track_id().size()) == trackId) {
+                                completedWindow.set_recording_undo_track_id(toSharedString(""));
+                            } else if (commandAction == "track-rename") {
+                                completedWindow.set_recording_rename_track_label(toSharedString(""));
+                            }
+                            refreshWorkspaceAsync(weakWindow, backgroundTasks, path,
+                                                  activePassphrase, {}, id);
+                        }));
+                });
+            if (!started) {
+                window->set_archive_busy(false);
+                window->set_status_message(toSharedString("Unable to start the track change."));
+            }
+            return;
+        }
+        if (commandAction == "mix-tracks") {
+            const std::string takeId = selectionId(window->get_selected_recording_take_label());
+            const std::string firstTrack = selectionId(window->get_selected_recording_track_label());
+            const std::string otherTrack = selectionId(toSharedString(
+                std::string(window->get_selected_recording_mix_track_label().data(),
+                            window->get_selected_recording_mix_track_label().size())));
+            if (!tutorux::archive::uuidFromString(takeId) ||
+                !tutorux::archive::uuidFromString(firstTrack) ||
+                !tutorux::archive::uuidFromString(otherTrack) || firstTrack == otherTrack) {
+                window->set_status_message(toSharedString("Choose two different tracks in this take to mix."));
+                return;
+            }
+            if (!window->get_recording_take_mutable()) {
+                window->set_status_message(toSharedString("This legacy recording cannot be mixed as a take."));
+                return;
+            }
+            tutorux::application::RecordingTrackMixRequest request;
+            request.sessionId = id;
+            request.takeId = takeId;
+            request.trackIds = {firstTrack, otherTrack};
+            request.label = "Mixdown";
+            window->set_status_message(toSharedString("Mixing the selected tracks…"));
+            window->set_archive_busy(true);
+            std::string passphrase = activePassphrase;
+            const bool started = backgroundTasks.spawn(
+                [weakWindow, &backgroundTasks, &activePassphrase, path, id,
+                 request = std::move(request), passphrase = std::move(passphrase)]() mutable {
+                    auto result = tutorux::application::RecordingService{}.mixTracks(
+                        path, passphrase, request);
+                    const bool succeeded = static_cast<bool>(result);
+                    std::string output = succeeded
+                        ? "Mixdown track created. The original tracks remain available."
+                        : result.error().message;
+                    std::string trackId;
+                    std::string label;
+                    if (result) {
+                        trackId = result->trackId;
+                        label = result->label;
+                    }
+                    eraseSecret(passphrase);
+                    static_cast<void>(slint::invoke_from_event_loop(
+                        [weakWindow, &backgroundTasks, &activePassphrase, path, id,
+                         succeeded, output = std::move(output), trackId = std::move(trackId),
+                         label = std::move(label)]() mutable {
+                            auto strongWindow = weakWindow.lock();
+                            if (!strongWindow)
+                                return;
+                            auto& completedWindow = **strongWindow;
+                            completedWindow.set_archive_busy(false);
+                            const auto currentPath = completedWindow.get_archive_path();
+                            if (std::filesystem::path(
+                                    std::string(currentPath.data(), currentPath.size())) != path ||
+                                selectionId(completedWindow.get_selected_session()) != id)
+                                return;
+                            completedWindow.set_command_output(toSharedString(output));
+                            completedWindow.set_status_message(toSharedString(output));
+                            if (!succeeded)
+                                return;
+                            const auto choice = registerChoice(label, trackId);
+                            completedWindow.set_selected_recording_track_label(toSharedString(choice));
+                            completedWindow.set_recording_export_track(toSharedString(trackId));
+                            refreshWorkspaceAsync(weakWindow, backgroundTasks, path,
+                                                  activePassphrase, {}, id);
+                        }));
+                });
+            if (!started) {
+                window->set_archive_busy(false);
+                window->set_status_message(toSharedString("Unable to start the mixdown."));
+            }
             return;
         }
         if (commandAction == "take-rename" || commandAction == "take-delete" ||
@@ -6801,7 +7020,7 @@ int launchDesktop(std::optional<std::filesystem::path> archivePath,
         const std::string_view typeKey(typeKeyValue.data(), typeKeyValue.size());
         const std::string id(idValue.data(), idValue.size());
         const auto type = trashRecordType(typeKey);
-        if (!type || !archive::uuidFromString(id)) {
+        if (!type || (!archive::uuidFromString(id) && !id.starts_with("note-block:"))) {
             window->set_trash_error(toSharedString("This Trash item is no longer available."));
             return;
         }
@@ -6907,7 +7126,10 @@ int launchDesktop(std::optional<std::filesystem::path> archivePath,
                     window->set_asset_preview_kind(toSharedString("message"));
                     window->set_asset_preview_description(toSharedString(description));
                     window->set_asset_preview_body(toSharedString(body));
-                    window->set_asset_preview_waveform(toSharedString(""));
+                    window->set_asset_preview_waveform_buckets(
+                        std::make_shared<slint::VectorModel<WaveformBucketRow>>());
+                    window->set_asset_preview_waveform_state(toSharedString("empty"));
+                    window->set_asset_preview_waveform_duration_seconds(0);
                     window->set_asset_preview_image(slint::Image{});
                 };
                 if (commandAction == "reset") {
@@ -7048,11 +7270,17 @@ int launchDesktop(std::optional<std::filesystem::path> archivePath,
                         std::string kind{"message"};
                         std::string description;
                         std::string body;
-                        std::string waveform;
+                        std::vector<WaveformBucketRow> waveformBuckets;
+                        std::string waveformState{"empty"};
+                        int waveformDurationSeconds{};
                         slint::Image image;
                     };
                     window->set_asset_preview_description(
                         toSharedString("Loading material preview…"));
+                    window->set_asset_preview_waveform_state(toSharedString("loading"));
+                    window->set_asset_preview_waveform_buckets(
+                        std::make_shared<slint::VectorModel<WaveformBucketRow>>());
+                    window->set_asset_preview_waveform_duration_seconds(0);
                     std::string passphrase = activePassphrase;
                     const bool started = backgroundTasks
                                              .spawn(
@@ -7066,7 +7294,9 @@ int launchDesktop(std::optional<std::filesystem::path> archivePath,
                                                              preview.description =
                                                                  std::move(description);
                                                              preview.body = std::move(body);
-                                                             preview.waveform.clear();
+                                                             preview.waveformBuckets.clear();
+                                                             preview.waveformState = "empty";
+                                                             preview.waveformDurationSeconds = 0;
                                                              preview.image = slint::Image{};
                                                          };
                                                      try {
@@ -7316,11 +7546,12 @@ int launchDesktop(std::optional<std::filesystem::path> archivePath,
                                                                                              std::move(
                                                                                                  audioPreview
                                                                                                      ->details);
-                                                                                         preview
-                                                                                             .waveform =
-                                                                                             std::move(
-                                                                                                 audioPreview
-                                                                                                     ->waveform);
+                                                                                         preview.waveformBuckets =
+                                                                                             std::move(audioPreview->buckets);
+                                                                                         preview.waveformState =
+                                                                                             audioPreview->silent ? "silent" : "ready";
+                                                                                         preview.waveformDurationSeconds =
+                                                                                             audioPreview->durationSeconds;
                                                                                      } else {
                                                                                          showMessage(
                                                                                              "Audio material · " +
@@ -7408,9 +7639,15 @@ int launchDesktop(std::optional<std::filesystem::path> archivePath,
                                                                      toSharedString(
                                                                          std::move(preview.body)));
                                                              (*strongWindow)
-                                                                 ->set_asset_preview_waveform(
-                                                                     toSharedString(std::move(
-                                                                         preview.waveform)));
+                                                                 ->set_asset_preview_waveform_buckets(
+                                                                     std::make_shared<slint::VectorModel<WaveformBucketRow>>(
+                                                                         std::move(preview.waveformBuckets)));
+                                                             (*strongWindow)
+                                                                 ->set_asset_preview_waveform_state(
+                                                                     toSharedString(std::move(preview.waveformState)));
+                                                             (*strongWindow)
+                                                                 ->set_asset_preview_waveform_duration_seconds(
+                                                                     preview.waveformDurationSeconds);
                                                              (*strongWindow)
                                                                  ->set_asset_preview_image(
                                                                      std::move(preview.image));

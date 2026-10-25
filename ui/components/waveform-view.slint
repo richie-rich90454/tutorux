@@ -11,6 +11,7 @@ export component WaveformView inherits Rectangle {
     in property <string> playhead-label;
     in property <bool> live: false;
     in property <int> live-level: 0;
+    in property <[int]> live-peaks: [];
     in property <float> playhead-position: 0;
     in property <bool> playback-active: false;
     in property <float> zoom-scale: 1;
@@ -39,12 +40,13 @@ export component WaveformView inherits Rectangle {
             background: Theme.waveform-baseline;
         }
 
-        if root.live : Rectangle {
-            x: parent.width - 3px;
-            y: parent.height * (0.5 - max(0.04, root.live-level / 100 * 0.46));
-            width: 3px;
-            height: max(4px, parent.height * root.live-level / 100 * 0.92);
-            background: Theme.recording;
+        for peak[index] in root.live-peaks : Rectangle {
+            visible: root.live && peak > 0;
+            x: parent.width * index / max(1, root.live-peaks.length);
+            y: parent.height * (0.5 - peak / 100 * 0.46);
+            width: max(1px, parent.width / max(1, root.live-peaks.length) - 1px);
+            height: max(2px, parent.height * peak / 100 * 0.92);
+            background: Theme.transport-wave;
             border-radius: 1px;
         }
 
@@ -54,7 +56,7 @@ export component WaveformView inherits Rectangle {
             height: parent.height;
             background: transparent;
 
-            if bucket.maximum > 0 || bucket.minimum < 0 : Rectangle {
+            if bucket.maximum > 0 : Rectangle {
                 x: 0px;
                 y: parent.height * (0.5 - max(0.035, bucket.maximum * 0.46));
                 width: parent.width;
@@ -62,7 +64,7 @@ export component WaveformView inherits Rectangle {
                 background: Theme.waveform-ink;
                 border-radius: 1px;
             }
-            if bucket.maximum > 0 || bucket.minimum < 0 : Rectangle {
+            if bucket.minimum < 0 : Rectangle {
                 x: 0px;
                 y: parent.height * 0.5;
                 width: parent.width;

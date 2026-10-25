@@ -6,6 +6,8 @@
 #include <charconv>
 #include <cctype>
 #include <chrono>
+#include <cstddef>
+#include <iterator>
 #include <set>
 #include <string_view>
 
@@ -162,6 +164,188 @@ core::Status renameRecordingTake(archive::Archive& archive, const archive::Uuid&
     return archive.put(std::move(record));
 }
 
+core::Status renameRecordingTrack(archive::Archive& archive, const archive::Uuid& trackId,
+                                  std::string label) {
+    while (!label.empty() && std::isspace(static_cast<unsigned char>(label.front())) != 0)
+        label.erase(label.begin());
+    while (!label.empty() && std::isspace(static_cast<unsigned char>(label.back())) != 0)
+        label.pop_back();
+    if (label.empty() || label.size() > 120 || label.find_first_of("\r\n") != std::string::npos ||
+        label.find('\0') != std::string::npos) {
+        return std::unexpected(core::error(
+            "recording_track_label_invalid", "Track names must contain 1–120 characters on one line."));
+    }
+    auto loaded = archive.get(archive::RecordType::AssetMetadata, trackId);
+    if (!loaded)
+        return std::unexpected(loaded.error());
+    if (!*loaded || domain::isDeleted(**loaded) ||
+        domain::getField(**loaded, "record_role") != "audio-track" ||
+        domain::getField(**loaded, "recording_take_id").empty()) {
+        return std::unexpected(core::error(
+            "recording_track_not_found", "Select a saved track from a recording take."));
+    }
+    auto record = std::move(**loaded);
+    record.fields["label"] = std::move(label);
+    record.fields["updated_at_us"] = std::to_string(nowUnixMicroseconds());
+    return archive.put(std::move(record));
+}
+
+core::Status setRecordingTrackDeleted(archive::Archive& archive,
+                                      const archive::Uuid& trackId,
+                                      bool deleted) {
+    auto loadedTrack = archive.get(archive::RecordType::AssetMetadata, trackId);
+    if (!loadedTrack)
+        return std::unexpected(loadedTrack.error());
+    if (!*loadedTrack || domain::getField(**loadedTrack, "record_role") != "audio-track") {
+        return std::unexpected(core::error("recording_track_not_found", "The recording track is unavailable."));
+    }
+    if (domain::isDeleted(**loadedTrack) == deleted) {
+        return std::unexpected(core::error(
+            deleted ? "recording_track_already_deleted" : "recording_track_not_deleted",
+            deleted ? "The track is already in Trash." : "The track is not in Trash."));
+    }
+    auto track = std::move(**loadedTrack);
+    const auto sessionText = domain::getField(track, "session_id");
+    const auto takeText = domain::getField(track, "recording_take_id");
+    const auto trackText = archive::uuidToString(trackId);
+    auto sessionId = archive::uuidFromString(sessionText);
+    auto takeId = archive::uuidFromString(takeText);
+    if (!sessionId || !takeId || takeText.empty()) {
+        return std::unexpected(core::error(
+            "recording_track_link_invalid", "This track is not linked to a restorable recording take."));
+    }
+    auto loadedTake = archive.get(archive::RecordType::AssetMetadata, *takeId);
+    if (!loadedTake)
+        return std::unexpected(loadedTake.error());
+    if (!*loadedTake || domain::isDeleted(**loadedTake) ||
+        domain::getField(**loadedTake, "record_role") != "recording-take" ||
+        domain::getField(**loadedTake, "session_id") != sessionText) {
+        return std::unexpected(core::error(
+            "recording_track_take_missing", "Restore the parent take before restoring or removing this track."));
+    }
+    auto take = std::move(**loadedTake);
+    auto linkedTracks = splitIds(domain::getField(take, "track_ids"));
+    if (deleted && !containsId(linkedTracks, trackText)) {
+        return std::unexpected(core::error(
+            "recording_track_link_invalid", "The selected track is not linked to its recording take."));
+    }
+    auto loadedSession = archive.get(archive::RecordType::Session, *sessionId);
+    if (!loadedSession)
+        return std::unexpected(loadedSession.error());
+    if (!*loadedSession || domain::isDeleted(**loadedSession)) {
+        return std::unexpected(core::error("session_not_found", "The parent session is unavailable."));
+    }
+    auto session = std::move(**loadedSession);
+    auto sessionTracks = splitIds(domain::getField(session, "recording_track_ids"));
+    std::vector<archive::Record> transaction;
+    const auto now = std::to_string(nowUnixMicroseconds());
+
+    if (deleted) {
+        const auto takePosition = std::find(linkedTracks.begin(), linkedTracks.end(), trackText);
+        const auto sessionPosition = std::find(sessionTracks.begin(), sessionTracks.end(), trackText);
+        track.fields["_trash_restore_take_track_index"] = std::to_string(
+            static_cast<std::size_t>(std::distance(linkedTracks.begin(), takePosition)));
+        track.fields["_trash_restore_session_track_index"] = std::to_string(
+            static_cast<std::size_t>(std::distance(sessionTracks.begin(), sessionPosition)));
+        linkedTracks.erase(std::remove(linkedTracks.begin(), linkedTracks.end(), trackText),
+                           linkedTracks.end());
+        sessionTracks.erase(std::remove(sessionTracks.begin(), sessionTracks.end(), trackText),
+                            sessionTracks.end());
+        take.fields["track_ids"] = joinIds(linkedTracks);
+        if (domain::getField(session, "recording_track_id") == trackText) {
+            track.fields["_trash_restore_was_primary"] = "true";
+            if (!sessionTracks.empty()) {
+                session.fields["recording_track_id"] = sessionTracks.front();
+                track.fields["_trash_restore_fallback_primary_id"] = sessionTracks.front();
+            } else {
+                session.fields.erase("recording_track_id");
+                track.fields.erase("_trash_restore_fallback_primary_id");
+            }
+        }
+        track.fields["_deleted"] = "true";
+        track.fields["_trash_group_id"] = trackText;
+        track.fields["deleted_at_us"] = now;
+    } else {
+        if (containsId(linkedTracks, trackText)) {
+            return std::unexpected(core::error(
+                "recording_track_restore_conflict", "This track is already linked to its take."));
+        }
+        const auto savedPosition = [](const archive::Record& record, std::string_view key,
+                                      std::size_t fallback) {
+            const auto found = record.fields.find(key);
+            if (found == record.fields.end())
+                return fallback;
+            std::uint64_t parsed = 0;
+            const auto [end, error] = std::from_chars(found->second.data(),
+                                                       found->second.data() + found->second.size(),
+                                                       parsed);
+            if (error != std::errc{} || end != found->second.data() + found->second.size())
+                return fallback;
+            return static_cast<std::size_t>(std::min<std::uint64_t>(parsed, fallback));
+        };
+        const auto takePosition = savedPosition(track, "_trash_restore_take_track_index",
+                                                linkedTracks.size());
+        linkedTracks.insert(linkedTracks.begin() + static_cast<std::ptrdiff_t>(takePosition),
+                            trackText);
+        sessionTracks.erase(std::remove(sessionTracks.begin(), sessionTracks.end(), trackText),
+                            sessionTracks.end());
+        const auto sessionPosition = savedPosition(track, "_trash_restore_session_track_index",
+                                                   sessionTracks.size());
+        sessionTracks.insert(sessionTracks.begin() + static_cast<std::ptrdiff_t>(sessionPosition),
+                             trackText);
+        take.fields["track_ids"] = joinIds(linkedTracks);
+        const auto currentPrimary = domain::getField(session, "recording_track_id");
+        const auto fallbackPrimary = domain::getField(track, "_trash_restore_fallback_primary_id");
+        const bool wasPrimary = domain::getField(track, "_trash_restore_was_primary") == "true";
+        if (wasPrimary && (currentPrimary.empty() ||
+                           (!fallbackPrimary.empty() && currentPrimary == fallbackPrimary))) {
+            session.fields["recording_track_id"] = trackText;
+        }
+        track.fields.erase("_trash_restore_was_primary");
+        track.fields.erase("_trash_restore_fallback_primary_id");
+        track.fields.erase("_trash_restore_take_track_index");
+        track.fields.erase("_trash_restore_session_track_index");
+        track.fields.erase("_deleted");
+        track.fields.erase("_trash_group_id");
+        track.fields.erase("deleted_at_us");
+        track.fields["restored_at_us"] = now;
+    }
+
+    take.fields["updated_at_us"] = now;
+    session.fields["recording_track_ids"] = joinIds(sessionTracks);
+    session.fields["updated_at_us"] = now;
+    track.fields["updated_at_us"] = now;
+    transaction.push_back(std::move(take));
+    transaction.push_back(std::move(session));
+    transaction.push_back(std::move(track));
+
+    for (const auto type : {archive::RecordType::AudioChunk,
+                            archive::RecordType::WaveformIndex}) {
+        auto children = archive.list(type, true);
+        if (!children)
+            return std::unexpected(children.error());
+        for (auto& child : *children) {
+            if (domain::getField(child, "session_id") != sessionText ||
+                domain::getField(child, "track_id") != trackText ||
+                domain::isDeleted(child) == deleted)
+                continue;
+            if (deleted) {
+                child.fields["_deleted"] = "true";
+                child.fields["_trash_group_id"] = trackText;
+                child.fields["deleted_at_us"] = now;
+            } else {
+                child.fields.erase("_deleted");
+                child.fields.erase("_trash_group_id");
+                child.fields.erase("deleted_at_us");
+                child.fields["restored_at_us"] = now;
+            }
+            child.fields["updated_at_us"] = now;
+            transaction.push_back(std::move(child));
+        }
+    }
+    return archive.putMany(std::move(transaction));
+}
+
 core::Status setRecordingTakeDeleted(archive::Archive& archive, const archive::Uuid& takeId,
                                      bool deleted) {
     auto loaded = archive.get(archive::RecordType::AssetMetadata, takeId);
@@ -193,8 +377,6 @@ core::Status setRecordingTakeDeleted(archive::Archive& archive, const archive::U
     record.fields[deleted ? "deleted_at_us" : "restored_at_us"] =
         std::to_string(nowUnixMicroseconds());
     record.fields["updated_at_us"] = std::to_string(nowUnixMicroseconds());
-    transaction.push_back(std::move(record));
-
     auto sessionUuid = archive::uuidFromString(sessionId);
     if (sessionUuid) {
         auto session = archive.get(archive::RecordType::Session, *sessionUuid);
@@ -211,18 +393,35 @@ core::Status setRecordingTakeDeleted(archive::Archive& archive, const archive::U
                         removed.push_back(id);
                 }
                 if (!removed.empty()) {
-                    updatedSession.fields["_trash_restore_track_ids"] = joinIds(removed);
+                    // Store each take's restore scope on the take itself. Session-level
+                    // restore keys are overwritten when users trash multiple takes before
+                    // restoring any of them.
+                    record.fields["_trash_restore_session_track_ids"] = joinIds(removed);
                     updatedSession.fields["recording_track_ids"] = joinIds(withoutIds(sessionTrackIds, removed));
                     sessionChanged = true;
                 }
                 const auto legacyTrackId = domain::getField(updatedSession, "recording_track_id");
                 if (containsId(trackIds, legacyTrackId)) {
-                    updatedSession.fields["_trash_restore_recording_track_id"] = legacyTrackId;
+                    record.fields["_trash_restore_session_primary_track_id"] = legacyTrackId;
                     updatedSession.fields.erase("recording_track_id");
                     sessionChanged = true;
                 }
             } else {
-                const auto restoreIds = splitIds(domain::getField(updatedSession, "_trash_restore_track_ids"));
+                auto restoreIds = splitIds(
+                    domain::getField(record, "_trash_restore_session_track_ids"));
+                bool usedLegacyRestoreIds = false;
+                // Older archives stored this one-take scope on the session. Accept that
+                // representation only when every referenced track belongs to this take.
+                if (restoreIds.empty()) {
+                    const auto legacyRestoreIds = splitIds(
+                        domain::getField(updatedSession, "_trash_restore_track_ids"));
+                    if (!legacyRestoreIds.empty() &&
+                        std::all_of(legacyRestoreIds.begin(), legacyRestoreIds.end(),
+                                    [&](const auto& id) { return containsId(trackIds, id); })) {
+                        restoreIds = legacyRestoreIds;
+                        usedLegacyRestoreIds = true;
+                    }
+                }
                 if (!restoreIds.empty()) {
                     for (const auto& id : restoreIds) {
                         if (!containsId(trackIds, id))
@@ -235,13 +434,27 @@ core::Status setRecordingTakeDeleted(archive::Archive& archive, const archive::U
                             sessionTrackIds.push_back(id);
                     }
                     updatedSession.fields["recording_track_ids"] = joinIds(sessionTrackIds);
-                    updatedSession.fields.erase("_trash_restore_track_ids");
+                    record.fields.erase("_trash_restore_session_track_ids");
+                    if (usedLegacyRestoreIds)
+                        updatedSession.fields.erase("_trash_restore_track_ids");
                     sessionChanged = true;
                 }
-                const auto restoreLegacyId = domain::getField(updatedSession, "_trash_restore_recording_track_id");
+                auto restoreLegacyId = domain::getField(
+                    record, "_trash_restore_session_primary_track_id");
+                bool usedLegacyPrimaryId = false;
+                if (restoreLegacyId.empty()) {
+                    const auto legacyRestoreId = domain::getField(
+                        updatedSession, "_trash_restore_recording_track_id");
+                    if (containsId(trackIds, legacyRestoreId)) {
+                        restoreLegacyId = legacyRestoreId;
+                        usedLegacyPrimaryId = true;
+                    }
+                }
                 if (!restoreLegacyId.empty()) {
-                    updatedSession.fields["recording_track_id"] = restoreLegacyId;
-                    updatedSession.fields.erase("_trash_restore_recording_track_id");
+                    updatedSession.fields["recording_track_id"] = std::string(restoreLegacyId);
+                    record.fields.erase("_trash_restore_session_primary_track_id");
+                    if (usedLegacyPrimaryId)
+                        updatedSession.fields.erase("_trash_restore_recording_track_id");
                     sessionChanged = true;
                 }
             }
@@ -251,6 +464,8 @@ core::Status setRecordingTakeDeleted(archive::Archive& archive, const archive::U
             }
         }
     }
+
+    transaction.push_back(std::move(record));
 
     const auto markChildren = [&](archive::RecordType type,
                                   std::string_view trackField) -> core::Status {

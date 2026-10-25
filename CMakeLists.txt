@@ -204,6 +204,7 @@ set(TUTORUX_CORE_SOURCES
     src/audio/ffmpeg_import.cpp
     src/audio/wav_import.cpp
     src/audio/wav_export.cpp
+    src/audio/mix.cpp
     src/audio/timeline.cpp
     src/audio/waveform.cpp
     src/audio/playback.cpp
@@ -1072,6 +1073,30 @@ endif()
 
 if(NOT TUTORUX_BUILD_WASM)
     add_executable(tutorux src/main.cpp)
+    if(WIN32)
+        enable_language(RC)
+        target_include_directories(tutorux PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/resources")
+        target_sources(tutorux PRIVATE resources/tutorux.rc)
+    elseif(APPLE AND TUTORUX_BUILD_GUI)
+        set_source_files_properties(resources/macos/tutorux.icns PROPERTIES
+            MACOSX_PACKAGE_LOCATION Resources
+        )
+        set_source_files_properties(
+            docs/tutorial/quick-guide.mp4 docs/tutorial/README.md
+            PROPERTIES MACOSX_PACKAGE_LOCATION "Resources/docs/tutorial" HEADER_FILE_ONLY TRUE
+        )
+        target_sources(tutorux PRIVATE
+            resources/macos/tutorux.icns
+            docs/tutorial/quick-guide.mp4
+            docs/tutorial/README.md
+        )
+        set_target_properties(tutorux PROPERTIES
+            MACOSX_BUNDLE TRUE
+            MACOSX_BUNDLE_BUNDLE_NAME "Tutorux"
+            MACOSX_BUNDLE_GUI_IDENTIFIER "app.tutorux.desktop"
+            MACOSX_BUNDLE_ICON_FILE "tutorux.icns"
+        )
+    endif()
     target_link_libraries(tutorux PRIVATE tutorux_core)
     if(MINGW AND TUTORUX_STATIC_RUNTIME)
         if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
@@ -1123,27 +1148,29 @@ if(NOT TUTORUX_BUILD_WASM)
         COMMENT "Staging the base profile into dist/"
     )
 
-    add_custom_target(size
-        COMMAND "${CMAKE_COMMAND}"
-            "-DTUTORUX_BINARY=$<TARGET_FILE:tutorux>"
-            "-DTUTORUX_SIZE_LIMIT_BYTES=${TUTORUX_SIZE_LIMIT_BYTES}"
-            "-DTUTORUX_SIZE_PROFILE=${CMAKE_BUILD_TYPE}"
-            "-DTUTORUX_SIZE_REPORT=${CMAKE_CURRENT_BINARY_DIR}/size-report.txt"
-            "-DTUTORUX_OBJDUMP=${CMAKE_OBJDUMP}"
-            -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/size/size_report.cmake"
-        DEPENDS tutorux
-        VERBATIM
-        COMMENT "Checking the Tutorux executable size budget"
-    )
-    add_test(NAME binary_size_budget
-        COMMAND "${CMAKE_COMMAND}"
-            "-DTUTORUX_BINARY=$<TARGET_FILE:tutorux>"
-            "-DTUTORUX_SIZE_LIMIT_BYTES=${TUTORUX_SIZE_LIMIT_BYTES}"
-            "-DTUTORUX_SIZE_PROFILE=${CMAKE_BUILD_TYPE}"
-            "-DTUTORUX_SIZE_REPORT=${CMAKE_CURRENT_BINARY_DIR}/size-report.txt"
-            "-DTUTORUX_OBJDUMP=${CMAKE_OBJDUMP}"
-            -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/size/size_report.cmake"
-    )
+    if(NOT TUTORUX_SLINT_TESTING)
+        add_custom_target(size
+            COMMAND "${CMAKE_COMMAND}"
+                "-DTUTORUX_BINARY=$<TARGET_FILE:tutorux>"
+                "-DTUTORUX_SIZE_LIMIT_BYTES=${TUTORUX_SIZE_LIMIT_BYTES}"
+                "-DTUTORUX_SIZE_PROFILE=${CMAKE_BUILD_TYPE}"
+                "-DTUTORUX_SIZE_REPORT=${CMAKE_CURRENT_BINARY_DIR}/size-report.txt"
+                "-DTUTORUX_OBJDUMP=${CMAKE_OBJDUMP}"
+                -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/size/size_report.cmake"
+            DEPENDS tutorux
+            VERBATIM
+            COMMENT "Checking the Tutorux executable size budget"
+        )
+        add_test(NAME binary_size_budget
+            COMMAND "${CMAKE_COMMAND}"
+                "-DTUTORUX_BINARY=$<TARGET_FILE:tutorux>"
+                "-DTUTORUX_SIZE_LIMIT_BYTES=${TUTORUX_SIZE_LIMIT_BYTES}"
+                "-DTUTORUX_SIZE_PROFILE=${CMAKE_BUILD_TYPE}"
+                "-DTUTORUX_SIZE_REPORT=${CMAKE_CURRENT_BINARY_DIR}/size-report.txt"
+                "-DTUTORUX_OBJDUMP=${CMAKE_OBJDUMP}"
+                -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/size/size_report.cmake"
+        )
+    endif()
 endif()
 
 if(TUTORUX_ENABLE_LTO AND CMAKE_BUILD_TYPE MATCHES "^(Release|MinSizeRel)$" AND NOT MINGW)
@@ -1230,12 +1257,22 @@ if(TUTORUX_BUILD_GUI)
     target_sources(tutorux PRIVATE src/gui/desktop.cpp src/gui/system-theme.cpp
         "${TUTORUX_EMBEDDED_FONT_SOURCE}"
     )
-    target_include_directories(tutorux PRIVATE src/gui)
+    target_include_directories(tutorux PRIVATE src/gui "${CMAKE_CURRENT_BINARY_DIR}")
     target_compile_definitions(tutorux PRIVATE TUTORUX_WITH_GUI=1)
     if(TUTORUX_STATIC_RUNTIME AND WIN32)
         target_compile_definitions(tutorux PRIVATE TUTORUX_STATIC_SLINT=1)
     endif()
-    slint_target_sources(tutorux ui/app-window.slint)
+    add_library(tutorux_slint_ui OBJECT)
+    target_include_directories(tutorux_slint_ui PRIVATE
+        "${CMAKE_CURRENT_BINARY_DIR}"
+        "${TUTORUX_SLINT_SOURCE_DIR}/api/cpp/include"
+    )
+    target_link_libraries(tutorux_slint_ui PRIVATE Slint::Slint)
+    set_property(TARGET tutorux_slint_ui PROPERTY SLINT_TRANSLATION_DOMAIN tutorux)
+    if(TUTORUX_STATIC_RUNTIME AND WIN32)
+        target_compile_definitions(tutorux_slint_ui PRIVATE TUTORUX_STATIC_SLINT=1)
+    endif()
+    slint_target_sources(tutorux_slint_ui ui/app-window.slint)
     if(TUTORUX_SLINT_TESTING AND CMAKE_BUILD_TYPE STREQUAL "Release" AND NOT MSVC)
         # The generated translation unit is very large; keep developer builds
         # responsive while shipped profiles still use -Os/-O3.
@@ -1244,7 +1281,7 @@ if(TUTORUX_BUILD_GUI)
             PROPERTIES COMPILE_OPTIONS "-O0"
         )
     endif()
-    target_link_libraries(tutorux PRIVATE Slint::Slint)
+    target_link_libraries(tutorux PRIVATE tutorux_slint_ui Slint::Slint)
 endif()
 
 if(TUTORUX_FETCH_FFMPEG AND TARGET tutorux)
@@ -1304,6 +1341,14 @@ if(TUTORUX_BUILD_WASM)
         COMMAND ${CMAKE_COMMAND} -E copy_directory
                 "${CMAKE_CURRENT_SOURCE_DIR}/web"
                 "$<TARGET_FILE_DIR:tutorux_web>"
+        COMMAND ${CMAKE_COMMAND} -E make_directory
+                "$<TARGET_FILE_DIR:tutorux_web>/docs/tutorial"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${CMAKE_CURRENT_SOURCE_DIR}/docs/tutorial/quick-guide.mp4"
+                "$<TARGET_FILE_DIR:tutorux_web>/docs/tutorial/quick-guide.mp4"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${CMAKE_CURRENT_SOURCE_DIR}/docs/tutorial/README.md"
+                "$<TARGET_FILE_DIR:tutorux_web>/docs/tutorial/README.md"
         COMMAND "${TUTORUX_TSC_EXECUTABLE}"
                 --target ES2022
                 --module none
@@ -1322,6 +1367,11 @@ if(TUTORUX_BUILD_WASM)
     )
     install(FILES "${CMAKE_CURRENT_BINARY_DIR}/web/tutorux-core.wasm"
         DESTINATION web COMPONENT WebRuntime
+    )
+    install(FILES
+        "${CMAKE_CURRENT_SOURCE_DIR}/docs/tutorial/quick-guide.mp4"
+        "${CMAKE_CURRENT_SOURCE_DIR}/docs/tutorial/README.md"
+        DESTINATION web/docs/tutorial COMPONENT WebRuntime
     )
 endif()
 
@@ -1718,8 +1768,35 @@ if(TARGET tutorux AND WIN32 AND MINGW)
         RUNTIME DESTINATION .
         COMPONENT Runtime
     )
+elseif(TARGET tutorux AND APPLE AND TUTORUX_BUILD_GUI)
+    install(TARGETS tutorux BUNDLE DESTINATION . COMPONENT Runtime)
+elseif(TARGET tutorux AND UNIX AND NOT APPLE AND TUTORUX_BUILD_GUI)
+    install(TARGETS tutorux RUNTIME DESTINATION bin COMPONENT Runtime)
 elseif(TARGET tutorux)
     install(TARGETS tutorux RUNTIME DESTINATION . COMPONENT Runtime)
+endif()
+
+if(TARGET tutorux)
+    install(FILES
+        "${CMAKE_CURRENT_SOURCE_DIR}/docs/tutorial/quick-guide.mp4"
+        "${CMAKE_CURRENT_SOURCE_DIR}/docs/tutorial/README.md"
+        DESTINATION docs/tutorial COMPONENT Runtime
+    )
+endif()
+
+if(TARGET tutorux AND TUTORUX_BUILD_GUI AND UNIX AND NOT APPLE)
+    install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/resources/tutorux.desktop"
+        DESTINATION share/applications COMPONENT Runtime
+    )
+    install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/web/assets/tutorux.svg"
+        DESTINATION share/icons/hicolor/scalable/apps COMPONENT Runtime
+    )
+    foreach(TUTORUX_ICON_SIZE IN ITEMS 32 192 512)
+        install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/web/assets/tutorux-${TUTORUX_ICON_SIZE}.png"
+            DESTINATION "share/icons/hicolor/${TUTORUX_ICON_SIZE}x${TUTORUX_ICON_SIZE}/apps"
+            RENAME tutorux.png COMPONENT Runtime
+        )
+    endforeach()
 endif()
 
 if(TARGET tutorux)
@@ -1911,27 +1988,27 @@ if(BUILD_TESTING AND NOT TUTORUX_BUILD_WASM)
         if(TUTORUX_SLINT_TESTING)
             add_executable(tutorux_ui_layout_test
                 tests/ui/layout_test.cpp
-                "${CMAKE_CURRENT_BINARY_DIR}/slint_generated_app-window_1.cpp"
             )
-            add_dependencies(tutorux_ui_layout_test tutorux)
             target_include_directories(tutorux_ui_layout_test PRIVATE
                 "${CMAKE_CURRENT_BINARY_DIR}"
                 "${TUTORUX_SLINT_SOURCE_DIR}/api/cpp/include"
             )
-            target_link_libraries(tutorux_ui_layout_test PRIVATE Slint::Slint)
+            target_link_libraries(tutorux_ui_layout_test PRIVATE
+                tutorux_slint_ui Slint::Slint
+            )
             add_test(NAME ui_layout_matrix COMMAND tutorux_ui_layout_test)
         endif()
 
         add_executable(tutorux_ui_screenshot
             tests/ui/screenshot_tool.cpp
-            "${CMAKE_CURRENT_BINARY_DIR}/slint_generated_app-window_1.cpp"
         )
-        add_dependencies(tutorux_ui_screenshot tutorux)
         target_include_directories(tutorux_ui_screenshot PRIVATE
             "${CMAKE_CURRENT_BINARY_DIR}"
             "${TUTORUX_SLINT_SOURCE_DIR}/api/cpp/include"
         )
-        target_link_libraries(tutorux_ui_screenshot PRIVATE Slint::Slint)
+        target_link_libraries(tutorux_ui_screenshot PRIVATE
+            tutorux_slint_ui Slint::Slint
+        )
     endif()
 
     add_executable(tutorux_task_executor_test tests/performance/task_executor_test.cpp)

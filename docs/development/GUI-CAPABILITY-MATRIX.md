@@ -11,13 +11,13 @@ current recording and usability work.
 | Sessions | Session-first quick create and journal create | Session navigator, inspector, journal relation picker | Title, student, subject, state, notes | Group-aware soft delete, dependency preview, grouped restore, and explicit purge | Verify every dependency group and selection refresh after restore or purge. |
 | Journal entries | Journal form | Search, sort, collection/tag/date/session filters | Title/date/collection/tag, document relation | Confirmation, grouped soft-delete, and Trash restore/purge | Verify relation counts and notebook refresh after every mutation. |
 | Journal collections and tags | Organizer create | Organizer pickers | Rename/description/color | Confirmation, relation snapshot, Trash restore, and purge | Verify multiple-entry relation restoration and stale journal searches. |
-| Notes and document blocks | Session notebook and journal document | Session notebook / document view | Autosave, block kind/text, reorder | Block removal has one-step Undo; no user-facing Trash/restore for deleted documents or blocks | Conflict state needs a visible resolution flow; test persistence across archive reopen. |
+| Notes and document blocks | Session notebook and journal document | Session notebook / document view | Autosave, block kind/text, reorder | Block removal has one-step Undo and each removed block also appears in Trash; restore returns it to its original position, while explicit purge clears remaining removed blocks | Session-note documents restore with their owning session or journal entry; conflict state still needs a visible resolution flow. |
 | Recording takes | Native capture and WAV import create additive take records | Session transport chooses a take and its tracks; legacy sessions appear as a synthesized, read-only take | Rename through a typed `RecordingService` mutation | Move to Trash and one-step Undo restore through the typed service | Verify recover/reopen/package behavior, multitrack restore, and that every take action refreshes the selected take and waveform. |
-| Recording tracks | Capture, synchronized capture, import | Track selector and real min/max waveform | No direct track metadata editor | No independent track delete/restore UI | Verify playback, export, gaps, markers, and cache invalidation for each selected track. |
-| Recording transport | Start after consent / import | Persistent session dock, duration, markers, loading/error/silent/empty waveform states | Pause/resume/stop; click timeline to seek and play; zoom and pan | Discoverable partial recovery; take removal has immediate Undo | Verify live meter and playback position under device errors, cancellation, scaling, and small-window layouts. |
+| Recording tracks | Capture, synchronized capture, import, and mixdown | Track selector, signed min/max waveform, gaps, and live capture history | Rename; pairwise mix into a new stereo track | Move to Trash, Undo, Trash restore, and purge | Verify playback, export, gaps, markers, and cache invalidation for each selected track. |
+| Recording transport | Start after consent / import | Persistent session dock, take/track pickers, duration, markers, loading/error/silent/empty waveform states | Pause/resume/stop; click timeline to seek and play; zoom and pan; open track manager | Discoverable partial recovery; take/track removal has immediate Undo | Verify live meter and playback position under device errors, cancellation, scaling, and small-window layouts. |
 | Markers / annotations | Add from inspector or recording dock | Time and label list; marker positions over waveform | Select, edit time/text, save | Soft-delete and Trash restore/purge | Confirm keyboard/focus order and marker labels at multiple window widths. |
 | Transcript segments | Native Windows picker, drag/drop, transcript generation | Session transcript list and segment selector | Correct text, speaker, timestamps, split, merge | Soft-delete, Trash restore, and previous-revision restore | Native browse is Windows-only; verify chronological merge, revision choice, and stale-load behavior. |
-| Materials / assets | Native Windows file/folder picker, drag/drop, archive import | Session materials list and safe previews | No file metadata editor | Soft-delete plus Trash restore | Native browse is Windows-only; add a real decoder-backed audio player/waveform for imported audio assets and validate large/unsupported files. |
+| Materials / assets | Native Windows file/folder picker, drag/drop, archive import | Session materials list, safe previews, and signed PCM WAV waveform | No file metadata editor | Soft-delete plus Trash restore | Native browse is Windows-only; audio material playback still needs a decoder-backed path. Validate large/unsupported files. |
 | Evidence nodes and links | Extract from a session or create from a selected transcript segment | Session evidence list and a student-filtered evidence picker | Edit title/type/content; edits return the item to review; approve/reject/verify; create and remove typed links | Evidence and its links move to Trash together; restoring the item restores its links | Repair an orphaned edge when one endpoint is unavailable; test focus order and large evidence lists. |
 | Guides and templates | Create/generate/import; duplicate | Guides, editable blocks, and Guide Templates manager | Full block editor, find/replace, reorder; template fields | Guide/template delete moves to Trash; restore/purge in Trash | Verify action refresh, template import/export, and async selection behavior. |
 | Settings and credentials | Settings panel | Archive settings and provider state | Preferences, shortcuts, connection credentials | Credential removal exists; Trash/restore scope needs review | Verify no secrets enter status output and ensure settings refresh on archive switches. |
@@ -47,6 +47,9 @@ current recording and usability work.
 - Added recording take rename, Trash, and Undo restore controls. Legacy takes
   remain selectable but cannot be renamed or deleted because their synthetic
   IDs do not identify a persisted take record.
+- Added typed track rename, recoverable track removal/restore, and pairwise
+  mixing into a new stereo track. Mixdowns remain linked to their take and the
+  original tracks are preserved.
 - Updated recovery to finalize the state and duration of each affected take,
   while leaving unrelated takes in the same session unchanged.
 - Waveform buckets with both audio and missing intervals retain their audio
@@ -56,6 +59,14 @@ current recording and usability work.
   and pruned take-to-track links when sanitizing a selected-track copy.
 - Kept the green folio logo as the design source. The desktop palette, icons,
   recording dock, and waveform use its archival green and recording red.
+- Kept the browser and PWA action/focus palette on the same archival green;
+  dark surfaces use the desktop green-black treatment.
+- Embedded the same logo-derived artwork in Windows and macOS application
+  bundles, Linux launchers, and browser/PWA icon variants, including Apple touch
+  artwork.
+- Packaged the quick-guide video for native, macOS bundle, and web distributions;
+  the browser Journal page links to it and the service worker caches it when
+  supplied by the package.
 
 ## Remaining acceptance work
 
@@ -64,7 +75,7 @@ current recording and usability work.
 2. Verify take rename/delete/restore and selected-track playback/export; add
    capture/recovery integration coverage for real linked tracks.
 3. Add a native picker on non-Windows builds, decoder-backed material audio
-   preview, evidence graph editing, and document/block restore where supported.
+   preview, and evidence graph editing.
 4. Replace command-shaped mutation adapters in the remaining domains with typed
    request/result services and field-level validation.
 5. Exercise archive reopen, transfer, sanitization, recovery, Trash restore,

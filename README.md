@@ -29,7 +29,7 @@ token system.
 | Area | What is included |
 | --- | --- |
 | Workspace | Session navigator, notebook, transcript review, study guide editor, materials, student profiles, and a session inspector |
-| Recording | Microphone, system audio, application audio, synchronized tracks, detached controls, waveform playback, WAV import/export, and interrupted-capture recovery |
+| Recording | Multiple takes per lesson, synchronized microphone/system tracks, a track manager with non-destructive mixdowns, detached controls, waveform playback, WAV import/export, and interrupted-capture recovery |
 | Notebook | Structured blocks, autosave, formatting, journal entries, collections, tags, search, and revision history |
 | Transcript | Text/SRT/VTT import, local Whisper support, segment correction, timestamps, split/merge, speaker labels, verification, and export |
 | Materials | Content-addressed images, documents, audio, and video with preview, extraction, and annotation/transcript links |
@@ -37,6 +37,11 @@ token system.
 | Study guides | Templates, section/block editing, source inspection, stale-source tracking, approval, and PDF/DOCX/HTML/Markdown/JSON export |
 | Transfer | Session packages, archive copy/backup, sanitized copies, compaction, verification, and recovery |
 | AI | External-agent packages, response import, OpenAI-compatible providers, native Anthropic/Gemini/Cohere/Perplexity protocols, Ollama, llama.cpp server, and optional embedded llama.cpp |
+
+## Quick guide
+
+[Watch the 20-second, captioned walkthrough](docs/tutorial/quick-guide.mp4) or
+read the [chapter guide and rebuild instructions](docs/tutorial/README.md).
 
 ## Quick start
 

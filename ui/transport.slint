@@ -3,6 +3,7 @@
 import { Button, ComboBox, Theme } from "./theme.slint";
 import { MarkerRow, WaveformBucketRow } from "./models.slint";
 import { WaveformView } from "./components/waveform-view.slint";
+import { ActionWrap } from "./components/page-parts.slint";
 
 export component RecordingTransport inherits Rectangle {
     in property <string> state: "not-started";
@@ -22,6 +23,7 @@ export component RecordingTransport inherits Rectangle {
     in property <string> waveform-state: "empty";
     in property <string> waveform-message;
     in property <int> live-level: 0;
+    in property <[int]> live-peaks: [];
     in-out property <int> zoom-level: 0;
     in-out property <float> viewport-start: 0;
 
@@ -36,8 +38,8 @@ export component RecordingTransport inherits Rectangle {
     property <bool> active: root.state == "recording" || root.state == "paused" ||
                            root.state == "initializing" || root.state == "finalizing";
 
-    height: root.active ? Theme.transport-height :
-        root.waveform-state == "empty" ? 64px : 112px;
+    height: root.active ? root.width < 760px ? 184px : Theme.transport-height :
+        root.waveform-state == "empty" ? 64px : root.width < 760px ? 180px : 146px;
     background: root.active ? Theme.transport : Theme.surface;
 
     function pad2(value: int) -> string {
@@ -130,8 +132,8 @@ export component RecordingTransport inherits Rectangle {
             height: 30px;
             spacing: 10px;
             Text {
-                text: "Recording";
-                width: 116px;
+                text: "Session audio";
+                width: 92px;
                 color: Theme.ink;
                 font-size: 12px;
                 font-weight: 650;
@@ -147,7 +149,9 @@ export component RecordingTransport inherits Rectangle {
                 current-value <=> root.selected-track-label;
                 selected(value) => { root.track-selected(value); }
             }
-            Rectangle { horizontal-stretch: 1; }
+        }
+        ActionWrap {
+            horizontal-stretch: 1;
             Button {
                 text: root.playback-active ? "Stop playback" : "Play";
                 enabled: root.waveform-state == "ready";
@@ -190,7 +194,7 @@ export component RecordingTransport inherits Rectangle {
                 }
             }
             Button {
-                text: "Configure audio";
+                text: "Track manager";
                 variant: "ghost";
                 clicked => { root.open-config(); }
             }
@@ -225,13 +229,15 @@ export component RecordingTransport inherits Rectangle {
         }
     }
 
-    if root.active : HorizontalLayout {
+    if root.active : FlexboxLayout {
+        flex-wrap: wrap;
+        cross-axis-alignment: center;
         padding-left: 22px;
         padding-right: 18px;
         spacing: 14px;
 
         VerticalLayout {
-            width: 116px;
+            width: 100px;
             spacing: 3px;
             padding-top: 18px;
             HorizontalLayout {
@@ -264,6 +270,7 @@ export component RecordingTransport inherits Rectangle {
 
         // Quiet region: a baseline and the current playhead only.
         VerticalLayout {
+            min-width: 220px;
             horizontal-stretch: 1;
             spacing: 5px;
             HorizontalLayout {
@@ -292,8 +299,9 @@ export component RecordingTransport inherits Rectangle {
                 playhead-position: 0;
                 state: root.waveform-state;
                 message: root.waveform-message;
-                live: root.state == "recording";
+                live: root.state == "recording" || root.state == "paused";
                 live-level: root.live-level;
+                live-peaks: root.live-peaks;
                 seek-enabled: false;
                 seek(position) => { root.seek(position); }
             }

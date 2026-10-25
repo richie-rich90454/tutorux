@@ -93,6 +93,9 @@ export component Navigator inherits Rectangle {
                           root.scope == "guides" ? "Guides" :
                           root.scope == "trash" ? "Trash" :
                           root.scope == "settings" ? "Settings" : "Sessions";
+                    // Use actual sidebar width so the label cannot flash or clip
+                    // while the window breakpoint updates on the event loop.
+                    visible: root.width >= 240px;
                     color: Theme.ink;
                     font-size: 16px;
                     font-weight: 700;

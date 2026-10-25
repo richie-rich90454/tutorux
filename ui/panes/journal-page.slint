@@ -127,7 +127,7 @@ export component JournalPage inherits Rectangle {
                         letter-spacing: 1.2px;
                     }
                     Text {
-                        text: "Entries and sessions";
+                        text: "Teaching journal";
                         color: Theme.ink;
                         font-size: 28px;
                         font-weight: 700;
@@ -151,6 +151,14 @@ export component JournalPage inherits Rectangle {
                         }
                     }
                 }
+            }
+
+            Text {
+                text: "Keep observations and progress across lessons here. A session represents one lesson and owns its notes, audio, and follow-up.";
+                color: Theme.muted;
+                font-size: 13px;
+                line-height-factor: 1.4;
+                wrap: word-wrap;
             }
 
             if root.entry-create-open : Card {
@@ -279,18 +287,8 @@ export component JournalPage inherits Rectangle {
                         accessible-label: "Manage journal tags";
                     }
                 }
-            }
 
-            entries-card := Card {
-                heading: "Entries";
-                Text {
-                    text: root.selected-entry == "" ? "Choose an entry in the navigator." : root.selected-entry;
-                    color: Theme.ink;
-                    font-size: 14px;
-                    font-weight: 600;
-                    overflow: elide;
-                }
-                Text {
+                if root.list-output != "" : Text {
                     text: root.list-output;
                     color: Theme.muted;
                     font-size: 12px;
@@ -301,7 +299,7 @@ export component JournalPage inherits Rectangle {
             }
 
             entry-workspace-card := Card {
-                heading: "Entry workspace";
+                heading: "Journal entry";
                 detail: root.selected-entry == "" ? "No entry selected." : root.selected-entry;
 
                 ActionWrap {
@@ -376,7 +374,8 @@ export component JournalPage inherits Rectangle {
             }
 
             session-card := Card {
-                heading: "Session timeline";
+                heading: "Lessons linked to this entry";
+                detail: "Each lesson has its own session notes and recordings.";
 
                 FormWrap {
                     Field {

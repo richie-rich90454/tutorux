@@ -3,13 +3,16 @@
 #include "tutorux/archive/archive.hpp"
 #include "tutorux/audio/recording_take.hpp"
 #include "tutorux/domain/entities.hpp"
+#include "tutorux/domain/journal.hpp"
 
 #include <algorithm>
 #include <array>
+#include <cstddef>
 #include <charconv>
 #include <chrono>
 #include <iomanip>
 #include <iterator>
+#include <optional>
 #include <set>
 #include <sstream>
 #include <string_view>
@@ -21,6 +24,13 @@ namespace {
     using archive::Archive;
     using archive::Record;
     using archive::RecordType;
+
+    struct RecoverableNoteBlock final {
+        std::string id;
+        std::string kind;
+        std::string text;
+        std::size_t index{};
+    };
 
     constexpr std::array kVisibleRecordTypes{
         RecordType::Student,          RecordType::Session,       RecordType::TranscriptSegment,
@@ -63,6 +73,124 @@ namespace {
                role == "journal-notes" || role == "guide-template";
     }
 
+    std::optional<std::vector<RecoverableNoteBlock>> recoverableNoteBlocks(const Record& record) {
+        std::vector<RecoverableNoteBlock> blocks;
+        const auto countText = field(record, "removed_block_count");
+        if (!countText.empty()) {
+            std::size_t count{};
+            const auto [end, error] =
+                std::from_chars(countText.data(), countText.data() + countText.size(), count);
+            if (error != std::errc{} || end != countText.data() + countText.size() || count > 256)
+                return std::nullopt;
+            blocks.reserve(count);
+            for (std::size_t index = 0; index < count; ++index) {
+                const auto prefix = "removed_block_" + std::to_string(index) + "_";
+                RecoverableNoteBlock block;
+                block.id = field(record, prefix + "id");
+                block.kind = field(record, prefix + "kind");
+                block.text = field(record, prefix + "text");
+                const auto indexText = field(record, prefix + "index");
+                const auto [indexEnd, indexError] = std::from_chars(
+                    indexText.data(), indexText.data() + indexText.size(), block.index);
+                if (block.id.empty() || !domain::isValidJournalNoteBlockKind(block.kind) ||
+                    indexError != std::errc{} || indexEnd != indexText.data() + indexText.size())
+                    return std::nullopt;
+                blocks.push_back(std::move(block));
+            }
+        }
+        if (!blocks.empty())
+            return blocks;
+
+        const auto id = field(record, "last_removed_block_id");
+        const auto kind = field(record, "last_removed_block_kind");
+        const auto text = field(record, "last_removed_block_text");
+        const auto indexText = field(record, "last_removed_block_index");
+        if (id.empty() && kind.empty() && text.empty() && indexText.empty())
+            return blocks;
+        RecoverableNoteBlock legacy;
+        legacy.id = id;
+        legacy.kind = kind;
+        legacy.text = text;
+        const auto [indexEnd, indexError] =
+            std::from_chars(indexText.data(), indexText.data() + indexText.size(), legacy.index);
+        if (legacy.id.empty() || !domain::isValidJournalNoteBlockKind(legacy.kind) ||
+            indexError != std::errc{} || indexEnd != indexText.data() + indexText.size())
+            return std::nullopt;
+        blocks.push_back(std::move(legacy));
+        return blocks;
+    }
+
+    void writeRecoveryStack(Record& record,
+                            const std::vector<RecoverableNoteBlock>& blocks) {
+        std::erase_if(record.fields, [](const auto& item) {
+            return item.first.starts_with("removed_block_") ||
+                   item.first == "last_removed_block_id" ||
+                   item.first == "last_removed_block_kind" ||
+                   item.first == "last_removed_block_text" ||
+                   item.first == "last_removed_block_index";
+        });
+        record.fields["removed_block_count"] = std::to_string(blocks.size());
+        for (std::size_t index = 0; index < blocks.size(); ++index) {
+            const auto prefix = "removed_block_" + std::to_string(index) + "_";
+            record.fields[prefix + "id"] = blocks[index].id;
+            record.fields[prefix + "kind"] = blocks[index].kind;
+            record.fields[prefix + "text"] = blocks[index].text;
+            record.fields[prefix + "index"] = std::to_string(blocks[index].index);
+        }
+        if (!blocks.empty()) {
+            const auto& newest = blocks.back();
+            record.fields["last_removed_block_id"] = newest.id;
+            record.fields["last_removed_block_kind"] = newest.kind;
+            record.fields["last_removed_block_text"] = newest.text;
+            record.fields["last_removed_block_index"] = std::to_string(newest.index);
+        }
+    }
+
+    core::Status restoreNoteBlock(Archive& archive, const archive::Uuid& documentId,
+                                  std::string_view blockId) {
+        auto loaded = archive.get(RecordType::Settings, documentId);
+        if (!loaded)
+            return std::unexpected(loaded.error());
+        if (!*loaded || domain::isDeleted(**loaded) ||
+            field(**loaded, "record_role") != "journal-notes")
+            return std::unexpected(core::error("trash_note_block_unavailable",
+                                                "The session notes containing this block are unavailable."));
+
+        auto blocks = recoverableNoteBlocks(**loaded);
+        if (!blocks)
+            return std::unexpected(core::error("trash_note_block_invalid",
+                                                "The saved note block recovery data is invalid."));
+        const auto removed = std::find_if(blocks->begin(), blocks->end(),
+                                          [&](const RecoverableNoteBlock& item) {
+                                              return item.id == blockId;
+                                          });
+        if (removed == blocks->end())
+            return std::unexpected(core::error("trash_note_block_unavailable",
+                                                "This note block is no longer in Trash."));
+
+        auto document = domain::journalNotesDocumentFromRecord(**loaded);
+        if (!document)
+            return std::unexpected(document.error());
+        if (std::any_of(document->blocks.begin(), document->blocks.end(),
+                        [&](const domain::JournalNoteBlock& item) { return item.id == blockId; }))
+            return std::unexpected(core::error("trash_note_block_conflict",
+                                                "A note block with this identifier is already active."));
+        const auto saved = *removed;
+        blocks->erase(removed);
+        const auto insertionIndex = std::min(saved.index, document->blocks.size());
+        document->blocks.insert(document->blocks.begin() + static_cast<std::ptrdiff_t>(insertionIndex),
+                                {saved.id, saved.kind, saved.text});
+        document->updatedAtUs = nowUs();
+
+        Record updated = std::move(**loaded);
+        auto serialized = domain::toRecord(*document);
+        for (const auto& [name, value] : serialized.fields)
+            updated.fields.insert_or_assign(name, value);
+        writeRecoveryStack(updated, *blocks);
+        updated.fields["updated_at_us"] = document->updatedAtUs;
+        return archive.put(std::move(updated));
+    }
+
     std::string labelFor(const Record& record) {
         const auto role = field(record, "record_role");
         if (record.type == RecordType::Student)
@@ -76,6 +204,8 @@ namespace {
         if (record.type == RecordType::AssetMetadata) {
             if (role == "recording-take")
                 return field(record, "label", "Recording take");
+            if (role == "audio-track")
+                return field(record, "label", field(record, "source", "Audio track"));
             return field(record, "display_name", field(record, "original_name",
                        field(record, "name", "Material")));
         }
@@ -103,6 +233,8 @@ namespace {
             return field(record, "speaker", "Transcript");
         if (record.type == RecordType::Annotation)
             return field(record, "type", "Marker");
+        if (record.type == RecordType::AssetMetadata && field(record, "record_role") == "audio-track")
+            return "Audio track · " + field(record, "source", "Recording");
         if (record.type == RecordType::AssetMetadata)
             return field(record, "mime_type", field(record, "source", "Material"));
         if (record.type == RecordType::Settings) {
@@ -128,7 +260,9 @@ namespace {
         case RecordType::TranscriptSegment: return "Transcript segment";
         case RecordType::Annotation: return "Marker";
         case RecordType::AssetMetadata:
-            return field(record, "record_role") == "recording-take" ? "Recording take" : "Material";
+            if (field(record, "record_role") == "recording-take") return "Recording take";
+            if (field(record, "record_role") == "audio-track") return "Audio track";
+            return "Material";
         case RecordType::EvidenceNode: return "Evidence";
         case RecordType::EvidenceEdge: return "Evidence link";
         case RecordType::Guide: return "Study guide";
@@ -320,13 +454,38 @@ TrashSnapshot TrashService::snapshot(const std::filesystem::path& archivePath,
             return result;
         }
         for (const auto& record : *records) {
+            const std::string role = field(record, "record_role");
+            if (type == RecordType::Settings && role == "journal-notes" &&
+                !domain::isDeleted(record)) {
+                auto removedBlocks = recoverableNoteBlocks(record);
+                if (!removedBlocks) {
+                    result.errorMessage =
+                        "A saved session note has invalid recovery data and cannot be listed in Trash.";
+                    result.items.clear();
+                    return result;
+                }
+                for (const auto& block : *removedBlocks) {
+                    TrashItem item;
+                    item.type = RecordType::Settings;
+                    item.typeLabel = "Session note block";
+                    item.id = "note-block:" + archive::uuidToString(record.id) + ":" + block.id;
+                    item.title = block.text.empty() ? "Empty note block" : block.text;
+                    if (item.title.size() > 120) {
+                        item.title.resize(117);
+                        item.title += "…";
+                    }
+                    item.detail = "Removed " + block.kind + " block from session notes";
+                    item.deletedAtUs = "Removed from notes";
+                    item.sessionId = field(record, "session_id");
+                    result.items.push_back(std::move(item));
+                }
+            }
             if (!domain::isDeleted(record))
                 continue;
-            const std::string role = field(record, "record_role");
             if (type == RecordType::Settings && !visibleSettingsRole(role))
                 continue;
             if (type == RecordType::AssetMetadata &&
-                (role == "audio-track" || role == "waveform-pyramid" ||
+                (role == "waveform-pyramid" ||
                  role == "sparse-timestamp-seek-index" || role == "asset-blob-manifest" ||
                  role == "asset-blob-chunk"))
                 continue;
@@ -350,6 +509,8 @@ TrashSnapshot TrashService::snapshot(const std::filesystem::path& archivePath,
                 item.sessionId = item.id;
             if (type == RecordType::AssetMetadata && role == "recording-take")
                 item.sessionId = field(record, "session_id");
+            if (type == RecordType::AssetMetadata && role == "audio-track")
+                item.sessionId = field(record, "session_id");
             result.items.push_back(std::move(item));
         }
     }
@@ -367,6 +528,24 @@ core::Status TrashService::restore(const std::filesystem::path& archivePath,
                                    std::string_view passphrase,
                                    RecordType type,
                                    std::string_view idText) const {
+    constexpr std::string_view noteBlockPrefix = "note-block:";
+    if (type == RecordType::Settings && idText.starts_with(noteBlockPrefix)) {
+        idText.remove_prefix(noteBlockPrefix.size());
+        const auto separator = idText.find(':');
+        if (separator == std::string_view::npos ||
+            idText.find(':', separator + 1) != std::string_view::npos)
+            return std::unexpected(core::error("trash_note_block_id_invalid",
+                                                "The note block Trash identifier is invalid."));
+        const auto documentId = archive::uuidFromString(idText.substr(0, separator));
+        const auto blockId = archive::uuidFromString(idText.substr(separator + 1));
+        if (!documentId || !blockId)
+            return std::unexpected(core::error("trash_note_block_id_invalid",
+                                                "The note block Trash identifier is invalid."));
+        auto opened = Archive::open(archivePath, true, passphrase);
+        if (!opened)
+            return std::unexpected(opened.error());
+        return restoreNoteBlock(*opened, *documentId, archive::uuidToString(*blockId));
+    }
     auto id = archive::uuidFromString(idText);
     if (!id)
         return std::unexpected(id.error());
@@ -383,6 +562,8 @@ core::Status TrashService::restore(const std::filesystem::path& archivePath,
         return restoreSessionGroup(*opened, std::move(record));
     if (type == RecordType::AssetMetadata && field(record, "record_role") == "recording-take")
         return audio::setRecordingTakeDeleted(*opened, record.id, false);
+    if (type == RecordType::AssetMetadata && field(record, "record_role") == "audio-track")
+        return audio::setRecordingTrackDeleted(*opened, record.id, false);
 
     if (type == RecordType::EvidenceNode) {
         const std::string groupId = archive::uuidToString(record.id);
@@ -557,9 +738,21 @@ core::Status TrashService::purge(const std::filesystem::path& archivePath,
     for (auto& record : *activeRecords) {
         bool changed = false;
         for (auto iterator = record.fields.begin(); iterator != record.fields.end();) {
-            if (iterator->first.starts_with("_trash_restore_") ||
+            if (field(record, "record_role") == "journal-notes" &&
+                iterator->first == "removed_block_count") {
+                iterator->second = "0";
+                changed = true;
+                ++iterator;
+            } else if (iterator->first.starts_with("_trash_restore_") ||
                 iterator->first == "_trash_session_group_id" ||
-                iterator->first == "_trash_guide_group_id") {
+                iterator->first == "_trash_guide_group_id" ||
+                (field(record, "record_role") == "journal-notes" &&
+                 (iterator->first == "removed_block_count" ||
+                  iterator->first.starts_with("removed_block_") ||
+                  iterator->first == "last_removed_block_id" ||
+                  iterator->first == "last_removed_block_kind" ||
+                  iterator->first == "last_removed_block_text" ||
+                  iterator->first == "last_removed_block_index"))) {
                 iterator = record.fields.erase(iterator);
                 changed = true;
             } else {

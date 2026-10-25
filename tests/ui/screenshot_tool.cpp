@@ -95,6 +95,7 @@ int main(int argc, char** argv) {
     const bool journalMode = mode == "journal" || mode == "journal-tall";
     const bool journalTall = mode == "journal-tall";
     const bool guidesMode = mode == "guides";
+    const bool materialsMode = mode == "materials";
     const bool settingsMode = mode == "settings";
     const bool compactMode = mode == "compact";
     const bool minMode = mode == "min" || mode == "minimum";
@@ -122,13 +123,15 @@ int main(int argc, char** argv) {
     window->set_archive_status(slint::SharedString("Read/Write · Unencrypted"));
     window->set_theme_mode(slint::SharedString(darkMode ? "dark" : "light"));
     window->set_effective_inspector_open(false);
-    if (journalMode || guidesMode || settingsMode || compactMode || minMode) {
+    if (journalMode || guidesMode || materialsMode || settingsMode || compactMode || minMode) {
         if (compactMode || minMode)
             window->set_navigator_scope(slint::SharedString("sessions"));
         else if (journalMode)
             window->set_navigator_scope(slint::SharedString("journal"));
         else if (guidesMode)
             window->set_navigator_scope(slint::SharedString("guides"));
+        else if (materialsMode)
+            window->set_navigator_scope(slint::SharedString("materials"));
         else
             window->set_navigator_scope(slint::SharedString("settings"));
 
@@ -182,6 +185,47 @@ int main(int argc, char** argv) {
                 "Compare fractions by building equivalent fractions with a common denominator."));
             window->set_guide_output(slint::SharedString(
                 "3 blocks · validated 2026-10-21 · 1 stale source"));
+        } else if (materialsMode) {
+            window->set_selected_session_title(
+                slint::SharedString("Fractions and equivalence"));
+            std::vector<MaterialRow> materials{
+                MaterialRow{slint::SharedString("material-1"),
+                            slint::SharedString("Number line worksheet.pdf"),
+                            slint::SharedString("Number line worksheet.pdf"),
+                            slint::SharedString("PDF · 248 KB · imported with this lesson")},
+                MaterialRow{slint::SharedString("material-2"),
+                            slint::SharedString("Worked examples.wav"),
+                            slint::SharedString("Worked examples.wav"),
+                            slint::SharedString("Audio · 1.2 MB · imported with this lesson")},
+            };
+            window->set_material_rows(
+                std::make_shared<slint::VectorModel<MaterialRow>>(std::move(materials)));
+            window->set_selected_asset(slint::SharedString("material-2"));
+            window->set_asset_preview_kind(slint::SharedString("audio"));
+            window->set_asset_preview_description(slint::SharedString(
+                "Worked examples.wav · 8 kHz · 00:42 · linked to Fractions and equivalence"));
+            window->set_asset_preview_waveform_state(slint::SharedString("ready"));
+            window->set_asset_preview_waveform_duration_seconds(42);
+            std::vector<WaveformBucketRow> materialWaveform;
+            materialWaveform.reserve(56);
+            for (int index = 0; index < 56; ++index) {
+                const float phase = static_cast<float>(index % 13) / 13.0F;
+                const float envelope = 0.12F + 0.62F *
+                    (1.0F - std::abs(phase - 0.5F) * 1.5F);
+                WaveformBucketRow bucket;
+                bucket.position = static_cast<float>(index) / 56.0F;
+                bucket.width = 1.0F / 56.0F;
+                bucket.start_seconds = static_cast<float>(index) * 0.75F;
+                bucket.end_seconds = static_cast<float>(index + 1) * 0.75F;
+                bucket.minimum = -envelope * 0.68F;
+                bucket.maximum = envelope;
+                bucket.contains_gap = index == 29;
+                materialWaveform.push_back(bucket);
+            }
+            window->set_asset_preview_waveform_buckets(
+                std::make_shared<slint::VectorModel<WaveformBucketRow>>(
+                    std::move(materialWaveform)));
+            window->set_command_output(slint::SharedString("Audio preview ready."));
         }
 
         slint::LogicalSize pageSize;

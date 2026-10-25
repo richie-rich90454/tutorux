@@ -10,7 +10,7 @@
     function applyTheme(theme) {
         const dark = theme === "dark";
         root.dataset.theme = dark ? "dark" : "light";
-        if (themeColor) themeColor.content = dark ? "#111419" : "#ffffff";
+        if (themeColor) themeColor.content = dark ? "#101713" : "#ffffff";
         if (button) {
             const nextTheme = dark ? "light" : "dark";
             button.setAttribute("aria-label", `Switch to ${nextTheme} theme`);

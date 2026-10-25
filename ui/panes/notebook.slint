@@ -26,6 +26,7 @@ export component Notebook inherits Rectangle {
     clip: true;
     background: Theme.surface;
     property <bool> composer-open: false;
+    property <bool> format-open: false;
     property <string> pending-block;
     property <string> pending-text;
     property <string> pending-kind;
@@ -56,7 +57,7 @@ export component Notebook inherits Rectangle {
                 padding-right: 20px;
                 spacing: 12px;
                 Text {
-                    text: "Working notebook";
+                    text: "Session notes";
                     color: Theme.ink;
                     font-size: 12px;
                     font-weight: 600;
@@ -189,9 +190,14 @@ export component Notebook inherits Rectangle {
         Rectangle { height: 1px; background: Theme.line; }
 
         Rectangle {
-            height: 58px;
+            // The action strip wraps below the comfortable desktop width. Keep
+            // enough height for both rows so wrapped controls never overlap the
+            // formatting strip or the recording dock.
+            height: root.width < 480px ? 126px : root.width < 680px ? 92px : 52px;
             background: Theme.surface;
-            HorizontalLayout {
+            FlexboxLayout {
+                flex-wrap: wrap;
+                cross-axis-alignment: center;
                 padding-left: 20px;
                 padding-right: 20px;
                 spacing: 8px;
@@ -200,10 +206,18 @@ export component Notebook inherits Rectangle {
                     enabled: root.writable;
                     visible: root.rows.length > 0;
                     clicked => { root.composer-open = !root.composer-open; }
+                    accessible-label: "Add or close notebook composer";
                 }
                 Button {
                     text: "Journal tools";
                     clicked => { root.open-journal-tools(); }
+                    accessible-label: "Open journal tools";
+                }
+                if root.selected-block != "" : Button {
+                    text: root.format-open ? "Hide formatting" : "Formatting";
+                    variant: "ghost";
+                    clicked => { root.format-open = !root.format-open; }
+                    accessible-label: "Toggle notebook formatting";
                 }
                 if root.selected-block != "" : ComboBox {
                     model: ["Paragraph", "Heading", "Bulleted list", "Numbered list",
@@ -217,21 +231,25 @@ export component Notebook inherits Rectangle {
                             root.pending-text = root.block-text;
                         }
                     }
+                    accessible-label: "Notebook block type";
                 }
-                Rectangle { }
+                Rectangle { horizontal-stretch: 1; }
                 if root.selected-block != "" : Button {
                     text: "Remove";
                     variant: "danger";
                     enabled: root.writable;
                     clicked => { root.action("remove", ""); }
+                    accessible-label: "Remove notebook block";
                 }
             }
         }
 
-        if root.selected-block != "" && !root.composer-open : Rectangle {
-            height: 46px;
+        if root.selected-block != "" && root.format-open && !root.composer-open : Rectangle {
+            height: root.width < 520px ? 76px : 46px;
             background: Theme.surface;
-            HorizontalLayout {
+            FlexboxLayout {
+                flex-wrap: wrap;
+                cross-axis-alignment: center;
                 padding-left: 20px;
                 padding-right: 20px;
                 spacing: 4px;

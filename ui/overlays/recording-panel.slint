@@ -16,6 +16,7 @@ export component RecordingPanel inherits Rectangle {
     in property <[string]> take-options: [];
     in property <[string]> track-options: [];
     in property <string> undo-take-id;
+    in property <string> undo-track-id;
     in property <bool> can-manage-take: false;
 
     in-out property <string> source: "microphone";
@@ -28,6 +29,8 @@ export component RecordingPanel inherits Rectangle {
     in-out property <string> selected-take;
     in-out property <string> selected-track;
     in-out property <string> rename-take-label;
+    in-out property <string> rename-track-label;
+    in-out property <string> mix-track;
     in-out property <bool> consent: false;
     in-out property <bool> live-transcription: false;
     in-out property <string> live-model-path;
@@ -179,7 +182,7 @@ export component RecordingPanel inherits Rectangle {
 
         Rectangle { height: 1px; background: Theme.line; }
 
-        Text { text: "Recording takes"; color: Theme.ink; font-size: 14px; font-weight: 700; }
+        Text { text: "Takes and tracks"; color: Theme.ink; font-size: 14px; font-weight: 700; }
         FormWrap {
             Field {
                 label: "Take";
@@ -220,6 +223,53 @@ export component RecordingPanel inherits Rectangle {
                 enabled: root.writable;
                 clicked => { root.command("take-restore", root.undo-take-id); }
             }
+        }
+
+        FormWrap {
+            Field {
+                label: "Rename selected track";
+                LineEdit { placeholder-text: "Track name"; text <=> root.rename-track-label; }
+            }
+            Field {
+                label: "Mix with";
+                ComboBox {
+                    model: root.track-options;
+                    current-value <=> root.mix-track;
+                }
+            }
+        }
+        ActionWrap {
+            Button {
+                text: "Rename track";
+                enabled: root.writable && root.can-manage-take &&
+                         root.selected-track != "" && root.rename-track-label != "";
+                clicked => { root.command("track-rename", root.rename-track-label); }
+            }
+            Button {
+                text: "Move track to Trash";
+                variant: "danger";
+                enabled: root.writable && root.can-manage-take && root.selected-track != "";
+                clicked => { root.command("track-delete", ""); }
+            }
+            Button {
+                text: "Undo track removal";
+                visible: root.undo-track-id != "";
+                enabled: root.writable;
+                clicked => { root.command("track-restore", root.undo-track-id); }
+            }
+            Button {
+                text: "Create mixdown";
+                variant: "primary";
+                enabled: root.writable && root.can-manage-take && root.selected-track != "" &&
+                         root.mix-track != "" && root.mix-track != root.selected-track;
+                clicked => { root.command("mix-tracks", root.mix-track); }
+            }
+        }
+        Text {
+            text: "A mixdown creates a synchronized stereo track in this take. Source tracks stay available.";
+            color: Theme.faint;
+            font-size: 12px;
+            wrap: word-wrap;
         }
 
         Rectangle { height: 1px; background: Theme.line; }
@@ -272,6 +322,10 @@ export component RecordingPanel inherits Rectangle {
             line-height-factor: 1.4;
             wrap: word-wrap;
         }
-        ScrollText { height: 150px; text: root.command-output; text-color: Theme.body; }
+        if root.command-output != "" : ScrollText {
+            height: min(120px, self.preferred-height);
+            text: root.command-output;
+            text-color: Theme.body;
+        }
     }
 }

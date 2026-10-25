@@ -39,12 +39,34 @@ struct RecordingOverview final {
 };
 
 enum class RecordingTakeMutation { rename, moveToTrash, restore };
+enum class RecordingTrackMutation { rename, moveToTrash, restore };
 
 struct RecordingTakeMutationRequest final {
     RecordingTakeMutation mutation{RecordingTakeMutation::rename};
     std::string sessionId;
     std::string takeId;
     std::string label;
+};
+
+struct RecordingTrackMutationRequest final {
+    RecordingTrackMutation mutation{RecordingTrackMutation::rename};
+    std::string sessionId;
+    std::string takeId;
+    std::string trackId;
+    std::string label;
+};
+
+struct RecordingTrackMixRequest final {
+    std::string sessionId;
+    std::string takeId;
+    std::vector<std::string> trackIds;
+    std::string label{"Mixdown"};
+};
+
+struct RecordingTrackMixResult final {
+    std::string trackId;
+    std::string label;
+    std::uint64_t durationUs{};
 };
 
 class RecordingService final {
@@ -60,6 +82,15 @@ class RecordingService final {
     [[nodiscard]] core::Status mutateTake(const std::filesystem::path& archivePath,
                                           std::string_view passphrase,
                                           const RecordingTakeMutationRequest& request) const;
+
+    [[nodiscard]] core::Status mutateTrack(const std::filesystem::path& archivePath,
+                                           std::string_view passphrase,
+                                           const RecordingTrackMutationRequest& request) const;
+
+    [[nodiscard]] core::Result<RecordingTrackMixResult> mixTracks(
+        const std::filesystem::path& archivePath,
+        std::string_view passphrase,
+        const RecordingTrackMixRequest& request) const;
 };
 
 } // namespace tutorux::application

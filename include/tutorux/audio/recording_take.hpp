@@ -42,6 +42,14 @@ core::Status renameRecordingTake(archive::Archive& archive,
                                  const archive::Uuid& takeId,
                                  std::string label);
 
+core::Status renameRecordingTrack(archive::Archive& archive,
+                                  const archive::Uuid& trackId,
+                                  std::string label);
+
+core::Status setRecordingTrackDeleted(archive::Archive& archive,
+                                      const archive::Uuid& trackId,
+                                      bool deleted);
+
 core::Status setRecordingTakeDeleted(archive::Archive& archive,
                                      const archive::Uuid& takeId,
                                      bool deleted);

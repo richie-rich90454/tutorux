@@ -29,6 +29,7 @@ import { GuideTemplateManager } from "./panes/guide-template-manager.slint";
 import { CommandPalette } from "./overlays/command-palette.slint";
 export component MainWindow inherits Window {
     title: root.selected-session-title == "" ? "Tutorux" : root.selected-session-title + " — Tutorux";
+    icon: @image-url("./assets/logo.svg");
     preferred-width: 1280px;
     preferred-height: 800px;
     min-width: 900px;
@@ -90,10 +91,14 @@ export component MainWindow inherits Window {
     in-out property <[string]> recording-take-options;
     in-out property <string> selected-recording-take-label;
     in-out property <string> recording-undo-take-id;
+    in-out property <string> recording-undo-track-id;
     in-out property <bool> recording-take-mutable: false;
     in-out property <string> recording-rename-take-label;
+    in-out property <string> recording-rename-track-label;
     in-out property <[string]> recording-track-options;
     in-out property <string> selected-recording-track-label;
+    in-out property <string> selected-recording-mix-track-label;
+    in-out property <[int]> recording-live-peaks;
     in-out property <[WaveformBucketRow]> recording-waveform-buckets;
     in-out property <string> recording-waveform-state: "empty";
     in-out property <string> recording-waveform-message;
@@ -142,7 +147,9 @@ export component MainWindow inherits Window {
     in-out property <string> asset-preview-description:
         "Choose a session, list its materials, then preview a selected file.";
     in-out property <string> asset-preview-body;
-    in-out property <string> asset-preview-waveform;
+    in-out property <[WaveformBucketRow]> asset-preview-waveform-buckets;
+    in-out property <string> asset-preview-waveform-state: "empty";
+    in-out property <int> asset-preview-waveform-duration-seconds: 0;
     in-out property <image> asset-preview-image;
     in-out property <string> ai-provider-id: "openai";
     in-out property <string> ai-endpoint;
@@ -303,7 +310,6 @@ export component MainWindow inherits Window {
     in-out property <bool> compact-navigator: false;
     in-out property <bool> command-palette-open: false;
     in-out property <string> command-palette-query;
-
 
     layout-timer := Timer {
         interval: 120ms;
@@ -968,7 +974,7 @@ export component MainWindow inherits Window {
                                 vertical-stretch: 1;
                                 clip: true;
 
-                            if root.navigator-scope == "students" : StudentPage {
+                            if root.navigator-scope == "students" : students-page-root := StudentPage {
                                 selected-student: root.selected-student;
                                 progress-output: root.student-progress-output;
                                 writable: root.archive-writable;
@@ -1007,12 +1013,14 @@ export component MainWindow inherits Window {
                                 new-student => { root.overlay-panel = "new-student"; }
                             }
 
-                            if root.navigator-scope == "materials" : MaterialsPage {
+                            if root.navigator-scope == "materials" : materials-page-root := MaterialsPage {
                                 session-title: root.selected-session-title;
                                 preview-kind: root.asset-preview-kind;
                                 preview-description: root.asset-preview-description;
                                 preview-body: root.asset-preview-body;
-                                preview-waveform: root.asset-preview-waveform;
+                                preview-waveform-buckets: root.asset-preview-waveform-buckets;
+                                preview-waveform-state: root.asset-preview-waveform-state;
+                                preview-waveform-duration-seconds: root.asset-preview-waveform-duration-seconds;
                                 command-output: root.command-output;
                                 writable: root.archive-writable;
                                 preview-image: root.asset-preview-image;
@@ -1029,7 +1037,7 @@ export component MainWindow inherits Window {
                                 restore-file(id) => { root.asset-command(root.selected-session, "restore", id); }
                             }
 
-                            if root.navigator-scope == "trash" : TrashPage {
+                            if root.navigator-scope == "trash" : trash-page-root := TrashPage {
                                 width: 100%;
                                 height: 100%;
                                 items: root.trash-rows;
@@ -1133,7 +1141,7 @@ export component MainWindow inherits Window {
                                 selected-guide <=> root.selected-guide;
                                 selected-block <=> root.selected-guide-block;
                                 edit-text <=> root.guide-edit-text;
-                                tools-open: true;
+                                tools-open <=> root.guide-tools-open;
                                 load-block => {
                                     root.load-guide-block(root.selected-guide, root.selected-guide-block);
                                 }
@@ -1454,6 +1462,7 @@ export component MainWindow inherits Window {
                                 waveform-state: root.recording-waveform-state;
                                 waveform-message: root.recording-waveform-message;
                                 live-level: root.recording-input-level;
+                                live-peaks: root.recording-live-peaks;
                                 command(action) => {
                                     root.recording-command(root.selected-session, action, "");
                                 }
@@ -1681,6 +1690,9 @@ export component MainWindow inherits Window {
                 selected-track <=> root.selected-recording-track-label;
                 rename-take-label <=> root.recording-rename-take-label;
                 undo-take-id: root.recording-undo-take-id;
+                undo-track-id: root.recording-undo-track-id;
+                rename-track-label <=> root.recording-rename-track-label;
+                mix-track <=> root.selected-recording-mix-track-label;
                 can-manage-take: root.recording-take-mutable;
                 preflight-output: root.recording-preflight-output;
                 input-level: root.recording-input-level;
