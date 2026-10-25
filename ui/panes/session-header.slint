@@ -1,6 +1,6 @@
 // Session heading and document tabs. The heading stays aligned with the
 // notebook column; the tab rule spans the available width.
-import { TabButton, Theme } from "../theme.slint";
+import { Button, TabButton, Theme } from "../theme.slint";
 
 export component SessionHeader inherits Rectangle {
     in property <string> title;
@@ -43,27 +43,59 @@ export component SessionHeader inherits Rectangle {
         VerticalLayout {
             spacing: 2px;
 
-            if root.editing : TextInput {
-                text <=> root.draft;
-                accessible-label: "Session title";
-                read-only: root.rename-state == "saving" || !root.writable;
-                font-size: 28px;
-                font-weight: 700;
-                color: Theme.ink;
-                height: 40px;
-                vertical-alignment: center;
-                accepted => {
-                    root.rename(root.draft);
-                }
-                key-pressed(event) => {
-                    if (event.text == Key.Escape && root.rename-state != "saving") {
-                        root.editing = false;
-                        root.draft = root.title;
-                        root.rename-state = "idle";
-                        accept
-                    } else {
-                        reject
+            if root.editing : VerticalLayout {
+                spacing: 6px;
+                TextInput {
+                    text <=> root.draft;
+                    accessible-label: "Session title";
+                    read-only: root.rename-state == "saving" || !root.writable;
+                    font-size: 24px;
+                    font-weight: 700;
+                    color: Theme.ink;
+                    height: 40px;
+                    vertical-alignment: center;
+                    accepted => { root.rename(root.draft); }
+                    key-pressed(event) => {
+                        if (event.text == Key.Escape && root.rename-state != "saving") {
+                            root.editing = false;
+                            root.draft = root.title;
+                            root.rename-state = "idle";
+                            accept
+                        } else {
+                            reject
+                        }
                     }
+                }
+                HorizontalLayout {
+                    spacing: 8px;
+                    alignment: start;
+                    Button {
+                        text: root.rename-state == "saving" ? "Saving…" :
+                              root.rename-state == "failed" ? "Retry save" : "Save title";
+                        variant: "primary";
+                        enabled: root.writable && root.rename-state != "saving";
+                        accessible-label: "Save session title";
+                        clicked => { root.rename(root.draft); }
+                    }
+                    Button {
+                        text: "Cancel";
+                        variant: "ghost";
+                        enabled: root.rename-state != "saving";
+                        accessible-label: "Cancel session title edit";
+                        clicked => {
+                            root.editing = false;
+                            root.draft = root.title;
+                            root.rename-state = "idle";
+                        }
+                    }
+                    Rectangle { horizontal-stretch: 1; }
+                }
+                if root.rename-state == "failed" : Text {
+                    width: 100%;
+                    text: "The title did not save. Your draft is still here; retry or cancel.";
+                    color: Theme.danger;
+                    font-size: 12px;
+                    wrap: word-wrap;
                 }
             }
 

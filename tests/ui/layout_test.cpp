@@ -228,10 +228,14 @@ int main() {
         settle(window);
         ok = check(!ElementHandle::find_by_accessible_label(window, "Session title").empty(),
                    "the accessible session-title action opens its editor") && ok;
+        ok = check(!ElementHandle::find_by_accessible_label(window, "Save session title").empty(),
+                   "the session-title editor has a visible save action") && ok;
         window->set_session_title_save_state(slint::SharedString("failed"));
         settle(window);
         ok = check(!ElementHandle::find_by_accessible_label(window, "Session title").empty(),
                    "a failed title save keeps the editor and draft visible") && ok;
+        ok = check(!ElementHandle::find_by_accessible_label(window, "Save session title").empty(),
+                   "a failed title save keeps a retry action available") && ok;
         window->set_session_title_save_state(slint::SharedString("saved"));
         window->set_title_editing(false);
         settle(window);

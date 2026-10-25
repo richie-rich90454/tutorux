@@ -77,7 +77,8 @@ fixed and what remains.
 - Session-title rename optimistically replaced the visible title and closed the
   editor before persistence. It now retains the draft until the matching async
   result succeeds, keeps failures editable, ignores stale archive/session
-  completions, and disables rename in read-only archives.
+  completions, and disables rename in read-only archives. The editor now has
+  visible Save/Retry and Cancel controls, plus a clear failure message.
 - Switching archives or sessions during either edit now discards the old form
   context before it can be applied to the newly selected record. Bounded-command
   queue rejection also restores the save control instead of leaving it stuck in
