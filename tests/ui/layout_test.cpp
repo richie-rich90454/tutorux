@@ -2,7 +2,7 @@
 // backend at every supported window size and both themes.
 #include "app-window.h"
 
-#include <slint-testing.h>
+#include <private/slint_tests_helpers.h>
 
 #include <algorithm>
 #include <array>
@@ -165,6 +165,10 @@ int main() {
     window->set_recording_duration_seconds(760);
     window->set_recording_duration_us("760000000");
     window->set_recording_input_level(43);
+    window->set_recording_take_options(
+        std::make_shared<slint::VectorModel<slint::SharedString>>());
+    window->set_recording_track_options(
+        std::make_shared<slint::VectorModel<slint::SharedString>>());
 
     std::vector<SessionRow> sessions;
     sessions.push_back(SessionRow{slint::SharedString("session-1"),
@@ -379,6 +383,151 @@ int main() {
                 ok = controlsDoNotOverlap(window, scope, size.width, size.height) && ok;
             }
         }
+    }
+
+    // Shared selectors must open through mouse, keyboard, and accessibility,
+    // then close cleanly without leaving an orphan popup behind.
+    window->set_theme_mode(slint::SharedString("light"));
+    window->set_navigator_scope(slint::SharedString("session"));
+    window->set_compact_navigator(false);
+    window->set_effective_inspector_open(true);
+    slint::LogicalSize popupTestSize;
+    popupTestSize.width = 1600;
+    popupTestSize.height = 1000;
+    window->window().set_size(popupTestSize);
+    settle(window);
+
+    window->set_recording_take_options(
+        std::make_shared<slint::VectorModel<slint::SharedString>>(
+            std::vector<slint::SharedString>{"First", "Second", "Third"}));
+    window->set_selected_recording_take_label("Third");
+    settle(window);
+    const auto takeSelector = ElementHandle::find_by_accessible_label(window, "Recording take");
+    ok = check(!takeSelector.empty(), "recording take selector has an accessible name") && ok;
+    if (!takeSelector.empty()) {
+        const auto selector = takeSelector[0];
+        const auto position = selector.absolute_position();
+        const auto size = selector.size();
+        slint::private_api::testing::send_mouse_click(
+            &*window, position.x + size.width / 2, position.y + size.height / 2);
+        settle(window);
+        slint::private_api::testing::send_keyboard_key_text(
+            &*window, slint::SharedString("\xef\x9c\x81"), true);
+        slint::private_api::testing::send_keyboard_key_text(
+            &*window, slint::SharedString("\xef\x9c\x81"), false);
+        settle(window);
+        ok = check(selector.accessible_value() ==
+                       std::optional<slint::SharedString>(slint::SharedString("Third")),
+                   "keyboard navigation starts from the externally selected take") && ok;
+        slint::private_api::testing::send_keyboard_key_text(
+            &*window, slint::SharedString("\x1b"), true);
+        slint::private_api::testing::send_keyboard_key_text(
+            &*window, slint::SharedString("\x1b"), false);
+        settle(window);
+    }
+
+    window->set_recording_take_options(
+        std::make_shared<slint::VectorModel<slint::SharedString>>());
+    window->set_selected_recording_take_label("");
+    settle(window);
+
+    bool foundEmptySelector = false;
+    std::vector<ElementHandle> emptySelectors;
+    ElementHandle::visit_elements(window, [&](ElementHandle candidate) {
+        const auto role = candidate.accessible_role();
+        const auto value = candidate.accessible_value();
+        if (!role || *role != slint::language::AccessibleRole::Combobox || !value ||
+            !value->empty()) {
+            return;
+        }
+        foundEmptySelector = true;
+        emptySelectors.push_back(std::move(candidate));
+    });
+    for (const auto& selector : emptySelectors) {
+        ok = check(selector.accessible_expandable() == std::optional<bool>(false),
+                   "empty recording selectors do not advertise a popup") && ok;
+        const auto position = selector.absolute_position();
+        const auto size = selector.size();
+        slint::private_api::testing::send_mouse_click(
+            &*window, position.x + size.width / 2, position.y + size.height / 2);
+        settle(window);
+        ok = check(slint::private_api::testing::active_popup_count(&*window) == 0,
+                   "empty recording selectors do not open a blank popup") && ok;
+    }
+    ok = check(foundEmptySelector,
+               "empty recording selector is present for the empty-state test") && ok;
+
+    const auto markerType = ElementHandle::find_by_accessible_label(window, "Session marker type");
+    ok = check(!markerType.empty(), "marker type selector is available for popup interaction") && ok;
+    if (!markerType.empty()) {
+        const auto selector = markerType[0];
+        const auto selectorPosition = selector.absolute_position();
+        const auto selectorSize = selector.size();
+
+        slint::private_api::testing::send_mouse_click(
+            &*window, selectorPosition.x + selectorSize.width / 2,
+            selectorPosition.y + selectorSize.height / 2);
+        settle(window);
+        ok = check(selector.accessible_expanded() == std::optional<bool>(true),
+                   "mouse click opens the shared selector popup") && ok;
+        ok = check(slint::private_api::testing::active_popup_count(&*window) == 1,
+                   "mouse click creates one selector popup") && ok;
+
+        slint::private_api::testing::send_keyboard_key_text(
+            &*window, slint::SharedString("\x1b"), true);
+        slint::private_api::testing::send_keyboard_key_text(
+            &*window, slint::SharedString("\x1b"), false);
+        settle(window);
+        ok = check(selector.accessible_expanded() == std::optional<bool>(false),
+                   "Escape closes the shared selector popup") && ok;
+        ok = check(slint::private_api::testing::active_popup_count(&*window) == 0,
+                   "Escape removes the selector popup") && ok;
+
+        slint::private_api::testing::send_keyboard_key_text(
+            &*window, slint::SharedString("\n"), true);
+        slint::private_api::testing::send_keyboard_key_text(
+            &*window, slint::SharedString("\n"), false);
+        settle(window);
+        ok = check(selector.accessible_expanded() == std::optional<bool>(true),
+                   "Return opens the shared selector popup") && ok;
+        ok = check(slint::private_api::testing::active_popup_count(&*window) == 1,
+                   "Return creates one selector popup") && ok;
+
+        slint::private_api::testing::send_keyboard_key_text(
+            &*window, slint::SharedString("\xef\x9c\x81"), true);
+        slint::private_api::testing::send_keyboard_key_text(
+            &*window, slint::SharedString("\xef\x9c\x81"), false);
+        settle(window);
+        ok = check(selector.accessible_value() ==
+                       std::optional<slint::SharedString>(slint::SharedString("Mistake")),
+                   "Down Arrow changes the selector value") && ok;
+
+        slint::private_api::testing::send_keyboard_key_text(
+            &*window, slint::SharedString("\n"), true);
+        slint::private_api::testing::send_keyboard_key_text(
+            &*window, slint::SharedString("\n"), false);
+        settle(window);
+        ok = check(selector.accessible_expanded() == std::optional<bool>(false),
+                   "Return confirms and closes the shared selector popup") && ok;
+        ok = check(slint::private_api::testing::active_popup_count(&*window) == 0,
+                   "Return removes the selector popup") && ok;
+
+        selector.invoke_accessible_expand_action();
+        settle(window);
+        ok = check(selector.accessible_expanded() == std::optional<bool>(true),
+                   "accessibility expand opens the shared selector popup") && ok;
+        ok = check(slint::private_api::testing::active_popup_count(&*window) == 1,
+                   "accessibility expand creates one selector popup") && ok;
+
+        slint::private_api::testing::send_keyboard_key_text(
+            &*window, slint::SharedString("\x1b"), true);
+        slint::private_api::testing::send_keyboard_key_text(
+            &*window, slint::SharedString("\x1b"), false);
+        settle(window);
+        ok = check(selector.accessible_expanded() == std::optional<bool>(false),
+                   "Escape closes an accessibility-opened selector popup") && ok;
+        ok = check(slint::private_api::testing::active_popup_count(&*window) == 0,
+                   "selector popup count returns to zero") && ok;
     }
 
     window->hide();

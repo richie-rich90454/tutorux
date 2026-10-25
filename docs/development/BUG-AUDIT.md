@@ -75,6 +75,14 @@ fixed and what remains.
   of invisible text fields.
 - System theme is now selectable; the app resolves it from the Windows
   personalization setting and polls for changes.
+- The shared `ComboBox` declared open/close callbacks without connecting them
+  to its `PopupWindow`, leaving selectors across the app inert. Mouse, keyboard,
+  and accessibility actions now open the popup; Escape closes it, and an empty
+  model displays a safe blank value without opening an empty popup. Expanded and
+  focus state now follow `PopupWindow.is-open`, so Escape and outside-click close
+  update the accessible state instead of leaving a stale “expanded” flag. The
+  navigation cursor now follows externally changed selections, and take/track
+  selectors have accessible names. The layout gate exercises these states.
 
 ### Runtime and build
 
@@ -167,8 +175,10 @@ fixed and what remains.
 - The session inspector shows a vertical scrollbar when its marker form extends
   below the visible pane, so lower controls remain discoverable while the
   inspector scrolls independently above the recording transport.
-- ComboBox popups opened near the bottom of a ScrollArea can be clipped by the
-  scroll viewport.
+- The pinned Slint 1.18.1 `PopupWindow` automatically moves a popup above its
+  anchor when it would extend past the window edge; the prior clipping note was
+  inaccurate. Popup placement near scroll boundaries still needs visual
+  coverage in the release screenshot matrix.
 - DPI rendering was verified with 125%/150% headless snapshots. Physical
   multi-monitor DPI changes and mixed-DPI window moves were not exercised.
 - Provider tests use loopback fixtures. Live external providers were not

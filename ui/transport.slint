@@ -143,11 +143,13 @@ export component RecordingTransport inherits Rectangle {
                 model: root.take-options;
                 current-value <=> root.selected-take-label;
                 selected(value) => { root.take-selected(value); }
+                accessible-label: "Recording take";
             }
             ComboBox {
                 model: root.track-options;
                 current-value <=> root.selected-track-label;
                 selected(value) => { root.track-selected(value); }
+                accessible-label: "Recording track";
             }
         }
         ActionWrap {
@@ -268,7 +270,7 @@ export component RecordingTransport inherits Rectangle {
             }
         }
 
-        // Quiet region: a baseline and the current playhead only.
+        // Capture history and input level stay on the selected take's timeline.
         VerticalLayout {
             min-width: 220px;
             horizontal-stretch: 1;
@@ -280,11 +282,13 @@ export component RecordingTransport inherits Rectangle {
                     model: root.take-options;
                     current-value <=> root.selected-take-label;
                     selected(value) => { root.take-selected(value); }
+                    accessible-label: "Recording take";
                 }
                 ComboBox {
                     model: root.track-options;
                     current-value <=> root.selected-track-label;
                     selected(value) => { root.track-selected(value); }
+                    accessible-label: "Recording track";
                 }
             }
             WaveformView {
