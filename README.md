@@ -76,7 +76,7 @@ cmake --build build/portable --target dist
 dist\Tutorux.exe --version
 ```
 
-The `portable` preset statically links the GUI and runtime dependencies and embeds the Noto Sans font family. It includes local Whisper support; model weights remain external and are selected explicitly. Windows builds use WinHTTP and the platform trust store, so libcurl/OpenSSL are not in the Windows runtime.
+The `portable` preset statically links the GUI and runtime dependencies, embeds Slint images and icons in the executable, and embeds the Noto Sans font family. The staged executable runs without the source tree, UI asset files, or app-specific DLLs; the adjacent Noto Sans OFL file is a license notice, not a runtime requirement. Windows itself supplies desktop, audio, cryptographic, and networking APIs. The build includes local Whisper support, while selected model weights remain user data and are not runtime libraries. Windows builds use WinHTTP and the platform trust store, so libcurl/OpenSSL are not in the Windows runtime.
 
 The release profile uses the Slint software renderer with the interpreter, testing backend, live preview, and system tray disabled, then strips the executable. A full one-file Windows build stays under the 65 MB budget. Check the measured artifact with:
 
