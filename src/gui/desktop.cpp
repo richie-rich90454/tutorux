@@ -12,6 +12,7 @@
 #include "tutorux/archive/archive.hpp"
 #include "tutorux/audio/capture.hpp"
 #include "tutorux/audio/playback.hpp"
+#include "tutorux/audio/wav_import.hpp"
 #include "tutorux/command/dispatcher.hpp"
 #include "tutorux/command/json.hpp"
 #include "tutorux/document/editor.hpp"
@@ -83,8 +84,10 @@ namespace {
         static constexpr COMDLG_FILTERSPEC transcriptFilters[] = {
             {L"Transcripts", L"*.txt;*.srt;*.vtt"}, {L"All files", L"*.*"}};
         static constexpr COMDLG_FILTERSPEC recordingFilters[] = {
-            {L"Audio files", L"*.wav;*.flac;*.ogg;*.mp3;*.m4a;*.aac"},
+            {L"Supported audio files", L"*.wav;*.wave;*.flac;*.mp3;*.m4a"},
             {L"All files", L"*.*"}};
+        static constexpr COMDLG_FILTERSPEC waveOnlyRecordingFilters[] = {
+            {L"WAV audio", L"*.wav;*.wave"}, {L"All files", L"*.*"}};
         static constexpr COMDLG_FILTERSPEC templateFilters[] = {
             {L"Tutorux guide templates", L"*.json"}, {L"All files", L"*.*"}};
         static constexpr COMDLG_FILTERSPEC materialFilters[] = {
@@ -100,8 +103,14 @@ namespace {
                                                    transcriptFilters));
         } else if (purpose == "recording") {
             static_cast<void>(dialog->SetTitle(L"Import audio recording"));
-            static_cast<void>(dialog->SetFileTypes(static_cast<UINT>(std::size(recordingFilters)),
-                                                   recordingFilters));
+            const bool compressedImportAvailable =
+                tutorux::audio::hasCompressedAudioImport();
+            const auto* filters = compressedImportAvailable ? recordingFilters
+                                                              : waveOnlyRecordingFilters;
+            const UINT filterCount = compressedImportAvailable
+                                         ? static_cast<UINT>(std::size(recordingFilters))
+                                         : static_cast<UINT>(std::size(waveOnlyRecordingFilters));
+            static_cast<void>(dialog->SetFileTypes(filterCount, filters));
         } else if (purpose == "template") {
             static_cast<void>(dialog->SetTitle(L"Import guide template"));
             static_cast<void>(dialog->SetFileTypes(static_cast<UINT>(std::size(templateFilters)),
@@ -6446,7 +6455,7 @@ int launchDesktop(std::optional<std::filesystem::path> archivePath,
         } else if (commandAction == "import") {
             const std::string inputValue(source.data(), source.size());
             if (inputValue.empty()) {
-                window->set_command_output(toSharedString("Choose a WAV recording to import."));
+                window->set_command_output(toSharedString("Choose an audio file to import."));
                 return;
             }
             arguments = {"record", "import", "--session", id, "--input", inputValue,
