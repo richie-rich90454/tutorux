@@ -1149,7 +1149,8 @@ if(NOT TUTORUX_BUILD_WASM)
         COMMENT "Staging the base profile into dist/"
     )
 
-    if(NOT TUTORUX_SLINT_TESTING)
+    if(NOT TUTORUX_SLINT_TESTING AND
+       CMAKE_BUILD_TYPE MATCHES "^(Release|MinSizeRel)$")
         add_custom_target(size
             COMMAND "${CMAKE_COMMAND}"
                 "-DTUTORUX_BINARY=$<TARGET_FILE:tutorux>"
