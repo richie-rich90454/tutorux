@@ -103,4 +103,43 @@ core::Result<PlaybackSummary> playArchiveTrack(archive::Archive& archive,
     return summary;
 }
 
+core::Result<PcmBufferPlaybackSummary> playPcmBuffer(
+    std::uint32_t sampleRateHz, std::uint16_t channelCount,
+    std::span<const std::int16_t> interleavedSamples,
+    std::function<bool()> stopRequested,
+    std::function<void(std::uint64_t playedFrames)> progress) {
+    if (sampleRateHz == 0 || channelCount == 0 || channelCount > 8 ||
+        interleavedSamples.empty() || interleavedSamples.size() % channelCount != 0) {
+        return std::unexpected(core::error(
+            "audio_playback_format_invalid",
+            "PCM playback requires a sample rate and one to eight complete interleaved channels."));
+    }
+
+    std::size_t sampleOffset = 0;
+    detail::PcmPlaybackSource source;
+    source.sampleRateHz = sampleRateHz;
+    source.channelCount = channelCount;
+    source.stopRequested = stopRequested;
+    source.progress = std::move(progress);
+    source.readFrames = [&](std::span<std::int16_t> destination)
+        -> core::Result<std::size_t> {
+        if (stopRequested && stopRequested())
+            return std::size_t{0};
+        const std::size_t remainingSamples = interleavedSamples.size() - sampleOffset;
+        const std::size_t count = std::min(remainingSamples, destination.size());
+        const std::size_t alignedCount = count - count % channelCount;
+        std::copy_n(interleavedSamples.data() + sampleOffset, alignedCount,
+                    destination.data());
+        sampleOffset += alignedCount;
+        return alignedCount / channelCount;
+    };
+
+    auto played = detail::playPcmSource(std::move(source));
+    if (!played)
+        return std::unexpected(played.error());
+    return PcmBufferPlaybackSummary{
+        played->playedFrames,
+        played->reachedEnd && !(stopRequested && stopRequested())};
+}
+
 } // namespace tutorux::audio

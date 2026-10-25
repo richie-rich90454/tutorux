@@ -11,6 +11,8 @@ export component MaterialsPage inherits Rectangle {
     in property <[WaveformBucketRow]> preview-waveform-buckets: [];
     in property <string> preview-waveform-state: "empty";
     in property <int> preview-waveform-duration-seconds: 0;
+    in property <bool> preview-playing: false;
+    in property <string> preview-playback-status;
     in property <string> command-output;
     in property <bool> writable: true;
     in property <image> preview-image;
@@ -24,6 +26,8 @@ export component MaterialsPage inherits Rectangle {
     callback browse-folder();
     callback list-materials();
     callback preview(string);
+    callback play-audio(string);
+    callback stop-audio(string);
     callback remove-file(string);
     callback restore-file(string);
 
@@ -140,6 +144,24 @@ export component MaterialsPage inherits Rectangle {
             if root.preview-kind == "audio" : VerticalLayout {
                 spacing: 8px;
                 Text { text: "Audio waveform"; color: Theme.ink; font-size: 13px; font-weight: 600; }
+                ActionWrap {
+                    Button {
+                        text: "Play audio";
+                        enabled: !root.preview-playing;
+                        clicked => { root.play-audio(root.selected-asset); }
+                    }
+                    Button {
+                        text: "Stop";
+                        enabled: root.preview-playing;
+                        clicked => { root.stop-audio(root.selected-asset); }
+                    }
+                    Text {
+                        text: root.preview-playback-status;
+                        color: Theme.muted;
+                        font-size: 12px;
+                        vertical-alignment: center;
+                    }
+                }
                 WaveformView {
                     height: 104px;
                     buckets: root.preview-waveform-buckets;

@@ -10,6 +10,7 @@
 #include "tutorux/assets/import.hpp"
 #include "tutorux/archive/archive.hpp"
 #include "tutorux/audio/capture.hpp"
+#include "tutorux/audio/playback.hpp"
 #include "tutorux/command/dispatcher.hpp"
 #include "tutorux/command/json.hpp"
 #include "tutorux/document/editor.hpp"
@@ -1615,8 +1616,20 @@ namespace {
     struct PcmWavePreview final {
         std::string details;
         std::vector<WaveformBucketRow> buckets;
+        std::vector<std::int16_t> samples;
+        std::uint32_t sampleRateHz{};
+        std::uint16_t channelCount{};
         int durationSeconds{};
         bool silent{};
+    };
+
+    struct MaterialAudioBuffer final {
+        std::filesystem::path archivePath;
+        std::string sessionId;
+        std::string assetId;
+        std::uint32_t sampleRateHz{};
+        std::uint16_t channelCount{};
+        std::vector<std::int16_t> samples;
     };
 
     std::optional<PcmWavePreview> previewPcmWave(std::span<const std::uint8_t> bytes) {
@@ -1681,6 +1694,8 @@ namespace {
         const std::size_t barCount = std::min<std::size_t>(56, frameCount);
         std::vector<WaveformBucketRow> buckets;
         buckets.reserve(barCount);
+        std::vector<std::int16_t> samples;
+        samples.reserve(frameCount * channels);
         bool silent = true;
         for (std::size_t bar = 0; bar < barCount; ++bar) {
             const std::size_t firstFrame = bar * frameCount / barCount;
@@ -1722,6 +1737,9 @@ namespace {
                         scale = 2147483648.0;
                     }
                     const double normalized = static_cast<double>(value) / scale;
+                    const long pcmValue = std::clamp(std::lround(normalized * 32768.0),
+                                                     -32768L, 32767L);
+                    samples.push_back(static_cast<std::int16_t>(pcmValue));
                     minimum = std::min(minimum, normalized);
                     maximum = std::max(maximum, normalized);
                 }
@@ -1746,15 +1764,17 @@ namespace {
         details << "PCM WAV · " << sampleRate << " Hz · " << channels << " channels · "
                 << bitsPerSample << " bit · " << std::fixed << std::setprecision(1)
                 << static_cast<double>(frameCount) / sampleRate
-                << " s · waveform only; this view "
-                   "does not play audio.";
+                << " s · PCM playback ready.";
         const auto seconds = static_cast<double>(frameCount) / sampleRate;
-        return PcmWavePreview{details.str(), std::move(buckets),
+        return PcmWavePreview{details.str(), std::move(buckets), std::move(samples),
+                              sampleRate, channels,
                               static_cast<int>(std::min<double>(std::ceil(seconds),
                                   static_cast<double>(std::numeric_limits<int>::max()))), silent};
     }
 
     void resetAssetPreview(MainWindow& window, std::string_view message) {
+        window.set_asset_preview_playing(false);
+        window.set_asset_preview_playback_status(toSharedString(""));
         window.set_asset_preview_kind(toSharedString("message"));
         window.set_asset_preview_description(toSharedString(message));
         window.set_asset_preview_body(toSharedString(""));
@@ -3206,7 +3226,26 @@ int launchDesktop(std::optional<std::filesystem::path> archivePath,
     window->set_status_message(toSharedString(startupMessage));
     std::string activePassphrase;
     BackgroundTasks backgroundTasks;
+    const auto materialPlaybackThreads = std::make_shared<DedicatedThreads>();
+    std::shared_ptr<std::atomic_bool> materialPlaybackStop;
+    std::shared_ptr<const MaterialAudioBuffer> selectedMaterialAudio;
+    std::uint64_t materialPlaybackGeneration = 0;
     const slint::ComponentWeakHandle<MainWindow> weakWindow(window);
+    const auto cancelMaterialPlayback = [&] {
+        const bool wasPlaying = static_cast<bool>(materialPlaybackStop);
+        if (materialPlaybackStop)
+            materialPlaybackStop->store(true);
+        ++materialPlaybackGeneration;
+        materialPlaybackStop.reset();
+        window->set_asset_preview_playing(false);
+        if (wasPlaying)
+            window->set_asset_preview_playback_status(toSharedString("Playback stopped."));
+    };
+    const auto resetMaterialPlayback = [&] {
+        cancelMaterialPlayback();
+        selectedMaterialAudio.reset();
+        window->set_asset_preview_playback_status(toSharedString(""));
+    };
 
     auto selected = initialArchive(archivePath, directory);
     if (!selected)
@@ -5535,6 +5574,7 @@ int launchDesktop(std::optional<std::filesystem::path> archivePath,
                                         std::string sessionId, std::uint64_t startUs) {
         if (selectedPath.empty() || !tutorux::archive::uuidFromString(sessionId))
             return false;
+        cancelMaterialPlayback();
         if (playbackStop)
             playbackStop->store(true);
         const auto stopRequested = std::make_shared<std::atomic_bool>(false);
@@ -7121,6 +7161,16 @@ int launchDesktop(std::optional<std::filesystem::path> archivePath,
                 const std::filesystem::path path(window->get_archive_path().data());
                 const std::string id = selectionId(selectedSession);
                 const std::string commandAction(action.data(), action.size());
+                if (commandAction == "stop-preview") {
+                    if (materialPlaybackStop) {
+                        materialPlaybackStop->store(true);
+                        window->set_asset_preview_playback_status(
+                            toSharedString("Stopping playback…"));
+                    }
+                    return;
+                }
+                if (commandAction != "play-preview")
+                    resetMaterialPlayback();
                 const auto showAssetMessage = [&](std::string_view description,
                                                   std::string_view body = {}) {
                     window->set_asset_preview_kind(toSharedString("message"));
@@ -7148,6 +7198,89 @@ int launchDesktop(std::optional<std::filesystem::path> archivePath,
                     clearAssetPanel(*window, "Choose a session, then list its materials.");
                     window->set_command_output(
                         toSharedString("Select a session from this archive."));
+                    return;
+                }
+
+                if (commandAction == "play-preview") {
+                    const std::string assetId = selectionId(inputPath);
+                    if (!selectedMaterialAudio || selectedMaterialAudio->assetId != assetId ||
+                        selectionId(window->get_selected_asset()) != assetId ||
+                        selectedMaterialAudio->sessionId != id ||
+                        selectedMaterialAudio->archivePath.lexically_normal() !=
+                            path.lexically_normal()) {
+                        window->set_asset_preview_playback_status(
+                            toSharedString("Preview this PCM WAV again before playing it."));
+                        return;
+                    }
+                    if (materialPlaybackStop)
+                        materialPlaybackStop->store(true);
+                    if (playbackStop) {
+                        playbackStop->store(true);
+                        window->set_recording_playback_active(false);
+                    }
+                    const auto stopRequested = std::make_shared<std::atomic_bool>(false);
+                    materialPlaybackStop = stopRequested;
+                    const std::uint64_t generation = ++materialPlaybackGeneration;
+                    const auto audio = selectedMaterialAudio;
+                    window->set_asset_preview_playing(true);
+                    window->set_asset_preview_playback_status(
+                        toSharedString("Starting playback…"));
+                    const bool started = materialPlaybackThreads->spawn(
+                        [weakWindow, audio, stopRequested, generation,
+                         &materialPlaybackGeneration, &materialPlaybackStop]() mutable {
+                            std::string status;
+                            try {
+                                auto result = tutorux::audio::playPcmBuffer(
+                                    audio->sampleRateHz, audio->channelCount, audio->samples,
+                                    [stopRequested] { return stopRequested->load(); });
+                                if (!result) {
+                                    status = "Audio playback failed: " + result.error().message;
+                                } else if (stopRequested->load()) {
+                                    status = "Playback stopped.";
+                                } else if (result->completed) {
+                                    status = "Playback finished.";
+                                } else {
+                                    status = "Playback ended before the file finished.";
+                                }
+                            } catch (const std::exception& exception) {
+                                status = std::string("Audio playback failed: ") + exception.what();
+                            } catch (...) {
+                                status = "Audio playback failed with an unknown error.";
+                            }
+                            static_cast<void>(slint::invoke_from_event_loop(
+                                [weakWindow, path = audio->archivePath, sessionId = audio->sessionId,
+                                 assetId = audio->assetId, generation, status = std::move(status),
+                                 &materialPlaybackGeneration,
+                                 &materialPlaybackStop]() mutable {
+                                    if (generation != materialPlaybackGeneration)
+                                        return;
+                                    if (auto strongWindow = weakWindow.lock()) {
+                                        const auto currentPath =
+                                            (*strongWindow)->get_archive_path();
+                                        if (std::filesystem::path(std::string(
+                                                currentPath.data(), currentPath.size()))
+                                                    .lexically_normal() !=
+                                                path.lexically_normal() ||
+                                            selectionId((*strongWindow)->get_selected_session()) !=
+                                                sessionId ||
+                                            selectionId((*strongWindow)->get_selected_asset()) !=
+                                                assetId)
+                                            return;
+                                        (*strongWindow)->set_asset_preview_playing(false);
+                                        (*strongWindow)->set_asset_preview_playback_status(
+                                            toSharedString(std::move(status)));
+                                    }
+                                    materialPlaybackStop.reset();
+                                }));
+                        });
+                    if (!started) {
+                        materialPlaybackStop->store(true);
+                        materialPlaybackStop.reset();
+                        ++materialPlaybackGeneration;
+                        window->set_asset_preview_playing(false);
+                        window->set_asset_preview_playback_status(
+                            toSharedString("Unable to start audio playback."));
+                    }
                     return;
                 }
 
@@ -7273,6 +7406,7 @@ int launchDesktop(std::optional<std::filesystem::path> archivePath,
                         std::vector<WaveformBucketRow> waveformBuckets;
                         std::string waveformState{"empty"};
                         int waveformDurationSeconds{};
+                        std::shared_ptr<const MaterialAudioBuffer> audio;
                         slint::Image image;
                     };
                     window->set_asset_preview_description(
@@ -7285,6 +7419,7 @@ int launchDesktop(std::optional<std::filesystem::path> archivePath,
                     const bool started = backgroundTasks
                                              .spawn(
                                                  [weakWindow, path, id, assetId,
+                                                   &selectedMaterialAudio,
                                                   parsedAssetId = *parsedAssetId, passphrase = std::move(passphrase)]() mutable {
                                                      Preview preview;
                                                      const auto showMessage =
@@ -7552,6 +7687,15 @@ int launchDesktop(std::optional<std::filesystem::path> archivePath,
                                                                                              audioPreview->silent ? "silent" : "ready";
                                                                                          preview.waveformDurationSeconds =
                                                                                              audioPreview->durationSeconds;
+                                                                                          auto audioBuffer =
+                                                                                              std::make_shared<MaterialAudioBuffer>();
+                                                                                          audioBuffer->archivePath = path;
+                                                                                          audioBuffer->sessionId = id;
+                                                                                          audioBuffer->assetId = assetId;
+                                                                                          audioBuffer->sampleRateHz = audioPreview->sampleRateHz;
+                                                                                          audioBuffer->channelCount = audioPreview->channelCount;
+                                                                                          audioBuffer->samples = std::move(audioPreview->samples);
+                                                                                          preview.audio = std::move(audioBuffer);
                                                                                      } else {
                                                                                          showMessage(
                                                                                              "Audio material · " +
@@ -7602,7 +7746,8 @@ int launchDesktop(std::optional<std::filesystem::path> archivePath,
                                                      eraseSecret(passphrase);
                                                      static_cast<
                                                          void>(slint::invoke_from_event_loop(
-                                                         [weakWindow, path, id, assetId,
+                                                          [weakWindow, path, id, assetId,
+                                                           &selectedMaterialAudio,
                                                           preview = std::move(preview)]() mutable {
                                                              const auto strongWindow =
                                                                  weakWindow.lock();
@@ -7626,6 +7771,16 @@ int launchDesktop(std::optional<std::filesystem::path> archivePath,
                                                                          ->get_selected_asset()) !=
                                                                      assetId)
                                                                  return;
+                                                              selectedMaterialAudio =
+                                                                  std::move(preview.audio);
+                                                              (*strongWindow)
+                                                                  ->set_asset_preview_playing(false);
+                                                              (*strongWindow)
+                                                                  ->set_asset_preview_playback_status(
+                                                                      toSharedString(
+                                                                          selectedMaterialAudio
+                                                                              ? "Ready to play."
+                                                                              : ""));
                                                              (*strongWindow)
                                                                  ->set_asset_preview_kind(
                                                                      toSharedString(
@@ -9094,9 +9249,12 @@ int launchDesktop(std::optional<std::filesystem::path> archivePath,
     window->run();
     if (playbackStop)
         playbackStop->store(true);
+    if (materialPlaybackStop)
+        materialPlaybackStop->store(true);
     if (waveformStop)
         waveformStop->store(true);
     playbackThreads->join();
+    materialPlaybackThreads->join();
     commandWorkers->join();
     backgroundTasks.join();
     return 0;

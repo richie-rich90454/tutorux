@@ -6,6 +6,7 @@
 #include "tutorux/audio/wav_import.hpp"
 #include "tutorux/domain/entities.hpp"
 
+#include <array>
 #include <chrono>
 #include <filesystem>
 #include <iostream>
@@ -102,6 +103,18 @@ int main() {
     playbackOptions.stopRequested = [] { return true; };
     auto playback = audio::playArchiveTrack(*created, session.id, playbackOptions);
     okay &= expect(!playback, "playback accepted a session without audio");
+
+    const std::array<std::int16_t, 3> incompleteStereo{0, 100, -100};
+    auto invalidRate = audio::playPcmBuffer(0, 1, incompleteStereo);
+    okay &= expectError(invalidRate, "PCM playback accepted a zero sample rate");
+    auto invalidChannels = audio::playPcmBuffer(48'000, 9, incompleteStereo);
+    okay &= expectError(invalidChannels, "PCM playback accepted too many channels");
+    auto incompleteFrames = audio::playPcmBuffer(48'000, 2, incompleteStereo);
+    okay &= expectError(incompleteFrames,
+                        "PCM playback accepted an incomplete interleaved frame");
+    const std::array<std::int16_t, 0> emptyPcm{};
+    auto emptyBuffer = audio::playPcmBuffer(48'000, 1, emptyPcm);
+    okay &= expectError(emptyBuffer, "PCM playback accepted an empty buffer");
 
     std::filesystem::remove_all(directory, errorCode);
     return okay ? 0 : 1;

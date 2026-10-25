@@ -494,11 +494,12 @@ component ScrollBar inherits Rectangle {
         height: root.horizontal ? 6px :
             (root.maximum <= 0px ? 0px : max(min(24px, root.height),
                 root.track-size * root.page-size / (root.maximum + root.page-size)));
-        x: root.horizontal ?
-            (root.inset + (root.track-size - self.width) * (-root.value / root.maximum)) :
+        x: root.horizontal ? (root.maximum <= 0px ? root.inset :
+            (root.inset + (root.track-size - self.width) * (-root.value / root.maximum))) :
             (root.width - self.width) / 2;
         y: root.horizontal ? (root.height - self.height) / 2 :
-            (root.inset + (root.track-size - self.height) * (-root.value / root.maximum));
+            (root.maximum <= 0px ? root.inset :
+                (root.inset + (root.track-size - self.height) * (-root.value / root.maximum)));
         border-radius: 5px;
         background: i-touch-area.has-hover || i-touch-area.pressed ?
             Theme.scrollbar-hover : Theme.scrollbar;
@@ -510,6 +511,7 @@ component ScrollBar inherits Rectangle {
     i-touch-area := TouchArea {
         width: 100%;
         height: 100%;
+        enabled: root.enabled;
 
         property <{ pressed-value: length, maximum: length, x: length, y: length }> saved-values;
 
@@ -526,6 +528,11 @@ component ScrollBar inherits Rectangle {
 
         moved => {
             if (self.enabled && self.pressed) {
+                if (root.maximum <= 0px ||
+                    (root.horizontal ? root.track-size <= thumb.width :
+                                      root.track-size <= thumb.height)) {
+                    return;
+                }
                 // Re-anchor when the content size changes mid-drag to avoid jumps.
                 if (self.saved-values.maximum != root.maximum) {
                     self.update-saved-values();
@@ -542,11 +549,16 @@ component ScrollBar inherits Rectangle {
         }
 
         scroll-event(event) => {
+            if (!root.enabled || root.maximum <= 0px) {
+                return reject;
+            }
             if (root.horizontal && event.delta-x != 0) {
                 root.value = max(-root.maximum, min(0px, root.value + event.delta-x));
+                root.scrolled();
                 return accept;
             } else if (!root.horizontal && event.delta-y != 0) {
                 root.value = max(-root.maximum, min(0px, root.value + event.delta-y));
+                root.scrolled();
                 return accept;
             }
             reject

@@ -150,6 +150,8 @@ export component MainWindow inherits Window {
     in-out property <[WaveformBucketRow]> asset-preview-waveform-buckets;
     in-out property <string> asset-preview-waveform-state: "empty";
     in-out property <int> asset-preview-waveform-duration-seconds: 0;
+    in-out property <bool> asset-preview-playing: false;
+    in-out property <string> asset-preview-playback-status;
     in-out property <image> asset-preview-image;
     in-out property <string> ai-provider-id: "openai";
     in-out property <string> ai-endpoint;
@@ -1021,6 +1023,8 @@ export component MainWindow inherits Window {
                                 preview-waveform-buckets: root.asset-preview-waveform-buckets;
                                 preview-waveform-state: root.asset-preview-waveform-state;
                                 preview-waveform-duration-seconds: root.asset-preview-waveform-duration-seconds;
+                                preview-playing: root.asset-preview-playing;
+                                preview-playback-status: root.asset-preview-playback-status;
                                 command-output: root.command-output;
                                 writable: root.archive-writable;
                                 preview-image: root.asset-preview-image;
@@ -1033,6 +1037,8 @@ export component MainWindow inherits Window {
                                 browse-folder => { root.browse-file("material-folder"); }
                                 list-materials => { root.asset-command(root.selected-session, "list", ""); }
                                 preview(asset) => { root.asset-command(root.selected-session, "preview", asset); }
+                                play-audio(asset) => { root.asset-command(root.selected-session, "play-preview", asset); }
+                                stop-audio(asset) => { root.asset-command(root.selected-session, "stop-preview", asset); }
                                 remove-file(asset) => { root.asset-command(root.selected-session, "remove", asset); }
                                 restore-file(id) => { root.asset-command(root.selected-session, "restore", id); }
                             }

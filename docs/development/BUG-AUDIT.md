@@ -83,6 +83,10 @@ fixed and what remains.
   update the accessible state instead of leaving a stale “expanded” flag. The
   navigation cursor now follows externally changed selections, and take/track
   selectors have accessible names. The layout gate exercises these states.
+- The custom scrollbar divided by its maximum offset even when content fit in
+  the viewport. Thumb position and drag travel now guard zero-range/zero-travel
+  cases, disabled scrollbars ignore pointer and wheel input, and wheel changes
+  emit the same `scrolled` callback as dragging.
 
 ### Runtime and build
 
@@ -120,8 +124,9 @@ fixed and what remains.
   the most recent removal, and creates a linked stereo mixdown from two
   synchronized tracks without changing either source.
 - Materials render signed amplitude buckets for supported PCM WAV previews
-  through the shared timeline component. The prior glyph preview is gone;
-  unsupported formats show their unavailable state.
+  through the shared timeline component, and supported PCM WAV files play through
+  the same native output backends as session recordings. The prior glyph preview
+  is gone; unsupported formats show their unavailable state.
 - The session dock shows a bounded rolling capture history, and recording
   selectors/actions wrap on compact widths. Inspector marker controls stay
   inside their pane; notebook formatting is collapsed until requested; guide
