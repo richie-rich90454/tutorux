@@ -3,6 +3,7 @@
 #include "app-window.h"
 #include "font_data.hpp"
 #include "system-theme.hpp"
+#include "tutorux/application/journal-service.hpp"
 #include "tutorux/application/task-executor.hpp"
 #include "tutorux/application/recording-service.hpp"
 #include "tutorux/application/trash-service.hpp"
@@ -3825,30 +3826,44 @@ int launchDesktop(std::optional<std::filesystem::path> archivePath,
             }
 
             auto secret = std::make_shared<SecretText>(activePassphrase);
-            auto update = archiveCommand(
-                path, {"--json", "journal", "document", "update", documentId, "--block-id",
-                       blockId, "--kind", kind, "--text", text});
-            const bool started = dispatchCommandAsync(
-                weakWindow, backgroundTasks, std::move(update), secret->value,
-                [weakWindow, &backgroundTasks, secret, path, documentId, editRevision,
-                 requestId, publishResult](MainWindow& completedWindow, bool saved,
-                                            std::string output) mutable {
-                    if (!saved) {
-                        publishResult(completedWindow, false,
-                                      output.empty() ? "The note block could not be saved."
-                                                     : std::move(output));
-                        return;
+            tutorux::application::NoteBlockUpdateRequest request{
+                documentId, blockId, kind, text};
+            if (auto strongWindow = weakWindow.lock()) {
+                (*strongWindow)->set_archive_busy(true);
+                (*strongWindow)->set_status_message(toSharedString("Saving session notes…"));
+            }
+            const bool started = backgroundTasks.spawn(
+                [weakWindow, path, documentId, editRevision, requestId, request = std::move(request),
+                 secret, publishResult]() mutable {
+                    tutorux::core::Result<tutorux::application::NoteBlockUpdateResult> updated =
+                        std::unexpected(tutorux::core::error(
+                            "journal_note_save_failed", "The note block could not be saved."));
+                    try {
+                        updated = tutorux::application::JournalService{}.updateNoteBlock(
+                            path, secret->value, request);
+                    } catch (const std::exception& exception) {
+                        updated = std::unexpected(tutorux::core::error(
+                            "journal_note_save_failed", exception.what()));
+                    } catch (...) {
+                        updated = std::unexpected(tutorux::core::error(
+                            "journal_note_save_failed", "The note block could not be saved."));
                     }
+                    eraseSecret(secret->value);
+                    static_cast<void>(slint::invoke_from_event_loop(
+                        [weakWindow, path, documentId, editRevision, requestId,
+                         publishResult, updated = std::move(updated)]() mutable {
+                            auto strongWindow = weakWindow.lock();
+                            if (!strongWindow)
+                                return;
+                            auto& completedWindow = **strongWindow;
+                            completedWindow.set_archive_busy(false);
+                            if (!updated) {
+                                publishResult(completedWindow, false, updated.error().message);
+                                return;
+                            }
 
-                    auto show = archiveCommand(
-                        path, {"--json", "journal", "document", "show", documentId});
-                    const bool refreshStarted = dispatchCommandAsync(
-                        weakWindow, backgroundTasks, std::move(show), secret->value,
-                        [path, documentId, editRevision, requestId,
-                         publishResult](MainWindow& documentWindow, bool loaded,
-                                        std::string documentOutput) mutable {
-                            const auto currentPath = documentWindow.get_archive_path();
-                            const auto currentDocument = documentWindow.get_journal_document_id();
+                            const auto currentPath = completedWindow.get_archive_path();
+                            const auto currentDocument = completedWindow.get_journal_document_id();
                             const bool sameContext =
                                 std::filesystem::path(std::string(currentPath.data(),
                                                                   currentPath.size()))
@@ -3856,25 +3871,27 @@ int launchDesktop(std::optional<std::filesystem::path> archivePath,
                                 std::string(currentDocument.data(), currentDocument.size()) ==
                                     documentId;
                             const bool unchangedDraft =
-                                documentWindow.get_note_edit_revision() == editRevision;
-                            if (loaded && sameContext && unchangedDraft)
-                                setJournalDocumentFromJson(documentWindow, documentOutput);
+                                completedWindow.get_note_edit_revision() == editRevision;
+                            if (sameContext && unchangedDraft) {
+                                std::vector<JournalNoteBlockView> blocks;
+                                blocks.reserve(updated->document.blocks.size());
+                                for (const auto& block : updated->document.blocks)
+                                    blocks.push_back({block.id, block.kind, block.text});
+                                setJournalDocumentBlocks(completedWindow, documentId, blocks);
+                            }
 
                             std::string message;
-                            if (!loaded)
-                                message = "The note was saved, but the notebook could not reload it.";
-                            else if (!sameContext || !unchangedDraft)
+                            if (!sameContext || !unchangedDraft)
                                 message = "The note was saved. Newer edits were kept in the editor.";
-                            publishResult(documentWindow, true, std::move(message));
-                        });
-                    if (!refreshStarted)
-                        publishResult(completedWindow, true,
-                                      "The note was saved, but its notebook view could not be refreshed.");
+                            publishResult(completedWindow, true, std::move(message));
+                        }));
                 });
             if (!started) {
-                if (auto strongWindow = weakWindow.lock())
+                if (auto strongWindow = weakWindow.lock()) {
+                    (*strongWindow)->set_archive_busy(false);
                     publishResult(**strongWindow, false,
                                   "Unable to start note saving. Your draft is still available to retry.");
+                }
             }
         });
 
