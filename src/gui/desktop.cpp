@@ -28,6 +28,7 @@
 #include <cctype>
 #include <cmath>
 #include <cstdint>
+#include <cstdio>
 #include <exception>
 #include <filesystem>
 #include <functional>
@@ -51,6 +52,9 @@
 
 #ifdef _WIN32
 #include <shobjidl.h>
+#elif defined(__APPLE__) || defined(__linux__)
+#include <stdio.h>
+#include <sys/wait.h>
 #endif
 
 namespace tutorux::gui {
@@ -60,6 +64,42 @@ namespace {
     using tutorux::archive::ArchiveInfo;
     using tutorux::command::CommandResult;
     using tutorux::core::Result;
+
+#if defined(__APPLE__) || defined(__linux__)
+    std::optional<std::filesystem::path> runPlatformFilePicker(const std::string& command,
+                                                               bool& cancelled) {
+        FILE* process = popen(command.c_str(), "r");
+        if (process == nullptr)
+            return std::nullopt;
+
+        std::string output;
+        std::array<char, 512> buffer{};
+        bool outputTooLarge = false;
+        while (std::fgets(buffer.data(), static_cast<int>(buffer.size()), process) != nullptr) {
+            const std::size_t length = std::char_traits<char>::length(buffer.data());
+            if (output.size() + length > 64U * 1024U) {
+                outputTooLarge = true;
+                continue;
+            }
+            output.append(buffer.data(), length);
+        }
+        const int processStatus = pclose(process);
+        if (processStatus != -1 && WIFEXITED(processStatus) &&
+            WEXITSTATUS(processStatus) == 1) {
+            cancelled = true;
+            return std::nullopt;
+        }
+        if (processStatus == -1 || !WIFEXITED(processStatus) ||
+            WEXITSTATUS(processStatus) != 0 || outputTooLarge)
+            return std::nullopt;
+
+        while (!output.empty() && (output.back() == '\n' || output.back() == '\r'))
+            output.pop_back();
+        if (output.empty())
+            return std::nullopt;
+        return std::filesystem::path(output);
+    }
+#endif
 
     std::optional<std::filesystem::path> chooseNativeFile(std::string_view purpose,
                                                             bool& cancelled) {
@@ -149,6 +189,75 @@ namespace {
         if (shouldUninitialize)
             CoUninitialize();
         return result;
+#elif defined(__APPLE__)
+        const bool pickFolder = purpose == "material-folder";
+        std::string appleScript;
+        if (pickFolder) {
+            appleScript = "set selectedItem to choose folder with prompt \"Select material folder\"";
+        } else if (purpose == "archive") {
+            appleScript = "set selectedItem to choose file with prompt \"Open Tutorux archive\"";
+        } else if (purpose == "transcript") {
+            appleScript = "set selectedItem to choose file with prompt \"Import transcript\"";
+        } else if (purpose == "recording") {
+            appleScript = "set selectedItem to choose file with prompt \"Import audio recording\" "
+                          "of type {\"public.audio\"}";
+        } else if (purpose == "template") {
+            appleScript = "set selectedItem to choose file with prompt \"Import guide template\"";
+        } else {
+            appleScript = "set selectedItem to choose file with prompt \"Select material\"";
+        }
+        std::string command = "/usr/bin/osascript -e '" + appleScript + "'";
+        command += " -e 'POSIX path of selectedItem' 2>/dev/null";
+        return runPlatformFilePicker(command, cancelled);
+#elif defined(__linux__)
+        const bool pickFolder = purpose == "material-folder";
+        const char* title = purpose == "archive"     ? "Open Tutorux archive"
+                            : purpose == "transcript" ? "Import transcript"
+                            : purpose == "recording"  ? "Import audio recording"
+                            : purpose == "template"   ? "Import guide template"
+                            : pickFolder               ? "Select material folder"
+                                                       : "Select material";
+        std::string zenityArguments = "--file-selection --title='" + std::string(title) + "'";
+        std::string kdialogArguments = "--title '" + std::string(title) + "'";
+        std::string yadArguments = "--file-selection --title='" + std::string(title) + "'";
+        if (pickFolder) {
+            zenityArguments += " --directory";
+            kdialogArguments += " --getexistingdirectory .";
+            yadArguments += " --directory";
+        } else {
+            if (purpose == "archive") {
+                zenityArguments += " --file-filter='Tutorux archives | *.tux'";
+                kdialogArguments += " --getopenfilename . 'Tutorux archives (*.tux)'";
+                yadArguments += " --file-filter='Tutorux archives | *.tux'";
+            } else if (purpose == "transcript") {
+                zenityArguments += " --file-filter='Transcripts | *.txt *.srt *.vtt'";
+                kdialogArguments += " --getopenfilename . 'Transcripts (*.txt *.srt *.vtt)'";
+                yadArguments += " --file-filter='Transcripts | *.txt *.srt *.vtt'";
+            } else if (purpose == "recording") {
+                const bool compressedImportAvailable =
+                    tutorux::audio::hasCompressedAudioImport();
+                const char* extensions = compressedImportAvailable
+                                             ? "*.wav *.wave *.flac *.mp3 *.m4a"
+                                             : "*.wav *.wave";
+                zenityArguments += " --file-filter='Supported audio | " +
+                                   std::string(extensions) + "'";
+                kdialogArguments += " --getopenfilename . 'Supported audio (" +
+                                    std::string(extensions) + ")'";
+                yadArguments += " --file-filter='Supported audio | " +
+                                std::string(extensions) + "'";
+            } else if (purpose == "template") {
+                zenityArguments += " --file-filter='Tutorux guide templates | *.json'";
+                kdialogArguments += " --getopenfilename . 'Tutorux guide templates (*.json)'";
+                yadArguments += " --file-filter='Tutorux guide templates | *.json'";
+            }
+        }
+        const std::string command =
+            "if command -v zenity >/dev/null 2>&1; then zenity " + zenityArguments +
+            " 2>/dev/null; elif command -v kdialog >/dev/null 2>&1; then kdialog " +
+            kdialogArguments +
+            " 2>/dev/null; elif command -v yad >/dev/null 2>&1; then yad " + yadArguments +
+            " 2>/dev/null; else exit 127; fi";
+        return runPlatformFilePicker(command, cancelled);
 #else
         static_cast<void>(purpose);
         return std::nullopt;
@@ -3310,7 +3419,7 @@ int launchDesktop(std::optional<std::filesystem::path> archivePath,
                 window->set_status_message(toSharedString("The native file picker could not be opened."));
 #else
                 window->set_status_message(toSharedString(
-                    "The native file picker is unavailable on this platform; enter the path directly."));
+                    "The file picker could not be opened; enter the path directly."));
 #endif
             }
             return;
