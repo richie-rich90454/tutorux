@@ -75,29 +75,15 @@ export component CommandBar inherits Rectangle {
             clicked => { root.action("export"); }
         }
 
-        Rectangle {
+        Button {
             width: 34px;
-            height: 34px;
-            border-radius: 5px;
-            background: more-touch.has-hover ? Theme.surface-hover : transparent;
-            accessible-role: button;
+            button-min-width: 34px;
+            button-min-height: 34px;
+            horizontal-padding: 0px;
+            variant: "ghost";
+            text: "···";
             accessible-label: "More actions";
-
-            Text {
-                text: "···";
-                width: 100%;
-                height: 100%;
-                horizontal-alignment: center;
-                vertical-alignment: center;
-                color: Theme.muted;
-                font-size: 16px;
-                font-weight: 700;
-                accessible-role: none;
-            }
-
-            more-touch := TouchArea {
-                clicked => { root.menu-open = !root.menu-open; }
-            }
+            clicked => { root.menu-open = !root.menu-open; }
         }
     }
 
@@ -116,124 +102,75 @@ export component CommandBar inherits Rectangle {
             padding: 7px;
             spacing: 2px;
 
-            Rectangle {
-                height: 32px;
-                border-radius: 5px;
-                background: journal-touch.has-hover ? Theme.surface-hover : transparent;
-                Text {
-                    x: 9px;
-                    width: parent.width - 18px;
-                    height: parent.height;
-                    vertical-alignment: center;
-                    text: "Journal…";
-                    color: Theme.ink;
-                    font-size: 12px;
-                }
-                journal-touch := TouchArea {
-                    clicked => { root.menu-open = false; root.action("journal-tools"); }
-                }
+            Button {
+                width: 100%;
+                fill: true;
+                button-min-height: 32px;
+                horizontal-padding: 9px;
+                label-left-aligned: true;
+                variant: "ghost";
+                text: "Journal…";
+                clicked => { root.menu-open = false; root.action("journal-tools"); }
             }
-            Rectangle {
-                height: 32px;
-                border-radius: 5px;
-                background: full-guide-touch.has-hover ? Theme.surface-hover : transparent;
-                Text {
-                    x: 9px;
-                    width: parent.width - 18px;
-                    height: parent.height;
-                    vertical-alignment: center;
-                    text: "Guide editor…";
-                    color: Theme.ink;
-                    font-size: 12px;
-                }
-                full-guide-touch := TouchArea {
-                    clicked => { root.menu-open = false; root.action("guide-editor"); }
-                }
+            Button {
+                width: 100%;
+                fill: true;
+                button-min-height: 32px;
+                horizontal-padding: 9px;
+                label-left-aligned: true;
+                variant: "ghost";
+                text: "Guide editor…";
+                clicked => { root.menu-open = false; root.action("guide-editor"); }
             }
-            Rectangle {
-                height: 32px;
-                border-radius: 5px;
-                background: audio-touch.has-hover ? Theme.surface-hover : transparent;
-                Text {
-                    x: 9px;
-                    width: parent.width - 18px;
-                    height: parent.height;
-                    vertical-alignment: center;
-                    text: "Configure audio…";
-                    color: Theme.ink;
-                    font-size: 12px;
-                }
-                audio-touch := TouchArea {
-                    clicked => { root.menu-open = false; root.action("configure-audio"); }
-                }
+            Button {
+                width: 100%;
+                fill: true;
+                button-min-height: 32px;
+                horizontal-padding: 9px;
+                label-left-aligned: true;
+                variant: "ghost";
+                text: "Configure audio…";
+                clicked => { root.menu-open = false; root.action("configure-audio"); }
             }
-            Rectangle {
-                height: 32px;
-                border-radius: 5px;
-                background: guide-touch.has-hover ? Theme.surface-hover : transparent;
-                Text {
-                    x: 9px;
-                    width: parent.width - 18px;
-                    height: parent.height;
-                    vertical-alignment: center;
-                    text: "Study guides…";
-                    color: Theme.ink;
-                    font-size: 12px;
-                }
-                guide-touch := TouchArea {
-                    clicked => { root.menu-open = false; root.action("guide-tools"); }
-                }
+            Button {
+                width: 100%;
+                fill: true;
+                button-min-height: 32px;
+                horizontal-padding: 9px;
+                label-left-aligned: true;
+                variant: "ghost";
+                text: "Study guides…";
+                clicked => { root.menu-open = false; root.action("guide-tools"); }
             }
-            Rectangle {
-                height: 32px;
-                border-radius: 5px;
-                background: ai-touch.has-hover ? Theme.surface-hover : transparent;
-                Text {
-                    x: 9px;
-                    width: parent.width - 18px;
-                    height: parent.height;
-                    vertical-alignment: center;
-                    text: "AI actions…";
-                    color: Theme.ink;
-                    font-size: 12px;
-                }
-                ai-touch := TouchArea {
-                    clicked => { root.menu-open = false; root.action("ai"); }
-                }
+            Button {
+                width: 100%;
+                fill: true;
+                button-min-height: 32px;
+                horizontal-padding: 9px;
+                label-left-aligned: true;
+                variant: "ghost";
+                text: "AI actions…";
+                clicked => { root.menu-open = false; root.action("ai"); }
             }
-            Rectangle {
-                height: 32px;
-                border-radius: 5px;
-                background: console-touch.has-hover ? Theme.surface-hover : transparent;
-                Text {
-                    x: 9px;
-                    width: parent.width - 18px;
-                    height: parent.height;
-                    vertical-alignment: center;
-                    text: "Command console…";
-                    color: Theme.ink;
-                    font-size: 12px;
-                }
-                console-touch := TouchArea {
-                    clicked => { root.menu-open = false; root.action("console"); }
-                }
+            Button {
+                width: 100%;
+                fill: true;
+                button-min-height: 32px;
+                horizontal-padding: 9px;
+                label-left-aligned: true;
+                variant: "ghost";
+                text: "Command console…";
+                clicked => { root.menu-open = false; root.action("console"); }
             }
-            Rectangle {
-                height: 32px;
-                border-radius: 5px;
-                background: settings-touch.has-hover ? Theme.surface-hover : transparent;
-                Text {
-                    x: 9px;
-                    width: parent.width - 18px;
-                    height: parent.height;
-                    vertical-alignment: center;
-                    text: "Settings…";
-                    color: Theme.ink;
-                    font-size: 12px;
-                }
-                settings-touch := TouchArea {
-                    clicked => { root.menu-open = false; root.action("settings"); }
-                }
+            Button {
+                width: 100%;
+                fill: true;
+                button-min-height: 32px;
+                horizontal-padding: 9px;
+                label-left-aligned: true;
+                variant: "ghost";
+                text: "Settings…";
+                clicked => { root.menu-open = false; root.action("settings"); }
             }
         }
     }

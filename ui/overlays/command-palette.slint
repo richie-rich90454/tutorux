@@ -1,5 +1,5 @@
-// Command palette: one search field over every primary action.
-import { LineEdit, Theme } from "../theme.slint";
+// Command palette: one searchable, keyboard-navigable list of primary actions.
+import { Button, LineEdit, Theme } from "../theme.slint";
 
 export component CommandPalette inherits Rectangle {
     in-out property <string> query;
@@ -19,7 +19,7 @@ export component CommandPalette inherits Rectangle {
 
     Rectangle {
         x: (parent.width - self.width) / 2;
-        y: max(48px, parent.height / 5);
+        y: max(12px, min(max(48px, parent.height / 5), parent.height - self.height - 12px));
         width: min(560px, parent.width - 48px);
         height: palette-content.preferred-height + 24px;
         background: Theme.surface;
@@ -67,175 +67,95 @@ export component CommandPalette inherits Rectangle {
                 height: 20px;
             }
 
-            if root.matches("Journal") : Rectangle {
-                height: 36px;
-                border-radius: 5px;
-                background: journal-touch.has-hover ? Theme.surface-hover : transparent;
-                Text {
-                    x: 10px;
-                    width: parent.width - 20px;
-                    height: parent.height;
-                    vertical-alignment: center;
-                    text: "Open journal";
-                    color: Theme.ink;
-                    font-size: 14px;
-                }
-                journal-touch := TouchArea {
-                    clicked => { root.action("journal"); }
-                }
+            if root.matches("Journal") : Button {
+                text: "Open journal";
+                width: 100%;
+                fill: true;
+                label-left-aligned: true;
+                variant: "ghost";
+                clicked => { root.action("journal"); }
             }
-            if root.matches("Sessions") : Rectangle {
-                height: 36px;
-                border-radius: 5px;
-                background: sessions-touch.has-hover ? Theme.surface-hover : transparent;
-                Text {
-                    x: 10px;
-                    width: parent.width - 20px;
-                    height: parent.height;
-                    vertical-alignment: center;
-                    text: "Go to sessions";
-                    color: Theme.ink;
-                    font-size: 14px;
-                }
-                sessions-touch := TouchArea {
-                    clicked => { root.action("sessions"); }
-                }
+            if root.matches("Sessions") : Button {
+                text: "Go to sessions";
+                width: 100%;
+                fill: true;
+                label-left-aligned: true;
+                variant: "ghost";
+                clicked => { root.action("sessions"); }
             }
-            if root.matches("Students") : Rectangle {
-                height: 36px;
-                border-radius: 5px;
-                background: students-touch.has-hover ? Theme.surface-hover : transparent;
-                Text {
-                    x: 10px;
-                    width: parent.width - 20px;
-                    height: parent.height;
-                    vertical-alignment: center;
-                    text: "Go to students";
-                    color: Theme.ink;
-                    font-size: 14px;
-                }
-                students-touch := TouchArea {
-                    clicked => { root.action("students"); }
-                }
+            if root.matches("Students") : Button {
+                text: "Go to students";
+                width: 100%;
+                fill: true;
+                label-left-aligned: true;
+                variant: "ghost";
+                clicked => { root.action("students"); }
             }
-            if root.matches("Materials") : Rectangle {
-                height: 36px;
-                border-radius: 5px;
-                background: materials-touch.has-hover ? Theme.surface-hover : transparent;
-                Text {
-                    x: 10px;
-                    width: parent.width - 20px;
-                    height: parent.height;
-                    vertical-alignment: center;
-                    text: "Go to materials";
-                    color: Theme.ink;
-                    font-size: 14px;
-                }
-                materials-touch := TouchArea {
-                    clicked => { root.action("materials"); }
-                }
+            if root.matches("Materials") : Button {
+                text: "Go to materials";
+                width: 100%;
+                fill: true;
+                label-left-aligned: true;
+                variant: "ghost";
+                clicked => { root.action("materials"); }
             }
-            if root.matches("Study guide") : Rectangle {
-                height: 36px;
-                border-radius: 5px;
-                background: guides-touch.has-hover ? Theme.surface-hover : transparent;
-                Text {
-                    x: 10px;
-                    width: parent.width - 20px;
-                    height: parent.height;
-                    vertical-alignment: center;
-                    text: "Open study guide";
-                    color: Theme.ink;
-                    font-size: 14px;
-                }
-                guides-touch := TouchArea {
-                    clicked => { root.action("guides"); }
-                }
+            if root.matches("Study guide") : Button {
+                text: "Open study guide";
+                width: 100%;
+                fill: true;
+                label-left-aligned: true;
+                variant: "ghost";
+                clicked => { root.action("guides"); }
             }
-            if root.matches("New session") : Rectangle {
-                height: 36px;
-                border-radius: 5px;
-                background: new-session-touch.has-hover ? Theme.surface-hover : transparent;
-                Text {
-                    x: 10px;
-                    width: parent.width - 20px;
-                    height: parent.height;
-                    vertical-alignment: center;
-                    text: "New session";
-                    color: Theme.ink;
-                    font-size: 14px;
-                }
-                new-session-touch := TouchArea {
-                    clicked => { root.action("new-session"); }
-                }
+            if root.matches("New session") : Button {
+                text: "New session";
+                width: 100%;
+                fill: true;
+                label-left-aligned: true;
+                variant: "ghost";
+                clicked => { root.action("new-session"); }
             }
-            if root.matches("New student") : Rectangle {
-                height: 36px;
-                border-radius: 5px;
-                background: new-student-touch.has-hover ? Theme.surface-hover : transparent;
-                Text {
-                    x: 10px;
-                    width: parent.width - 20px;
-                    height: parent.height;
-                    vertical-alignment: center;
-                    text: "New student";
-                    color: Theme.ink;
-                    font-size: 14px;
-                }
-                new-student-touch := TouchArea {
-                    clicked => { root.action("new-student"); }
-                }
+            if root.matches("New student") : Button {
+                text: "New student";
+                width: 100%;
+                fill: true;
+                label-left-aligned: true;
+                variant: "ghost";
+                clicked => { root.action("new-student"); }
             }
-            if root.matches("Export") : Rectangle {
-                height: 36px;
-                border-radius: 5px;
-                background: export-touch.has-hover ? Theme.surface-hover : transparent;
-                Text {
-                    x: 10px;
-                    width: parent.width - 20px;
-                    height: parent.height;
-                    vertical-alignment: center;
-                    text: "Export…";
-                    color: Theme.ink;
-                    font-size: 14px;
-                }
-                export-touch := TouchArea {
-                    clicked => { root.action("export"); }
-                }
+            if root.matches("Export") : Button {
+                text: "Export…";
+                width: 100%;
+                fill: true;
+                label-left-aligned: true;
+                variant: "ghost";
+                clicked => { root.action("export"); }
             }
-            if root.matches("Settings") : Rectangle {
-                height: 36px;
-                border-radius: 5px;
-                background: settings-touch.has-hover ? Theme.surface-hover : transparent;
-                Text {
-                    x: 10px;
-                    width: parent.width - 20px;
-                    height: parent.height;
-                    vertical-alignment: center;
-                    text: "Settings";
-                    color: Theme.ink;
-                    font-size: 14px;
-                }
-                settings-touch := TouchArea {
-                    clicked => { root.action("settings"); }
-                }
+            if root.matches("Settings") : Button {
+                text: "Settings";
+                width: 100%;
+                fill: true;
+                label-left-aligned: true;
+                variant: "ghost";
+                clicked => { root.action("settings"); }
             }
-            if root.matches("Command console") : Rectangle {
+            if root.matches("Command console") : Button {
+                text: "Command console";
+                width: 100%;
+                fill: true;
+                label-left-aligned: true;
+                variant: "ghost";
+                clicked => { root.action("console"); }
+            }
+
+            if !root.has-results() : Text {
+                text: "No actions match ‘" + root.query + "’.";
+                color: Theme.muted;
+                font-size: 13px;
                 height: 36px;
-                border-radius: 5px;
-                background: console-touch.has-hover ? Theme.surface-hover : transparent;
-                Text {
-                    x: 10px;
-                    width: parent.width - 20px;
-                    height: parent.height;
-                    vertical-alignment: center;
-                    text: "Command console";
-                    color: Theme.ink;
-                    font-size: 14px;
-                }
-                console-touch := TouchArea {
-                    clicked => { root.action("console"); }
-                }
+                vertical-alignment: center;
+                accessible-role: AccessibleRole.text;
+                accessible-label: "No matching actions";
             }
         }
     }
@@ -247,5 +167,13 @@ export component CommandPalette inherits Rectangle {
     pure function matches(label: string) -> bool {
         return root.query == "" ||
                label.to-lowercase().replace-all(root.query.to-lowercase(), "") != label.to-lowercase();
+    }
+
+    pure function has-results() -> bool {
+        return root.matches("Journal") || root.matches("Sessions") ||
+               root.matches("Students") || root.matches("Materials") ||
+               root.matches("Study guide") || root.matches("New session") ||
+               root.matches("New student") || root.matches("Export") ||
+               root.matches("Settings") || root.matches("Command console");
     }
 }

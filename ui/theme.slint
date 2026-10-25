@@ -125,6 +125,10 @@ export component Button inherits Rectangle {
     in property <bool> enabled: true;
     in property <bool> busy: false;
     in property <bool> fill: false;
+    in property <bool> label-left-aligned: false;
+    in property <length> button-min-width: 60px;
+    in property <length> button-min-height: 36px;
+    in property <length> horizontal-padding: 14px;
     out property <bool> has-focus: i-focus-scope.has-focus;
     out property <bool> pressed: self.enabled && !self.busy && i-touch-area.pressed;
 
@@ -182,10 +186,10 @@ export component Button inherits Rectangle {
         return Theme.ink;
     }
 
-    min-width: 60px;
-    max-width: root.fill ? 100000px : max(60px, i-layout.preferred-width);
-    preferred-width: max(60px, i-layout.preferred-width);
-    height: max(36px, i-layout.preferred-height);
+    min-width: root.button-min-width;
+    max-width: root.fill ? 100000px : max(root.button-min-width, i-layout.preferred-width);
+    preferred-width: max(root.button-min-width, i-layout.preferred-width);
+    height: max(root.button-min-height, i-layout.preferred-height);
     horizontal-stretch: root.fill ? 1 : 0;
     vertical-stretch: 0;
     forward-focus: i-focus-scope;
@@ -222,14 +226,15 @@ export component Button inherits Rectangle {
         i-layout := HorizontalLayout {
             width: 100%;
             height: 100%;
-            padding-left: 14px;
-            padding-right: 14px;
+            padding-left: root.horizontal-padding;
+            padding-right: root.horizontal-padding;
             padding-top: 6px;
             padding-bottom: 6px;
             spacing: 6px;
 
             i-label := Text {
-                horizontal-alignment: center;
+                horizontal-stretch: root.label-left-aligned ? 1 : 0;
+                horizontal-alignment: root.label-left-aligned ? left : center;
                 vertical-alignment: center;
                 text: root.text;
                 color: root.label-color();

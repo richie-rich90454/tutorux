@@ -537,6 +537,52 @@ int main() {
                    "selector popup count returns to zero") && ok;
     }
 
+    slint::LogicalSize compactPaletteSize;
+    compactPaletteSize.width = 900;
+    compactPaletteSize.height = 560;
+    window->window().set_size(compactPaletteSize);
+    window->set_command_palette_query("");
+    window->set_command_palette_open(true);
+    settle(window);
+    const auto paletteJournal =
+        ElementHandle::find_by_accessible_label(window, "Open journal");
+    const auto paletteConsole =
+        ElementHandle::find_by_accessible_label(window, "Command console");
+    ok = check(!paletteJournal.empty(), "command palette actions are accessible buttons") && ok;
+    ok = check(!paletteConsole.empty(), "command palette actions stay available at minimum height") && ok;
+    if (!paletteConsole.empty()) {
+        const auto position = paletteConsole[0].absolute_position();
+        const auto size = paletteConsole[0].size();
+        ok = check(position.y + size.height <= compactPaletteSize.height,
+                   "last command palette action stays inside the minimum-height window") && ok;
+    }
+    window->set_command_palette_query("no-such-action");
+    settle(window);
+    const auto noResults =
+        ElementHandle::find_by_accessible_label(window, "No matching actions");
+    ok = check(!noResults.empty(), "command palette explains an empty search") && ok;
+    window->set_command_palette_open(false);
+
+    const auto moreActions = ElementHandle::find_by_accessible_label(window, "More actions");
+    ok = check(!moreActions.empty(), "overflow menu trigger is keyboard-accessible") && ok;
+    if (!moreActions.empty()) {
+        const auto position = moreActions[0].absolute_position();
+        const auto size = moreActions[0].size();
+        slint::private_api::testing::send_mouse_click(
+            &*window, position.x + size.width / 2, position.y + size.height / 2);
+        settle(window);
+        const auto journalMenuAction =
+            ElementHandle::find_by_accessible_label(window, "Journal…");
+        ok = check(!journalMenuAction.empty(), "overflow actions are accessible buttons") && ok;
+        slint::private_api::testing::send_keyboard_key_text(
+            &*window, slint::SharedString("\x1b"), true);
+        slint::private_api::testing::send_keyboard_key_text(
+            &*window, slint::SharedString("\x1b"), false);
+        settle(window);
+        ok = check(!window->get_workspace_menu_open(),
+                   "Escape closes the keyboard-accessible overflow menu") && ok;
+    }
+
     window->hide();
     return ok ? 0 : 1;
 }

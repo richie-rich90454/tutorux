@@ -57,6 +57,9 @@ fixed and what remains.
 - The active recording dock used mouse-only hit regions for Mark, Pause/Resume,
   and Stop. These actions now use the shared keyboard-focusable and accessible
   button component.
+- The command palette and workspace overflow actions used mouse-only rows.
+  They now use the shared focusable buttons, report an empty search, close the
+  overflow menu with Escape, and keep the full palette inside the minimum window.
 - The consent and recording panels exposed an enabled Start button even when
   microphone preflight was not ready. Start is now disabled until the selected
   microphone has passed preflight, with the preflight result visible.
