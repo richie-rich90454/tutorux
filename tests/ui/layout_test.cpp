@@ -188,6 +188,14 @@ int main() {
     window->set_selected_journal_note_block(slint::SharedString("Paragraph · Block 1"));
     window->set_journal_document_block_text(
         slint::SharedString("A readable notebook measure keeps long text inside the pane."));
+    settle(window);
+    const auto markerButton = ElementHandle::find_by_accessible_label(
+        window, "Add a marker at the current recording time");
+    const auto pauseButton = ElementHandle::find_by_accessible_label(window, "Pause");
+    const auto stopButton = ElementHandle::find_by_accessible_label(window, "Stop");
+    bool ok = check(!markerButton.empty(), "active recording marker action is accessible");
+    ok = check(!pauseButton.empty(), "active recording pause action is accessible") && ok;
+    ok = check(!stopButton.empty(), "active recording stop action is accessible") && ok;
 
     struct Size final {
         int width;
@@ -199,7 +207,6 @@ int main() {
                                Size{1600, 1000, true}, Size{1920, 1200, true}};
     constexpr std::array themes{"light", "dark"};
 
-    bool ok = true;
     for (const auto& size : sizes) {
         for (const char* theme : themes) {
             window->set_theme_mode(slint::SharedString(theme));

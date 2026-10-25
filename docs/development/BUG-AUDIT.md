@@ -54,6 +54,9 @@ fixed and what remains.
   at narrow widths instead of drawing past their containers.
 - Recording controls opened from the journal did not show the recording sheet.
   The action now selects the session and opens the panel.
+- The active recording dock used mouse-only hit regions for Mark, Pause/Resume,
+  and Stop. These actions now use the shared keyboard-focusable and accessible
+  button component.
 - The consent and recording panels exposed an enabled Start button even when
   microphone preflight was not ready. Start is now disabled until the selected
   microphone has passed preflight, with the preflight result visible.
