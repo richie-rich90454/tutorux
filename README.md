@@ -78,7 +78,15 @@ dist\Tutorux.exe --version
 
 The `portable` preset statically links the GUI and runtime dependencies, embeds Slint images and icons in the executable, and embeds the Noto Sans font family. The staged executable runs without the source tree, UI asset files, or app-specific DLLs; the adjacent Noto Sans OFL file is a license notice, not a runtime requirement. Windows itself supplies desktop, audio, cryptographic, and networking APIs. The build includes local Whisper support, while selected model weights remain user data and are not runtime libraries. Windows builds use WinHTTP and the platform trust store, so libcurl/OpenSSL are not in the Windows runtime.
 
-The release profile uses the Slint software renderer with the interpreter, testing backend, live preview, and system tray disabled, then strips the executable. A full one-file Windows build stays under the 65 MB budget. Check the measured artifact with:
+For the Full Windows executable, build the static release preset. It bundles the FLAC, MP3, and M4A decoders and the llama.cpp inference runtime into the executable:
+
+```powershell
+cmake --preset portable-static-windows-x64-release
+cmake --build build/windows-x64-static --target dist size
+dist\Tutorux.exe --version
+```
+
+The Full profile also embeds Slint images, icons, and fonts and has no Tutorux-specific DLL or executable dependencies. Windows system APIs remain operating-system requirements. Model weights and archives are user data, not runtime libraries. The Full executable has a 125 MB size gate; the smaller `portable` profile keeps its 65 MB gate. Both use the Slint software renderer, disable the interpreter, testing backend, live preview, and system tray, and strip release symbols.
 
 ```powershell
 cmake --build build/portable --target size
