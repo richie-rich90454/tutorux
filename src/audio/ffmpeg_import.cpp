@@ -322,6 +322,14 @@ namespace {
 
 } // namespace
 
+bool hasCompressedAudioImport() noexcept {
+#ifdef TUTORUX_WITH_FFMPEG
+    return true;
+#else
+    return false;
+#endif
+}
+
 core::Result<ImportSummary> importAudio(archive::Archive& archive, const archive::Uuid& sessionId, const std::filesystem::path& source,
                                         bool allowAdditionalTrack) {
     std::error_code errorCode;
