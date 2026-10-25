@@ -2599,6 +2599,23 @@ namespace {
     }
 
 
+    void setMarkerRows(MainWindow& window, std::vector<MarkerRow> markers) {
+        const auto selectedMarker = window.get_selected_marker();
+        if (!selectedMarker.empty()) {
+            const std::string selectedId(selectedMarker.data(), selectedMarker.size());
+            const bool stillAvailable = std::any_of(markers.begin(), markers.end(),
+                                                    [&](const MarkerRow& marker) {
+                                                        return std::string_view(
+                                                                   marker.id.data(),
+                                                                   marker.id.size()) == selectedId;
+                                                    });
+            if (!stillAvailable)
+                window.set_selected_marker(toSharedString(""));
+        }
+        window.set_marker_rows(
+            std::make_shared<slint::VectorModel<MarkerRow>>(std::move(markers)));
+    }
+
     void clearWorkspaceView(MainWindow& window) {
         window.set_archive_path(toSharedString(""));
         window.set_selected_archive(toSharedString(""));
@@ -2621,7 +2638,10 @@ namespace {
         window.set_trash_rows(std::make_shared<slint::VectorModel<TrashRow>>());
         window.set_trash_error(toSharedString(""));
         window.set_trash_busy(false);
-        window.set_marker_rows(std::make_shared<slint::VectorModel<MarkerRow>>());
+        window.set_selected_marker(toSharedString(""));
+        window.set_annotation_time(toSharedString("00:00:00"));
+        window.set_annotation_note(toSharedString(""));
+        setMarkerRows(window, {});
         window.set_note_rows(std::make_shared<slint::VectorModel<NoteRow>>());
         window.set_guide_options(std::make_shared<slint::VectorModel<slint::SharedString>>());
         window.set_guide_block_options(
@@ -2758,8 +2778,7 @@ namespace {
             std::move(snapshot.sessionRows)));
         window.set_student_rows(std::make_shared<slint::VectorModel<StudentRow>>(
             std::move(snapshot.studentRows)));
-        window.set_marker_rows(std::make_shared<slint::VectorModel<MarkerRow>>(
-            std::move(snapshot.markerRows)));
+        setMarkerRows(window, std::move(snapshot.markerRows));
         window.set_selected_session_title(toSharedString(snapshot.selectedSessionTitle));
         window.set_selected_session_student(toSharedString(snapshot.selectedSessionStudent));
         window.set_selected_session_student_choice(
@@ -4781,8 +4800,7 @@ int launchDesktop(std::optional<std::filesystem::path> archivePath,
                             toSharedString(studentChoice));
                         (*strongWindow)->set_recording_state(toSharedString(recordingState));
                         (*strongWindow)->set_recording_elapsed_seconds(elapsed);
-                        (*strongWindow)->set_marker_rows(
-                            std::make_shared<slint::VectorModel<MarkerRow>>(std::move(markers)));
+                        setMarkerRows(**strongWindow, std::move(markers));
                         (*strongWindow)->set_note_save_state(toSharedString("saved"));
                         if (!documentId.empty()) {
                             dispatchCommandAsync(
@@ -4971,6 +4989,7 @@ int launchDesktop(std::optional<std::filesystem::path> archivePath,
         const std::filesystem::path path(window->get_archive_path().data());
         const std::string id = selectionId(selectedSession);
         if (path.empty() || id.empty()) {
+            window->set_session_details_save_state(toSharedString("failed"));
             window->set_status_message(toSharedString("Select a session before editing details."));
             return;
         }
@@ -4980,13 +4999,24 @@ int launchDesktop(std::optional<std::filesystem::path> archivePath,
         std::vector<std::string> arguments{"session", "update", id, "--student-id", studentId};
         arguments.insert(arguments.end(),
                          {"--subject", std::string(requestedSubject.data(), requestedSubject.size())});
+        window->set_session_details_save_state(toSharedString("saving"));
         dispatchCommandAsync(
             weakWindow, backgroundTasks, archiveCommand(path, std::move(arguments)),
             activePassphrase,
-            [weakWindow, &backgroundTasks, &activePassphrase, path](MainWindow& completedWindow,
-                                                                   bool succeeded,
-                                                                   std::string output) {
+            [weakWindow, &backgroundTasks, &activePassphrase, path, id](MainWindow& completedWindow,
+                                                                        bool succeeded,
+                                                                        std::string output) {
+                const auto completedArchive =
+                    std::filesystem::path(completedWindow.get_archive_path().data());
+                if (completedArchive.lexically_normal() != path.lexically_normal())
+                    return;
                 completedWindow.set_status_message(toSharedString(output));
+                const bool stillEditingThisSession =
+                    selectionId(completedWindow.get_selected_session()) == id;
+                if (stillEditingThisSession) {
+                    completedWindow.set_session_details_save_state(
+                        toSharedString(succeeded ? "saved" : "failed"));
+                }
                 if (succeeded)
                     refreshWorkspaceAsync(weakWindow, backgroundTasks, path, activePassphrase);
             });

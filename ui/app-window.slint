@@ -361,6 +361,7 @@ export component MainWindow inherits Window {
     in-out property <string> selected-session-started;
     in-out property <string> selected-session-state;
     in-out property <string> selected-session-student-choice;
+    in-out property <string> session-details-save-state: "idle";
     in-out property <string> session-package-path;
     in-out property <string> recording-state: "not-started";
     in-out property <int> recording-elapsed-seconds: 0;
@@ -424,6 +425,10 @@ export component MainWindow inherits Window {
         }
     }
     changed selected-session => {
+        root.session-details-save-state = "idle";
+        root.selected-marker = "";
+        root.annotation-time = "00:00:00";
+        root.annotation-note = "";
         root.transcript-options = [];
         root.evidence-options = [];
         root.evidence-edge-options = [];
@@ -1424,10 +1429,12 @@ export component MainWindow inherits Window {
                                             microphone: root.recording-microphone-device;
                                             source: root.recording-source;
                                             student-choice <=> root.selected-session-student-choice;
+                                            writable: root.archive-writable;
                                             elapsed-label: root.elapsed-label();
                                             student-options: root.student-options;
                                             markers: root.marker-rows;
                                             selected-marker <=> root.selected-marker;
+                                            details-save-state <=> root.session-details-save-state;
                                             marker-time <=> root.annotation-time;
                                             marker-note <=> root.annotation-note;
                                             update-details(choice, subject) => {

@@ -228,6 +228,38 @@ int main() {
             &*window, slint::SharedString("\x1b"), false);
         settle(window);
     }
+    const auto editDetails =
+        ElementHandle::find_by_accessible_label(window, "Edit session details");
+    ok = check(!editDetails.empty(), "session details expose an edit action") && ok;
+    if (!editDetails.empty()) {
+        const auto addMarker = ElementHandle::find_by_accessible_label(window, "Add session marker");
+        window->set_archive_writable(false);
+        settle(window);
+        ok = check(editDetails[0].accessible_enabled() == std::optional<bool>(false),
+                   "read-only archives disable session detail editing") && ok;
+        if (!addMarker.empty()) {
+            ok = check(addMarker[0].accessible_enabled() == std::optional<bool>(false),
+                       "read-only archives disable marker creation") && ok;
+        }
+        window->set_archive_writable(true);
+        settle(window);
+        editDetails[0].invoke_accessible_default_action();
+        settle(window);
+        ok = check(!ElementHandle::find_by_accessible_label(window, "Session subject").empty(),
+                   "session detail editing exposes a labelled subject field") && ok;
+        window->set_session_details_save_state(slint::SharedString("failed"));
+        settle(window);
+        ok = check(!ElementHandle::find_by_accessible_label(window, "Save session details").empty(),
+                   "a failed detail save keeps a retry action available") && ok;
+        ok = check(!ElementHandle::find_by_accessible_label(window, "Cancel session edit").empty(),
+                   "a failed detail save preserves the active edit form") && ok;
+        window->set_session_details_save_state(slint::SharedString("saved"));
+        settle(window);
+        ok = check(!ElementHandle::find_by_accessible_label(window, "Edit session details").empty(),
+                   "a successful detail save closes the edit form") && ok;
+        window->set_session_details_save_state(slint::SharedString("idle"));
+        settle(window);
+    }
     const auto firstMarker = ElementHandle::find_by_accessible_label(
         window, "Play marker at 00:12:30: Student explains a multi-step solution clearly.");
     ok = check(!firstMarker.empty(), "session markers expose accessible play controls") && ok;
@@ -236,6 +268,19 @@ int main() {
         settle(window);
         ok = check(window->get_selected_marker() == slint::SharedString("marker-one"),
                    "the accessible marker action selects its marker") && ok;
+        const auto saveMarker = ElementHandle::find_by_accessible_label(window, "Save marker");
+        if (!saveMarker.empty()) {
+            saveMarker[0].invoke_accessible_default_action();
+            settle(window);
+            ok = check(window->get_selected_marker() == slint::SharedString("marker-one"),
+                       "attempting to save a marker keeps it selected for retry") && ok;
+        }
+        window->set_selected_session(slint::SharedString("session-2"));
+        settle(window);
+        ok = check(window->get_selected_marker().empty(),
+                   "changing sessions clears the prior session's marker selection") && ok;
+        window->set_selected_session(slint::SharedString("Algebra · Fractions review"));
+        settle(window);
     }
     const auto markerButton = ElementHandle::find_by_accessible_label(
         window, "Add a marker at the current recording time");

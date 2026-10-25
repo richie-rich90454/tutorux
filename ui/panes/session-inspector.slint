@@ -8,6 +8,8 @@ export component SessionInspector inherits Rectangle {
     in property <string> microphone;
     in property <string> source;
     in property <string> student-choice;
+    in property <bool> writable: true;
+    in-out property <string> details-save-state: "idle";
     in property <string> elapsed-label;
     in property <[string]> student-options: [];
     in property <[MarkerRow]> markers: [];
@@ -44,6 +46,12 @@ export component SessionInspector inherits Rectangle {
     property <bool> editing: false;
     property <string> draft-student;
     property <string> draft-subject;
+
+    changed details-save-state => {
+        if (root.details-save-state == "saved") {
+            root.editing = false;
+        }
+    }
 
     Rectangle {
         width: 1px;
@@ -82,13 +90,17 @@ export component SessionInspector inherits Rectangle {
                     Button {
                         text: root.editing ? "Cancel" : "Edit";
                         variant: "ghost";
+                        enabled: (root.editing || root.writable) &&
+                            root.details-save-state != "saving";
                         accessible-label: root.editing ? "Cancel session edit" : "Edit session details";
                         clicked => {
                             if root.editing {
                                 root.editing = false;
+                                root.details-save-state = "idle";
                             } else {
                                 root.draft-student = root.student-choice;
                                 root.draft-subject = root.subject;
+                                root.details-save-state = "idle";
                                 root.editing = true;
                             }
                         }
@@ -148,23 +160,38 @@ export component SessionInspector inherits Rectangle {
                     spacing: 4px;
                     Text { text: "Student"; color: Theme.faint; font-size: 12px; font-weight: 600; }
                     ComboBox {
+                        enabled: root.writable;
                         model: root.student-options;
                         current-value <=> root.draft-student;
+                        accessible-label: "Session student";
                     }
                 }
                 VerticalLayout {
                     spacing: 4px;
                     Text { text: "Subject"; color: Theme.faint; font-size: 12px; font-weight: 600; }
-                    LineEdit { text <=> root.draft-subject; }
+                    LineEdit {
+                        text <=> root.draft-subject;
+                        enabled: root.writable;
+                        accessible-label: "Session subject";
+                    }
                 }
                 Button {
-                    text: "Save details";
+                    text: root.details-save-state == "saving" ? "Saving…" :
+                          root.details-save-state == "failed" ? "Retry save" : "Save details";
                     variant: "primary";
                     fill: true;
+                    enabled: root.writable && root.details-save-state != "saving";
+                    accessible-label: "Save session details";
                     clicked => {
                         root.update-details(root.draft-student, root.draft-subject);
-                        root.editing = false;
                     }
+                }
+                if root.details-save-state == "failed" : Text {
+                    width: 100%;
+                    text: "The save failed. Your edits are still here; retry or cancel.";
+                    color: Theme.danger;
+                    font-size: 12px;
+                    wrap: word-wrap;
                 }
                 Button {
                     text: "Unassign student";
@@ -220,6 +247,7 @@ export component SessionInspector inherits Rectangle {
                     LineEdit {
                         placeholder-text: "00:00:00";
                         text <=> root.marker-time;
+                    enabled: root.writable;
                         min-width: 0px;
                         horizontal-stretch: 1;
                         accessible-label: "Session marker time";
@@ -234,11 +262,13 @@ export component SessionInspector inherits Rectangle {
                 LineEdit {
                     placeholder-text: "Optional marker note";
                     text <=> root.marker-note;
+                    enabled: root.writable;
                     accessible-label: "Session marker note";
                 }
                 ComboBox {
                     model: ["Concept", "Mistake", "Correction", "Instruction",
                             "Example", "Follow-up", "Note"];
+                    enabled: root.writable;
                     current-value <=> root.marker-kind;
                     accessible-label: "Session marker type";
                 }
@@ -246,6 +276,7 @@ export component SessionInspector inherits Rectangle {
                     text: "Add marker";
                     variant: "primary";
                     fill: true;
+                    enabled: root.writable;
                     clicked => { root.mark(root.marker-type()); }
                     accessible-label: "Add session marker";
                 }
@@ -290,16 +321,15 @@ export component SessionInspector inherits Rectangle {
                 spacing: 8px;
                 Button {
                     text: "Save marker";
-                    enabled: root.selected-marker != "";
+                    enabled: root.writable && root.selected-marker != "";
                     clicked => {
                         root.edit-marker(root.selected-marker, root.marker-time, root.marker-note);
-                        root.selected-marker = "";
                     }
                 }
                 Button {
                     text: "Remove";
                     variant: "danger";
-                    enabled: root.selected-marker != "";
+                    enabled: root.writable && root.selected-marker != "";
                     clicked => {
                         root.remove-marker(root.selected-marker);
                         root.selected-marker = "";

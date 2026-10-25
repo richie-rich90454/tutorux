@@ -70,6 +70,17 @@ fixed and what remains.
 - Session-title editing had no default accessibility action, and marker rows
   were mouse-only. The title now exposes an edit action and labelled editor;
   markers use labelled keyboard-accessible play buttons.
+- Session-detail edits closed as soon as the async update was dispatched, so a
+  failed save hid the user's changes. The inspector now stays open during save,
+  keeps the draft on failure with a retry action, and closes only after a
+  successful response for the same selected session and archive.
+- Saving a marker cleared its selection before the backend replied, losing the
+  edited time and text on failure. It now remains selected for retry; changing
+  sessions resets marker drafts, and refreshed marker lists discard selections
+  whose records were removed.
+- Session detail controls previously stayed enabled in a read-only archive.
+  The inspector now receives the archive's writability state and disables
+  session and marker mutations while preserving marker playback.
 - The consent and recording panels exposed an enabled Start button even when
   microphone preflight was not ready. Start is now disabled until the selected
   microphone has passed preflight, with the preflight result visible.
