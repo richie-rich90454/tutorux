@@ -181,6 +181,9 @@ fixed and what remains.
   the selected build includes FFmpeg; WAV remains available in every build.
   The import field describes the full-build constraint instead of promising
   that every audio format works in every installation.
+- WAV export now reuses the active take's named track selector instead of
+  asking users to type a track UUID. It stays unavailable until the selected
+  session has an audio track.
 - Journal copy now distinguishes a teaching journal spanning lessons from the
   notes and recordings owned by one lesson, and removes a duplicate entry card.
 - The green favicon artwork is embedded in the Windows executable and macOS
