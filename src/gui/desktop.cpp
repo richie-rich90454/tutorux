@@ -2819,10 +2819,9 @@ namespace {
         const bool preservePendingNotebook =
             currentDocumentId == snapshot.selectedSessionDocumentId &&
             (saveState == "unsaved" || saveState == "saving");
-        if (preservePendingNotebook) {
-            if (saveState == "saving")
-                window.set_note_save_state(toSharedString("saved"));
-        } else {
+        // A workspace refresh does not acknowledge an in-flight notebook
+        // write. Only the matching save result may change this state.
+        if (!preservePendingNotebook) {
             window.set_note_save_state(toSharedString("saved"));
             if (snapshot.selectedSessionNotesAvailable) {
                 setJournalDocumentBlocks(window, snapshot.selectedSessionDocumentId,
