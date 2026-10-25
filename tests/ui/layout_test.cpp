@@ -188,6 +188,7 @@ int main() {
                             slint::SharedString("Heading"),
                             slint::SharedString("A second note block remains selectable.")});
     window->set_note_rows(std::make_shared<slint::VectorModel<NoteRow>>(notes));
+    window->set_journal_document_id("notes-document-1");
     window->set_selected_journal_note_block(slint::SharedString("Paragraph · Block 1"));
     window->set_journal_document_block_text(
         slint::SharedString("A readable notebook measure keeps long text inside the pane."));
@@ -214,6 +215,37 @@ int main() {
         window->set_journal_document_block_kind(slint::SharedString("Paragraph"));
         settle(window);
     }
+    std::string reloadAction;
+    window->on_journal_action(
+        [&](slint::SharedString action, slint::SharedString, slint::SharedString,
+            slint::SharedString, slint::SharedString, slint::SharedString,
+            slint::SharedString) {
+            reloadAction.assign(action.data(), action.size());
+        });
+    window->set_note_save_result_message("The archive version changed while this note was edited.");
+    window->set_note_save_state("failed");
+    settle(window);
+    auto reloadSavedVersion = ElementHandle::find_by_accessible_label(
+        window, "Reload saved note version; unsaved draft will be discarded");
+    ok = check(!reloadSavedVersion.empty(),
+               "failed notebook saves expose a reload path with a clear draft warning") && ok;
+    if (!reloadSavedVersion.empty()) {
+        reloadSavedVersion[0].invoke_accessible_default_action();
+        settle(window);
+        const auto confirmReload = ElementHandle::find_by_accessible_label(
+            window, "Confirm reload and discard the unsaved note draft");
+        ok = check(!confirmReload.empty(),
+                   "reloading the saved note version requires explicit confirmation") && ok;
+        if (!confirmReload.empty()) {
+            confirmReload[0].invoke_accessible_default_action();
+            settle(window);
+            ok = check(reloadAction == "document-show",
+                       "confirmed note reload requests the persisted document") && ok;
+        }
+    }
+    window->set_note_save_state("saved");
+    window->set_note_save_result_message(slint::SharedString(""));
+    settle(window);
     const auto editTitle =
         ElementHandle::find_by_accessible_label(window, "Edit session title");
     ok = check(!editTitle.empty(), "session title exposes an accessible edit action") && ok;
