@@ -113,7 +113,8 @@
         "TUTORUX_FETCH_FFMPEG": "ON",
         "TUTORUX_ENABLE_LLAMA": "ON",
         "TUTORUX_FETCH_LLAMA": "ON",
-        "TUTORUX_STATIC_RUNTIME": "ON"
+        "TUTORUX_STATIC_RUNTIME": "ON",
+        "TUTORUX_SIZE_LIMIT_BYTES": "125000000"
       }
     },
     {
