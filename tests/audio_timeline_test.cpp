@@ -171,6 +171,53 @@ int main() {
         return fail("Compressed audio import availability disagrees with the configured decoder.");
     }
 
+    const auto compressedFixtures = std::filesystem::path(__FILE__).parent_path() / "fixtures";
+    for (const std::string_view extension : {"flac", "mp3", "m4a"}) {
+        domain::Session compressedSession;
+        compressedSession.id = archive::randomUuid();
+        compressedSession.studentId = "anonymous";
+        compressedSession.subject = "Audio";
+        compressedSession.title = "Compressed audio decoder regression";
+        if (auto status = archive->put(domain::toRecord(compressedSession)); !status)
+            return fail(status.error().message);
+
+        const auto fixture = compressedFixtures / ("tone-997hz." + std::string(extension));
+        auto decoded = audio::importAudio(*archive, compressedSession.id, fixture);
+        if (!audio::hasCompressedAudioImport()) {
+            if (decoded || decoded.error().code != "audio_codec_support_unavailable")
+                return fail("A build without FFmpeg did not report compressed audio as unavailable.");
+            continue;
+        }
+        if (!decoded || !decoded->completed || decoded->sampleCount == 0 ||
+            decoded->durationUs < 900'000) {
+            return fail(decoded ? "A bundled compressed decoder imported an empty or truncated track."
+                                : decoded.error().message);
+        }
+
+        auto compressedTimeline = audio::AudioTimelineReader::open(
+            *archive, compressedSession.id, decoded->trackId);
+        auto compressedWaveform = audio::buildWaveform(
+            *archive, compressedSession.id, decoded->trackId, 128);
+        if (!compressedTimeline || compressedTimeline->info().storedFrameCount == 0 ||
+            !compressedWaveform || compressedWaveform->buckets.empty()) {
+            return fail(!compressedTimeline ? compressedTimeline.error().message
+                         : !compressedWaveform ? compressedWaveform.error().message
+                                               : "A decoded track did not produce timeline and waveform data.");
+        }
+        const auto extrema = std::minmax_element(
+            compressedWaveform->buckets.begin(), compressedWaveform->buckets.end(),
+            [](const auto& left, const auto& right) {
+                return left.minimum < right.minimum;
+            });
+        const auto maximum = std::max_element(
+            compressedWaveform->buckets.begin(), compressedWaveform->buckets.end(),
+            [](const auto& left, const auto& right) {
+                return left.maximum < right.maximum;
+            });
+        if (extrema.first->minimum >= 0 || maximum->maximum <= 0)
+            return fail("A decoded compressed track did not produce real signed waveform intensity.");
+    }
+
     const archive::Uuid secondTakeId = archive::randomUuid();
     const archive::Uuid microphoneTrackId = archive::randomUuid();
     const archive::Uuid systemTrackId = archive::randomUuid();
