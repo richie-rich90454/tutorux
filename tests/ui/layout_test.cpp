@@ -246,6 +246,58 @@ int main() {
     window->set_note_save_state("saved");
     window->set_note_save_result_message(slint::SharedString(""));
     settle(window);
+
+    window->set_recording_track_options(
+        std::make_shared<slint::VectorModel<slint::SharedString>>(
+            std::vector<slint::SharedString>{"Microphone", "System audio"}));
+    window->set_selected_recording_track_label("Microphone");
+    window->set_recording_export_path("session.wav");
+    window->set_overlay_panel("export");
+    std::string exportedTrackSelection;
+    window->on_select_recording_track([&](slint::SharedString label) {
+        exportedTrackSelection.assign(label.data(), label.size());
+    });
+    settle(window);
+    const auto exportTrackSelector =
+        ElementHandle::find_by_accessible_label(window, "Track to export");
+    ok = check(!exportTrackSelector.empty(),
+               "WAV export uses an accessible track picker instead of a UUID field") && ok;
+    if (!exportTrackSelector.empty()) {
+        ok = check(exportTrackSelector[0].accessible_value() ==
+                       std::optional<slint::SharedString>("Microphone"),
+                   "WAV export initially shows the friendly selected track") && ok;
+        const auto position = exportTrackSelector[0].absolute_position();
+        const auto size = exportTrackSelector[0].size();
+        slint::private_api::testing::send_mouse_click(
+            &*window, position.x + size.width / 2, position.y + size.height / 2);
+        settle(window);
+        slint::private_api::testing::send_keyboard_key_text(
+            &*window, slint::SharedString("\xef\x9c\x81"), true);
+        slint::private_api::testing::send_keyboard_key_text(
+            &*window, slint::SharedString("\xef\x9c\x81"), false);
+        settle(window);
+        ok = check(exportedTrackSelection == "System audio" &&
+                       window->get_selected_recording_track_label() == "System audio",
+                   "choosing an export track updates the recording dock selection") && ok;
+    }
+    const auto exportWavButton = ElementHandle::find_by_accessible_label(window, "Export WAV");
+    ok = check(!exportWavButton.empty() &&
+                   exportWavButton[0].accessible_enabled() == std::optional<bool>(true),
+               "WAV export is enabled when the session has an audio track") && ok;
+    window->set_recording_track_options(
+        std::make_shared<slint::VectorModel<slint::SharedString>>());
+    settle(window);
+    const auto disabledExportWavButton =
+        ElementHandle::find_by_accessible_label(window, "Export WAV");
+    ok = check(!disabledExportWavButton.empty() &&
+                   disabledExportWavButton[0].accessible_enabled() == std::optional<bool>(false),
+               "WAV export is disabled when the session has no audio tracks") && ok;
+    window->set_overlay_panel("");
+    window->set_recording_track_options(
+        std::make_shared<slint::VectorModel<slint::SharedString>>());
+    window->set_selected_recording_track_label("");
+    settle(window);
+
     const auto editTitle =
         ElementHandle::find_by_accessible_label(window, "Edit session title");
     ok = check(!editTitle.empty(), "session title exposes an accessible edit action") && ok;
