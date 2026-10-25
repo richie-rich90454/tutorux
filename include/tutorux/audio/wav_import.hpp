@@ -42,6 +42,9 @@ core::Result<ImportSummary> importPcmStream(archive::Archive& archive, const arc
 core::Result<ImportSummary> importAudio(archive::Archive& archive, const archive::Uuid& sessionId, const std::filesystem::path& source,
                                         bool allowAdditionalTrack = false);
 
+// WAV is always available. Compressed formats require the bundled FFmpeg decoder.
+bool hasCompressedAudioImport() noexcept;
+
 core::Result<ImportSummary> recoverWaveImport(archive::Archive& archive, const archive::Uuid& sessionId);
 
 } // namespace tutorux::audio
