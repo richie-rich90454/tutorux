@@ -44,6 +44,7 @@ export component Notebook inherits Rectangle {
     property <int> active-save-request: 0;
     property <string> active-save-document;
     property <string> active-save-archive;
+    property <bool> discard-reload-armed: false;
 
     public function flush-pending() {
         if (root.pending-block == "" || root.save-in-flight ||
@@ -128,6 +129,12 @@ export component Notebook inherits Rectangle {
         }
     }
 
+    changed save-state => {
+        if (root.save-state != "failed") {
+            root.discard-reload-armed = false;
+        }
+    }
+
     VerticalLayout {
         width: 100%;
         height: 100%;
@@ -178,6 +185,33 @@ export component Notebook inherits Rectangle {
                     clicked => {
                         root.flush-pending();
                     }
+                }
+                if root.save-state == "failed" : Button {
+                    text: root.discard-reload-armed ? "Confirm reload" : "Reload saved version";
+                    variant: "ghost";
+                    enabled: root.document-id != "";
+                    accessible-label: root.discard-reload-armed
+                        ? "Confirm reload and discard the unsaved note draft"
+                        : "Reload saved note version; unsaved draft will be discarded";
+                    clicked => {
+                        if (root.discard-reload-armed) {
+                            root.pending-block = "";
+                            root.pending-text = "";
+                            root.pending-kind = "";
+                            root.pending-document = "";
+                            root.pending-archive = "";
+                            root.discard-reload-armed = false;
+                            root.save-state = "saving";
+                            root.action("reload", "");
+                        } else {
+                            root.discard-reload-armed = true;
+                        }
+                    }
+                }
+                if root.discard-reload-armed : Button {
+                    text: "Cancel";
+                    variant: "ghost";
+                    clicked => { root.discard-reload-armed = false; }
                 }
             }
         }
