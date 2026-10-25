@@ -3795,6 +3795,90 @@ int launchDesktop(std::optional<std::filesystem::path> archivePath,
                 });
         });
 
+    window->on_notebook_save_block(
+        [weakWindow, &backgroundTasks, &activePassphrase](
+            slint::SharedString requestedArchive, slint::SharedString requestedDocument,
+            slint::SharedString requestedBlock, slint::SharedString requestedKind,
+            slint::SharedString requestedText, int editRevision, int requestId) {
+            const auto value = [](const slint::SharedString& text) {
+                return std::string(text.data(), text.size());
+            };
+            const std::filesystem::path path(value(requestedArchive));
+            const std::string documentId = value(requestedDocument);
+            const std::string blockId = selectionId(requestedBlock);
+            const std::string kind = journalNoteKindValue(value(requestedKind));
+            const std::string text = value(requestedText);
+            const auto publishResult = [requestId](MainWindow& target, bool succeeded,
+                                                   std::string message) {
+                target.set_note_save_result_succeeded(succeeded);
+                target.set_note_save_result_message(toSharedString(message));
+                target.set_note_save_result_revision(requestId);
+                if (!message.empty())
+                    target.set_status_message(toSharedString(std::move(message)));
+            };
+            if (path.empty() || !tutorux::archive::uuidFromString(documentId) ||
+                !tutorux::archive::uuidFromString(blockId) || kind.empty() ||
+                !tutorux::domain::isValidJournalNoteBlockKind(kind)) {
+                if (auto strongWindow = weakWindow.lock())
+                    publishResult(**strongWindow, false,
+                                  "The note block could not be saved because its document or type is invalid.");
+                return;
+            }
+
+            auto secret = std::make_shared<SecretText>(activePassphrase);
+            auto update = archiveCommand(
+                path, {"--json", "journal", "document", "update", documentId, "--block-id",
+                       blockId, "--kind", kind, "--text", text});
+            const bool started = dispatchCommandAsync(
+                weakWindow, backgroundTasks, std::move(update), secret->value,
+                [weakWindow, &backgroundTasks, secret, path, documentId, editRevision,
+                 requestId, publishResult](MainWindow& completedWindow, bool saved,
+                                            std::string output) mutable {
+                    if (!saved) {
+                        publishResult(completedWindow, false,
+                                      output.empty() ? "The note block could not be saved."
+                                                     : std::move(output));
+                        return;
+                    }
+
+                    auto show = archiveCommand(
+                        path, {"--json", "journal", "document", "show", documentId});
+                    const bool refreshStarted = dispatchCommandAsync(
+                        weakWindow, backgroundTasks, std::move(show), secret->value,
+                        [path, documentId, editRevision, requestId,
+                         publishResult](MainWindow& documentWindow, bool loaded,
+                                        std::string documentOutput) mutable {
+                            const auto currentPath = documentWindow.get_archive_path();
+                            const auto currentDocument = documentWindow.get_journal_document_id();
+                            const bool sameContext =
+                                std::filesystem::path(std::string(currentPath.data(),
+                                                                  currentPath.size()))
+                                    .lexically_normal() == path.lexically_normal() &&
+                                std::string(currentDocument.data(), currentDocument.size()) ==
+                                    documentId;
+                            const bool unchangedDraft =
+                                documentWindow.get_note_edit_revision() == editRevision;
+                            if (loaded && sameContext && unchangedDraft)
+                                setJournalDocumentFromJson(documentWindow, documentOutput);
+
+                            std::string message;
+                            if (!loaded)
+                                message = "The note was saved, but the notebook could not reload it.";
+                            else if (!sameContext || !unchangedDraft)
+                                message = "The note was saved. Newer edits were kept in the editor.";
+                            publishResult(documentWindow, true, std::move(message));
+                        });
+                    if (!refreshStarted)
+                        publishResult(completedWindow, true,
+                                      "The note was saved, but its notebook view could not be refreshed.");
+                });
+            if (!started) {
+                if (auto strongWindow = weakWindow.lock())
+                    publishResult(**strongWindow, false,
+                                  "Unable to start note saving. Your draft is still available to retry.");
+            }
+        });
+
     window->on_journal_action([&](slint::SharedString requestedAction, slint::SharedString first,
                                   slint::SharedString second, slint::SharedString third,
                                   slint::SharedString fourth, slint::SharedString fifth,
