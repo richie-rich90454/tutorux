@@ -218,15 +218,39 @@ int main() {
         ElementHandle::find_by_accessible_label(window, "Edit session title");
     ok = check(!editTitle.empty(), "session title exposes an accessible edit action") && ok;
     if (!editTitle.empty()) {
+        window->set_archive_writable(false);
+        settle(window);
+        ok = check(editTitle[0].accessible_enabled() == std::optional<bool>(false),
+                   "read-only archives disable session title editing") && ok;
+        window->set_archive_writable(true);
+        settle(window);
         editTitle[0].invoke_accessible_default_action();
         settle(window);
         ok = check(!ElementHandle::find_by_accessible_label(window, "Session title").empty(),
                    "the accessible session-title action opens its editor") && ok;
-        slint::private_api::testing::send_keyboard_key_text(
-            &*window, slint::SharedString("\x1b"), true);
-        slint::private_api::testing::send_keyboard_key_text(
-            &*window, slint::SharedString("\x1b"), false);
+        window->set_session_title_save_state(slint::SharedString("failed"));
         settle(window);
+        ok = check(!ElementHandle::find_by_accessible_label(window, "Session title").empty(),
+                   "a failed title save keeps the editor and draft visible") && ok;
+        window->set_session_title_save_state(slint::SharedString("saved"));
+        window->set_title_editing(false);
+        settle(window);
+        ok = check(!ElementHandle::find_by_accessible_label(window, "Edit session title").empty(),
+                   "a successful title save closes the editor") && ok;
+        window->set_session_title_save_state(slint::SharedString("idle"));
+        settle(window);
+        const auto editTitleAgain =
+            ElementHandle::find_by_accessible_label(window, "Edit session title");
+        if (!editTitleAgain.empty()) {
+            editTitleAgain[0].invoke_accessible_default_action();
+            window->set_session_title_save_state(slint::SharedString("saving"));
+            window->set_selected_session(slint::SharedString("session-2"));
+            settle(window);
+            ok = check(ElementHandle::find_by_accessible_label(window, "Session title").empty(),
+                       "switching sessions closes the prior session's title editor") && ok;
+            window->set_selected_session(slint::SharedString("Algebra · Fractions review"));
+            settle(window);
+        }
     }
     const auto editDetails =
         ElementHandle::find_by_accessible_label(window, "Edit session details");
@@ -254,11 +278,24 @@ int main() {
         ok = check(!ElementHandle::find_by_accessible_label(window, "Cancel session edit").empty(),
                    "a failed detail save preserves the active edit form") && ok;
         window->set_session_details_save_state(slint::SharedString("saved"));
+        window->set_details_editing(false);
         settle(window);
         ok = check(!ElementHandle::find_by_accessible_label(window, "Edit session details").empty(),
                    "a successful detail save closes the edit form") && ok;
         window->set_session_details_save_state(slint::SharedString("idle"));
         settle(window);
+        const auto editDetailsAgain =
+            ElementHandle::find_by_accessible_label(window, "Edit session details");
+        if (!editDetailsAgain.empty()) {
+            editDetailsAgain[0].invoke_accessible_default_action();
+            window->set_session_details_save_state(slint::SharedString("failed"));
+            window->set_selected_session(slint::SharedString("session-2"));
+            settle(window);
+            ok = check(ElementHandle::find_by_accessible_label(window, "Session subject").empty(),
+                       "switching sessions closes the prior session's detail form") && ok;
+            window->set_selected_session(slint::SharedString("Algebra · Fractions review"));
+            settle(window);
+        }
     }
     const auto firstMarker = ElementHandle::find_by_accessible_label(
         window, "Play marker at 00:12:30: Student explains a multi-step solution clearly.");

@@ -74,6 +74,7 @@ export component MainWindow inherits Window {
     in-out property <string> sessions-text;
     in-out property <[string]> session-options;
     in-out property <string> selected-session;
+    property <string> session-context-key: root.archive-path + "|" + root.selected-session;
     in-out property <string> recording-microphone-device;
     in-out property <string> recording-playback-device;
     in-out property <string> recording-application-device;
@@ -362,6 +363,7 @@ export component MainWindow inherits Window {
     in-out property <string> selected-session-state;
     in-out property <string> selected-session-student-choice;
     in-out property <string> session-details-save-state: "idle";
+    in-out property <string> session-title-save-state: "idle";
     in-out property <string> session-package-path;
     in-out property <string> recording-state: "not-started";
     in-out property <int> recording-elapsed-seconds: 0;
@@ -408,6 +410,22 @@ export component MainWindow inherits Window {
             root.asset-command(root.selected-session, "list", "");
         }
     }
+    changed archive-path => {
+        root.title-editing = false;
+        root.details-editing = false;
+    }
+    changed session-title-save-state => {
+        if (root.session-title-save-state == "saved" ||
+                root.session-title-save-state == "idle") {
+            root.title-editing = false;
+        }
+    }
+    changed session-details-save-state => {
+        if (root.session-details-save-state == "saved" ||
+                root.session-details-save-state == "idle") {
+            root.details-editing = false;
+        }
+    }
 
     changed selected-journal-session => {
         root.journal-session-id = "";
@@ -426,6 +444,9 @@ export component MainWindow inherits Window {
     }
     changed selected-session => {
         root.session-details-save-state = "idle";
+        root.session-title-save-state = "idle";
+        root.title-editing = false;
+        root.details-editing = false;
         root.selected-marker = "";
         root.annotation-time = "00:00:00";
         root.annotation-note = "";
@@ -1258,10 +1279,14 @@ export component MainWindow inherits Window {
 
                                     SessionHeader {
                                         title: root.selected-session-title;
+                                        session-context-key: root.session-context-key;
                                         student: root.selected-session-student;
                                         started: root.selected-session-started;
                                         state: root.selected-session-state;
                                         recording-state: root.recording-state;
+                                        writable: root.archive-writable;
+                                        rename-state <=> root.session-title-save-state;
+                                        editing <=> root.title-editing;
                                         tab <=> root.workbench-tab;
                                         rename(title) => { root.rename-session(root.selected-session, title); }
                                         tab-changed(tab) => {
@@ -1423,6 +1448,7 @@ export component MainWindow inherits Window {
 
                                         if root.effective-inspector-open : session-inspector := SessionInspector {
                                             width: Theme.inspector-width;
+                                            session-context-key: root.session-context-key;
                                             student: root.selected-session-student;
                                             subject: root.selected-session-subject;
                                             started: root.selected-session-started;
@@ -1430,6 +1456,7 @@ export component MainWindow inherits Window {
                                             source: root.recording-source;
                                             student-choice <=> root.selected-session-student-choice;
                                             writable: root.archive-writable;
+                                            editing <=> root.details-editing;
                                             elapsed-label: root.elapsed-label();
                                             student-options: root.student-options;
                                             markers: root.marker-rows;

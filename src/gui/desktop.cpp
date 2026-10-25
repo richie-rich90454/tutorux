@@ -3002,7 +3002,7 @@ namespace {
     }
 
     template <typename Completion>
-    void dispatchCommandWithSecretsAsync(const slint::ComponentWeakHandle<MainWindow>& weakWindow,
+    bool dispatchCommandWithSecretsAsync(const slint::ComponentWeakHandle<MainWindow>& weakWindow,
                                          BackgroundTasks& backgroundTasks,
                                          std::vector<std::string> arguments, std::string passphrase,
                                          std::string newPassphrase, Completion completion) {
@@ -3041,15 +3041,17 @@ namespace {
                 (*strongWindow)
                     ->set_status_message(toSharedString("Unable to start the command. Try again."));
             }
+            return false;
         }
+        return true;
     }
 
     template <typename Completion>
-    void dispatchCommandAsync(const slint::ComponentWeakHandle<MainWindow>& weakWindow,
+    bool dispatchCommandAsync(const slint::ComponentWeakHandle<MainWindow>& weakWindow,
                               BackgroundTasks& backgroundTasks, std::vector<std::string> arguments,
                               std::string passphrase, Completion completion) {
-        dispatchCommandWithSecretsAsync(weakWindow, backgroundTasks, std::move(arguments),
-                                        std::move(passphrase), {}, std::move(completion));
+        return dispatchCommandWithSecretsAsync(weakWindow, backgroundTasks, std::move(arguments),
+                                               std::move(passphrase), {}, std::move(completion));
     }
 
     std::string trashTypeKey(const tutorux::application::TrashItem& item) {
@@ -4967,20 +4969,32 @@ int launchDesktop(std::optional<std::filesystem::path> archivePath,
         const std::string id = selectionId(selectedSession);
         const std::string title(requestedTitle.data(), requestedTitle.size());
         if (path.empty() || id.empty() || title.empty()) {
+            window->set_session_title_save_state(toSharedString("failed"));
             window->set_status_message(toSharedString("Enter a title for this session."));
             return;
         }
-        window->set_selected_session_title(toSharedString(title));
-        dispatchCommandAsync(
+        window->set_session_title_save_state(toSharedString("saving"));
+        const bool started = dispatchCommandAsync(
             weakWindow, backgroundTasks,
             archiveCommand(path, {"session", "update", id, "--title", title}), activePassphrase,
-            [weakWindow, &backgroundTasks, &activePassphrase, path](MainWindow& completedWindow,
-                                                                   bool succeeded,
-                                                                   std::string output) {
+            [weakWindow, &backgroundTasks, &activePassphrase, path, id](MainWindow& completedWindow,
+                                                                        bool succeeded,
+                                                                        std::string output) {
+                const auto completedArchive =
+                    std::filesystem::path(completedWindow.get_archive_path().data());
+                if (completedArchive.lexically_normal() != path.lexically_normal() ||
+                    selectionId(completedWindow.get_selected_session()) != id)
+                    return;
                 completedWindow.set_status_message(toSharedString(output));
-                if (succeeded)
+                completedWindow.set_session_title_save_state(
+                    toSharedString(succeeded ? "saved" : "failed"));
+                if (succeeded) {
+                    completedWindow.set_title_editing(false);
                     refreshWorkspaceAsync(weakWindow, backgroundTasks, path, activePassphrase);
+                }
             });
+        if (!started)
+            window->set_session_title_save_state(toSharedString("failed"));
     });
 
     window->on_update_session_details([&](slint::SharedString selectedSession,
@@ -5000,7 +5014,7 @@ int launchDesktop(std::optional<std::filesystem::path> archivePath,
         arguments.insert(arguments.end(),
                          {"--subject", std::string(requestedSubject.data(), requestedSubject.size())});
         window->set_session_details_save_state(toSharedString("saving"));
-        dispatchCommandAsync(
+        const bool started = dispatchCommandAsync(
             weakWindow, backgroundTasks, archiveCommand(path, std::move(arguments)),
             activePassphrase,
             [weakWindow, &backgroundTasks, &activePassphrase, path, id](MainWindow& completedWindow,
@@ -5016,10 +5030,14 @@ int launchDesktop(std::optional<std::filesystem::path> archivePath,
                 if (stillEditingThisSession) {
                     completedWindow.set_session_details_save_state(
                         toSharedString(succeeded ? "saved" : "failed"));
+                    if (succeeded)
+                        completedWindow.set_details_editing(false);
                 }
                 if (succeeded)
                     refreshWorkspaceAsync(weakWindow, backgroundTasks, path, activePassphrase);
             });
+        if (!started)
+            window->set_session_details_save_state(toSharedString("failed"));
     });
 
     window->on_play_marker([&](slint::SharedString selectedSession, int startSeconds) {

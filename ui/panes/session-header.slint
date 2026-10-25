@@ -4,18 +4,35 @@ import { TabButton, Theme } from "../theme.slint";
 
 export component SessionHeader inherits Rectangle {
     in property <string> title;
+    in property <string> session-context-key;
     in property <string> student;
     in property <string> started;
     in property <string> state;
     in property <string> recording-state: "not-started";
+    in property <bool> writable: true;
+    in-out property <string> rename-state: "idle";
     in-out property <string> tab: "notebook";
 
     callback rename(string);
     callback tab-changed(string);
 
     background: Theme.surface;
-    property <bool> editing: false;
+    in-out property <bool> editing: false;
     property <string> draft;
+
+    changed session-context-key => {
+        root.editing = false;
+        root.draft = root.title;
+        root.rename-state = "idle";
+    }
+
+    changed rename-state => {
+        if (root.rename-state == "saved" ||
+                (root.rename-state == "idle" && root.editing)) {
+            root.editing = false;
+            root.draft = root.title;
+        }
+    }
 
     VerticalLayout {
         padding-left: max(40px, (parent.width - Theme.page-max-width) / 2);
@@ -29,6 +46,7 @@ export component SessionHeader inherits Rectangle {
             if root.editing : TextInput {
                 text <=> root.draft;
                 accessible-label: "Session title";
+                read-only: root.rename-state == "saving" || !root.writable;
                 font-size: 28px;
                 font-weight: 700;
                 color: Theme.ink;
@@ -36,12 +54,12 @@ export component SessionHeader inherits Rectangle {
                 vertical-alignment: center;
                 accepted => {
                     root.rename(root.draft);
-                    root.editing = false;
                 }
                 key-pressed(event) => {
-                    if (event.text == Key.Escape) {
+                    if (event.text == Key.Escape && root.rename-state != "saving") {
                         root.editing = false;
                         root.draft = root.title;
+                        root.rename-state = "idle";
                         accept
                     } else {
                         reject
@@ -57,6 +75,7 @@ export component SessionHeader inherits Rectangle {
                 forward-focus: title-focus;
 
                 accessible-role: button;
+                accessible-enabled: root.writable;
                 accessible-label: "Edit session title";
                 accessible-action-default => {
                     root.draft = root.title;
@@ -79,8 +98,10 @@ export component SessionHeader inherits Rectangle {
                 edit-touch := TouchArea {
                     clicked => {
                         root.draft = root.title;
+                        root.rename-state = "idle";
                         root.editing = true;
                     }
+                    enabled: root.writable;
                 }
 
                 title-focus := FocusScope {
@@ -89,12 +110,14 @@ export component SessionHeader inherits Rectangle {
                     key-pressed(event) => {
                         if (event.text == Key.Return || event.text == Key.Space) {
                             root.draft = root.title;
+                            root.rename-state = "idle";
                             root.editing = true;
                             accept
                         } else {
                             reject
                         }
                     }
+                    enabled: root.writable;
                 }
 
                 if title-focus.has-focus : Rectangle {

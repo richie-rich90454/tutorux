@@ -3,6 +3,7 @@ import { MarkerRow } from "../models.slint";
 
 export component SessionInspector inherits Rectangle {
     in property <string> student;
+    in property <string> session-context-key;
     in property <string> subject;
     in property <string> started;
     in property <string> microphone;
@@ -43,14 +44,24 @@ export component SessionInspector inherits Rectangle {
     clip: true;
     background: Theme.surface;
 
-    property <bool> editing: false;
+    in-out property <bool> editing: false;
     property <string> draft-student;
     property <string> draft-subject;
 
     changed details-save-state => {
-        if (root.details-save-state == "saved") {
+        if (root.details-save-state == "saved" ||
+                (root.details-save-state == "idle" && root.editing)) {
             root.editing = false;
+            root.draft-student = root.student-choice;
+            root.draft-subject = root.subject;
         }
+    }
+
+    changed session-context-key => {
+        root.editing = false;
+        root.draft-student = root.student-choice;
+        root.draft-subject = root.subject;
+        root.details-save-state = "idle";
     }
 
     Rectangle {

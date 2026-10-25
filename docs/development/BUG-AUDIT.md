@@ -74,6 +74,14 @@ fixed and what remains.
   failed save hid the user's changes. The inspector now stays open during save,
   keeps the draft on failure with a retry action, and closes only after a
   successful response for the same selected session and archive.
+- Session-title rename optimistically replaced the visible title and closed the
+  editor before persistence. It now retains the draft until the matching async
+  result succeeds, keeps failures editable, ignores stale archive/session
+  completions, and disables rename in read-only archives.
+- Switching archives or sessions during either edit now discards the old form
+  context before it can be applied to the newly selected record. Bounded-command
+  queue rejection also restores the save control instead of leaving it stuck in
+  a permanent saving state.
 - Saving a marker cleared its selection before the backend replied, losing the
   edited time and text on failure. It now remains selected for retry; changing
   sessions resets marker drafts, and refreshed marker lists discard selections
