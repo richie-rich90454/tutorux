@@ -7,6 +7,7 @@ import { NoteRow } from "../models.slint";
 export component Notebook inherits Rectangle {
     in property <[NoteRow]> rows: [];
     in property <string> document-id;
+    in property <string> archive-path;
     in property <string> undo-block-id;
     in-out property <string> selected-block;
     in-out property <string> block-text;
@@ -14,11 +15,15 @@ export component Notebook inherits Rectangle {
     in property <bool> inline-format-enabled: false;
     in property <bool> writable: true;
     in-out property <string> save-state: "saved";
+    in-out property <int> edit-revision: 0;
+    in property <int> save-result-revision: 0;
+    in property <bool> save-result-succeeded: false;
+    in property <string> save-result-message: "";
     in-out property <string> new-block-text;
 
     // action: remove | add | format
     callback action(string, string);
-    callback save-block(string, string, string);
+    callback save-block(string, string, string, string, string, int, int);
     callback open-journal-tools();
 
     horizontal-stretch: 1;
@@ -30,11 +35,32 @@ export component Notebook inherits Rectangle {
     property <string> pending-block;
     property <string> pending-text;
     property <string> pending-kind;
+    property <int> pending-revision: 0;
+    property <string> pending-document;
+    property <string> pending-archive;
+    property <bool> save-in-flight: false;
+    property <int> active-save-revision: 0;
+    property <int> save-request-sequence: 0;
+    property <int> active-save-request: 0;
+    property <string> active-save-document;
+    property <string> active-save-archive;
 
     public function flush-pending() {
-        if (root.pending-block != "" && root.writable) {
+        if (root.pending-block == "" || root.save-in-flight ||
+            root.pending-document == "" || root.pending-archive == "" ||
+            root.pending-document != root.document-id ||
+            root.pending-archive != root.archive-path || !root.writable) {
+        } else {
+            root.save-in-flight = true;
+            root.active-save-revision = root.pending-revision;
+            root.save-request-sequence += 1;
+            root.active-save-request = root.save-request-sequence;
+            root.active-save-document = root.pending-document;
+            root.active-save-archive = root.pending-archive;
             root.save-state = "saving";
-            root.save-block(root.pending-block, root.pending-text, root.pending-kind);
+            root.save-block(root.active-save-archive, root.active-save-document,
+                            root.pending-block, root.pending-kind, root.pending-text,
+                            root.active-save-revision, root.active-save-request);
         }
     }
 
@@ -51,6 +77,55 @@ export component Notebook inherits Rectangle {
         interval: 900ms;
         running: false;
         triggered() => { root.flush-pending(); }
+    }
+
+    changed save-result-revision => {
+        if (root.save-in-flight && root.save-result-revision == root.active-save-request) {
+            root.save-in-flight = false;
+            if (root.save-result-succeeded &&
+                root.pending-revision == root.active-save-revision &&
+                root.pending-document == root.active-save-document &&
+                root.pending-archive == root.active-save-archive) {
+                root.pending-block = "";
+            }
+            if (root.active-save-document == root.document-id &&
+                root.active-save-archive == root.archive-path) {
+                if (root.save-result-succeeded) {
+                    if (root.pending-block == "") {
+                        root.save-state = "saved";
+                    } else if (root.pending-document == root.document-id &&
+                               root.pending-archive == root.archive-path) {
+                        root.save-state = "unsaved";
+                        save-timer.restart();
+                    } else {
+                        root.save-state = "saved";
+                    }
+                } else {
+                    root.save-state = "failed";
+                }
+            } else if (root.pending-block != "" &&
+                       root.pending-document == root.document-id &&
+                       root.pending-archive == root.archive-path && root.writable) {
+                root.save-state = "unsaved";
+                save-timer.restart();
+            }
+        }
+    }
+
+    changed document-id => {
+        if (!root.save-in-flight && root.pending-block != "" &&
+            root.pending-document == root.document-id &&
+            root.pending-archive == root.archive-path) {
+            save-timer.restart();
+        }
+    }
+
+    changed archive-path => {
+        if (!root.save-in-flight && root.pending-block != "" &&
+            root.pending-document == root.document-id &&
+            root.pending-archive == root.archive-path) {
+            save-timer.restart();
+        }
     }
 
     VerticalLayout {
@@ -101,12 +176,7 @@ export component Notebook inherits Rectangle {
                     variant: "ghost";
                     enabled: root.writable && root.selected-block != "";
                     clicked => {
-                        if (root.pending-block != "") {
-                            root.flush-pending();
-                        } else {
-                            root.save-state = "saving";
-                            root.save-block(root.selected-block, root.block-text, root.block-kind);
-                        }
+                        root.flush-pending();
                     }
                 }
             }
@@ -168,6 +238,10 @@ export component Notebook inherits Rectangle {
                                         root.pending-block = root.selected-block;
                                         root.pending-text = self.text;
                                         root.pending-kind = root.block-kind;
+                                        root.edit-revision += 1;
+                                        root.pending-revision = root.edit-revision;
+                                        root.pending-document = root.document-id;
+                                        root.pending-archive = root.archive-path;
                                         root.save-state = "unsaved";
                                         save-timer.restart();
                                     }
@@ -265,9 +339,16 @@ export component Notebook inherits Rectangle {
                     width: 150px;
                     horizontal-stretch: 0;
                     selected(value) => {
-                        if (root.pending-block != "") {
+                        if (root.selected-block != "") {
+                            root.edit-revision += 1;
+                            root.pending-revision = root.edit-revision;
+                            root.pending-block = root.selected-block;
                             root.pending-kind = value;
                             root.pending-text = root.block-text;
+                            root.pending-document = root.document-id;
+                            root.pending-archive = root.archive-path;
+                            root.save-state = "unsaved";
+                            save-timer.restart();
                         }
                     }
                     accessible-label: "Notebook block type";
