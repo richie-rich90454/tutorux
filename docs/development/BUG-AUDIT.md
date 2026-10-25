@@ -177,6 +177,10 @@ fixed and what remains.
   selectors/actions wrap on compact widths. Inspector marker controls stay
   inside their pane; notebook formatting is collapsed until requested; guide
   and block selection stays visible while advanced guide tools are closed.
+- The Windows recording import picker now offers compressed audio only when
+  the selected build includes FFmpeg; WAV remains available in every build.
+  The import field describes the full-build constraint instead of promising
+  that every audio format works in every installation.
 - Journal copy now distinguishes a teaching journal spanning lessons from the
   notes and recordings owned by one lesson, and removes a duplicate entry card.
 - The green favicon artwork is embedded in the Windows executable and macOS
