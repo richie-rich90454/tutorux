@@ -38,6 +38,15 @@ export component Notebook inherits Rectangle {
         }
     }
 
+    function select-block(choice: string, text: string, kind: string) {
+        if (root.selected-block != choice) {
+            root.flush-pending();
+            root.selected-block = choice;
+            root.block-text = text;
+            root.block-kind = kind;
+        }
+    }
+
     save-timer := Timer {
         interval: 900ms;
         running: false;
@@ -145,6 +154,7 @@ export component Notebook inherits Rectangle {
                                 padding: 6px;
                                 note-editor := TextInput {
                                     text <=> root.block-text;
+                                    accessible-label: "Edit note block: " + note.choice;
                                     single-line: false;
                                     wrap: word-wrap;
                                     font-size: note.kind == "Heading" ? 28px : 14px;
@@ -174,13 +184,42 @@ export component Notebook inherits Rectangle {
                         }
                     }
 
-                    TouchArea {
-                        clicked => {
-                            if (root.selected-block != note.choice) {
-                                root.flush-pending();
-                                root.selected-block = note.choice;
-                                root.block-text = note.text;
+                    if root.selected-block != note.choice : Rectangle {
+                        width: 100%;
+                        height: 100%;
+                        background: transparent;
+                        forward-focus: block-focus;
+                        accessible-role: button;
+                        accessible-label: "Select note block: " + note.choice;
+                        accessible-action-default => {
+                            root.select-block(note.choice, note.text, note.kind);
+                        }
+
+                        TouchArea {
+                            clicked => {
+                                root.select-block(note.choice, note.text, note.kind);
                             }
+                        }
+
+                        block-focus := FocusScope {
+                            x: 0;
+                            width: 0;
+                            key-pressed(event) => {
+                                if (event.text == Key.Return || event.text == Key.Space) {
+                                    root.select-block(note.choice, note.text, note.kind);
+                                    accept
+                                } else {
+                                    reject
+                                }
+                            }
+                        }
+
+                        if block-focus.has-focus : Rectangle {
+                            width: 100%;
+                            height: 100%;
+                            border-width: 2px;
+                            border-color: Theme.focus-ring;
+                            border-radius: 5px;
                         }
                     }
                 }

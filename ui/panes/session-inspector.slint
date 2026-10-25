@@ -262,28 +262,21 @@ export component SessionInspector inherits Rectangle {
             }
 
             for marker[i] in root.markers : Rectangle {
-                height: 34px;
+                height: 38px;
                 width: 100%;
-                background: root.selected-marker == marker.id ? Theme.surface-hover : transparent;
-                border-radius: 4px;
-                HorizontalLayout {
-                    spacing: 8px;
-                    Text {
-                        text: marker.time;
-                        color: Theme.accent;
-                        font-size: 12px;
-                        vertical-alignment: center;
-                    }
-                    Text {
-                        text: marker.label;
-                        color: Theme.body;
-                        font-size: 12px;
-                        vertical-alignment: center;
-                        overflow: elide;
-                        horizontal-stretch: 1;
-                    }
-                }
-                marker-touch := TouchArea {
+                Button {
+                    width: 100%;
+                    fill: true;
+                    button-min-width: 0px;
+                    button-min-height: 38px;
+                    horizontal-padding: 9px;
+                    label-left-aligned: true;
+                    variant: "ghost";
+                    text: marker.time + " · " + marker.label;
+                    accessible-label: "Play marker at " + marker.time +
+                        (marker.label == "" ? "" : ": " + marker.label);
+                    border-radius: 4px;
+                    background: root.selected-marker == marker.id ? Theme.surface-hover : transparent;
                     clicked => {
                         root.selected-marker = marker.id;
                         root.marker-time = marker.time;

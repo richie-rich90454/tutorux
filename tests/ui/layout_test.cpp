@@ -184,16 +184,64 @@ int main() {
     notes.push_back(NoteRow{slint::SharedString("block-1"), slint::SharedString("Paragraph · Block 1"),
                             slint::SharedString("Paragraph"),
                             slint::SharedString("A readable notebook measure keeps long text inside the pane.")});
+    notes.push_back(NoteRow{slint::SharedString("block-2"), slint::SharedString("Heading · Block 2"),
+                            slint::SharedString("Heading"),
+                            slint::SharedString("A second note block remains selectable.")});
     window->set_note_rows(std::make_shared<slint::VectorModel<NoteRow>>(notes));
     window->set_selected_journal_note_block(slint::SharedString("Paragraph · Block 1"));
     window->set_journal_document_block_text(
         slint::SharedString("A readable notebook measure keeps long text inside the pane."));
     settle(window);
+    bool ok = true;
+    const auto secondNote = ElementHandle::find_by_accessible_label(
+        window, "Select note block: Heading · Block 2");
+    ok = check(!secondNote.empty(), "unselected notebook blocks are accessible controls") && ok;
+    if (!secondNote.empty()) {
+        secondNote[0].invoke_accessible_default_action();
+        settle(window);
+        ok = check(window->get_selected_journal_note_block() ==
+                       slint::SharedString("Heading · Block 2"),
+                   "the accessible note action selects its block") && ok;
+        ok = check(window->get_journal_document_block_text() ==
+                       slint::SharedString("A second note block remains selectable."),
+                   "selecting a note loads that block's text") && ok;
+        ok = check(window->get_journal_document_block_kind() ==
+                       slint::SharedString("Heading"),
+                   "selecting a note restores that block's type") && ok;
+        window->set_selected_journal_note_block(slint::SharedString("Paragraph · Block 1"));
+        window->set_journal_document_block_text(
+            slint::SharedString("A readable notebook measure keeps long text inside the pane."));
+        window->set_journal_document_block_kind(slint::SharedString("Paragraph"));
+        settle(window);
+    }
+    const auto editTitle =
+        ElementHandle::find_by_accessible_label(window, "Edit session title");
+    ok = check(!editTitle.empty(), "session title exposes an accessible edit action") && ok;
+    if (!editTitle.empty()) {
+        editTitle[0].invoke_accessible_default_action();
+        settle(window);
+        ok = check(!ElementHandle::find_by_accessible_label(window, "Session title").empty(),
+                   "the accessible session-title action opens its editor") && ok;
+        slint::private_api::testing::send_keyboard_key_text(
+            &*window, slint::SharedString("\x1b"), true);
+        slint::private_api::testing::send_keyboard_key_text(
+            &*window, slint::SharedString("\x1b"), false);
+        settle(window);
+    }
+    const auto firstMarker = ElementHandle::find_by_accessible_label(
+        window, "Play marker at 00:12:30: Student explains a multi-step solution clearly.");
+    ok = check(!firstMarker.empty(), "session markers expose accessible play controls") && ok;
+    if (!firstMarker.empty()) {
+        firstMarker[0].invoke_accessible_default_action();
+        settle(window);
+        ok = check(window->get_selected_marker() == slint::SharedString("marker-one"),
+                   "the accessible marker action selects its marker") && ok;
+    }
     const auto markerButton = ElementHandle::find_by_accessible_label(
         window, "Add a marker at the current recording time");
     const auto pauseButton = ElementHandle::find_by_accessible_label(window, "Pause");
     const auto stopButton = ElementHandle::find_by_accessible_label(window, "Stop");
-    bool ok = check(!markerButton.empty(), "active recording marker action is accessible");
+    ok = check(!markerButton.empty(), "active recording marker action is accessible") && ok;
     ok = check(!pauseButton.empty(), "active recording pause action is accessible") && ok;
     ok = check(!stopButton.empty(), "active recording stop action is accessible") && ok;
 

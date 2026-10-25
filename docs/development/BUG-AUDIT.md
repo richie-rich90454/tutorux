@@ -63,6 +63,13 @@ fixed and what remains.
 - The navigator archive menu also used mouse-only rows and mislabeled its trigger
   as session-specific. It now uses accessible buttons, has a truthful workspace
   label, and closes from Escape.
+- Notebook note rows placed a full-size click target above the selected text
+  editor, which could steal text clicks. The hit target now exists only on
+  unselected rows; selecting a row also restores its kind, and rows expose an
+  accessible select action and focus state.
+- Session-title editing had no default accessibility action, and marker rows
+  were mouse-only. The title now exposes an edit action and labelled editor;
+  markers use labelled keyboard-accessible play buttons.
 - The consent and recording panels exposed an enabled Start button even when
   microphone preflight was not ready. Start is now disabled until the selected
   microphone has passed preflight, with the preflight result visible.

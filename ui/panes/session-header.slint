@@ -28,6 +28,7 @@ export component SessionHeader inherits Rectangle {
 
             if root.editing : TextInput {
                 text <=> root.draft;
+                accessible-label: "Session title";
                 font-size: 28px;
                 font-weight: 700;
                 color: Theme.ink;
@@ -57,6 +58,10 @@ export component SessionHeader inherits Rectangle {
 
                 accessible-role: button;
                 accessible-label: "Edit session title";
+                accessible-action-default => {
+                    root.draft = root.title;
+                    root.editing = true;
+                }
 
                 Text {
                     x: 4px;
