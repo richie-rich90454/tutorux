@@ -1853,12 +1853,13 @@ export component MainWindow inherits Window {
 
             if root.overlay-panel == "export" : ExportPanel {
                 guide-options: root.guide-options;
+                track-options: root.recording-track-options;
                 has-session: root.selected-session != "";
+                selected-track <=> root.selected-recording-track-label;
                 selected-guide <=> root.selected-guide;
                 guide-format <=> root.guide-export-format;
                 guide-path <=> root.guide-export-path;
                 wav-path <=> root.recording-export-path;
-                wav-track <=> root.recording-export-track;
                 session-path <=> root.session-package-path;
                 close => { root.overlay-panel = ""; }
                 export-guide(guide, format, path) => {
@@ -1867,6 +1868,7 @@ export component MainWindow inherits Window {
                 export-wav(path) => {
                     root.recording-command(root.selected-session, "export-wav", path);
                 }
+                track-selected(label) => { root.select-recording-track(label); }
                 export-session(path) => { root.export-session-package(path); }
             }
 
