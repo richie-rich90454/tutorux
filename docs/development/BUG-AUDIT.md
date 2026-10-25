@@ -60,6 +60,9 @@ fixed and what remains.
 - The command palette and workspace overflow actions used mouse-only rows.
   They now use the shared focusable buttons, report an empty search, close the
   overflow menu with Escape, and keep the full palette inside the minimum window.
+- The navigator archive menu also used mouse-only rows and mislabeled its trigger
+  as session-specific. It now uses accessible buttons, has a truthful workspace
+  label, and closes from Escape.
 - The consent and recording panels exposed an enabled Start button even when
   microphone preflight was not ready. Start is now disabled until the selected
   microphone has passed preflight, with the preflight result visible.

@@ -582,6 +582,17 @@ int main() {
         ok = check(!window->get_workspace_menu_open(),
                    "Escape closes the keyboard-accessible overflow menu") && ok;
     }
+    window->set_archive_menu_open(true);
+    settle(window);
+    const auto archiveMenuAction =
+        ElementHandle::find_by_accessible_label(window, "Open or create archive…");
+    ok = check(!archiveMenuAction.empty(), "archive menu actions are accessible buttons") && ok;
+    slint::private_api::testing::send_keyboard_key_text(
+        &*window, slint::SharedString("\x1b"), true);
+    slint::private_api::testing::send_keyboard_key_text(
+        &*window, slint::SharedString("\x1b"), false);
+    settle(window);
+    ok = check(!window->get_archive_menu_open(), "Escape closes the archive menu") && ok;
 
     window->set_recording_state("completed");
     window->set_recording_waveform_state("ready");

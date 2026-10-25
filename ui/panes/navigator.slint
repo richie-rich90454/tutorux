@@ -1,6 +1,6 @@
 // Left navigator: scopes, filtering, session/student/material lists, archive
 // footer. All rows come from the controller; nothing here is sample data.
-import { IconButton, LineEdit, ScrollArea, TabButton, Theme } from "../theme.slint";
+import { Button, IconButton, LineEdit, ScrollArea, TabButton, Theme } from "../theme.slint";
 import { ListView } from "std-widgets.slint";
 import { MaterialRow, SessionRow, StudentRow } from "../models.slint";
 
@@ -115,29 +115,15 @@ export component Navigator inherits Rectangle {
                     clicked => { root.new-session(); }
                 }
 
-                Rectangle {
+                Button {
                     width: 34px;
-                    height: 34px;
-                    border-radius: 5px;
-                    background: more-touch.has-hover ? Theme.surface-hover : transparent;
-                    accessible-role: button;
-                    accessible-label: "Session actions";
-
-                    Text {
-                        text: "···";
-                        width: 100%;
-                        height: 100%;
-                        horizontal-alignment: center;
-                        vertical-alignment: center;
-                        color: Theme.muted;
-                        font-size: 16px;
-                        font-weight: 700;
-                        accessible-role: none;
-                    }
-
-                    more-touch := TouchArea {
-                        clicked => { root.menu-open = !root.menu-open; }
-                    }
+                    button-min-width: 34px;
+                    button-min-height: 34px;
+                    horizontal-padding: 0px;
+                    variant: "ghost";
+                    text: "···";
+                    accessible-label: "Workspace menu";
+                    clicked => { root.menu-open = !root.menu-open; }
                 }
             }
         }
@@ -788,56 +774,35 @@ export component Navigator inherits Rectangle {
             padding: 7px;
             spacing: 2px;
 
-            Rectangle {
-                height: 32px;
-                border-radius: 5px;
-                background: open-touch.has-hover ? Theme.surface-hover : transparent;
-                Text {
-                    x: 9px;
-                    width: parent.width - 18px;
-                    height: parent.height;
-                    vertical-alignment: center;
-                    text: "Open or create archive…";
-                    color: Theme.ink;
-                    font-size: 12px;
-                }
-                open-touch := TouchArea {
-                    clicked => { root.menu-open = false; root.open-archive(); }
-                }
+            Button {
+                width: 100%;
+                fill: true;
+                button-min-height: 32px;
+                horizontal-padding: 9px;
+                label-left-aligned: true;
+                variant: "ghost";
+                text: "Open or create archive…";
+                clicked => { root.menu-open = false; root.open-archive(); }
             }
-            Rectangle {
-                height: 32px;
-                border-radius: 5px;
-                background: ops-touch.has-hover ? Theme.surface-hover : transparent;
-                Text {
-                    x: 9px;
-                    width: parent.width - 18px;
-                    height: parent.height;
-                    vertical-alignment: center;
-                    text: "Archive operations…";
-                    color: Theme.ink;
-                    font-size: 12px;
-                }
-                ops-touch := TouchArea {
-                    clicked => { root.menu-open = false; root.open-archive(); }
-                }
+            Button {
+                width: 100%;
+                fill: true;
+                button-min-height: 32px;
+                horizontal-padding: 9px;
+                label-left-aligned: true;
+                variant: "ghost";
+                text: "Archive operations…";
+                clicked => { root.menu-open = false; root.open-archive(); }
             }
-            Rectangle {
-                height: 32px;
-                border-radius: 5px;
-                background: settings-touch.has-hover ? Theme.surface-hover : transparent;
-                Text {
-                    x: 9px;
-                    width: parent.width - 18px;
-                    height: parent.height;
-                    vertical-alignment: center;
-                    text: "Settings…";
-                    color: Theme.ink;
-                    font-size: 12px;
-                }
-                settings-touch := TouchArea {
-                    clicked => { root.menu-open = false; root.open-settings(); }
-                }
+            Button {
+                width: 100%;
+                fill: true;
+                button-min-height: 32px;
+                horizontal-padding: 9px;
+                label-left-aligned: true;
+                variant: "ghost";
+                text: "Settings…";
+                clicked => { root.menu-open = false; root.open-settings(); }
             }
         }
     }

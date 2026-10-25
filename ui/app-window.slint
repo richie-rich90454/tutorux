@@ -692,6 +692,9 @@ export component MainWindow inherits Window {
                 if (root.command-palette-open) {
                     root.command-palette-open = false;
                     accept
+                } else if (root.archive-menu-open) {
+                    root.archive-menu-open = false;
+                    accept
                 } else if (root.workspace-menu-open) {
                     root.workspace-menu-open = false;
                     accept
