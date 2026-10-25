@@ -158,6 +158,19 @@ int main() {
         return fail(imported ? "The source WAV was not completely imported."
                              : imported.error().message);
 
+    const auto compressedAudioPath = temporary.path / "compressed.mp3";
+    {
+        std::ofstream compressedAudio(compressedAudioPath, std::ios::binary | std::ios::trunc);
+        compressedAudio << "decoder capability fixture";
+        if (!compressedAudio.good())
+            return fail("Unable to create the compressed audio capability fixture.");
+    }
+    auto compressedImport = audio::importAudio(*archive, session.id, compressedAudioPath);
+    if (audio::hasCompressedAudioImport() ==
+        (!compressedImport && compressedImport.error().code == "audio_codec_support_unavailable")) {
+        return fail("Compressed audio import availability disagrees with the configured decoder.");
+    }
+
     const archive::Uuid secondTakeId = archive::randomUuid();
     const archive::Uuid microphoneTrackId = archive::randomUuid();
     const archive::Uuid systemTrackId = archive::randomUuid();
