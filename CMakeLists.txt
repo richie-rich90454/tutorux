@@ -215,6 +215,7 @@ set(TUTORUX_CORE_SOURCES
     src/archive/format.cpp
     src/archive/sanitized_copy.cpp
     src/application/task-executor.cpp
+    src/application/journal-service.cpp
     src/application/recording-service.cpp
     src/application/trash-service.cpp
     src/application/workspace-service.cpp
@@ -2018,6 +2019,10 @@ if(BUILD_TESTING AND NOT TUTORUX_BUILD_WASM)
     add_executable(tutorux_workspace_snapshot_test tests/workspace_snapshot_test.cpp)
     target_link_libraries(tutorux_workspace_snapshot_test PRIVATE tutorux_core)
     add_test(NAME typed_workspace_overview COMMAND tutorux_workspace_snapshot_test)
+
+    add_executable(tutorux_journal_service_test tests/journal_service_test.cpp)
+    target_link_libraries(tutorux_journal_service_test PRIVATE tutorux_core)
+    add_test(NAME typed_journal_note_block_update COMMAND tutorux_journal_service_test)
 
     add_executable(tutorux_trash_service_test tests/trash_service_test.cpp)
     target_link_libraries(tutorux_trash_service_test PRIVATE tutorux_core)
