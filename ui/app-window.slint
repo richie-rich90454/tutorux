@@ -686,6 +686,9 @@ export component MainWindow inherits Window {
         } else if (action == "restore") {
             root.journal-action("document-block-restore",
                 root.journal-document-id, argument, "", "", "", "");
+        } else if (action == "reload") {
+            root.journal-action("document-show",
+                root.journal-document-id, "", "", "", "", "");
         } else if (action == "add") {
             root.journal-action("document-block-add",
                 root.journal-document-id, root.journal-document-block-kind,
