@@ -356,6 +356,10 @@ export component MainWindow inherits Window {
     in-out property <bool> note-composer-open: false;
     in-out property <bool> guide-tools-open: false;
     in-out property <string> note-save-state: "saved";
+    in-out property <int> note-edit-revision: 0;
+    in-out property <int> note-save-result-revision: 0;
+    in-out property <bool> note-save-result-succeeded: false;
+    in-out property <string> note-save-result-message: "";
     in-out property <string> selected-session-title;
     in-out property <string> selected-session-student;
     in-out property <string> selected-session-subject;
@@ -553,6 +557,7 @@ export component MainWindow inherits Window {
     callback delete-student(string);
     callback create-session(string, string, string, string);
     callback journal-action(string, string, string, string, string, string, string);
+    callback notebook-save-block(string, string, string, string, string, int, int);
     callback system-theme-check();
     callback load-guide(string);
     callback journal-session-create(string, string, string, string, string, string, string, string, string, string, string);
@@ -1323,6 +1328,7 @@ export component MainWindow inherits Window {
                                                 vertical-stretch: 1;
                                                 rows: root.note-rows;
                                                 document-id: root.journal-document-id;
+                                                archive-path: root.archive-path;
                                                 undo-block-id: root.journal-document-removed-block-id;
                                                 selected-block <=> root.selected-journal-note-block;
                                                 block-text <=> root.journal-document-block-text;
@@ -1330,11 +1336,16 @@ export component MainWindow inherits Window {
                                                 inline-format-enabled: root.journal-inline-format-enabled;
                                                 writable: root.archive-writable;
                                                 save-state <=> root.note-save-state;
+                                                edit-revision <=> root.note-edit-revision;
+                                                save-result-revision: root.note-save-result-revision;
+                                                save-result-succeeded: root.note-save-result-succeeded;
+                                                save-result-message: root.note-save-result-message;
                                                 new-block-text <=> root.journal-document-new-block-text;
                                                 action(action, argument) => { root.notebook-action(action, argument); }
-                                                save-block(id, text, kind) => {
-                                                    root.journal-action("document-block-update",
-                                                        root.journal-document-id, id, kind, text, "", "");
+                                                save-block(archive, document, id, kind, text,
+                                                           edit-revision, request-id) => {
+                                                    root.notebook-save-block(archive, document, id,
+                                                        kind, text, edit-revision, request-id);
                                                 }
                                                 open-journal-tools => { root.navigator-scope = "journal"; }
                                             }
