@@ -1,3 +1,5 @@
+> **Migration reference:** This document describes behavior, implementation, or build details from the former C++/Slint application. It remains useful as a porting specification; current TypeScript coverage is tracked in [the feature inventory](migration/feature-inventory.md). Historical build commands are not the active TypeScript workflow.
+
 # Student learning history
 
 Student profiles live in the selected Tutorux archive. They store demonstrated
@@ -16,6 +18,12 @@ tutorux student update STUDENT_ID `
 ```
 
 ## Cross-session classifications
+
+In the Solid application, expand a student’s **Learning history** to see their
+sessions and current tutor-reviewed classifications. Use **Review a skill** to
+select evidence from that learner’s sessions and save a classification. The
+interface applies the same cross-session and human-verification rules as the
+CLI before writing the compatible TP1 value to the student record.
 
 `student progress STUDENT_ID` lists human-reviewed progress classifications,
 their source evidence IDs, the reviewer and review time, plus the student's
