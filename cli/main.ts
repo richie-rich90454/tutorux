@@ -66,6 +66,7 @@ import {
   type JournalTagInput,
   type SessionCloneInput,
   type SessionTransitionAction,
+  updateSessionRecords,
 } from "../frontend/domain/records";
 import {
   loadSessionAudioTrashChanges,
@@ -123,6 +124,7 @@ Usage:
   tutorux --archive <file.tux> student progress-review <student-id> --skill <name> --classification <value> --evidence-ids <uuid,...> --reviewed-by <name> [--note <text>]
   tutorux --archive <file.tux> session create --title <title> --subject <subject> [--student <uuid>]
   tutorux --archive <file.tux> session list [--json]
+  tutorux --archive <file.tux> session update <uuid> [--title <title>] [--subject <subject>] [--objectives <text>] [--student-id <uuid>] [--notes <text>]
   tutorux --archive <file.tux> session clone <uuid> [--title <title>] [--type notes-only|record-audio|import-recording]
   tutorux --archive <file.tux> session start|complete|review|resume <uuid>
   tutorux --archive <file.tux> session delete <uuid> [--dry-run] [--confirm-scope --scope-token <token>]
@@ -2845,19 +2847,52 @@ async function runExtendedRecordCommand(
   }
 
   if (group === "session" && action === "update") {
-    const record = await updateRecord(
+    const sessionId = requiredPosition(args, 0, "session ID");
+    const metadataOptions = ["title", "subject", "objectives", "learning-objectives", "student-id"];
+    const updateNotes = args.options.has("notes");
+    if (!updateNotes && !metadataOptions.some((option) => args.options.has(option))) {
+      throw new CliError("Provide a session field to update.");
+    }
+    const snapshot = await openForCommand(path);
+    let records: ArchiveRecord[];
+    let expectedGeneration = 0n;
+    try {
+      expectedGeneration = snapshot.commit.generation;
+      const current = await requireLiveRecord(snapshot, RecordType.session, sessionId);
+      const studentId = args.options.get("student-id") ?? field(current, "student_id", "anonymous");
+      if (args.options.has("student-id") && studentId !== "anonymous") {
+        await requireLiveRecord(snapshot, RecordType.student, studentId);
+      }
+      const notesDocumentId = field(current, "notes_document_id");
+      const notesDocument =
+        updateNotes && notesDocumentId
+          ? ((await snapshot.getRecord(RecordType.settings, notesDocumentId)) ?? null)
+          : null;
+      records = updateSessionRecords(
+        current,
+        {
+          studentId,
+          subject: args.options.get("subject") ?? field(current, "subject"),
+          title: args.options.get("title") ?? field(current, "title", "Untitled session"),
+          objectives:
+            args.options.get("objectives") ??
+            args.options.get("learning-objectives") ??
+            field(current, "learning_objectives"),
+          notes: args.options.get("notes") ?? "",
+        },
+        notesDocument,
+        updateNotes,
+      );
+    } finally {
+      await closeSnapshot(snapshot);
+    }
+    const saved = await mutateArchive(
       path,
-      RecordType.session,
-      requiredPosition(args, 0, "session ID"),
-      {
-        title: "title",
-        subject: "subject",
-        objectives: "learning_objectives",
-        "learning-objectives": "learning_objectives",
-        "student-id": "student_id",
-      },
-      args,
+      records,
+      expectedGeneration,
+      "The archive changed while this session edit was being prepared. Retry the update.",
     );
+    const record = saved[0] ?? records[0]!;
     emit(
       output,
       toPlainRecord(record),
