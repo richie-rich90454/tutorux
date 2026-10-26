@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { lstat, open, readFile, realpath, rename, rm, stat } from "node:fs/promises";
+import { lstat, open, readFile, readdir, realpath, rename, rm, stat } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { ArchiveFormatError, RecordType, type ArchiveRecord } from "../frontend/archive/format";
@@ -94,6 +94,8 @@ interface ParsedArguments {
   flags: Set<string>;
 }
 
+const ASSET_IMPORT_BATCH_BYTES = 64 * 1024 * 1024;
+
 const io: CliIo = {
   stdout: (message) => process.stdout.write(`${message}\n`),
   stderr: (message) => process.stderr.write(`${message}\n`),
@@ -126,6 +128,7 @@ Usage:
   tutorux --archive <file.tux> annotation split <id> --before <text> --after <text> [--at <time>]
   tutorux --archive <file.tux> annotation link|unlink <id> --to asset|evidence --target-id <uuid>
   tutorux --archive <file.tux> asset import --input <file> [--session <uuid>]
+  tutorux --archive <file.tux> asset import-folder <directory> [--session <uuid>]
   tutorux --archive <file.tux> asset list [--include-deleted] [--json]
   tutorux --archive <file.tux> asset show|verify|remove|restore <id> [--json]
   tutorux --archive <file.tux> asset export <id> --output <file>
@@ -1053,46 +1056,136 @@ async function runAssetCommand(
   output: CliIo,
 ): Promise<number> {
   const json = args.flags.has("json");
-  if (action === "import") {
-    const inputPath = resolve(args.options.get("input") ?? args.positionals[0] ?? "");
-    if (!args.options.has("input") && !args.positionals[0]) {
-      throw new CliError("--input is required.");
+  if (action === "import" || action === "import-folder") {
+    let inputPaths: string[];
+    if (action === "import") {
+      const inputValue = args.options.get("input") ?? args.positionals[0];
+      if (!inputValue) throw new CliError("--input is required.");
+      inputPaths = [resolve(inputValue)];
+    } else {
+      const inputDirectory = resolve(requiredPosition(args, 0, "source directory"));
+      const directoryInfo = await stat(inputDirectory);
+      if (!directoryInfo.isDirectory()) {
+        throw new CliError("Import source must be a directory.");
+      }
+      const entries = await readdir(inputDirectory, { withFileTypes: true });
+      inputPaths = [];
+      for (const entry of entries) {
+        const entryPath = join(inputDirectory, entry.name);
+        const fileInfo = await lstat(entryPath);
+        if (fileInfo.isFile() && !fileInfo.isSymbolicLink()) inputPaths.push(entryPath);
+        if (inputPaths.length > 10_000) {
+          throw new CliError("Folder import is limited to 10,000 regular files.");
+        }
+      }
+      inputPaths.sort((left, right) => {
+        const leftName = basename(left);
+        const rightName = basename(right);
+        return leftName < rightName ? -1 : leftName > rightName ? 1 : 0;
+      });
     }
-    const fileInfo = await lstat(inputPath);
-    if (!fileInfo.isFile() || fileInfo.isSymbolicLink()) {
-      throw new CliError("Material input must be a regular, non-symlink file.");
-    }
-    if (fileInfo.size > MAX_ASSET_BYTES) {
-      throw new CliError("Material exceeds the configured 256 MiB import limit.");
-    }
-    const bytes = await readFile(inputPath);
     const sessionId = args.options.get("session") ?? "";
-    const snapshot = await openForCommand(path);
-    let imported;
-    try {
-      if (sessionId) await requireLiveRecord(snapshot, RecordType.session, sessionId);
-      imported = await makeAssetImport(
-        snapshot,
-        { name: basename(inputPath), size: bytes.byteLength, readBytes: async () => bytes },
-        sessionId,
-      );
-    } finally {
-      await closeSnapshot(snapshot);
-    }
-    const saved = await mutateArchive(path, imported.records);
-    const metadata =
-      saved.find((record) => record.type === RecordType.assetMetadata) ?? imported.metadata;
-    const result = {
-      material: toPlainRecord(metadata),
-      deduplicated: imported.deduplicated,
-      chunk_count: String(imported.chunkCount),
+    const importedAssets: Array<{
+      readonly metadata: ArchiveRecord;
+      readonly deduplicated: boolean;
+      readonly chunkCount: number;
+    }> = [];
+    let snapshot: ArchiveSnapshot | null = null;
+    let pendingBytes = 0;
+    let pendingRecords: ArchiveRecord[] = [];
+    let pendingResultIndices: number[] = [];
+    let pendingBlobs = new Map<string, { readonly id: string; readonly chunkCount: string }>();
+    const flushBatch = async (): Promise<void> => {
+      if (snapshot) {
+        await closeSnapshot(snapshot);
+        snapshot = null;
+      }
+      if (pendingRecords.length === 0) return;
+      const saved = await mutateArchive(path, pendingRecords);
+      const savedMetadata = new Map<string, ArchiveRecord>();
+      for (const record of saved) {
+        if (record.type === RecordType.assetMetadata) savedMetadata.set(record.id, record);
+      }
+      for (const index of pendingResultIndices) {
+        const pending = importedAssets[index]!;
+        const metadata = savedMetadata.get(pending.metadata.id);
+        if (metadata) importedAssets[index] = { ...pending, metadata };
+      }
+      pendingBytes = 0;
+      pendingRecords = [];
+      pendingResultIndices = [];
+      pendingBlobs = new Map();
     };
-    emit(
-      output,
-      result,
-      `${field(metadata, "filename") || basename(inputPath)} imported${imported.deduplicated ? " (content deduplicated)" : ""}.`,
-      json,
-    );
+
+    try {
+      for (const inputPath of inputPaths) {
+        const fileInfo = await lstat(inputPath);
+        if (!fileInfo.isFile() || fileInfo.isSymbolicLink()) {
+          throw new CliError("Material input must be a regular, non-symlink file.");
+        }
+        if (fileInfo.size > MAX_ASSET_BYTES) {
+          throw new CliError("Material exceeds the configured 256 MiB import limit.");
+        }
+        const bytes = await readFile(inputPath);
+        if (!snapshot) {
+          snapshot = await openForCommand(path);
+          if (sessionId) await requireLiveRecord(snapshot, RecordType.session, sessionId);
+        }
+        const importSnapshot = snapshot;
+        if (!importSnapshot) throw new Error("The archive snapshot could not be opened.");
+        const imported = await makeAssetImport(
+          importSnapshot,
+          { name: basename(inputPath), size: bytes.byteLength, readBytes: async () => bytes },
+          sessionId,
+        );
+        const metadataFields = new Map(imported.metadata.fields);
+        const contentHash = field(imported.metadata, "content_hash").toLowerCase();
+        const existingBatchBlob = pendingBlobs.get(contentHash);
+        let deduplicated = imported.deduplicated;
+        if (existingBatchBlob) {
+          metadataFields.set("blob_id", existingBatchBlob.id);
+          metadataFields.set("blob_count", existingBatchBlob.chunkCount);
+          deduplicated = true;
+        } else {
+          pendingRecords.push(
+            ...imported.records.filter((record) => record.type !== RecordType.assetMetadata),
+          );
+          pendingBlobs.set(contentHash, {
+            id: field(imported.metadata, "blob_id"),
+            chunkCount: field(imported.metadata, "blob_count"),
+          });
+          if (!imported.deduplicated) pendingBytes += bytes.byteLength;
+        }
+        const metadata = { ...imported.metadata, fields: metadataFields };
+        pendingRecords.push(metadata);
+        pendingResultIndices.push(importedAssets.length);
+        importedAssets.push({ metadata, deduplicated, chunkCount: imported.chunkCount });
+        if (pendingBytes >= ASSET_IMPORT_BATCH_BYTES) await flushBatch();
+      }
+      await flushBatch();
+    } finally {
+      if (snapshot) await closeSnapshot(snapshot);
+    }
+    if (action === "import") {
+      const imported = importedAssets[0]!;
+      emit(
+        output,
+        {
+          material: toPlainRecord(imported.metadata),
+          deduplicated: imported.deduplicated,
+          chunk_count: String(imported.chunkCount),
+        },
+        `${field(imported.metadata, "filename") || "Material"} imported${imported.deduplicated ? " (content deduplicated)" : ""}.`,
+        json,
+      );
+    } else {
+      emit(
+        output,
+        importedAssets.map(({ metadata }) => toPlainRecord(metadata)),
+        `Imported ${importedAssets.length} asset${importedAssets.length === 1 ? "" : "s"} into the archive.`,
+        json,
+      );
+    }
     return 0;
   }
 
