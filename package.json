@@ -1,0 +1,50 @@
+{
+  "name": "tutorux",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "A local-first tutoring workstation",
+  "bin": {
+    "tutorux": "cli/entry.js"
+  },
+  "scripts": {
+    "dev": "vite --host 127.0.0.1 --port 1420 --strictPort",
+    "build": "npm run typecheck && vite build --mode web",
+    "build:desktop": "npm run typecheck && vite build --mode desktop",
+    "preview": "vite preview --host 127.0.0.1 --port 1420 --strictPort",
+    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.node.json",
+    "lint": "eslint frontend cli scripts tests/e2e vite.config.ts playwright.config.ts eslint.config.js",
+    "format:check": "prettier --check frontend cli scripts tests/e2e README.md docs/ARCHITECTURE.md docs/migration/feature-inventory.md docs/development/TYPESCRIPT.md docs/performance/TYPESCRIPT-BASELINE.md index.html vite.config.ts playwright.config.ts eslint.config.js package.json tsconfig.json tsconfig.node.json",
+    "format": "prettier --write frontend cli scripts tests/e2e README.md docs/ARCHITECTURE.md docs/migration/feature-inventory.md docs/development/TYPESCRIPT.md docs/performance/TYPESCRIPT-BASELINE.md index.html vite.config.ts playwright.config.ts eslint.config.js package.json tsconfig.json tsconfig.node.json",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:e2e": "playwright test",
+    "cli": "tsx cli/main.ts",
+    "benchmark:archive": "tsx scripts/benchmark-archive.ts",
+    "tauri": "tauri",
+    "dev:desktop": "vite --mode desktop --host 127.0.0.1 --port 1420 --strictPort",
+    "desktop:dev": "tauri dev",
+    "desktop:build": "tauri build"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "2.12.4",
+    "@tauri-apps/plugin-dialog": "2.8.3",
+    "@tauri-apps/plugin-fs": "2.7.1",
+    "solid-js": "1.9.17",
+    "tsx": "^4.23.15"
+  },
+  "devDependencies": {
+    "@eslint/js": "10.0.1",
+    "@playwright/test": "1.64.1",
+    "@tauri-apps/cli": "2.12.4",
+    "@types/node": "26.6.5",
+    "eslint": "10.13.0",
+    "eslint-plugin-solid": "0.18.1",
+    "prettier": "3.9.10",
+    "typescript": "6.0.3",
+    "typescript-eslint": "8.72.0",
+    "vite": "8.3.5",
+    "vite-plugin-solid": "2.11.14",
+    "vitest": "5.0.5"
+  }
+}
