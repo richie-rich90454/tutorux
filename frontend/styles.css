@@ -1803,6 +1803,76 @@ button:disabled {
 .confirm-dialog .dialog-actions {
   margin-top: 18px;
 }
+.session-trash-dialog {
+  width: min(520px, 100%);
+  max-height: calc(100vh - 32px);
+  overflow-y: auto;
+}
+.session-trash-total {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-top: 16px;
+  padding: 12px 14px;
+  border: 1px solid color-mix(in srgb, var(--danger) 18%, var(--line-soft));
+  border-radius: 7px;
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger-soft) 48%, var(--surface));
+}
+.session-trash-total strong {
+  font-size: 22px;
+  font-weight: 650;
+  line-height: 1;
+}
+.session-trash-total span {
+  color: var(--ink-soft);
+  font-size: 10px;
+}
+.session-trash-scope {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1px;
+  overflow: hidden;
+  margin: 10px 0 0;
+  border: 1px solid var(--line-soft);
+  border-radius: 7px;
+  background: var(--line-soft);
+}
+.session-trash-scope > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 12px;
+  background: var(--surface);
+}
+.session-trash-scope dt {
+  color: var(--muted);
+  font-size: 9px;
+}
+.session-trash-scope dd {
+  margin: 0;
+  color: var(--ink-soft);
+  font-size: 10px;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+}
+.session-trash-note {
+  margin: 12px 0 0;
+  color: var(--muted);
+  font-size: 9px;
+  line-height: 1.6;
+}
+.session-trash-detail {
+  display: block;
+  max-width: 460px;
+  margin-top: 5px;
+  color: var(--muted);
+  font-size: 8px;
+  line-height: 1.5;
+}
+.session-actions {
+  flex: 0 0 auto;
+}
 .record-detail {
   margin-top: 9px;
   color: var(--muted);
