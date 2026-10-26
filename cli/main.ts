@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { lstat, open, readFile, readdir, realpath, rename, rm, stat } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -64,6 +64,11 @@ import {
   type JournalTagInput,
 } from "../frontend/domain/records";
 import {
+  loadSessionAudioTrashChanges,
+  planSessionRestore,
+  planSessionTrash,
+} from "../frontend/domain/session-trash";
+import {
   correctTranscriptRecord,
   formatTranscriptExport,
   formatTranscriptTimestampUs,
@@ -114,6 +119,8 @@ Usage:
   tutorux --archive <file.tux> student progress-review <student-id> --skill <name> --classification <value> --evidence-ids <uuid,...> --reviewed-by <name> [--note <text>]
   tutorux --archive <file.tux> session create --title <title> --subject <subject> [--student <uuid>]
   tutorux --archive <file.tux> session list [--json]
+  tutorux --archive <file.tux> session delete <uuid> [--dry-run] [--confirm-scope --scope-token <token>]
+  tutorux --archive <file.tux> session restore <uuid>
   tutorux --archive <file.tux> journal create --title <title> --date <YYYY-MM-DD> [--collection-ids <uuid,...>] [--tag-ids <uuid,...>]
   tutorux --archive <file.tux> journal update <entry-id> [--title <title>] [--date <YYYY-MM-DD>] [--notes <text>] [--collection-ids <uuid,...>] [--tag-ids <uuid,...>]
   tutorux --archive <file.tux> journal list [--json]
@@ -2507,6 +2514,125 @@ async function runExtendedRecordCommand(
         ? RecordType.session
         : RecordType.settings;
 
+  if (group === "session" && action === "delete") {
+    const sessionId = requiredPosition(args, 0, "session ID").toLowerCase();
+    const snapshot = await openForCommand(path);
+    let changes: ArchiveRecord[] = [];
+    let generation: bigint | undefined;
+    let scope: Awaited<ReturnType<typeof planSessionTrash>> | undefined;
+    try {
+      const session = await requireLiveRecord(snapshot, RecordType.session, sessionId);
+      try {
+        scope = await planSessionTrash(snapshot, session);
+      } catch (error) {
+        throw new CliError(
+          error instanceof Error ? error.message : "Unable to review the session deletion scope.",
+        );
+      }
+      generation = snapshot.commit.generation;
+      changes = scope.changes;
+    } finally {
+      await closeSnapshot(snapshot);
+    }
+    if (!scope || generation === undefined) {
+      throw new CliError("Unable to prepare the session deletion scope.");
+    }
+
+    const scopeMaterial = scope.scopeRecords
+      .map((record) => `${record.type}:${record.id.toLowerCase()}:${record.revision}`)
+      .sort()
+      .map((part) => `${part}\n`)
+      .join("");
+    const scopeToken = createHash("sha256").update(scopeMaterial).digest("hex");
+    const summary = {
+      status: "confirmation-required",
+      session_id: sessionId,
+      scope_token: scopeToken,
+      audio_chunks: String(scope.counts.audioChunks),
+      session_notes: String(scope.counts.sessionNotes),
+      transcript_segments: String(scope.counts.transcriptSegments),
+      annotations: String(scope.counts.annotations),
+      guides: String(scope.counts.guides),
+      assets: String(scope.counts.assets),
+      entries_updated: String(scope.counts.entriesUpdated),
+      evidence_nodes: String(scope.counts.evidenceNodes),
+      total_records: String(scope.counts.totalRecords),
+    };
+    if (args.flags.has("dry-run") || !args.flags.has("confirm-scope")) {
+      emit(
+        output,
+        summary,
+        `Deleting this session would move ${scope.counts.totalRecords} records to Trash, including ${scope.counts.audioChunks} audio chunks, ${scope.counts.guides} guides, ${scope.counts.assets} materials, and ${scope.counts.sessionNotes} notes documents; ${scope.counts.entriesUpdated} journal entries would have their references detached. Review the scope, then repeat with --confirm-scope --scope-token ${scopeToken}.`,
+        json,
+      );
+      return 0;
+    }
+    if (args.options.get("scope-token") !== scopeToken) {
+      throw new CliError(
+        "Deletion scope confirmation is missing or stale. Review the current scope and confirm it with the returned --scope-token.",
+      );
+    }
+    const audioSnapshot = await openForCommand(path);
+    try {
+      if (audioSnapshot.commit.generation !== generation) {
+        throw new CliError(
+          "The archive changed after this operation was reviewed. Review it again before retrying.",
+        );
+      }
+      changes = [
+        ...changes,
+        ...(await loadSessionAudioTrashChanges(audioSnapshot, sessionId, scope.audioChunkRecords)),
+      ];
+    } catch (error) {
+      if (error instanceof CliError) throw error;
+      throw new CliError(
+        error instanceof Error ? error.message : "Unable to load the reviewed recording chunks.",
+      );
+    } finally {
+      await closeSnapshot(audioSnapshot);
+    }
+    await mutateArchive(path, changes, generation);
+    emit(
+      output,
+      { ...summary, status: "deleted" },
+      "Session and associated records moved to recoverable Trash.",
+      json,
+    );
+    return 0;
+  }
+
+  if (group === "session" && action === "restore") {
+    const sessionId = requiredPosition(args, 0, "session ID").toLowerCase();
+    const snapshot = await openForCommand(path);
+    let changes: ArchiveRecord[] = [];
+    let generation: bigint | undefined;
+    try {
+      const session = await snapshot.getRecord(RecordType.session, sessionId);
+      if (!session || field(session, "_deleted") !== "true") {
+        throw new CliError(`Session ${sessionId} is not in Trash.`);
+      }
+      try {
+        changes = await planSessionRestore(snapshot, session);
+      } catch (error) {
+        throw new CliError(
+          error instanceof Error ? error.message : "Unable to restore the session group.",
+        );
+      }
+      generation = snapshot.commit.generation;
+    } finally {
+      await closeSnapshot(snapshot);
+    }
+    if (generation === undefined) throw new CliError("Unable to prepare the session restore.");
+    await mutateArchive(path, changes, generation);
+    emit(
+      output,
+      { status: "restored", session_id: sessionId, restored_records: String(changes.length) },
+      `Restored session ${sessionId} and ${Math.max(0, changes.length - 1)} associated records.`,
+      json,
+    );
+    return 0;
+  }
+
   if (group === "student" && (action === "history" || action === "progress")) {
     const studentId = requiredPosition(args, 0, "student ID").toLocaleLowerCase();
     const snapshot = await openForCommand(path);
@@ -3043,12 +3169,18 @@ async function closeSnapshot(snapshot: ArchiveSnapshot): Promise<void> {
 async function mutateArchive(
   path: string,
   changes: readonly ArchiveRecord[],
+  expectedGeneration?: bigint,
 ): Promise<ArchiveRecord[]> {
   const archivePath = resolve(path);
   const source = await NodeFileArchiveSource.open(archivePath);
   let next: ArchiveSnapshot;
   try {
     const current = await openArchiveSource(source);
+    if (expectedGeneration !== undefined && current.commit.generation !== expectedGeneration) {
+      throw new CliError(
+        "The archive changed after this operation was reviewed. Review it again before retrying.",
+      );
+    }
     next = await appendRecords(current, changes);
     await writeSourceAtomically(archivePath, next);
     const savedRecords: ArchiveRecord[] = [];
