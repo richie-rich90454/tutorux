@@ -50,6 +50,7 @@ import {
 } from "../frontend/domain/student-progress";
 import {
   archiveJournalOrganizerRecord,
+  cloneSessionRecords,
   makeJournalCollectionRecord,
   makeJournalRecords,
   makeJournalTagRecord,
@@ -63,6 +64,7 @@ import {
   updateJournalRecords,
   type JournalCollectionInput,
   type JournalTagInput,
+  type SessionCloneInput,
   type SessionTransitionAction,
 } from "../frontend/domain/records";
 import {
@@ -121,6 +123,7 @@ Usage:
   tutorux --archive <file.tux> student progress-review <student-id> --skill <name> --classification <value> --evidence-ids <uuid,...> --reviewed-by <name> [--note <text>]
   tutorux --archive <file.tux> session create --title <title> --subject <subject> [--student <uuid>]
   tutorux --archive <file.tux> session list [--json]
+  tutorux --archive <file.tux> session clone <uuid> [--title <title>] [--type notes-only|record-audio|import-recording]
   tutorux --archive <file.tux> session start|complete|review|resume <uuid>
   tutorux --archive <file.tux> session delete <uuid> [--dry-run] [--confirm-scope --scope-token <token>]
   tutorux --archive <file.tux> session restore <uuid>
@@ -2971,6 +2974,46 @@ async function runExtendedRecordCommand(
     return 0;
   }
 
+  if (group === "session" && action === "clone") {
+    const sessionId = requiredPosition(args, 0, "session ID");
+    const snapshot = await openForCommand(path);
+    let records: ArchiveRecord[];
+    let expectedGeneration = 0n;
+    try {
+      expectedGeneration = snapshot.commit.generation;
+      const current = await requireLiveRecord(snapshot, RecordType.session, sessionId);
+      const linkedEntryId = field(current, "entry_id");
+      const linkedEntry = linkedEntryId ? await getJournalEntry(snapshot, linkedEntryId) : null;
+      const settings = await snapshot.listRecords(RecordType.settings);
+      const hasJournalRoot = settings.some(
+        (record) =>
+          field(record, "record_role") === "journal" && field(record, "_deleted") !== "true",
+      );
+      const input: SessionCloneInput = {
+        ...(args.options.has("title") ? { title: args.options.get("title")! } : {}),
+        ...(args.options.has("type") ? { sessionType: args.options.get("type")! } : {}),
+        ensureJournalRoot: !hasJournalRoot,
+      };
+      records = cloneSessionRecords(current, linkedEntry, input);
+    } finally {
+      await closeSnapshot(snapshot);
+    }
+    const saved = await mutateArchive(
+      path,
+      records,
+      expectedGeneration,
+      "The archive changed while this session copy was being prepared. Retry the clone.",
+    );
+    const session = saved[0] ?? records[0]!;
+    emit(
+      output,
+      toPlainRecord(session),
+      `Cloned session ${sessionId} as ${field(session, "title")} (${session.id}).`,
+      json,
+    );
+    return 0;
+  }
+
   if (group === "session" && ["start", "resume", "complete", "review"].includes(action)) {
     const sessionId = requiredPosition(args, 0, "session ID");
     const transition = action as SessionTransitionAction;
@@ -3183,6 +3226,7 @@ async function mutateArchive(
   path: string,
   changes: readonly ArchiveRecord[],
   expectedGeneration?: bigint,
+  generationConflictMessage = "The archive changed after this operation was reviewed. Review it again before retrying.",
 ): Promise<ArchiveRecord[]> {
   const archivePath = resolve(path);
   const source = await NodeFileArchiveSource.open(archivePath);
@@ -3190,9 +3234,7 @@ async function mutateArchive(
   try {
     const current = await openArchiveSource(source);
     if (expectedGeneration !== undefined && current.commit.generation !== expectedGeneration) {
-      throw new CliError(
-        "The archive changed after this operation was reviewed. Review it again before retrying.",
-      );
+      throw new CliError(generationConflictMessage);
     }
     next = await appendRecords(current, changes);
     await writeSourceAtomically(archivePath, next);
