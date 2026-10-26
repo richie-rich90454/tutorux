@@ -58,10 +58,12 @@ import {
   moveRecordToTrash,
   restoreJournalOrganizerRecord,
   restoreRecordFromTrash,
+  transitionSessionRecord,
   updateJournalOrganizerRecord,
   updateJournalRecords,
   type JournalCollectionInput,
   type JournalTagInput,
+  type SessionTransitionAction,
 } from "../frontend/domain/records";
 import {
   loadSessionAudioTrashChanges,
@@ -119,6 +121,7 @@ Usage:
   tutorux --archive <file.tux> student progress-review <student-id> --skill <name> --classification <value> --evidence-ids <uuid,...> --reviewed-by <name> [--note <text>]
   tutorux --archive <file.tux> session create --title <title> --subject <subject> [--student <uuid>]
   tutorux --archive <file.tux> session list [--json]
+  tutorux --archive <file.tux> session start|complete|review|resume <uuid>
   tutorux --archive <file.tux> session delete <uuid> [--dry-run] [--confirm-scope --scope-token <token>]
   tutorux --archive <file.tux> session restore <uuid>
   tutorux --archive <file.tux> journal create --title <title> --date <YYYY-MM-DD> [--collection-ids <uuid,...>] [--tag-ids <uuid,...>]
@@ -2970,15 +2973,22 @@ async function runExtendedRecordCommand(
 
   if (group === "session" && ["start", "resume", "complete", "review"].includes(action)) {
     const sessionId = requiredPosition(args, 0, "session ID");
-    const timestamp = timestampNow();
-    const fixed =
-      action === "start" || action === "resume"
-        ? { session_state: "in-progress", updated_at_us: timestamp }
-        : action === "complete"
-          ? { session_state: "completed", ended_at_us: timestamp, updated_at_us: timestamp }
-          : { reviewed_at_us: timestamp, updated_at_us: timestamp };
-    const session = await updateRecord(path, RecordType.session, sessionId, {}, args, fixed);
-    emit(output, toPlainRecord(session), `Session ${sessionId} marked ${action}.`, json);
+    const transition = action as SessionTransitionAction;
+    const current = await getLiveRecordAtPath(path, RecordType.session, sessionId);
+    const updated = transitionSessionRecord(current, transition);
+    const [session] = await mutateArchive(path, [updated]);
+    const actionMessage: Record<SessionTransitionAction, string> = {
+      start: "started",
+      complete: "completed",
+      review: "marked reviewed",
+      resume: "resumed",
+    };
+    emit(
+      output,
+      toPlainRecord(session ?? updated),
+      `Session ${sessionId} ${actionMessage[transition]}.`,
+      json,
+    );
     return 0;
   }
 
