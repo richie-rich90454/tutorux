@@ -64,6 +64,7 @@ npm run cli -- --archive Lesson.tux annotation add --session <uuid> --type impor
 npm run cli -- --archive Lesson.tux asset import --input worksheet.pdf --session <uuid>
 npm run cli -- --archive Lesson.tux asset import-folder worksheets --session <uuid>
 npm run cli -- --archive Lesson.tux asset list --json
+npm run cli -- --archive Lesson.tux asset list --session <uuid> --json
 npm run cli -- --archive Lesson.tux asset show <material-uuid> --json
 npm run cli -- --archive Lesson.tux asset verify <material-uuid> --json
 npm run cli -- --archive Lesson.tux asset export <material-uuid> --output worksheet-copy.pdf
