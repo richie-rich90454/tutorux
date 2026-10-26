@@ -72,6 +72,7 @@ import {
   notesEditState,
   restoreRecordFromTrash,
   restoreJournalOrganizerRecord,
+  setSessionArchiveState,
   updateJournalRecords,
   updateSessionRecords,
   updateStudentRecord,
@@ -142,6 +143,7 @@ interface Workspace {
   trashedAnnotations: ArchiveRecord[];
   trashedGuides: ArchiveRecord[];
   sessions: ArchiveRecord[];
+  archivedSessions: ArchiveRecord[];
   trashedSessions: ArchiveRecord[];
   audioTracks: AudioTrackDescriptor[];
   entries: ArchiveRecord[];
@@ -256,7 +258,7 @@ const currentRecords = createMemo(() => {
   const state = workspace();
   if (!state) return [] as ArchiveRecord[];
   if (view() === "students") return state.students;
-  if (view() === "sessions") return state.sessions;
+  if (view() === "sessions") return [...state.sessions, ...state.archivedSessions];
   if (view() === "annotations") return state.annotations;
   if (view() === "transcripts") return state.transcripts;
   if (view() === "journal") return state.entries;
@@ -387,6 +389,7 @@ function App(): JSX.Element {
         trashedAnnotations: [],
         trashedGuides: [],
         sessions: [],
+        archivedSessions: [],
         trashedSessions: [],
         audioTracks: [],
         entries: [],
@@ -426,9 +429,7 @@ function App(): JSX.Element {
       snapshot.listRecords(RecordType.evidenceNode),
       snapshot.listRecords(RecordType.evidenceEdge),
     ]);
-    const liveSessions = alive(sessions).filter(
-      (record) => record.fields.get("archived") !== "true",
-    );
+    const liveSessions = alive(sessions);
     const liveAssets = alive(assets);
     const indexedAudioTracks = snapshot.audioTrackIdsBySession();
     return {
@@ -447,7 +448,8 @@ function App(): JSX.Element {
         (record) =>
           record.fields.get("_deleted") === "true" && !record.fields.get("_trash_group_id"),
       ),
-      sessions: liveSessions,
+      sessions: liveSessions.filter((record) => record.fields.get("archived") !== "true"),
+      archivedSessions: liveSessions.filter((record) => record.fields.get("archived") === "true"),
       trashedSessions: sessions.filter((record) => record.fields.get("_deleted") === "true"),
       audioTracks: liveSessions.flatMap((session) =>
         listSessionAudioTracks(
@@ -629,6 +631,21 @@ function App(): JSX.Element {
       await addRecords(
         records,
         `Session duplicated as “${field(copy, "title", "Untitled session")}”.`,
+      );
+    } catch (error) {
+      announce(errorMessage(error), "error");
+    }
+  }
+
+  async function updateSessionArchiveState(
+    session: ArchiveRecord,
+    archived: boolean,
+  ): Promise<void> {
+    if (busy()) return;
+    try {
+      await addRecords(
+        [setSessionArchiveState(session, archived)],
+        archived ? "Session moved to the archive." : "Session returned to current sessions.",
       );
     } catch (error) {
       announce(errorMessage(error), "error");
@@ -1684,6 +1701,9 @@ function App(): JSX.Element {
                     onTrash={(record) => void reviewSessionTrash(record)}
                     onTransition={(record, action) => void transitionSession(record, action)}
                     onClone={(record) => void duplicateSession(record)}
+                    onArchive={(record, archived) =>
+                      void updateSessionArchiveState(record, archived)
+                    }
                   />
                 </Show>
                 <Show when={view() === "transcripts"}>
@@ -3094,6 +3114,7 @@ function RecordPage(props: {
   onTrash?: (record: ArchiveRecord) => void;
   onTransition?: (record: ArchiveRecord, action: SessionTransitionAction) => void;
   onClone?: (record: ArchiveRecord) => void;
+  onArchive?: (record: ArchiveRecord, archived: boolean) => void;
   onProgressReview?: (input: {
     student: ArchiveRecord;
     skill: string;
@@ -3108,7 +3129,16 @@ function RecordPage(props: {
 }): JSX.Element {
   const [collectionFilter, setCollectionFilter] = createSignal("");
   const [tagFilter, setTagFilter] = createSignal("");
+  const [sessionArchiveView, setSessionArchiveView] = createSignal<"current" | "archived">(
+    "current",
+  );
   const visibleRecords = createMemo(() => {
+    if (props.kind === "sessions") {
+      const showArchived = sessionArchiveView() === "archived";
+      return props.records.filter(
+        (record) => (field(record, "archived") === "true") === showArchived,
+      );
+    }
     if (props.kind !== "journal") return props.records;
     return props.records.filter((record) => {
       const collections = field(record, "collection_ids").split(",").filter(Boolean);
@@ -3275,25 +3305,65 @@ function RecordPage(props: {
         </div>
       </Show>
       <section class="record-list-shell">
-        <div class="record-list-toolbar">
+        <div
+          class={`record-list-toolbar ${props.kind === "sessions" ? "session-list-toolbar" : ""}`}
+        >
           <span>
             <strong>{visibleRecords().length}</strong> {heading.title.toLowerCase()}
           </span>
-          <span class="list-view-label">
-            <Icon name="more" />
-            Latest first
-          </span>
+          <Show when={props.kind === "sessions"}>
+            <div class="session-view-switch" role="group" aria-label="Session archive view">
+              <button
+                type="button"
+                aria-pressed={sessionArchiveView() === "current"}
+                classList={{ "is-selected": sessionArchiveView() === "current" }}
+                onClick={() => setSessionArchiveView("current")}
+              >
+                Current <span>{props.state.sessions.length}</span>
+              </button>
+              <button
+                type="button"
+                aria-pressed={sessionArchiveView() === "archived"}
+                classList={{ "is-selected": sessionArchiveView() === "archived" }}
+                onClick={() => setSessionArchiveView("archived")}
+              >
+                Archived <span>{props.state.archivedSessions.length}</span>
+              </button>
+            </div>
+          </Show>
+          <Show when={props.kind !== "sessions"}>
+            <span class="list-view-label">
+              <Icon name="more" />
+              Latest first
+            </span>
+          </Show>
         </div>
         <Show
           when={visibleRecords().length > 0}
           fallback={
             <EmptyState
               icon={heading.icon}
-              title={heading.emptyTitle}
-              text={heading.emptyText}
-              action={heading.action}
+              title={
+                props.kind === "sessions" && sessionArchiveView() === "archived"
+                  ? "No archived sessions"
+                  : heading.emptyTitle
+              }
+              text={
+                props.kind === "sessions" && sessionArchiveView() === "archived"
+                  ? "Archived sessions stay available here until you return them to current sessions."
+                  : heading.emptyText
+              }
+              action={
+                props.kind === "sessions" && sessionArchiveView() === "archived"
+                  ? ""
+                  : heading.action
+              }
               onAction={() => (canAdd ? props.onAdd?.() : undefined)}
-              disabled={!canAdd || props.state.snapshot.locked}
+              disabled={
+                !canAdd ||
+                props.state.snapshot.locked ||
+                (props.kind === "sessions" && sessionArchiveView() === "archived")
+              }
             />
           }
         >
@@ -3320,6 +3390,7 @@ function RecordPage(props: {
                   onTrash={props.state.snapshot.locked ? undefined : props.onTrash}
                   onTransition={props.state.snapshot.locked ? undefined : props.onTransition}
                   onClone={props.state.snapshot.locked ? undefined : props.onClone}
+                  onArchive={props.state.snapshot.locked ? undefined : props.onArchive}
                 />
               )}
             </For>
@@ -3355,6 +3426,7 @@ function RecordCard(props: {
   onTrash: ((record: ArchiveRecord) => void) | undefined;
   onTransition: ((record: ArchiveRecord, action: SessionTransitionAction) => void) | undefined;
   onClone: ((record: ArchiveRecord) => void) | undefined;
+  onArchive: ((record: ArchiveRecord, archived: boolean) => void) | undefined;
 }): JSX.Element {
   const record = props.record;
   if (props.kind === "students") {
@@ -3470,6 +3542,7 @@ function RecordCard(props: {
         onTrash={props.onTrash}
         onTransition={props.onTransition}
         onClone={props.onClone}
+        onArchive={props.onArchive}
       />
     );
   if (props.kind === "journal") {
@@ -3760,6 +3833,7 @@ function SessionRow(props: {
   onTrash?: ((record: ArchiveRecord) => void) | undefined;
   onTransition?: ((record: ArchiveRecord, action: SessionTransitionAction) => void) | undefined;
   onClone?: ((record: ArchiveRecord) => void) | undefined;
+  onArchive?: ((record: ArchiveRecord, archived: boolean) => void) | undefined;
 }): JSX.Element {
   const student = props.students.find((item) => item.id === field(props.session, "student_id"));
   const sessionState = field(props.session, "session_state", "active");
@@ -3804,7 +3878,8 @@ function SessionRow(props: {
       </div>
       <Show
         when={
-          props.expanded && (props.onEdit || props.onTrash || props.onTransition || props.onClone)
+          props.expanded &&
+          (props.onEdit || props.onTrash || props.onTransition || props.onClone || props.onArchive)
         }
       >
         <div class="record-actions session-actions">
@@ -3870,6 +3945,28 @@ function SessionRow(props: {
               onClick={() => props.onClone?.(props.session)}
             >
               Duplicate
+            </button>
+          </Show>
+          <Show when={props.onArchive}>
+            <button
+              class="button button-outline record-action"
+              type="button"
+              disabled={
+                props.disabled ||
+                (field(props.session, "recording_state") === "recording" &&
+                  field(props.session, "archived") !== "true")
+              }
+              title={
+                field(props.session, "recording_state") === "recording" &&
+                field(props.session, "archived") !== "true"
+                  ? "Stop recording before archiving this session."
+                  : undefined
+              }
+              onClick={() =>
+                props.onArchive?.(props.session, field(props.session, "archived") !== "true")
+              }
+            >
+              {field(props.session, "archived") === "true" ? "Unarchive" : "Archive"}
             </button>
           </Show>
           <Show when={props.onEdit}>
