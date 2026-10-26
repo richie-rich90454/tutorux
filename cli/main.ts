@@ -124,7 +124,7 @@ Usage:
   tutorux --archive <file.tux> student progress <student-id> [--json]
   tutorux --archive <file.tux> student progress-review <student-id> --skill <name> --classification <value> --evidence-ids <uuid,...> --reviewed-by <name> [--note <text>]
   tutorux --archive <file.tux> session create --title <title> --subject <subject> [--student <uuid>]
-  tutorux --archive <file.tux> session list [--archived|--unarchived] [--include-deleted] [--json]
+  tutorux --archive <file.tux> session list [--student-id <uuid>] [--entry-id <uuid>] [--from <YYYY-MM-DD>] [--to <YYYY-MM-DD>] [--archived|--unarchived] [--include-deleted] [--json]
   tutorux --archive <file.tux> session update <uuid> [--title <title>] [--subject <subject>] [--objectives <text>] [--student-id <uuid>] [--notes <text>]
   tutorux --archive <file.tux> session clone <uuid> [--title <title>] [--type notes-only|record-audio|import-recording]
   tutorux --archive <file.tux> session archive|unarchive <uuid>
@@ -422,6 +422,38 @@ async function runRecordCommand(
       );
       if (group === "session" && (args.flags.has("unarchived") || !args.flags.has("archived"))) {
         records = records.filter((record) => field(record, "archived") !== "true");
+      }
+      if (group === "session") {
+        const studentId = args.options.get("student-id");
+        if (studentId !== undefined) {
+          records = records.filter((record) => field(record, "student_id") === studentId);
+        }
+        const rawEntryId = args.options.get("entry-id");
+        if (rawEntryId !== undefined) {
+          const entryId = canonicalizeProgressUuid(rawEntryId);
+          if (!entryId) throw new CliError("--entry-id must be a valid UUID.");
+          records = records.filter(
+            (record) => canonicalizeProgressUuid(field(record, "entry_id")) === entryId,
+          );
+        }
+        const from = parseSessionDateBound(args.options.get("from"), false);
+        const to = parseSessionDateBound(args.options.get("to"), true);
+        if (from !== undefined && to !== undefined && from > to) {
+          throw new CliError("--from must not be later than --to.");
+        }
+        if (from !== undefined || to !== undefined) {
+          records = records.filter((record) => {
+            const startedAt = sessionStartedAt(record);
+            return (
+              (from === undefined || startedAt >= from) && (to === undefined || startedAt <= to)
+            );
+          });
+        }
+        records.sort((left, right) => {
+          const leftStartedAt = sessionStartedAt(left);
+          const rightStartedAt = sessionStartedAt(right);
+          return leftStartedAt > rightStartedAt ? -1 : leftStartedAt < rightStartedAt ? 1 : 0;
+        });
       }
       const rows = records.map(toPlainRecord);
       emit(
@@ -3431,6 +3463,35 @@ function parseIntegerField(value: string): bigint {
   } catch {
     return 0n;
   }
+}
+
+function parseSessionDateBound(
+  value: string | undefined,
+  inclusiveEnd: boolean,
+): bigint | undefined {
+  if (value === undefined) return undefined;
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/u.exec(value);
+  if (!match) throw new CliError("Use a valid calendar date in YYYY-MM-DD format.");
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const leapYear = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
+  const monthLengths = [31, leapYear ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+  if (year === 0 || month < 1 || month > 12 || day < 1 || day > monthLengths[month - 1]!) {
+    throw new CliError("Use a valid calendar date in YYYY-MM-DD format.");
+  }
+  const start = new Date(0);
+  start.setUTCHours(0, 0, 0, 0);
+  start.setUTCFullYear(year, month - 1, day);
+  if (!inclusiveEnd) return BigInt(start.getTime()) * 1000n;
+  start.setUTCDate(start.getUTCDate() + 1);
+  return BigInt(start.getTime()) * 1000n - 1n;
+}
+
+function sessionStartedAt(record: ArchiveRecord): bigint {
+  const startedAt = field(record, "started_at_us");
+  if (/^-?\d+$/u.test(startedAt)) return BigInt(startedAt);
+  return parseIntegerField(field(record, "created_at_us"));
 }
 
 function parseBoundedOption(
