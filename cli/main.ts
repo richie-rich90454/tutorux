@@ -59,6 +59,7 @@ import {
   moveRecordToTrash,
   restoreJournalOrganizerRecord,
   restoreRecordFromTrash,
+  setSessionArchiveState,
   transitionSessionRecord,
   updateJournalOrganizerRecord,
   updateJournalRecords,
@@ -123,9 +124,10 @@ Usage:
   tutorux --archive <file.tux> student progress <student-id> [--json]
   tutorux --archive <file.tux> student progress-review <student-id> --skill <name> --classification <value> --evidence-ids <uuid,...> --reviewed-by <name> [--note <text>]
   tutorux --archive <file.tux> session create --title <title> --subject <subject> [--student <uuid>]
-  tutorux --archive <file.tux> session list [--json]
+  tutorux --archive <file.tux> session list [--archived|--unarchived] [--include-deleted] [--json]
   tutorux --archive <file.tux> session update <uuid> [--title <title>] [--subject <subject>] [--objectives <text>] [--student-id <uuid>] [--notes <text>]
   tutorux --archive <file.tux> session clone <uuid> [--title <title>] [--type notes-only|record-audio|import-recording]
+  tutorux --archive <file.tux> session archive|unarchive <uuid>
   tutorux --archive <file.tux> session start|complete|review|resume <uuid>
   tutorux --archive <file.tux> session delete <uuid> [--dry-run] [--confirm-scope --scope-token <token>]
   tutorux --archive <file.tux> session restore <uuid>
@@ -415,9 +417,12 @@ async function runRecordCommand(
     const role = group === "journal" ? "journal-entry" : undefined;
     const snapshot = await openForCommand(path);
     try {
-      const records = (await snapshot.listRecords(type, args.flags.has("include-deleted"))).filter(
+      let records = (await snapshot.listRecords(type, args.flags.has("include-deleted"))).filter(
         (record) => !role || field(record, "record_role") === role,
       );
+      if (group === "session" && (args.flags.has("unarchived") || !args.flags.has("archived"))) {
+        records = records.filter((record) => field(record, "archived") !== "true");
+      }
       const rows = records.map(toPlainRecord);
       emit(
         output,
@@ -3044,6 +3049,36 @@ async function runExtendedRecordCommand(
       output,
       toPlainRecord(session),
       `Cloned session ${sessionId} as ${field(session, "title")} (${session.id}).`,
+      json,
+    );
+    return 0;
+  }
+
+  if (group === "session" && (action === "archive" || action === "unarchive")) {
+    const sessionId = requiredPosition(args, 0, "session ID");
+    const snapshot = await openForCommand(path);
+    let updated: ArchiveRecord;
+    let expectedGeneration = 0n;
+    try {
+      expectedGeneration = snapshot.commit.generation;
+      const current = await requireLiveRecord(snapshot, RecordType.session, sessionId);
+      updated = setSessionArchiveState(current, action === "archive");
+    } finally {
+      await closeSnapshot(snapshot);
+    }
+    const [saved] = await mutateArchive(
+      path,
+      [updated],
+      expectedGeneration,
+      "The archive changed while this session archive state was being updated. Retry the command.",
+    );
+    const session = saved ?? updated;
+    emit(
+      output,
+      toPlainRecord(session),
+      action === "archive"
+        ? `Archived session ${sessionId}.`
+        : `Returned session ${sessionId} to current sessions.`,
       json,
     );
     return 0;
