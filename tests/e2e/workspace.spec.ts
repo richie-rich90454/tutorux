@@ -115,6 +115,21 @@ test("creates, updates, exports, and reopens a portable tutoring workspace", asy
   await page.getByLabel("Cue text").fill("The word <balance> is one step & clear.");
   await page.getByLabel("Speaker").fill("Tutor");
   await page.getByRole("button", { name: "Save correction" }).click();
+  await page.getByRole("button", { name: "View history" }).click();
+  await expect(page.getByLabel("Transcript cue version history")).toContainText(
+    "We can use a balance model.",
+  );
+  await page.getByRole("button", { name: "Restore version 1" }).click();
+  await expect(page.locator(".transcript-cue-text")).toHaveText("We can use a balance model.");
+  await page.getByRole("button", { name: "View history" }).click();
+  await expect(page.getByLabel("Transcript cue version history")).toContainText(
+    "2 earlier versions",
+  );
+  await page.getByRole("button", { name: "Hide history" }).click();
+  await page.getByRole("button", { name: "Correct cue" }).click();
+  await page.getByLabel("Cue text").fill("The word <balance> is one step & clear.");
+  await page.getByLabel("Speaker").fill("Tutor");
+  await page.getByRole("button", { name: "Save correction" }).click();
   await page.getByRole("button", { name: "Mark verified" }).click();
   await expect(page.getByText("Human verified", { exact: true })).toBeVisible();
 
