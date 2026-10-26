@@ -101,6 +101,98 @@
   height: 14px;
   accent-color: var(--accent);
 }
+.transcript-capture-panel {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) minmax(210px, auto) auto;
+  align-items: center;
+  gap: 13px 18px;
+  margin: 0 0 14px;
+  padding: 15px 17px;
+  border: 1px solid color-mix(in srgb, var(--accent) 19%, var(--line));
+  border-radius: var(--radius);
+  background: linear-gradient(
+    105deg,
+    color-mix(in srgb, var(--accent-soft) 48%, var(--surface)),
+    var(--surface) 72%
+  );
+}
+.transcript-capture-copy {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+.transcript-capture-copy strong {
+  color: var(--ink);
+  font-size: 10px;
+  font-weight: 650;
+}
+.transcript-capture-copy > span:last-child,
+.transcript-capture-note {
+  color: var(--muted);
+  font-size: 8px;
+  line-height: 1.5;
+}
+.transcript-capture-consent {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--ink-soft);
+  font-size: 9px;
+  line-height: 1.45;
+}
+.transcript-capture-consent input {
+  width: 15px;
+  height: 15px;
+  flex: 0 0 auto;
+  accent-color: var(--accent);
+}
+.transcript-capture-state {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 13px;
+}
+.transcript-capture-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+}
+.transcript-capture-live {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--danger);
+  font-size: 9px;
+  font-weight: 650;
+}
+.transcript-capture-live i {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--danger);
+  box-shadow: 0 0 0 4px var(--danger-soft);
+  animation: capture-pulse 1.5s ease-in-out infinite;
+}
+.transcript-capture-live strong {
+  font-variant-numeric: tabular-nums;
+}
+.transcript-capture-saving {
+  color: var(--muted);
+  font-size: 9px;
+}
+.transcript-capture-note,
+.transcript-capture-error {
+  grid-column: 1 / -1;
+}
+.transcript-capture-error {
+  color: var(--danger);
+  font-size: 9px;
+}
+@keyframes capture-pulse {
+  50% {
+    box-shadow: 0 0 0 7px color-mix(in srgb, var(--danger-soft) 55%, transparent);
+  }
+}
 .transcript-list-shell {
   overflow: hidden;
 }
@@ -441,6 +533,12 @@
   .transcript-audio-panel audio {
     grid-column: 1 / -1;
   }
+  .transcript-capture-panel {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+  .transcript-capture-copy {
+    grid-column: 1 / -1;
+  }
 }
 
 @media (max-width: 650px) {
@@ -463,5 +561,22 @@
   }
   .transcript-audio-panel audio {
     grid-column: auto;
+  }
+  .transcript-capture-panel {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 11px;
+    padding: 14px;
+  }
+  .transcript-capture-copy,
+  .transcript-capture-note,
+  .transcript-capture-error {
+    grid-column: auto;
+  }
+  .transcript-capture-actions {
+    justify-content: flex-start;
+  }
+  .transcript-capture-state {
+    justify-content: flex-start;
+    flex-wrap: wrap;
   }
 }
