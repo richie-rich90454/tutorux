@@ -119,7 +119,8 @@ Usage:
   tutorux archive info <file.tux> [--json]
   tutorux archive verify <file.tux> [--json]
   tutorux --archive <file.tux> student create --name <name> [--grade <grade>] [--difficulties <text>] [--demonstrated-improvements <text>] [--preferred-guide-template <id>]
-  tutorux --archive <file.tux> student list [--json]
+  tutorux --archive <file.tux> student list [--include-deleted] [--json]
+  tutorux --archive <file.tux> student show <uuid> [--json]
   tutorux --archive <file.tux> student history <student-id> [--json]
   tutorux --archive <file.tux> student progress <student-id> [--json]
   tutorux --archive <file.tux> student progress-review <student-id> --skill <name> --classification <value> --evidence-ids <uuid,...> --reviewed-by <name> [--note <text>]
@@ -465,6 +466,7 @@ async function runRecordCommand(
         }
       }
       const rows = records.map((record) => {
+        if (group === "student") return studentProfileObject(record);
         const row = toPlainRecord(record);
         if (group !== "session") return row;
         const audioChunkCount = record.fields.get("recording_audio_chunks") ?? "0";
@@ -501,14 +503,25 @@ async function runRecordCommand(
                   `${record.id}  ${field(record, "subject")} · ${field(record, "title")}  [${field(record, "processing_state")}]`,
               )
               .join("\n");
+      const studentSummary =
+        records.length === 0
+          ? "No students in this archive."
+          : records
+              .map(
+                (record) =>
+                  `${record.id}  ${field(record, "display_name")}  ${field(record, "grade")}`,
+              )
+              .join("\n");
       emit(
         output,
         rows,
         group === "session"
           ? sessionSummary
-          : rows.length === 0
-            ? `No ${group} records.`
-            : `${rows.length} ${group} record${rows.length === 1 ? "" : "s"}.`,
+          : group === "student"
+            ? studentSummary
+            : rows.length === 0
+              ? `No ${group} records.`
+              : `${rows.length} ${group} record${rows.length === 1 ? "" : "s"}.`,
         args.flags.has("json"),
       );
       return 0;
@@ -2606,6 +2619,19 @@ async function runExtendedRecordCommand(
         ? RecordType.session
         : RecordType.settings;
 
+  if (group === "student" && action === "show") {
+    const studentId = requiredPosition(args, 0, "student ID").toLowerCase();
+    const snapshot = await openForCommand(path);
+    let student: ArchiveRecord;
+    try {
+      student = await requireLiveRecord(snapshot, RecordType.student, studentId);
+    } finally {
+      await closeSnapshot(snapshot);
+    }
+    emit(output, studentProfileObject(student), readableStudentRecord(student), json);
+    return 0;
+  }
+
   if (group === "session" && action === "show") {
     const sessionId = requiredPosition(args, 0, "session ID").toLowerCase();
     const snapshot = await openForCommand(path);
@@ -3578,6 +3604,27 @@ function requiredOption(args: ParsedArguments, name: string): string {
 
 function field(record: ArchiveRecord, name: string): string {
   return record.fields.get(name) ?? "";
+}
+
+function studentProfileObject(record: ArchiveRecord): Record<string, unknown> {
+  const fields = Object.fromEntries(record.fields);
+  delete fields.progress_classifications;
+  return {
+    id: record.id.toLowerCase(),
+    type: "student",
+    revision: record.revision.toString(),
+    ...fields,
+  };
+}
+
+function readableStudentRecord(record: ArchiveRecord): string {
+  return [
+    `student ${record.id} (revision ${record.revision})`,
+    ...[...record.fields]
+      .filter(([key]) => key !== "progress_classifications")
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, value]) => `  ${key}: ${value}`),
+  ].join("\n");
 }
 
 function readableSessionRecord(record: ArchiveRecord): string {
