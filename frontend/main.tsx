@@ -21,7 +21,7 @@ import {
 } from "./archive/archive";
 import { ArchiveFormatError, RecordType, type ArchiveRecord } from "./archive/format";
 import type { ArchiveByteSource } from "./archive/source";
-import { makeAssetImport, readAssetBytes } from "./domain/assets";
+import { MAX_ASSET_BYTES, makeAssetImport, readAssetBytes } from "./domain/assets";
 import {
   buildAudioTrackWavStream,
   buildAudioPreview,
@@ -170,6 +170,7 @@ type IconName =
   | "archive"
   | "settings"
   | "plus"
+  | "microphone"
   | "search"
   | "sun"
   | "moon"
@@ -929,6 +930,51 @@ function App(): JSX.Element {
     }
   }
 
+  async function importCapturedAudio(
+    file: File,
+    sessionId: string,
+    consentAtUs: string,
+  ): Promise<void> {
+    const state = workspace();
+    if (!state || state.snapshot.locked) {
+      announce("Open and unlock an archive before saving a recording.", "error");
+      return;
+    }
+    if (!state.sessions.some((session) => session.id.toLowerCase() === sessionId.toLowerCase())) {
+      announce("The selected session is no longer available. Choose another session.", "error");
+      return;
+    }
+    if (file.size > MAX_ASSET_BYTES) {
+      announce("Recordings are limited to 256 MiB in this version.", "error");
+      return;
+    }
+    setBusy(true);
+    try {
+      const imported = await makeAssetImport(state.snapshot, file, sessionId);
+      const fields = new Map(imported.metadata.fields);
+      const mimeType = field(imported.metadata, "mime_type");
+      if (mimeType === "video/webm" && file.name.toLowerCase().endsWith(".webm")) {
+        fields.set("mime_type", "audio/webm");
+      }
+      if (!mimeType.startsWith("audio/") && mimeType !== "video/webm") {
+        throw new Error("The recording format is not recognized as audio.");
+      }
+      fields.set("capture_source", "browser-microphone");
+      fields.set("capture_consent_at_us", consentAtUs);
+      fields.set("capture_consent_policy", "1");
+      const records = imported.records.map((record) =>
+        record.type === RecordType.assetMetadata && record.id === imported.metadata.id
+          ? { ...record, fields }
+          : record,
+      );
+      await addRecords(records, `Saved ${file.name} as a session audio material.`);
+    } catch (error) {
+      announce(errorMessage(error), "error");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function exportAsset(record: ArchiveRecord): Promise<void> {
     const state = workspace();
     if (!state || state.snapshot.locked) {
@@ -1500,6 +1546,9 @@ function App(): JSX.Element {
                     onImport={(file, sessionId) => void importTranscript(file, sessionId)}
                     onImportAudio={(file, sessionId, allowAdditionalTrack) =>
                       void importWave(file, sessionId, allowAdditionalTrack)
+                    }
+                    onRecordAudio={(file, sessionId, consentAtUs) =>
+                      importCapturedAudio(file, sessionId, consentAtUs)
                     }
                     onExportAudio={(sessionId, trackId, label) =>
                       void exportAudioTrack(sessionId, trackId, label)
@@ -3559,6 +3608,7 @@ function TranscriptPage(props: {
   onNewSession: () => void;
   onImport: (file: File, sessionId: string) => void;
   onImportAudio: (file: File, sessionId: string, allowAdditionalTrack: boolean) => void;
+  onRecordAudio: (file: File, sessionId: string, consentAtUs: string) => Promise<void>;
   onExportAudio: (sessionId: string, trackId: string, label: string) => void;
   onExport: (sessionId: string, format: TranscriptExportFormat) => void;
   onSave: (
@@ -3584,6 +3634,12 @@ function TranscriptPage(props: {
   const [trackId, setTrackId] = createSignal("");
   const [addSeparateTrack, setAddSeparateTrack] = createSignal(false);
   const [selectedCueIds, setSelectedCueIds] = createSignal<string[]>([]);
+  const [captureConsent, setCaptureConsent] = createSignal(false);
+  const [captureState, setCaptureState] = createSignal<
+    "idle" | "requesting" | "recording" | "saving"
+  >("idle");
+  const [captureElapsed, setCaptureElapsed] = createSignal(0);
+  const [captureError, setCaptureError] = createSignal("");
   const [audioUrl, setAudioUrl] = createSignal<string | null>(null);
   const [playbackError, setPlaybackError] = createSignal("");
   const selectedSession = createMemo(
@@ -3641,6 +3697,16 @@ function TranscriptPage(props: {
   let audioFileInput: HTMLInputElement | undefined;
   let audioPlayer: HTMLAudioElement | undefined;
   let currentAudioUrl: string | null = null;
+  let captureRecorder: MediaRecorder | undefined;
+  let captureStream: MediaStream | undefined;
+  let captureChunks: Blob[] = [];
+  let captureTimer: number | undefined;
+  let captureByteCount = 0;
+  let captureStartedAt = 0;
+  let captureConsentAtUs = "";
+  let captureExceededLimit = false;
+  let captureFailed = false;
+  let captureCancelled = false;
 
   function clearAudio(): void {
     if (currentAudioUrl) URL.revokeObjectURL(currentAudioUrl);
@@ -3649,7 +3715,179 @@ function TranscriptPage(props: {
     setPlaybackError("");
   }
 
-  onCleanup(clearAudio);
+  onCleanup(() => {
+    captureCancelled = true;
+    clearAudio();
+    if (captureTimer !== undefined) window.clearInterval(captureTimer);
+    if (captureRecorder && captureRecorder.state !== "inactive") {
+      try {
+        captureRecorder.stop();
+      } catch {
+        captureStream?.getTracks().forEach((track) => track.stop());
+      }
+    }
+    captureStream?.getTracks().forEach((track) => track.stop());
+  });
+
+  const microphoneAvailable = () =>
+    typeof navigator !== "undefined" &&
+    Boolean(navigator.mediaDevices?.getUserMedia) &&
+    typeof MediaRecorder !== "undefined";
+
+  function resetCapture(): void {
+    if (captureTimer !== undefined) window.clearInterval(captureTimer);
+    captureTimer = undefined;
+    captureStream?.getTracks().forEach((track) => track.stop());
+    captureStream = undefined;
+    captureRecorder = undefined;
+    captureChunks = [];
+    captureByteCount = 0;
+    setCaptureElapsed(0);
+    setCaptureState("idle");
+  }
+
+  async function finishCapture(
+    sessionId: string,
+    sessionTitle: string,
+    mimeType: string,
+  ): Promise<void> {
+    setCaptureState("saving");
+    if (captureTimer !== undefined) window.clearInterval(captureTimer);
+    captureTimer = undefined;
+    captureStream?.getTracks().forEach((track) => track.stop());
+    captureStream = undefined;
+
+    if (captureExceededLimit || captureFailed) {
+      resetCapture();
+      return;
+    }
+    const blob = new Blob(captureChunks, { type: mimeType });
+    if (blob.size === 0) {
+      setCaptureError("The microphone did not produce an audio recording.");
+      resetCapture();
+      return;
+    }
+    if (blob.size > MAX_ASSET_BYTES) {
+      setCaptureError("This recording exceeds the 256 MiB limit and was not saved.");
+      resetCapture();
+      return;
+    }
+
+    const normalizedMimeType = blob.type || mimeType;
+    const baseMimeType = normalizedMimeType.split(";", 1)[0]?.toLowerCase() ?? "";
+    const extension = baseMimeType.includes("ogg")
+      ? "ogg"
+      : baseMimeType.includes("mp4")
+        ? "m4a"
+        : baseMimeType.includes("wav")
+          ? "wav"
+          : "webm";
+    const dateStamp = new Date(captureStartedAt).toISOString().replace(/[:.]/gu, "-");
+    const file = new File(
+      [blob],
+      `${safeFileName(sessionTitle)}-recording-${dateStamp}.${extension}`,
+      {
+        type: normalizedMimeType,
+      },
+    );
+    setCaptureState("saving");
+    try {
+      await props.onRecordAudio(file, sessionId, captureConsentAtUs);
+    } finally {
+      resetCapture();
+    }
+  }
+
+  async function startCapture(): Promise<void> {
+    const session = selectedSession();
+    if (!session || !captureConsent()) return;
+    setCaptureError("");
+    if (!microphoneAvailable()) {
+      setCaptureError("Microphone recording is not available in this window.");
+      return;
+    }
+
+    setCaptureState("requesting");
+    captureCancelled = false;
+    let stream: MediaStream | undefined;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: true, noiseSuppression: true },
+        video: false,
+      });
+      if (captureCancelled) {
+        stream.getTracks().forEach((track) => track.stop());
+        return;
+      }
+      const preferredMimeType = [
+        "audio/webm;codecs=opus",
+        "audio/ogg;codecs=opus",
+        "audio/mp4",
+        "audio/webm",
+      ].find((mimeType) => MediaRecorder.isTypeSupported(mimeType));
+      const recorder = preferredMimeType
+        ? new MediaRecorder(stream, { mimeType: preferredMimeType })
+        : new MediaRecorder(stream);
+      const mimeType = recorder.mimeType || preferredMimeType || "";
+      if (!mimeType) throw new Error("This system does not provide a supported audio format.");
+
+      captureStream = stream;
+      captureRecorder = recorder;
+      captureChunks = [];
+      captureByteCount = 0;
+      captureExceededLimit = false;
+      captureFailed = false;
+      captureStartedAt = Date.now();
+      setCaptureElapsed(0);
+      captureConsentAtUs = (BigInt(captureStartedAt) * 1000n).toString();
+      recorder.ondataavailable = (event) => {
+        if (event.data.size === 0) return;
+        captureByteCount += event.data.size;
+        if (captureByteCount > MAX_ASSET_BYTES) {
+          captureExceededLimit = true;
+          setCaptureError("Recording reached the 256 MiB limit and is stopping.");
+          if (recorder.state !== "inactive") recorder.stop();
+          return;
+        }
+        captureChunks.push(event.data);
+      };
+      recorder.onerror = () => {
+        captureFailed = true;
+        setCaptureError("The microphone recorder stopped unexpectedly. Try again.");
+        if (recorder.state !== "inactive") recorder.stop();
+      };
+      recorder.onstop = () => {
+        void finishCapture(session.id, field(session, "title", "Tutoring session"), mimeType);
+      };
+      recorder.start(1000);
+      setCaptureState("recording");
+      captureTimer = window.setInterval(
+        () => setCaptureElapsed(Math.floor((Date.now() - captureStartedAt) / 1000)),
+        250,
+      );
+    } catch (error) {
+      stream?.getTracks().forEach((track) => track.stop());
+      captureStream = undefined;
+      captureRecorder = undefined;
+      if (captureCancelled) return;
+      setCaptureState("idle");
+      const name = error instanceof DOMException ? error.name : "";
+      setCaptureError(
+        name === "NotAllowedError" || name === "SecurityError"
+          ? "Microphone access was denied. Allow it in your system privacy settings and try again."
+          : name === "NotFoundError"
+            ? "No microphone was found. Connect a microphone and try again."
+            : errorMessage(error),
+      );
+    }
+  }
+
+  function stopCapture(): void {
+    const recorder = captureRecorder;
+    if (!recorder || recorder.state === "inactive") return;
+    setCaptureState("saving");
+    recorder.stop();
+  }
 
   async function playFromCue(record: ArchiveRecord): Promise<void> {
     const session = selectedSession();
@@ -3726,11 +3964,14 @@ function TranscriptPage(props: {
           <span class="eyebrow">SESSION</span>
           <select
             value={selectedSession()?.id ?? ""}
-            disabled={props.sessions.length === 0}
+            disabled={props.sessions.length === 0 || captureState() !== "idle"}
             onChange={(event) => {
               clearAudio();
               setAddSeparateTrack(false);
               setSelectedCueIds([]);
+              setCaptureConsent(false);
+              setCaptureError("");
+              setCaptureElapsed(0);
               props.onSelectSession(event.currentTarget.value);
             }}
             aria-label="Transcript session"
@@ -3820,6 +4061,82 @@ function TranscriptPage(props: {
             Export
           </button>
         </div>
+      </section>
+
+      <section class="transcript-capture-panel" aria-label="Microphone recording">
+        <div class="transcript-capture-copy">
+          <span class="eyebrow">SESSION AUDIO</span>
+          <strong>Record from microphone</strong>
+          <span>
+            Saved locally as an audio material for playback, export, or cue links. Recording stops
+            and saves when you leave this view.
+          </span>
+        </div>
+        <label class="transcript-capture-consent">
+          <input
+            type="checkbox"
+            checked={captureConsent()}
+            disabled={props.disabled || captureState() !== "idle"}
+            onChange={(event) => setCaptureConsent(event.currentTarget.checked)}
+          />
+          <span>I have permission to record this session</span>
+        </label>
+        <div class="transcript-capture-state">
+          <Show when={captureState() === "recording"}>
+            <span class="transcript-capture-live" role="timer" aria-live="off">
+              <i aria-hidden="true" />
+              Recording
+              <strong>
+                {`${Math.floor(captureElapsed() / 60)
+                  .toString()
+                  .padStart(2, "0")}:${(captureElapsed() % 60).toString().padStart(2, "0")}`}
+              </strong>
+            </span>
+          </Show>
+          <div class="transcript-capture-actions">
+            <Show when={captureState() === "idle"}>
+              <button
+                class="button button-primary"
+                type="button"
+                disabled={
+                  props.disabled ||
+                  !selectedSession() ||
+                  !captureConsent() ||
+                  !microphoneAvailable()
+                }
+                onClick={() => void startCapture()}
+              >
+                <Icon name="microphone" />
+                Record
+              </button>
+            </Show>
+            <Show when={captureState() === "recording"}>
+              <button class="button button-danger" type="button" onClick={stopCapture}>
+                Stop and save
+              </button>
+            </Show>
+            <Show when={captureState() === "saving"}>
+              <span class="transcript-capture-saving" role="status" aria-live="polite">
+                Saving recording…
+              </span>
+            </Show>
+            <Show when={captureState() === "requesting"}>
+              <span class="transcript-capture-saving" role="status" aria-live="polite">
+                Waiting for microphone permission…
+              </span>
+            </Show>
+          </div>
+        </div>
+        <Show when={!microphoneAvailable()}>
+          <span class="transcript-capture-note">
+            Microphone recording is not available in this window.
+          </span>
+        </Show>
+        <Show when={captureError()}>
+          <span class="transcript-capture-error" role="alert">
+            {captureError()}
+          </span>
+        </Show>
       </section>
 
       <Show when={sessionTracks().length > 0}>
@@ -5956,6 +6273,12 @@ function Icon(props: { name: IconName }): JSX.Element {
         </>
       )}
       {props.name === "plus" && <path d="M12 5v14M5 12h14" />}
+      {props.name === "microphone" && (
+        <>
+          <rect x="9" y="3" width="6" height="12" rx="3" />
+          <path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21M9 21h6" />
+        </>
+      )}
       {props.name === "search" && (
         <>
           <circle cx="10.8" cy="10.8" r="6.8" />
