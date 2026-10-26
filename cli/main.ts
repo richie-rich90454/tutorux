@@ -455,13 +455,59 @@ async function runRecordCommand(
           return leftStartedAt > rightStartedAt ? -1 : leftStartedAt < rightStartedAt ? 1 : 0;
         });
       }
-      const rows = records.map(toPlainRecord);
+      const transcriptCounts = new Map<string, number>();
+      if (group === "session" && args.flags.has("json")) {
+        for (const transcript of await snapshot.listRecords(RecordType.transcriptSegment)) {
+          const sessionId = canonicalizeProgressUuid(field(transcript, "session_id"));
+          if (sessionId)
+            transcriptCounts.set(sessionId, (transcriptCounts.get(sessionId) ?? 0) + 1);
+        }
+      }
+      const rows = records.map((record) => {
+        const row = toPlainRecord(record);
+        if (group !== "session") return row;
+        const audioChunkCount = record.fields.get("recording_audio_chunks") ?? "0";
+        const audioDuration = record.fields.get("recording_duration_us") ?? "0";
+        const transcriptSegmentCount = transcriptCounts.get(record.id.toLowerCase()) ?? 0;
+        return {
+          ...row,
+          entry_id: field(record, "entry_id"),
+          notes_document_id: field(record, "notes_document_id"),
+          session_id: record.id,
+          title: record.fields.get("title") ?? "Untitled session",
+          session_type:
+            record.fields.get("session_type") ??
+            (field(record, "recording_state") === "not-started" ? "notes-only" : "record-audio"),
+          session_state: record.fields.get("session_state") ?? "active",
+          recording_state: record.fields.get("recording_state") ?? "not-started",
+          started_at_us:
+            record.fields.get("started_at_us") ?? record.fields.get("created_at_us") ?? "0",
+          ended_at_us: record.fields.get("ended_at_us") ?? "0",
+          reviewed_at_us: record.fields.get("reviewed_at_us") ?? "0",
+          audio_chunk_count: audioChunkCount,
+          audio_duration_us: audioDuration,
+          has_audio: audioChunkCount !== "0" || audioDuration !== "0" ? "true" : "false",
+          transcript_segment_count: String(transcriptSegmentCount),
+          has_transcript: transcriptSegmentCount > 0 ? "true" : "false",
+        };
+      });
+      const sessionSummary =
+        records.length === 0
+          ? "No sessions in this archive."
+          : records
+              .map(
+                (record) =>
+                  `${record.id}  ${field(record, "subject")} · ${field(record, "title")}  [${field(record, "processing_state")}]`,
+              )
+              .join("\n");
       emit(
         output,
         rows,
-        rows.length === 0
-          ? `No ${group} records.`
-          : `${rows.length} ${group} record${rows.length === 1 ? "" : "s"}.`,
+        group === "session"
+          ? sessionSummary
+          : rows.length === 0
+            ? `No ${group} records.`
+            : `${rows.length} ${group} record${rows.length === 1 ? "" : "s"}.`,
         args.flags.has("json"),
       );
       return 0;
