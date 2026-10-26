@@ -72,6 +72,8 @@ npm run cli -- --archive Lesson.tux session list --archived --json
 npm run cli -- --archive Lesson.tux session list --student-id <student-uuid> --from 2026-01-01 --to 2026-01-31 --json
 npm run cli -- --archive Lesson.tux session list --entry-id <journal-entry-uuid> --unarchived --json
 npm run cli -- --archive Lesson.tux session unarchive <session-uuid>
+npm run cli -- --archive Lesson.tux session show <session-uuid> --json
+npm run cli -- --archive Lesson.tux session verify <session-uuid> --json
 npm run cli -- --archive Lesson.tux transcript import --session <uuid> --input lesson.srt
 npm run cli -- --archive Lesson.tux transcript export --session <uuid> --output lesson.vtt --format vtt
 npm run cli -- --archive Lesson.tux annotation add --session <uuid> --type important-concept --at 00:01:20 --text "Scale both parts by the same factor"
