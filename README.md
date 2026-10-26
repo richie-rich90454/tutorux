@@ -69,6 +69,8 @@ npm run cli -- --archive Lesson.tux session delete <session-uuid> --confirm-scop
 npm run cli -- --archive Lesson.tux session restore <session-uuid>
 npm run cli -- --archive Lesson.tux session archive <session-uuid>
 npm run cli -- --archive Lesson.tux session list --archived --json
+npm run cli -- --archive Lesson.tux session list --student-id <student-uuid> --from 2026-01-01 --to 2026-01-31 --json
+npm run cli -- --archive Lesson.tux session list --entry-id <journal-entry-uuid> --unarchived --json
 npm run cli -- --archive Lesson.tux session unarchive <session-uuid>
 npm run cli -- --archive Lesson.tux transcript import --session <uuid> --input lesson.srt
 npm run cli -- --archive Lesson.tux transcript export --session <uuid> --output lesson.vtt --format vtt
