@@ -763,6 +763,17 @@ function App(): JSX.Element {
     }
   }
 
+  async function getTranscriptHistory(record: ArchiveRecord): Promise<ArchiveRecord[]> {
+    const state = workspace();
+    if (!state) return [];
+    try {
+      return await state.snapshot.getRecordHistory(RecordType.transcriptSegment, record.id);
+    } catch (error) {
+      announce(errorMessage(error), "error");
+      return [];
+    }
+  }
+
   async function restoreAnnotationRevision(
     record: ArchiveRecord,
     historyIndex: number,
@@ -1065,6 +1076,38 @@ function App(): JSX.Element {
       );
     } catch (error) {
       announce(errorMessage(error), "error");
+    }
+  }
+
+  async function restoreTranscriptRevision(
+    record: ArchiveRecord,
+    historyIndex: number,
+  ): Promise<boolean> {
+    const state = workspace();
+    if (!state) return false;
+    try {
+      if (!Number.isInteger(historyIndex) || historyIndex < 1 || historyIndex > 10_000) {
+        throw new Error("Choose an earlier transcript version to restore.");
+      }
+      const history = await state.snapshot.getRecordHistory(
+        RecordType.transcriptSegment,
+        record.id,
+        historyIndex + 1,
+      );
+      const revision = history[historyIndex];
+      if (!revision) throw new Error("That transcript version could not be found.");
+      const fields = new Map(revision.fields);
+      fields.delete("_deleted");
+      fields.delete("deleted_at_us");
+      fields.set("restored_from_revision", historyIndex.toString());
+      fields.set("updated_at_us", (BigInt(Date.now()) * 1000n).toString());
+      return await addRecords(
+        [{ ...revision, fields }],
+        `Transcript cue restored from version ${historyIndex}.`,
+      );
+    } catch (error) {
+      announce(errorMessage(error), "error");
+      return false;
     }
   }
 
@@ -1464,6 +1507,8 @@ function App(): JSX.Element {
                     onExport={(sessionId, format) => void exportTranscript(sessionId, format)}
                     onSave={saveTranscriptCue}
                     onVerify={verifyTranscriptCue}
+                    onHistory={getTranscriptHistory}
+                    onRestore={restoreTranscriptRevision}
                     onSplit={splitTranscriptCue}
                     onMerge={mergeTranscriptCues}
                     onLinkAssets={linkTranscriptAssets}
@@ -3524,6 +3569,8 @@ function TranscriptPage(props: {
     speaker: string,
   ) => void;
   onVerify: (record: ArchiveRecord) => void;
+  onHistory: (record: ArchiveRecord) => Promise<ArchiveRecord[]>;
+  onRestore: (record: ArchiveRecord, historyIndex: number) => Promise<boolean>;
   onSplit: (
     record: ArchiveRecord,
     beforeText: string,
@@ -3898,6 +3945,8 @@ function TranscriptPage(props: {
                     }
                     onSave={props.onSave}
                     onVerify={props.onVerify}
+                    onHistory={props.onHistory}
+                    onRestore={props.onRestore}
                     onSplit={props.onSplit}
                     onLinkAssets={props.onLinkAssets}
                   />
@@ -3928,6 +3977,8 @@ function TranscriptCueCard(props: {
     speaker: string,
   ) => void;
   onVerify: (record: ArchiveRecord) => void;
+  onHistory: (record: ArchiveRecord) => Promise<ArchiveRecord[]>;
+  onRestore: (record: ArchiveRecord, historyIndex: number) => Promise<boolean>;
   onSplit: (
     record: ArchiveRecord,
     beforeText: string,
@@ -3939,6 +3990,8 @@ function TranscriptCueCard(props: {
   const [editing, setEditing] = createSignal(false);
   const [splitting, setSplitting] = createSignal(false);
   const [linkingAssets, setLinkingAssets] = createSignal(false);
+  const [history, setHistory] = createSignal<ArchiveRecord[] | null>(null);
+  const [historyLoading, setHistoryLoading] = createSignal(false);
   const [text, setText] = createSignal("");
   const [start, setStart] = createSignal("");
   const [end, setEnd] = createSignal("");
@@ -3968,6 +4021,24 @@ function TranscriptCueCard(props: {
           ? "Needs review"
           : "Provisional",
   );
+
+  async function toggleHistory(): Promise<void> {
+    if (history() !== null) {
+      setHistory(null);
+      return;
+    }
+    setHistoryLoading(true);
+    try {
+      setHistory(await props.onHistory(props.record));
+    } finally {
+      setHistoryLoading(false);
+    }
+  }
+
+  async function restoreRevision(historyIndex: number): Promise<void> {
+    if (!(await props.onRestore(props.record, historyIndex))) return;
+    setHistory(await props.onHistory(props.record));
+  }
 
   function beginEditing(): void {
     setText(field(props.record, "text"));
@@ -4098,6 +4169,21 @@ function TranscriptCueCard(props: {
                 : `Materials${linkedAssetIds().length ? ` (${linkedAssetIds().length})` : ""}`}
             </button>
           </Show>
+          <Show when={props.record.previousOffset > 0n}>
+            <button
+              class="button button-quiet record-action"
+              type="button"
+              disabled={historyLoading()}
+              aria-expanded={history() !== null}
+              onClick={() => void toggleHistory()}
+            >
+              {historyLoading()
+                ? "Loading history…"
+                : history() === null
+                  ? "View history"
+                  : "Hide history"}
+            </button>
+          </Show>
           <Show when={verification() !== "human-verified"}>
             <button
               class="button button-quiet record-action"
@@ -4109,6 +4195,56 @@ function TranscriptCueCard(props: {
             </button>
           </Show>
         </div>
+        <Show when={history() !== null}>
+          <section class="transcript-history-panel" aria-label="Transcript cue version history">
+            <div class="transcript-history-heading">
+              <span class="eyebrow">VERSION HISTORY</span>
+              <span>{Math.max(0, (history()?.length ?? 1) - 1)} earlier versions</span>
+            </div>
+            <Show
+              when={(history()?.length ?? 0) > 1}
+              fallback={
+                <p class="transcript-history-empty">This transcript cue has no earlier versions.</p>
+              }
+            >
+              <div class="transcript-history-list">
+                <For
+                  each={(history()?.slice(1) ?? []).map((revision, index) => ({
+                    revision,
+                    historyIndex: index + 1,
+                  }))}
+                >
+                  {(entry) => (
+                    <article class="transcript-history-entry">
+                      <div>
+                        <strong>Version {entry.historyIndex}</strong>
+                        <small>
+                          {formatTimestamp(
+                            field(
+                              entry.revision,
+                              "updated_at_us",
+                              field(entry.revision, "created_at_us"),
+                            ),
+                          )}
+                          {field(entry.revision, "_deleted") === "true" ? " · removed" : ""}
+                        </small>
+                      </div>
+                      <p>{field(entry.revision, "text")}</p>
+                      <button
+                        class="button button-outline record-action"
+                        type="button"
+                        disabled={props.disabled}
+                        onClick={() => void restoreRevision(entry.historyIndex)}
+                      >
+                        Restore version {entry.historyIndex}
+                      </button>
+                    </article>
+                  )}
+                </For>
+              </div>
+            </Show>
+          </section>
+        </Show>
         <Show when={linkedAssets().length > 0 && !linkingAssets()}>
           <div class="transcript-linked-materials" aria-label="Linked materials">
             <span>Linked materials</span>
