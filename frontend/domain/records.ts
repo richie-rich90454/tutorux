@@ -572,8 +572,8 @@ export function updateSessionRecords(
     notesDocument,
     existingId,
     input.notes,
+    fields.get("entry_id") ?? "",
     sessionId,
-    "",
     timestamp,
   );
   fields.set("notes_document_id", noteDocument.id);
