@@ -1,3 +1,5 @@
+> **Migration reference:** This document describes behavior, implementation, or build details from the former C++/Slint application. It remains useful as a porting specification; current TypeScript coverage is tracked in [the feature inventory](../migration/feature-inventory.md). Historical build commands are not the active TypeScript workflow.
+
 # Guide templates
 
 Tutorux stores custom templates as settings records in the active `.tux` archive. Each template
@@ -8,6 +10,11 @@ Built-in templates cover general tutoring, English, mathematics, science, progra
 language learning. `guide generate` and `ai package` select `auto` by default. Tutorux first uses
 the student's preferred template when it is available, then infers a built-in template from the
 session subject, and falls back to general tutoring.
+
+In the Solid interface, open **Study guides → Manage templates** to create, edit, export, or move a
+custom template to Trash. Imported JSON uses the portable `tutorux-guide-template-v1` format;
+archived templates can be restored from the same panel. Templates are stored in the active archive,
+so they travel with the rest of the tutoring workspace.
 
 Create and edit a template with:
 
