@@ -64,6 +64,7 @@ import {
 } from "./domain/annotations";
 import {
   archiveJournalOrganizerRecord,
+  cloneSessionRecords,
   makeJournalRecords,
   moveRecordToTrash,
   makeSessionRecords,
@@ -144,6 +145,7 @@ interface Workspace {
   trashedSessions: ArchiveRecord[];
   audioTracks: AudioTrackDescriptor[];
   entries: ArchiveRecord[];
+  journals: ArchiveRecord[];
   collections: ArchiveRecord[];
   tags: ArchiveRecord[];
   trashedJournalOrganizers: ArchiveRecord[];
@@ -388,6 +390,7 @@ function App(): JSX.Element {
         trashedSessions: [],
         audioTracks: [],
         entries: [],
+        journals: [],
         collections: [],
         tags: [],
         trashedJournalOrganizers: [],
@@ -456,6 +459,7 @@ function App(): JSX.Element {
       entries: alive(settings).filter(
         (record) => record.fields.get("record_role") === "journal-entry",
       ),
+      journals: alive(settings).filter((record) => record.fields.get("record_role") === "journal"),
       collections: alive(settings).filter(
         (record) => record.fields.get("record_role") === "journal-collection",
       ),
@@ -603,6 +607,29 @@ function App(): JSX.Element {
         resume: "Session resumed.",
       };
       await addRecords([transitionSessionRecord(session, action)], messages[action]);
+    } catch (error) {
+      announce(errorMessage(error), "error");
+    }
+  }
+
+  async function duplicateSession(session: ArchiveRecord): Promise<void> {
+    const current = workspace();
+    if (!current || busy()) return;
+    try {
+      const linkedEntryId = field(session, "entry_id");
+      const linkedEntry = linkedEntryId
+        ? (current.entries.find(
+            (entry) => entry.id.toLowerCase() === linkedEntryId.toLowerCase(),
+          ) ?? null)
+        : null;
+      const records = cloneSessionRecords(session, linkedEntry, {
+        ensureJournalRoot: current.journals.length === 0,
+      });
+      const copy = records[0]!;
+      await addRecords(
+        records,
+        `Session duplicated as “${field(copy, "title", "Untitled session")}”.`,
+      );
     } catch (error) {
       announce(errorMessage(error), "error");
     }
@@ -1656,6 +1683,7 @@ function App(): JSX.Element {
                     onEdit={(record) => editRecord("session", record)}
                     onTrash={(record) => void reviewSessionTrash(record)}
                     onTransition={(record, action) => void transitionSession(record, action)}
+                    onClone={(record) => void duplicateSession(record)}
                   />
                 </Show>
                 <Show when={view() === "transcripts"}>
@@ -3065,6 +3093,7 @@ function RecordPage(props: {
   onEdit?: (record: ArchiveRecord) => void;
   onTrash?: (record: ArchiveRecord) => void;
   onTransition?: (record: ArchiveRecord, action: SessionTransitionAction) => void;
+  onClone?: (record: ArchiveRecord) => void;
   onProgressReview?: (input: {
     student: ArchiveRecord;
     skill: string;
@@ -3290,6 +3319,7 @@ function RecordPage(props: {
                   onEdit={props.state.snapshot.locked ? undefined : props.onEdit}
                   onTrash={props.state.snapshot.locked ? undefined : props.onTrash}
                   onTransition={props.state.snapshot.locked ? undefined : props.onTransition}
+                  onClone={props.state.snapshot.locked ? undefined : props.onClone}
                 />
               )}
             </For>
@@ -3324,6 +3354,7 @@ function RecordCard(props: {
   onEdit: ((record: ArchiveRecord) => void) | undefined;
   onTrash: ((record: ArchiveRecord) => void) | undefined;
   onTransition: ((record: ArchiveRecord, action: SessionTransitionAction) => void) | undefined;
+  onClone: ((record: ArchiveRecord) => void) | undefined;
 }): JSX.Element {
   const record = props.record;
   if (props.kind === "students") {
@@ -3438,6 +3469,7 @@ function RecordCard(props: {
         onEdit={props.onEdit}
         onTrash={props.onTrash}
         onTransition={props.onTransition}
+        onClone={props.onClone}
       />
     );
   if (props.kind === "journal") {
@@ -3727,6 +3759,7 @@ function SessionRow(props: {
   onEdit?: ((record: ArchiveRecord) => void) | undefined;
   onTrash?: ((record: ArchiveRecord) => void) | undefined;
   onTransition?: ((record: ArchiveRecord, action: SessionTransitionAction) => void) | undefined;
+  onClone?: ((record: ArchiveRecord) => void) | undefined;
 }): JSX.Element {
   const student = props.students.find((item) => item.id === field(props.session, "student_id"));
   const sessionState = field(props.session, "session_state", "active");
@@ -3769,7 +3802,11 @@ function SessionRow(props: {
           </Show>
         </div>
       </div>
-      <Show when={props.expanded && (props.onEdit || props.onTrash || props.onTransition)}>
+      <Show
+        when={
+          props.expanded && (props.onEdit || props.onTrash || props.onTransition || props.onClone)
+        }
+      >
         <div class="record-actions session-actions">
           <Show when={props.onTransition && sessionState === "created"}>
             <button
@@ -3822,6 +3859,17 @@ function SessionRow(props: {
               onClick={() => props.onTransition?.(props.session, "resume")}
             >
               Resume
+            </button>
+          </Show>
+          <Show when={props.onClone}>
+            <button
+              class="button button-outline record-action"
+              type="button"
+              title="Create a fresh session from these details"
+              disabled={props.disabled}
+              onClick={() => props.onClone?.(props.session)}
+            >
+              Duplicate
             </button>
           </Show>
           <Show when={props.onEdit}>
