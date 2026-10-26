@@ -127,11 +127,11 @@ Usage:
   tutorux --archive <file.tux> annotation merge <id> <id> [<id>...] [--separator <text>]
   tutorux --archive <file.tux> annotation split <id> --before <text> --after <text> [--at <time>]
   tutorux --archive <file.tux> annotation link|unlink <id> --to asset|evidence --target-id <uuid>
-  tutorux --archive <file.tux> asset import --input <file> [--session <uuid>]
+  tutorux --archive <file.tux> asset add <file> [--session <uuid>] | import --input <file> [--session <uuid>]
   tutorux --archive <file.tux> asset import-folder <directory> [--session <uuid>]
-  tutorux --archive <file.tux> asset list [--include-deleted] [--json]
-  tutorux --archive <file.tux> asset show|verify|remove|restore <id> [--json]
-  tutorux --archive <file.tux> asset export <id> --output <file>
+  tutorux --archive <file.tux> asset list [--session <uuid>] [--include-deleted] [--json]
+  tutorux --archive <file.tux> asset show|preview|verify|remove|restore <id> [--json]
+  tutorux --archive <file.tux> asset extract|export <id> --output <file>
   tutorux --archive <file.tux> asset link|unlink <id> --to annotation|transcript --target-id <uuid>
   tutorux --archive <file.tux> evidence extract --session <uuid>
   tutorux --archive <file.tux> evidence list|review [--session <uuid>] [--json]
@@ -1056,11 +1056,15 @@ async function runAssetCommand(
   output: CliIo,
 ): Promise<number> {
   const json = args.flags.has("json");
-  if (action === "import" || action === "import-folder") {
+  if (action === "import" || action === "add" || action === "import-folder") {
+    const singleImport = action === "import" || action === "add";
     let inputPaths: string[];
-    if (action === "import") {
-      const inputValue = args.options.get("input") ?? args.positionals[0];
-      if (!inputValue) throw new CliError("--input is required.");
+    if (singleImport) {
+      const inputValue =
+        action === "add" ? args.positionals[0] : (args.options.get("input") ?? args.positionals[0]);
+      if (!inputValue) {
+        throw new CliError(action === "add" ? "Source file is required." : "--input is required.");
+      }
       inputPaths = [resolve(inputValue)];
     } else {
       const inputDirectory = resolve(requiredPosition(args, 0, "source directory"));
@@ -1166,7 +1170,7 @@ async function runAssetCommand(
     } finally {
       if (snapshot) await closeSnapshot(snapshot);
     }
-    if (action === "import") {
+    if (singleImport) {
       const imported = importedAssets[0]!;
       emit(
         output,
@@ -1196,7 +1200,19 @@ async function runAssetCommand(
         RecordType.assetMetadata,
         args.flags.has("include-deleted"),
       );
-      const rows = records.map(toPlainRecord);
+      const sessionId = args.options.get("session")?.toLowerCase();
+      const internalRoles = new Set([
+        "audio-track",
+        "recording-take",
+        "waveform-pyramid",
+        "sparse-timestamp-seek-index",
+        "asset-blob-manifest",
+        "asset-blob-chunk",
+      ]);
+      const rows = records
+        .filter((record) => !internalRoles.has(field(record, "record_role")))
+        .filter((record) => sessionId === undefined || field(record, "session_id") === sessionId)
+        .map(toPlainRecord);
       emit(
         output,
         rows,
@@ -1211,7 +1227,7 @@ async function runAssetCommand(
     }
   }
 
-  if (action === "show") {
+  if (action === "show" || action === "preview") {
     const id = requiredPosition(args, 0, "material ID");
     const record = await getLiveRecordAtPath(path, RecordType.assetMetadata, id);
     emit(output, toPlainRecord(record), `Material ${id}.`, json);
@@ -1288,7 +1304,7 @@ async function runAssetCommand(
     }
   }
 
-  if (action === "export") {
+  if (action === "export" || action === "extract") {
     const id = requiredPosition(args, 0, "material ID");
     const outputPath = args.options.get("output");
     if (!outputPath) throw new CliError("--output is required.");
