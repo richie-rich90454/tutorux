@@ -1,0 +1,334 @@
+.evidence-page {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.evidence-heading {
+  align-items: center;
+}
+
+.evidence-session-bar {
+  min-height: 72px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 14px 18px;
+}
+
+.evidence-session-counts {
+  display: flex;
+  align-items: center;
+  gap: 21px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.evidence-session-counts > span {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.evidence-session-counts strong {
+  color: var(--ink-soft);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.evidence-list {
+  display: grid;
+  gap: 11px;
+}
+
+.evidence-card {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 4px minmax(0, 1fr);
+  overflow: hidden;
+}
+
+.evidence-card-rail {
+  background: var(--line);
+}
+
+.evidence-needs-review .evidence-card-rail {
+  background: var(--warning);
+}
+
+.evidence-human-verified .evidence-card-rail {
+  background: var(--success);
+}
+
+.evidence-rejected .evidence-card-rail {
+  background: var(--faint);
+}
+
+.evidence-card-content {
+  min-width: 0;
+  padding: 17px 20px;
+}
+
+.evidence-card-header,
+.evidence-card-labels,
+.evidence-review-actions,
+.evidence-graph-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.evidence-card-labels {
+  justify-content: flex-start;
+}
+
+.evidence-state {
+  padding: 4px 7px;
+  border: 1px solid var(--line-soft);
+  border-radius: 4px;
+  color: var(--muted);
+  background: var(--surface-subtle);
+  font-size: 9px;
+  font-weight: 600;
+}
+
+.evidence-state-needs-review {
+  border-color: color-mix(in srgb, var(--warning) 20%, var(--line));
+  color: var(--warning);
+  background: color-mix(in srgb, var(--warning) 7%, var(--surface));
+}
+
+.evidence-state-human-verified {
+  border-color: color-mix(in srgb, var(--success) 20%, var(--line));
+  color: var(--success);
+  background: color-mix(in srgb, var(--success) 7%, var(--surface));
+}
+
+.evidence-state-rejected {
+  color: var(--faint);
+}
+
+.evidence-type {
+  color: var(--faint);
+  font-size: 10px;
+  text-transform: capitalize;
+}
+
+.evidence-card-content h2 {
+  margin: 12px 0 5px;
+  color: var(--ink);
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 18px;
+  font-weight: 500;
+}
+
+.evidence-content {
+  margin: 0;
+  color: var(--ink-soft);
+  font-size: 12px;
+  line-height: 1.7;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.evidence-source-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 13px;
+  margin-top: 12px;
+  color: var(--faint);
+  font-size: 10px;
+}
+
+.evidence-source-meta > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.evidence-source-meta .icon {
+  width: 12px;
+  height: 12px;
+}
+
+.evidence-review-actions {
+  justify-content: flex-start;
+  margin-top: 15px;
+  padding-top: 13px;
+  border-top: 1px solid var(--line-soft);
+}
+
+.evidence-review-actions .button {
+  min-height: 32px;
+  padding: 0 12px;
+  font-size: 11px;
+}
+
+.evidence-graph {
+  padding: 19px;
+}
+
+.evidence-graph-heading {
+  margin-bottom: 15px;
+}
+
+.evidence-graph-heading h2 {
+  margin: 4px 0 0;
+  color: var(--ink);
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 20px;
+  font-weight: 500;
+}
+
+.evidence-graph-heading > span {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.evidence-link-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 170px minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 10px;
+}
+
+.evidence-link-form label {
+  min-width: 0;
+  display: grid;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.evidence-link-form select {
+  min-width: 0;
+  height: 35px;
+  padding: 0 9px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  color: var(--ink-soft);
+  background: var(--surface-subtle);
+  font-size: 11px;
+}
+
+.evidence-link-form .button {
+  height: 35px;
+  padding: 0 12px;
+  font-size: 10px;
+  white-space: nowrap;
+}
+
+.evidence-edge-list {
+  display: grid;
+  gap: 7px;
+  margin-top: 15px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line-soft);
+}
+
+.evidence-edge-row {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(90px, 160px) minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  color: var(--ink-soft);
+  font-size: 11px;
+}
+
+.evidence-edge-row > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.evidence-edge-row > span:last-child {
+  text-align: right;
+}
+
+.evidence-edge-row strong {
+  padding: 5px 8px;
+  border-radius: 4px;
+  color: var(--accent);
+  background: var(--accent-soft);
+  font-size: 9px;
+  font-weight: 600;
+  text-align: center;
+  text-transform: capitalize;
+}
+
+.evidence-empty {
+  min-height: 245px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  padding: 32px;
+  text-align: center;
+}
+
+.evidence-empty h2 {
+  margin: 14px 0 6px;
+  color: var(--ink);
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 21px;
+  font-weight: 500;
+}
+
+.evidence-empty p {
+  max-width: 420px;
+  margin: 0 0 15px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.65;
+}
+
+@media (max-width: 900px) {
+  .evidence-link-form {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .evidence-link-form > button {
+    grid-column: 2;
+  }
+}
+
+@media (max-width: 700px) {
+  .evidence-heading,
+  .evidence-session-bar {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .evidence-session-counts {
+    width: 100%;
+    justify-content: space-between;
+    gap: 8px;
+  }
+
+  .evidence-card-content {
+    padding: 14px;
+  }
+
+  .evidence-card-header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .evidence-link-form {
+    grid-template-columns: 1fr;
+  }
+
+  .evidence-link-form > button {
+    grid-column: auto;
+  }
+
+  .evidence-edge-row {
+    grid-template-columns: minmax(0, 1fr) 90px minmax(0, 1fr);
+    gap: 5px;
+    font-size: 9px;
+  }
+}
