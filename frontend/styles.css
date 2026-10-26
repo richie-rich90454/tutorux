@@ -1558,6 +1558,12 @@ button:disabled {
   color: var(--success);
   background: var(--accent-soft);
 }
+.state-active,
+.state-in-progress {
+  border-color: color-mix(in srgb, var(--accent) 32%, var(--line));
+  color: var(--accent);
+  background: var(--surface-subtle);
+}
 .journal-date {
   width: 31px;
   height: 37px;
@@ -1871,7 +1877,10 @@ button:disabled {
   line-height: 1.5;
 }
 .session-actions {
-  flex: 0 0 auto;
+  min-width: 0;
+  flex: 0 1 auto;
+  flex-wrap: wrap;
+  justify-content: flex-end;
 }
 .record-detail {
   margin-top: 9px;
@@ -3184,6 +3193,18 @@ button:disabled {
   .library-record-card {
     padding: 12px 10px;
     gap: 8px;
+  }
+  .session-record.is-expanded {
+    flex-wrap: wrap;
+  }
+  .session-record.is-expanded .session-record-main {
+    flex: 1 0 calc(100% - 85px);
+  }
+  .session-record.is-expanded .session-actions {
+    flex: 0 1 calc(100% - 85px);
+    max-width: calc(100% - 85px);
+    justify-content: flex-start;
+    margin-left: 85px;
   }
   .student-record-card > .student-avatar {
     width: 32px;
