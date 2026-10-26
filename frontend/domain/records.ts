@@ -332,6 +332,20 @@ export function cloneSessionRecords(
   return records;
 }
 
+/** Archive or return a session to the current sessions list without deleting its records. */
+export function setSessionArchiveState(current: ArchiveRecord, archived: boolean): ArchiveRecord {
+  if (current.type !== RecordType.session || current.fields.get("_deleted") === "true") {
+    throw new Error("Select an active session to change its archive state.");
+  }
+  if (archived && current.fields.get("recording_state") === "recording") {
+    throw new Error("Stop the active recording before archiving this session.");
+  }
+  const fields = new Map(current.fields);
+  fields.set("archived", archived ? "true" : "false");
+  fields.set("updated_at_us", nowUs());
+  return { ...current, fields };
+}
+
 export function makeSessionRecords(input: SessionInput): ArchiveRecord[] {
   const timestamp = nowUs();
   const sessionId = crypto.randomUUID();
