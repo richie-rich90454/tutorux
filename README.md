@@ -62,6 +62,7 @@ npm run cli -- --archive Lesson.tux transcript import --session <uuid> --input l
 npm run cli -- --archive Lesson.tux transcript export --session <uuid> --output lesson.vtt --format vtt
 npm run cli -- --archive Lesson.tux annotation add --session <uuid> --type important-concept --at 00:01:20 --text "Scale both parts by the same factor"
 npm run cli -- --archive Lesson.tux asset import --input worksheet.pdf --session <uuid>
+npm run cli -- --archive Lesson.tux asset import --input recording.webm --session <uuid> --capture-source browser-microphone --consent
 npm run cli -- --archive Lesson.tux asset import-folder worksheets --session <uuid>
 npm run cli -- --archive Lesson.tux asset list --json
 npm run cli -- --archive Lesson.tux asset list --session <uuid> --json
