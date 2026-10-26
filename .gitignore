@@ -2,6 +2,12 @@
 /build-*/
 /dist/
 /tmp/
+/node_modules/
+/.vite/
+/test-results/
+/playwright-report/
+/src-tauri/target/
+/src-tauri/gen/
 /cmake-build-*/
 /.cache/
 /.DS_Store
