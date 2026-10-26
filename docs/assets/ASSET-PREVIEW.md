@@ -1,3 +1,5 @@
+> **Migration reference:** This document describes behavior, implementation, or build details from the former C++/Slint application. It remains useful as a porting specification; current TypeScript coverage is tracked in [the feature inventory](../migration/feature-inventory.md). Historical build commands are not the active TypeScript workflow.
+
 # Browser asset previews
 
 The WebAssembly journal previews an asset only after the user opens its session and selects
