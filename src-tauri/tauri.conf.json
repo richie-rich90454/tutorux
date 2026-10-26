@@ -1,0 +1,53 @@
+{
+  "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
+  "productName": "Tutorux",
+  "version": "1.0.0",
+  "identifier": "app.tutorux.desktop",
+  "build": {
+    "beforeDevCommand": "npm run dev:desktop",
+    "devUrl": "http://127.0.0.1:1420",
+    "beforeBuildCommand": "npm run build:desktop",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "Tutorux",
+        "width": 1440,
+        "height": 920,
+        "minWidth": 1024,
+        "minHeight": 680,
+        "center": true,
+        "resizable": true,
+        "decorations": true,
+        "useHttpsScheme": true
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; img-src 'self' asset: http://asset.localhost blob: data:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src ipc: http://ipc.localhost"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "category": "Productivity",
+    "shortDescription": "A private workspace for tutoring",
+    "longDescription": "A local-first tutoring workspace for student profiles, sessions, notes and study material.",
+    "icon": [
+      "../web/assets/tutorux-32.png",
+      "../web/assets/tutorux-180.png",
+      "../web/assets/tutorux-512.png",
+      "../resources/tutorux.ico",
+      "../resources/macos/tutorux.icns"
+    ],
+    "fileAssociations": [
+      {
+        "ext": ["tux"],
+        "name": "Tutorux Archive",
+        "description": "Tutorux local archive",
+        "role": "Editor"
+      }
+    ]
+  }
+}
