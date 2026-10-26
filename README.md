@@ -54,7 +54,9 @@ The retained CLI can be run locally with:
 npm run cli -- --help
 npm run cli -- archive init Lesson.tux --name "Algebra"
 npm run cli -- --archive Lesson.tux student create --name "Maya Ortiz" --grade 10
+npm run cli -- --archive Lesson.tux student list
 npm run cli -- --archive Lesson.tux student list --json
+npm run cli -- --archive Lesson.tux student show <student-uuid> --json
 npm run cli -- --archive Lesson.tux student history <student-uuid> --json
 npm run cli -- --archive Lesson.tux student progress <student-uuid> --json
 npm run cli -- --archive Lesson.tux student progress-review <student-uuid> --skill "Equivalent fractions" --classification partial-improvement --evidence-ids <evidence-from-session-1>,<evidence-from-session-2> --reviewed-by "Tutor"
