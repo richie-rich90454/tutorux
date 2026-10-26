@@ -2549,6 +2549,7 @@ async function runExtendedRecordCommand(
       session_id: sessionId,
       scope_token: scopeToken,
       audio_chunks: String(scope.counts.audioChunks),
+      waveform_indices: String(scope.counts.waveformIndices),
       session_notes: String(scope.counts.sessionNotes),
       transcript_segments: String(scope.counts.transcriptSegments),
       annotations: String(scope.counts.annotations),
@@ -2556,13 +2557,15 @@ async function runExtendedRecordCommand(
       assets: String(scope.counts.assets),
       entries_updated: String(scope.counts.entriesUpdated),
       evidence_nodes: String(scope.counts.evidenceNodes),
+      evidence_edges: String(scope.counts.evidenceEdges),
       total_records: String(scope.counts.totalRecords),
     };
+    const recordsMoved = scope.counts.totalRecords - scope.counts.entriesUpdated;
     if (args.flags.has("dry-run") || !args.flags.has("confirm-scope")) {
       emit(
         output,
         summary,
-        `Deleting this session would move ${scope.counts.totalRecords} records to Trash, including ${scope.counts.audioChunks} audio chunks, ${scope.counts.guides} guides, ${scope.counts.assets} materials, and ${scope.counts.sessionNotes} notes documents; ${scope.counts.entriesUpdated} journal entries would have their references detached. Review the scope, then repeat with --confirm-scope --scope-token ${scopeToken}.`,
+        `Deleting this session would affect ${scope.counts.totalRecords} records: move ${recordsMoved} to Trash, including ${scope.counts.audioChunks} audio chunks, ${scope.counts.guides} guides, and ${scope.counts.assets} materials; detach ${scope.counts.entriesUpdated} journal entries. Review the scope, then repeat with --confirm-scope --scope-token ${scopeToken}.`,
         json,
       );
       return 0;
