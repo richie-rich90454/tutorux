@@ -128,6 +128,7 @@ Usage:
   tutorux --archive <file.tux> asset import --input <file> [--session <uuid>]
   tutorux --archive <file.tux> asset list [--json]
   tutorux --archive <file.tux> asset export <id> --output <file>
+  tutorux --archive <file.tux> asset link|unlink <id> --to annotation|transcript --target-id <uuid>
   tutorux --archive <file.tux> evidence extract --session <uuid>
   tutorux --archive <file.tux> evidence list|review [--session <uuid>] [--json]
   tutorux --archive <file.tux> evidence create --session <uuid> --source-segment <uuid> --type <type> --title <title> --content <text>
@@ -1138,6 +1139,53 @@ async function runAssetCommand(
       output,
       { id: record.id, output: destination, bytes: bytes.byteLength },
       `Exported ${field(record, "filename") || id} to ${destination}.`,
+      json,
+    );
+    return 0;
+  }
+  if (action === "link" || action === "unlink") {
+    const assetId = requiredPosition(args, 0, "material ID");
+    const targetName = requiredOption(args, "to").toLowerCase();
+    const targetId = requiredOption(args, "target-id");
+    const targetType =
+      targetName === "annotation"
+        ? RecordType.annotation
+        : targetName === "transcript"
+          ? RecordType.transcriptSegment
+          : null;
+    if (targetType === null) {
+      throw new CliError("Assets can currently link to annotations or transcript segments.");
+    }
+
+    const asset = await getLiveRecordAtPath(path, RecordType.assetMetadata, assetId);
+    const target = await getLiveRecordAtPath(path, targetType, targetId);
+    const assetSession = field(asset, "session_id");
+    const targetSession = field(target, "session_id");
+    if (assetSession && assetSession !== targetSession) {
+      throw new CliError("An asset cannot link to a record from a different session.");
+    }
+
+    const canonicalAssetId = asset.id.toLowerCase();
+    const linkedAssetIds = field(target, "linked_asset_ids")
+      .split(",")
+      .filter((id) => id.length > 0);
+    const existingIndex = linkedAssetIds.indexOf(canonicalAssetId);
+    if (action === "link" && existingIndex === -1) linkedAssetIds.push(canonicalAssetId);
+    if (action === "unlink" && existingIndex !== -1) linkedAssetIds.splice(existingIndex, 1);
+
+    const fields = new Map(target.fields);
+    fields.set("linked_asset_ids", linkedAssetIds.join(","));
+    if (targetType === RecordType.transcriptSegment) {
+      fields.set("human_edited_at_us", timestampNow());
+    }
+    const [saved] = await mutateArchive(path, [
+      { ...target, revision: 0n, previousOffset: 0n, fields },
+    ]);
+    const result = saved ?? { ...target, fields };
+    emit(
+      output,
+      toPlainRecord(result),
+      action === "link" ? "Asset linked to target." : "Asset unlinked from target.",
       json,
     );
     return 0;
