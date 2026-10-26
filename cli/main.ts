@@ -128,7 +128,9 @@ Usage:
   tutorux --archive <file.tux> annotation split <id> --before <text> --after <text> [--at <time>]
   tutorux --archive <file.tux> annotation link|unlink <id> --to asset|evidence --target-id <uuid>
   tutorux --archive <file.tux> asset add <file> [--session <uuid>] | import --input <file> [--session <uuid>]
+    [--capture-source browser-microphone --consent [--capture-consent-at-us <us>]]
   tutorux --archive <file.tux> asset import-folder <directory> [--session <uuid>]
+    [--capture-source browser-microphone --consent [--capture-consent-at-us <us>]]
   tutorux --archive <file.tux> asset list [--session <uuid>] [--include-deleted] [--json]
   tutorux --archive <file.tux> asset show|preview|verify|remove|restore <id> [--json]
   tutorux --archive <file.tux> asset extract|export <id> --output <file>
@@ -1089,6 +1091,30 @@ async function runAssetCommand(
       });
     }
     const sessionId = args.options.get("session") ?? "";
+    const captureSource = args.options.get("capture-source");
+    if (captureSource !== undefined && captureSource !== "browser-microphone") {
+      throw new CliError("Captured assets support the browser-microphone source label.");
+    }
+    if (captureSource && !args.flags.has("consent")) {
+      throw new CliError(
+        "Confirm microphone recording consent with --consent before importing a browser capture.",
+      );
+    }
+    if (captureSource && !sessionId) {
+      throw new CliError("A browser microphone capture must be associated with a session.");
+    }
+    let captureConsentAtUs: string | undefined;
+    if (args.options.has("capture-consent-at-us")) {
+      const rawConsentTime = args.options.get("capture-consent-at-us") ?? "";
+      if (!captureSource || !/^\d+$/u.test(rawConsentTime)) {
+        throw new CliError("Capture consent time requires a valid browser microphone source.");
+      }
+      const parsedConsentTime = BigInt(rawConsentTime);
+      if (parsedConsentTime <= 0n || parsedConsentTime > 18_446_744_073_709_551_615n) {
+        throw new CliError("Capture consent time requires a valid browser microphone source.");
+      }
+      captureConsentAtUs = parsedConsentTime.toString();
+    }
     const importedAssets: Array<{
       readonly metadata: ArchiveRecord;
       readonly deduplicated: boolean;
@@ -1143,6 +1169,20 @@ async function runAssetCommand(
           sessionId,
         );
         const metadataFields = new Map(imported.metadata.fields);
+        if (captureSource) {
+          const mimeType = field(imported.metadata, "mime_type");
+          const browserWebmAudio =
+            mimeType === "video/webm" && inputPath.toLowerCase().endsWith(".webm");
+          if (!mimeType.startsWith("audio/") && !browserWebmAudio) {
+            throw new CliError(
+              "A browser microphone capture must contain a recognized audio file.",
+            );
+          }
+          if (browserWebmAudio) metadataFields.set("mime_type", "audio/webm");
+          metadataFields.set("capture_source", captureSource);
+          metadataFields.set("capture_consent_at_us", captureConsentAtUs ?? timestampNow());
+          metadataFields.set("capture_consent_policy", "1");
+        }
         const contentHash = field(imported.metadata, "content_hash").toLowerCase();
         const existingBatchBlob = pendingBlobs.get(contentHash);
         let deduplicated = imported.deduplicated;
