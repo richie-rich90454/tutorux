@@ -58,6 +58,10 @@ npm run cli -- --archive Lesson.tux student list --json
 npm run cli -- --archive Lesson.tux student history <student-uuid> --json
 npm run cli -- --archive Lesson.tux student progress <student-uuid> --json
 npm run cli -- --archive Lesson.tux student progress-review <student-uuid> --skill "Equivalent fractions" --classification partial-improvement --evidence-ids <evidence-from-session-1>,<evidence-from-session-2> --reviewed-by "Tutor"
+npm run cli -- --archive Lesson.tux session start <session-uuid>
+npm run cli -- --archive Lesson.tux session complete <session-uuid>
+npm run cli -- --archive Lesson.tux session review <session-uuid>
+npm run cli -- --archive Lesson.tux session resume <session-uuid>
 npm run cli -- --archive Lesson.tux session delete <session-uuid> --dry-run --json
 npm run cli -- --archive Lesson.tux session delete <session-uuid> --confirm-scope --scope-token <scope-token>
 npm run cli -- --archive Lesson.tux session restore <session-uuid>
