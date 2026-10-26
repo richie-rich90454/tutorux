@@ -27,6 +27,8 @@ export interface SessionInput {
   notes: string;
 }
 
+export type SessionTransitionAction = "start" | "complete" | "review" | "resume";
+
 export interface JournalInput {
   title: string;
   date: string;
@@ -139,6 +141,61 @@ export function restoreRecordFromTrash(current: ArchiveRecord): ArchiveRecord {
   fields.delete("deleted_at_us");
   fields.delete("_trash_group_id");
   fields.set("restored_at_us", timestamp);
+  fields.set("updated_at_us", timestamp);
+  return { ...current, fields };
+}
+
+/** Apply a valid session state transition while preserving unrelated archive fields. */
+export function transitionSessionRecord(
+  current: ArchiveRecord,
+  action: SessionTransitionAction,
+): ArchiveRecord {
+  if (current.type !== RecordType.session) {
+    throw new Error("Only a session can change lifecycle state.");
+  }
+  if (current.fields.get("_deleted") === "true") {
+    throw new Error("Restore this session before changing its lifecycle state.");
+  }
+
+  const fields = new Map(current.fields);
+  const state = fields.get("session_state") ?? "active";
+  const timestamp = nowUs();
+  if (action === "start") {
+    if (state !== "created" && state !== "active" && state !== "in-progress") {
+      throw new Error(
+        "A completed session must use resume; starting does not restart audio capture.",
+      );
+    }
+    const startedAt = fields.get("started_at_us") ?? "0";
+    if (!/^-?\d+$/u.test(startedAt) || BigInt(startedAt) <= 0n) {
+      fields.set("started_at_us", timestamp);
+    }
+    fields.set("session_state", "active");
+    fields.set("ended_at_us", "0");
+  } else if (action === "complete") {
+    if (state !== "active" && state !== "in-progress") {
+      throw new Error("Only an active session can be completed.");
+    }
+    if (fields.get("recording_state") === "recording") {
+      throw new Error("Stop the active recording before completing the session.");
+    }
+    fields.set("session_state", "completed");
+    fields.set("ended_at_us", timestamp);
+    fields.set("last_completed_at_us", timestamp);
+  } else if (action === "review") {
+    if (state !== "completed" && state !== "reviewed") {
+      throw new Error("Complete the session before marking it reviewed.");
+    }
+    fields.set("session_state", "reviewed");
+    fields.set("reviewed_at_us", timestamp);
+  } else {
+    if (state !== "completed" && state !== "reviewed") {
+      throw new Error("Only a completed or reviewed session can be resumed.");
+    }
+    fields.set("session_state", "active");
+    fields.set("resumed_at_us", timestamp);
+    fields.set("ended_at_us", "0");
+  }
   fields.set("updated_at_us", timestamp);
   return { ...current, fields };
 }
