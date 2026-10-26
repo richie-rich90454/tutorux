@@ -664,6 +664,35 @@ describe("TypeScript CLI", () => {
       expect(exported).toContain("WEBVTT");
       expect(exported).toContain("Tutor: Hello, class.");
       expect(exported).toContain("Hello, class.");
+
+      expect(
+        await executeCli(
+          ["--json", "--archive", archivePath, "transcript", "history", imported[0]!["id"]!],
+          io,
+        ),
+      ).toBe(0);
+      const history = JSON.parse(stdout[stdout.length - 1]!) as Array<Record<string, unknown>>;
+      expect(history).toHaveLength(4);
+      expect(history[0]?.["verification_state"]).toBe("human-verified");
+      expect(history[1]?.["verification_state"]).toBe("human-corrected");
+      expect(
+        await executeCli(
+          [
+            "--json",
+            "--archive",
+            archivePath,
+            "transcript",
+            "restore",
+            imported[0]!["id"]!,
+            "--revision",
+            "1",
+          ],
+          io,
+        ),
+      ).toBe(0);
+      const restored = JSON.parse(stdout[stdout.length - 1]!) as Record<string, string>;
+      expect(restored["restored_from_revision"]).toBe("1");
+      expect(restored["verification_state"]).toBe("human-corrected");
       expect(stderr).toEqual([]);
     } finally {
       await rm(directory, { recursive: true, force: true });
