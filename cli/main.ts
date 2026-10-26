@@ -153,6 +153,8 @@ Usage:
   tutorux --archive <file.tux> transcript show --session <uuid> [--json]
   tutorux --archive <file.tux> transcript export --session <uuid> --output <file> [--format text|srt|vtt|json]
   tutorux --archive <file.tux> transcript correct <segment-id> --text <replacement>
+  tutorux --archive <file.tux> transcript history <segment-id> [--limit <1..10000>]
+  tutorux --archive <file.tux> transcript restore <segment-id> --revision <history-index>
   tutorux --archive <file.tux> transcript timestamp <segment-id> --start <time> --end <time>
   tutorux --archive <file.tux> transcript verify <segment-id> [--state human-verified|provisional|needs-review]
   tutorux --archive <file.tux> transcript speaker <segment-id> --name <label> | --unknown
@@ -1741,6 +1743,53 @@ async function runTranscriptCommand(
       json,
     );
     return 0;
+  }
+
+  if (action === "history" || action === "restore") {
+    const id = requiredPosition(args, 0, "transcript segment ID");
+    const snapshot = await openForCommand(path);
+    let snapshotClosed = false;
+    try {
+      const limit = parseBoundedOption(args.options.get("limit"), "limit", 100, 1, 10_000);
+      const history = await snapshot.getRecordHistory(RecordType.transcriptSegment, id, limit);
+      if (history.length === 0) throw new CliError(`Transcript segment was not found: ${id}`);
+      if (action === "history") {
+        const rows = history.map((record, historyIndex) => ({
+          history_index: historyIndex,
+          ...toFlatTranscriptRecord(record),
+        }));
+        const summary = history
+          .map(
+            (record, historyIndex) =>
+              `${historyIndex}: revision ${record.revision.toString()}${field(record, "_deleted") === "true" ? " (removed)" : ""}`,
+          )
+          .join("\n");
+        emit(output, rows, summary || "No transcript revisions found.", json);
+        return 0;
+      }
+
+      const revision = parseBoundedOption(args.options.get("revision"), "revision", -1, 1, 10_000);
+      const selected = history[revision];
+      if (!selected) throw new CliError(`Transcript history index ${revision} was not found.`);
+      const fields = new Map(selected.fields);
+      fields.delete("_deleted");
+      fields.delete("deleted_at_us");
+      fields.set("restored_from_revision", revision.toString());
+      fields.set("updated_at_us", timestampNow());
+      const restored = { ...selected, fields };
+      await closeSnapshot(snapshot);
+      snapshotClosed = true;
+      const [saved] = await mutateArchive(path, [restored]);
+      emit(
+        output,
+        toFlatTranscriptRecord(saved ?? restored),
+        `Transcript revision ${revision} restored as a new revision.`,
+        json,
+      );
+      return 0;
+    } finally {
+      if (!snapshotClosed) await closeSnapshot(snapshot);
+    }
   }
 
   if (["show", "search", "export"].includes(action)) {
