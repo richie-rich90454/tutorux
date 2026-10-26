@@ -78,6 +78,13 @@ import {
   type StudentInput,
 } from "./domain/records";
 import {
+  loadSessionAudioTrashChanges,
+  planSessionRestore,
+  planSessionTrash,
+  type SessionTrashCounts,
+  type SessionTrashPlan,
+} from "./domain/session-trash";
+import {
   correctTranscriptRecord,
   formatTranscriptExport,
   formatTranscriptTimestampUs,
@@ -132,6 +139,7 @@ interface Workspace {
   trashedAnnotations: ArchiveRecord[];
   trashedGuides: ArchiveRecord[];
   sessions: ArchiveRecord[];
+  trashedSessions: ArchiveRecord[];
   audioTracks: AudioTrackDescriptor[];
   entries: ArchiveRecord[];
   collections: ArchiveRecord[];
@@ -147,6 +155,12 @@ interface Workspace {
   evidence: ArchiveRecord[];
   evidenceEdges: ArchiveRecord[];
   dirty: boolean;
+}
+
+interface SessionTrashReview {
+  session: ArchiveRecord;
+  snapshot: ArchiveSnapshot;
+  plan: SessionTrashPlan;
 }
 
 interface ViewDefinition {
@@ -205,6 +219,7 @@ const [view, setView] = createSignal<View>("home");
 const [dialog, setDialog] = createSignal<DialogKind>(null);
 const [dialogRecord, setDialogRecord] = createSignal<ArchiveRecord | null>(null);
 const [pendingDelete, setPendingDelete] = createSignal<ArchiveRecord | null>(null);
+const [pendingSessionTrash, setPendingSessionTrash] = createSignal<SessionTrashReview | null>(null);
 const [theme, setTheme] = createSignal<"light" | "dark">("light");
 const [themeMode, setThemeMode] = createSignal<ThemeMode>("system");
 const [loading, setLoading] = createSignal(false);
@@ -280,6 +295,7 @@ function App(): JSX.Element {
     const handleKeys = (event: KeyboardEvent): void => {
       const command = event.metaKey || event.ctrlKey;
       if (!command) return;
+      if (dialog() || pendingDelete() || pendingSessionTrash() || paletteOpen()) return;
       const key = event.key.toLocaleLowerCase();
       if (key === "k") {
         event.preventDefault();
@@ -367,6 +383,7 @@ function App(): JSX.Element {
         trashedAnnotations: [],
         trashedGuides: [],
         sessions: [],
+        trashedSessions: [],
         audioTracks: [],
         entries: [],
         collections: [],
@@ -395,7 +412,7 @@ function App(): JSX.Element {
       evidenceEdges,
     ] = await Promise.all([
       snapshot.listRecords(RecordType.student, true),
-      snapshot.listRecords(RecordType.session),
+      snapshot.listRecords(RecordType.session, true),
       snapshot.listRecords(RecordType.settings, true),
       snapshot.listRecords(RecordType.guide, true),
       snapshot.listRecords(RecordType.annotation, true),
@@ -418,10 +435,15 @@ function App(): JSX.Element {
       students: alive(allStudents),
       trashedStudents: allStudents.filter((record) => record.fields.get("_deleted") === "true"),
       trashedAnnotations: allAnnotations.filter(
-        (record) => record.fields.get("_deleted") === "true",
+        (record) =>
+          record.fields.get("_deleted") === "true" && !record.fields.get("_trash_group_id"),
       ),
-      trashedGuides: guides.filter((record) => record.fields.get("_deleted") === "true"),
+      trashedGuides: guides.filter(
+        (record) =>
+          record.fields.get("_deleted") === "true" && !record.fields.get("_trash_group_id"),
+      ),
       sessions: liveSessions,
+      trashedSessions: sessions.filter((record) => record.fields.get("_deleted") === "true"),
       audioTracks: liveSessions.flatMap((session) =>
         listSessionAudioTracks(
           session,
@@ -476,6 +498,7 @@ function App(): JSX.Element {
       const next = await readWorkspace(snapshot, name, location);
       const previous = workspace();
       setWorkspace(next);
+      setPendingSessionTrash(null);
       accepted = true;
       setView("home");
       setQuery("");
@@ -513,6 +536,7 @@ function App(): JSX.Element {
     const savedLocation = await platform.saveArchive(snapshot.source, suggestedName, location);
     const next = await readWorkspace(snapshot, suggestedName, savedLocation);
     setWorkspace(next);
+    setPendingSessionTrash(null);
     setView("home");
     setDialog(null);
     setDialogRecord(null);
@@ -554,6 +578,7 @@ function App(): JSX.Element {
       setDialog(null);
       setDialogRecord(null);
       setPendingDelete(null);
+      setPendingSessionTrash(null);
       return true;
     } catch (error) {
       announce(errorMessage(error), "error");
@@ -618,6 +643,85 @@ function App(): JSX.Element {
 
   async function restoreTrashedAnnotation(record: ArchiveRecord): Promise<void> {
     await addRecords([restoreRecordFromTrash(record)], "Observation restored from Trash.");
+  }
+
+  async function reviewSessionTrash(session: ArchiveRecord): Promise<void> {
+    const state = workspace();
+    if (!state || busy()) return;
+    let plan: SessionTrashPlan;
+    setBusy(true);
+    try {
+      plan = await planSessionTrash(state.snapshot, session);
+    } catch (error) {
+      announce(errorMessage(error), "error");
+      return;
+    } finally {
+      setBusy(false);
+    }
+    if (workspace()?.snapshot !== state.snapshot) {
+      announce("The active archive changed. Review the session deletion scope again.", "error");
+      return;
+    }
+    setPendingSessionTrash({ session, snapshot: state.snapshot, plan });
+  }
+
+  async function confirmSessionTrash(): Promise<void> {
+    const review = pendingSessionTrash();
+    const state = workspace();
+    if (!review || !state || busy()) return;
+    if (state.snapshot !== review.snapshot) {
+      setPendingSessionTrash(null);
+      announce("The active archive changed. Review the session deletion scope again.", "error");
+      return;
+    }
+
+    let changes: ArchiveRecord[];
+    setBusy(true);
+    try {
+      const audioChanges = await loadSessionAudioTrashChanges(
+        review.snapshot,
+        review.session.id,
+        review.plan.audioChunkRecords,
+      );
+      changes = [...review.plan.changes, ...audioChanges];
+    } catch (error) {
+      announce(errorMessage(error), "error");
+      return;
+    } finally {
+      setBusy(false);
+    }
+    if (workspace()?.snapshot !== review.snapshot) {
+      setPendingSessionTrash(null);
+      announce("The active archive changed. Review the session deletion scope again.", "error");
+      return;
+    }
+    await addRecords(
+      changes,
+      "Session group moved to recoverable Trash. Journal links will reconnect when you restore it; save to keep the change on disk.",
+    );
+  }
+
+  async function restoreSessionGroup(session: ArchiveRecord): Promise<void> {
+    const state = workspace();
+    if (!state || busy()) return;
+    let changes: ArchiveRecord[];
+    setBusy(true);
+    try {
+      changes = await planSessionRestore(state.snapshot, session);
+    } catch (error) {
+      announce(errorMessage(error), "error");
+      return;
+    } finally {
+      setBusy(false);
+    }
+    if (workspace()?.snapshot !== state.snapshot) {
+      announce("The active archive changed. Reopen Trash and try again.", "error");
+      return;
+    }
+    await addRecords(
+      changes,
+      "Session group and journal links restored. Save to keep the change on disk.",
+    );
   }
 
   function guideSourceRecords(state: Workspace): ArchiveRecord[] {
@@ -1530,6 +1634,7 @@ function App(): JSX.Element {
                     state={state}
                     onAdd={() => openDialog("session")}
                     onEdit={(record) => editRecord("session", record)}
+                    onTrash={(record) => void reviewSessionTrash(record)}
                   />
                 </Show>
                 <Show when={view() === "transcripts"}>
@@ -1650,9 +1755,11 @@ function App(): JSX.Element {
                     records={state.trashedStudents}
                     annotations={state.trashedAnnotations}
                     guides={state.trashedGuides}
+                    sessions={state.trashedSessions}
                     onRestore={(record) => void restoreStudent(record)}
                     onRestoreAnnotation={(record) => void restoreTrashedAnnotation(record)}
                     onRestoreGuide={(record) => void restoreGuide(record)}
+                    onRestoreSession={(record) => void restoreSessionGroup(record)}
                     disabled={state.snapshot.locked || busy()}
                   />
                 </Show>
@@ -1761,6 +1868,18 @@ function App(): JSX.Element {
         )}
       </Show>
 
+      <Show when={pendingSessionTrash()}>
+        {(review) => (
+          <ConfirmSessionTrashDialog
+            session={review().session}
+            counts={review().plan.counts}
+            busy={busy()}
+            onCancel={() => setPendingSessionTrash(null)}
+            onConfirm={() => void confirmSessionTrash()}
+          />
+        )}
+      </Show>
+
       <Show when={paletteOpen()}>
         <div
           class="palette-backdrop"
@@ -1852,13 +1971,15 @@ function App(): JSX.Element {
                   item.id === "trash" &&
                   (workspace()?.trashedStudents.length ?? 0) +
                     (workspace()?.trashedAnnotations.length ?? 0) +
-                    (workspace()?.trashedGuides.length ?? 0)
+                    (workspace()?.trashedGuides.length ?? 0) +
+                    (workspace()?.trashedSessions.length ?? 0)
                 }
               >
                 <span class="nav-count" aria-hidden="true">
                   {(workspace()?.trashedStudents.length ?? 0) +
                     (workspace()?.trashedAnnotations.length ?? 0) +
-                    (workspace()?.trashedGuides.length ?? 0)}
+                    (workspace()?.trashedGuides.length ?? 0) +
+                    (workspace()?.trashedSessions.length ?? 0)}
                 </span>
               </Show>
             </button>
@@ -3284,7 +3405,16 @@ function RecordCard(props: {
     );
   }
   if (props.kind === "sessions")
-    return <SessionRow session={record} students={props.students} expanded onEdit={props.onEdit} />;
+    return (
+      <SessionRow
+        session={record}
+        students={props.students}
+        expanded
+        disabled={props.disabled || props.busy}
+        onEdit={props.onEdit}
+        onTrash={props.onTrash}
+      />
+    );
   if (props.kind === "journal") {
     const date = dateParts(field(record, "entry_date"));
     const labels = createMemo(() => {
@@ -3422,12 +3552,26 @@ function TrashPage(props: {
   records: ArchiveRecord[];
   annotations: ArchiveRecord[];
   guides: ArchiveRecord[];
+  sessions: ArchiveRecord[];
   disabled: boolean;
   onRestore: (record: ArchiveRecord) => void;
   onRestoreAnnotation: (record: ArchiveRecord) => void;
   onRestoreGuide: (record: ArchiveRecord) => void;
+  onRestoreSession: (record: ArchiveRecord) => void;
 }): JSX.Element {
-  const trashed = () => [...props.records, ...props.annotations, ...props.guides];
+  const trashed = () => {
+    const removedAt = (record: ArchiveRecord): bigint => {
+      const raw = field(record, "deleted_at_us");
+      return /^\d+$/u.test(raw) ? BigInt(raw) : 0n;
+    };
+    return [...props.sessions, ...props.records, ...props.annotations, ...props.guides].sort(
+      (left, right) => {
+        const a = removedAt(left);
+        const b = removedAt(right);
+        return a > b ? -1 : a < b ? 1 : left.id.localeCompare(right.id);
+      },
+    );
+  };
   const total = () => trashed().length;
   return (
     <div class="page-body record-page">
@@ -3436,15 +3580,14 @@ function TrashPage(props: {
           <span class="eyebrow">RECOVERABLE ARCHIVE ITEMS</span>
           <h1>Trash</h1>
           <p>
-            Removed students, observations, and study guides stay in your archive until you restore
-            them.
+            Restore a session with its linked learning record, or bring back an individual item.
           </p>
         </div>
       </section>
       <section class="record-list-shell">
         <div class="record-list-toolbar">
           <span>
-            <strong>{total()}</strong> recoverable items
+            <strong>{total()}</strong> recoverable groups and items
           </span>
           <span class="list-view-label">
             <Icon name="shield" />
@@ -3457,7 +3600,7 @@ function TrashPage(props: {
             <EmptyState
               icon="trash"
               title="Trash is empty"
-              text="Students, observations, and study guides you move here can be restored at any time."
+              text="Sessions, students, observations, and study guides you move here can be restored at any time."
               action="Back to students"
               onAction={() => undefined}
               disabled
@@ -3471,54 +3614,72 @@ function TrashPage(props: {
                   <span class="library-icon">
                     <Icon
                       name={
-                        record.type === RecordType.annotation
-                          ? "annotations"
-                          : record.type === RecordType.guide
-                            ? "guides"
-                            : "students"
+                        record.type === RecordType.session
+                          ? "sessions"
+                          : record.type === RecordType.annotation
+                            ? "annotations"
+                            : record.type === RecordType.guide
+                              ? "guides"
+                              : "students"
                       }
                     />
                   </span>
                   <div>
                     <span class="eyebrow">
-                      {record.type === RecordType.annotation
-                        ? "SESSION OBSERVATION"
-                        : record.type === RecordType.guide
-                          ? "STUDY GUIDE"
-                          : "STUDENT PROFILE"}
+                      {record.type === RecordType.session
+                        ? "SESSION GROUP"
+                        : record.type === RecordType.annotation
+                          ? "SESSION OBSERVATION"
+                          : record.type === RecordType.guide
+                            ? "STUDY GUIDE"
+                            : "STUDENT PROFILE"}
                     </span>
                     <h2>
-                      {record.type === RecordType.annotation
-                        ? field(
-                            record,
-                            "title",
-                            annotationTypeLabel(field(record, "type", "observation")),
-                          )
-                        : record.type === RecordType.guide
-                          ? field(record, "title", "Untitled guide")
-                          : field(record, "display_name", "Unnamed student")}
+                      {record.type === RecordType.session
+                        ? field(record, "title", "Untitled session")
+                        : record.type === RecordType.annotation
+                          ? field(
+                              record,
+                              "title",
+                              annotationTypeLabel(field(record, "type", "observation")),
+                            )
+                          : record.type === RecordType.guide
+                            ? field(record, "title", "Untitled guide")
+                            : field(record, "display_name", "Unnamed student")}
                     </h2>
                     <p>
-                      {record.type === RecordType.annotation
-                        ? field(record, "content", "Observation")
-                        : record.type === RecordType.guide
-                          ? `${field(record, "approval_state", "draft")} · ${field(record, "template_id", "general")}`
-                          : field(record, "grade", "Learner")}
+                      {record.type === RecordType.session
+                        ? [field(record, "subject"), field(record, "session_state")]
+                            .filter(Boolean)
+                            .join(" · ") || "Tutoring session"
+                        : record.type === RecordType.annotation
+                          ? field(record, "content", "Observation")
+                          : record.type === RecordType.guide
+                            ? `${field(record, "approval_state", "draft")} · ${field(record, "template_id", "general")}`
+                            : field(record, "grade", "Learner")}
                       {field(record, "deleted_at_us")
                         ? ` · Deleted ${formatTimestamp(field(record, "deleted_at_us"))}`
                         : " · Deletion date unavailable"}
                     </p>
+                    <Show when={record.type === RecordType.session}>
+                      <span class="session-trash-detail">
+                        Notes, recordings, transcripts, observations, materials, guides, and
+                        evidence restore together; journal links reconnect automatically.
+                      </span>
+                    </Show>
                   </div>
                   <button
                     class="button button-outline record-action"
                     type="button"
                     disabled={props.disabled}
                     onClick={() =>
-                      record.type === RecordType.annotation
-                        ? props.onRestoreAnnotation(record)
-                        : record.type === RecordType.guide
-                          ? props.onRestoreGuide(record)
-                          : props.onRestore(record)
+                      record.type === RecordType.session
+                        ? props.onRestoreSession(record)
+                        : record.type === RecordType.annotation
+                          ? props.onRestoreAnnotation(record)
+                          : record.type === RecordType.guide
+                            ? props.onRestoreGuide(record)
+                            : props.onRestore(record)
                     }
                   >
                     Restore
@@ -3537,7 +3698,9 @@ function SessionRow(props: {
   session: ArchiveRecord;
   students: ArchiveRecord[];
   expanded?: boolean;
+  disabled?: boolean;
   onEdit?: ((record: ArchiveRecord) => void) | undefined;
+  onTrash?: ((record: ArchiveRecord) => void) | undefined;
 }): JSX.Element {
   const student = props.students.find((item) => item.id === field(props.session, "student_id"));
   return (
@@ -3580,14 +3743,31 @@ function SessionRow(props: {
           </Show>
         </div>
       </div>
-      <Show when={props.expanded && props.onEdit}>
-        <button
-          class="button button-outline session-open"
-          type="button"
-          onClick={() => props.onEdit?.(props.session)}
-        >
-          Edit session <Icon name="arrow" />
-        </button>
+      <Show when={props.expanded && (props.onEdit || props.onTrash)}>
+        <div class="record-actions session-actions">
+          <Show when={props.onEdit}>
+            <button
+              class="button button-outline session-open"
+              type="button"
+              disabled={props.disabled}
+              onClick={() => props.onEdit?.(props.session)}
+            >
+              Edit session <Icon name="arrow" />
+            </button>
+          </Show>
+          <Show when={props.onTrash}>
+            <button
+              class="icon-button record-menu"
+              type="button"
+              title="Review session and linked records before moving them to Trash"
+              aria-label={`Review moving ${field(props.session, "title", "session")} and linked records to Trash`}
+              disabled={props.disabled}
+              onClick={() => props.onTrash?.(props.session)}
+            >
+              <Icon name="trash" />
+            </button>
+          </Show>
+        </div>
       </Show>
       <Show when={!props.expanded}>
         <Icon name="chevron" />{" "}
@@ -5469,6 +5649,112 @@ function SettingsPage(props: {
         <div>
           <strong>Built for people who teach</strong>
           <p>Tutorux helps you notice the details and make room for the work that matters.</p>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function ConfirmSessionTrashDialog(props: {
+  session: ArchiveRecord;
+  counts: SessionTrashCounts;
+  busy: boolean;
+  onCancel: () => void;
+  onConfirm: () => void;
+}): JSX.Element {
+  let cancelButton: HTMLButtonElement | undefined;
+  let confirmButton: HTMLButtonElement | undefined;
+  onMount(() => cancelButton?.focus());
+  const details = () => [
+    { label: "Session record", value: 1 },
+    { label: "Recording chunks", value: props.counts.audioChunks },
+    { label: "Waveform indexes", value: props.counts.waveformIndices },
+    { label: "Transcript cues", value: props.counts.transcriptSegments },
+    { label: "Observations", value: props.counts.annotations },
+    { label: "Materials", value: props.counts.assets },
+    { label: "Study guides", value: props.counts.guides },
+    { label: "Evidence records", value: props.counts.evidenceNodes },
+    { label: "Evidence links", value: props.counts.evidenceEdges },
+    { label: "Session notes", value: props.counts.sessionNotes },
+    { label: "Journal entries detached", value: props.counts.entriesUpdated },
+  ];
+  return (
+    <div
+      class="dialog-backdrop"
+      onClick={(event) => {
+        if (event.target === event.currentTarget && !props.busy) props.onCancel();
+      }}
+    >
+      <section
+        class="form-dialog confirm-dialog session-trash-dialog"
+        role="alertdialog"
+        aria-modal="true"
+        aria-labelledby="session-trash-title"
+        aria-describedby="session-trash-description session-trash-side-effects"
+        onKeyDown={(event) => {
+          if (event.key === "Escape" && !props.busy) props.onCancel();
+          if (event.key === "Tab" && cancelButton && confirmButton) {
+            if (event.shiftKey && document.activeElement === cancelButton) {
+              event.preventDefault();
+              confirmButton.focus();
+            } else if (!event.shiftKey && document.activeElement === confirmButton) {
+              event.preventDefault();
+              cancelButton.focus();
+            }
+          }
+        }}
+      >
+        <span class="dialog-icon">
+          <Icon name="trash" />
+        </span>
+        <span class="eyebrow">REVIEW SESSION GROUP</span>
+        <h2 id="session-trash-title">Move this session to Trash?</h2>
+        <p id="session-trash-description" class="dialog-description">
+          <strong>{field(props.session, "title", "Untitled session")}</strong> and its linked
+          transcripts, observations, recordings, materials, guides, and evidence will move together.
+          Journal entries stay in place and reconnect when you restore the group.
+        </p>
+        <div class="session-trash-total">
+          <strong>{props.counts.totalRecords}</strong>
+          <span>records affected</span>
+        </div>
+        <dl class="session-trash-scope">
+          <For each={details()}>
+            {(detail) => (
+              <div>
+                <dt>{detail.label}</dt>
+                <dd>{detail.value}</dd>
+              </div>
+            )}
+          </For>
+        </dl>
+        <p id="session-trash-side-effects" class="session-trash-note">
+          Journal entries will be detached from this session and reconnected when the group is
+          restored. Existing cross-session source links must be resolved first.
+        </p>
+        <div class="dialog-actions">
+          <button
+            ref={(element) => {
+              cancelButton = element;
+            }}
+            class="button button-outline"
+            type="button"
+            disabled={props.busy}
+            onClick={() => props.onCancel()}
+          >
+            Keep session
+          </button>
+          <button
+            ref={(element) => {
+              confirmButton = element;
+            }}
+            class="button button-danger"
+            type="button"
+            disabled={props.busy}
+            onClick={() => props.onConfirm()}
+          >
+            {props.busy ? "Moving…" : "Move session group to Trash"}
+          </button>
         </div>
       </section>
     </div>
