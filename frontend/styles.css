@@ -1690,6 +1690,46 @@ button:disabled {
   color: var(--faint);
   font-size: 8px;
 }
+.session-list-toolbar {
+  gap: 10px;
+}
+.session-view-switch {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  border: 1px solid var(--line-soft);
+  border-radius: 6px;
+  background: var(--surface-subtle);
+}
+.session-view-switch > button {
+  min-height: 26px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 9px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  color: var(--muted);
+  background: transparent;
+  font-size: 8px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.session-view-switch > button:hover {
+  color: var(--ink-soft);
+}
+.session-view-switch > button.is-selected {
+  border-color: var(--line-soft);
+  color: var(--accent);
+  background: var(--surface);
+}
+.session-view-switch > button > span {
+  color: var(--faint);
+  font-size: 7px;
+  font-variant-numeric: tabular-nums;
+}
 .record-list-toolbar strong {
   color: var(--ink-soft);
   font-size: 9px;
