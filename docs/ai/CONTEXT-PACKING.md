@@ -1,3 +1,5 @@
+> **Migration reference:** This document describes behavior, implementation, or build details from the former C++/Slint application. It remains useful as a porting specification; current TypeScript coverage is tracked in [the feature inventory](../migration/feature-inventory.md). Historical build commands are not the active TypeScript workflow.
+
 # AI context planning
 
 Inspect the evidence selected for a model context before preparing an AI package:
