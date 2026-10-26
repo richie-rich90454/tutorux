@@ -74,7 +74,9 @@ import {
   updateJournalRecords,
   updateSessionRecords,
   updateStudentRecord,
+  transitionSessionRecord,
   type JournalInput,
+  type SessionTransitionAction,
   type StudentInput,
 } from "./domain/records";
 import {
@@ -585,6 +587,24 @@ function App(): JSX.Element {
       return false;
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function transitionSession(
+    session: ArchiveRecord,
+    action: SessionTransitionAction,
+  ): Promise<void> {
+    if (busy()) return;
+    try {
+      const messages: Record<SessionTransitionAction, string> = {
+        start: "Session started.",
+        complete: "Session completed.",
+        review: "Session marked as reviewed.",
+        resume: "Session resumed.",
+      };
+      await addRecords([transitionSessionRecord(session, action)], messages[action]);
+    } catch (error) {
+      announce(errorMessage(error), "error");
     }
   }
 
@@ -1635,6 +1655,7 @@ function App(): JSX.Element {
                     onAdd={() => openDialog("session")}
                     onEdit={(record) => editRecord("session", record)}
                     onTrash={(record) => void reviewSessionTrash(record)}
+                    onTransition={(record, action) => void transitionSession(record, action)}
                   />
                 </Show>
                 <Show when={view() === "transcripts"}>
@@ -3043,6 +3064,7 @@ function RecordPage(props: {
   onAdd?: () => void;
   onEdit?: (record: ArchiveRecord) => void;
   onTrash?: (record: ArchiveRecord) => void;
+  onTransition?: (record: ArchiveRecord, action: SessionTransitionAction) => void;
   onProgressReview?: (input: {
     student: ArchiveRecord;
     skill: string;
@@ -3267,6 +3289,7 @@ function RecordPage(props: {
                   onProgressReview={props.onProgressReview}
                   onEdit={props.state.snapshot.locked ? undefined : props.onEdit}
                   onTrash={props.state.snapshot.locked ? undefined : props.onTrash}
+                  onTransition={props.state.snapshot.locked ? undefined : props.onTransition}
                 />
               )}
             </For>
@@ -3300,6 +3323,7 @@ function RecordCard(props: {
     | undefined;
   onEdit: ((record: ArchiveRecord) => void) | undefined;
   onTrash: ((record: ArchiveRecord) => void) | undefined;
+  onTransition: ((record: ArchiveRecord, action: SessionTransitionAction) => void) | undefined;
 }): JSX.Element {
   const record = props.record;
   if (props.kind === "students") {
@@ -3413,6 +3437,7 @@ function RecordCard(props: {
         disabled={props.disabled || props.busy}
         onEdit={props.onEdit}
         onTrash={props.onTrash}
+        onTransition={props.onTransition}
       />
     );
   if (props.kind === "journal") {
@@ -3701,8 +3726,11 @@ function SessionRow(props: {
   disabled?: boolean;
   onEdit?: ((record: ArchiveRecord) => void) | undefined;
   onTrash?: ((record: ArchiveRecord) => void) | undefined;
+  onTransition?: ((record: ArchiveRecord, action: SessionTransitionAction) => void) | undefined;
 }): JSX.Element {
   const student = props.students.find((item) => item.id === field(props.session, "student_id"));
+  const sessionState = field(props.session, "session_state", "active");
+  const displayState = sessionState === "in-progress" ? "active" : sessionState;
   return (
     <article class={`session-record ${props.expanded ? "is-expanded" : ""}`}>
       <div class="session-date">
@@ -3715,9 +3743,7 @@ function SessionRow(props: {
       <div class="session-record-main">
         <div class="record-card-title">
           <h2>{field(props.session, "title", "Untitled session")}</h2>
-          <span class={`session-state state-${field(props.session, "session_state", "created")}`}>
-            {field(props.session, "session_state", "created")}
-          </span>
+          <span class={`session-state state-${displayState}`}>{displayState}</span>
         </div>
         <p>
           {[
@@ -3743,8 +3769,61 @@ function SessionRow(props: {
           </Show>
         </div>
       </div>
-      <Show when={props.expanded && (props.onEdit || props.onTrash)}>
+      <Show when={props.expanded && (props.onEdit || props.onTrash || props.onTransition)}>
         <div class="record-actions session-actions">
+          <Show when={props.onTransition && sessionState === "created"}>
+            <button
+              class="button button-outline record-action"
+              type="button"
+              disabled={props.disabled}
+              onClick={() => props.onTransition?.(props.session, "start")}
+            >
+              Start
+            </button>
+          </Show>
+          <Show
+            when={
+              props.onTransition && (sessionState === "active" || sessionState === "in-progress")
+            }
+          >
+            <button
+              class="button button-outline record-action"
+              type="button"
+              disabled={props.disabled || field(props.session, "recording_state") === "recording"}
+              title={
+                field(props.session, "recording_state") === "recording"
+                  ? "Stop recording before completing this session."
+                  : undefined
+              }
+              onClick={() => props.onTransition?.(props.session, "complete")}
+            >
+              Complete
+            </button>
+          </Show>
+          <Show
+            when={
+              props.onTransition && (sessionState === "completed" || sessionState === "reviewed")
+            }
+          >
+            <Show when={sessionState === "completed"}>
+              <button
+                class="button button-outline record-action"
+                type="button"
+                disabled={props.disabled}
+                onClick={() => props.onTransition?.(props.session, "review")}
+              >
+                Review
+              </button>
+            </Show>
+            <button
+              class="button button-outline record-action"
+              type="button"
+              disabled={props.disabled}
+              onClick={() => props.onTransition?.(props.session, "resume")}
+            >
+              Resume
+            </button>
+          </Show>
           <Show when={props.onEdit}>
             <button
               class="button button-outline session-open"
