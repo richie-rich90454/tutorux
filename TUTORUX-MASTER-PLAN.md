@@ -1,3 +1,5 @@
+> **Migration reference:** This document describes the former C++/Slint application and is retained as a porting specification. See [the current migration inventory](docs/migration/feature-inventory.md) for TypeScript coverage and active commands.
+
 # Tutorux Master Plan
 
 **Status:** authoritative implementation plan  
