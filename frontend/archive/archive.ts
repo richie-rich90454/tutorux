@@ -147,7 +147,11 @@ export class ArchiveSnapshot {
    * Read the small metadata portions of one recording track without retaining its PCM blobs.
    * New archives use the session/track index; older archives fall back to the primary audio index.
    */
-  async listAudioChunkMetadata(sessionId: string, trackId: string): Promise<ArchiveRecord[]> {
+  async listAudioChunkMetadata(
+    sessionId: string,
+    trackId: string,
+    includeDeleted = false,
+  ): Promise<ArchiveRecord[]> {
     const session = sessionId.toLowerCase();
     const track = trackId.toLowerCase();
     if (!validArchiveUuid(session) || !validArchiveUuid(track)) {
@@ -203,7 +207,7 @@ export class ArchiveSnapshot {
           "The recording index sequence does not match its chunk.",
         );
       }
-      if (record.fields.get("_deleted") !== "true") chunks.push(record);
+      if (includeDeleted || record.fields.get("_deleted") !== "true") chunks.push(record);
     }
 
     chunks.sort((left, right) => {
