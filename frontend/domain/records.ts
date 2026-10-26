@@ -29,6 +29,12 @@ export interface SessionInput {
 
 export type SessionTransitionAction = "start" | "complete" | "review" | "resume";
 
+export interface SessionCloneInput {
+  title?: string;
+  sessionType?: string;
+  ensureJournalRoot?: boolean;
+}
+
 export interface JournalInput {
   title: string;
   date: string;
@@ -198,6 +204,132 @@ export function transitionSessionRecord(
   }
   fields.set("updated_at_us", timestamp);
   return { ...current, fields };
+}
+
+/** Clone session details into a fresh, active session without copying its recording payloads. */
+export function cloneSessionRecords(
+  current: ArchiveRecord,
+  linkedEntry: ArchiveRecord | null,
+  input: SessionCloneInput = {},
+): ArchiveRecord[] {
+  if (current.type !== RecordType.session || current.fields.get("_deleted") === "true") {
+    throw new Error("Select an active session to duplicate.");
+  }
+  const sourceEntryId = current.fields.get("entry_id") ?? "";
+  if (
+    sourceEntryId &&
+    (!linkedEntry ||
+      linkedEntry.type !== RecordType.settings ||
+      linkedEntry.fields.get("record_role") !== "journal-entry" ||
+      linkedEntry.fields.get("_deleted") === "true" ||
+      linkedEntry.id.toLowerCase() !== sourceEntryId.toLowerCase())
+  ) {
+    throw new Error("The session’s linked journal entry could not be found.");
+  }
+  if (!sourceEntryId && linkedEntry) {
+    throw new Error("The session has no journal entry to link to its duplicate.");
+  }
+
+  const title =
+    input.title === undefined
+      ? copySessionTitle(current.fields.get("title") ?? "Untitled session")
+      : requiredText(input.title, "Session title", 240);
+  const sessionType = input.sessionType ?? "notes-only";
+  if (!isSessionType(sessionType)) {
+    throw new Error("Session type must be notes-only, record-audio, or import-recording.");
+  }
+
+  const timestamp = nowUs();
+  const sessionId = crypto.randomUUID();
+  const fields = new Map(current.fields);
+  for (const key of fields.keys()) {
+    if (
+      key.startsWith("recording_") ||
+      [
+        "_deleted",
+        "_trash_group_id",
+        "_trash_session_group_id",
+        "audio_import_state",
+        "audio_import_track_id",
+        "deleted_at_us",
+        "last_completed_at_us",
+        "resumed_at_us",
+        "restored_at_us",
+        "recording_track_count",
+      ].includes(key)
+    ) {
+      fields.delete(key);
+    }
+  }
+
+  const records: ArchiveRecord[] = [];
+  let entryId = sourceEntryId;
+  if (!entryId) entryId = crypto.randomUUID();
+  const sessionNotesId = crypto.randomUUID();
+  fields.set("entry_id", entryId);
+  fields.set("notes_document_id", sessionNotesId);
+  fields.set("title", title);
+  fields.set("session_state", "active");
+  fields.set("session_type", sessionType);
+  fields.set("recording_source", "none");
+  fields.set("recording_state", "not-started");
+  fields.set("processing_state", "not-processed");
+  fields.set("archived", "false");
+  fields.set("created_at_us", timestamp);
+  fields.set("started_at_us", timestamp);
+  fields.set("ended_at_us", "0");
+  fields.set("reviewed_at_us", "0");
+  fields.set("updated_at_us", timestamp);
+  const session = {
+    ...current,
+    id: sessionId,
+    revision: 0n,
+    previousOffset: 0n,
+    fields,
+    blob: current.blob.slice(),
+  };
+  records.push(session);
+
+  if (linkedEntry) {
+    const entryFields = new Map(linkedEntry.fields);
+    entryFields.set("session_ids", mergeIds(entryFields.get("session_ids") ?? "", sessionId));
+    entryFields.set("updated_at_us", timestamp);
+    records.push({ ...linkedEntry, fields: entryFields });
+  } else {
+    if (input.ensureJournalRoot) {
+      records.push(
+        record(RecordType.settings, crypto.randomUUID(), {
+          record_role: "journal",
+          title: "Tutorux journal",
+          created_at_us: timestamp,
+          updated_at_us: timestamp,
+        }),
+      );
+    }
+    const entryNotesId = crypto.randomUUID();
+    const today = new Date();
+    const entryDate = [today.getFullYear(), today.getMonth() + 1, today.getDate()]
+      .map((part, index) => (index === 0 ? String(part) : String(part).padStart(2, "0")))
+      .join("-");
+    records.push(
+      record(RecordType.settings, entryId, {
+        record_role: "journal-entry",
+        title,
+        entry_date: entryDate,
+        collection_ids: "",
+        tag_ids: "",
+        notes_document_id: entryNotesId,
+        session_ids: sessionId,
+        study_guide_ids: "",
+        attachment_ids: "",
+        created_at_us: timestamp,
+        updated_at_us: timestamp,
+      }),
+      makeNotesDocument(entryNotesId, entryId, "", "", timestamp),
+    );
+  }
+  records.push(makeNotesDocument(sessionNotesId, entryId, sessionId, "", timestamp));
+  return records;
 }
 
 export function makeSessionRecords(input: SessionInput): ArchiveRecord[] {
@@ -511,6 +643,21 @@ function mergeIds(value: string, id: string): string {
   const ids = splitIds(value);
   if (!ids.some((item) => item.toLowerCase() === id.toLowerCase())) ids.push(id);
   return ids.join(",");
+}
+
+function isSessionType(value: string): boolean {
+  return value === "notes-only" || value === "record-audio" || value === "import-recording";
+}
+
+function copySessionTitle(title: string): string {
+  const suffix = " (copy)";
+  const encoder = new TextEncoder();
+  let prefix = "";
+  for (const character of title) {
+    if (encoder.encode(`${prefix}${character}${suffix}`).byteLength > 240) break;
+    prefix += character;
+  }
+  return requiredText(`${prefix}${suffix}`, "Session title", 240);
 }
 
 function cleanColor(value: string): string {
