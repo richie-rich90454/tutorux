@@ -95,6 +95,8 @@ npm run cli -- archive verify Lesson.tux --json
 
 Session deletion first reports a revision-bound scope token, what will move to Trash, and which journal links will be detached. Copy that token into the confirmation command; restore brings the session group and its journal links back together.
 
+Session lists are ordered newest first. Plain output shows each session; `--json` includes its lifecycle state, journal links, recording totals, and transcript cue count.
+
 After installing the npm package, the `tutorux` executable points to the same TypeScript CLI entry point.
 
 ## Archive compatibility
