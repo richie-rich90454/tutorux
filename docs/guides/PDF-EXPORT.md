@@ -1,3 +1,5 @@
+> **Migration reference:** This document describes behavior, implementation, or build details from the former C++/Slint application. It remains useful as a porting specification; current TypeScript coverage is tracked in [the feature inventory](../migration/feature-inventory.md). Historical build commands are not the active TypeScript workflow.
+
 # Guide PDF export
 
 `guide export ID --format pdf --output FILE.pdf` produces an A4 PDF from the guide's current
