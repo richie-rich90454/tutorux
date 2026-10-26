@@ -4,6 +4,7 @@ import { guideDraftFromRecord } from "./guides";
 
 export interface SessionTrashCounts {
   audioChunks: number;
+  waveformIndices: number;
   sessionNotes: number;
   transcriptSegments: number;
   annotations: number;
@@ -11,6 +12,7 @@ export interface SessionTrashCounts {
   assets: number;
   entriesUpdated: number;
   evidenceNodes: number;
+  evidenceEdges: number;
   totalRecords: number;
 }
 
@@ -155,6 +157,8 @@ export async function planSessionTrash(
   const changes = scopeRecords.filter((record) => record.type !== RecordType.audioChunk);
   const counts: SessionTrashCounts = {
     audioChunks: audioChunkRecords.length,
+    waveformIndices: deletionRecords.filter((record) => record.type === RecordType.waveformIndex)
+      .length,
     sessionNotes: deletedSessionNotes.length,
     transcriptSegments: deletionRecords.filter(
       (record) => record.type === RecordType.transcriptSegment,
@@ -164,6 +168,8 @@ export async function planSessionTrash(
     assets: deletedAssets.length,
     entriesUpdated: updatedEntries.length,
     evidenceNodes: deletedEvidenceNodes.length,
+    evidenceEdges: deletionRecords.filter((record) => record.type === RecordType.evidenceEdge)
+      .length,
     totalRecords: scopeRecords.length,
   };
   return { changes, scopeRecords, audioChunkRecords, counts };
