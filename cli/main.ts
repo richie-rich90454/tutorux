@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { lstat, open, readFile, realpath, rename, rm, stat } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { RecordType, type ArchiveRecord } from "../frontend/archive/format";
+import { ArchiveFormatError, RecordType, type ArchiveRecord } from "../frontend/archive/format";
 import {
   appendRecords,
   createArchiveBytes,
@@ -126,7 +126,8 @@ Usage:
   tutorux --archive <file.tux> annotation split <id> --before <text> --after <text> [--at <time>]
   tutorux --archive <file.tux> annotation link|unlink <id> --to asset|evidence --target-id <uuid>
   tutorux --archive <file.tux> asset import --input <file> [--session <uuid>]
-  tutorux --archive <file.tux> asset list [--json]
+  tutorux --archive <file.tux> asset list [--include-deleted] [--json]
+  tutorux --archive <file.tux> asset show|verify|remove|restore <id> [--json]
   tutorux --archive <file.tux> asset export <id> --output <file>
   tutorux --archive <file.tux> asset link|unlink <id> --to annotation|transcript --target-id <uuid>
   tutorux --archive <file.tux> evidence extract --session <uuid>
@@ -1098,7 +1099,10 @@ async function runAssetCommand(
   if (action === "list") {
     const snapshot = await openForCommand(path);
     try {
-      const records = await snapshot.listRecords(RecordType.assetMetadata);
+      const records = await snapshot.listRecords(
+        RecordType.assetMetadata,
+        args.flags.has("include-deleted"),
+      );
       const rows = records.map(toPlainRecord);
       emit(
         output,
@@ -1109,6 +1113,83 @@ async function runAssetCommand(
         json,
       );
       return 0;
+    } finally {
+      await closeSnapshot(snapshot);
+    }
+  }
+
+  if (action === "show") {
+    const id = requiredPosition(args, 0, "material ID");
+    const record = await getLiveRecordAtPath(path, RecordType.assetMetadata, id);
+    emit(output, toPlainRecord(record), `Material ${id}.`, json);
+    return 0;
+  }
+
+  if (action === "remove") {
+    const id = requiredPosition(args, 0, "material ID");
+    const current = await getLiveRecordAtPath(path, RecordType.assetMetadata, id);
+    const fields = new Map(current.fields);
+    fields.set("_deleted", "true");
+    const [saved] = await mutateArchive(path, [
+      { ...current, revision: 0n, previousOffset: 0n, fields },
+    ]);
+    emit(
+      output,
+      toPlainRecord(saved ?? { ...current, fields }),
+      "Material reference removed; immutable blob remains until archive compaction.",
+      json,
+    );
+    return 0;
+  }
+
+  if (action === "restore") {
+    const id = requiredPosition(args, 0, "material ID");
+    const current = await getRecordAtPath(path, RecordType.assetMetadata, id);
+    if (field(current, "_deleted") !== "true") {
+      throw new CliError("Material is not in Trash.");
+    }
+    const fields = new Map(current.fields);
+    fields.delete("_deleted");
+    fields.set("restored_at_us", timestampNow());
+    const [saved] = await mutateArchive(path, [
+      { ...current, revision: 0n, previousOffset: 0n, fields },
+    ]);
+    emit(
+      output,
+      toPlainRecord(saved ?? { ...current, fields }),
+      "Material restored from Trash.",
+      json,
+    );
+    return 0;
+  }
+
+  if (action === "verify") {
+    const id = requiredPosition(args, 0, "material ID");
+    const snapshot = await openForCommand(path);
+    try {
+      const asset = await snapshot.getRecord(RecordType.assetMetadata, id);
+      if (!asset || field(asset, "_deleted") === "true") {
+        throw new CliError(`Material ${id} was not found in this archive.`);
+      }
+      let valid = true;
+      try {
+        await readAssetBytes(snapshot, asset);
+      } catch (error) {
+        if (
+          !(error instanceof ArchiveFormatError) ||
+          error.code !== "asset_content_integrity_failed"
+        ) {
+          throw error;
+        }
+        valid = false;
+      }
+      emit(
+        output,
+        { asset_id: asset.id, valid, sha256: field(asset, "content_hash") },
+        valid ? "Asset content hash is valid." : "Asset content hash mismatch.",
+        json,
+      );
+      return valid ? 0 : 2;
     } finally {
       await closeSnapshot(snapshot);
     }
