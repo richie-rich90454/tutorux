@@ -77,3 +77,54 @@ test("reviews, saves, exports, and reopens a private manual AI package", async (
     manifest: { format: "tutorux-ai-package-v1" },
   });
 });
+
+test("saves provider preferences and keeps API keys inside encrypted archives", async ({
+  page,
+}, info) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: "Create your workspace" }).click();
+  await page.getByLabel("Workspace name").fill("Encrypted AI settings");
+  await page.getByLabel(/Protect this workspace with a passphrase/u).check();
+  await page.getByLabel("Archive passphrase").fill("encrypted-ai-test-passphrase");
+  await page.getByLabel("Confirm passphrase").fill("encrypted-ai-test-passphrase");
+  const initialDownload = page.waitForEvent("download");
+  await page.getByRole("button", { name: "Create workspace" }).click();
+  await (await initialDownload).saveAs(info.outputPath("ai-encrypted-initial.tux"));
+
+  await page.getByRole("navigation").getByRole("button", { name: "AI workspace" }).click();
+  await page.getByLabel("AI model ID").fill("gpt-4.1");
+  await page.getByRole("button", { name: "Save provider settings" }).click();
+  await expect(page.getByText("Configured", { exact: true })).toBeVisible();
+
+  const apiKey = "sk-test-secret-never-display";
+  await page.getByLabel("Provider API key").fill(apiKey);
+  await page
+    .getByRole("checkbox", {
+      name: /understand this key will be stored inside the encrypted archive/u,
+    })
+    .check();
+  await page.getByRole("button", { name: "Save key securely" }).click();
+  await expect(
+    page.getByText("A key is saved in this archive. Its value is never shown here."),
+  ).toBeVisible();
+  await expect(page.getByLabel("Provider API key")).toHaveCount(0);
+  await expect(page.locator("body")).not.toContainText(apiKey);
+
+  const archiveDownload = page.waitForEvent("download");
+  await page.getByRole("button", { name: "Save archive" }).click();
+  await (await archiveDownload).saveAs(info.outputPath("ai-encrypted-saved.tux"));
+  const locked = await openArchiveBytes(
+    new Uint8Array(await readFile(info.outputPath("ai-encrypted-saved.tux"))),
+  );
+  const archive = await locked.unlock("encrypted-ai-test-passphrase");
+  await expect(verifyArchiveSnapshot(archive)).resolves.toMatchObject({ deletedRecords: 0 });
+  const settings = await archive.listRecords(RecordType.settings);
+  const provider = settings.find((record) => record.fields.get("record_role") === "ai-provider");
+  expect(provider?.fields.get("provider_id")).toBe("openai");
+  expect(provider?.fields.get("selected_model")).toBe("gpt-4.1");
+  expect(provider?.fields.get("credential_storage")).toBe("memory-only");
+  const credential = settings.find((record) => record.fields.get("record_role") === "credential");
+  expect(credential?.fields.get("key")).toBe("OPENAI_API_KEY");
+  expect(credential?.fields.get("value")).toBe(apiKey);
+  archive.lock();
+});
