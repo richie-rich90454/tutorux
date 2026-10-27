@@ -442,14 +442,95 @@ export interface ArchiveCompactionResult {
   preservedRecords: number;
 }
 
-/** Rewrite one verified archive generation while preserving every indexed revision and payload. */
+export interface ArchiveRepairResult extends ArchiveCompactionResult {
+  selectedGeneration: bigint;
+  discardedTrailingBytes: bigint;
+}
+
+/** Create a compacted copy from the newest generation that passes full record verification. */
+export async function repairArchiveSnapshot(
+  snapshot: ArchiveSnapshot,
+): Promise<ArchiveRepairResult> {
+  if (snapshot.locked) {
+    throw new ArchiveFormatError("archive_locked", "Unlock this archive before repairing a copy.");
+  }
+
+  let commit = snapshot.commit;
+  let lastError: unknown;
+  const visitedCommits = new Set<bigint>();
+  for (let attempt = 0; attempt < 1024 && !visitedCommits.has(commit.offset); attempt += 1) {
+    visitedCommits.add(commit.offset);
+    let selectedCommit = commit;
+    let candidate: CommitCandidate | null = null;
+    try {
+      candidate = await findConsistentCommit(snapshot.source, snapshot.header, commit);
+    } catch (error) {
+      lastError = error;
+    }
+    if (candidate) {
+      try {
+        const publishedEndOffset = await commitPublishedEndOffset(
+          snapshot.source,
+          candidate.commit,
+        );
+        const selected = new ArchiveSnapshot(
+          snapshot.source,
+          snapshot.header,
+          candidate.commit,
+          candidate.indexEntries,
+          publishedEndOffset,
+        );
+        const compacted = await rebuildArchiveSnapshot(selected, true);
+        return {
+          ...compacted,
+          selectedGeneration: candidate.commit.generation,
+          discardedTrailingBytes: snapshot.source.size - publishedEndOffset,
+        };
+      } catch (error) {
+        lastError = error;
+        selectedCommit = candidate.commit;
+      }
+    }
+
+    if (selectedCommit.previousOffset === 0n) break;
+    try {
+      const previous = await decodeCommit(snapshot.source, selectedCommit.previousOffset);
+      if (previous.generation + 1n !== selectedCommit.generation) {
+        throw new ArchiveFormatError(
+          "archive_repair_commit_chain_invalid",
+          "Previous commit generation is not consecutive.",
+        );
+      }
+      commit = previous;
+    } catch (error) {
+      lastError = error;
+      break;
+    }
+  }
+
+  throw new ArchiveFormatError(
+    "archive_repair_no_verified_generation",
+    lastError instanceof Error
+      ? `No committed generation passed full verification: ${lastError.message}`
+      : "No committed generation passed full verification.",
+  );
+}
+
+/** Rewrite a verified archive generation while preserving every indexed revision and payload. */
 export async function compactArchiveSnapshot(
   snapshot: ArchiveSnapshot,
+): Promise<ArchiveCompactionResult> {
+  return rebuildArchiveSnapshot(snapshot, false);
+}
+
+async function rebuildArchiveSnapshot(
+  snapshot: ArchiveSnapshot,
+  allowUnpublishedTail: boolean,
 ): Promise<ArchiveCompactionResult> {
   if (snapshot.locked) {
     throw new ArchiveFormatError("archive_locked", "Unlock this archive before compacting it.");
   }
-  if (snapshot.source.size !== snapshot.publishedEndOffset) {
+  if (!allowUnpublishedTail && snapshot.source.size !== snapshot.publishedEndOffset) {
     throw new ArchiveFormatError(
       "archive_recovery_required",
       "This archive has uncommitted trailing data. Review or recover it before compacting it.",
@@ -1683,6 +1764,38 @@ function encodeLocator(commitOffset: bigint, generation: bigint): Uint8Array {
   view.setUint32(24, crc32(locator.subarray(0, 24)), true);
   view.setUint32(28, 0, true);
   return locator;
+}
+
+async function commitPublishedEndOffset(
+  source: ArchiveByteSource,
+  commit: CommitInfo,
+): Promise<bigint> {
+  const frame = await readFrameAt(source, commit.offset);
+  if (frame.type !== RecordType.commit) {
+    throw new ArchiveFormatError(
+      "archive_commit_invalid",
+      "Commit offset points to a non-commit record.",
+    );
+  }
+  const locatorOffset = BigInt(frame.endOffset);
+  if (source.size - locatorOffset < BigInt(LOCATOR_SIZE)) {
+    throw new ArchiveFormatError(
+      "archive_locator_missing",
+      "A commit publication locator is missing.",
+    );
+  }
+  const locator = await source.read(locatorOffset, LOCATOR_SIZE);
+  if (
+    !validLocator(locator) ||
+    readLittle(locator, 8, 8) !== commit.offset ||
+    readLittle(locator, 16, 8) !== commit.generation
+  ) {
+    throw new ArchiveFormatError(
+      "archive_locator_invalid",
+      "A commit publication locator is invalid or points to a different generation.",
+    );
+  }
+  return locatorOffset + BigInt(LOCATOR_SIZE);
 }
 
 function validLocator(locator: Uint8Array): boolean {
