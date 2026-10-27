@@ -1389,6 +1389,121 @@ export async function createArchiveBytes(
   return concatBytes([encodedHeader, emptyRoot, manifestFrame, rootFrame, commitFrame, locator]);
 }
 
+export async function createEncryptedArchiveBytes(
+  displayName: string,
+  description: string,
+  passphrase: string,
+  createdAtUs = BigInt(Date.now()) * 1000n,
+): Promise<Uint8Array> {
+  if (displayName.trim().length === 0) {
+    throw new ArchiveFormatError("archive_name_invalid", "Archive name must not be empty.");
+  }
+  const { ArchiveDataKey, encryptionEnvelopeToRecord } = await import("./crypto");
+  const header: ArchiveHeader = {
+    id: newUuid(),
+    majorVersion: 1,
+    minorVersion: 0,
+    createdAtUs,
+    capabilities: CAPABILITY_ENCRYPTED,
+  };
+  const encodedHeader = encodeArchiveHeader(header);
+  const dataKey = await ArchiveDataKey.createRandom();
+  try {
+    const envelope = await dataKey.wrap(passphrase, header.id);
+    const emptyRootPayload = encodeIndexPage({
+      leaf: true,
+      entries: [],
+      separators: [],
+      children: [],
+    });
+    const emptyRootAuthentication = await dataKey.authenticateBytes(
+      "TUTORUX-INDEX-PAGE-V1",
+      emptyRootPayload,
+    );
+    const emptyRoot = encodeRecordFrame(
+      { type: RecordType.indexPage, id: ZERO_UUID, revision: 1n, previousOffset: 0n },
+      concatBytes([emptyRootPayload, emptyRootAuthentication]),
+    );
+    const encryptionRecord = encryptionEnvelopeToRecord(envelope, header.id);
+    const encryptionPayload = encodeRecordPayload(encryptionRecord);
+    const encryptionFrame = encodeRecordFrame(encryptionRecord, encryptionPayload);
+    const manifest: ArchiveRecord = {
+      type: RecordType.settings,
+      id: header.id,
+      revision: 1n,
+      previousOffset: 0n,
+      fields: new Map([
+        ["record_role", "archive-manifest"],
+        ["display_name", displayName],
+        ["description", description],
+        ["student_count", "0"],
+        ["session_count", "0"],
+        ["created_at_us", header.createdAtUs.toString()],
+      ]),
+      blob: new Uint8Array(),
+    };
+    const manifestAuthentication = await dataKey.authenticateBytes(
+      "TUTORUX-MANIFEST-V1",
+      encodeRecordPayload(manifest),
+    );
+    const manifestFields = new Map(manifest.fields);
+    manifestFields.set(
+      "manifest_auth",
+      Array.from(manifestAuthentication, (byte) => byte.toString(16).padStart(2, "0")).join(""),
+    );
+    const authenticatedManifest = { ...manifest, fields: manifestFields };
+    const manifestFrame = encodeRecordFrame(
+      authenticatedManifest,
+      encodeRecordPayload(authenticatedManifest),
+    );
+    const encryptionOffset = BigInt(encodedHeader.length + emptyRoot.length);
+    const manifestOffset = encryptionOffset + BigInt(encryptionFrame.length);
+    const rootOffset = manifestOffset + BigInt(manifestFrame.length);
+    const entries = [
+      {
+        key: primaryIndexKey(RecordType.encryption, header.id),
+        valueOffset: encryptionOffset,
+      },
+      {
+        key: primaryIndexKey(RecordType.settings, header.id),
+        valueOffset: manifestOffset,
+      },
+    ].sort((left, right) => compareKeys(left.key, right.key));
+    const tree = await buildIndexTree(entries, rootOffset, (payload) =>
+      dataKey.authenticateBytes("TUTORUX-INDEX-PAGE-V1", payload),
+    );
+    const transactionId = newUuid();
+    const commitBody = encodeCommitPayload({
+      generation: 1n,
+      previousOffset: 0n,
+      rootOffset: tree.rootOffset,
+      rootHash: await sha256(tree.rootPayload),
+      transactionId,
+      recordCount: 2n,
+    });
+    const commitPayload = concatBytes([
+      commitBody,
+      await dataKey.authenticateBytes("TUTORUX-COMMIT-V1", commitBody),
+    ]);
+    const commitOffset = tree.endOffset;
+    const commitFrame = encodeRecordFrame(
+      { type: RecordType.commit, id: ZERO_UUID, revision: 1n, previousOffset: 0n },
+      commitPayload,
+    );
+    return concatBytes([
+      encodedHeader,
+      emptyRoot,
+      encryptionFrame,
+      manifestFrame,
+      ...tree.frames,
+      commitFrame,
+      encodeLocator(commitOffset, 1n),
+    ]);
+  } finally {
+    dataKey.dispose();
+  }
+}
+
 export async function openArchiveBytes(bytes: Uint8Array): Promise<ArchiveSnapshot> {
   return openArchiveSource(new MemoryArchiveSource(bytes));
 }
