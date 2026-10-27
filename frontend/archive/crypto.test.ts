@@ -1,6 +1,11 @@
 import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
-import { openArchiveBytes, verifyArchiveSnapshot, type ArchiveSnapshot } from "./archive";
+import {
+  appendRecords,
+  openArchiveBytes,
+  verifyArchiveSnapshot,
+  type ArchiveSnapshot,
+} from "./archive";
 import {
   decodeLz4Block,
   decodeRecordFrame,
@@ -194,6 +199,7 @@ describe("Tutorux archive encryption primitives", () => {
     await expect(locked.getRecord(RecordType.student, studentId)).rejects.toMatchObject({
       code: "archive_locked",
     });
+    await expect(appendRecords(locked, [])).rejects.toMatchObject({ code: "archive_locked" });
     await expect(locked.unlock("incorrect passphrase")).rejects.toMatchObject({
       code: "archive_passphrase_invalid",
     });
@@ -203,7 +209,7 @@ describe("Tutorux archive encryption primitives", () => {
 
     expect(locked.locked).toBe(true);
     expect(unlocked.locked).toBe(false);
-    expect(unlocked.canMutate).toBe(false);
+    expect(unlocked.canMutate).toBe(true);
     await expect(unlocked.getManifest()).resolves.toMatchObject({
       displayName: "Cross-language crypto fixture",
     });
@@ -217,5 +223,54 @@ describe("Tutorux archive encryption primitives", () => {
     await expect(unlocked.getRecord(RecordType.student, studentId)).rejects.toMatchObject({
       code: "archive_locked",
     });
+  });
+
+  it("appends, authenticates, and reopens an encrypted v1 generation", async () => {
+    const fixture = new URL("../../tests/fixtures/encrypted-v1.tux", import.meta.url);
+    const locked = await openArchiveBytes(new Uint8Array(await readFile(fixture)));
+    const original = await locked.unlock("Tutorux cross-language fixture phrase 2026");
+    const encryptionEnvelope = await original.getRecord(RecordType.encryption, original.header.id);
+    expect(encryptionEnvelope).not.toBeNull();
+    await expect(appendRecords(original, [encryptionEnvelope!])).rejects.toMatchObject({
+      code: "archive_passphrase_change_unsupported",
+    });
+    const studentEntry = [...original.allIndexEntries()].find(([indexKey]) =>
+      indexKey.startsWith("STUDENT:"),
+    );
+    expect(studentEntry).toBeDefined();
+    const studentId = studentEntry![0].slice("STUDENT:".length);
+    const student = await original.getRecord(RecordType.student, studentId);
+    expect(student).not.toBeNull();
+    const fields = new Map(student!.fields);
+    fields.set("display_name", "Updated encrypted fixture learner");
+
+    const updated = await appendRecords(original, [{ ...student!, fields }]);
+
+    expect(updated.encrypted).toBe(true);
+    expect(updated.locked).toBe(false);
+    expect(updated.canMutate).toBe(true);
+    expect(updated.commit.generation).toBe(original.commit.generation + 1n);
+    await expect(updated.getRecord(RecordType.student, studentId)).resolves.toMatchObject({
+      id: studentId,
+      revision: student!.revision + 1n,
+    });
+    expect(
+      (await updated.getRecord(RecordType.student, studentId))?.fields.get("display_name"),
+    ).toBe("Updated encrypted fixture learner");
+    await expect(verifyArchiveSnapshot(updated)).resolves.toMatchObject({ currentRecords: 3 });
+    await expect(original.getRecord(RecordType.student, studentId)).resolves.toMatchObject({
+      revision: student!.revision,
+    });
+
+    const serialized = await updated.source.read(0n, Number(updated.source.size));
+    updated.lock();
+    const reopenedLocked = await openArchiveBytes(serialized);
+    const reopened = await reopenedLocked.unlock("Tutorux cross-language fixture phrase 2026");
+    await expect(reopened.getRecord(RecordType.student, studentId)).resolves.toMatchObject({
+      revision: student!.revision + 1n,
+    });
+    await expect(verifyArchiveSnapshot(reopened)).resolves.toMatchObject({ currentRecords: 3 });
+    reopened.lock();
+    original.lock();
   });
 });
