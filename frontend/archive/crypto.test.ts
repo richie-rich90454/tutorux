@@ -273,4 +273,59 @@ describe("Tutorux archive encryption primitives", () => {
     reopened.lock();
     original.lock();
   });
+
+  it("changes the passphrase by re-keying the archive and removing the old envelope", async () => {
+    const fixture = new URL("../../tests/fixtures/encrypted-v1.tux", import.meta.url);
+    const locked = await openArchiveBytes(new Uint8Array(await readFile(fixture)));
+    const original = await locked.unlock("Tutorux cross-language fixture phrase 2026");
+    const nextPassphrase = "A new protected archive phrase 2026";
+    const student = (await original.listRecords(RecordType.student))[0]!;
+    const changedFields = new Map(student.fields);
+    changedFields.set("display_name", "Re-keyed interop student");
+    const edited = await appendRecords(original, [{ ...student, fields: changedFields }]);
+    const oldEnvelope = encryptionEnvelopeFromRecord(
+      (await original.getRecord(RecordType.encryption, original.header.id))!,
+      original.header.id,
+    );
+    const bytesBeforeRotation = await edited.source.read(0n, Number(edited.source.size));
+    await expect(
+      edited.changePassphrase("incorrect current passphrase", nextPassphrase),
+    ).rejects.toMatchObject({ code: "archive_passphrase_invalid" });
+    expect(await edited.source.read(0n, Number(edited.source.size))).toEqual(bytesBeforeRotation);
+    const changed = await edited.changePassphrase(
+      "Tutorux cross-language fixture phrase 2026",
+      nextPassphrase,
+    );
+
+    expect(changed.commit.generation).toBe(1n);
+    expect(changed.encrypted).toBe(true);
+    await expect(verifyArchiveSnapshot(changed)).resolves.toMatchObject({ currentRecords: 3 });
+    const history = await changed.getRecordHistory(RecordType.student, student.id);
+    expect(history.map((record) => [record.revision, record.fields.get("display_name")])).toEqual([
+      [2n, "Re-keyed interop student"],
+      [1n, "Interop Student"],
+    ]);
+
+    const bytes = await changed.source.read(0n, Number(changed.source.size));
+    expect(Buffer.from(bytes).includes(Buffer.from(oldEnvelope.wrappedKey))).toBe(false);
+    const reopened = await openArchiveBytes(bytes);
+    await expect(
+      reopened.unlock("Tutorux cross-language fixture phrase 2026"),
+    ).rejects.toMatchObject({ code: "archive_passphrase_invalid" });
+    const reauthenticated = await reopened.unlock(nextPassphrase);
+    await expect(verifyArchiveSnapshot(reauthenticated)).resolves.toMatchObject({
+      currentRecords: 3,
+    });
+    await expect(reauthenticated.getManifest()).resolves.toMatchObject({
+      displayName: "Cross-language crypto fixture",
+    });
+    expect(
+      (await reauthenticated.listRecords(RecordType.student))[0]?.fields.get("display_name"),
+    ).toBe("Re-keyed interop student");
+
+    reauthenticated.lock();
+    changed.lock();
+    edited.lock();
+    original.lock();
+  });
 });
