@@ -122,7 +122,7 @@ test("saves provider preferences and keeps API keys inside encrypted archives", 
     .check();
   await page.getByRole("button", { name: "Save key securely" }).click();
   await expect(
-    page.getByText("A key is saved in this archive. Its value is never shown here."),
+    page.getByText("A key is saved in this encrypted archive. Its value is never shown here."),
   ).toBeVisible();
   await expect(page.getByLabel("Provider API key")).toHaveCount(0);
   await expect(page.locator("body")).not.toContainText(apiKey);
