@@ -234,6 +234,22 @@ export const platform: ArchivePlatform = {
     };
   },
 
+  async aiCredentialStoreAvailable(): Promise<boolean> {
+    return false;
+  },
+
+  async hasAiCredential(): Promise<boolean> {
+    return false;
+  },
+
+  async saveAiCredential(): Promise<void> {
+    throw new Error("System keychain storage is available only in the Tutorux desktop app.");
+  },
+
+  async removeAiCredential(): Promise<void> {
+    throw new Error("System keychain storage is available only in the Tutorux desktop app.");
+  },
+
   async createArchiveLocation(suggestedName: string): Promise<string | null> {
     return suggestedName;
   },
