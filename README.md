@@ -60,6 +60,8 @@ npm run cli -- --archive Lesson.tux student show <student-uuid> --json
 npm run cli -- --archive Lesson.tux student history <student-uuid> --json
 npm run cli -- --archive Lesson.tux student progress <student-uuid> --json
 npm run cli -- --archive Lesson.tux student progress-review <student-uuid> --skill "Equivalent fractions" --classification partial-improvement --evidence-ids <evidence-from-session-1>,<evidence-from-session-2> --reviewed-by "Tutor"
+npm run cli -- --archive Lesson.tux session create --title "Fraction review" --subject Mathematics --student <student-uuid>
+npm run cli -- --archive Lesson.tux session create --title "Fraction review" --subject Mathematics --entry-id <journal-entry-uuid>
 npm run cli -- --archive Lesson.tux session update <session-uuid> --notes "Revisit equivalent fractions next time"
 npm run cli -- --archive Lesson.tux session clone <session-uuid> [--title "Practice copy"] [--type notes-only]
 npm run cli -- --archive Lesson.tux session start <session-uuid>
@@ -98,6 +100,8 @@ npm run cli -- archive verify Lesson.tux --json
 ```
 
 Session deletion first reports a revision-bound scope token, what will move to Trash, and which journal links will be detached. Copy that token into the confirmation command; restore brings the session group and its journal links back together.
+
+New sessions start active and automatically create a dated journal entry. Use `--entry-id` to attach a CLI-created session to an existing journal entry.
 
 Session lists are ordered newest first. Plain output shows each session; `--json` includes its lifecycle state, journal links, recording totals, and transcript cue count.
 
