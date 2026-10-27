@@ -1,6 +1,7 @@
-import { For, Show, createMemo, createSignal, type JSX } from "solid-js";
+import { For, Show, createEffect, createMemo, createSignal, type JSX } from "solid-js";
 import type { ArchiveRecord } from "./archive/format";
 import { aiPackageText, type AiPackageSummary } from "./ai/package";
+import { AI_PROVIDERS, type AiProviderConfigurationInput } from "./ai/providers";
 import { GUIDE_TEMPLATES, type GuideTemplate } from "./domain/guides";
 import { guideTemplateFromRecord } from "./domain/templates";
 import "./ai.css";
@@ -9,11 +10,17 @@ interface AiPageProps {
   sessions: readonly ArchiveRecord[];
   customTemplates: readonly ArchiveRecord[];
   jobs: readonly ArchiveRecord[];
+  providerSettings: readonly ArchiveRecord[];
+  credentials: readonly ArchiveRecord[];
+  encrypted: boolean;
   disabled: boolean;
   busy: boolean;
   onPrepare: (sessionId: string, templateId: string) => Promise<AiPackageSummary>;
   onSave: (summary: AiPackageSummary) => Promise<boolean>;
   onLoad: (jobId: string) => Promise<ArchiveRecord | null>;
+  onSaveProvider: (input: AiProviderConfigurationInput) => Promise<boolean>;
+  onSaveCredential: (providerId: string, value: string) => Promise<boolean>;
+  onRemoveCredential: (providerId: string) => Promise<boolean>;
 }
 
 export function AiPage(props: AiPageProps): JSX.Element {
@@ -23,6 +30,33 @@ export function AiPage(props: AiPageProps): JSX.Element {
   const [reviewed, setReviewed] = createSignal(false);
   const [showJson, setShowJson] = createSignal(false);
   const [message, setMessage] = createSignal("");
+  const [providerId, setProviderId] = createSignal(AI_PROVIDERS[0]!.id);
+  const [providerEndpoint, setProviderEndpoint] = createSignal(AI_PROVIDERS[0]!.defaultEndpoint);
+  const [providerModel, setProviderModel] = createSignal("");
+  const [providerMessage, setProviderMessage] = createSignal("");
+  const [credentialInput, setCredentialInput] = createSignal("");
+  const [credentialConfirmed, setCredentialConfirmed] = createSignal(false);
+  const currentProvider = createMemo(
+    () => AI_PROVIDERS.find((provider) => provider.id === providerId()) ?? AI_PROVIDERS[0]!,
+  );
+  const savedCredential = createMemo(() =>
+    props.credentials.find(
+      (record) =>
+        record.fields.get("provider_id") === providerId() ||
+        record.fields.get("key") === currentProvider().credentialKey,
+    ),
+  );
+  const savedProvider = createMemo(() =>
+    props.providerSettings.find((record) => record.fields.get("provider_id") === providerId()),
+  );
+  createEffect(() => {
+    const provider = currentProvider();
+    const saved = savedProvider();
+    setProviderEndpoint(saved?.fields.get("endpoint") || provider.defaultEndpoint);
+    setProviderModel(saved?.fields.get("selected_model") ?? "");
+    setCredentialInput("");
+    setCredentialConfirmed(false);
+  });
   const templates = createMemo<GuideTemplate[]>(() => [
     ...GUIDE_TEMPLATES,
     ...props.customTemplates.map(guideTemplateFromRecord),
@@ -77,6 +111,58 @@ export function AiPage(props: AiPageProps): JSX.Element {
     }
   }
 
+  async function saveProvider(): Promise<void> {
+    setProviderMessage("");
+    try {
+      const input: AiProviderConfigurationInput = {
+        providerId: currentProvider().id,
+        endpoint: providerEndpoint(),
+        model: providerModel(),
+      };
+      const saved = await props.onSaveProvider(input);
+      if (saved)
+        setProviderMessage("Provider settings saved. No connection test or request was made.");
+    } catch (cause) {
+      setProviderMessage(
+        cause instanceof Error ? cause.message : "Provider settings could not be saved.",
+      );
+    }
+  }
+
+  async function saveCredential(): Promise<void> {
+    setProviderMessage("");
+    if (!credentialConfirmed()) {
+      setProviderMessage("Confirm encrypted storage before saving this API key.");
+      return;
+    }
+    try {
+      const saved = await props.onSaveCredential(currentProvider().id, credentialInput());
+      if (saved) {
+        setCredentialInput("");
+        setCredentialConfirmed(false);
+        setProviderMessage(
+          "API key saved in this encrypted archive. The value is hidden after saving.",
+        );
+      }
+    } catch (cause) {
+      setProviderMessage(
+        cause instanceof Error ? cause.message : "The API key could not be saved.",
+      );
+    }
+  }
+
+  async function removeCredential(): Promise<void> {
+    setProviderMessage("");
+    try {
+      const removed = await props.onRemoveCredential(currentProvider().id);
+      if (removed) setProviderMessage("Saved API key removed from this archive.");
+    } catch (cause) {
+      setProviderMessage(
+        cause instanceof Error ? cause.message : "The saved API key could not be removed.",
+      );
+    }
+  }
+
   return (
     <div class="page-body ai-page">
       <section class="record-heading ai-heading">
@@ -105,6 +191,147 @@ export function AiPage(props: AiPageProps): JSX.Element {
             and material file bytes. Preparing or saving it makes no network request.
           </p>
         </div>
+      </section>
+
+      <section class="ai-panel ai-provider-panel" aria-labelledby="ai-provider-title">
+        <div class="ai-panel-heading">
+          <div>
+            <span class="eyebrow">LOCAL SETUP · NO CONNECTION TEST</span>
+            <h2 id="ai-provider-title">Provider settings</h2>
+          </div>
+          <span class="ai-provider-status">
+            {savedProvider() ? "Configured" : "Not configured"}
+          </span>
+        </div>
+        <p class="ai-provider-intro">
+          Save a provider and model for a future reviewed request. This setup does not connect to a
+          service or send session data.
+        </p>
+        <div class="ai-form-grid">
+          <label class="ai-field">
+            <span>Provider</span>
+            <select
+              aria-label="AI provider"
+              value={providerId()}
+              disabled={props.disabled || props.busy}
+              onChange={(event) => {
+                setProviderMessage("");
+                setProviderId(event.currentTarget.value);
+              }}
+            >
+              <For each={AI_PROVIDERS}>
+                {(provider) => <option value={provider.id}>{provider.name}</option>}
+              </For>
+            </select>
+          </label>
+          <label class="ai-field">
+            <span>Model ID</span>
+            <input
+              aria-label="AI model ID"
+              type="text"
+              value={providerModel()}
+              maxlength={256}
+              placeholder="Enter the model ID provided by the service"
+              disabled={props.disabled || props.busy}
+              onInput={(event) => setProviderModel(event.currentTarget.value)}
+            />
+          </label>
+          <label class="ai-field ai-provider-endpoint">
+            <span>Endpoint</span>
+            <input
+              aria-label="Provider endpoint"
+              type="url"
+              value={providerEndpoint()}
+              maxlength={2048}
+              placeholder={currentProvider().defaultEndpoint || "https://provider.example/v1"}
+              disabled={props.disabled || props.busy}
+              onInput={(event) => setProviderEndpoint(event.currentTarget.value)}
+            />
+          </label>
+        </div>
+        <div class="ai-provider-protocol">
+          <span>{currentProvider().protocol}</span>
+          <span>{currentProvider().local ? "Loopback only" : "HTTPS only"}</span>
+        </div>
+        <Show when={!currentProvider().local}>
+          <div class="ai-credential-box">
+            <div class="ai-credential-copy">
+              <strong>API key</strong>
+              <span>
+                {savedCredential()
+                  ? "A key is saved in this archive. Its value is never shown here."
+                  : props.encrypted
+                    ? "Keys are stored as encrypted archive records."
+                    : "Encrypt this archive before saving an API key."}
+              </span>
+            </div>
+            <Show
+              when={savedCredential()}
+              fallback={
+                <div class="ai-credential-editor">
+                  <input
+                    aria-label="Provider API key"
+                    type="password"
+                    autocomplete="new-password"
+                    spellcheck={false}
+                    value={credentialInput()}
+                    maxlength={4096}
+                    placeholder="Paste an API key"
+                    disabled={props.disabled || props.busy || !props.encrypted}
+                    onInput={(event) => setCredentialInput(event.currentTarget.value)}
+                  />
+                  <label class="ai-review-consent ai-credential-consent">
+                    <input
+                      type="checkbox"
+                      checked={credentialConfirmed()}
+                      disabled={props.disabled || props.busy || !props.encrypted}
+                      onChange={(event) => setCredentialConfirmed(event.currentTarget.checked)}
+                    />
+                    <span>I understand this key will be stored inside the encrypted archive.</span>
+                  </label>
+                  <button
+                    class="button button-outline"
+                    type="button"
+                    disabled={
+                      props.disabled || props.busy || !props.encrypted || !credentialInput()
+                    }
+                    onClick={() => void saveCredential()}
+                  >
+                    Save key securely
+                  </button>
+                </div>
+              }
+            >
+              <button
+                class="button button-quiet ai-remove-key"
+                type="button"
+                disabled={props.disabled || props.busy}
+                onClick={() => void removeCredential()}
+              >
+                Remove saved key
+              </button>
+            </Show>
+          </div>
+        </Show>
+        <div class="ai-provider-footer">
+          <p>
+            {currentProvider().description}. Endpoint and model settings are archive records; API
+            keys are separate encrypted records.
+          </p>
+          <button
+            class="button button-primary"
+            type="button"
+            disabled={props.disabled || props.busy}
+            onClick={() => void saveProvider()}
+          >
+            Save provider settings
+          </button>
+        </div>
+        <Show when={providerMessage()}>
+          <p class="ai-message" role="status">
+            {providerMessage()}
+          </p>
+        </Show>
       </section>
 
       <section class="ai-panel" aria-labelledby="ai-prepare-title">
