@@ -2687,6 +2687,40 @@ button:disabled {
   border-color: var(--accent);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 12%, transparent);
 }
+.archive-encryption-toggle {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  padding: 11px 12px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  color: var(--ink);
+  background: var(--surface-subtle);
+  cursor: pointer;
+}
+.archive-encryption-toggle input {
+  width: 14px;
+  height: 14px;
+  margin: 1px 0 0;
+  accent-color: var(--accent);
+}
+.archive-encryption-toggle span {
+  display: grid;
+  gap: 3px;
+}
+.archive-encryption-toggle strong {
+  font-size: 9px;
+  font-weight: 650;
+}
+.archive-encryption-toggle small,
+.archive-encryption-help {
+  color: var(--ink-soft);
+  font-size: 8px;
+  line-height: 1.5;
+}
+.archive-encryption-help {
+  margin: -4px 0 0;
+}
 .form-field-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
