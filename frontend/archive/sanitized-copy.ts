@@ -1,6 +1,7 @@
 import {
   appendRecords,
   createArchiveBytes,
+  createEncryptedArchiveBytes,
   openArchiveBytes,
   verifyArchiveSnapshot,
   type ArchiveSnapshot,
@@ -65,6 +66,11 @@ export type SanitizedCopyCheckpoint = (
   snapshot: ArchiveSnapshot,
   previousSize: bigint,
 ) => Promise<ArchiveSnapshot>;
+
+export interface SanitizedCopyOutputOptions {
+  destinationPassphrase?: string;
+  checkpoint?: SanitizedCopyCheckpoint;
+}
 
 type RecordSet = Set<string>;
 type RecordMap = Map<RecordTypeValue, ArchiveRecord[]>;
@@ -381,22 +387,16 @@ function selectionFingerprint(
 }
 
 async function makePlan(snapshot: ArchiveSnapshot, options: NormalizedOptions): Promise<CopyPlan> {
-  if (snapshot.encrypted) {
+  if (snapshot.encrypted && snapshot.locked) {
     throw new ArchiveFormatError(
-      "sanitized_copy_encryption_unavailable",
-      "Encrypted sanitized copies are not supported yet.",
+      "archive_locked",
+      "Unlock this archive before reviewing a sanitized copy.",
     );
   }
   if (snapshot.source.size !== snapshot.publishedEndOffset) {
     throw new ArchiveFormatError(
       "archive_recovery_required",
       "Recover or repair unpublished archive data before making a sanitized copy.",
-    );
-  }
-  if (options.includeCredentials) {
-    throw new ArchiveFormatError(
-      "sanitized_copy_encryption_unavailable",
-      "Including credentials requires a wire-compatible encrypted output archive, which is not available yet.",
     );
   }
   await verifyArchiveSnapshot(snapshot);
@@ -722,8 +722,23 @@ async function makePlan(snapshot: ArchiveSnapshot, options: NormalizedOptions): 
     ) {
       continue;
     }
-    if (isCredential(record)) continue;
-    if (hasSensitiveCredentialMaterial(record)) continue;
+    const credential = isCredential(record);
+    if (credential && !options.includeCredentials) continue;
+    if (credential && !snapshot.encrypted) {
+      throw new ArchiveFormatError(
+        "sanitized_copy_plaintext_credential",
+        "Credential records can only be copied from encrypted source archives.",
+      );
+    }
+    if (hasSensitiveCredentialMaterial(record) && !credential) {
+      if (options.includeCredentials) {
+        throw new ArchiveFormatError(
+          "sanitized_copy_plaintext_credential",
+          "A credential-looking value is not stored as an encrypted credential and cannot be copied. Move it into an encrypted credential record first.",
+        );
+      }
+      continue;
+    }
     if (role === "journal-entry") {
       const sessions = splitIds(field(record, "session_ids"));
       if (isScoped && sessions.length === 0) continue;
@@ -850,7 +865,10 @@ async function makePlan(snapshot: ArchiveSnapshot, options: NormalizedOptions): 
   for (const tracks of plan.recordingTracksBySession.values())
     summary.recordingTracks += tracks.size;
   summary.generationLogs = kept(plan, RecordType.aiJob).size;
-  summary.credentials = 0;
+  summary.credentials = records(RecordType.settings).filter(
+    (record) =>
+      kept(plan, RecordType.settings).has(record.id.toLowerCase()) && isCredential(record),
+  ).length;
   return plan;
 }
 
@@ -986,7 +1004,7 @@ export async function createSanitizedCopy(
   snapshot: ArchiveSnapshot,
   options: SanitizedCopyOptions,
   expected: Pick<SanitizedCopySummary, "sourceGeneration" | "selectionFingerprint">,
-  checkpoint?: SanitizedCopyCheckpoint,
+  outputOptions: SanitizedCopyOutputOptions = {},
 ): Promise<SanitizedCopyResult> {
   const normalized = normalizeOptions(options);
   const plan = await makePlan(snapshot, normalized);
@@ -1003,14 +1021,26 @@ export async function createSanitizedCopy(
     );
   }
 
+  const destinationPassphrase = outputOptions.destinationPassphrase;
+  if ((snapshot.encrypted || normalized.includeCredentials) && !destinationPassphrase) {
+    throw new ArchiveFormatError(
+      "sanitized_copy_encryption_required",
+      "An encrypted output passphrase is required to preserve source protection or include credentials.",
+    );
+  }
+
   const manifest = await snapshot.getManifest();
-  let output = await openArchiveBytes(
-    await createArchiveBytes(
-      `Sanitized copy of ${manifest.displayName}`,
-      "Created from an explicitly reviewed privacy selection.",
-    ),
-  );
+  const displayName = `Sanitized copy of ${manifest.displayName}`;
+  const description = "Created from an explicitly reviewed privacy selection.";
+  const initialBytes = destinationPassphrase
+    ? await createEncryptedArchiveBytes(displayName, description, destinationPassphrase)
+    : await createArchiveBytes(displayName, description);
+  const initialSnapshot = await openArchiveBytes(initialBytes);
+  let output = destinationPassphrase
+    ? await initialSnapshot.unlock(destinationPassphrase)
+    : initialSnapshot;
   const persist = async (next: ArchiveSnapshot, previousSize: bigint): Promise<ArchiveSnapshot> => {
+    const checkpoint = outputOptions.checkpoint;
     if (!checkpoint) return next;
     const saved = await checkpoint(next, previousSize);
     if (
@@ -1018,13 +1048,17 @@ export async function createSanitizedCopy(
       saved.commit.generation !== next.commit.generation ||
       saved.header.id !== next.header.id
     ) {
+      saved.lock();
       await saved.source.close?.();
       throw new ArchiveFormatError(
         "sanitized_copy_checkpoint_invalid",
         "The sanitized-copy checkpoint did not preserve the generated archive.",
       );
     }
-    await next.source.close?.();
+    if (saved !== next) {
+      next.lock();
+      await next.source.close?.();
+    }
     return saved;
   };
   try {
@@ -1034,7 +1068,10 @@ export async function createSanitizedCopy(
     const flush = async (): Promise<void> => {
       if (batch.length === 0) return;
       const previousSize = output.source.size;
-      output = await persist(await appendRecords(output, batch), previousSize);
+      const previous = output;
+      output = await appendRecords(previous, batch);
+      if (output !== previous) previous.lock();
+      output = await persist(output, previousSize);
       batch = [];
       batchBytes = 0;
     };
@@ -1063,6 +1100,7 @@ export async function createSanitizedCopy(
     await verifyArchiveSnapshot(output);
     return { snapshot: output, summary: plan.summary };
   } catch (error) {
+    output.lock();
     await output.source.close?.().catch(() => undefined);
     throw error;
   }
