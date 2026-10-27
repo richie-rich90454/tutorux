@@ -1,6 +1,8 @@
 import { BrowserFileArchiveSource, sourceStream, type ArchiveByteSource } from "../archive/source";
 import type {
   ArchivePlatform,
+  AiTransportRequest,
+  AiTransportResult,
   BinaryExportPayload,
   BinaryExportSource,
   OpenedArchive,
@@ -141,6 +143,90 @@ export const platform: ArchivePlatform = {
     anchor.click();
     window.setTimeout(() => URL.revokeObjectURL(url), 30_000);
     return suggestedName;
+  },
+
+  async sendAiRequest(
+    request: AiTransportRequest,
+    onChunk: (chunk: Uint8Array) => void,
+  ): Promise<AiTransportResult> {
+    const headers = new Headers({
+      "Content-Type": "application/json",
+      Accept: request.accept,
+    });
+    if (request.credential) {
+      const header =
+        request.providerId === "anthropic"
+          ? "x-api-key"
+          : request.providerId === "google-gemini"
+            ? "x-goog-api-key"
+            : "Authorization";
+      headers.set(
+        header,
+        request.providerId === "anthropic" || request.providerId === "google-gemini"
+          ? request.credential
+          : `Bearer ${request.credential}`,
+      );
+    }
+    if (request.providerId === "anthropic") headers.set("anthropic-version", "2023-06-01");
+    const timeout = new AbortController();
+    const timeoutId = window.setTimeout(() => timeout.abort(), 600_000);
+    let response: Response;
+    try {
+      response = await fetch(request.endpoint, {
+        method: "POST",
+        headers,
+        body: request.requestBody,
+        cache: "no-store",
+        credentials: "omit",
+        redirect: "error",
+        signal: timeout.signal,
+      });
+    } catch {
+      window.clearTimeout(timeoutId);
+      throw new Error(
+        "The provider request could not be completed. Check the endpoint and browser CORS settings, then try the desktop app.",
+      );
+    }
+    window.clearTimeout(timeoutId);
+    if (!response.ok) {
+      throw new Error(
+        `The provider returned HTTP ${response.status}. Review the provider settings and try again.`,
+      );
+    }
+    const contentType = (response.headers.get("content-type") ?? "")
+      .split(";")[0]
+      ?.trim()
+      .toLowerCase();
+    if (contentType !== "application/json" && contentType !== request.accept) {
+      throw new Error("The provider returned an unsupported response format.");
+    }
+    if (!response.body) throw new Error("The provider returned an empty response stream.");
+    const reader = response.body.getReader();
+    const streamTimeoutId = window.setTimeout(() => timeout.abort(), 600_000);
+    let responseBytes = 0;
+    try {
+      while (true) {
+        const result = await reader.read();
+        if (result.done) break;
+        responseBytes += result.value.byteLength;
+        if (responseBytes > 16 * 1024 * 1024) {
+          await reader.cancel();
+          throw new Error("The provider response exceeded the 16 MiB safety limit.");
+        }
+        onChunk(result.value);
+      }
+    } catch (error) {
+      if (error instanceof Error && error.message.includes("16 MiB")) throw error;
+      throw new Error("The provider response stream ended unexpectedly.", { cause: error });
+    } finally {
+      reader.releaseLock();
+      window.clearTimeout(streamTimeoutId);
+    }
+    return {
+      status: response.status,
+      contentType,
+      responseBytes,
+    };
   },
 
   async createArchiveLocation(suggestedName: string): Promise<string | null> {
