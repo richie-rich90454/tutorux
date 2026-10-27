@@ -1,9 +1,10 @@
-import { For, Show, createEffect, createMemo, createSignal, type JSX } from "solid-js";
+import { For, Show, createEffect, createMemo, createSignal, onCleanup, type JSX } from "solid-js";
 import type { ArchiveRecord } from "./archive/format";
 import { aiPackageText, type AiPackageSummary } from "./ai/package";
 import { createAiRequestPreview, type AiRequestPreview } from "./ai/request";
 import { AI_RESPONSE_PREVIEW_CHARACTER_LIMIT, type AiExecutionSummary } from "./ai/response";
 import { AI_PROVIDERS, type AiProviderConfigurationInput } from "./ai/providers";
+import type { AiCredentialStorage } from "./platform/types";
 import { GUIDE_TEMPLATES, type GuideTemplate } from "./domain/guides";
 import { guideTemplateFromRecord } from "./domain/templates";
 import "./ai.css";
@@ -29,11 +30,18 @@ interface AiPageProps {
     preview: AiRequestPreview,
     confirmedEndpoint: string,
     confirmedBodyHash: string,
+    credentialStorage: AiCredentialStorage,
     onProgress: (responseBytes: number) => void,
   ) => Promise<void>;
   onSaveProvider: (input: AiProviderConfigurationInput) => Promise<boolean>;
-  onSaveCredential: (providerId: string, value: string) => Promise<boolean>;
-  onRemoveCredential: (providerId: string) => Promise<boolean>;
+  systemCredentialStoreAvailable: boolean;
+  hasSystemCredential: (providerId: string) => Promise<boolean>;
+  onSaveCredential: (
+    providerId: string,
+    value: string,
+    storage: AiCredentialStorage,
+  ) => Promise<boolean>;
+  onRemoveCredential: (providerId: string, storage: AiCredentialStorage) => Promise<boolean>;
 }
 
 export function AiPage(props: AiPageProps): JSX.Element {
@@ -54,6 +62,10 @@ export function AiPage(props: AiPageProps): JSX.Element {
   const [providerMessage, setProviderMessage] = createSignal("");
   const [credentialInput, setCredentialInput] = createSignal("");
   const [credentialConfirmed, setCredentialConfirmed] = createSignal(false);
+  const [credentialStorage, setCredentialStorage] =
+    createSignal<AiCredentialStorage>("encrypted-archive");
+  const [systemCredentialSaved, setSystemCredentialSaved] = createSignal(false);
+  let credentialStorageTouched = false;
   const currentProvider = createMemo(
     () => AI_PROVIDERS.find((provider) => provider.id === providerId()) ?? AI_PROVIDERS[0]!,
   );
@@ -63,6 +75,14 @@ export function AiPage(props: AiPageProps): JSX.Element {
         record.fields.get("provider_id") === providerId() ||
         record.fields.get("key") === currentProvider().credentialKey,
     ),
+  );
+  const credentialSaved = createMemo(() =>
+    credentialStorage() === "system-keychain" ? systemCredentialSaved() : !!savedCredential(),
+  );
+  const canSaveCredential = createMemo(() =>
+    credentialStorage() === "system-keychain"
+      ? props.systemCredentialStoreAvailable
+      : props.encrypted,
   );
   const savedProvider = createMemo(() =>
     props.providerSettings.find((record) => record.fields.get("provider_id") === providerId()),
@@ -87,6 +107,32 @@ export function AiPage(props: AiPageProps): JSX.Element {
         previous.model === next.model,
     },
   );
+  createEffect(() => {
+    if (props.systemCredentialStoreAvailable && !credentialStorageTouched) {
+      setCredentialStorage("system-keychain");
+    } else if (!props.systemCredentialStoreAvailable && credentialStorage() === "system-keychain") {
+      setCredentialStorage("encrypted-archive");
+    }
+  });
+  createEffect(() => {
+    const provider = currentProvider().id;
+    if (!props.systemCredentialStoreAvailable) {
+      setSystemCredentialSaved(false);
+      return;
+    }
+    let active = true;
+    void props
+      .hasSystemCredential(provider)
+      .then((saved) => {
+        if (active) setSystemCredentialSaved(saved);
+      })
+      .catch(() => {
+        if (active) setSystemCredentialSaved(false);
+      });
+    onCleanup(() => {
+      active = false;
+    });
+  });
   createEffect(() => {
     const configuration = providerState();
     setProviderEndpoint(configuration.endpoint);
@@ -183,18 +229,22 @@ export function AiPage(props: AiPageProps): JSX.Element {
   async function saveCredential(): Promise<void> {
     setProviderMessage("");
     if (!credentialConfirmed()) {
-      setProviderMessage("Confirm encrypted storage before saving this API key.");
+      setProviderMessage("Confirm the selected secure storage before saving this API key.");
       return;
     }
     try {
-      const saved = await props.onSaveCredential(currentProvider().id, credentialInput());
+      const storage = credentialStorage();
+      const saved = await props.onSaveCredential(currentProvider().id, credentialInput(), storage);
       if (saved) {
+        if (storage === "system-keychain") setSystemCredentialSaved(true);
         setCredentialInput("");
         setCredentialConfirmed(false);
         setRequestPreview(null);
         setSendConfirmed(false);
         setProviderMessage(
-          "API key saved in this encrypted archive. The value is hidden after saving.",
+          storage === "system-keychain"
+            ? "API key saved in the operating-system credential store. Its value is hidden after saving."
+            : "API key saved in this encrypted archive. The value is hidden after saving.",
         );
       }
     } catch (cause) {
@@ -207,17 +257,34 @@ export function AiPage(props: AiPageProps): JSX.Element {
   async function removeCredential(): Promise<void> {
     setProviderMessage("");
     try {
-      const removed = await props.onRemoveCredential(currentProvider().id);
+      const storage = credentialStorage();
+      const removed = await props.onRemoveCredential(currentProvider().id, storage);
       if (removed) {
+        if (storage === "system-keychain") setSystemCredentialSaved(false);
         setRequestPreview(null);
         setSendConfirmed(false);
-        setProviderMessage("Saved API key removed from this archive.");
+        setProviderMessage(
+          storage === "system-keychain"
+            ? "Saved API key removed from the operating-system credential store."
+            : "Saved API key removed from this archive.",
+        );
       }
     } catch (cause) {
       setProviderMessage(
         cause instanceof Error ? cause.message : "The saved API key could not be removed.",
       );
     }
+  }
+
+  function chooseCredentialStorage(storage: AiCredentialStorage): void {
+    credentialStorageTouched = true;
+    setCredentialStorage(storage);
+    setCredentialInput("");
+    setCredentialConfirmed(false);
+    setRequestPreview(null);
+    setRequestPreviewMessage("");
+    setSendConfirmed(false);
+    props.onClearExecution();
   }
 
   async function previewProviderRequest(): Promise<void> {
@@ -232,8 +299,19 @@ export function AiPage(props: AiPageProps): JSX.Element {
       return;
     }
     try {
+      const usingSystemKeychain = credentialStorage() === "system-keychain";
+      const systemKeyAvailable = usingSystemKeychain
+        ? await props.hasSystemCredential(currentProvider().id)
+        : false;
+      setSystemCredentialSaved(systemKeyAvailable);
       setRequestPreview(
-        await createAiRequestPreview(summary.job, configuration, undefined, props.credentials),
+        await createAiRequestPreview(
+          summary.job,
+          configuration,
+          undefined,
+          usingSystemKeychain ? [] : props.credentials,
+          systemKeyAvailable,
+        ),
       );
     } catch (cause) {
       setRequestPreviewMessage(
@@ -261,6 +339,7 @@ export function AiPage(props: AiPageProps): JSX.Element {
         preview,
         preview.endpoint,
         preview.requestBodyHash,
+        preview.localOnly ? "none" : credentialStorage(),
         setSendProgressBytes,
       );
       setSendConfirmed(false);
@@ -379,15 +458,50 @@ export function AiPage(props: AiPageProps): JSX.Element {
             <div class="ai-credential-copy">
               <strong>API key</strong>
               <span>
-                {savedCredential()
-                  ? "A key is saved in this archive. Its value is never shown here."
-                  : props.encrypted
-                    ? "Keys are stored as encrypted archive records."
-                    : "Encrypt this archive before saving an API key."}
+                {credentialSaved()
+                  ? credentialStorage() === "system-keychain"
+                    ? "A key is saved in this device’s operating-system credential store. Its value is never shown here."
+                    : "A key is saved in this encrypted archive. Its value is never shown here."
+                  : credentialStorage() === "system-keychain"
+                    ? "Save this key in the device’s secure credential store. It stays out of the archive."
+                    : props.encrypted
+                      ? "Save this key inside the encrypted archive so it travels with the archive."
+                      : "Encrypt this archive before saving an API key there."}
               </span>
             </div>
+            <fieldset class="ai-credential-storage">
+              <legend>Store this key in</legend>
+              <Show when={props.systemCredentialStoreAvailable}>
+                <label>
+                  <input
+                    type="radio"
+                    name="ai-credential-storage"
+                    value="system-keychain"
+                    checked={credentialStorage() === "system-keychain"}
+                    disabled={props.disabled || props.busy}
+                    onChange={() => chooseCredentialStorage("system-keychain")}
+                  />
+                  <span>
+                    System credential store <small>This device · recommended</small>
+                  </span>
+                </label>
+              </Show>
+              <label>
+                <input
+                  type="radio"
+                  name="ai-credential-storage"
+                  value="encrypted-archive"
+                  checked={credentialStorage() === "encrypted-archive"}
+                  disabled={props.disabled || props.busy || !props.encrypted}
+                  onChange={() => chooseCredentialStorage("encrypted-archive")}
+                />
+                <span>
+                  Encrypted archive <small>Portable with this archive</small>
+                </span>
+              </label>
+            </fieldset>
             <Show
-              when={savedCredential()}
+              when={credentialSaved()}
               fallback={
                 <div class="ai-credential-editor">
                   <input
@@ -398,27 +512,33 @@ export function AiPage(props: AiPageProps): JSX.Element {
                     value={credentialInput()}
                     maxlength={4096}
                     placeholder="Paste an API key"
-                    disabled={props.disabled || props.busy || !props.encrypted}
+                    disabled={props.disabled || props.busy || !canSaveCredential()}
                     onInput={(event) => setCredentialInput(event.currentTarget.value)}
                   />
                   <label class="ai-review-consent ai-credential-consent">
                     <input
                       type="checkbox"
                       checked={credentialConfirmed()}
-                      disabled={props.disabled || props.busy || !props.encrypted}
+                      disabled={props.disabled || props.busy || !canSaveCredential()}
                       onChange={(event) => setCredentialConfirmed(event.currentTarget.checked)}
                     />
-                    <span>I understand this key will be stored inside the encrypted archive.</span>
+                    <span>
+                      {credentialStorage() === "system-keychain"
+                        ? "I understand this key will be stored in the operating-system credential store for this device."
+                        : "I understand this key will be stored inside the encrypted archive."}
+                    </span>
                   </label>
                   <button
                     class="button button-outline"
                     type="button"
                     disabled={
-                      props.disabled || props.busy || !props.encrypted || !credentialInput()
+                      props.disabled || props.busy || !canSaveCredential() || !credentialInput()
                     }
                     onClick={() => void saveCredential()}
                   >
-                    Save key securely
+                    {credentialStorage() === "system-keychain"
+                      ? "Save to system credential store"
+                      : "Save key securely"}
                   </button>
                 </div>
               }
@@ -437,7 +557,8 @@ export function AiPage(props: AiPageProps): JSX.Element {
         <div class="ai-provider-footer">
           <p>
             {currentProvider().description}. Endpoint and model settings are archive records; API
-            keys are separate encrypted records.
+            keys use the selected secure store. System-stored keys are available to Tutorux on this
+            device; encrypted-archive keys move with the archive.
           </p>
           <button
             class="button button-primary"
@@ -632,7 +753,7 @@ export function AiPage(props: AiPageProps): JSX.Element {
                   <Show when={!preview().localOnly && !preview().credentialAvailable}>
                     <p class="ai-request-key-missing" role="status">
                       No API key is saved for this provider. A request cannot be sent until a key is
-                      available in this encrypted archive.
+                      available in the selected secure store.
                     </p>
                   </Show>
                   <details class="ai-json-disclosure ai-request-body-disclosure">
