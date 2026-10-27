@@ -2,7 +2,12 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { executeCli } from "../cli/main";
-import { appendRecords, openArchiveBytes } from "./archive/archive";
+import {
+  appendRecords,
+  createArchiveBytes,
+  openArchiveBytes,
+  verifyArchiveSnapshot,
+} from "./archive/archive";
 import { newUuid, RecordType, type ArchiveRecord } from "./archive/format";
 
 describe("TypeScript CLI", () => {
@@ -454,6 +459,77 @@ describe("TypeScript CLI", () => {
         generation: "2",
         recordsVerified: 2,
         verified: true,
+      });
+      expect(stderr).toEqual([]);
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("previews archive compaction and only replaces the file with --apply", async () => {
+    const directory = await mkdtemp(join(process.cwd(), "tmp", "tutorux-cli-compaction-"));
+    const archivePath = join(directory, "lesson.tux");
+    const stdout: string[] = [];
+    const stderr: string[] = [];
+    const io = {
+      stdout: (value: string) => stdout.push(value),
+      stderr: (value: string) => stderr.push(value),
+    };
+
+    try {
+      const initial = await openArchiveBytes(await createArchiveBytes("Compaction lesson"));
+      const id = newUuid();
+      const first = await appendRecords(initial, [
+        {
+          type: RecordType.student,
+          id,
+          revision: 0n,
+          previousOffset: 0n,
+          fields: new Map([["display_name", "Mina"]]),
+          blob: new Uint8Array(),
+        },
+      ]);
+      const current = await appendRecords(first, [
+        {
+          type: RecordType.student,
+          id,
+          revision: 0n,
+          previousOffset: 0n,
+          fields: new Map([["display_name", "Mina Chen"]]),
+          blob: new Uint8Array(),
+        },
+      ]);
+      const originalBytes = await current.source.read(0n, Number(current.source.size));
+      await writeFile(archivePath, originalBytes);
+
+      expect(await executeCli(["archive", "compact", archivePath, "--json"], io)).toBe(0);
+      const preview = JSON.parse(stdout.at(-1)!) as {
+        originalBytes: string;
+        compactedBytes: string;
+        recordsPreserved: number;
+        applied: boolean;
+      };
+      expect(preview).toMatchObject({
+        originalBytes: String(originalBytes.byteLength),
+        recordsPreserved: 5,
+        applied: false,
+      });
+      expect(Number(preview.compactedBytes)).toBeLessThan(Number(preview.originalBytes));
+      expect(await readFile(archivePath)).toEqual(Buffer.from(originalBytes));
+
+      expect(await executeCli(["archive", "compact", archivePath, "--apply", "--json"], io)).toBe(
+        0,
+      );
+      const compactedBytes = await readFile(archivePath);
+      expect(compactedBytes.byteLength).toBe(Number(preview.compactedBytes));
+      const compacted = await openArchiveBytes(compactedBytes);
+      expect(compacted.commit.generation).toBe(1n);
+      expect((await compacted.getRecord(RecordType.student, id))?.fields.get("display_name")).toBe(
+        "Mina Chen",
+      );
+      await expect(verifyArchiveSnapshot(compacted)).resolves.toMatchObject({
+        currentRecords: 2,
+        generation: "1",
       });
       expect(stderr).toEqual([]);
     } finally {
