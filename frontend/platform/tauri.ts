@@ -1,9 +1,15 @@
-import { invoke } from "@tauri-apps/api/core";
+import { Channel, invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { writeFile } from "@tauri-apps/plugin-fs";
 import { sourceStream, type ArchiveByteSource } from "../archive/source";
-import type { ArchivePlatform, BinaryExportSource, OpenedArchive } from "./types";
+import type {
+  AiTransportRequest,
+  AiTransportResult,
+  ArchivePlatform,
+  BinaryExportSource,
+  OpenedArchive,
+} from "./types";
 
 class TauriArchiveSource implements ArchiveByteSource {
   constructor(
@@ -148,6 +154,15 @@ export const platform: ArchivePlatform = {
     }
   },
 
+  async sendAiRequest(
+    request: AiTransportRequest,
+    onChunk: (chunk: Uint8Array) => void,
+  ): Promise<AiTransportResult> {
+    const channel = new Channel<{ kind: "chunk"; base64: string }>();
+    channel.onmessage = (event) => onChunk(decodeBase64(event.base64));
+    return invoke<AiTransportResult>("send_ai_request", { request, onChunk: channel });
+  },
+
   async createArchiveLocation(suggestedName: string): Promise<string | null> {
     return save({
       title: "Create Tutorux archive",
@@ -169,3 +184,12 @@ export const platform: ArchivePlatform = {
     return listen<string>("tutorux:native-command", (event) => handler(event.payload));
   },
 };
+
+function decodeBase64(value: string): Uint8Array {
+  const binary = atob(value);
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index);
+  }
+  return bytes;
+}
