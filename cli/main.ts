@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import { createHash, randomUUID } from "node:crypto";
 import { execFile } from "node:child_process";
 import { link, lstat, open, readFile, readdir, realpath, rename, rm, stat } from "node:fs/promises";
@@ -118,6 +119,7 @@ interface ParsedArguments {
 }
 
 const ASSET_IMPORT_BATCH_BYTES = 64 * 1024 * 1024;
+const archiveAccessContext = new AsyncLocalStorage<{ passphrase: string | undefined }>();
 
 const io: CliIo = {
   stdout: (message) => process.stdout.write(`${message}\n`),
@@ -129,7 +131,7 @@ const HELP = `Tutorux — local-first tutoring archive tools
 Usage:
   tutorux archive init <file.tux> --name <name> [--description <text>]
   tutorux archive info <file.tux> [--json]
-  tutorux archive verify <file.tux> [--json]
+  tutorux archive verify <file.tux> [--passphrase-env <name>] [--json]
   tutorux archive recover <file.tux> [--apply] [--json]
   tutorux archive compact <file.tux> [--apply] [--json]
   tutorux archive repair <file.tux> --output <copy.tux> --confirm-sensitive [--json]
@@ -207,6 +209,7 @@ Usage:
 
 Global options:
   --archive <path>  Select the archive for record commands
+  --passphrase-env <name>  Read an encrypted archive passphrase from an environment variable
   --json            Print machine-readable JSON
   --help            Show this help
   --version         Show the application version`;
@@ -223,31 +226,39 @@ export async function executeCli(argv: readonly string[], output: CliIo = io): P
 
   try {
     const args = [...argv];
-    const jsonOutput = args.includes("--json");
-    for (let index = args.length - 1; index >= 0; index -= 1) {
-      if (args[index] === "--json") args.splice(index, 1);
-    }
-    const archiveFlag = args.indexOf("--archive");
-    let archivePath: string | undefined;
-    if (archiveFlag >= 0) {
-      if (args.indexOf("--archive", archiveFlag + 1) >= 0) {
-        throw new CliError("Choose only one --archive path.");
+    const passphraseEnvironment = takeGlobalOption(args, "passphrase-env");
+    const archiveContext: { passphrase: string | undefined } = { passphrase: undefined };
+    if (passphraseEnvironment !== undefined) {
+      if (!/^[A-Za-z_][A-Za-z\d_]*$/u.test(passphraseEnvironment)) {
+        throw new CliError("--passphrase-env requires a valid environment variable name.");
       }
-      archivePath = args[archiveFlag + 1];
-      if (!archivePath || archivePath.startsWith("--"))
-        throw new CliError("--archive requires a file path.");
-      args.splice(archiveFlag, 2);
+      const passphrase = process.env[passphraseEnvironment];
+      if (passphrase === undefined) {
+        throw new CliError("The archive passphrase environment variable is not set.");
+      }
+      archiveContext.passphrase = passphrase;
     }
-    const group = args.shift();
-    const action = args.shift();
-    if (!group || !action)
-      throw new CliError("Choose a command group and action. Run `tutorux --help` for help.");
-    const parsed = parseArguments(args);
-    if (jsonOutput) parsed.flags.add("json");
+    return await archiveAccessContext.run(archiveContext, async () => {
+      try {
+        const jsonOutput = args.includes("--json");
+        for (let index = args.length - 1; index >= 0; index -= 1) {
+          if (args[index] === "--json") args.splice(index, 1);
+        }
+        const archivePath = takeGlobalOption(args, "archive");
+        const group = args.shift();
+        const action = args.shift();
+        if (!group || !action)
+          throw new CliError("Choose a command group and action. Run `tutorux --help` for help.");
+        const parsed = parseArguments(args);
+        if (jsonOutput) parsed.flags.add("json");
 
-    if (group === "archive") return await runArchiveCommand(action, parsed, output);
-    if (!archivePath) throw new CliError("Record commands require --archive <path>.");
-    return await runRecordCommand(group, action, archivePath, parsed, output);
+        if (group === "archive") return await runArchiveCommand(action, parsed, output);
+        if (!archivePath) throw new CliError("Record commands require --archive <path>.");
+        return await runRecordCommand(group, action, archivePath, parsed, output);
+      } finally {
+        archiveContext.passphrase = undefined;
+      }
+    });
   } catch (error) {
     const message = error instanceof Error ? error.message : "The command failed unexpectedly.";
     output.stderr(`tutorux: ${message}`);
@@ -256,6 +267,23 @@ export async function executeCli(argv: readonly string[], output: CliIo = io): P
 }
 
 class CliError extends Error {}
+
+function takeGlobalOption(args: string[], name: string): string | undefined {
+  const option = `--${name}`;
+  const indexes = args.flatMap((value, index) =>
+    value === option || value.startsWith(`${option}=`) ? [index] : [],
+  );
+  if (indexes.length > 1) throw new CliError(`Choose only one ${option} value.`);
+  const index = indexes[0];
+  if (index === undefined) return undefined;
+  const argument = args[index]!;
+  const separator = argument.indexOf("=");
+  const inlineValue = separator < 0 ? undefined : argument.slice(separator + 1);
+  const value = inlineValue ?? args[index + 1];
+  if (!value || value.startsWith("--")) throw new CliError(`${option} requires a value.`);
+  args.splice(index, inlineValue === undefined ? 2 : 1);
+  return value;
+}
 
 function parseArguments(args: readonly string[]): ParsedArguments {
   const positionals: string[] = [];
@@ -682,13 +710,9 @@ async function runArchiveCommand(
     throw new CliError(`archive ${action} is not implemented in the TypeScript CLI yet.`);
   }
   const source = await NodeFileArchiveSource.open(resolve(path));
+  let snapshot: ArchiveSnapshot | undefined;
   try {
-    const snapshot = await openArchiveSource(source);
-    if (action === "verify" && snapshot.locked) {
-      throw new CliError(
-        "This archive is encrypted. Unlock support is required for full verification.",
-      );
-    }
+    snapshot = await unlockSnapshotForCli(await openArchiveSource(source), action === "verify");
     const verification = snapshot.locked ? null : await verifyArchiveSnapshot(snapshot);
     const result = {
       path: resolve(path),
@@ -716,6 +740,7 @@ async function runArchiveCommand(
     );
     return 0;
   } finally {
+    snapshot?.lock();
     await source.close();
   }
 }
@@ -3926,16 +3951,38 @@ function validateEvidenceText(value: string, label: string, maximumBytes: number
 
 async function openForCommand(path: string): Promise<ArchiveSnapshot> {
   const source = await NodeFileArchiveSource.open(resolve(path));
+  let snapshot: ArchiveSnapshot | undefined;
   try {
-    return await openArchiveSource(source);
+    snapshot = await openArchiveSource(source);
+    return await unlockSnapshotForCli(snapshot, true);
   } catch (error) {
+    snapshot?.lock();
     await source.close();
+    throw error;
+  }
+}
+
+async function unlockSnapshotForCli(
+  snapshot: ArchiveSnapshot,
+  required: boolean,
+): Promise<ArchiveSnapshot> {
+  if (!snapshot.encrypted || !snapshot.locked) return snapshot;
+  const passphrase = archiveAccessContext.getStore()?.passphrase;
+  if (passphrase === undefined) {
+    if (!required) return snapshot;
+    throw new CliError("This archive is encrypted. Supply --passphrase-env <name> to unlock it.");
+  }
+  try {
+    return await snapshot.unlock(passphrase);
+  } catch (error) {
+    snapshot.lock();
     throw error;
   }
 }
 
 async function closeSnapshot(snapshot: ArchiveSnapshot): Promise<void> {
   const source = snapshot.source;
+  snapshot.lock();
   if (source instanceof NodeFileArchiveSource) await source.close();
 }
 
@@ -3947,9 +3994,10 @@ async function mutateArchive(
 ): Promise<ArchiveRecord[]> {
   const archivePath = resolve(path);
   const source = await NodeFileArchiveSource.open(archivePath);
-  let next: ArchiveSnapshot;
+  let current: ArchiveSnapshot | undefined;
+  let next: ArchiveSnapshot | undefined;
   try {
-    const current = await openArchiveSource(source);
+    current = await unlockSnapshotForCli(await openArchiveSource(source), true);
     if (expectedGeneration !== undefined && current.commit.generation !== expectedGeneration) {
       throw new CliError(generationConflictMessage);
     }
@@ -3962,6 +4010,8 @@ async function mutateArchive(
     }
     return savedRecords;
   } finally {
+    current?.lock();
+    if (next && next !== current) next.lock();
     await source.close();
   }
 }
