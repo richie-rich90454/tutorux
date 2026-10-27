@@ -51,6 +51,39 @@ test("creates a passphrase-protected workspace that opens authenticated and unlo
     displayName: "Protected QA Workspace",
   });
   unlocked.lock();
+
+  const rotatedPassphrase = "新しいアーカイブ保護の言葉";
+  await page.getByRole("navigation").getByRole("button", { name: "Preferences" }).click();
+  await page.getByRole("button", { name: "Change passphrase" }).click();
+  const passphraseDialog = page.getByRole("dialog", { name: "Change passphrase" });
+  await passphraseDialog.getByLabel("Current passphrase", { exact: true }).fill(passphrase);
+  await passphraseDialog.getByLabel("New passphrase", { exact: true }).fill(rotatedPassphrase);
+  await passphraseDialog
+    .getByLabel("Confirm new passphrase", { exact: true })
+    .fill("A different phrase");
+  await passphraseDialog.getByRole("button", { name: "Change passphrase" }).click();
+  await expect(passphraseDialog.getByRole("alert")).toHaveText("The passphrases do not match.");
+  await passphraseDialog
+    .getByLabel("Confirm new passphrase", { exact: true })
+    .fill(rotatedPassphrase);
+  await passphraseDialog.getByRole("button", { name: "Change passphrase" }).click();
+  await expect(page.getByText("Changes waiting to be saved")).toBeVisible();
+
+  const rotatedDownload = page.waitForEvent("download");
+  await page.getByRole("button", { name: "Save workspace" }).click();
+  await (await rotatedDownload).saveAs(testInfo.outputPath("protected-rotated.tux"));
+  const rotated = await openArchiveBytes(
+    new Uint8Array(await readFile(testInfo.outputPath("protected-rotated.tux"))),
+  );
+  await expect(rotated.unlock(passphrase)).rejects.toMatchObject({
+    code: "archive_passphrase_invalid",
+  });
+  const rotatedUnlocked = await rotated.unlock(rotatedPassphrase);
+  await expect(verifyArchiveSnapshot(rotatedUnlocked)).resolves.toMatchObject({
+    currentRecords: 2,
+    deletedRecords: 0,
+  });
+  rotatedUnlocked.lock();
 });
 
 test("creates, updates, exports, and reopens a portable tutoring workspace", async ({
