@@ -1,5 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { readFile } from "node:fs/promises";
+import { openArchiveBytes, verifyArchiveSnapshot } from "../../frontend/archive/archive";
 
 test.beforeEach(async ({ page }) => {
   await page.route("**/*", async (route) => {
@@ -19,6 +20,37 @@ test.beforeEach(async ({ page }) => {
     Object.defineProperty(window, "showOpenFilePicker", { configurable: true, value: undefined });
     Object.defineProperty(window, "showSaveFilePicker", { configurable: true, value: undefined });
   });
+});
+
+test("creates a passphrase-protected workspace that opens authenticated and unlocked", async ({
+  page,
+}, testInfo) => {
+  const passphrase = "新档案安全口令";
+  await page.goto("/");
+  await page.getByRole("button", { name: "Create your workspace" }).click();
+  await page.getByLabel("Workspace name").fill("Protected QA Workspace");
+  await page.getByRole("checkbox", { name: /Protect this workspace with a passphrase/u }).check();
+  await page.getByLabel("Archive passphrase").fill(passphrase);
+  await page.getByLabel("Confirm passphrase").fill(passphrase);
+
+  const download = page.waitForEvent("download");
+  await page.getByRole("button", { name: "Create workspace" }).click();
+  await (await download).saveAs(testInfo.outputPath("protected-initial.tux"));
+  await expect(page.getByRole("heading", { name: "Good", exact: false })).toBeVisible();
+
+  const bytes = new Uint8Array(await readFile(testInfo.outputPath("protected-initial.tux")));
+  const locked = await openArchiveBytes(bytes);
+  expect(locked.encrypted).toBe(true);
+  expect(locked.locked).toBe(true);
+  const unlocked = await locked.unlock(passphrase);
+  await expect(verifyArchiveSnapshot(unlocked)).resolves.toMatchObject({
+    currentRecords: 2,
+    deletedRecords: 0,
+  });
+  await expect(unlocked.getManifest()).resolves.toMatchObject({
+    displayName: "Protected QA Workspace",
+  });
+  unlocked.lock();
 });
 
 test("creates, updates, exports, and reopens a portable tutoring workspace", async ({
