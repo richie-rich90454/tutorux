@@ -381,10 +381,10 @@ function selectionFingerprint(
 }
 
 async function makePlan(snapshot: ArchiveSnapshot, options: NormalizedOptions): Promise<CopyPlan> {
-  if (snapshot.locked) {
+  if (snapshot.encrypted) {
     throw new ArchiveFormatError(
-      "archive_locked",
-      "Encrypted archives must be unlocked before making a sanitized copy.",
+      "sanitized_copy_encryption_unavailable",
+      "Encrypted sanitized copies are not supported yet.",
     );
   }
   if (snapshot.source.size !== snapshot.publishedEndOffset) {
