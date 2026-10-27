@@ -42,11 +42,12 @@ new archive.
 The first invocation is a read-only preview that reports selected record counts, the source
 generation, and a selection fingerprint. Review the destination and counts, then repeat the command
 with `--confirm-sensitive --expected-generation N --expected-selection SHA256 --expected-output
-COPY.tux` from that preview. Confirmation fails if the source archive, generation, selection, or
-destination changed. The output is written to a
+COPY.tux --expected-encrypted-output yes|no` from that preview. Confirmation fails if the source
+archive, generation, selection, encryption choice, or destination changed. The output is written to a
 temporary archive, fully verified, and published only if the destination does not already exist.
 Encrypted source archives require a destination passphrase through `--new-passphrase-env`; including
-credentials always requires an encrypted output. Sanitized copies are still sensitive when they
+credentials always requires an encrypted output. An unencrypted source can also produce encrypted
+output when `--new-passphrase-env` is selected. Sanitized copies are still sensitive when they
 contain student work or annotations, so protect the destination accordingly.
 
 `archive info` and archive discovery can identify a newer major archive version by reading only its
