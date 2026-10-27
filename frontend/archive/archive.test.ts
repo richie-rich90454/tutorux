@@ -3,6 +3,7 @@ import {
   appendRecords,
   compactArchiveSnapshot,
   createArchiveBytes,
+  createEncryptedArchiveBytes,
   openArchiveBytes,
   openArchiveSource,
   repairArchiveSnapshot,
@@ -39,6 +40,37 @@ describe("Tutorux archive snapshots", () => {
       createdAtUs: createdAtUs.toString(),
     });
     expect(archive.indexEntryCount()).toBe(1);
+  });
+
+  it("creates an authenticated encrypted archive that stays locked until unlocked", async () => {
+    const passphrase = "A secure archive phrase 2026";
+    const bytes = await createEncryptedArchiveBytes(
+      "Protected lessons",
+      "Private tutoring records",
+      passphrase,
+    );
+    const locked = await openArchiveBytes(bytes);
+
+    expect(locked.encrypted).toBe(true);
+    expect(locked.locked).toBe(true);
+    expect(locked.canMutate).toBe(false);
+    await expect(locked.unlock("not the right phrase")).rejects.toMatchObject({
+      code: "archive_passphrase_invalid",
+    });
+
+    const unlocked = await locked.unlock(passphrase);
+    expect(unlocked.canMutate).toBe(true);
+    await expect(unlocked.verifyEncryptionAuthentication()).resolves.toBeUndefined();
+    await expect(verifyArchiveSnapshot(unlocked)).resolves.toMatchObject({
+      currentRecords: 2,
+      liveRecords: 2,
+      deletedRecords: 0,
+    });
+    await expect(unlocked.getManifest()).resolves.toMatchObject({
+      displayName: "Protected lessons",
+      description: "Private tutoring records",
+    });
+    unlocked.lock();
   });
 
   it("lists current record metadata without loading its binary blob", async () => {
