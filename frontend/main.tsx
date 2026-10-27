@@ -131,7 +131,7 @@ type View =
   | "trash"
   | "archive"
   | "settings";
-type DialogKind = "archive" | "student" | "session" | "journal" | null;
+type DialogKind = "archive" | "student" | "session" | "journal" | "passphrase" | null;
 type Tone = "success" | "info" | "error";
 type ThemeMode = "system" | "light" | "dark";
 
@@ -701,6 +701,42 @@ function App(): JSX.Element {
       announce(errorMessage(error), "error");
       return false;
     } finally {
+      setBusy(false);
+    }
+  }
+
+  async function changeCurrentPassphrase(
+    currentPassphrase: string,
+    newPassphrase: string,
+  ): Promise<void> {
+    const current = workspace();
+    if (!current || !current.snapshot.encrypted) {
+      throw new Error("Open an encrypted archive before changing its passphrase.");
+    }
+    if (!current.snapshot.canMutate) {
+      throw new Error("Unlock this archive before changing its passphrase.");
+    }
+    if (busy()) throw new Error("Wait for the current archive operation to finish.");
+
+    setBusy(true);
+    let nextSnapshot: ArchiveSnapshot | undefined;
+    let accepted = false;
+    try {
+      nextSnapshot = await current.snapshot.changePassphrase(currentPassphrase, newPassphrase);
+      const updated = await readWorkspace(nextSnapshot, current.name, current.location, true);
+      if (workspace()?.snapshot !== current.snapshot) {
+        throw new Error("The active archive changed while its passphrase was being updated.");
+      }
+      setWorkspace(updated);
+      current.snapshot.lock();
+      accepted = true;
+      announce(
+        "Passphrase changed. Save this workspace to update the passphrase on disk.",
+        "success",
+      );
+      closeDialog();
+    } finally {
+      if (!accepted) nextSnapshot?.lock();
       setBusy(false);
     }
   }
@@ -1955,6 +1991,9 @@ function App(): JSX.Element {
                     themeMode={themeMode()}
                     onThemeMode={chooseThemeMode}
                     state={state}
+                    busy={busy()}
+                    onChangePassphrase={() => openDialog("passphrase")}
+                    onSaveArchive={() => void saveCurrentArchive()}
                   />
                 </Show>
               </>
@@ -1996,6 +2035,9 @@ function App(): JSX.Element {
             onClose={closeDialog}
             onCreateArchive={(name, description, passphrase) =>
               createArchive(name, description, passphrase)
+            }
+            onChangePassphrase={(currentPassphrase, newPassphrase) =>
+              changeCurrentPassphrase(currentPassphrase, newPassphrase)
             }
             onSaveStudent={(input, record) =>
               void updateStudent(input, record).catch((error: unknown) =>
@@ -5969,6 +6011,9 @@ function SettingsPage(props: {
   themeMode: ThemeMode;
   onThemeMode: (mode: ThemeMode) => void;
   state: Workspace;
+  busy: boolean;
+  onChangePassphrase: () => void;
+  onSaveArchive: () => void;
 }): JSX.Element {
   return (
     <div class="page-body settings-page">
@@ -6029,6 +6074,29 @@ function SettingsPage(props: {
           </div>
           <span class="preference-value">On this device</span>
         </div>
+        <Show when={props.state.snapshot.encrypted}>
+          <div class="preference-row">
+            <div class="preference-icon secure">
+              <Icon name="shield" />
+            </div>
+            <div class="preference-copy">
+              <strong>Passphrase protection</strong>
+              <span>
+                {props.state.snapshot.locked
+                  ? "Unlock this archive to change its passphrase."
+                  : "Your records are encrypted in this archive."}
+              </span>
+            </div>
+            <button
+              class="button button-outline"
+              type="button"
+              onClick={() => props.onChangePassphrase()}
+              disabled={props.busy || props.state.snapshot.locked}
+            >
+              Change passphrase
+            </button>
+          </div>
+        </Show>
         <div class="preference-row">
           <div class="preference-icon">
             <Icon name="archive" />
@@ -6039,6 +6107,25 @@ function SettingsPage(props: {
           </div>
           <span class="preference-value">{formatBytes(props.state.snapshot.source.size)}</span>
         </div>
+        <Show when={props.state.dirty}>
+          <div class="preference-row">
+            <div class="preference-icon">
+              <Icon name="archive" />
+            </div>
+            <div class="preference-copy">
+              <strong>Changes waiting to be saved</strong>
+              <span>The passphrase on disk updates when you save this workspace.</span>
+            </div>
+            <button
+              class="button button-outline"
+              type="button"
+              onClick={() => props.onSaveArchive()}
+              disabled={props.busy}
+            >
+              Save workspace
+            </button>
+          </div>
+        </Show>
       </section>
       <section class="settings-note">
         <Icon name="book" />
@@ -6223,6 +6310,7 @@ function FormDialog(props: {
   busy: boolean;
   onClose: () => void;
   onCreateArchive: (name: string, description: string, passphrase: string) => Promise<void>;
+  onChangePassphrase: (currentPassphrase: string, newPassphrase: string) => Promise<void>;
   onSaveStudent: (input: StudentInput, current: ArchiveRecord | null) => void;
   onSaveSession: (
     input: {
@@ -6244,6 +6332,8 @@ function FormDialog(props: {
   ) => void;
 }): JSX.Element {
   let nameInput: HTMLInputElement | undefined;
+  let currentPassphraseInput: HTMLInputElement | undefined;
+  let passphraseInput: HTMLInputElement | undefined;
   const titles: Record<
     Exclude<DialogKind, null>,
     { eyebrow: string; title: string; description: string; submit: string; icon: IconName }
@@ -6255,6 +6345,14 @@ function FormDialog(props: {
         "Your workspace lives in one portable .tux file. You can move it or make a backup whenever you like.",
       submit: "Create workspace",
       icon: "archive",
+    },
+    passphrase: {
+      eyebrow: "KEEP YOUR WORK PROTECTED",
+      title: "Change passphrase",
+      description:
+        "Tutorux checks your current passphrase and every retained revision, then re-encrypts the archive with a fresh data key.",
+      submit: "Change passphrase",
+      icon: "shield",
     },
     student: {
       eyebrow: "THE PERSON FIRST",
@@ -6304,7 +6402,9 @@ function FormDialog(props: {
   const [validationError, setValidationError] = formError;
   const [encryptOnCreate, setEncryptOnCreate] = createSignal(false);
 
-  onMount(() => queueMicrotask(() => nameInput?.focus()));
+  onMount(() =>
+    queueMicrotask(() => (currentPassphraseInput ?? passphraseInput ?? nameInput)?.focus()),
+  );
 
   async function submit(event: SubmitEvent): Promise<void> {
     event.preventDefault();
@@ -6336,6 +6436,36 @@ function FormDialog(props: {
         try {
           await props.onCreateArchive(value("name"), value("description"), passphrase);
         } finally {
+          if (passphraseInput) passphraseInput.value = "";
+          if (confirmationInput) confirmationInput.value = "";
+        }
+      } else if (props.kind === "passphrase") {
+        const currentPassphrase = value("currentPassphrase");
+        const passphrase = value("passphrase");
+        const passphraseBytes = new TextEncoder().encode(passphrase);
+        const byteLength = passphraseBytes.byteLength;
+        const validUnicode = new TextDecoder().decode(passphraseBytes) === passphrase;
+        passphraseBytes.fill(0);
+        if (!validUnicode) throw new Error("Enter a passphrase using valid Unicode text.");
+        if (byteLength < 12 || byteLength > 4096) {
+          throw new Error("Use a passphrase between 12 and 4096 UTF-8 bytes long.");
+        }
+        if (passphrase !== value("confirmPassphrase")) {
+          throw new Error("The passphrases do not match.");
+        }
+        if (currentPassphrase === passphrase) {
+          throw new Error("Choose a different new passphrase from the current one.");
+        }
+        const currentPassphraseInputElement = form.querySelector<HTMLInputElement>(
+          'input[name="currentPassphrase"]',
+        );
+        const confirmationInput = form.querySelector<HTMLInputElement>(
+          'input[name="confirmPassphrase"]',
+        );
+        try {
+          await props.onChangePassphrase(currentPassphrase, passphrase);
+        } finally {
+          if (currentPassphraseInputElement) currentPassphraseInputElement.value = "";
           if (passphraseInput) passphraseInput.value = "";
           if (confirmationInput) confirmationInput.value = "";
         }
@@ -6474,6 +6604,48 @@ function FormDialog(props: {
                 Keep this passphrase safe. Tutorux cannot recover it if it is lost.
               </p>
             </Show>
+          </Show>
+          <Show when={props.kind === "passphrase"}>
+            <label class="form-field">
+              Current passphrase
+              <input
+                ref={(element) => {
+                  currentPassphraseInput = element;
+                }}
+                type="password"
+                name="currentPassphrase"
+                autocomplete="current-password"
+                maxlength="4096"
+                required
+              />
+            </label>
+            <label class="form-field">
+              New passphrase
+              <input
+                ref={(element) => {
+                  passphraseInput = element;
+                }}
+                type="password"
+                name="passphrase"
+                autocomplete="new-password"
+                maxlength="4096"
+                required
+              />
+            </label>
+            <label class="form-field">
+              Confirm new passphrase
+              <input
+                type="password"
+                name="confirmPassphrase"
+                autocomplete="new-password"
+                maxlength="4096"
+                required
+              />
+            </label>
+            <p class="archive-encryption-help">
+              Use 12–4096 UTF-8 bytes. Save the workspace after changing it; the previous passphrase
+              remains active on disk until then. Older backup files keep their original passphrase.
+            </p>
           </Show>
           <Show when={props.kind === "student"}>
             <label class="form-field">
