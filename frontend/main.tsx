@@ -12,6 +12,7 @@ import { render } from "solid-js/web";
 import {
   appendRecords,
   createArchiveBytes,
+  createEncryptedArchiveBytes,
   openArchiveBytes,
   openArchiveSource,
   verifyArchiveSnapshot,
@@ -603,27 +604,44 @@ function App(): JSX.Element {
     }
   }
 
-  async function createArchive(name: string, description: string): Promise<void> {
+  async function createArchive(name: string, description: string, passphrase = ""): Promise<void> {
+    if (busy()) return;
     if (!name.trim()) throw new Error("Give this archive a name before creating it.");
     const suggestedName = `${safeFileName(name)}.tux`;
-    const location = await platform.createArchiveLocation(suggestedName);
-    if (!location) return;
-    const snapshot = await openArchiveBytes(
-      await createArchiveBytes(name.trim(), description.trim()),
-    );
-    const savedLocation = await platform.saveArchive(snapshot.source, suggestedName, location);
-    const next = await readWorkspace(snapshot, suggestedName, savedLocation);
-    const previous = workspace();
-    setWorkspace(next);
-    if (previous && previous.snapshot !== snapshot) previous.snapshot.lock();
-    if (previous && previous.snapshot.source !== snapshot.source) {
-      await previous.snapshot.source.close?.().catch(() => undefined);
+    let openedSnapshot: ArchiveSnapshot | undefined;
+    let snapshot: ArchiveSnapshot | undefined;
+    let accepted = false;
+    setBusy(true);
+    try {
+      const location = await platform.createArchiveLocation(suggestedName);
+      if (!location) return;
+      const bytes = passphrase
+        ? await createEncryptedArchiveBytes(name.trim(), description.trim(), passphrase)
+        : await createArchiveBytes(name.trim(), description.trim());
+      openedSnapshot = await openArchiveBytes(bytes);
+      snapshot = passphrase ? await openedSnapshot.unlock(passphrase) : openedSnapshot;
+      const savedLocation = await platform.saveArchive(snapshot.source, suggestedName, location);
+      const next = await readWorkspace(snapshot, suggestedName, savedLocation);
+      const previous = workspace();
+      setWorkspace(next);
+      accepted = true;
+      if (previous && previous.snapshot !== snapshot) previous.snapshot.lock();
+      if (previous && previous.snapshot.source !== snapshot.source) {
+        await previous.snapshot.source.close?.().catch(() => undefined);
+      }
+      setPendingSessionTrash(null);
+      setView("home");
+      setDialog(null);
+      setDialogRecord(null);
+      announce(`Created ${name.trim()}.`, "success");
+    } finally {
+      if (!accepted) {
+        snapshot?.lock();
+        if (openedSnapshot && openedSnapshot !== snapshot) openedSnapshot.lock();
+        await openedSnapshot?.source.close?.().catch(() => undefined);
+      }
+      setBusy(false);
     }
-    setPendingSessionTrash(null);
-    setView("home");
-    setDialog(null);
-    setDialogRecord(null);
-    announce(`Created ${name.trim()}.`, "success");
   }
 
   async function saveCurrentArchive(): Promise<void> {
@@ -1976,10 +1994,8 @@ function App(): JSX.Element {
             }
             busy={busy()}
             onClose={closeDialog}
-            onCreateArchive={(name, description) =>
-              void createArchive(name, description).catch((error: unknown) =>
-                announce(errorMessage(error), "error"),
-              )
+            onCreateArchive={(name, description, passphrase) =>
+              createArchive(name, description, passphrase)
             }
             onSaveStudent={(input, record) =>
               void updateStudent(input, record).catch((error: unknown) =>
@@ -6206,7 +6222,7 @@ function FormDialog(props: {
   notesDocument: ArchiveRecord | null;
   busy: boolean;
   onClose: () => void;
-  onCreateArchive: (name: string, description: string) => void;
+  onCreateArchive: (name: string, description: string, passphrase: string) => Promise<void>;
   onSaveStudent: (input: StudentInput, current: ArchiveRecord | null) => void;
   onSaveSession: (
     input: {
@@ -6286,18 +6302,44 @@ function FormDialog(props: {
   const today = new Date().toISOString().slice(0, 10);
   const formError = createSignal("");
   const [validationError, setValidationError] = formError;
+  const [encryptOnCreate, setEncryptOnCreate] = createSignal(false);
 
   onMount(() => queueMicrotask(() => nameInput?.focus()));
 
-  function submit(event: SubmitEvent): void {
+  async function submit(event: SubmitEvent): Promise<void> {
     event.preventDefault();
     setValidationError("");
     const form = event.currentTarget as HTMLFormElement;
     const data = new FormData(form);
     const value = (key: string): string => String(data.get(key) ?? "");
     try {
-      if (props.kind === "archive") props.onCreateArchive(value("name"), value("description"));
-      else if (props.kind === "student")
+      if (props.kind === "archive") {
+        const passphrase = encryptOnCreate() ? value("passphrase") : "";
+        if (encryptOnCreate() && !passphrase) {
+          throw new Error("Enter a passphrase to protect this workspace.");
+        }
+        if (passphrase) {
+          const passphraseBytes = new TextEncoder().encode(passphrase);
+          const byteLength = passphraseBytes.byteLength;
+          passphraseBytes.fill(0);
+          if (byteLength < 12 || byteLength > 4096) {
+            throw new Error("Use a passphrase between 12 and 4096 UTF-8 bytes long.");
+          }
+        }
+        if (passphrase !== value("confirmPassphrase")) {
+          throw new Error("The passphrases do not match.");
+        }
+        const passphraseInput = form.querySelector<HTMLInputElement>('input[name="passphrase"]');
+        const confirmationInput = form.querySelector<HTMLInputElement>(
+          'input[name="confirmPassphrase"]',
+        );
+        try {
+          await props.onCreateArchive(value("name"), value("description"), passphrase);
+        } finally {
+          if (passphraseInput) passphraseInput.value = "";
+          if (confirmationInput) confirmationInput.value = "";
+        }
+      } else if (props.kind === "student")
         props.onSaveStudent(
           {
             name: value("name"),
@@ -6396,6 +6438,42 @@ function FormDialog(props: {
                 maxlength="1000"
               />
             </label>
+            <label class="archive-encryption-toggle">
+              <input
+                type="checkbox"
+                checked={encryptOnCreate()}
+                onChange={(event) => setEncryptOnCreate(event.currentTarget.checked)}
+              />
+              <span>
+                <strong>Protect this workspace with a passphrase</strong>
+                <small>Encrypt learner records and private notes on disk.</small>
+              </span>
+            </label>
+            <Show when={encryptOnCreate()}>
+              <label class="form-field">
+                Archive passphrase
+                <input
+                  type="password"
+                  name="passphrase"
+                  autocomplete="new-password"
+                  maxlength="4096"
+                  required
+                />
+              </label>
+              <label class="form-field">
+                Confirm passphrase
+                <input
+                  type="password"
+                  name="confirmPassphrase"
+                  autocomplete="new-password"
+                  maxlength="4096"
+                  required
+                />
+              </label>
+              <p class="archive-encryption-help">
+                Keep this passphrase safe. Tutorux cannot recover it if it is lost.
+              </p>
+            </Show>
           </Show>
           <Show when={props.kind === "student"}>
             <label class="form-field">
