@@ -24,6 +24,8 @@ import {
 import { ArchiveFormatError, RecordType, type ArchiveRecord } from "./archive/format";
 import { DocumentEditor } from "./DocumentEditor";
 import type { ArchiveByteSource } from "./archive/source";
+import { AiPage } from "./AiPage";
+import { createAiPackageRecord, type AiPackageSummary } from "./ai/package";
 import { MAX_ASSET_BYTES, makeAssetImport, readAssetBytes } from "./domain/assets";
 import {
   buildAudioTrackWavStream,
@@ -132,6 +134,7 @@ type View =
   | "guides"
   | "evidence"
   | "assets"
+  | "ai"
   | "trash"
   | "archive"
   | "settings";
@@ -166,6 +169,7 @@ interface Workspace {
   assets: ArchiveRecord[];
   evidence: ArchiveRecord[];
   evidenceEdges: ArchiveRecord[];
+  aiJobs: ArchiveRecord[];
   dirty: boolean;
 }
 
@@ -218,6 +222,7 @@ const views: readonly ViewDefinition[] = [
   { id: "sessions", label: "Sessions", icon: "sessions", group: "workspace" },
   { id: "annotations", label: "Observations", icon: "annotations", group: "workspace" },
   { id: "transcripts", label: "Transcripts", icon: "transcripts", group: "workspace" },
+  { id: "ai", label: "AI workspace", icon: "spark", group: "workspace" },
   { id: "guides", label: "Study guides", icon: "guides", group: "library" },
   { id: "evidence", label: "Evidence", icon: "evidence", group: "library" },
   { id: "assets", label: "Materials", icon: "assets", group: "library" },
@@ -413,6 +418,7 @@ function App(): JSX.Element {
         assets: [],
         evidence: [],
         evidenceEdges: [],
+        aiJobs: [],
       };
     }
     const [
@@ -425,6 +431,7 @@ function App(): JSX.Element {
       assets,
       evidence,
       evidenceEdges,
+      aiJobs,
     ] = await Promise.all([
       snapshot.listRecords(RecordType.student, true),
       snapshot.listRecords(RecordType.session, true),
@@ -435,6 +442,7 @@ function App(): JSX.Element {
       snapshot.listRecords(RecordType.assetMetadata),
       snapshot.listRecords(RecordType.evidenceNode),
       snapshot.listRecords(RecordType.evidenceEdge),
+      snapshot.listRecordMetadata(RecordType.aiJob),
     ]);
     const liveSessions = alive(sessions);
     const liveAssets = alive(assets);
@@ -498,6 +506,7 @@ function App(): JSX.Element {
       assets: liveAssets,
       evidence: alive(evidence),
       evidenceEdges: alive(evidenceEdges),
+      aiJobs,
     };
   }
 
@@ -707,6 +716,41 @@ function App(): JSX.Element {
     } finally {
       setBusy(false);
     }
+  }
+
+  async function prepareAiPackage(
+    sessionId: string,
+    templateId: string,
+  ): Promise<AiPackageSummary> {
+    const current = workspace();
+    if (!current) throw new Error("Create or open an archive before preparing a package.");
+    if (current.snapshot.locked || !current.snapshot.canMutate) {
+      throw new Error("Unlock this archive before preparing a package.");
+    }
+    if (busy()) throw new Error("Wait for the current archive operation to finish.");
+    setBusy(true);
+    try {
+      const summary = await createAiPackageRecord(current.snapshot, sessionId, templateId);
+      if (workspace()?.snapshot !== current.snapshot) {
+        throw new Error("The active archive changed while the package was being prepared.");
+      }
+      return summary;
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function saveAiPackage(summary: AiPackageSummary): Promise<boolean> {
+    return addRecords(
+      [summary.job],
+      "Reviewed AI package saved in this archive. Save the archive to write it to disk.",
+    );
+  }
+
+  async function loadAiPackage(jobId: string): Promise<ArchiveRecord | null> {
+    const current = workspace();
+    if (!current || current.snapshot.locked) return null;
+    return current.snapshot.getRecord(RecordType.aiJob, jobId);
   }
 
   async function changeCurrentPassphrase(
@@ -1607,6 +1651,15 @@ function App(): JSX.Element {
       },
     },
     {
+      label: "Prepare an AI guide package",
+      detail: "Review a private, source-linked handoff",
+      icon: "spark" as const,
+      run: () => {
+        closePalette();
+        setView("ai");
+      },
+    },
+    {
       label: "Switch appearance",
       detail: "Switch between light and dark",
       icon: "moon" as const,
@@ -1884,6 +1937,18 @@ function App(): JSX.Element {
                     onSplit={splitTranscriptCue}
                     onMerge={mergeTranscriptCues}
                     onLinkAssets={linkTranscriptAssets}
+                  />
+                </Show>
+                <Show when={view() === "ai"}>
+                  <AiPage
+                    sessions={[...state.sessions, ...state.archivedSessions]}
+                    customTemplates={state.guideTemplates}
+                    jobs={state.aiJobs}
+                    disabled={state.snapshot.locked || !state.snapshot.canMutate}
+                    busy={busy()}
+                    onPrepare={prepareAiPackage}
+                    onSave={saveAiPackage}
+                    onLoad={loadAiPackage}
                   />
                 </Show>
                 <Show when={view() === "annotations"}>
