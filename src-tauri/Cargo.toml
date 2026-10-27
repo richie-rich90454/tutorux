@@ -19,6 +19,7 @@ tauri = { version = "2", features = [] }
 tauri-plugin-dialog = "2"
 tauri-plugin-fs = "2"
 tauri-plugin-single-instance = "2.5.4"
+keyring = "4.2.0"
 uuid = { version = "1", features = ["v4"] }
 zeroize = "1.8"
 
