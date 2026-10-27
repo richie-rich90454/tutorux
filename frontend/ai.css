@@ -620,6 +620,74 @@
   line-height: 1.6;
 }
 
+.ai-send-consent {
+  align-items: flex-start;
+  margin-top: 15px;
+}
+
+.ai-send-consent code {
+  overflow-wrap: anywhere;
+  color: var(--ink);
+  font-size: 10px;
+}
+
+.ai-send-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.ai-send-actions > span {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.ai-generation-result {
+  display: grid;
+  gap: 13px;
+  margin-top: 14px;
+  padding: 17px;
+  border: 1px solid color-mix(in srgb, var(--success) 28%, var(--line));
+  border-radius: var(--radius-large);
+  background: color-mix(in srgb, var(--success) 5%, var(--surface));
+}
+
+.ai-generation-result > p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.6;
+}
+
+.ai-generation-result .ai-request-facts {
+  margin: 0;
+}
+
+.ai-generation-warnings {
+  display: grid;
+  gap: 5px;
+  margin: 0;
+  padding-left: 19px;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.55;
+}
+
+.ai-response-disclosure textarea {
+  min-height: 220px;
+  max-height: 480px;
+}
+
+.ai-response-truncated {
+  display: block;
+  margin-top: 7px;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.5;
+}
+
 .ai-job-list {
   margin-top: 16px;
   border-top: 1px solid var(--line-soft);
@@ -738,6 +806,11 @@
   .ai-provider-footer .button,
   .ai-review-actions .button {
     width: 100%;
+  }
+
+  .ai-send-actions {
+    align-items: stretch;
+    flex-direction: column;
   }
 
   .ai-credential-box,
