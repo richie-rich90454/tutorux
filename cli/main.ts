@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
-import { lstat, open, readFile, readdir, realpath, rename, rm, stat } from "node:fs/promises";
+import { execFile } from "node:child_process";
+import { link, lstat, open, readFile, readdir, realpath, rename, rm, stat } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { ArchiveFormatError, RecordType, type ArchiveRecord } from "../frontend/archive/format";
@@ -8,6 +9,7 @@ import {
   compactArchiveSnapshot,
   createArchiveBytes,
   openArchiveSource,
+  repairArchiveSnapshot,
   recoverUnpublishedCommit,
   verifyArchiveSnapshot,
   type ArchiveSnapshot,
@@ -123,6 +125,7 @@ Usage:
   tutorux archive verify <file.tux> [--json]
   tutorux archive recover <file.tux> [--apply] [--json]
   tutorux archive compact <file.tux> [--apply] [--json]
+  tutorux archive repair <file.tux> --output <copy.tux> --confirm-sensitive [--json]
   tutorux --archive <file.tux> student create --name <name> [--grade <grade>] [--difficulties <text>] [--demonstrated-improvements <text>] [--preferred-guide-template <id>]
   tutorux --archive <file.tux> student list [--include-deleted] [--json]
   tutorux --archive <file.tux> student show <uuid> [--json]
@@ -367,6 +370,81 @@ async function runArchiveCommand(
         applied
           ? `Compacted ${basename(path)} from ${result.originalBytes} to ${result.compactedBytes} bytes.`
           : `Compaction would reduce ${basename(path)} from ${result.originalBytes} to ${result.compactedBytes} bytes. Add --apply to replace it.`,
+        args.flags.has("json"),
+      );
+      return 0;
+    } finally {
+      await source.close();
+    }
+  }
+  if (action === "repair") {
+    if (!args.flags.has("confirm-sensitive")) {
+      throw new CliError(
+        "A repaired copy contains student records, recordings, annotations, and credentials. Review the destination and retry with --confirm-sensitive.",
+      );
+    }
+    const archivePath = resolve(path);
+    const destinationPath = resolve(requiredOption(args, "output"));
+    if (!destinationPath.toLowerCase().endsWith(".tux")) {
+      throw new CliError("Repaired archive copies must use the .tux extension.");
+    }
+    const [sourceCanonicalPath, destinationParentPath] = await Promise.all([
+      realpath(archivePath),
+      realpath(dirname(destinationPath)),
+    ]);
+    const canonicalDestinationPath = resolve(destinationParentPath, basename(destinationPath));
+    const samePath =
+      process.platform === "win32"
+        ? sourceCanonicalPath.toLowerCase() === canonicalDestinationPath.toLowerCase()
+        : sourceCanonicalPath === canonicalDestinationPath;
+    if (samePath) throw new CliError("Repair output must be a separate archive copy.");
+    const destinationDirectory = await stat(destinationParentPath);
+    if (!destinationDirectory.isDirectory()) {
+      throw new CliError("The repair destination directory is unavailable.");
+    }
+    try {
+      await stat(destinationPath);
+      throw new CliError(`Repair output already exists: ${destinationPath}`);
+    } catch (error) {
+      if (error instanceof CliError) throw error;
+      if (!isNotFound(error)) throw error;
+    }
+
+    const openedInfo = await stat(archivePath);
+    const source = await NodeFileArchiveSource.open(archivePath);
+    try {
+      if (BigInt(openedInfo.size) !== source.size) {
+        throw new CliError("The archive changed while repair was starting. Retry the command.");
+      }
+      const snapshot = await openArchiveSource(source);
+      const repair = await repairArchiveSnapshot(snapshot);
+      const validateBeforePublish = async (): Promise<void> => {
+        const currentInfo = await stat(archivePath);
+        if (
+          currentInfo.size !== openedInfo.size ||
+          currentInfo.mtimeMs !== openedInfo.mtimeMs ||
+          currentInfo.dev !== openedInfo.dev ||
+          currentInfo.ino !== openedInfo.ino
+        ) {
+          throw new CliError("The archive changed during repair. Retry the command.");
+        }
+      };
+      await writeSourceToNewFileAtomically(destinationPath, repair.snapshot, validateBeforePublish);
+      const result = {
+        path: archivePath,
+        output: destinationPath,
+        status: "repaired-copy",
+        original_preserved: true,
+        selected_verified_generation: repair.selectedGeneration.toString(),
+        discarded_bytes: repair.discardedTrailingBytes.toString(),
+        original_bytes: repair.originalBytes.toString(),
+        compacted_bytes: repair.compactedBytes.toString(),
+        records_preserved: repair.preservedRecords,
+      };
+      emit(
+        output,
+        result,
+        `Validated repair copy created at ${destinationPath}; the original archive was preserved. Selected verified generation ${result.selected_verified_generation}; discarded ${result.discarded_bytes} source bytes.`,
         args.flags.has("json"),
       );
       return 0;
@@ -3650,6 +3728,106 @@ async function writeSourceAtomically(path: string, snapshot: ArchiveSnapshot): P
   }
   await output.close();
   await replaceFile(temporary, path);
+}
+
+async function writeSourceToNewFileAtomically(
+  path: string,
+  snapshot: ArchiveSnapshot,
+  validateBeforePublish?: () => Promise<void>,
+): Promise<void> {
+  const destination = resolve(path);
+  try {
+    await stat(destination);
+    throw new CliError(`Repair output already exists: ${destination}`);
+  } catch (error) {
+    if (error instanceof CliError) throw error;
+    if (!isNotFound(error)) throw error;
+  }
+
+  const temporary = join(dirname(destination), `.tutorux-${randomUUID()}.partial`);
+  const output = await open(temporary, "wx", 0o600);
+  let closed = false;
+  try {
+    const chunkSize = 1024 * 1024;
+    for (let offset = 0n; offset < snapshot.source.size;) {
+      const length = Number(
+        snapshot.source.size - offset > BigInt(chunkSize)
+          ? BigInt(chunkSize)
+          : snapshot.source.size - offset,
+      );
+      const bytes = await snapshot.source.read(offset, length);
+      if (bytes.byteLength !== length) {
+        throw new CliError("The repaired archive source returned an incomplete read.");
+      }
+      let written = 0;
+      while (written < bytes.length) {
+        const result = await output.write(bytes, written, bytes.length - written);
+        if (result.bytesWritten === 0) throw new Error("Archive output stopped accepting bytes.");
+        written += result.bytesWritten;
+      }
+      offset += BigInt(length);
+    }
+    await output.sync();
+    await output.close();
+    closed = true;
+    await validateBeforePublish?.();
+    if (process.platform === "win32") {
+      const script = [
+        "$ErrorActionPreference = 'Stop'",
+        "$source = [Environment]::GetEnvironmentVariable('TUTORUX_REPAIR_TEMP')",
+        "$target = [Environment]::GetEnvironmentVariable('TUTORUX_REPAIR_DESTINATION')",
+        "[System.IO.File]::Move($source, $target)",
+      ].join("\n");
+      const encodedCommand = Buffer.from(script, "utf16le").toString("base64");
+      await new Promise<void>((resolvePromise, rejectPromise) => {
+        execFile(
+          "powershell.exe",
+          ["-NoLogo", "-NoProfile", "-NonInteractive", "-EncodedCommand", encodedCommand],
+          {
+            windowsHide: true,
+            env: {
+              ...process.env,
+              TUTORUX_REPAIR_TEMP: temporary,
+              TUTORUX_REPAIR_DESTINATION: destination,
+            },
+          },
+          (error) => (error ? rejectPromise(error) : resolvePromise()),
+        );
+      });
+    } else {
+      await link(temporary, destination);
+      await rm(temporary, { force: true }).catch(() => undefined);
+    }
+  } catch (error) {
+    if (!closed) await output.close();
+    await rm(temporary, { force: true });
+    if (error instanceof Error && "code" in error && error.code === "EEXIST") {
+      throw new CliError(`Repair output already exists: ${destination}`);
+    }
+    try {
+      await stat(destination);
+      throw new CliError(`Repair output already exists: ${destination}`);
+    } catch (destinationError) {
+      if (destinationError instanceof CliError) throw destinationError;
+      if (!isNotFound(destinationError)) throw destinationError;
+    }
+    throw error;
+  }
+  if (process.platform !== "win32") {
+    try {
+      const directory = await open(dirname(destination), "r");
+      try {
+        await directory.sync();
+      } finally {
+        await directory.close();
+      }
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : "unknown filesystem error";
+      throw new CliError(
+        `Repair copy exists at ${destination}, but its directory could not be durably flushed: ${detail}`,
+      );
+    }
+  }
 }
 
 async function writeBytesAtomically(path: string, bytes: Uint8Array): Promise<void> {
