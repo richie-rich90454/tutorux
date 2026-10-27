@@ -6,6 +6,7 @@ import {
   decodeRecordFrameHeader,
   decodeRecordPayload,
   decodeStoredPayload,
+  compressRecordPayload,
   encodeArchiveHeader,
   encodeRecordFrame,
   encodeRecordPayload,
@@ -502,7 +503,13 @@ export async function appendRecords(
       previousOffset: previous ?? 0n,
     };
     const payload = encodeRecordPayload(record);
-    const frame = encodeRecordFrame(record, payload);
+    const canCompress =
+      record.type !== RecordType.assetBlob &&
+      (record.type !== RecordType.audioChunk || record.fields.get("codec") === "none");
+    const encodedPayload = canCompress
+      ? compressRecordPayload(payload)
+      : { codec: 0 as const, bytes: payload };
+    const frame = encodeRecordFrame(record, encodedPayload.bytes, encodedPayload.codec);
     tail.push(frame);
     index.set(key, cursor);
     const nextSecondaryKeys = secondaryIndexKeys(record);
