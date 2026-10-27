@@ -317,6 +317,7 @@ function App(): JSX.Element {
   let noticeTimer = 0;
   let removeNativeCommandListener: (() => void) | undefined;
   let nativeCommandListenerDisposed = false;
+  let launchArchiveQueue: Promise<void> = Promise.resolve();
 
   onMount(() => {
     const mediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
@@ -373,21 +374,20 @@ function App(): JSX.Element {
             case "toggle-appearance":
               toggleTheme();
               break;
+            case "open-launch-archive":
+              void openPendingLaunchArchives();
+              break;
           }
         })
         .then((unlisten) => {
           if (nativeCommandListenerDisposed) unlisten();
           else removeNativeCommandListener = unlisten;
+          void openPendingLaunchArchives();
         })
         .catch((error: unknown) => announce(errorMessage(error), "error"));
     }
     if (platform.kind === "desktop" && platform.openLaunchArchive) {
-      void platform
-        .openLaunchArchive()
-        .then((selected) => {
-          if (selected) void acceptArchive(selected.source, selected.name, selected.location);
-        })
-        .catch((error: unknown) => announce(errorMessage(error), "error"));
+      void openPendingLaunchArchives();
     }
     window.addEventListener("tutorux:notice", receiveNotice);
     window.addEventListener("keydown", handleKeys);
@@ -575,6 +575,21 @@ function App(): JSX.Element {
     } finally {
       setLoading(false);
     }
+  }
+
+  function openPendingLaunchArchives(): Promise<void> {
+    if (platform.kind !== "desktop" || !platform.openLaunchArchive) return Promise.resolve();
+    const drain = async (): Promise<void> => {
+      while (true) {
+        const selected = await platform.openLaunchArchive?.();
+        if (!selected) return;
+        await acceptArchive(selected.source, selected.name, selected.location);
+      }
+    };
+    const next = (): Promise<void> =>
+      drain().catch((error: unknown) => announce(errorMessage(error), "error"));
+    launchArchiveQueue = launchArchiveQueue.then(next, next);
+    return launchArchiveQueue;
   }
 
   async function unlockCurrentArchive(passphrase: string): Promise<void> {
