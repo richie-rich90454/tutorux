@@ -142,10 +142,21 @@ test("creates, updates, exports, and reopens a portable tutoring workspace", asy
   await page
     .getByLabel("Session notes")
     .fill("We used balance scales to make the first step visible.");
+  await page.getByLabel("New block type").selectOption("checklist");
+  await page.getByRole("button", { name: "Add block", exact: true }).click();
+  await page
+    .getByLabel("Session notes block 2")
+    .pressSequentially("Ask Mina to model the inverse operation.");
+  await expect(page.getByLabel("Session notes block 2")).toBeFocused();
   await page.getByRole("button", { name: "Save session" }).click();
   await expect(page.getByText("Linear equations, one step at a time")).toBeVisible();
   await page.getByRole("button", { name: "Edit session" }).click();
-  await page.getByLabel("Session notes").fill("The balance model helped make each step visible.");
+  await expect(page.getByLabel("Session notes block 2")).toHaveValue(
+    "Ask Mina to model the inverse operation.",
+  );
+  await page
+    .getByLabel("Session notes", { exact: true })
+    .fill("The balance model helped make each step visible.");
   await page.getByRole("button", { name: "Save changes" }).click();
   await expect(page.getByText("Linear equations, one step at a time")).toBeVisible();
 
@@ -313,6 +324,11 @@ test("creates, updates, exports, and reopens a portable tutoring workspace", asy
   await page
     .getByLabel("Reflection")
     .fill("Mina found the visual model easier to explain back in her own words.");
+  await page.getByLabel("New block type").selectOption("heading");
+  await page.getByRole("button", { name: "Add block", exact: true }).click();
+  await page.getByLabel("Reflection block 2").fill("Keep this question for next time");
+  await page.getByRole("button", { name: "Move block 2 up" }).click();
+  await expect(page.getByLabel("Block 1 type")).toHaveValue("heading");
   await page.getByLabel("Growing confidence", { exact: true }).check();
   await page.getByLabel("visual models", { exact: true }).check();
   await page.getByRole("button", { name: "Save entry" }).click();
@@ -329,8 +345,16 @@ test("creates, updates, exports, and reopens a portable tutoring workspace", asy
     .filter({ has: page.getByRole("heading", { name: "A useful way into balance" }) })
     .getByRole("button", { name: "Edit", exact: true })
     .click();
+  await expect(page.getByLabel("Reflection", { exact: true })).toHaveValue(
+    "Keep this question for next time",
+  );
+  await expect(page.getByLabel("Reflection block 2")).toHaveValue(
+    "Mina found the visual model easier to explain back in her own words.",
+  );
   await page.getByLabel("Entry title").fill("Balance as a visual model");
-  await page.getByLabel("Reflection").fill("Mina explained the model clearly in her own words.");
+  await page
+    .getByLabel("Reflection block 2")
+    .fill("Mina explained the model clearly in her own words.");
   await page.getByRole("button", { name: "Save changes" }).click();
   await expect(page.getByRole("heading", { name: "Balance as a visual model" })).toBeVisible();
   await page.getByRole("button", { name: "Archive Growing confidence" }).click();
@@ -365,8 +389,25 @@ test("creates, updates, exports, and reopens a portable tutoring workspace", asy
   await page.screenshot({ path: testInfo.outputPath("students.png"), fullPage: true });
   await page.getByRole("button", { name: "Sessions", exact: true }).click();
   await expect(page.getByText("Linear equations, one step at a time")).toBeVisible();
+  await page.getByRole("button", { name: "Edit session" }).click();
+  await expect(page.getByLabel("Session notes block 2")).toHaveValue(
+    "Ask Mina to model the inverse operation.",
+  );
+  await page.getByRole("button", { name: "Close", exact: true }).click();
   await page.getByRole("button", { name: "Journal", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Balance as a visual model" })).toBeVisible();
+  await page
+    .locator(".journal-record-card")
+    .filter({ has: page.getByRole("heading", { name: "Balance as a visual model" }) })
+    .getByRole("button", { name: "Edit", exact: true })
+    .click();
+  await expect(page.getByLabel("Reflection", { exact: true })).toHaveValue(
+    "Keep this question for next time",
+  );
+  await expect(page.getByLabel("Reflection block 2")).toHaveValue(
+    "Mina explained the model clearly in her own words.",
+  );
+  await page.getByRole("button", { name: "Close", exact: true }).click();
 
   await page.setViewportSize({ width: 390, height: 844 });
   const overflow = await page
