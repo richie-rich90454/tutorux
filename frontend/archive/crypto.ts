@@ -378,6 +378,11 @@ export class ArchiveDataKey {
     return new ArchiveDataKey(bytes);
   }
 
+  clone(): ArchiveDataKey {
+    this.assertUsable();
+    return new ArchiveDataKey(this.#bytes.slice());
+  }
+
   async wrap(passphrase: string, archiveId: string): Promise<ArchiveEncryptionEnvelope> {
     await ready;
     this.assertUsable();
