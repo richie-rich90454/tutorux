@@ -6,6 +6,7 @@ import {
   createSignal,
   onCleanup,
   onMount,
+  untrack,
   type JSX,
 } from "solid-js";
 import { render } from "solid-js/web";
@@ -21,6 +22,7 @@ import {
   type ArchiveSnapshot,
 } from "./archive/archive";
 import { ArchiveFormatError, RecordType, type ArchiveRecord } from "./archive/format";
+import { DocumentEditor } from "./DocumentEditor";
 import type { ArchiveByteSource } from "./archive/source";
 import { MAX_ASSET_BYTES, makeAssetImport, readAssetBytes } from "./domain/assets";
 import {
@@ -79,7 +81,9 @@ import {
   updateStudentRecord,
   transitionSessionRecord,
   type JournalInput,
+  type JournalNoteBlock,
   type SessionCreateOptions,
+  type SessionInput,
   type SessionTransitionAction,
   type StudentInput,
 } from "./domain/records";
@@ -6313,13 +6317,7 @@ function FormDialog(props: {
   onChangePassphrase: (currentPassphrase: string, newPassphrase: string) => Promise<void>;
   onSaveStudent: (input: StudentInput, current: ArchiveRecord | null) => void;
   onSaveSession: (
-    input: {
-      studentId: string;
-      subject: string;
-      title: string;
-      objectives: string;
-      notes: string;
-    },
+    input: SessionInput,
     current: ArchiveRecord | null,
     notesDocument: ArchiveRecord | null,
     updateNotes: boolean,
@@ -6394,12 +6392,18 @@ function FormDialog(props: {
         submit: "Save changes",
       }
     : titles[props.kind];
-  const noteState = () => notesEditState(props.notesDocument);
+  const noteState = untrack(() => notesEditState(props.notesDocument));
+  const [noteBlocks, setNoteBlocks] = createSignal<JournalNoteBlock[]>(
+    noteState.editable
+      ? noteState.blocks.length > 0
+        ? noteState.blocks
+        : [{ id: crypto.randomUUID(), kind: "paragraph", text: "" }]
+      : [],
+  );
   const journalIds = (key: "collection_ids" | "tag_ids"): string[] =>
     props.record ? field(props.record, key).split(",").filter(Boolean) : [];
   const today = new Date().toISOString().slice(0, 10);
-  const formError = createSignal("");
-  const [validationError, setValidationError] = formError;
+  const [validationError, setValidationError] = createSignal("");
   const [encryptOnCreate, setEncryptOnCreate] = createSignal(false);
 
   onMount(() =>
@@ -6490,24 +6494,24 @@ function FormDialog(props: {
             subject: value("subject"),
             title: value("title"),
             objectives: value("objectives"),
-            notes: value("notes"),
+            noteBlocks: noteBlocks(),
           },
           props.record,
           props.notesDocument,
-          noteState().editable,
+          noteState.editable,
         );
       else
         props.onSaveJournal(
           {
             title: value("title"),
             date: value("date"),
-            notes: value("notes"),
+            noteBlocks: noteBlocks(),
             collectionIds: data.getAll("collectionIds").map(String),
             tagIds: data.getAll("tagIds").map(String),
           },
           props.record,
           props.notesDocument,
-          noteState().editable,
+          noteState.editable,
         );
     } catch (error) {
       setValidationError(errorMessage(error));
@@ -6814,23 +6818,24 @@ function FormDialog(props: {
                 value={props.record ? field(props.record, "learning_objectives") : ""}
               />
             </label>
-            <label class="form-field">
-              Session notes
-              <textarea
-                name="notes"
-                rows="4"
-                placeholder="What happened? What might you return to next time?"
-                maxlength="100000"
-                value={noteState().text}
-                disabled={Boolean(props.record && !noteState().editable)}
-              />
-              <Show when={props.record && !noteState().editable}>
-                <span class="form-help">
-                  These notes contain structured blocks. They are preserved while you edit the other
-                  session details.
-                </span>
+            <div class="form-field document-form-field">
+              <span>Session notes</span>
+              <Show
+                when={noteState.editable}
+                fallback={
+                  <span class="form-help">
+                    These notes contain content this editor cannot safely change. They remain
+                    preserved while you edit the other session details.
+                  </span>
+                }
+              >
+                <DocumentEditor
+                  label="Session notes"
+                  blocks={noteBlocks()}
+                  onChange={setNoteBlocks}
+                />
               </Show>
-            </label>
+            </div>
           </Show>
           <Show when={props.kind === "journal"}>
             <label class="form-field">
@@ -6855,17 +6860,20 @@ function FormDialog(props: {
                 required
               />
             </label>
-            <label class="form-field">
-              Reflection
-              <textarea
-                name="notes"
-                rows="6"
-                placeholder="What did you notice? What surprised you?"
-                maxlength="100000"
-                value={noteState().text}
-                disabled={Boolean(props.record && !noteState().editable)}
-              />
-            </label>
+            <div class="form-field document-form-field">
+              <span>Reflection</span>
+              <Show
+                when={noteState.editable}
+                fallback={
+                  <span class="form-help">
+                    These notes contain content this editor cannot safely change. They remain
+                    preserved while you edit the other entry details.
+                  </span>
+                }
+              >
+                <DocumentEditor label="Reflection" blocks={noteBlocks()} onChange={setNoteBlocks} />
+              </Show>
+            </div>
             <div class="journal-link-fields">
               <fieldset class="journal-link-group">
                 <legend>Collections</legend>
@@ -6952,7 +6960,7 @@ function FormDialog(props: {
                 Unavailable legacy labels remain linked when this entry is saved.
               </span>
             </Show>
-            <Show when={props.record && !noteState().editable}>
+            <Show when={props.record && !noteState.editable}>
               <span class="form-help">
                 This reflection contains structured blocks. They are preserved while you edit the
                 title or date.
