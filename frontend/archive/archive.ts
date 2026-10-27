@@ -81,7 +81,7 @@ export class ArchiveSnapshot {
   }
 
   get canMutate(): boolean {
-    return !this.encrypted;
+    return !this.encrypted || this.#dataKey !== undefined;
   }
 
   constructor(
@@ -132,6 +132,88 @@ export class ArchiveSnapshot {
     const dataKey = this.#dataKey;
     this.#dataKey = undefined;
     dataKey?.dispose();
+  }
+
+  async authenticateEncryptedPayload(label: string, payload: Uint8Array): Promise<Uint8Array> {
+    const dataKey = this.#dataKey;
+    if (!this.encrypted || !dataKey) {
+      throw new ArchiveFormatError(
+        "archive_locked",
+        "Unlock this archive before authenticating encrypted data.",
+      );
+    }
+    return dataKey.authenticateBytes(label, payload);
+  }
+
+  async encodeRecordFrameForAppend(record: ArchiveRecord): Promise<Uint8Array> {
+    const dataKey = this.#dataKey;
+    if (this.encrypted && !dataKey) {
+      throw new ArchiveFormatError("archive_locked", "Unlock this archive before editing it.");
+    }
+    let recordToWrite = record;
+    const isArchiveRecord = record.id.toLowerCase() === this.header.id.toLowerCase();
+    const isManifest = record.type === RecordType.settings && isArchiveRecord;
+    const isEncryptionMetadata = record.type === RecordType.encryption && isArchiveRecord;
+    if (this.encrypted && isManifest) {
+      const fields = new Map(record.fields);
+      fields.delete("manifest_auth");
+      const unsignedPayload = encodeRecordPayload({ ...record, fields });
+      const authentication = await dataKey!.authenticateBytes(
+        "TUTORUX-MANIFEST-V1",
+        unsignedPayload,
+      );
+      fields.set(
+        "manifest_auth",
+        Array.from(authentication, (byte) => byte.toString(16).padStart(2, "0")).join(""),
+      );
+      recordToWrite = { ...record, fields };
+    }
+
+    const payload = encodeRecordPayload(recordToWrite);
+    const canCompress =
+      recordToWrite.type !== RecordType.assetBlob &&
+      (recordToWrite.type !== RecordType.audioChunk ||
+        recordToWrite.fields.get("codec") === "none");
+    const encodedPayload = canCompress
+      ? compressRecordPayload(payload)
+      : { codec: 0 as const, bytes: payload };
+    const protectPayload = this.encrypted && !isManifest && !isEncryptionMetadata;
+    const storedPayload = protectPayload
+      ? await dataKey!.encryptRecordPayload(encodedPayload.bytes, {
+          archiveId: this.header.id,
+          type: recordToWrite.type,
+          recordId: recordToWrite.id,
+          revision: recordToWrite.revision,
+          previousOffset: recordToWrite.previousOffset,
+          codec: encodedPayload.codec,
+        })
+      : encodedPayload.bytes;
+    return encodeRecordFrame(
+      recordToWrite,
+      storedPayload,
+      encodedPayload.codec,
+      protectPayload ? 1 : 0,
+    );
+  }
+
+  async openNextGeneration(source: ArchiveByteSource): Promise<ArchiveSnapshot> {
+    const opened = await openArchiveSource(source);
+    const dataKey = this.#dataKey?.clone();
+    const next = new ArchiveSnapshot(
+      opened.source,
+      opened.header,
+      opened.commit,
+      new Map(opened.index),
+      opened.publishedEndOffset,
+      dataKey,
+    );
+    try {
+      if (next.encrypted) await next.verifyEncryptionAuthentication();
+      return next;
+    } catch (error) {
+      next.lock();
+      throw error;
+    }
   }
 
   async verifyEncryptionAuthentication(): Promise<void> {
@@ -888,7 +970,7 @@ async function rebuildArchiveSnapshot(
   const orderedEntries = [...relocatedIndex.entries()]
     .map(([key, valueOffset]) => ({ key, valueOffset }))
     .sort((left, right) => compareKeys(left.key, right.key));
-  const tree = buildIndexTree(orderedEntries, cursor);
+  const tree = await buildIndexTree(orderedEntries, cursor);
   for (const frame of tree.frames) {
     outputSegments.push({ kind: "static", offset: cursor, bytes: frame });
     cursor += BigInt(frame.byteLength);
@@ -931,16 +1013,23 @@ export async function appendRecords(
   snapshot: ArchiveSnapshot,
   changes: readonly ArchiveRecord[],
 ): Promise<ArchiveSnapshot> {
-  if (snapshot.encrypted) {
-    throw new ArchiveFormatError(
-      "archive_encrypted_workflow_unsupported",
-      "Writing encrypted archives is not supported yet.",
-    );
-  }
   if (snapshot.locked) {
     throw new ArchiveFormatError("archive_locked", "Unlock this archive before editing it.");
   }
   if (changes.length === 0) return snapshot;
+  if (
+    snapshot.encrypted &&
+    changes.some(
+      (record) =>
+        record.type === RecordType.encryption &&
+        record.id.toLowerCase() === snapshot.header.id.toLowerCase(),
+    )
+  ) {
+    throw new ArchiveFormatError(
+      "archive_passphrase_change_unsupported",
+      "Passphrase changes are not supported yet.",
+    );
+  }
   if (snapshot.source.size !== snapshot.publishedEndOffset) {
     throw new ArchiveFormatError(
       "archive_recovery_required",
@@ -1063,6 +1152,7 @@ export async function appendRecords(
   const tail: Uint8Array[] = [];
   let cursor = snapshot.source.size;
   const changedKeys = new Set<string>();
+  const recordsToVerify: ArchiveRecord[] = [];
 
   for (const change of writeChanges) {
     if (change.type === RecordType.indexPage || change.type === RecordType.commit) {
@@ -1085,14 +1175,13 @@ export async function appendRecords(
     if (previous !== undefined) {
       const previousFrame = await readFrameAt(snapshot.source, previous);
       revision = previousFrame.revision + 1n;
-      const previousPayload = decodeStoredPayload(previousFrame);
-      const previousRecord = decodeRecordPayload(
-        previousFrame.type,
-        previousFrame.id,
-        previousFrame.revision,
-        previousFrame.previousOffset,
-        previousPayload,
-      );
+      const previousRecord = await snapshot.getRecord(change.type, change.id);
+      if (!previousRecord) {
+        throw new ArchiveFormatError(
+          "record_index_mismatch",
+          "Archive index points to a different record.",
+        );
+      }
       previousSecondaryKeys = secondaryIndexKeys(previousRecord);
     }
     const record: ArchiveRecord = {
@@ -1101,14 +1190,8 @@ export async function appendRecords(
       revision,
       previousOffset: previous ?? 0n,
     };
-    const payload = encodeRecordPayload(record);
-    const canCompress =
-      record.type !== RecordType.assetBlob &&
-      (record.type !== RecordType.audioChunk || record.fields.get("codec") === "none");
-    const encodedPayload = canCompress
-      ? compressRecordPayload(payload)
-      : { codec: 0 as const, bytes: payload };
-    const frame = encodeRecordFrame(record, encodedPayload.bytes, encodedPayload.codec);
+    const frame = await snapshot.encodeRecordFrameForAppend(record);
+    recordsToVerify.push(record);
     tail.push(frame);
     index.set(key, cursor);
     const nextSecondaryKeys = secondaryIndexKeys(record);
@@ -1142,14 +1225,20 @@ export async function appendRecords(
   const orderedEntries = [...index.entries()]
     .map(([key, valueOffset]) => ({ key, valueOffset }))
     .sort((left, right) => compareKeys(left.key, right.key));
-  const tree = buildIndexTree(orderedEntries, cursor);
+  const tree = await buildIndexTree(
+    orderedEntries,
+    cursor,
+    snapshot.encrypted
+      ? (payload) => snapshot.authenticateEncryptedPayload("TUTORUX-INDEX-PAGE-V1", payload)
+      : undefined,
+  );
   tail.push(...tree.frames);
   cursor = tree.endOffset;
   const rootHash = await sha256(tree.rootPayload);
   const transactionId = newUuid();
   const commitOffset = cursor;
   const generation = snapshot.commit.generation + 1n;
-  const commitPayload = encodeCommitPayload({
+  const commitBody = encodeCommitPayload({
     generation,
     previousOffset: snapshot.commit.offset,
     rootOffset: tree.rootOffset,
@@ -1157,6 +1246,12 @@ export async function appendRecords(
     transactionId,
     recordCount: BigInt(writeChanges.length),
   });
+  const commitPayload = snapshot.encrypted
+    ? concatBytes([
+        commitBody,
+        await snapshot.authenticateEncryptedPayload("TUTORUX-COMMIT-V1", commitBody),
+      ])
+    : commitBody;
   const commitFrame = encodeRecordFrame(
     {
       type: RecordType.commit,
@@ -1173,7 +1268,49 @@ export async function appendRecords(
     snapshot.source,
     new MemoryArchiveSource(concatBytes(tail)),
   );
-  return openArchiveSource(nextSource);
+  const next = await snapshot.openNextGeneration(nextSource);
+  if (snapshot.encrypted) {
+    try {
+      for (const record of recordsToVerify) {
+        const verified = await next.getRecord(record.type, record.id);
+        const isManifest =
+          record.type === RecordType.settings && record.id.toLowerCase() === snapshot.header.id;
+        const expectedFields = new Map(record.fields);
+        if (isManifest) expectedFields.delete("manifest_auth");
+        const fieldsMatch =
+          verified !== null &&
+          verified.fields.size === expectedFields.size &&
+          [...expectedFields].every(([name, value]) => verified.fields.get(name) === value);
+        if (!verified) {
+          throw new ArchiveFormatError(
+            "archive_write_verification_failed",
+            "The encrypted record could not be read back after writing.",
+          );
+        }
+        if (
+          verified.type !== record.type ||
+          verified.id !== record.id ||
+          verified.revision !== record.revision ||
+          verified.previousOffset !== record.previousOffset
+        ) {
+          throw new ArchiveFormatError(
+            "archive_write_verification_failed",
+            "Encrypted record metadata changed during write verification.",
+          );
+        }
+        if (!fieldsMatch || !bytesEqual(verified.blob, record.blob)) {
+          throw new ArchiveFormatError(
+            "archive_write_verification_failed",
+            "Encrypted record contents changed during write verification.",
+          );
+        }
+      }
+    } catch (error) {
+      next.lock();
+      throw error;
+    }
+  }
+  return next;
 }
 
 export async function createArchiveBytes(
@@ -1879,13 +2016,20 @@ interface BuiltIndexTree {
   frames: Uint8Array[];
 }
 
-function buildIndexTree(entries: readonly IndexEntry[], initialOffset: bigint): BuiltIndexTree {
+async function buildIndexTree(
+  entries: readonly IndexEntry[],
+  initialOffset: bigint,
+  authenticate?: (payload: Uint8Array) => Promise<Uint8Array>,
+): Promise<BuiltIndexTree> {
   const frames: Uint8Array[] = [];
   let offset = initialOffset;
-  const appendPage = (
+  const appendPage = async (
     page: IndexPage,
-  ): { offset: bigint; firstKey: string | null; payload: Uint8Array } => {
-    const payload = encodeIndexPage(page);
+  ): Promise<{ offset: bigint; firstKey: string | null; payload: Uint8Array }> => {
+    const pagePayload = encodeIndexPage(page);
+    const payload = authenticate
+      ? concatBytes([pagePayload, await authenticate(pagePayload)])
+      : pagePayload;
     const frame = encodeRecordFrame(
       { type: RecordType.indexPage, id: ZERO_UUID, revision: 1n, previousOffset: 0n },
       payload,
@@ -1903,12 +2047,12 @@ function buildIndexTree(entries: readonly IndexEntry[], initialOffset: bigint): 
   const pageCapacity = 2048;
   const firstLevel: { offset: bigint; firstKey: string | null; payload: Uint8Array }[] = [];
   if (entries.length === 0) {
-    firstLevel.push(appendPage({ leaf: true, entries: [], separators: [], children: [] }));
+    firstLevel.push(await appendPage({ leaf: true, entries: [], separators: [], children: [] }));
   } else {
     for (let start = 0; start < entries.length; start += pageCapacity) {
       const pageEntries = entries.slice(start, start + pageCapacity);
       firstLevel.push(
-        appendPage({ leaf: true, entries: [...pageEntries], separators: [], children: [] }),
+        await appendPage({ leaf: true, entries: [...pageEntries], separators: [], children: [] }),
       );
     }
   }
@@ -1926,7 +2070,7 @@ function buildIndexTree(entries: readonly IndexEntry[], initialOffset: bigint): 
       const children = level.slice(cursor, cursor + count);
       cursor += count;
       parentLevel.push(
-        appendPage({
+        await appendPage({
           leaf: false,
           entries: [],
           separators: children.slice(1).map((child) => child.firstKey!),
@@ -1944,20 +2088,13 @@ function buildIndexTree(entries: readonly IndexEntry[], initialOffset: bigint): 
     return { rootOffset: root.offset, rootPayload: root.payload, endOffset: offset, frames };
   }
 
-  const rootPayload = encodeIndexPage({
+  root = await appendPage({
     leaf: false,
     entries: [],
     separators: level.slice(1).map((child) => child.firstKey!),
     children: level.map((child) => child.offset),
   });
-  const rootFrame = encodeRecordFrame(
-    { type: RecordType.indexPage, id: ZERO_UUID, revision: 1n, previousOffset: 0n },
-    rootPayload,
-  );
-  root = { offset, firstKey: level[0]?.firstKey ?? null, payload: rootPayload };
-  frames.push(rootFrame);
-  offset += BigInt(rootFrame.byteLength);
-  return { rootOffset: root.offset, rootPayload, endOffset: offset, frames };
+  return { rootOffset: root.offset, rootPayload: root.payload, endOffset: offset, frames };
 }
 
 function encodeCommitPayload(commit: Omit<CommitInfo, "offset">): Uint8Array {
