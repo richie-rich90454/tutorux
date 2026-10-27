@@ -13,7 +13,7 @@ flowchart LR
   DESKTOP[Tauri adapter] --> PORT
   PORT --> WEB
   PORT --> DESKTOP
-  DESKTOP --> RUST[Thin Rust host]
+  DESKTOP --> RUST[Native file access and reviewed AI HTTP transport]
   ARCH --> SOURCE[Bounded byte sources]
 ```
 
@@ -26,11 +26,11 @@ flowchart LR
 - `frontend/platform/types.ts` defines the browser/desktop file contract. `browser.ts` handles browser picker and download behavior; `tauri.ts` uses native dialogs, bounded native file reads, launch-file handoff, native menu events, and native transcript export.
 - `frontend/main.tsx` assembles the workspace and owns archive state, while `frontend/GuidesPage.tsx` provides the templated guide editor, review actions, and Markdown/HTML exports. Components call the shared archive and domain modules; they do not duplicate archive serialization rules.
 - `cli/main.ts` parses CLI arguments and coordinates the same domain/archive functions with Node file I/O, including guide and custom-template operations.
-- `src-tauri/src/main.rs` is a thin Rust host. It authorizes selected archives, services bounded range reads, stages archive saves, writes transcript exports atomically after native path selection, receives `.tux` launch paths, and defines native File/Edit/View menus. It does not implement Tutorux business rules or archive parsing.
+- `src-tauri/src/main.rs` is a thin Rust host. It authorizes selected archives, services bounded range reads, stages archive saves, writes transcript exports atomically after native path selection, receives `.tux` launch paths, and defines native File/Edit/View menus. `ai_transport.rs` performs one endpoint- and hash-validated provider request after explicit user review, enforces provider-route and body limits, and streams response bytes to TypeScript. It does not parse provider protocols or implement Tutorux business rules or archive parsing.
 
 ## Dependency direction
 
-The domain layer depends only on ordinary TypeScript. Archive format code depends on byte sources and format utilities, not on SolidJS, Tauri, or Node-specific UI state. Platform adapters implement file operations. The UI and CLI coordinate those shared modules at their respective boundaries.
+The domain layer depends only on ordinary TypeScript. Archive format code depends on byte sources and format utilities, not on SolidJS, Tauri, or Node-specific UI state. Platform adapters implement file operations and the separately reviewed AI transport boundary. The UI and CLI coordinate those shared modules at their respective boundaries.
 
 Vite selects `browser.ts` for the static build and `tauri.ts` for the desktop build through the `@platform` alias. The web bundle therefore does not transitively include Tauri APIs. The native host is accessed only from the desktop adapter.
 
