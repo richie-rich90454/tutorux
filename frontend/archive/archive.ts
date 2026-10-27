@@ -128,6 +128,23 @@ export class ArchiveSnapshot {
     }
   }
 
+  /** Re-encrypt every retained revision with a fresh key so earlier envelopes cannot unlock it. */
+  async changePassphrase(
+    currentPassphrase: string,
+    newPassphrase: string,
+  ): Promise<ArchiveSnapshot> {
+    if (!this.encrypted) {
+      throw new ArchiveFormatError("archive_not_encrypted", "This archive is not encrypted.");
+    }
+    if (!this.#dataKey) {
+      throw new ArchiveFormatError(
+        "archive_locked",
+        "Unlock this archive before changing its passphrase.",
+      );
+    }
+    return rekeyEncryptedArchiveSnapshot(this, currentPassphrase, newPassphrase);
+  }
+
   lock(): void {
     const dataKey = this.#dataKey;
     this.#dataKey = undefined;
@@ -799,6 +816,329 @@ export async function compactArchiveSnapshot(
   return rebuildArchiveSnapshot(snapshot, false);
 }
 
+async function rekeyEncryptedArchiveSnapshot(
+  snapshot: ArchiveSnapshot,
+  currentPassphrase: string,
+  newPassphrase: string,
+): Promise<ArchiveSnapshot> {
+  if (!snapshot.encrypted || snapshot.locked) {
+    throw new ArchiveFormatError(
+      snapshot.encrypted ? "archive_locked" : "archive_not_encrypted",
+      snapshot.encrypted
+        ? "Unlock this archive before changing its passphrase."
+        : "This archive is not encrypted.",
+    );
+  }
+  if (snapshot.source.size !== snapshot.publishedEndOffset) {
+    throw new ArchiveFormatError(
+      "archive_recovery_required",
+      "This archive has uncommitted trailing data. Review or recover it before changing its passphrase.",
+    );
+  }
+  if (currentPassphrase === newPassphrase) {
+    throw new ArchiveFormatError(
+      "archive_passphrase_unchanged",
+      "Choose a different new passphrase before changing this archive.",
+    );
+  }
+
+  const { ArchiveDataKey, encryptionEnvelopeFromRecord, encryptionEnvelopeToRecord } =
+    await import("./crypto");
+  const archiveId = snapshot.header.id;
+  const envelopeKey = primaryIndexKey(RecordType.encryption, archiveId);
+  const manifestKey = primaryIndexKey(RecordType.settings, archiveId);
+  const previousEnvelopeOffset = snapshot.allIndexEntries().get(envelopeKey);
+  const previousManifestOffset = snapshot.allIndexEntries().get(manifestKey);
+  if (previousEnvelopeOffset === undefined) {
+    throw new ArchiveFormatError(
+      "archive_encryption_metadata_missing",
+      "Encrypted archive is missing its key-wrapping metadata.",
+    );
+  }
+  if (previousManifestOffset === undefined) {
+    throw new ArchiveFormatError(
+      "archive_manifest_missing",
+      "Encrypted archive manifest is missing.",
+    );
+  }
+
+  const previousEnvelope = await snapshot.getRecord(RecordType.encryption, archiveId);
+  const currentManifest = await snapshot.getRecord(RecordType.settings, archiveId);
+  if (!previousEnvelope || !currentManifest) {
+    throw new ArchiveFormatError(
+      "archive_metadata_missing",
+      "Encrypted archive is missing required metadata.",
+    );
+  }
+  const currentEnvelope = encryptionEnvelopeFromRecord(previousEnvelope, archiveId);
+  const currentKey = await ArchiveDataKey.unwrap(currentPassphrase, currentEnvelope, archiveId);
+  const currentPassphraseSnapshot = new ArchiveSnapshot(
+    snapshot.source,
+    snapshot.header,
+    snapshot.commit,
+    new Map(snapshot.allIndexEntries()),
+    snapshot.publishedEndOffset,
+    currentKey,
+  );
+  try {
+    await currentPassphraseSnapshot.verifyEncryptionAuthentication();
+  } finally {
+    currentPassphraseSnapshot.lock();
+  }
+  await verifyArchiveSnapshot(snapshot);
+  if (currentManifest.fields.get("record_role") !== "archive-manifest") {
+    throw new ArchiveFormatError(
+      "archive_manifest_missing",
+      "Encrypted archive manifest is invalid.",
+    );
+  }
+
+  const dataKey = await ArchiveDataKey.createRandom();
+  const writer = new ArchiveSnapshot(
+    snapshot.source,
+    snapshot.header,
+    snapshot.commit,
+    new Map(snapshot.allIndexEntries()),
+    snapshot.publishedEndOffset,
+    dataKey.clone(),
+  );
+  try {
+    const envelope = await dataKey.wrap(newPassphrase, archiveId);
+    const envelopeRecord = encryptionEnvelopeToRecord(envelope, archiveId);
+    const segments: { offset: bigint; bytes: Uint8Array }[] = [];
+    let cursor = 0n;
+    const addSegment = (bytes: Uint8Array): bigint => {
+      const offset = cursor;
+      segments.push({ offset, bytes });
+      cursor += BigInt(bytes.byteLength);
+      return offset;
+    };
+
+    addSegment(encodeArchiveHeader(snapshot.header));
+    const emptyIndexPayload = encodeIndexPage({
+      leaf: true,
+      entries: [],
+      separators: [],
+      children: [],
+    });
+    const emptyIndexAuthentication = await dataKey.authenticateBytes(
+      "TUTORUX-INDEX-PAGE-V1",
+      emptyIndexPayload,
+    );
+    addSegment(
+      encodeRecordFrame(
+        { type: RecordType.indexPage, id: ZERO_UUID, revision: 1n, previousOffset: 0n },
+        concatBytes([emptyIndexPayload, emptyIndexAuthentication]),
+      ),
+    );
+
+    const newEnvelopeOffset = addSegment(
+      await writer.encodeRecordFrameForAppend({
+        ...envelopeRecord,
+        revision: 1n,
+        previousOffset: 0n,
+      }),
+    );
+    const manifestFields = new Map(currentManifest.fields);
+    manifestFields.delete("manifest_auth");
+    manifestFields.set("updated_at_us", (BigInt(Date.now()) * 1000n).toString());
+    const newManifestOffset = addSegment(
+      await writer.encodeRecordFrameForAppend({
+        ...currentManifest,
+        revision: 1n,
+        previousOffset: 0n,
+        fields: manifestFields,
+      }),
+    );
+
+    const relocatedOffsets = new Map<bigint, bigint>([
+      [previousEnvelopeOffset, newEnvelopeOffset],
+      [previousManifestOffset, newManifestOffset],
+    ]);
+    const primaryEntries: [string, bigint][] = [];
+    for (const [key, offset] of snapshot.allIndexEntries()) {
+      const separator = key.indexOf(":");
+      if (
+        separator < 1 ||
+        key.indexOf(":", separator + 1) !== -1 ||
+        !validArchiveUuid(key.slice(separator + 1))
+      ) {
+        continue;
+      }
+      const frame = await readFrameAt(snapshot.source, offset);
+      if (key === primaryIndexKey(frame.type, frame.id)) primaryEntries.push([key, offset]);
+    }
+    primaryEntries.sort(([left], [right]) => compareKeys(left, right));
+    let retainedRecordRevisions = 0;
+
+    for (const [key, latestOffset] of primaryEntries) {
+      if (key === envelopeKey || key === manifestKey) continue;
+      const chain: { oldOffset: bigint; record: ArchiveRecord }[] = [];
+      const visited = new Set<bigint>();
+      let offset = latestOffset;
+      let newer: ArchiveRecord | undefined;
+      while (offset !== 0n) {
+        if (visited.has(offset)) {
+          throw new ArchiveFormatError("revision_cycle", "Record revision chain contains a cycle.");
+        }
+        visited.add(offset);
+        const frame = await readFrameAt(snapshot.source, offset);
+        if (key !== primaryIndexKey(frame.type, frame.id)) {
+          throw new ArchiveFormatError(
+            "record_index_mismatch",
+            "Archive primary index points to a different record.",
+          );
+        }
+        if (
+          newer &&
+          (frame.type !== newer.type ||
+            frame.id !== newer.id ||
+            frame.revision >= newer.revision ||
+            (frame.previousOffset !== 0n && frame.previousOffset >= offset))
+        ) {
+          throw new ArchiveFormatError(
+            "revision_lineage_invalid",
+            "Record revision lineage is inconsistent.",
+          );
+        }
+        const payload = await snapshot.decodeFramePayload(frame);
+        const record = decodeRecordPayload(
+          frame.type,
+          frame.id,
+          frame.revision,
+          frame.previousOffset,
+          payload,
+        );
+        chain.push({ oldOffset: offset, record });
+        newer = record;
+        offset = frame.previousOffset;
+      }
+
+      let previousOffset = 0n;
+      for (const revision of chain.reverse()) {
+        const newOffset = cursor;
+        const frame = await writer.encodeRecordFrameForAppend({
+          ...revision.record,
+          previousOffset,
+        });
+        addSegment(frame);
+        relocatedOffsets.set(revision.oldOffset, newOffset);
+        previousOffset = newOffset;
+        retainedRecordRevisions += 1;
+      }
+    }
+
+    const relocatedIndex = new Map<string, bigint>();
+    for (const [key, oldOffset] of snapshot.allIndexEntries()) {
+      const newOffset = relocatedOffsets.get(oldOffset);
+      if (newOffset === undefined) {
+        throw new ArchiveFormatError(
+          "archive_compaction_index_unreachable",
+          "An index entry points to a revision that cannot be preserved during passphrase change.",
+        );
+      }
+      relocatedIndex.set(key, newOffset);
+    }
+    const orderedEntries = [...relocatedIndex.entries()]
+      .map(([key, valueOffset]) => ({ key, valueOffset }))
+      .sort((left, right) => compareKeys(left.key, right.key));
+    const tree = await buildIndexTree(orderedEntries, cursor, (payload) =>
+      dataKey.authenticateBytes("TUTORUX-INDEX-PAGE-V1", payload),
+    );
+    for (const frame of tree.frames) addSegment(frame);
+    const transactionId = newUuid();
+    const commitBody = encodeCommitPayload({
+      generation: 1n,
+      previousOffset: 0n,
+      rootOffset: tree.rootOffset,
+      rootHash: await sha256(tree.rootPayload),
+      transactionId,
+      recordCount: BigInt(retainedRecordRevisions + 2),
+    });
+    const commitPayload = concatBytes([
+      commitBody,
+      await dataKey.authenticateBytes("TUTORUX-COMMIT-V1", commitBody),
+    ]);
+    const commitOffset = cursor;
+    addSegment(
+      encodeRecordFrame(
+        { type: RecordType.commit, id: ZERO_UUID, revision: 1n, previousOffset: 0n },
+        commitPayload,
+      ),
+    );
+    addSegment(encodeLocator(commitOffset, 1n));
+
+    const source = new SegmentedArchiveSource(segments, cursor);
+    const opened = await openArchiveSource(source);
+    const rekeyed = new ArchiveSnapshot(
+      source,
+      opened.header,
+      opened.commit,
+      new Map(opened.allIndexEntries()),
+      opened.publishedEndOffset,
+      dataKey.clone(),
+    );
+    try {
+      await rekeyed.verifyEncryptionAuthentication();
+      await verifyArchiveSnapshot(rekeyed);
+      for (const [oldOffset, newOffset] of relocatedOffsets) {
+        const oldFrame = await readFrameAt(snapshot.source, oldOffset);
+        if (
+          (oldFrame.type === RecordType.settings || oldFrame.type === RecordType.encryption) &&
+          oldFrame.id.toLowerCase() === archiveId.toLowerCase()
+        ) {
+          continue;
+        }
+        const newFrame = await readFrameAt(source, newOffset);
+        const [oldPayload, newPayload] = await Promise.all([
+          snapshot.decodeFramePayload(oldFrame),
+          rekeyed.decodeFramePayload(newFrame),
+        ]);
+        const oldRecord = decodeRecordPayload(
+          oldFrame.type,
+          oldFrame.id,
+          oldFrame.revision,
+          oldFrame.previousOffset,
+          oldPayload,
+        );
+        const newRecord = decodeRecordPayload(
+          newFrame.type,
+          newFrame.id,
+          newFrame.revision,
+          newFrame.previousOffset,
+          newPayload,
+        );
+        const expectedPreviousOffset =
+          oldFrame.previousOffset === 0n ? 0n : relocatedOffsets.get(oldFrame.previousOffset);
+        const fieldsMatch =
+          oldRecord.fields.size === newRecord.fields.size &&
+          [...oldRecord.fields].every(([key, value]) => newRecord.fields.get(key) === value);
+        if (
+          expectedPreviousOffset === undefined ||
+          oldRecord.type !== newRecord.type ||
+          oldRecord.id !== newRecord.id ||
+          oldRecord.revision !== newRecord.revision ||
+          newRecord.previousOffset !== expectedPreviousOffset ||
+          !fieldsMatch ||
+          !bytesEqual(oldRecord.blob, newRecord.blob)
+        ) {
+          throw new ArchiveFormatError(
+            "archive_rekey_verification_failed",
+            "A record revision changed while the encrypted archive was being re-keyed.",
+          );
+        }
+      }
+      return rekeyed;
+    } catch (error) {
+      rekeyed.lock();
+      throw error;
+    }
+  } finally {
+    writer.lock();
+    dataKey.dispose();
+  }
+}
+
 async function rebuildArchiveSnapshot(
   snapshot: ArchiveSnapshot,
   allowUnpublishedTail: boolean,
@@ -1013,6 +1353,13 @@ export async function appendRecords(
   snapshot: ArchiveSnapshot,
   changes: readonly ArchiveRecord[],
 ): Promise<ArchiveSnapshot> {
+  return appendRecordsCore(snapshot, changes);
+}
+
+async function appendRecordsCore(
+  snapshot: ArchiveSnapshot,
+  changes: readonly ArchiveRecord[],
+): Promise<ArchiveSnapshot> {
   if (snapshot.locked) {
     throw new ArchiveFormatError("archive_locked", "Unlock this archive before editing it.");
   }
@@ -1027,7 +1374,7 @@ export async function appendRecords(
   ) {
     throw new ArchiveFormatError(
       "archive_passphrase_change_unsupported",
-      "Passphrase changes are not supported yet.",
+      "Passphrase changes must use the archive re-keying operation so prior key envelopes are removed.",
     );
   }
   if (snapshot.source.size !== snapshot.publishedEndOffset) {
@@ -2289,6 +2636,55 @@ type CompactedArchiveSegment =
       payloadLength: number;
       header: Uint8Array;
     };
+
+interface MemoryArchiveSegment {
+  offset: bigint;
+  bytes: Uint8Array;
+}
+
+/** Presents newly encoded archive frames without copying the entire archive into one buffer. */
+class SegmentedArchiveSource implements ArchiveByteSource {
+  constructor(
+    private readonly segments: readonly MemoryArchiveSegment[],
+    readonly size: bigint,
+  ) {}
+
+  async read(offset: bigint, length: number): Promise<Uint8Array> {
+    if (
+      offset < 0n ||
+      offset > this.size ||
+      !Number.isSafeInteger(length) ||
+      length < 0 ||
+      BigInt(length) > this.size - offset
+    ) {
+      throw new RangeError("Archive read is outside the re-keyed source bounds.");
+    }
+    const output = new Uint8Array(length);
+    if (length === 0) return output;
+    const end = offset + BigInt(length);
+    let low = 0;
+    let high = this.segments.length;
+    while (low < high) {
+      const middle = low + Math.floor((high - low) / 2);
+      const segment = this.segments[middle]!;
+      if (segment.offset + BigInt(segment.bytes.byteLength) <= offset) low = middle + 1;
+      else high = middle;
+    }
+    for (let index = low; index < this.segments.length; index += 1) {
+      const segment = this.segments[index]!;
+      const segmentEnd = segment.offset + BigInt(segment.bytes.byteLength);
+      if (segment.offset >= end) break;
+      const overlapStart = segment.offset > offset ? segment.offset : offset;
+      const overlapEnd = segmentEnd < end ? segmentEnd : end;
+      if (overlapEnd <= overlapStart) continue;
+      const sourceStart = Number(overlapStart - segment.offset);
+      const outputStart = Number(overlapStart - offset);
+      const overlapLength = Number(overlapEnd - overlapStart);
+      output.set(segment.bytes.subarray(sourceStart, sourceStart + overlapLength), outputStart);
+    }
+    return output;
+  }
+}
 
 /** Reads a compacted archive as fixed metadata plus payload ranges from its verified source. */
 class CompactedArchiveSource implements ArchiveByteSource {
