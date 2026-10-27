@@ -26,6 +26,20 @@ test("reviews, saves, exports, and reopens a private manual AI package", async (
   await page.getByRole("button", { name: "Save session" }).click();
   await expect(page.getByRole("heading", { name: "Fractions review" })).toBeVisible();
 
+  await page
+    .getByRole("navigation")
+    .getByRole("button", { name: "Materials", exact: true })
+    .click();
+  await page
+    .getByLabel("Session for imported material")
+    .selectOption({ label: "Fractions review" });
+  await page.getByLabel("Choose a material to import").setInputFiles({
+    name: "leaf-cell.png",
+    mimeType: "image/png",
+    buffer: Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3]),
+  });
+  await expect(page.getByText("leaf-cell.png", { exact: true })).toBeVisible();
+
   await page.getByRole("navigation").getByRole("button", { name: "AI workspace" }).click();
   await page.getByLabel("AI model ID").fill("gpt-4.1");
   await page.getByRole("button", { name: "Save provider settings" }).click();
@@ -35,21 +49,17 @@ test("reviews, saves, exports, and reopens a private manual AI package", async (
   await page
     .getByLabel("Session to prepare")
     .selectOption((await sessionOption.getAttribute("value"))!);
+  await page.getByRole("checkbox", { name: /leaf-cell\.png/u }).check();
   await page.getByRole("button", { name: "Prepare for review" }).click();
   await expect(page.getByRole("heading", { name: "Mathematics" })).toBeVisible();
+  await expect(page.getByText("Images for request")).toBeVisible();
   await expect(page.locator(".ai-message")).toContainText("Nothing has been sent or saved yet");
 
   await page.getByRole("button", { name: "Preview exact request" }).click();
   await expect(page.getByRole("heading", { name: "Request ready for review" })).toBeVisible();
   await expect(page.getByText(/No API key is saved for this provider/u)).toBeVisible();
-  await page.getByText("Inspect the exact provider request JSON").click();
-  const requestInspector = page.getByLabel("Exact provider request body");
-  const requestBody = JSON.parse(await requestInspector.inputValue()) as {
-    model: string;
-    messages: { role: string; content: string }[];
-  };
-  expect(requestBody.model).toBe("gpt-4.1");
-  expect(requestBody.messages[1]?.content).toContain('"format":"tutorux-ai-package-v1"');
+  await expect(page.locator(".ai-request-images")).toContainText("leaf-cell.png");
+  await expect(page.locator(".ai-image-body-note")).toContainText("selected image bytes");
   await expect(page.getByRole("heading", { name: "Request ready for review" })).toBeVisible();
 
   const inspector = page.getByLabel("Complete AI package JSON");
@@ -57,13 +67,18 @@ test("reviews, saves, exports, and reopens a private manual AI package", async (
   await expect(inspector).toBeVisible();
   const packageText = await inspector.inputValue();
   const parsed = JSON.parse(packageText) as {
-    manifest: { format: string; guide_template_id: string };
+    manifest: { format: string; guide_template_id: string; attached_image_ids: string[] };
+    attached_images: { filename: string; mime_type: string }[];
     session: { fields: Record<string, string> };
   };
   expect(parsed.manifest).toMatchObject({
     format: "tutorux-ai-package-v1",
     guide_template_id: "mathematics",
+    attached_image_ids: [expect.any(String)],
   });
+  expect(parsed.attached_images).toMatchObject([
+    { filename: "leaf-cell.png", mime_type: "image/png" },
+  ]);
   expect(parsed.session.fields["title"]).toBe("Fractions review");
   expect(page.getByRole("button", { name: "Save reviewed package" })).toBeDisabled();
   await page.getByRole("checkbox", { name: /I reviewed the package contents/u }).check();
@@ -183,11 +198,24 @@ test("archives successful and HTTP-error responses after explicit request confir
     }
     const requestBody = JSON.parse(request.postData() ?? "{}") as {
       model: string;
-      messages: { role: string; content: string }[];
+      messages: {
+        role: string;
+        content: string | { type: string; text?: string; image_url?: { url: string } }[];
+      }[];
     };
     expect(requestBody.model).toBe("gpt-4.1");
-    expect(requestBody.messages[1]?.content).not.toContain(apiKey);
-    const packageValue = JSON.parse(requestBody.messages[1]?.content ?? "{}") as {
+    const userContent = requestBody.messages[1]?.content;
+    expect(Array.isArray(userContent)).toBe(true);
+    if (!Array.isArray(userContent))
+      throw new Error("The image request did not use content parts.");
+    const textPart = userContent.find((part) => part.type === "text");
+    const imagePart = userContent.find((part) => part.type === "image_url");
+    expect(textPart?.text).toContain('"format":"tutorux-ai-package-v1"');
+    expect(imagePart?.image_url?.url).toBe(
+      `data:image/png;base64,${Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3]).toString("base64")}`,
+    );
+    expect(JSON.stringify(requestBody)).not.toContain(apiKey);
+    const packageValue = JSON.parse(textPart?.text ?? "{}") as {
       manifest: { guide_template_id: string };
       session: { id: string };
     };
@@ -234,6 +262,19 @@ test("archives successful and HTTP-error responses after explicit request confir
   await page.getByLabel("Learning objective").fill("Compare equivalent fractions.");
   await page.getByRole("button", { name: "Save session" }).click();
 
+  await page
+    .getByRole("navigation")
+    .getByRole("button", { name: "Materials", exact: true })
+    .click();
+  await page
+    .getByLabel("Session for imported material")
+    .selectOption({ label: "Fractions review" });
+  await page.getByLabel("Choose a material to import").setInputFiles({
+    name: "leaf-cell.png",
+    mimeType: "image/png",
+    buffer: Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3]),
+  });
+
   await page.getByRole("navigation").getByRole("button", { name: "AI workspace" }).click();
   await page.getByLabel("AI model ID").fill("gpt-4.1");
   await page.getByRole("button", { name: "Save provider settings" }).click();
@@ -249,9 +290,11 @@ test("archives successful and HTTP-error responses after explicit request confir
   await page
     .getByLabel("Session to prepare")
     .selectOption((await sessionOption.getAttribute("value"))!);
+  await page.getByRole("checkbox", { name: /leaf-cell\.png/u }).check();
   await page.getByRole("button", { name: "Prepare for review" }).click();
   await page.getByRole("button", { name: "Preview exact request" }).click();
   await expect(page.getByRole("heading", { name: "Request ready for review" })).toBeVisible();
+  await expect(page.locator(".ai-request-images")).toContainText("leaf-cell.png");
   await page.getByRole("checkbox", { name: /I reviewed the package contents/u }).check();
   await page.locator(".ai-send-consent input").check();
   await page.getByRole("button", { name: "Send exact reviewed request" }).click();
@@ -264,6 +307,7 @@ test("archives successful and HTTP-error responses after explicit request confir
   await page
     .getByLabel("Session to prepare")
     .selectOption((await retrySessionOption.getAttribute("value"))!);
+  await page.getByRole("checkbox", { name: /leaf-cell\.png/u }).check();
   await page.getByRole("button", { name: "Prepare for review" }).click();
   await expect(page.getByRole("heading", { name: "Mathematics" })).toBeVisible();
   await page.getByRole("button", { name: "Preview exact request" }).click();
