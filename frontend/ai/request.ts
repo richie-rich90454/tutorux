@@ -40,6 +40,7 @@ export async function createAiRequestPreview(
   providerConfiguration: ArchiveRecord,
   maximumOutputTokens = DEFAULT_AI_OUTPUT_TOKENS,
   credentialMetadata: readonly ArchiveRecord[] = [],
+  systemCredentialAvailable = false,
 ): Promise<AiRequestPreview> {
   if (
     packageJob.type !== RecordType.aiJob ||
@@ -102,6 +103,7 @@ export async function createAiRequestPreview(
   const accept = provider.id === "ollama" ? "application/x-ndjson" : "text/event-stream";
   const credentialAvailable =
     provider.local ||
+    systemCredentialAvailable ||
     credentialMetadata.some(
       (record) =>
         record.fields.get("provider_id") === provider.id ||
