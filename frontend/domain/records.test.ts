@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { RecordType } from "../archive/format";
+import { encodeRecordPayload, RecordType, validateRecordPayloadSize } from "../archive/format";
 import {
   archiveJournalOrganizerRecord,
   makeJournalCollectionRecord,
@@ -159,29 +159,168 @@ describe("student profile lifecycle", () => {
     expect(updated[1]!.fields.get("block.0.text")).toBe("Mina explained the model back clearly.");
   });
 
-  it("updates journal metadata and keeps structured notes protected", () => {
+  it("edits typed journal blocks while keeping block identities stable", () => {
+    const created = makeJournalRecords({
+      title: "Reflection",
+      date: "2024-02-29",
+      noteBlocks: [
+        { id: "reflection-intro", kind: "paragraph", text: "A useful example." },
+        { id: "reflection-next", kind: "heading", text: "Next time" },
+      ],
+    });
+    const state = notesEditState(created[1]);
+    expect(state.editable).toBe(true);
+    expect(state.blocks).toEqual([
+      { id: "reflection-intro", kind: "paragraph", text: "A useful example." },
+      { id: "reflection-next", kind: "heading", text: "Next time" },
+    ]);
+    const updatedBlocks = state.blocks.map((block) =>
+      block.id === "reflection-next" ? { ...block, text: "Try a visual model" } : block,
+    );
+    const updated = updateJournalRecords(
+      created[0]!,
+      {
+        title: "A clearer reflection",
+        date: "2025-03-01",
+        noteBlocks: updatedBlocks,
+      },
+      created[1]!,
+      true,
+    );
+    expect(updated[0]!.fields.get("title")).toBe("A clearer reflection");
+    expect(updated[0]!.fields.get("entry_date")).toBe("2025-03-01");
+    expect(updated[1]!.fields.get("block_count")).toBe("2");
+    expect(updated[1]!.fields.get("block.0.id")).toBe("reflection-intro");
+    expect(updated[1]!.fields.get("block.1.id")).toBe("reflection-next");
+    expect(updated[1]!.fields.get("block.1.text")).toBe("Try a visual model");
+  });
+
+  it("leaves unknown journal block kinds and extension fields protected from edits", () => {
     const created = makeJournalRecords({
       title: "Reflection",
       date: "2024-02-29",
       notes: "A useful example.",
     });
     const fields = new Map(created[1]!.fields);
-    fields.set("block_count", "2");
-    fields.set("block.1.id", "second-block");
-    fields.set("block.1.kind", "heading");
-    fields.set("block.1.text", "Next time");
-    const structuredNotes = { ...created[1]!, fields };
+    fields.set("block.0.kind", "legacy-widget");
+    const legacyNotes = { ...created[1]!, fields };
 
-    expect(notesEditState(structuredNotes).editable).toBe(false);
+    expect(notesEditState(legacyNotes).editable).toBe(false);
+    expect(() =>
+      updateJournalRecords(
+        created[0]!,
+        { title: "Changed", date: "2025-03-01", noteBlocks: [] },
+        legacyNotes,
+        true,
+      ),
+    ).toThrow("structured format");
+    expect(legacyNotes.fields.get("block.0.kind")).toBe("legacy-widget");
+
+    const fieldsWithExtension = new Map(created[1]!.fields);
+    fieldsWithExtension.set("block.0.render_hint", "future-format");
+    expect(notesEditState({ ...created[1]!, fields: fieldsWithExtension }).editable).toBe(false);
+  });
+
+  it("rejects duplicate note block IDs and preserves large multibyte legacy blocks", () => {
+    expect(() =>
+      makeJournalRecords({
+        title: "Reflection",
+        date: "2024-02-29",
+        noteBlocks: [
+          { id: "same-id", kind: "paragraph", text: "First" },
+          { id: "same-id", kind: "quote", text: "Second" },
+        ],
+      }),
+    ).toThrow("present and unique");
+    const legacyId = `  ${"📝".repeat(100)}  `;
+    const legacyText = "A preserved legacy note.\n".repeat(5_000);
+    const legacy = makeJournalRecords({
+      title: "Reflection",
+      date: "2024-02-29",
+      noteBlocks: [{ id: legacyId, kind: "paragraph", text: legacyText }],
+    });
+    const state = notesEditState(legacy[1]!);
+    expect(state.editable).toBe(true);
+    expect(state.blocks).toEqual([{ id: legacyId, kind: "paragraph", text: legacyText }]);
+
     const updated = updateJournalRecords(
-      created[0]!,
-      { title: "A clearer reflection", date: "2025-03-01", notes: "" },
-      structuredNotes,
-      false,
+      legacy[0]!,
+      { title: "Reflection with details", date: "2024-02-29", noteBlocks: state.blocks },
+      legacy[1]!,
+      true,
     );
-    expect(updated[0]!.fields.get("title")).toBe("A clearer reflection");
-    expect(updated[0]!.fields.get("entry_date")).toBe("2025-03-01");
-    expect(structuredNotes.fields.get("block.1.text")).toBe("Next time");
+    expect(updated[1]!.fields.get("block.0.id")).toBe(legacyId);
+    expect(updated[1]!.fields.get("block.0.text")).toBe(legacyText);
+  });
+
+  it("validates note controls and counts complete serialized metadata at the size boundary", () => {
+    expect(() =>
+      makeJournalRecords({
+        title: "Reflection",
+        date: "2024-02-29",
+        noteBlocks: [{ id: "control-check", kind: "paragraph", text: "not\u0000safe" }],
+      }),
+    ).toThrow("unsupported control characters");
+
+    const journal = makeJournalRecords({
+      title: "Reflection",
+      date: "2024-02-29",
+      noteBlocks: [{ id: "stable-id", kind: "paragraph", text: "A safe note." }],
+    });
+    const notes = journal[1]!;
+    const encoded = encodeRecordPayload(notes);
+    expect(
+      validateRecordPayloadSize(notes.fields, notes.blob.byteLength, BigInt(encoded.length)),
+    ).toBe(encoded.length);
+    expect(() =>
+      validateRecordPayloadSize(notes.fields, notes.blob.byteLength, BigInt(encoded.length - 1)),
+    ).toThrowError(expect.objectContaining({ code: "record_payload_limit" }));
+
+    const withBlob = { ...notes, blob: new Uint8Array([0x41]) };
+    const encodedWithBlob = encodeRecordPayload(withBlob);
+    expect(
+      validateRecordPayloadSize(
+        withBlob.fields,
+        withBlob.blob.byteLength,
+        BigInt(encodedWithBlob.length),
+      ),
+    ).toBe(encodedWithBlob.length);
+    const updated = updateJournalRecords(
+      journal[0]!,
+      { title: "Preserve extension blob", date: "2024-02-29", noteBlocks: [] },
+      withBlob,
+      true,
+    );
+    expect(updated[1]!.blob).toEqual(withBlob.blob);
+
+    const invalidLegacyFields = new Map(notes.fields);
+    invalidLegacyFields.set("block.0.text", "not\u0000safe");
+    expect(notesEditState({ ...notes, fields: invalidLegacyFields }).editable).toBe(false);
+  });
+
+  it("honors the legacy-compatible journal document block limit", () => {
+    const maximum = makeJournalRecords({
+      title: "Reflection",
+      date: "2024-02-29",
+      noteBlocks: Array.from({ length: 10_000 }, (_, index) => ({
+        id: `block-${index}`,
+        kind: "paragraph" as const,
+        text: "",
+      })),
+    });
+    expect(maximum[1]!.fields.get("block_count")).toBe("10000");
+
+    expect(() =>
+      makeJournalRecords({
+        title: "Reflection",
+        date: "2024-02-29",
+        noteBlocks: Array.from({ length: 10_001 }, (_, index) => ({
+          id: `block-${index}`,
+          kind: "paragraph" as const,
+          text: "",
+        })),
+      }),
+    ).toThrow("at most 10,000 blocks");
   });
 
   it("round-trips collection and tag links through archive and restore", () => {
