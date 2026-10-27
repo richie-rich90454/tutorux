@@ -2,12 +2,14 @@ import { For, Show, createEffect, createMemo, createSignal, type JSX } from "sol
 import type { ArchiveRecord } from "./archive/format";
 import { aiPackageText, type AiPackageSummary } from "./ai/package";
 import { createAiRequestPreview, type AiRequestPreview } from "./ai/request";
+import { AI_RESPONSE_PREVIEW_CHARACTER_LIMIT, type AiExecutionSummary } from "./ai/response";
 import { AI_PROVIDERS, type AiProviderConfigurationInput } from "./ai/providers";
 import { GUIDE_TEMPLATES, type GuideTemplate } from "./domain/guides";
 import { guideTemplateFromRecord } from "./domain/templates";
 import "./ai.css";
 
 interface AiPageProps {
+  archiveId: string;
   sessions: readonly ArchiveRecord[];
   customTemplates: readonly ArchiveRecord[];
   jobs: readonly ArchiveRecord[];
@@ -16,9 +18,19 @@ interface AiPageProps {
   encrypted: boolean;
   disabled: boolean;
   busy: boolean;
+  execution: AiExecutionSummary | null;
+  onClearExecution: () => void;
   onPrepare: (sessionId: string, templateId: string) => Promise<AiPackageSummary>;
   onSave: (summary: AiPackageSummary) => Promise<boolean>;
   onLoad: (jobId: string) => Promise<ArchiveRecord | null>;
+  onSend: (
+    packageJob: ArchiveRecord,
+    expectedTemplateId: string,
+    preview: AiRequestPreview,
+    confirmedEndpoint: string,
+    confirmedBodyHash: string,
+    onProgress: (responseBytes: number) => void,
+  ) => Promise<void>;
   onSaveProvider: (input: AiProviderConfigurationInput) => Promise<boolean>;
   onSaveCredential: (providerId: string, value: string) => Promise<boolean>;
   onRemoveCredential: (providerId: string) => Promise<boolean>;
@@ -30,6 +42,9 @@ export function AiPage(props: AiPageProps): JSX.Element {
   const [review, setReview] = createSignal<AiPackageSummary | null>(null);
   const [requestPreview, setRequestPreview] = createSignal<AiRequestPreview | null>(null);
   const [requestPreviewMessage, setRequestPreviewMessage] = createSignal("");
+  const [sendConfirmed, setSendConfirmed] = createSignal(false);
+  const [sendProgressBytes, setSendProgressBytes] = createSignal(0);
+  const [showResponse, setShowResponse] = createSignal(false);
   const [reviewed, setReviewed] = createSignal(false);
   const [showJson, setShowJson] = createSignal(false);
   const [message, setMessage] = createSignal("");
@@ -52,15 +67,36 @@ export function AiPage(props: AiPageProps): JSX.Element {
   const savedProvider = createMemo(() =>
     props.providerSettings.find((record) => record.fields.get("provider_id") === providerId()),
   );
+  const providerState = createMemo(
+    () => {
+      const provider = currentProvider();
+      const saved = savedProvider();
+      return {
+        archiveId: props.archiveId,
+        providerId: provider.id,
+        endpoint: saved?.fields.get("endpoint") || provider.defaultEndpoint,
+        model: saved?.fields.get("selected_model") ?? "",
+      };
+    },
+    { archiveId: "", providerId: "", endpoint: "", model: "" },
+    {
+      equals: (previous, next) =>
+        previous.archiveId === next.archiveId &&
+        previous.providerId === next.providerId &&
+        previous.endpoint === next.endpoint &&
+        previous.model === next.model,
+    },
+  );
   createEffect(() => {
-    const provider = currentProvider();
-    const saved = savedProvider();
-    setProviderEndpoint(saved?.fields.get("endpoint") || provider.defaultEndpoint);
-    setProviderModel(saved?.fields.get("selected_model") ?? "");
+    const configuration = providerState();
+    setProviderEndpoint(configuration.endpoint);
+    setProviderModel(configuration.model);
     setCredentialInput("");
     setCredentialConfirmed(false);
     setRequestPreview(null);
     setRequestPreviewMessage("");
+    setSendConfirmed(false);
+    setSendProgressBytes(0);
   });
   const templates = createMemo<GuideTemplate[]>(() => [
     ...GUIDE_TEMPLATES,
@@ -69,6 +105,12 @@ export function AiPage(props: AiPageProps): JSX.Element {
   const latestJobs = createMemo(() =>
     [...props.jobs]
       .filter((job) => job.fields.get("mode") === "manual")
+      .sort((left, right) => compareTimestamp(right, left))
+      .slice(0, 12),
+  );
+  const latestRuns = createMemo(() =>
+    [...props.jobs]
+      .filter((job) => job.fields.get("mode") !== "manual")
       .sort((left, right) => compareTimestamp(right, left))
       .slice(0, 12),
   );
@@ -103,13 +145,16 @@ export function AiPage(props: AiPageProps): JSX.Element {
   async function download(jobId: string): Promise<void> {
     try {
       const job = await props.onLoad(jobId);
-      if (!job) throw new Error("That package is no longer available in the active archive.");
-      const text = aiPackageText(job);
-      const blob = new Blob([text], { type: "application/json;charset=utf-8" });
+      if (!job) throw new Error("That AI record is no longer available in the active archive.");
+      const isPackage = job.fields.get("mode") === "manual";
+      const text = isPackage ? aiPackageText(job) : undefined;
+      const blob = text
+        ? new Blob([text], { type: "application/json;charset=utf-8" })
+        : new Blob([job.blob.slice().buffer], { type: "application/octet-stream" });
       const url = URL.createObjectURL(blob);
       const anchor = document.createElement("a");
       anchor.href = url;
-      anchor.download = `Tutorux-AI-${job.fields.get("session_id") ?? job.id}.json`;
+      anchor.download = `Tutorux-AI-${job.fields.get("session_id") ?? job.id}.${isPackage ? "json" : "txt"}`;
       anchor.click();
       window.setTimeout(() => URL.revokeObjectURL(url), 1_000);
     } catch (cause) {
@@ -146,6 +191,8 @@ export function AiPage(props: AiPageProps): JSX.Element {
       if (saved) {
         setCredentialInput("");
         setCredentialConfirmed(false);
+        setRequestPreview(null);
+        setSendConfirmed(false);
         setProviderMessage(
           "API key saved in this encrypted archive. The value is hidden after saving.",
         );
@@ -161,7 +208,11 @@ export function AiPage(props: AiPageProps): JSX.Element {
     setProviderMessage("");
     try {
       const removed = await props.onRemoveCredential(currentProvider().id);
-      if (removed) setProviderMessage("Saved API key removed from this archive.");
+      if (removed) {
+        setRequestPreview(null);
+        setSendConfirmed(false);
+        setProviderMessage("Saved API key removed from this archive.");
+      }
     } catch (cause) {
       setProviderMessage(
         cause instanceof Error ? cause.message : "The saved API key could not be removed.",
@@ -174,6 +225,8 @@ export function AiPage(props: AiPageProps): JSX.Element {
     const configuration = savedProvider();
     setRequestPreview(null);
     setRequestPreviewMessage("");
+    setSendConfirmed(false);
+    props.onClearExecution();
     if (!summary || !configuration) {
       setRequestPreviewMessage("Save provider settings and a model before reviewing a request.");
       return;
@@ -189,6 +242,35 @@ export function AiPage(props: AiPageProps): JSX.Element {
     }
   }
 
+  async function sendReviewedRequest(summary: AiPackageSummary): Promise<void> {
+    const preview = requestPreview();
+    if (!preview || !sendConfirmed() || !reviewed()) {
+      setRequestPreviewMessage(
+        "Review the package, then confirm the exact provider request before sending.",
+      );
+      return;
+    }
+    setRequestPreviewMessage("");
+    props.onClearExecution();
+    setSendProgressBytes(0);
+    setShowResponse(false);
+    try {
+      await props.onSend(
+        summary.job,
+        summary.guideTemplateId,
+        preview,
+        preview.endpoint,
+        preview.requestBodyHash,
+        setSendProgressBytes,
+      );
+      setSendConfirmed(false);
+    } catch (cause) {
+      setRequestPreviewMessage(
+        cause instanceof Error ? cause.message : "The provider request could not be completed.",
+      );
+    }
+  }
+
   return (
     <div class="page-body ai-page">
       <section class="record-heading ai-heading">
@@ -197,11 +279,12 @@ export function AiPage(props: AiPageProps): JSX.Element {
           <h1>AI workspace</h1>
           <p>
             Prepare a source-linked study-guide handoff. Packages stay in your archive until you
-            choose to export them.
+            choose to export or send them.
           </p>
         </div>
         <div class="ai-state-pill">
-          <span /> Nothing sent
+          <span />
+          {props.execution ? "Response saved" : props.busy ? "Sending request" : "No request sent"}
         </div>
       </section>
 
@@ -259,7 +342,13 @@ export function AiPage(props: AiPageProps): JSX.Element {
               maxlength={256}
               placeholder="Enter the model ID provided by the service"
               disabled={props.disabled || props.busy}
-              onInput={(event) => setProviderModel(event.currentTarget.value)}
+              onInput={(event) => {
+                setProviderModel(event.currentTarget.value);
+                setRequestPreview(null);
+                setRequestPreviewMessage("");
+                setSendConfirmed(false);
+                props.onClearExecution();
+              }}
             />
           </label>
           <label class="ai-field ai-provider-endpoint">
@@ -271,7 +360,13 @@ export function AiPage(props: AiPageProps): JSX.Element {
               maxlength={2048}
               placeholder={currentProvider().defaultEndpoint || "https://provider.example/v1"}
               disabled={props.disabled || props.busy}
-              onInput={(event) => setProviderEndpoint(event.currentTarget.value)}
+              onInput={(event) => {
+                setProviderEndpoint(event.currentTarget.value);
+                setRequestPreview(null);
+                setRequestPreviewMessage("");
+                setSendConfirmed(false);
+                props.onClearExecution();
+              }}
             />
           </label>
         </div>
@@ -552,6 +647,49 @@ export function AiPage(props: AiPageProps): JSX.Element {
                     The request body contains the reviewed package text. Authentication secrets stay
                     out of this preview and are not read during preparation.
                   </p>
+                  <label class="ai-review-consent ai-send-consent">
+                    <input
+                      type="checkbox"
+                      checked={sendConfirmed()}
+                      disabled={
+                        props.disabled ||
+                        props.busy ||
+                        (!preview().localOnly && !preview().credentialAvailable)
+                      }
+                      onChange={(event) => setSendConfirmed(event.currentTarget.checked)}
+                    />
+                    <span>
+                      I authorize one POST containing the reviewed package to{" "}
+                      {preview().providerName} at <code>{preview().endpoint}</code>. The exact
+                      request body hash is <code>{preview().requestBodyHash}</code>.
+                      {preview().localOnly
+                        ? " This sends the package to the loopback Ollama service."
+                        : " This sends the package to the external provider with the saved API key."}
+                    </span>
+                  </label>
+                  <div class="ai-send-actions">
+                    <button
+                      class="button button-primary"
+                      type="button"
+                      disabled={
+                        props.disabled ||
+                        props.busy ||
+                        !sendConfirmed() ||
+                        !reviewed() ||
+                        (!preview().localOnly && !preview().credentialAvailable)
+                      }
+                      onClick={() => void sendReviewedRequest(summary())}
+                    >
+                      {props.busy ? "Sending and saving…" : "Send exact reviewed request"}
+                    </button>
+                    <span aria-live="polite">
+                      {sendProgressBytes() > 0
+                        ? `${formatBytes(sendProgressBytes())} received`
+                        : !reviewed()
+                          ? "Review and allow package storage below before sending."
+                          : "No request is sent until you select this checkbox and button."}
+                    </span>
+                  </div>
                 </section>
               )}
             </Show>
@@ -583,6 +721,68 @@ export function AiPage(props: AiPageProps): JSX.Element {
                 Save reviewed package
               </button>
             </div>
+          </section>
+        )}
+      </Show>
+
+      <Show when={props.execution}>
+        {(result) => (
+          <section class="ai-generation-result" aria-labelledby="ai-generation-result-title">
+            <div class="ai-request-preview-heading">
+              <div>
+                <span class="eyebrow">RESPONSE SAVED · REVIEW REQUIRED</span>
+                <h2 id="ai-generation-result-title">Proposed study guide is ready</h2>
+              </div>
+              <span class="ai-provider-status">{result().status.replaceAll("-", " ")}</span>
+            </div>
+            <p>
+              {result().providerName} · {result().model} · {formatBytes(result().responseBytes)}
+              {" · "}Guide {result().guideId?.slice(0, 8)} is an unapproved draft in Study guides.
+            </p>
+            <dl class="ai-request-facts">
+              <div>
+                <dt>Guide structure</dt>
+                <dd>{result().schemaValid ? "Structured response" : "Editable text fallback"}</dd>
+              </div>
+              <div>
+                <dt>Source validation</dt>
+                <dd>{result().sourceValidation}</dd>
+              </div>
+              <div>
+                <dt>Archived job</dt>
+                <dd class="ai-request-hash">{result().jobId}</dd>
+              </div>
+            </dl>
+            <Show when={result().warnings.length > 0}>
+              <ul class="ai-generation-warnings">
+                <For each={result().warnings}>{(warning) => <li>{warning}</li>}</For>
+              </ul>
+            </Show>
+            <details
+              class="ai-json-disclosure ai-response-disclosure"
+              onToggle={(event) =>
+                setShowResponse((event.currentTarget as HTMLDetailsElement).open)
+              }
+            >
+              <summary>Inspect generated text</summary>
+              <Show when={showResponse()}>
+                <textarea
+                  aria-label="Generated guide text"
+                  readOnly
+                  value={result().responseText}
+                />
+                <Show when={result().responseTextTruncated}>
+                  <span class="ai-response-truncated">
+                    Showing the first {AI_RESPONSE_PREVIEW_CHARACTER_LIMIT.toLocaleString()}{" "}
+                    characters. The complete provider response is kept in the archive.
+                  </span>
+                </Show>
+              </Show>
+            </details>
+            <p class="ai-request-privacy-note">
+              The generated guide remains a draft. Review every claim, recommendation, citation, and
+              student-facing detail in Study guides before approval.
+            </p>
           </section>
         )}
       </Show>
@@ -634,13 +834,48 @@ export function AiPage(props: AiPageProps): JSX.Element {
             </For>
           </div>
         </Show>
-        <Show when={props.jobs.some((job) => job.fields.get("mode") !== "manual")}>
-          <p class="ai-future-note">
-            Other AI job types are preserved in the archive and will appear here as their review
-            workflows are ported.
-          </p>
-        </Show>
       </section>
+      <Show when={latestRuns().length > 0}>
+        <section class="ai-panel ai-history" aria-labelledby="ai-run-history-title">
+          <div class="ai-panel-heading">
+            <div>
+              <span class="eyebrow">REVIEW BEFORE APPROVAL</span>
+              <h2 id="ai-run-history-title">Provider responses</h2>
+            </div>
+            <span class="ai-history-count">{latestRuns().length} recent</span>
+          </div>
+          <div class="ai-job-list">
+            <For each={latestRuns()}>
+              {(job) => (
+                <div class="ai-job-row">
+                  <div class="ai-job-icon" aria-hidden="true">
+                    ✳
+                  </div>
+                  <div class="ai-job-copy">
+                    <strong>
+                      {sessionLabel(props.sessions, job.fields.get("session_id") ?? "")}
+                    </strong>
+                    <span>
+                      {job.fields.get("provider_id") ?? "Provider"} ·{" "}
+                      {job.fields.get("model_id") ?? "Model unavailable"} ·{" "}
+                      {job.fields.get("status")?.replaceAll("-", " ") ?? "Response saved"} ·{" "}
+                      {formatDate(job.fields.get("created_at_us") ?? "")}
+                    </span>
+                  </div>
+                  <button
+                    class="button button-outline ai-export-button"
+                    type="button"
+                    disabled={props.disabled || props.busy}
+                    onClick={() => void download(job.id)}
+                  >
+                    Export response
+                  </button>
+                </div>
+              )}
+            </For>
+          </div>
+        </section>
+      </Show>
     </div>
   );
 }
@@ -688,6 +923,6 @@ function formatBytes(size: number): string {
 }
 
 function jobSize(job: ArchiveRecord): number {
-  const parsed = Number(job.fields.get("package_bytes") ?? "");
+  const parsed = Number(job.fields.get("package_bytes") ?? job.fields.get("response_bytes") ?? "");
   return Number.isSafeInteger(parsed) && parsed >= 0 ? parsed : job.blob.byteLength;
 }
