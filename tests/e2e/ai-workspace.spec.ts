@@ -145,3 +145,130 @@ test("saves provider preferences and keeps API keys inside encrypted archives", 
   expect(credential?.fields.get("value")).toBe(apiKey);
   archive.lock();
 });
+
+test("sends one confirmed provider request and saves an unapproved guide result", async ({
+  page,
+}, info) => {
+  const apiKey = "sk-e2e-only-secret";
+  let providerPosts = 0;
+  await page.route("https://api.openai.com/v1/chat/completions", async (route) => {
+    const request = route.request();
+    const origin = request.headers()["origin"] ?? "http://127.0.0.1";
+    if (request.method() === "OPTIONS") {
+      await route.fulfill({
+        status: 204,
+        headers: {
+          "Access-Control-Allow-Origin": origin,
+          "Access-Control-Allow-Methods": "POST, OPTIONS",
+          "Access-Control-Allow-Headers": "authorization, content-type",
+          "Access-Control-Max-Age": "60",
+        },
+      });
+      return;
+    }
+    providerPosts += 1;
+    expect(request.method()).toBe("POST");
+    expect(request.headers()["authorization"]).toBe(`Bearer ${apiKey}`);
+    const requestBody = JSON.parse(request.postData() ?? "{}") as {
+      model: string;
+      messages: { role: string; content: string }[];
+    };
+    expect(requestBody.model).toBe("gpt-4.1");
+    expect(requestBody.messages[1]?.content).not.toContain(apiKey);
+    const packageValue = JSON.parse(requestBody.messages[1]?.content ?? "{}") as {
+      manifest: { guide_template_id: string };
+      session: { id: string };
+    };
+    const generatedGuide = JSON.stringify({
+      title: "Fractions guide",
+      template_id: packageValue.manifest.guide_template_id,
+      sections: [
+        {
+          heading: "Equivalent fractions",
+          blocks: [
+            {
+              kind: "paragraph",
+              text: "Equivalent fractions name the same amount.",
+              source_ids: [packageValue.session.id],
+            },
+          ],
+        },
+      ],
+    });
+    await route.fulfill({
+      status: 200,
+      headers: {
+        "Access-Control-Allow-Origin": origin,
+        "Content-Type": "text/event-stream; charset=utf-8",
+      },
+      body: `data: ${JSON.stringify({ choices: [{ delta: { content: generatedGuide } }] })}\n\ndata: [DONE]\n\n`,
+    });
+  });
+
+  await page.goto("/");
+  await page.getByRole("button", { name: "Create your workspace" }).click();
+  await page.getByLabel("Workspace name").fill("Provider execution QA");
+  await page.getByRole("checkbox", { name: /Protect this workspace with a passphrase/u }).check();
+  await page.getByLabel("Archive passphrase").fill("provider-execution-test-passphrase");
+  await page.getByLabel("Confirm passphrase").fill("provider-execution-test-passphrase");
+  const initialDownload = page.waitForEvent("download");
+  await page.getByRole("button", { name: "Create workspace" }).click();
+  await (await initialDownload).saveAs(info.outputPath("ai-run-initial.tux"));
+
+  await page.getByRole("navigation").getByRole("button", { name: "Sessions", exact: true }).click();
+  await page.getByRole("button", { name: "New session", exact: true }).click();
+  await page.getByLabel("Session title").fill("Fractions review");
+  await page.getByLabel("Subject", { exact: true }).fill("Mathematics");
+  await page.getByLabel("Learning objective").fill("Compare equivalent fractions.");
+  await page.getByRole("button", { name: "Save session" }).click();
+
+  await page.getByRole("navigation").getByRole("button", { name: "AI workspace" }).click();
+  await page.getByLabel("AI model ID").fill("gpt-4.1");
+  await page.getByRole("button", { name: "Save provider settings" }).click();
+  await page.getByLabel("Provider API key").fill(apiKey);
+  await page
+    .getByRole("checkbox", {
+      name: /understand this key will be stored inside the encrypted archive/u,
+    })
+    .check();
+  await page.getByRole("button", { name: "Save key securely" }).click();
+
+  const sessionOption = page.getByRole("option", { name: /Fractions review/u });
+  await page
+    .getByLabel("Session to prepare")
+    .selectOption((await sessionOption.getAttribute("value"))!);
+  await page.getByRole("button", { name: "Prepare for review" }).click();
+  await page.getByRole("button", { name: "Preview exact request" }).click();
+  await expect(page.getByRole("heading", { name: "Request ready for review" })).toBeVisible();
+  await page.getByRole("checkbox", { name: /I reviewed the package contents/u }).check();
+  await page.locator(".ai-send-consent input").check();
+  await page.getByRole("button", { name: "Send exact reviewed request" }).click();
+  await expect(page.getByRole("heading", { name: "Proposed study guide is ready" })).toBeVisible();
+  await expect(page.getByText("Source validation")).toBeVisible();
+  await expect(page.locator("body")).not.toContainText(apiKey);
+  expect(providerPosts).toBe(1);
+
+  const archiveDownload = page.waitForEvent("download");
+  await page.getByRole("button", { name: "Save archive" }).click();
+  await (await archiveDownload).saveAs(info.outputPath("ai-run-saved.tux"));
+  const locked = await openArchiveBytes(
+    new Uint8Array(await readFile(info.outputPath("ai-run-saved.tux"))),
+  );
+  const archive = await locked.unlock("provider-execution-test-passphrase");
+  const jobs = await archive.listRecords(RecordType.aiJob);
+  const responseJob = jobs.find((job) => job.fields.get("mode") === "byok");
+  expect(responseJob?.fields.get("status")).toBe("response-needs-review");
+  expect(responseJob?.fields.get("outbound_consent_hash")).toBe(
+    responseJob?.fields.get("request_body_sha256"),
+  );
+  expect(new TextDecoder().decode(responseJob?.blob)).toContain("data: ");
+  expect(responseJob?.fields.get("error_message")).toBeUndefined();
+  expect((await archive.listRecords(RecordType.guide))[0]?.fields.get("approval_state")).toBe(
+    "draft",
+  );
+  const credentials = (await archive.listRecords(RecordType.settings)).filter(
+    (record) => record.fields.get("record_role") === "credential",
+  );
+  expect(credentials[0]?.fields.get("value")).toBe(apiKey);
+  archive.lock();
+});
