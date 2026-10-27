@@ -13,6 +13,8 @@ interface FilePickerType {
   accept: Record<string, string[]>;
 }
 
+const MAX_AI_RESPONSE_BYTES = 16 * 1024 * 1024;
+
 const archiveFilter: FilePickerType[] = [
   { description: "Tutorux archive", accept: { "application/x-tutorux": [".tux"] } },
 ];
@@ -188,36 +190,38 @@ export const platform: ArchivePlatform = {
       );
     }
     window.clearTimeout(timeoutId);
-    if (!response.ok) {
-      throw new Error(
-        `The provider returned HTTP ${response.status}. Review the provider settings and try again.`,
-      );
+    const contentType =
+      (response.headers.get("content-type") ?? "").split(";").at(0)?.trim().toLowerCase() ?? "";
+    if (!response.body) {
+      return { status: response.status, contentType, responseBytes: 0, complete: true };
     }
-    const contentType = (response.headers.get("content-type") ?? "")
-      .split(";")[0]
-      ?.trim()
-      .toLowerCase();
-    if (contentType !== "application/json" && contentType !== request.accept) {
-      throw new Error("The provider returned an unsupported response format.");
-    }
-    if (!response.body) throw new Error("The provider returned an empty response stream.");
     const reader = response.body.getReader();
     const streamTimeoutId = window.setTimeout(() => timeout.abort(), 600_000);
     let responseBytes = 0;
+    let complete = true;
     try {
       while (true) {
-        const result = await reader.read();
+        let result: ReadableStreamReadResult<Uint8Array>;
+        try {
+          result = await reader.read();
+        } catch {
+          complete = false;
+          break;
+        }
         if (result.done) break;
-        responseBytes += result.value.byteLength;
-        if (responseBytes > 16 * 1024 * 1024) {
-          await reader.cancel();
-          throw new Error("The provider response exceeded the 16 MiB safety limit.");
+        const remaining = MAX_AI_RESPONSE_BYTES - responseBytes;
+        if (result.value.byteLength > remaining) {
+          if (remaining > 0) {
+            onChunk(result.value.subarray(0, remaining));
+            responseBytes = MAX_AI_RESPONSE_BYTES;
+          }
+          complete = false;
+          await reader.cancel().catch(() => undefined);
+          break;
         }
         onChunk(result.value);
+        responseBytes += result.value.byteLength;
       }
-    } catch (error) {
-      if (error instanceof Error && error.message.includes("16 MiB")) throw error;
-      throw new Error("The provider response stream ended unexpectedly.", { cause: error });
     } finally {
       reader.releaseLock();
       window.clearTimeout(streamTimeoutId);
@@ -226,6 +230,7 @@ export const platform: ArchivePlatform = {
       status: response.status,
       contentType,
       responseBytes,
+      complete,
     };
   },
 
