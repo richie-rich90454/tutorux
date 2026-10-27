@@ -27,9 +27,24 @@ or contact a provider. The current request limit is 16 MiB, with an 8 MiB packag
 
 API keys can be saved as separate credential-role records only when the active archive is encrypted.
 The UI requires an explicit storage confirmation, never reads the key back into its display, masks
-credential values in workspace metadata, and soft-deletes a credential when removed. This storage
-does not yet provide a system-keychain backend or feed keys to provider requests.
+credential values in workspace metadata, and soft-deletes a credential when removed. The key is
+loaded only after the user confirms a reviewed request and is passed to one provider call; it is not
+stored in the request preview, generation result, or Solid state. A system-keychain backend remains
+unported.
 
-Explicit confirmation before sending, provider execution, response import, local model jobs, asset
-payload attachment, and the CLI AI command group are still unported. The migration inventory tracks
-those remaining areas.
+Sending requires a second confirmation that names the exact endpoint and body SHA-256. The desktop
+bridge independently checks the hash and provider route, restricts cloud requests to HTTPS, limits
+Ollama to loopback HTTP, disables redirects and retries, sets connection/read/total timeouts, and
+bounds request and response bodies to 16 MiB. It streams response chunks to the UI without logging
+request bodies, credentials, or provider error bodies. Browser mode uses a same-origin browser fetch
+with redirects disabled; provider CORS rules may prevent it, so the desktop app is the supported
+native path.
+
+Successful responses are retained as bounded raw bytes in an archive AI job with package, request,
+and response hashes plus the confirmation method. The provider stream is decoded for OpenAI Chat
+Completions, Anthropic Messages, Gemini, Cohere, Perplexity Agent, and Ollama. Tutorux converts
+structured output into a source-checked, unapproved guide draft; malformed output is kept as editable
+text, and off-session citations are removed from the draft and marked for correction. Tutors must
+review generated claims, citations, and recommendations before approving a guide. Asset bytes are
+still excluded from provider requests, and the CLI AI command group and embedded local-model runtime
+remain unported.
