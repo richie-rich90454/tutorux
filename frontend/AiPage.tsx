@@ -661,7 +661,8 @@ export function AiPage(props: AiPageProps): JSX.Element {
                     <span>
                       I authorize one POST containing the reviewed package to{" "}
                       {preview().providerName} at <code>{preview().endpoint}</code>. The exact
-                      request body hash is <code>{preview().requestBodyHash}</code>.
+                      request body hash is <code>{preview().requestBodyHash}</code>. The complete
+                      response, including error or partial bytes, will be saved in this archive.
                       {preview().localOnly
                         ? " This sends the package to the loopback Ollama service."
                         : " This sends the package to the external provider with the saved API key."}
@@ -731,18 +732,30 @@ export function AiPage(props: AiPageProps): JSX.Element {
             <div class="ai-request-preview-heading">
               <div>
                 <span class="eyebrow">RESPONSE SAVED · REVIEW REQUIRED</span>
-                <h2 id="ai-generation-result-title">Proposed study guide is ready</h2>
+                <h2 id="ai-generation-result-title">
+                  {result().guideId
+                    ? "Proposed study guide is ready"
+                    : "Provider response saved for review"}
+                </h2>
               </div>
               <span class="ai-provider-status">{result().status.replaceAll("-", " ")}</span>
             </div>
             <p>
               {result().providerName} · {result().model} · {formatBytes(result().responseBytes)}
-              {" · "}Guide {result().guideId?.slice(0, 8)} is an unapproved draft in Study guides.
+              {result().guideId
+                ? ` · Guide ${result().guideId?.slice(0, 8)} is an unapproved draft in Study guides.`
+                : " · The exact raw response bytes are saved in this archive for export."}
             </p>
             <dl class="ai-request-facts">
               <div>
                 <dt>Guide structure</dt>
-                <dd>{result().schemaValid ? "Structured response" : "Editable text fallback"}</dd>
+                <dd>
+                  {result().guideId
+                    ? result().schemaValid
+                      ? "Structured response"
+                      : "Editable text fallback"
+                    : "No guide draft created"}
+                </dd>
               </div>
               <div>
                 <dt>Source validation</dt>
@@ -753,6 +766,16 @@ export function AiPage(props: AiPageProps): JSX.Element {
                 <dd class="ai-request-hash">{result().jobId}</dd>
               </div>
             </dl>
+            <Show when={!result().guideId}>
+              <button
+                class="button button-outline ai-export-button"
+                type="button"
+                disabled={props.disabled || props.busy}
+                onClick={() => void download(result().jobId)}
+              >
+                Export raw response
+              </button>
+            </Show>
             <Show when={result().warnings.length > 0}>
               <ul class="ai-generation-warnings">
                 <For each={result().warnings}>{(warning) => <li>{warning}</li>}</For>
@@ -765,7 +788,7 @@ export function AiPage(props: AiPageProps): JSX.Element {
               }
             >
               <summary>Inspect generated text</summary>
-              <Show when={showResponse()}>
+              <Show when={showResponse() && result().guideId}>
                 <textarea
                   aria-label="Generated guide text"
                   readOnly
@@ -779,10 +802,12 @@ export function AiPage(props: AiPageProps): JSX.Element {
                 </Show>
               </Show>
             </details>
-            <p class="ai-request-privacy-note">
-              The generated guide remains a draft. Review every claim, recommendation, citation, and
-              student-facing detail in Study guides before approval.
-            </p>
+            <Show when={result().guideId}>
+              <p class="ai-request-privacy-note">
+                The generated guide remains a draft. Review every claim, recommendation, citation,
+                and student-facing detail in Study guides before approval.
+              </p>
+            </Show>
           </section>
         )}
       </Show>
