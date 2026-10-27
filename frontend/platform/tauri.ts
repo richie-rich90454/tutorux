@@ -163,6 +163,22 @@ export const platform: ArchivePlatform = {
     return invoke<AiTransportResult>("send_ai_request", { request, onChunk: channel });
   },
 
+  async aiCredentialStoreAvailable(): Promise<boolean> {
+    return invoke<boolean>("ai_credential_store_available");
+  },
+
+  async hasAiCredential(providerId: string): Promise<boolean> {
+    return invoke<boolean>("has_ai_credential", { providerId });
+  },
+
+  async saveAiCredential(providerId: string, value: string): Promise<void> {
+    await invoke("save_ai_credential", { providerId, value });
+  },
+
+  async removeAiCredential(providerId: string): Promise<void> {
+    await invoke("remove_ai_credential", { providerId });
+  },
+
   async createArchiveLocation(suggestedName: string): Promise<string | null> {
     return save({
       title: "Create Tutorux archive",
