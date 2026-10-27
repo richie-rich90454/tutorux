@@ -1,8 +1,8 @@
-import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 import {
   appendRecords,
   createArchiveBytes,
+  createEncryptedArchiveBytes,
   openArchiveBytes,
   verifyArchiveSnapshot,
 } from "./archive";
@@ -302,6 +302,14 @@ describe("sanitized archive copies", () => {
     expect(
       (await snapshot.getRecord(RecordType.student, ids.studentB))?.fields.get("display_name"),
     ).toBe("Ben");
+
+    const encryptedCopy = await createSanitizedCopy(snapshot, options, preview, {
+      destinationPassphrase: "Optional encrypted output phrase for sanitizer",
+    });
+    expect(encryptedCopy.snapshot.encrypted).toBe(true);
+    expect(encryptedCopy.snapshot.locked).toBe(false);
+    expect((await verifyArchiveSnapshot(encryptedCopy.snapshot)).currentRecords).toBeGreaterThan(0);
+    encryptedCopy.snapshot.lock();
   });
 
   it("retains only explicitly selected recordings and rewrites track metadata", async () => {
@@ -334,7 +342,7 @@ describe("sanitized archive copies", () => {
     expect(take?.fields.get("track_ids")).toBe(ids.trackA);
   });
 
-  it("rejects a stale selection preview and unsupported credential inclusion", async () => {
+  it("rejects stale previews, plaintext credentials, and invalid selections", async () => {
     const { snapshot, ids } = await createSource();
     const options = { includeStudents: new Set([ids.studentA]) };
     const preview = await previewSanitizedCopy(snapshot, options);
@@ -343,17 +351,71 @@ describe("sanitized archive copies", () => {
     ).rejects.toMatchObject({ code: "sanitized_copy_selection_changed" });
     await expect(
       previewSanitizedCopy(snapshot, { includeCredentials: true }),
-    ).rejects.toMatchObject({ code: "sanitized_copy_encryption_unavailable" });
+    ).rejects.toMatchObject({ code: "sanitized_copy_plaintext_credential" });
     await expect(
       previewSanitizedCopy(snapshot, { includeStudents: new Set([newUuid()]) }),
     ).rejects.toMatchObject({ code: "sanitized_copy_student_missing" });
   });
 
-  it("rejects encrypted sanitized copies until encrypted output is supported", async () => {
-    const fixture = new URL("../../tests/fixtures/encrypted-v1.tux", import.meta.url);
-    const snapshot = await openArchiveBytes(new Uint8Array(await readFile(fixture)));
-    await expect(previewSanitizedCopy(snapshot)).rejects.toMatchObject({
-      code: "sanitized_copy_encryption_unavailable",
+  it("keeps reviewed copies encrypted and only includes credentials by explicit request", async () => {
+    const sourcePassphrase = "Source archive phrase for sanitizer";
+    const destinationPassphrase = "Destination archive phrase for sanitizer";
+    const apiCredential = "secret-provider-token-that-must-stay-encrypted";
+    const studentId = newUuid();
+    const credentialId = newUuid();
+    const source = await openArchiveBytes(
+      await createEncryptedArchiveBytes("Protected sanitize source", "", sourcePassphrase),
+    );
+    const unlocked = await source.unlock(sourcePassphrase);
+    const snapshot = await appendRecords(unlocked, [
+      record(RecordType.student, studentId, { display_name: "Mina" }),
+      record(RecordType.settings, credentialId, {
+        record_role: "credential",
+        key: "openai-api-key",
+        value: apiCredential,
+      }),
+    ]);
+    const options = {
+      includeStudents: new Set([studentId]),
+      includeCredentials: true,
+    };
+    const preview = await previewSanitizedCopy(snapshot, options);
+    expect(preview).toMatchObject({ students: 1, credentials: 1 });
+
+    await expect(createSanitizedCopy(snapshot, options, preview)).rejects.toMatchObject({
+      code: "sanitized_copy_encryption_required",
     });
+
+    const copy = await createSanitizedCopy(snapshot, options, preview, {
+      destinationPassphrase,
+    });
+    expect(copy.snapshot.encrypted).toBe(true);
+    expect(copy.snapshot.locked).toBe(false);
+    await expect(verifyArchiveSnapshot(copy.snapshot)).resolves.toMatchObject({
+      currentRecords: 4,
+    });
+    const credential = await copy.snapshot.getRecord(RecordType.settings, credentialId);
+    expect(credential?.fields.get("value")).toBe(apiCredential);
+
+    const outputBytes = await copy.snapshot.source.read(0n, Number(copy.snapshot.source.size));
+    expect(new TextDecoder().decode(outputBytes)).not.toContain(apiCredential);
+    const lockedOutput = await openArchiveBytes(outputBytes);
+    await expect(lockedOutput.unlock(sourcePassphrase)).rejects.toBeDefined();
+    const reopened = await lockedOutput.unlock(destinationPassphrase);
+    await expect(verifyArchiveSnapshot(reopened)).resolves.toMatchObject({ currentRecords: 4 });
+
+    source.lock();
+    unlocked.lock();
+    snapshot.lock();
+    lockedOutput.lock();
+    copy.snapshot.lock();
+    reopened.lock();
+  });
+
+  it("requires an unlocked source before previewing an encrypted copy", async () => {
+    const locked = await openArchiveBytes(
+      await createEncryptedArchiveBytes("Locked source", "", "Source archive phrase for sanitizer"),
+    );
+    await expect(previewSanitizedCopy(locked)).rejects.toMatchObject({ code: "archive_locked" });
   });
 });
