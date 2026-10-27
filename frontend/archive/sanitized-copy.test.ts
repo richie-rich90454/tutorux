@@ -1,3 +1,4 @@
+import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 import {
   appendRecords,
@@ -346,5 +347,13 @@ describe("sanitized archive copies", () => {
     await expect(
       previewSanitizedCopy(snapshot, { includeStudents: new Set([newUuid()]) }),
     ).rejects.toMatchObject({ code: "sanitized_copy_student_missing" });
+  });
+
+  it("rejects encrypted sanitized copies until encrypted output is supported", async () => {
+    const fixture = new URL("../../tests/fixtures/encrypted-v1.tux", import.meta.url);
+    const snapshot = await openArchiveBytes(new Uint8Array(await readFile(fixture)));
+    await expect(previewSanitizedCopy(snapshot)).rejects.toMatchObject({
+      code: "sanitized_copy_encryption_unavailable",
+    });
   });
 });
