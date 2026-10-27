@@ -25,6 +25,7 @@ export interface AiTransportResult {
   status: number;
   contentType: string;
   responseBytes: number;
+  complete: boolean;
 }
 
 export interface ArchivePlatform {
