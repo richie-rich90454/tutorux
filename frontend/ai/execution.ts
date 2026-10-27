@@ -7,7 +7,7 @@ import {
   extractAiResponseText,
   type AiExecutionSummary,
 } from "./response";
-import type { AiTransportRequest, AiTransportResult } from "../platform/types";
+import type { AiCredentialStorage, AiTransportRequest, AiTransportResult } from "../platform/types";
 
 const MAX_RESPONSE_BYTES = 16 * 1024 * 1024;
 
@@ -24,6 +24,7 @@ export interface AiExecutionInput {
   confirmedEndpoint: string;
   confirmedBodyHash: string;
   credential: string;
+  credentialStorage?: AiCredentialStorage;
   session: ArchiveRecord;
   sourceRecords: readonly ArchiveRecord[];
   send: (
@@ -55,6 +56,8 @@ export async function executeAiGeneration(input: AiExecutionInput): Promise<AiEx
       requestBody: preview.requestBody,
       requestBodyHash: preview.requestBodyHash,
       confirmedBodyHash: input.confirmedBodyHash,
+      credentialStorage:
+        input.credentialStorage ?? (preview.localOnly ? "none" : "encrypted-archive"),
       credential: input.credential,
     },
     (chunk) => {
