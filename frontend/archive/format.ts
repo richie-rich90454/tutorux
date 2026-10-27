@@ -472,6 +472,133 @@ export function decodeStoredPayload(
   return decodeLz4Block(frame.storedPayload);
 }
 
+const LZ4_HASH_TABLE_SIZE = 1 << 16;
+const lz4HashTable = new Int32Array(LZ4_HASH_TABLE_SIZE);
+const lz4HashGenerations = new Uint32Array(LZ4_HASH_TABLE_SIZE);
+let lz4CompressionGeneration = 0;
+
+export function compressRecordPayload(payload: Uint8Array): { codec: 0 | 1; bytes: Uint8Array } {
+  if (BigInt(payload.byteLength) > MAX_RECORD_PAYLOAD) {
+    throw new ArchiveFormatError(
+      "record_payload_limit",
+      "Record exceeds the v1 uncompressed payload limit.",
+    );
+  }
+  if (payload.byteLength < 256) return { codec: 0, bytes: payload };
+
+  const compressedBlock = compressLz4Block(payload, payload.byteLength - 24);
+  if (compressedBlock === null) return { codec: 0, bytes: payload };
+
+  const bytes = new Uint8Array(8 + compressedBlock.byteLength);
+  new DataView(bytes.buffer).setBigUint64(0, BigInt(payload.byteLength), true);
+  bytes.set(compressedBlock, 8);
+  return { codec: 1, bytes };
+}
+
+function compressLz4Block(input: Uint8Array, maximumLength: number): Uint8Array | null {
+  lz4CompressionGeneration = (lz4CompressionGeneration + 1) >>> 0;
+  if (lz4CompressionGeneration === 0) {
+    lz4HashGenerations.fill(0);
+    lz4CompressionGeneration = 1;
+  }
+  const generation = lz4CompressionGeneration;
+  let output = new Uint8Array(Math.min(1024, maximumLength));
+  let outputLength = 0;
+  let anchor = 0;
+  let cursor = 0;
+
+  const ensureCapacity = (additionalLength: number): boolean => {
+    const requiredLength = outputLength + additionalLength;
+    if (requiredLength > maximumLength) return false;
+    if (requiredLength <= output.byteLength) return true;
+    const nextLength = Math.min(
+      maximumLength,
+      Math.max(requiredLength, Math.max(1, output.byteLength * 2)),
+    );
+    const nextOutput = new Uint8Array(nextLength);
+    nextOutput.set(output.subarray(0, outputLength));
+    output = nextOutput;
+    return true;
+  };
+  const appendByte = (value: number): boolean => {
+    if (!ensureCapacity(1)) return false;
+    output[outputLength++] = value;
+    return true;
+  };
+  const appendBytes = (bytes: Uint8Array, start: number, end: number): boolean => {
+    const length = end - start;
+    if (!ensureCapacity(length)) return false;
+    output.set(bytes.subarray(start, end), outputLength);
+    outputLength += length;
+    return true;
+  };
+  const appendLength = (length: number): boolean => {
+    let remaining = length;
+    while (remaining >= 255) {
+      if (!appendByte(255)) return false;
+      remaining -= 255;
+    }
+    return appendByte(remaining);
+  };
+  const readLittle32 = (offset: number): number =>
+    input[offset]! |
+    (input[offset + 1]! << 8) |
+    (input[offset + 2]! << 16) |
+    (input[offset + 3]! << 24);
+  const hashSequence = (offset: number): number =>
+    (Math.imul(readLittle32(offset), 2_654_435_761) >>> 16) & 0xffff;
+
+  while (cursor + 12 <= input.byteLength) {
+    const hash = hashSequence(cursor);
+    const previous = lz4HashGenerations[hash] === generation ? lz4HashTable[hash]! : -1;
+    lz4HashTable[hash] = cursor;
+    lz4HashGenerations[hash] = generation;
+    if (
+      previous < 0 ||
+      cursor - previous > 65_535 ||
+      readLittle32(previous) !== readLittle32(cursor)
+    ) {
+      cursor += 1;
+      continue;
+    }
+
+    let matchLength = 4;
+    while (
+      cursor + matchLength < input.byteLength - 5 &&
+      input[previous + matchLength] === input[cursor + matchLength]
+    ) {
+      matchLength += 1;
+    }
+
+    const literalLength = cursor - anchor;
+    const matchCode = matchLength - 4;
+    const tokenOffset = outputLength;
+    if (!appendByte(0)) return null;
+    output[tokenOffset] = (Math.min(literalLength, 15) << 4) | Math.min(matchCode, 15);
+    if (literalLength >= 15 && !appendLength(literalLength - 15)) return null;
+    if (!appendBytes(input, anchor, cursor)) return null;
+    const distance = cursor - previous;
+    if (!appendByte(distance & 0xff) || !appendByte(distance >>> 8)) return null;
+    if (matchCode >= 15 && !appendLength(matchCode - 15)) return null;
+
+    cursor += matchLength;
+    anchor = cursor;
+    const updateStart = cursor > 3 ? cursor - 3 : 0;
+    for (let position = updateStart; position < cursor && position + 4 <= input.byteLength;) {
+      const hash = hashSequence(position);
+      lz4HashTable[hash] = position;
+      lz4HashGenerations[hash] = generation;
+      position += 1;
+    }
+  }
+
+  const literalLength = input.byteLength - anchor;
+  if (!appendByte(Math.min(literalLength, 15) << 4)) return null;
+  if (literalLength >= 15 && !appendLength(literalLength - 15)) return null;
+  if (!appendBytes(input, anchor, input.byteLength)) return null;
+  return output.slice(0, outputLength);
+}
+
 export function decodeLz4Block(storedPayload: Uint8Array): Uint8Array {
   if (storedPayload.length < 8) {
     throw new ArchiveFormatError(
