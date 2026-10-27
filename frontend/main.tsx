@@ -26,6 +26,9 @@ import { DocumentEditor } from "./DocumentEditor";
 import type { ArchiveByteSource } from "./archive/source";
 import { AiPage } from "./AiPage";
 import { createAiPackageRecord, type AiPackageSummary } from "./ai/package";
+import { createAiRequestPreview, type AiRequestPreview } from "./ai/request";
+import { executeAiGeneration } from "./ai/execution";
+import type { AiExecutionSummary } from "./ai/response";
 import {
   createProviderConfigurationRecord,
   createProviderCredentialRecord,
@@ -297,6 +300,10 @@ const filteredRecords = createMemo(() => {
 });
 
 function App(): JSX.Element {
+  const [lastAiExecution, setLastAiExecution] = createSignal<{
+    archiveId: string;
+    summary: AiExecutionSummary;
+  } | null>(null);
   let noticeTimer = 0;
   let removeNativeCommandListener: (() => void) | undefined;
   let nativeCommandListenerDisposed = false;
@@ -770,6 +777,141 @@ function App(): JSX.Element {
     );
   }
 
+  async function sendAiProviderRequest(
+    packageDraft: ArchiveRecord,
+    expectedTemplateId: string,
+    preview: AiRequestPreview,
+    confirmedEndpoint: string,
+    confirmedBodyHash: string,
+    onProgress: (responseBytes: number) => void,
+  ): Promise<void> {
+    let current = workspace();
+    if (!current || current.snapshot.locked || !current.snapshot.canMutate) {
+      throw new Error("Unlock an editable archive before sending a provider request.");
+    }
+    if (busy()) throw new Error("Wait for the current archive operation to finish.");
+    if (confirmedBodyHash !== preview.requestBodyHash || confirmedEndpoint !== preview.endpoint) {
+      throw new Error("Confirm the exact provider endpoint and request body before sending.");
+    }
+    if (packageDraft.type !== RecordType.aiJob || packageDraft.fields.get("mode") !== "manual") {
+      throw new Error("The reviewed package is no longer available.");
+    }
+
+    const existingPackage = await current.snapshot.getRecord(RecordType.aiJob, packageDraft.id);
+    if (existingPackage) {
+      if (existingPackage.fields.get("content_hash") !== packageDraft.fields.get("content_hash")) {
+        throw new Error("The package changed after review. Prepare and review it again.");
+      }
+    } else if (!(await addRecords([packageDraft], "Reviewed AI package saved in this archive."))) {
+      throw new Error("The reviewed package could not be saved to the active archive.");
+    }
+
+    current = workspace();
+    if (!current || current.snapshot.locked || !current.snapshot.canMutate) {
+      throw new Error("The active archive changed before the provider request could be sent.");
+    }
+    const savedPackage = await current.snapshot.getRecord(RecordType.aiJob, packageDraft.id);
+    if (!savedPackage)
+      throw new Error("The reviewed package could not be reloaded from the archive.");
+    const providerMetadata = current.providerSettings.find(
+      (record) => record.fields.get("provider_id") === preview.providerId,
+    );
+    if (!providerMetadata)
+      throw new Error("Save the selected provider settings again before sending.");
+    const providerConfiguration = await current.snapshot.getRecord(
+      RecordType.settings,
+      providerMetadata.id,
+    );
+    if (!providerConfiguration) throw new Error("The saved provider settings could not be loaded.");
+    const freshPreview = await createAiRequestPreview(
+      savedPackage,
+      providerConfiguration,
+      preview.maxOutputTokens,
+      current.credentials,
+    );
+    if (
+      freshPreview.providerId !== preview.providerId ||
+      freshPreview.endpoint !== preview.endpoint ||
+      freshPreview.guideTemplateId !== expectedTemplateId ||
+      freshPreview.model !== preview.model ||
+      freshPreview.requestBodyHash !== preview.requestBodyHash ||
+      freshPreview.requestBody !== preview.requestBody ||
+      freshPreview.packageHash !== preview.packageHash ||
+      confirmedBodyHash !== freshPreview.requestBodyHash
+    ) {
+      throw new Error(
+        "The provider settings or package changed after review. Review a fresh request.",
+      );
+    }
+
+    const sessionId = savedPackage.fields.get("session_id") ?? "";
+    const session = [...current.sessions, ...current.archivedSessions].find(
+      (record) => record.id.toLowerCase() === sessionId.toLowerCase(),
+    );
+    if (!session) throw new Error("The session for this AI package is no longer available.");
+    let credential = "";
+    if (!freshPreview.localOnly) {
+      if (!current.snapshot.encrypted) {
+        throw new Error("Save a provider key inside an encrypted archive before sending.");
+      }
+      const metadata = current.credentials.find(
+        (record) =>
+          record.fields.get("provider_id") === freshPreview.providerId ||
+          record.fields.get("key") === providerById(freshPreview.providerId)?.credentialKey,
+      );
+      if (!metadata) throw new Error("Save an API key in this encrypted archive before sending.");
+      const savedCredential = await current.snapshot.getRecord(RecordType.settings, metadata.id);
+      if (
+        !savedCredential ||
+        savedCredential.fields.get("record_role") !== "credential" ||
+        savedCredential.fields.get("_deleted") === "true" ||
+        savedCredential.fields.get("provider_id") !== freshPreview.providerId
+      ) {
+        throw new Error("The saved API key could not be verified in this encrypted archive.");
+      }
+      credential = savedCredential.fields.get("value") ?? "";
+      if (!credential) throw new Error("The saved API key is empty. Save it again before sending.");
+    }
+
+    if (workspace()?.snapshot !== current.snapshot) {
+      throw new Error(
+        "The active archive changed after review. Prepare and review the request again.",
+      );
+    }
+    setLastAiExecution(null);
+    setBusy(true);
+    try {
+      const execution = await executeAiGeneration({
+        packageJob: savedPackage,
+        expectedTemplateId,
+        preview: freshPreview,
+        confirmedEndpoint,
+        confirmedBodyHash,
+        credential,
+        session,
+        sourceRecords: guideSourceRecords(current),
+        send: (request, onChunk) => platform.sendAiRequest(request, onChunk),
+        onProgress,
+      });
+      if (workspace()?.snapshot !== current.snapshot) {
+        throw new Error(
+          "The active archive changed while the provider responded. Reopen it before saving the result.",
+        );
+      }
+      if (
+        !(await addRecords(
+          [execution.job, execution.guide],
+          "AI response saved as an unapproved guide draft.",
+        ))
+      ) {
+        throw new Error("The provider response could not be saved in the active archive.");
+      }
+      setLastAiExecution({ archiveId: current.snapshot.header.id, summary: execution.summary });
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function loadAiPackage(jobId: string): Promise<ArchiveRecord | null> {
     const current = workspace();
     if (!current || current.snapshot.locked) return null;
@@ -1048,6 +1190,7 @@ function App(): JSX.Element {
   function guideSourceRecords(state: Workspace): ArchiveRecord[] {
     return [
       ...state.sessions,
+      ...state.archivedSessions,
       ...state.students,
       ...state.entries,
       ...state.notesDocuments,
@@ -2005,6 +2148,7 @@ function App(): JSX.Element {
                 </Show>
                 <Show when={view() === "ai"}>
                   <AiPage
+                    archiveId={state.snapshot.header.id}
                     sessions={[...state.sessions, ...state.archivedSessions]}
                     customTemplates={state.guideTemplates}
                     jobs={state.aiJobs}
@@ -2013,9 +2157,16 @@ function App(): JSX.Element {
                     encrypted={state.snapshot.encrypted}
                     disabled={state.snapshot.locked || !state.snapshot.canMutate}
                     busy={busy()}
+                    execution={
+                      lastAiExecution()?.archiveId === state.snapshot.header.id
+                        ? (lastAiExecution()?.summary ?? null)
+                        : null
+                    }
+                    onClearExecution={() => setLastAiExecution(null)}
                     onPrepare={prepareAiPackage}
                     onSave={saveAiPackage}
                     onLoad={loadAiPackage}
+                    onSend={sendAiProviderRequest}
                     onSaveProvider={saveAiProvider}
                     onSaveCredential={saveAiCredential}
                     onRemoveCredential={removeAiCredential}
