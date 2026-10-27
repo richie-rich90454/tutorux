@@ -20,8 +20,8 @@ export const AI_PROVIDERS: readonly AiProviderDefinition[] = [
   {
     id: "openai",
     name: "OpenAI",
-    description: "OpenAI Responses API",
-    protocol: "OpenAI Responses",
+    description: "OpenAI Chat Completions API",
+    protocol: "OpenAI Chat Completions",
     defaultEndpoint: "https://api.openai.com/v1",
     credentialKey: "OPENAI_API_KEY",
     local: false,
@@ -92,7 +92,7 @@ export async function createProviderConfigurationRecord(
 ): Promise<ArchiveRecord> {
   const provider = providerById(input.providerId);
   if (!provider) throw new Error("Choose a supported AI provider.");
-  const endpoint = validateEndpoint(input.endpoint, provider);
+  const endpoint = validateProviderEndpoint(input.endpoint, provider);
   const model = cleanField(input.model, "Model", 256, true);
   const id = await deterministicUuid(`ai-provider:${provider.id}`);
   return {
@@ -156,7 +156,7 @@ export function maskCredentialMetadata(record: ArchiveRecord): ArchiveRecord {
   return { ...record, fields, blob: new Uint8Array() };
 }
 
-function validateEndpoint(value: string, provider: AiProviderDefinition): string {
+export function validateProviderEndpoint(value: string, provider: AiProviderDefinition): string {
   const endpoint = cleanField(value, "Endpoint", 2048, false);
   let parsed: URL;
   try {
