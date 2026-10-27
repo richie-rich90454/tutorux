@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   ArchiveFormatError,
+  compressRecordPayload,
   crc32,
   decodeArchiveHeader,
   decodeLz4Block,
@@ -124,6 +125,30 @@ describe("Tutorux archive v1 encoding", () => {
     new DataView(storedPayload.buffer).setBigUint64(0, 9n, true);
     storedPayload.set(compressedBlock, 8);
     expect(new TextDecoder().decode(decodeLz4Block(storedPayload))).toBe("aaaaaaaaa");
+  });
+
+  it("writes the C++-compatible LZ4 block for compressible record payloads", () => {
+    const payload = new Uint8Array(256).fill(0x61);
+    const compressed = compressRecordPayload(payload);
+
+    expect(compressed.codec).toBe(1);
+    expect(Array.from(compressed.bytes.subarray(8))).toEqual([
+      0x1f, 0x61, 0x01, 0x00, 0xe7, 0x50, 0x61, 0x61, 0x61, 0x61, 0x61,
+    ]);
+    expect(decodeLz4Block(compressed.bytes)).toEqual(payload);
+  });
+
+  it("keeps small and low-savings payloads uncompressed", () => {
+    const smallPayload = new Uint8Array(255);
+    expect(compressRecordPayload(smallPayload)).toEqual({ codec: 0, bytes: smallPayload });
+
+    let seed = 0x12345678;
+    const noisyPayload = new Uint8Array(4096);
+    for (let index = 0; index < noisyPayload.length; index += 1) {
+      seed = (Math.imul(seed, 1_664_525) + 1_013_904_223) >>> 0;
+      noisyPayload[index] = seed >>> 24;
+    }
+    expect(compressRecordPayload(noisyPayload)).toEqual({ codec: 0, bytes: noisyPayload });
   });
 
   it("returns stable typed errors for malformed UUIDs", () => {
