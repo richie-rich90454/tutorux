@@ -33,6 +33,7 @@ function createPreview(bodyHash = "a".repeat(64)): AiRequestPreview {
     authentication: "Bearer saved key; value hidden",
     packageHash: "b".repeat(64),
     packageBytes: 200,
+    attachedImages: [],
     requestBodyHash: bodyHash,
     requestBytes: 400,
     maxOutputTokens: 4096,
