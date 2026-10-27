@@ -9,6 +9,7 @@ import {
   appendRecords,
   compactArchiveSnapshot,
   createArchiveBytes,
+  createEncryptedArchiveBytes,
   openArchiveSource,
   repairArchiveSnapshot,
   recoverUnpublishedCommit,
@@ -129,7 +130,7 @@ const io: CliIo = {
 const HELP = `Tutorux — local-first tutoring archive tools
 
 Usage:
-  tutorux archive init <file.tux> --name <name> [--description <text>]
+  tutorux archive init <file.tux> --name <name> [--description <text>] [--new-passphrase-env <name>]
   tutorux archive info <file.tux> [--json]
   tutorux archive verify <file.tux> [--passphrase-env <name>] [--json]
   tutorux archive recover <file.tux> [--apply] [--json]
@@ -317,7 +318,24 @@ async function runArchiveCommand(
   if (!path) throw new CliError(`archive ${action} requires a file path.`);
   if (action === "init") {
     const name = requiredOption(args, "name");
-    const bytes = await createArchiveBytes(name, args.options.get("description") ?? "");
+    const description = args.options.get("description") ?? "";
+    const passphraseEnvironment = args.options.get("new-passphrase-env");
+    if (passphraseEnvironment === undefined && args.flags.has("new-passphrase-env")) {
+      throw new CliError("--new-passphrase-env requires an environment variable name.");
+    }
+    let bytes: Uint8Array;
+    if (passphraseEnvironment === undefined) {
+      bytes = await createArchiveBytes(name, description);
+    } else {
+      if (!/^[A-Za-z_][A-Za-z\d_]*$/u.test(passphraseEnvironment)) {
+        throw new CliError("--new-passphrase-env requires a valid environment variable name.");
+      }
+      const passphrase = process.env[passphraseEnvironment];
+      if (passphrase === undefined) {
+        throw new CliError("The new archive passphrase environment variable is not set.");
+      }
+      bytes = await createEncryptedArchiveBytes(name, description, passphrase);
+    }
     await writeBytesAtomically(resolve(path), bytes);
     emit(
       output,
