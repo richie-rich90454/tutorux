@@ -157,6 +157,16 @@ describe("AI request preview", () => {
     ).toBe("Bearer saved API key; value hidden");
   });
 
+  it("can preview a system-keychain credential without archive metadata", async () => {
+    const packageJob = await makePackageJob({ manifest: { format: "tutorux-ai-package-v1" } });
+    const provider = await makeProvider("openai", "https://api.openai.com/v1", "gpt-4.1");
+    const preview = await createAiRequestPreview(packageJob, provider, 800, [], true);
+
+    expect(preview.credentialAvailable).toBe(true);
+    expect(preview.authentication).toContain("saved API key; value hidden");
+    expect(preview.requestBody).not.toContain("api-key");
+  });
+
   it("rejects unsupported jobs, stale hashes, invalid models, and oversized exact bodies", async () => {
     const packageJob = await makePackageJob({ manifest: { format: "tutorux-ai-package-v1" } });
     const provider = await makeProvider("openai", "https://api.openai.com/v1", "gpt-4.1");
