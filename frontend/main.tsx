@@ -908,12 +908,11 @@ function App(): JSX.Element {
           "The active archive changed while the provider responded. Reopen it before saving the result.",
         );
       }
-      if (
-        !(await addRecords(
-          [execution.job, execution.guide],
-          "AI response saved as an unapproved guide draft.",
-        ))
-      ) {
+      const responseRecords = execution.guide ? [execution.job, execution.guide] : [execution.job];
+      const savedMessage = execution.guide
+        ? "AI response saved as an unapproved guide draft."
+        : "The raw provider response was saved in this archive for export.";
+      if (!(await addRecords(responseRecords, savedMessage))) {
         throw new Error("The provider response could not be saved in the active archive.");
       }
       setLastAiExecution({ archiveId: current.snapshot.header.id, summary: execution.summary });
@@ -6688,7 +6687,19 @@ function FormDialog(props: {
         submit: "Save changes",
       }
     : titles[props.kind];
-  const noteState = untrack(() => notesEditState(props.notesDocument));
+  const noteState = untrack(() => {
+    const expectedNotesOwner = props.record
+      ? props.kind === "session"
+        ? {
+            entryId: props.record.fields.get("entry_id") ?? "",
+            sessionId: props.record.id,
+          }
+        : props.kind === "journal"
+          ? { entryId: props.record.id, sessionId: "" }
+          : undefined
+      : undefined;
+    return notesEditState(props.notesDocument, expectedNotesOwner);
+  });
   const [noteBlocks, setNoteBlocks] = createSignal<JournalNoteBlock[]>(
     noteState.editable
       ? noteState.blocks.length > 0
