@@ -78,6 +78,7 @@ import {
   updateStudentRecord,
   transitionSessionRecord,
   type JournalInput,
+  type SessionCreateOptions,
   type SessionTransitionAction,
   type StudentInput,
 } from "./domain/records";
@@ -1898,7 +1899,9 @@ function App(): JSX.Element {
               void addRecords(
                 record
                   ? updateSessionRecords(record, input, notesDocument, updateNotes)
-                  : makeSessionRecords(input),
+                  : makeSessionRecords(input, {
+                      ensureJournalRoot: !(workspace()?.journals.length ?? 0),
+                    } satisfies SessionCreateOptions),
                 record ? "Session details updated." : undefined,
               ).catch((error: unknown) => announce(errorMessage(error), "error"))
             }
