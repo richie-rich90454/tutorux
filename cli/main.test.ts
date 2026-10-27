@@ -195,6 +195,96 @@ describe("CLI sanitized archive copies", () => {
 });
 
 describe("CLI encrypted archive access", () => {
+  it("creates encrypted archives from a passphrase environment variable", async () => {
+    const directory = await mkdtemp(join(process.cwd(), "tmp", "tutorux-cli-create-encrypted-"));
+    const archivePath = join(directory, "protected.tux");
+    const environmentName = "TUTORUX_CLI_TEST_NEW_ARCHIVE_PASSPHRASE";
+    const previousPassphrase = process.env[environmentName];
+    const stdout: string[] = [];
+    const stderr: string[] = [];
+    const io = {
+      stdout: (value: string) => stdout.push(value),
+      stderr: (value: string) => stderr.push(value),
+    };
+
+    try {
+      delete process.env[environmentName];
+      expect(
+        await executeCli(
+          [
+            "archive",
+            "init",
+            archivePath,
+            "--name",
+            "Protected CLI archive",
+            "--new-passphrase-env",
+            "--json",
+          ],
+          io,
+        ),
+      ).toBe(2);
+      expect(stderr.at(-1)).toContain("requires an environment variable name");
+      expect(
+        await executeCli(
+          [
+            "archive",
+            "init",
+            archivePath,
+            "--name",
+            "Protected CLI archive",
+            "--new-passphrase-env",
+            environmentName,
+          ],
+          io,
+        ),
+      ).toBe(2);
+      expect(stderr.at(-1)).toContain("environment variable is not set");
+
+      process.env[environmentName] = "CLI-created archive phrase 2026";
+      expect(
+        await executeCli(
+          [
+            "archive",
+            "init",
+            archivePath,
+            "--name",
+            "Protected CLI archive",
+            "--description",
+            "Created without exposing its passphrase",
+            "--new-passphrase-env",
+            environmentName,
+            "--json",
+          ],
+          io,
+        ),
+      ).toBe(0);
+      expect(JSON.parse(stdout.at(-1)!)).toMatchObject({
+        name: "Protected CLI archive",
+        created: true,
+      });
+
+      const locked = await openArchiveBytes(new Uint8Array(await readFile(archivePath)));
+      expect(locked.encrypted).toBe(true);
+      expect(locked.locked).toBe(true);
+      expect(
+        await executeCli(
+          ["archive", "verify", archivePath, "--passphrase-env", environmentName, "--json"],
+          io,
+        ),
+      ).toBe(0);
+      expect(JSON.parse(stdout.at(-1)!)).toMatchObject({
+        encrypted: true,
+        locked: false,
+        verified: true,
+      });
+      expect(stderr.join("\n")).not.toContain(process.env[environmentName]!);
+    } finally {
+      if (previousPassphrase === undefined) delete process.env[environmentName];
+      else process.env[environmentName] = previousPassphrase;
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
   it("unlocks, verifies, reads, and appends an encrypted archive generation", async () => {
     const directory = await mkdtemp(join(process.cwd(), "tmp", "tutorux-cli-encrypted-"));
     const archivePath = join(directory, "encrypted.tux");
