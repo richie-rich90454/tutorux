@@ -261,6 +261,7 @@ test("creates, updates, exports, and reopens a portable tutoring workspace", asy
   await page.getByLabel("Filter by tag").selectOption("");
   await page
     .locator(".journal-record-card")
+    .filter({ has: page.getByRole("heading", { name: "A useful way into balance" }) })
     .getByRole("button", { name: "Edit", exact: true })
     .click();
   await page.getByLabel("Entry title").fill("Balance as a visual model");
@@ -286,7 +287,7 @@ test("creates, updates, exports, and reopens a portable tutoring workspace", asy
   await expect(page.getByRole("heading", { name: "Good", exact: false })).toBeVisible();
   await expect(page.locator(".stat-card").nth(0)).toContainText("1");
   await expect(page.locator(".stat-card").nth(1)).toContainText("1");
-  await expect(page.locator(".stat-card").nth(2)).toContainText("1");
+  await expect(page.locator(".stat-card").nth(2)).toContainText("2");
   await page.getByRole("button", { name: "Archive health", exact: true }).click();
   await page.getByRole("button", { name: "Verify archive" }).click();
   await expect(
