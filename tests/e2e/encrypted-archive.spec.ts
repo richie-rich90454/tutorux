@@ -21,7 +21,9 @@ test.beforeEach(async ({ page }) => {
   });
 });
 
-test("unlocks, verifies, and locks a C++ encrypted archive in the UI", async ({ page }) => {
+test("unlocks, edits, saves, verifies, and relocks a C++ encrypted archive", async ({
+  page,
+}, testInfo) => {
   const fixture = fileURLToPath(new URL("../../tests/fixtures/encrypted-v1.tux", import.meta.url));
   await page.goto("/");
 
@@ -37,17 +39,37 @@ test("unlocks, verifies, and locks a C++ encrypted archive in the UI", async ({ 
 
   await passphrase.fill("Tutorux cross-language fixture phrase 2026");
   await page.getByRole("button", { name: "Unlock archive" }).click();
-  await expect(page.getByText("Encrypted archive · read only")).toBeVisible();
+  await expect(passphrase).toHaveCount(0);
   await page.getByRole("button", { name: "Students", exact: true }).click();
-  await expect(page.getByRole("button", { name: "Add student", exact: true })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Add student", exact: true })).toBeEnabled();
   await expect(page.getByText("Interop Student", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Add student", exact: true }).click();
+  await page.getByLabel("Student name").fill("Encrypted learner");
+  await page.getByRole("button", { name: "Add student", exact: true }).last().click();
+  await expect(page.getByText("Encrypted learner", { exact: true })).toBeVisible();
 
   await page.getByRole("button", { name: "Archive health", exact: true }).click();
   await page.getByRole("button", { name: "Verify archive" }).click();
   await expect(
     page.getByRole("heading", { name: "Every current record passed verification" }),
   ).toBeVisible();
+  const download = page.waitForEvent("download");
+  await page.getByRole("button", { name: "Save archive", exact: true }).click();
+  const savedPath = testInfo.outputPath("updated-encrypted.tux");
+  await (await download).saveAs(savedPath);
+
   await page.getByRole("button", { name: "Lock archive" }).click();
   await expect(page.getByLabel("Archive passphrase")).toBeVisible();
   await expect(page.getByText("Interop Student", { exact: true })).toHaveCount(0);
+
+  await page.reload();
+  const reopenedChooser = page.waitForEvent("filechooser");
+  await page.getByRole("button", { name: "Open", exact: true }).click();
+  await (await reopenedChooser).setFiles(savedPath);
+  const reopenedPassphrase = page.getByLabel("Archive passphrase");
+  await reopenedPassphrase.fill("Tutorux cross-language fixture phrase 2026");
+  await page.getByRole("button", { name: "Unlock archive" }).click();
+  await expect(reopenedPassphrase).toHaveCount(0);
+  await page.getByRole("button", { name: "Students", exact: true }).click();
+  await expect(page.getByText("Encrypted learner", { exact: true })).toBeVisible();
 });
