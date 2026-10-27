@@ -615,12 +615,29 @@ export function restoreJournalOrganizerRecord(
 }
 
 /** Decode known archive-backed note blocks without claiming ownership of unknown legacy fields. */
-export function notesEditState(document: ArchiveRecord | null | undefined): NotesEditState {
+export function notesEditState(
+  document: ArchiveRecord | null | undefined,
+  expectedOwner?: { entryId: string; sessionId: string },
+): NotesEditState {
   if (!document) return { blocks: [], editable: true };
   if (
     document.type !== RecordType.settings ||
     document.fields.get("record_role") !== "journal-notes" ||
     document.fields.get("_deleted") === "true"
+  ) {
+    return { blocks: [], editable: false };
+  }
+  if (
+    expectedOwner &&
+    normalizeOwnerId(document.fields.get("entry_id") ?? "") !==
+      normalizeOwnerId(expectedOwner.entryId)
+  ) {
+    return { blocks: [], editable: false };
+  }
+  if (
+    expectedOwner &&
+    normalizeOwnerId(document.fields.get("session_id") ?? "") !==
+      normalizeOwnerId(expectedOwner.sessionId)
   ) {
     return { blocks: [], editable: false };
   }
@@ -837,7 +854,7 @@ function updateNotesDocument(
     const id = crypto.randomUUID();
     return makeNotesDocument(id, entryId, sessionId, timestamp, notes);
   }
-  const state = notesEditState(current);
+  const state = notesEditState(current, { entryId, sessionId });
   if (!state.editable || current.id !== expectedId) {
     throw new Error("These notes use a structured format the current editor cannot safely change.");
   }
@@ -871,6 +888,10 @@ function updateNotesDocument(
   appendNoteBlocks(fields, blocks);
   validateRecordPayloadSize(fields, current.blob.byteLength);
   return { ...current, fields };
+}
+
+function normalizeOwnerId(value: string): string {
+  return value.trim().toLowerCase();
 }
 
 function normalizeJournalNoteBlocks(notes: NotesInput): JournalNoteBlock[] {
