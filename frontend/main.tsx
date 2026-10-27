@@ -362,6 +362,7 @@ function App(): JSX.Element {
       window.clearTimeout(noticeTimer);
       nativeCommandListenerDisposed = true;
       removeNativeCommandListener?.();
+      workspace()?.snapshot.lock();
     });
   });
 
@@ -507,6 +508,7 @@ function App(): JSX.Element {
       const next = await readWorkspace(snapshot, name, location);
       const previous = workspace();
       setWorkspace(next);
+      if (previous && previous.snapshot !== snapshot) previous.snapshot.lock();
       setPendingSessionTrash(null);
       accepted = true;
       setView("home");
@@ -521,6 +523,70 @@ function App(): JSX.Element {
     } finally {
       setLoading(false);
     }
+  }
+
+  async function unlockCurrentArchive(passphrase: string): Promise<void> {
+    const state = workspace();
+    if (!state?.snapshot.locked) return;
+    setBusy(true);
+    let unlocked: ArchiveSnapshot | undefined;
+    try {
+      unlocked = await state.snapshot.unlock(passphrase);
+      const next = await readWorkspace(unlocked, state.name, state.location, state.dirty);
+      if (workspace()?.snapshot !== state.snapshot) {
+        unlocked.lock();
+        return;
+      }
+      setWorkspace(next);
+      setView("home");
+      announce("Archive unlocked; commit, index, and manifest authentication passed.", "success");
+    } catch (error) {
+      unlocked?.lock();
+      throw error;
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function lockCurrentArchive(): void {
+    const state = workspace();
+    if (!state?.snapshot.encrypted || state.snapshot.locked) return;
+    state.snapshot.lock();
+    setWorkspace({
+      ...state,
+      students: [],
+      trashedStudents: [],
+      trashedAnnotations: [],
+      trashedGuides: [],
+      sessions: [],
+      archivedSessions: [],
+      trashedSessions: [],
+      audioTracks: [],
+      entries: [],
+      journals: [],
+      collections: [],
+      tags: [],
+      trashedJournalOrganizers: [],
+      guideTemplates: [],
+      trashedGuideTemplates: [],
+      notesDocuments: [],
+      guides: [],
+      annotations: [],
+      transcripts: [],
+      assets: [],
+      evidence: [],
+      evidenceEdges: [],
+    });
+    setDialog(null);
+    setDialogRecord(null);
+    setPendingDelete(null);
+    setPendingSessionTrash(null);
+    setSelectedTranscriptSessionId("");
+    setSelectedAnnotationSessionId("");
+    setSelectedEvidenceSessionId("");
+    setQuery("");
+    setView("home");
+    announce("Archive locked.", "success");
   }
 
   async function openArchive(): Promise<void> {
@@ -544,7 +610,12 @@ function App(): JSX.Element {
     );
     const savedLocation = await platform.saveArchive(snapshot.source, suggestedName, location);
     const next = await readWorkspace(snapshot, suggestedName, savedLocation);
+    const previous = workspace();
     setWorkspace(next);
+    if (previous && previous.snapshot !== snapshot) previous.snapshot.lock();
+    if (previous && previous.snapshot.source !== snapshot.source) {
+      await previous.snapshot.source.close?.().catch(() => undefined);
+    }
     setPendingSessionTrash(null);
     setView("home");
     setDialog(null);
@@ -575,6 +646,15 @@ function App(): JSX.Element {
     const current = workspace();
     if (!current) {
       announce("Create or open an archive before adding records.", "error");
+      return false;
+    }
+    if (!current.snapshot.canMutate) {
+      announce(
+        current.snapshot.locked
+          ? "Unlock this archive before editing it."
+          : "Encrypted archives are read-only in this version. You can still verify or save a copy.",
+        "error",
+      );
       return false;
     }
     setBusy(true);
@@ -1662,13 +1742,25 @@ function App(): JSX.Element {
             {(state) => (
               <>
                 <Show when={state.snapshot.locked}>
-                  <section class="locked-banner" role="alert">
+                  <section class="locked-banner locked-panel">
                     <Icon name="shield" />
-                    <div>
+                    <div class="locked-copy">
                       <strong>This archive is encrypted</strong>
                       <p>
-                        Its index is readable, but its records are locked. Unlock support is
-                        required before you can work with this archive.
+                        Enter its passphrase to authenticate the archive and unlock its records.
+                      </p>
+                    </div>
+                    <UnlockArchivePanel onUnlock={unlockCurrentArchive} busy={busy()} />
+                  </section>
+                </Show>
+                <Show when={state.snapshot.encrypted && !state.snapshot.locked}>
+                  <section class="locked-banner locked-panel archive-readonly-banner" role="status">
+                    <Icon name="shield" />
+                    <div class="locked-copy">
+                      <strong>Encrypted archive · read only</strong>
+                      <p>
+                        Contents are unlocked for review and verification. Editing, recovery,
+                        compaction, and sanitized copies are not available yet.
                       </p>
                     </div>
                   </section>
@@ -1715,7 +1807,7 @@ function App(): JSX.Element {
                     assets={state.assets}
                     tracks={state.audioTracks}
                     selectedSessionId={selectedTranscriptSessionId()}
-                    disabled={state.snapshot.locked || busy()}
+                    disabled={state.snapshot.locked || !state.snapshot.canMutate || busy()}
                     onSelectSession={setSelectedTranscriptSessionId}
                     onNewSession={() => openDialog("session")}
                     onImport={(file, sessionId) => void importTranscript(file, sessionId)}
@@ -1743,7 +1835,7 @@ function App(): JSX.Element {
                     sessions={state.sessions}
                     records={filteredRecords()}
                     selectedSessionId={selectedAnnotationSessionId()}
-                    disabled={state.snapshot.locked || busy()}
+                    disabled={state.snapshot.locked || !state.snapshot.canMutate || busy()}
                     onSelectSession={setSelectedAnnotationSessionId}
                     onSave={saveAnnotation}
                     onRemove={(record) => setPendingDelete(record)}
@@ -1784,7 +1876,7 @@ function App(): JSX.Element {
                     trashedTemplates={state.trashedGuideTemplates}
                     templateManagerOpen={guideTemplateManagerOpen()}
                     onToggleTemplateManager={() => setGuideTemplateManagerOpen((open) => !open)}
-                    disabled={state.snapshot.locked}
+                    disabled={!state.snapshot.canMutate}
                     busy={busy()}
                     onOpenSessions={() => setView("sessions")}
                     onSave={saveGuide}
@@ -1803,7 +1895,7 @@ function App(): JSX.Element {
                     records={filteredRecords()}
                     edges={state.evidenceEdges}
                     selectedSessionId={selectedEvidenceSessionId()}
-                    disabled={state.snapshot.locked || busy()}
+                    disabled={state.snapshot.locked || !state.snapshot.canMutate || busy()}
                     onSelectSession={setSelectedEvidenceSessionId}
                     onExtract={extractEvidence}
                     onReview={reviewEvidence}
@@ -1814,7 +1906,7 @@ function App(): JSX.Element {
                   <AssetPage
                     records={filteredRecords()}
                     sessions={state.sessions}
-                    disabled={state.snapshot.locked || busy()}
+                    disabled={state.snapshot.locked || !state.snapshot.canMutate || busy()}
                     onImport={importAsset}
                     onPreview={loadAssetPreview}
                     onExport={(record) => void exportAsset(record)}
@@ -1830,7 +1922,7 @@ function App(): JSX.Element {
                     onRestoreAnnotation={(record) => void restoreTrashedAnnotation(record)}
                     onRestoreGuide={(record) => void restoreGuide(record)}
                     onRestoreSession={(record) => void restoreSessionGroup(record)}
-                    disabled={state.snapshot.locked || busy()}
+                    disabled={state.snapshot.locked || !state.snapshot.canMutate || busy()}
                   />
                 </Show>
                 <Show when={view() === "archive"}>
@@ -1838,6 +1930,7 @@ function App(): JSX.Element {
                     state={state}
                     onSave={() => void saveCurrentArchive()}
                     onOpen={() => void openArchive()}
+                    onLock={() => void lockCurrentArchive()}
                   />
                 </Show>
                 <Show when={view() === "settings"}>
@@ -2242,7 +2335,7 @@ function Overview(props: {
             class="button button-primary"
             type="button"
             onClick={() => props.onCreate("session")}
-            disabled={props.state.snapshot.locked}
+            disabled={!props.state.snapshot.canMutate}
           >
             <Icon name="plus" />
             New session
@@ -3240,7 +3333,7 @@ function RecordPage(props: {
           <button
             class="button button-primary"
             type="button"
-            disabled={props.state.snapshot.locked}
+            disabled={!props.state.snapshot.canMutate}
             onClick={() => props.onAdd?.()}
           >
             <Icon name="plus" />
@@ -3257,7 +3350,7 @@ function RecordPage(props: {
           collections={props.state.collections}
           tags={props.state.tags}
           archived={props.state.trashedJournalOrganizers}
-          disabled={props.state.snapshot.locked}
+          disabled={!props.state.snapshot.canMutate}
           busy={busy()}
           onSave={(record, message) =>
             props.onSaveOrganizer?.(record, message) ?? Promise.resolve(false)
@@ -3364,7 +3457,7 @@ function RecordPage(props: {
               onAction={() => (canAdd ? props.onAdd?.() : undefined)}
               disabled={
                 !canAdd ||
-                props.state.snapshot.locked ||
+                !props.state.snapshot.canMutate ||
                 (props.kind === "sessions" && sessionArchiveView() === "archived")
               }
             />
@@ -3386,14 +3479,14 @@ function RecordPage(props: {
                   collections={props.state.collections}
                   tags={props.state.tags}
                   guideTemplates={props.state.guideTemplates}
-                  disabled={props.state.snapshot.locked}
+                  disabled={!props.state.snapshot.canMutate}
                   busy={busy()}
                   onProgressReview={props.onProgressReview}
-                  onEdit={props.state.snapshot.locked ? undefined : props.onEdit}
-                  onTrash={props.state.snapshot.locked ? undefined : props.onTrash}
-                  onTransition={props.state.snapshot.locked ? undefined : props.onTransition}
-                  onClone={props.state.snapshot.locked ? undefined : props.onClone}
-                  onArchive={props.state.snapshot.locked ? undefined : props.onArchive}
+                  onEdit={!props.state.snapshot.canMutate ? undefined : props.onEdit}
+                  onTrash={!props.state.snapshot.canMutate ? undefined : props.onTrash}
+                  onTransition={!props.state.snapshot.canMutate ? undefined : props.onTransition}
+                  onClone={!props.state.snapshot.canMutate ? undefined : props.onClone}
+                  onArchive={!props.state.snapshot.canMutate ? undefined : props.onArchive}
                 />
               )}
             </For>
@@ -5638,10 +5731,59 @@ function transcriptTimeRangeLabel(record: ArchiveRecord): string {
   return end ? `${start} – ${end}` : start;
 }
 
+function UnlockArchivePanel(props: {
+  onUnlock: (passphrase: string) => Promise<void>;
+  busy: boolean;
+}): JSX.Element {
+  const [passphrase, setPassphrase] = createSignal("");
+  const [error, setError] = createSignal("");
+  const submit = async (event: SubmitEvent): Promise<void> => {
+    event.preventDefault();
+    setError("");
+    try {
+      await props.onUnlock(passphrase());
+      setPassphrase("");
+    } catch (cause) {
+      setError(errorMessage(cause));
+    } finally {
+      setPassphrase("");
+    }
+  };
+
+  return (
+    <form class="locked-unlock-form" onSubmit={submit}>
+      <label class="form-field" for="archive-passphrase">
+        Archive passphrase
+        <input
+          id="archive-passphrase"
+          type="password"
+          value={passphrase()}
+          onInput={(event) => setPassphrase(event.currentTarget.value)}
+          autocomplete="current-password"
+          autocapitalize="none"
+          spellcheck={false}
+          aria-invalid={Boolean(error())}
+          aria-describedby="archive-unlock-error"
+          required
+        />
+      </label>
+      <button class="button button-primary" type="submit" disabled={props.busy || !passphrase()}>
+        {props.busy ? "Unlocking…" : "Unlock archive"}
+      </button>
+      <Show when={error()}>
+        <p id="archive-unlock-error" class="locked-unlock-error" role="alert">
+          {error()}
+        </p>
+      </Show>
+    </form>
+  );
+}
+
 function ArchivePage(props: {
   state: Workspace;
   onSave: () => void;
   onOpen: () => void;
+  onLock: () => void;
 }): JSX.Element {
   const size = props.state.snapshot.source.size;
   const [verification, setVerification] = createSignal<ArchiveVerificationResult | null>(null);
@@ -5694,7 +5836,11 @@ function ArchivePage(props: {
           <div class="archive-chip-row">
             <span>
               <i class="dot-green" />
-              {props.state.snapshot.locked ? "Encrypted · locked" : "Ready to use"}
+              {props.state.snapshot.locked
+                ? "Encrypted · locked"
+                : props.state.snapshot.encrypted
+                  ? "Encrypted · read only"
+                  : "Ready to use"}
             </span>
             <span>
               <Icon name="archive" />
@@ -5713,6 +5859,15 @@ function ArchivePage(props: {
           <small>{props.state.location ?? "Browser copy"}</small>
         </div>
       </section>
+      <Show when={props.state.snapshot.encrypted && !props.state.snapshot.locked}>
+        <div class="archive-lock-action">
+          <span>Archive contents are unlocked for review and verification.</span>
+          <button class="button button-outline" type="button" onClick={() => props.onLock()}>
+            <Icon name="shield" />
+            Lock archive
+          </button>
+        </div>
+      </Show>
       <div class="archive-info-grid">
         <InfoCard
           label="Created"
@@ -6575,7 +6730,7 @@ function FormDialog(props: {
               type="submit"
               disabled={
                 props.busy ||
-                (props.kind !== "archive" && (!props.state || props.state.snapshot.locked))
+                (props.kind !== "archive" && (!props.state || !props.state.snapshot.canMutate))
               }
             >
               {props.busy ? "Saving…" : content.submit}
