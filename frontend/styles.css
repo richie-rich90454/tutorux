@@ -2414,6 +2414,10 @@ button:disabled {
   color: var(--warning);
   background: color-mix(in srgb, var(--warning) 8%, var(--surface));
 }
+.locked-panel {
+  align-items: center;
+  flex-wrap: wrap;
+}
 .locked-banner > .icon {
   width: 18px;
   height: 18px;
@@ -2427,6 +2431,40 @@ button:disabled {
   color: var(--muted);
   font-size: 8px;
   line-height: 1.6;
+}
+.locked-copy {
+  min-width: 220px;
+  flex: 1 1 230px;
+}
+.locked-unlock-form {
+  display: grid;
+  grid-template-columns: minmax(190px, 1fr) auto;
+  align-items: end;
+  gap: 8px;
+  flex: 1 1 340px;
+  max-width: 500px;
+}
+.locked-unlock-form .button {
+  min-height: 35px;
+  white-space: nowrap;
+}
+.locked-unlock-error {
+  grid-column: 1 / -1;
+  margin: 0;
+  color: var(--danger);
+}
+.archive-lock-action {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 10px 30px 0;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  color: var(--muted);
+  background: var(--surface-subtle);
+  font-size: 8px;
 }
 
 .settings-section {
@@ -3323,6 +3361,21 @@ button:disabled {
     flex: 1;
     padding: 0 7px;
     font-size: 8px;
+  }
+  .locked-banner,
+  .archive-lock-action {
+    margin-right: 12px;
+    margin-left: 12px;
+  }
+  .locked-unlock-form {
+    grid-template-columns: 1fr;
+  }
+  .locked-unlock-form .button {
+    justify-self: start;
+  }
+  .archive-lock-action {
+    align-items: flex-start;
+    flex-direction: column;
   }
   .form-dialog {
     padding: 22px 18px 16px;
