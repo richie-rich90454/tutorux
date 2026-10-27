@@ -295,7 +295,9 @@ describe("CLI encrypted archive access", () => {
     expect(studentEntry).toBeDefined();
     const studentId = studentEntry![0].slice("STUDENT:".length);
     const environmentName = "TUTORUX_CLI_TEST_ENCRYPTED_PASSPHRASE";
+    const newEnvironmentName = "TUTORUX_CLI_TEST_ROTATED_PASSPHRASE";
     const previousPassphrase = process.env[environmentName];
+    const previousNewPassphrase = process.env[newEnvironmentName];
     const stdout: string[] = [];
     const stderr: string[] = [];
     const io = {
@@ -306,6 +308,7 @@ describe("CLI encrypted archive access", () => {
     try {
       await writeFile(archivePath, fixtureBytes);
       delete process.env[environmentName];
+      delete process.env[newEnvironmentName];
 
       expect(await executeCli(["archive", "info", archivePath, "--json"], io)).toBe(0);
       expect(JSON.parse(stdout.at(-1)!)).toMatchObject({
@@ -379,6 +382,108 @@ describe("CLI encrypted archive access", () => {
       ).toBe("CLI encrypted update");
       unlocked.lock();
 
+      expect(
+        await executeCli(
+          ["archive", "change-passphrase", archivePath, "--new-passphrase-env", "--json"],
+          io,
+        ),
+      ).toBe(2);
+      expect(stderr.at(-1)).toContain("requires an environment variable name");
+      expect(
+        await executeCli(
+          [
+            "--passphrase-env",
+            environmentName,
+            "archive",
+            "change-passphrase",
+            archivePath,
+            "--new-passphrase-env",
+            newEnvironmentName,
+            "--json",
+          ],
+          io,
+        ),
+      ).toBe(2);
+      expect(stderr.at(-1)).toContain("new archive passphrase environment variable is not set");
+
+      const bytesBeforeInvalidRotation = await readFile(archivePath);
+      process.env[newEnvironmentName] = process.env[environmentName];
+      expect(
+        await executeCli(
+          [
+            "--passphrase-env",
+            environmentName,
+            "archive",
+            "change-passphrase",
+            archivePath,
+            "--new-passphrase-env",
+            newEnvironmentName,
+          ],
+          io,
+        ),
+      ).toBe(2);
+      expect(stderr.at(-1)).toContain("different new passphrase");
+      expect(await readFile(archivePath)).toEqual(bytesBeforeInvalidRotation);
+
+      process.env[newEnvironmentName] = "too-short";
+      expect(
+        await executeCli(
+          [
+            "--passphrase-env",
+            environmentName,
+            "archive",
+            "change-passphrase",
+            archivePath,
+            "--new-passphrase-env",
+            newEnvironmentName,
+          ],
+          io,
+        ),
+      ).toBe(1);
+      expect(stderr.at(-1)).toContain("at least 12 UTF-8 bytes");
+      expect(await readFile(archivePath)).toEqual(bytesBeforeInvalidRotation);
+
+      process.env[newEnvironmentName] = "CLI-rotated archive phrase 2026";
+      expect(
+        await executeCli(
+          [
+            "--passphrase-env",
+            environmentName,
+            "archive",
+            "change-passphrase",
+            archivePath,
+            "--new-passphrase-env",
+            newEnvironmentName,
+            "--json",
+          ],
+          io,
+        ),
+      ).toBe(0);
+      expect(JSON.parse(stdout.at(-1)!)).toMatchObject({
+        generation: "1",
+        encrypted: true,
+        verified: true,
+        passphrase_changed: true,
+      });
+
+      expect(
+        await executeCli(
+          ["archive", "verify", archivePath, "--passphrase-env", environmentName],
+          io,
+        ),
+      ).toBe(1);
+      expect(stderr.at(-1)).toContain("Passphrase is incorrect");
+      expect(stderr.at(-1)).not.toContain(process.env[environmentName]!);
+      expect(
+        await executeCli(
+          ["archive", "verify", archivePath, "--passphrase-env", newEnvironmentName, "--json"],
+          io,
+        ),
+      ).toBe(0);
+      expect(JSON.parse(stdout.at(-1)!)).toMatchObject({ encrypted: true, verified: true });
+      expect(stderr.join("\n")).not.toContain(process.env[newEnvironmentName]!);
+      expect(stdout.join("\n")).not.toContain(process.env[newEnvironmentName]!);
+
       process.env[environmentName] = "incorrect passphrase";
       expect(
         await executeCli(
@@ -391,6 +496,8 @@ describe("CLI encrypted archive access", () => {
     } finally {
       if (previousPassphrase === undefined) delete process.env[environmentName];
       else process.env[environmentName] = previousPassphrase;
+      if (previousNewPassphrase === undefined) delete process.env[newEnvironmentName];
+      else process.env[newEnvironmentName] = previousNewPassphrase;
       await rm(directory, { recursive: true, force: true });
     }
   });
