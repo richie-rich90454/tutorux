@@ -9,7 +9,13 @@ import {
   recoverUnpublishedCommit,
   verifyArchiveSnapshot,
 } from "./archive";
-import { decodeRecordFrame, encodeRecordFrame, recordTypeName, RecordType } from "./format";
+import {
+  decodeRecordFrame,
+  encodeRecordFrame,
+  newUuid,
+  recordTypeName,
+  RecordType,
+} from "./format";
 import { CompositeArchiveSource, MemoryArchiveSource, type ArchiveByteSource } from "./source";
 
 describe("Tutorux archive snapshots", () => {
@@ -33,6 +39,28 @@ describe("Tutorux archive snapshots", () => {
       createdAtUs: createdAtUs.toString(),
     });
     expect(archive.indexEntryCount()).toBe(1);
+  });
+
+  it("lists current record metadata without loading its binary blob", async () => {
+    let archive = await openArchiveBytes(await createArchiveBytes("Metadata reader"));
+    const id = newUuid();
+    const blob = new Uint8Array(512 * 1024).fill(0x5a);
+    archive = await appendRecords(archive, [
+      {
+        type: RecordType.assetBlob,
+        id,
+        revision: 0n,
+        previousOffset: 0n,
+        fields: new Map([["record_role", "asset-blob"]]),
+        blob,
+      },
+    ]);
+
+    const [metadata] = await archive.listRecordMetadata(RecordType.assetBlob);
+    const fullRecord = await archive.getRecord(RecordType.assetBlob, id);
+    expect(metadata?.fields.get("record_role")).toBe("asset-blob");
+    expect(metadata?.blob).toHaveLength(0);
+    expect(fullRecord?.blob).toHaveLength(blob.length);
   });
 
   it("does not accept a changed commit locator", async () => {
