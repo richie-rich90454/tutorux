@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { Buffer } from "node:buffer";
 import {
   appendRecords,
   compactArchiveSnapshot,
@@ -12,10 +13,14 @@ import {
 } from "./archive";
 import {
   decodeRecordFrame,
+  decodeRecordFrameHeader,
+  compressRecordPayload,
+  encodeRecordPayload,
   encodeRecordFrame,
   newUuid,
   recordTypeName,
   RecordType,
+  type ArchiveRecord,
 } from "./format";
 import { CompositeArchiveSource, MemoryArchiveSource, type ArchiveByteSource } from "./source";
 
@@ -93,6 +98,80 @@ describe("Tutorux archive snapshots", () => {
     expect(metadata?.fields.get("record_role")).toBe("asset-blob");
     expect(metadata?.blob).toHaveLength(0);
     expect(fullRecord?.blob).toHaveLength(blob.length);
+  });
+
+  it("reads settings fields beyond the metadata window used by sanitized copies", async () => {
+    const randomBytes = new Uint8Array(5 * 1024 * 1024);
+    for (let offset = 0; offset < randomBytes.length; offset += 65_536) {
+      crypto.getRandomValues(
+        randomBytes.subarray(offset, Math.min(offset + 65_536, randomBytes.length)),
+      );
+    }
+    const noteText = Buffer.from(randomBytes).toString("base64");
+    const note: ArchiveRecord = {
+      type: RecordType.settings,
+      id: newUuid(),
+      revision: 0n,
+      previousOffset: 0n,
+      fields: new Map([
+        ["record_role", "journal-notes"],
+        ["entry_id", newUuid()],
+        ["session_id", ""],
+        ["block_count", "1"],
+        ["block.0.id", newUuid()],
+        ["block.0.kind", "paragraph"],
+        ["block.0.text", noteText],
+      ]),
+      blob: new Uint8Array(),
+    };
+    expect(compressRecordPayload(encodeRecordPayload(note)).codec).toBe(0);
+
+    const archive = await appendRecords(await openArchiveBytes(await createArchiveBytes("Notes")), [
+      note,
+    ]);
+    const metadata = await archive.listRecordMetadata(RecordType.settings);
+    expect(metadata.find((record) => record.id === note.id)?.fields.get("block.0.text")).toBe(
+      noteText,
+    );
+  });
+
+  it("validates streamed metadata payload checksums and record padding", async () => {
+    let archive = await openArchiveBytes(await createArchiveBytes("Metadata integrity"));
+    const id = newUuid();
+    archive = await appendRecords(archive, [
+      {
+        type: RecordType.settings,
+        id,
+        revision: 0n,
+        previousOffset: 0n,
+        fields: new Map([["record_role", "journal-notes"]]),
+        blob: new Uint8Array([0x41]),
+      },
+    ]);
+    const offset = archive.allIndexEntries().get(`SETTINGS:${id}`)!;
+    const originalBytes = await archive.source.read(0n, Number(archive.source.size));
+    const frameHeader = decodeRecordFrameHeader(
+      originalBytes.subarray(Number(offset), Number(offset) + 64),
+      Number(offset),
+    );
+    const payloadStart = Number(offset) + 64;
+    const payloadEnd = payloadStart + frameHeader.payloadLength;
+    const paddingLength = (8 - (frameHeader.payloadLength % 8)) % 8;
+    expect(paddingLength).toBeGreaterThan(0);
+
+    const corruptedPayload = originalBytes.slice();
+    corruptedPayload[payloadEnd - 1] = corruptedPayload[payloadEnd - 1]! ^ 1;
+    const payloadArchive = await openArchiveBytes(corruptedPayload);
+    await expect(payloadArchive.listRecordMetadata(RecordType.settings)).rejects.toMatchObject({
+      code: "record_payload_checksum",
+    });
+
+    const corruptedPadding = originalBytes.slice();
+    corruptedPadding[payloadEnd] = 1;
+    const paddingArchive = await openArchiveBytes(corruptedPadding);
+    await expect(paddingArchive.listRecordMetadata(RecordType.settings)).rejects.toMatchObject({
+      code: "record_padding_invalid",
+    });
   });
 
   it("does not accept a changed commit locator", async () => {
