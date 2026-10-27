@@ -18,15 +18,19 @@ import {
   type ArchiveHeader,
   type ArchiveRecord,
   type ArchiveRecordFrame,
+  type ArchiveRecordFrameHeader,
   type RecordTypeValue,
   ArchiveFormatError,
   crc32,
+  crc32Finalize,
+  crc32Update,
 } from "./format";
 import { CompositeArchiveSource, MemoryArchiveSource, type ArchiveByteSource } from "./source";
 import type { ArchiveDataKey } from "./crypto";
 
 const LOCATOR_SIZE = 32;
 const RECOVERY_WINDOW = 64 * 1024 * 1024;
+const METADATA_READ_CHUNK_BYTES = 64 * 1024;
 const MAX_INDEX_DEPTH = 32;
 const MAX_INDEX_KEY_BYTES = 192;
 const ZERO_UUID = "00000000-0000-0000-0000-000000000000";
@@ -2849,62 +2853,66 @@ async function readRecordMetadataAt(
     );
     return { ...record, blob: new Uint8Array() };
   }
+  const reader = new SequentialRecordPayloadReader(
+    source,
+    offset + BigInt(RECORD_HEADER_SIZE),
+    header.payloadLength,
+  );
+  return readRecordMetadataPayload(reader, header);
+}
 
-  const prefixLength = Math.min(header.payloadLength, 64 * 1024);
-  const prefix = await source.read(offset + 64n, prefixLength);
+async function readRecordMetadataPayload(
+  reader: SequentialRecordPayloadReader,
+  header: ArchiveRecordFrameHeader,
+): Promise<ArchiveRecord> {
+  if (header.payloadLength < 16) {
+    throw new ArchiveFormatError("record_payload_invalid", "Domain record payload is malformed.");
+  }
+  const preamble = await reader.readBytes(16);
   if (
-    prefix.length < 16 ||
-    prefix[0] !== 0x54 ||
-    prefix[1] !== 0x58 ||
-    prefix[2] !== 0x4d ||
-    prefix[3] !== 0x44
+    preamble[0] !== 0x54 ||
+    preamble[1] !== 0x58 ||
+    preamble[2] !== 0x4d ||
+    preamble[3] !== 0x44
   ) {
     throw new ArchiveFormatError("record_payload_invalid", "Domain record payload is malformed.");
   }
-  const view = new DataView(prefix.buffer, prefix.byteOffset, prefix.byteLength);
-  const schema = view.getUint16(4, true);
-  const count = view.getUint16(6, true);
-  const blobLength = view.getBigUint64(8, true);
+  const preambleView = new DataView(preamble.buffer, preamble.byteOffset, preamble.byteLength);
+  const schema = preambleView.getUint16(4, true);
+  const count = preambleView.getUint16(6, true);
+  const blobLength = preambleView.getBigUint64(8, true);
   if (schema !== 1 || blobLength > BigInt(header.payloadLength - 16)) {
     throw new ArchiveFormatError("record_schema_unsupported", "Unsupported record schema.");
   }
 
+  const metadataEnd = header.payloadLength - Number(blobLength);
   const fields = new Map<string, string>();
-  let cursor = 16;
   for (let index = 0; index < count; index += 1) {
-    if (cursor + 6 > prefix.length) {
-      throw new ArchiveFormatError(
-        "record_field_limit",
-        "Recording metadata exceeds the supported field size.",
-      );
+    if (reader.position + 6 > metadataEnd) {
+      throw new ArchiveFormatError("record_field_limit", "Record field exceeds its payload.");
     }
-    const keyLength = view.getUint16(cursor, true);
-    const valueLength = view.getUint32(cursor + 2, true);
-    cursor += 6;
-    if (keyLength === 0 || cursor + keyLength + valueLength > prefix.length) {
-      throw new ArchiveFormatError(
-        "record_field_limit",
-        "Recording metadata exceeds the supported field size.",
-      );
+    const fieldHeader = await reader.readBytes(6);
+    const fieldView = new DataView(
+      fieldHeader.buffer,
+      fieldHeader.byteOffset,
+      fieldHeader.byteLength,
+    );
+    const keyLength = fieldView.getUint16(0, true);
+    const valueLength = fieldView.getUint32(2, true);
+    if (keyLength === 0 || reader.position + keyLength + valueLength > metadataEnd) {
+      throw new ArchiveFormatError("record_field_limit", "Record field exceeds its payload.");
     }
-    let key: string;
-    let value: string;
-    try {
-      key = decoder.decode(prefix.subarray(cursor, cursor + keyLength));
-      cursor += keyLength;
-      value = decoder.decode(prefix.subarray(cursor, cursor + valueLength));
-      cursor += valueLength;
-    } catch {
-      throw new ArchiveFormatError("record_text_invalid", "Record text is not valid UTF-8.");
-    }
+    const key = await reader.readText(keyLength);
+    const value = await reader.readText(valueLength);
     if (fields.has(key)) {
       throw new ArchiveFormatError("record_field_duplicate", "Record contains duplicate fields.");
     }
     fields.set(key, value);
   }
-  if (BigInt(cursor) + blobLength !== BigInt(header.payloadLength)) {
+  if (BigInt(reader.position) + blobLength !== BigInt(header.payloadLength)) {
     throw new ArchiveFormatError("record_blob_invalid", "Record blob length is inconsistent.");
   }
+  await reader.verify(header.payloadChecksum);
   return {
     type: header.type,
     id: header.id,
@@ -2913,6 +2921,110 @@ async function readRecordMetadataAt(
     fields,
     blob: new Uint8Array(),
   };
+}
+
+class SequentialRecordPayloadReader {
+  private positionInPayload = 0;
+  private pageStart = 0;
+  private page: Uint8Array<ArrayBufferLike> = new Uint8Array();
+  private readonly decoder = new TextDecoder("utf-8", { fatal: true });
+  private checksumState = 0xffffffff;
+
+  constructor(
+    private readonly source: ArchiveByteSource,
+    private readonly payloadOffset: bigint,
+    private readonly payloadLength: number,
+  ) {}
+
+  get position(): number {
+    return this.positionInPayload;
+  }
+
+  async readBytes(length: number): Promise<Uint8Array> {
+    if (
+      !Number.isSafeInteger(length) ||
+      length < 0 ||
+      length > METADATA_READ_CHUNK_BYTES ||
+      this.positionInPayload + length > this.payloadLength
+    ) {
+      throw new ArchiveFormatError("record_field_limit", "Record field exceeds its payload.");
+    }
+    const output = new Uint8Array(length);
+    let written = 0;
+    while (written < length) {
+      const pageEnd = this.pageStart + this.page.byteLength;
+      if (this.positionInPayload < this.pageStart || this.positionInPayload >= pageEnd) {
+        this.pageStart = this.positionInPayload;
+        const pageLength = Math.min(
+          METADATA_READ_CHUNK_BYTES,
+          this.payloadLength - this.positionInPayload,
+        );
+        this.page = await this.source.read(this.payloadOffset + BigInt(this.pageStart), pageLength);
+        if (this.page.byteLength !== pageLength) {
+          throw new ArchiveFormatError("archive_truncated", "Record payload is truncated.");
+        }
+      }
+      const pageOffset = this.positionInPayload - this.pageStart;
+      const copyLength = Math.min(length - written, this.page.byteLength - pageOffset);
+      output.set(this.page.subarray(pageOffset, pageOffset + copyLength), written);
+      this.positionInPayload += copyLength;
+      written += copyLength;
+    }
+    this.checksumState = crc32Update(this.checksumState, output);
+    return output;
+  }
+
+  async verify(expectedChecksum: number): Promise<void> {
+    while (this.positionInPayload < this.payloadLength) {
+      await this.readBytes(
+        Math.min(METADATA_READ_CHUNK_BYTES, this.payloadLength - this.positionInPayload),
+      );
+    }
+    if (crc32Finalize(this.checksumState) !== expectedChecksum) {
+      throw new ArchiveFormatError(
+        "record_payload_checksum",
+        "Record payload checksum is invalid.",
+      );
+    }
+
+    const paddingLength = (8 - (this.payloadLength % 8)) % 8;
+    if (paddingLength > 0) {
+      const padding = await this.source.read(
+        this.payloadOffset + BigInt(this.payloadLength),
+        paddingLength,
+      );
+      if (padding.byteLength !== paddingLength) {
+        throw new ArchiveFormatError("archive_truncated", "Record alignment padding is truncated.");
+      }
+      if (padding.some((byte) => byte !== 0)) {
+        throw new ArchiveFormatError(
+          "record_padding_invalid",
+          "Record alignment padding must be zero.",
+        );
+      }
+    }
+  }
+
+  async readText(length: number): Promise<string> {
+    const chunks: string[] = [];
+    let remaining = length;
+    while (remaining > 0) {
+      const chunkLength = Math.min(METADATA_READ_CHUNK_BYTES, remaining);
+      const bytes = await this.readBytes(chunkLength);
+      remaining -= chunkLength;
+      try {
+        chunks.push(this.decoder.decode(bytes, { stream: remaining > 0 }));
+      } catch {
+        throw new ArchiveFormatError("record_text_invalid", "Record text is not valid UTF-8.");
+      }
+    }
+    try {
+      chunks.push(this.decoder.decode());
+    } catch {
+      throw new ArchiveFormatError("record_text_invalid", "Record text is not valid UTF-8.");
+    }
+    return chunks.join("");
+  }
 }
 
 function hasMagic(bytes: Uint8Array, offset: number, magic: string): boolean {
