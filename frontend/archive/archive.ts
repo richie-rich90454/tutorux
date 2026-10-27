@@ -8,6 +8,7 @@ import {
   decodeRecordPayload,
   decodeStoredPayload,
   compressRecordPayload,
+  encodeRecordFrameHeader,
   encodeArchiveHeader,
   encodeRecordFrame,
   encodeRecordPayload,
@@ -61,6 +62,8 @@ interface CommitCandidate {
 interface PublishedCommitCandidate extends CommitCandidate {
   publishedEndOffset: bigint;
 }
+
+type CompactionFrameInfo = Omit<ArchiveRecordFrame, "storedPayload">;
 
 export interface ArchiveManifest {
   displayName: string;
@@ -285,7 +288,7 @@ export interface ArchiveVerificationResult {
   indexEntries: number;
 }
 
-/** Decode every current primary record, including trashed and forward-compatible record types. */
+/** Verify current primary records and framing without parsing opaque forward-compatible payloads. */
 export async function verifyArchiveSnapshot(
   snapshot: ArchiveSnapshot,
 ): Promise<ArchiveVerificationResult> {
@@ -302,7 +305,7 @@ export async function verifyArchiveSnapshot(
   let currentRecords = 0;
   let liveRecords = 0;
   let deletedRecords = 0;
-  for (const key of snapshot.allIndexEntries().keys()) {
+  for (const [key, offset] of snapshot.allIndexEntries()) {
     const separator = key.indexOf(":");
     if (separator < 1 || key.indexOf(":", separator + 1) !== -1) continue;
     const typeName = key.slice(0, separator);
@@ -314,18 +317,26 @@ export async function verifyArchiveSnapshot(
         "A primary record index key is invalid.",
       );
     }
-    const record = await snapshot.getRecordByIndexKey(key);
-    if (
-      !record ||
-      record.id.toLowerCase() !== id ||
-      recordTypeName(record.type).toUpperCase() !== typeName
-    ) {
+    const frame = await readFrameAt(snapshot.source, offset);
+    if (frame.id.toLowerCase() !== id || recordTypeName(frame.type).toUpperCase() !== typeName) {
       throw new ArchiveFormatError(
         "record_index_mismatch",
         "Archive index points to a different record.",
       );
     }
     currentRecords += 1;
+    const payload = decodeStoredPayload(frame);
+    if (typeName === "UNKNOWN") {
+      liveRecords += 1;
+      continue;
+    }
+    const record = decodeRecordPayload(
+      frame.type,
+      frame.id,
+      frame.revision,
+      frame.previousOffset,
+      payload,
+    );
     if (record.fields.get("_deleted") === "true") deletedRecords += 1;
     else liveRecords += 1;
   }
@@ -421,6 +432,216 @@ export async function recoverUnpublishedCommit(
     snapshot: recoveredSnapshot,
     recoveredGeneration: candidate.commit.generation,
     discardedTrailingBytes: snapshot.source.size - BigInt(commitFrame.endOffset),
+  };
+}
+
+export interface ArchiveCompactionResult {
+  snapshot: ArchiveSnapshot;
+  originalBytes: bigint;
+  compactedBytes: bigint;
+  preservedRecords: number;
+}
+
+/** Rewrite one verified archive generation while preserving every indexed revision and payload. */
+export async function compactArchiveSnapshot(
+  snapshot: ArchiveSnapshot,
+): Promise<ArchiveCompactionResult> {
+  if (snapshot.locked) {
+    throw new ArchiveFormatError("archive_locked", "Unlock this archive before compacting it.");
+  }
+  if (snapshot.source.size !== snapshot.publishedEndOffset) {
+    throw new ArchiveFormatError(
+      "archive_recovery_required",
+      "This archive has uncommitted trailing data. Review or recover it before compacting it.",
+    );
+  }
+
+  await snapshot.getManifest();
+  await verifyArchiveSnapshot(snapshot);
+
+  const indexed = snapshot.allIndexEntries();
+  const primaryEntries: { key: string; offset: bigint }[] = [];
+  for (const [key, offset] of indexed) {
+    const separator = key.indexOf(":");
+    if (separator < 1 || key.indexOf(":", separator + 1) !== -1) continue;
+    const id = key.slice(separator + 1).toLowerCase();
+    if (!validArchiveUuid(id)) continue;
+    const frame = await readFrameAt(snapshot.source, offset);
+    if (key === primaryIndexKey(frame.type, frame.id)) primaryEntries.push({ key, offset });
+  }
+  if (!primaryEntries.length) {
+    throw new ArchiveFormatError(
+      "archive_compaction_primary_index_missing",
+      "The archive has no primary records to compact.",
+    );
+  }
+
+  const retainedOffsets = new Map<bigint, CompactionFrameInfo>();
+  const chains: { key: string; frames: { offset: bigint; frame: CompactionFrameInfo }[] }[] = [];
+  for (const entry of primaryEntries.sort((left, right) => compareKeys(left.key, right.key))) {
+    const chain: { offset: bigint; frame: CompactionFrameInfo }[] = [];
+    let offset = entry.offset;
+    let newer: CompactionFrameInfo | undefined;
+    const visited = new Set<bigint>();
+    while (offset !== 0n) {
+      if (visited.has(offset)) {
+        throw new ArchiveFormatError("revision_cycle", "Record revision chain contains a cycle.");
+      }
+      visited.add(offset);
+      const existing = retainedOffsets.get(offset);
+      let frame = existing;
+      if (!frame) {
+        const readFrame = await readFrameAt(snapshot.source, offset);
+        if (readFrame.flags & 1) {
+          throw new ArchiveFormatError(
+            "archive_locked",
+            "Unlock this archive before compacting encrypted records.",
+          );
+        }
+        const payload = decodeStoredPayload(readFrame);
+        if (recordTypeName(readFrame.type) !== "unknown") {
+          decodeRecordPayload(
+            readFrame.type,
+            readFrame.id,
+            readFrame.revision,
+            readFrame.previousOffset,
+            payload,
+          );
+        }
+        frame = {
+          type: readFrame.type,
+          id: readFrame.id,
+          revision: readFrame.revision,
+          previousOffset: readFrame.previousOffset,
+          codec: readFrame.codec,
+          flags: readFrame.flags,
+          payloadLength: readFrame.payloadLength,
+          payloadChecksum: readFrame.payloadChecksum,
+          endOffset: readFrame.endOffset,
+        };
+      }
+      if (frame.flags & 1) {
+        throw new ArchiveFormatError(
+          "archive_locked",
+          "Unlock this archive before compacting encrypted records.",
+        );
+      }
+      if (
+        newer &&
+        (frame.type !== newer.type || frame.id !== newer.id || frame.revision >= newer.revision)
+      ) {
+        throw new ArchiveFormatError(
+          "revision_lineage_invalid",
+          "Record revision lineage is inconsistent.",
+        );
+      }
+      if (frame.previousOffset !== 0n && frame.previousOffset >= offset) {
+        throw new ArchiveFormatError(
+          "revision_lineage_invalid",
+          "Record revision points forward in the archive.",
+        );
+      }
+      if (existing && (existing.type !== frame.type || existing.id !== frame.id)) {
+        throw new ArchiveFormatError(
+          "revision_lineage_invalid",
+          "Record revision offset is shared by different records.",
+        );
+      }
+      retainedOffsets.set(offset, frame);
+      chain.push({ offset, frame });
+      newer = frame;
+      offset = frame.previousOffset;
+    }
+    chains.push({ key: entry.key, frames: chain.reverse() });
+  }
+
+  const header = encodeArchiveHeader(snapshot.header);
+  const emptyRoot = encodeRecordFrame(
+    { type: RecordType.indexPage, id: ZERO_UUID, revision: 1n, previousOffset: 0n },
+    encodeIndexPage({ leaf: true, entries: [], separators: [], children: [] }),
+  );
+  const outputSegments: CompactedArchiveSegment[] = [
+    { kind: "static", offset: 0n, bytes: header },
+    { kind: "static", offset: BigInt(header.byteLength), bytes: emptyRoot },
+  ];
+  let cursor = BigInt(header.byteLength + emptyRoot.byteLength);
+  const relocatedOffsets = new Map<bigint, bigint>();
+  for (const chain of chains) {
+    let previousOffset = 0n;
+    for (const { offset, frame } of chain.frames) {
+      const frameHeader = encodeRecordFrameHeader(
+        { ...frame, previousOffset },
+        frame.payloadLength,
+        frame.codec,
+        frame.flags,
+        frame.payloadChecksum,
+      );
+      const frameLength =
+        RECORD_HEADER_SIZE + frame.payloadLength + ((8 - (frame.payloadLength % 8)) % 8);
+      relocatedOffsets.set(offset, cursor);
+      outputSegments.push({
+        kind: "frame",
+        offset: cursor,
+        originalOffset: offset,
+        frameLength,
+        payloadLength: frame.payloadLength,
+        header: frameHeader,
+      });
+      previousOffset = cursor;
+      cursor += BigInt(frameLength);
+    }
+  }
+
+  const relocatedIndex = new Map<string, bigint>();
+  for (const [key, oldOffset] of indexed) {
+    const newOffset = relocatedOffsets.get(oldOffset);
+    if (newOffset === undefined) {
+      throw new ArchiveFormatError(
+        "archive_compaction_index_unreachable",
+        "An index entry points to a record revision that cannot be retained.",
+      );
+    }
+    relocatedIndex.set(key, newOffset);
+  }
+
+  const orderedEntries = [...relocatedIndex.entries()]
+    .map(([key, valueOffset]) => ({ key, valueOffset }))
+    .sort((left, right) => compareKeys(left.key, right.key));
+  const tree = buildIndexTree(orderedEntries, cursor);
+  for (const frame of tree.frames) {
+    outputSegments.push({ kind: "static", offset: cursor, bytes: frame });
+    cursor += BigInt(frame.byteLength);
+  }
+  const transactionId = newUuid();
+  const commitOffset = tree.endOffset;
+  const rootHash = await sha256(tree.rootPayload);
+  const commitPayload = encodeCommitPayload({
+    generation: 1n,
+    previousOffset: 0n,
+    rootOffset: tree.rootOffset,
+    rootHash,
+    transactionId,
+    recordCount: BigInt(retainedOffsets.size),
+  });
+  const commitFrame = encodeRecordFrame(
+    { type: RecordType.commit, id: ZERO_UUID, revision: 1n, previousOffset: 0n },
+    commitPayload,
+  );
+  outputSegments.push({ kind: "static", offset: cursor, bytes: commitFrame });
+  cursor += BigInt(commitFrame.byteLength);
+  const locator = encodeLocator(commitOffset, 1n);
+  outputSegments.push({ kind: "static", offset: cursor, bytes: locator });
+  cursor += BigInt(locator.byteLength);
+
+  const compactedSource = new CompactedArchiveSource(snapshot.source, outputSegments, cursor);
+  const compacted = await openArchiveSource(compactedSource);
+  await compacted.getManifest();
+  await verifyArchiveSnapshot(compacted);
+  return {
+    snapshot: compacted,
+    originalBytes: snapshot.source.size,
+    compactedBytes: compacted.source.size,
+    preservedRecords: retainedOffsets.size,
   };
 }
 
@@ -1470,6 +1691,96 @@ function validLocator(locator: Uint8Array): boolean {
   return (
     view.getUint32(24, true) === crc32(locator.subarray(0, 24)) && view.getUint32(28, true) === 0
   );
+}
+
+type CompactedArchiveSegment =
+  | { kind: "static"; offset: bigint; bytes: Uint8Array }
+  | {
+      kind: "frame";
+      offset: bigint;
+      originalOffset: bigint;
+      frameLength: number;
+      payloadLength: number;
+      header: Uint8Array;
+    };
+
+/** Reads a compacted archive as fixed metadata plus payload ranges from its verified source. */
+class CompactedArchiveSource implements ArchiveByteSource {
+  constructor(
+    private readonly original: ArchiveByteSource,
+    private readonly segments: readonly CompactedArchiveSegment[],
+    readonly size: bigint,
+  ) {}
+
+  async read(offset: bigint, length: number): Promise<Uint8Array> {
+    if (
+      offset < 0n ||
+      offset > BigInt(Number.MAX_SAFE_INTEGER) ||
+      !Number.isSafeInteger(length) ||
+      length < 0 ||
+      BigInt(length) > this.size - offset
+    ) {
+      throw new RangeError("Compacted archive read is outside the source bounds.");
+    }
+    const output = new Uint8Array(length);
+    const end = offset + BigInt(length);
+    let low = 0;
+    let high = this.segments.length;
+    while (low < high) {
+      const middle = low + Math.floor((high - low) / 2);
+      const segment = this.segments[middle]!;
+      const segmentLength =
+        segment.kind === "static" ? segment.bytes.byteLength : segment.frameLength;
+      if (segment.offset + BigInt(segmentLength) <= offset) low = middle + 1;
+      else high = middle;
+    }
+    for (let index = low; index < this.segments.length; index += 1) {
+      const segment = this.segments[index]!;
+      const segmentLength =
+        segment.kind === "static" ? segment.bytes.byteLength : segment.frameLength;
+      const segmentEnd = segment.offset + BigInt(segmentLength);
+      if (segment.offset >= end) break;
+      const overlapStart = segment.offset > offset ? segment.offset : offset;
+      const overlapEnd = segmentEnd < end ? segmentEnd : end;
+      if (segment.kind === "static") {
+        const sourceStart = Number(overlapStart - segment.offset);
+        const outputStart = Number(overlapStart - offset);
+        const overlapLength = Number(overlapEnd - overlapStart);
+        output.set(segment.bytes.subarray(sourceStart, sourceStart + overlapLength), outputStart);
+        continue;
+      }
+
+      const headerEnd = segment.offset + BigInt(RECORD_HEADER_SIZE);
+      if (overlapStart < headerEnd) {
+        const headerStart = Number(overlapStart - segment.offset);
+        const headerCopyEnd = overlapEnd < headerEnd ? overlapEnd : headerEnd;
+        const copyLength = Number(headerCopyEnd - overlapStart);
+        output.set(
+          segment.header.subarray(headerStart, headerStart + copyLength),
+          Number(overlapStart - offset),
+        );
+      }
+      const payloadStart = headerEnd;
+      const payloadEnd = payloadStart + BigInt(segment.payloadLength);
+      const payloadCopyStart = overlapStart > payloadStart ? overlapStart : payloadStart;
+      const payloadCopyEnd = overlapEnd < payloadEnd ? overlapEnd : payloadEnd;
+      if (payloadCopyEnd > payloadCopyStart) {
+        const payloadLength = Number(payloadCopyEnd - payloadCopyStart);
+        const payload = await this.original.read(
+          segment.originalOffset + BigInt(RECORD_HEADER_SIZE) + payloadCopyStart - payloadStart,
+          payloadLength,
+        );
+        if (payload.byteLength !== payloadLength) {
+          throw new ArchiveFormatError(
+            "archive_compaction_source_changed",
+            "The source archive changed while compaction was reading record payloads.",
+          );
+        }
+        output.set(payload, Number(payloadCopyStart - offset));
+      }
+    }
+    return output;
+  }
 }
 
 class PrefixArchiveSource implements ArchiveByteSource {
