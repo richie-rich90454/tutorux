@@ -31,6 +31,18 @@ One Windows run on 2026-10-26 with Node v24.13.0 / V8 13.6.233.17-node.37 produc
 
 This is one in-memory run on the development machine, without warmup or repeated samples. The RSS delta includes Node/V8 runtime and allocations that have not been isolated; use it as a baseline, not as a stable memory budget.
 
+One compression-enabled run on 2026-10-27 used Windows x64 (NT 10.0.26200.0), an Intel Core Ultra 7 255H, Node v24.13.0, and V8 13.6.233.17-node.37:
+
+| Workload                                        |            Result |
+| ----------------------------------------------- | ----------------: |
+| 10,000 student record archive size              |   4,621,968 bytes |
+| Create and open empty archive                   |          14.40 ms |
+| Append one generation containing 10,000 records |       1,291.52 ms |
+| Decode and list 10,000 records                  |         293.02 ms |
+| Process RSS delta during the run                | 130,564,096 bytes |
+
+This single non-warmed sample produced an archive 320,000 bytes smaller than the prior run, while append time was about 2.3 times longer. Treat both measurements as directional until repeated runs use a warmed and otherwise identical workload.
+
 ## Limits and next gates
 
 - Benchmarking is currently on Windows only.
