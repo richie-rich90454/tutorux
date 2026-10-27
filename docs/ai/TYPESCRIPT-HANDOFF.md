@@ -17,6 +17,16 @@ Packages are capped at 8 MiB. The archive job stores the exact JSON bytes and ma
 values. Workspace loading reads AI job metadata only; the full package bytes are loaded only when
 the user opens the JSON preview or exports a saved package.
 
-Provider configuration, encrypted credential management, outbound request review and confirmation,
-provider execution, response import, local model jobs, and the CLI AI command group are still
-unported. The migration inventory tracks those remaining areas.
+The AI workspace also saves compatible provider endpoint and model settings for OpenAI, Anthropic,
+Google Gemini, Cohere, Perplexity, Ollama, and custom OpenAI-compatible services. Cloud endpoints
+must use HTTPS; Ollama is restricted to loopback HTTP. Configuration is archive-backed and does not
+test or contact a provider.
+
+API keys can be saved as separate credential-role records only when the active archive is encrypted.
+The UI requires an explicit storage confirmation, never reads the key back into its display, masks
+credential values in workspace metadata, and soft-deletes a credential when removed. This storage
+does not yet provide a system-keychain backend or feed keys to provider requests.
+
+Outbound request review and confirmation, provider execution, response import, local model jobs,
+and the CLI AI command group are still unported. The migration inventory tracks those remaining
+areas.
