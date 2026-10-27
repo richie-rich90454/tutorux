@@ -2739,7 +2739,7 @@ async function runExtendedRecordCommand(
   if (group === "session" && action === "delete") {
     const sessionId = requiredPosition(args, 0, "session ID").toLowerCase();
     const snapshot = await openForCommand(path);
-    let changes: ArchiveRecord[] = [];
+    let changes: ArchiveRecord[];
     let generation: bigint | undefined;
     let scope: Awaited<ReturnType<typeof planSessionTrash>> | undefined;
     try {
@@ -2829,7 +2829,7 @@ async function runExtendedRecordCommand(
   if (group === "session" && action === "restore") {
     const sessionId = requiredPosition(args, 0, "session ID").toLowerCase();
     const snapshot = await openForCommand(path);
-    let changes: ArchiveRecord[] = [];
+    let changes: ArchiveRecord[];
     let generation: bigint | undefined;
     try {
       const session = await snapshot.getRecord(RecordType.session, sessionId);
@@ -3069,7 +3069,7 @@ async function runExtendedRecordCommand(
     }
     const snapshot = await openForCommand(path);
     let records: ArchiveRecord[];
-    let expectedGeneration = 0n;
+    let expectedGeneration: bigint;
     try {
       expectedGeneration = snapshot.commit.generation;
       const current = await requireLiveRecord(snapshot, RecordType.session, sessionId);
@@ -3227,7 +3227,7 @@ async function runExtendedRecordCommand(
     const sessionId = requiredPosition(args, 0, "session ID");
     const snapshot = await openForCommand(path);
     let records: ArchiveRecord[];
-    let expectedGeneration = 0n;
+    let expectedGeneration: bigint;
     try {
       expectedGeneration = snapshot.commit.generation;
       const current = await requireLiveRecord(snapshot, RecordType.session, sessionId);
@@ -3267,7 +3267,7 @@ async function runExtendedRecordCommand(
     const sessionId = requiredPosition(args, 0, "session ID");
     const snapshot = await openForCommand(path);
     let updated: ArchiveRecord;
-    let expectedGeneration = 0n;
+    let expectedGeneration: bigint;
     try {
       expectedGeneration = snapshot.commit.generation;
       const current = await requireLiveRecord(snapshot, RecordType.session, sessionId);
@@ -3630,13 +3630,13 @@ function requiredOption(args: ParsedArguments, name: string): string {
   return value;
 }
 
-function field(record: ArchiveRecord, name: string): string {
-  return record.fields.get(name) ?? "";
+function field(record: ArchiveRecord, name: string, fallback = ""): string {
+  return record.fields.get(name) ?? fallback;
 }
 
 function studentProfileObject(record: ArchiveRecord): Record<string, unknown> {
   const fields = Object.fromEntries(record.fields);
-  delete fields.progress_classifications;
+  delete fields["progress_classifications"];
   return {
     id: record.id.toLowerCase(),
     type: "student",
