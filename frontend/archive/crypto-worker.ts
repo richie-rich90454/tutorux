@@ -1,27 +1,54 @@
-import { unwrapArchiveDataKeyBytes } from "./crypto";
+import { unwrapArchiveDataKeyBytes, wrapArchiveDataKeyBytesInWorker } from "./crypto";
 import type { ArchiveEncryptionEnvelope } from "./crypto";
 import { ArchiveFormatError } from "./format";
 
 interface CryptoWorkerRequest {
+  operation: "unwrap";
   passphrase: string;
   envelope: ArchiveEncryptionEnvelope;
   archiveId: string;
 }
 
+interface CryptoWorkerWrapRequest {
+  operation: "wrap";
+  passphrase: string;
+  key: ArrayBuffer;
+  archiveId: string;
+}
+
+type CryptoWorkerMessage = CryptoWorkerRequest | CryptoWorkerWrapRequest;
+
 type CryptoWorkerResponse =
-  { success: true; key: ArrayBuffer } | { success: false; code: string; message: string };
+  | { success: true; operation: "unwrap"; key: ArrayBuffer }
+  | { success: true; operation: "wrap"; envelope: ArchiveEncryptionEnvelope }
+  | { success: false; code: string; message: string };
 
 const workerScope = globalThis as unknown as {
-  onmessage: ((event: MessageEvent<CryptoWorkerRequest>) => void) | null;
+  onmessage: ((event: MessageEvent<CryptoWorkerMessage>) => void) | null;
   postMessage(message: CryptoWorkerResponse, transfer?: Transferable[]): void;
 };
 
 workerScope.onmessage = async (event): Promise<void> => {
+  const request = event.data;
   try {
+    if (request.operation === "wrap") {
+      const key = new Uint8Array(request.key);
+      try {
+        const envelope = await wrapArchiveDataKeyBytesInWorker(
+          request.passphrase,
+          key,
+          request.archiveId,
+        );
+        workerScope.postMessage({ success: true, operation: "wrap", envelope });
+      } finally {
+        key.fill(0);
+      }
+      return;
+    }
     const key = await unwrapArchiveDataKeyBytes(
-      event.data.passphrase,
-      event.data.envelope,
-      event.data.archiveId,
+      request.passphrase,
+      request.envelope,
+      request.archiveId,
     );
     if (key.byteLength !== 32) {
       key.fill(0);
@@ -34,7 +61,7 @@ workerScope.onmessage = async (event): Promise<void> => {
     transferredKey.set(key);
     key.fill(0);
     const keyBuffer = transferredKey.buffer;
-    workerScope.postMessage({ success: true, key: keyBuffer }, [keyBuffer]);
+    workerScope.postMessage({ success: true, operation: "unwrap", key: keyBuffer }, [keyBuffer]);
   } catch (error) {
     const response: CryptoWorkerResponse =
       error instanceof ArchiveFormatError
