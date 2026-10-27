@@ -153,6 +153,27 @@ export class ArchiveSnapshot {
     return records;
   }
 
+  /** Return current fields without retaining binary blobs; compressed records may require transient decoding. */
+  async listRecordMetadata(
+    type: RecordTypeValue,
+    includeDeleted = false,
+  ): Promise<ArchiveRecord[]> {
+    const prefix = `${recordTypeName(type).toUpperCase()}:`;
+    const records: ArchiveRecord[] = [];
+    for (const [key, offset] of this.index) {
+      if (!key.startsWith(prefix) || key.length !== prefix.length + 36) continue;
+      const record = await readRecordMetadataAt(this.source, offset);
+      if (record.type !== type || record.id.toLowerCase() !== key.slice(prefix.length)) {
+        throw new ArchiveFormatError(
+          "record_index_mismatch",
+          "Archive index points to a different record.",
+        );
+      }
+      if (includeDeleted || record.fields.get("_deleted") !== "true") records.push(record);
+    }
+    return records;
+  }
+
   /**
    * Read the small metadata portions of one recording track without retaining its PCM blobs.
    * New archives use the session/track index; older archives fall back to the primary audio index.
