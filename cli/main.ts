@@ -7,6 +7,7 @@ import {
   appendRecords,
   createArchiveBytes,
   openArchiveSource,
+  recoverUnpublishedCommit,
   verifyArchiveSnapshot,
   type ArchiveSnapshot,
 } from "../frontend/archive/archive";
@@ -119,6 +120,7 @@ Usage:
   tutorux archive init <file.tux> --name <name> [--description <text>]
   tutorux archive info <file.tux> [--json]
   tutorux archive verify <file.tux> [--json]
+  tutorux archive recover <file.tux> [--apply] [--json]
   tutorux --archive <file.tux> student create --name <name> [--grade <grade>] [--difficulties <text>] [--demonstrated-improvements <text>] [--preferred-guide-template <id>]
   tutorux --archive <file.tux> student list [--include-deleted] [--json]
   tutorux --archive <file.tux> student show <uuid> [--json]
@@ -279,6 +281,50 @@ async function runArchiveCommand(
       args.flags.has("json"),
     );
     return 0;
+  }
+  if (action === "recover") {
+    const archivePath = resolve(path);
+    const openedInfo = await stat(archivePath);
+    const source = await NodeFileArchiveSource.open(archivePath);
+    try {
+      if (BigInt(openedInfo.size) !== source.size) {
+        throw new CliError("The archive changed while recovery was starting. Retry the command.");
+      }
+      const snapshot = await openArchiveSource(source);
+      const recovery = await recoverUnpublishedCommit(snapshot);
+      const applied = args.flags.has("apply");
+      if (applied) {
+        const currentInfo = await stat(archivePath);
+        if (
+          currentInfo.size !== openedInfo.size ||
+          currentInfo.mtimeMs !== openedInfo.mtimeMs ||
+          currentInfo.dev !== openedInfo.dev ||
+          currentInfo.ino !== openedInfo.ino
+        ) {
+          throw new CliError("The archive changed during recovery review. Retry the command.");
+        }
+        await writeSourceAtomically(archivePath, recovery.snapshot);
+      }
+      const result = {
+        path: archivePath,
+        previousGeneration: snapshot.commit.generation.toString(),
+        recoveredGeneration: recovery.recoveredGeneration.toString(),
+        discardedTrailingBytes: recovery.discardedTrailingBytes.toString(),
+        recoverable: true,
+        applied,
+      };
+      emit(
+        output,
+        result,
+        applied
+          ? `Recovered ${basename(path)} to generation ${result.recoveredGeneration}; discarded ${result.discardedTrailingBytes} trailing bytes.`
+          : `Generation ${result.recoveredGeneration} is recoverable. Add --apply to publish it.`,
+        args.flags.has("json"),
+      );
+      return 0;
+    } finally {
+      await source.close();
+    }
   }
   if (action !== "info" && action !== "verify") {
     throw new CliError(`archive ${action} is not implemented in the TypeScript CLI yet.`);
