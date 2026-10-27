@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
-import { openArchiveBytes, type ArchiveSnapshot } from "./archive";
+import { openArchiveBytes, verifyArchiveSnapshot, type ArchiveSnapshot } from "./archive";
 import {
   decodeLz4Block,
   decodeRecordFrame,
@@ -181,5 +181,41 @@ describe("Tutorux archive encryption primitives", () => {
       ),
     ).resolves.toBe(true);
     key.dispose();
+  });
+
+  it("unlocks a C++ archive after authenticating its commit, index, and manifest", async () => {
+    const fixture = new URL("../../tests/fixtures/encrypted-v1.tux", import.meta.url);
+    const locked = await openArchiveBytes(new Uint8Array(await readFile(fixture)));
+    const studentEntry = [...locked.allIndexEntries()].find(([indexKey]) =>
+      indexKey.startsWith("STUDENT:"),
+    );
+    expect(studentEntry).toBeDefined();
+    const studentId = studentEntry![0].slice("STUDENT:".length);
+    await expect(locked.getRecord(RecordType.student, studentId)).rejects.toMatchObject({
+      code: "archive_locked",
+    });
+    await expect(locked.unlock("incorrect passphrase")).rejects.toMatchObject({
+      code: "archive_passphrase_invalid",
+    });
+    expect(locked.locked).toBe(true);
+
+    const unlocked = await locked.unlock("Tutorux cross-language fixture phrase 2026");
+
+    expect(locked.locked).toBe(true);
+    expect(unlocked.locked).toBe(false);
+    expect(unlocked.canMutate).toBe(false);
+    await expect(unlocked.getManifest()).resolves.toMatchObject({
+      displayName: "Cross-language crypto fixture",
+    });
+    const student = await unlocked.getRecord(RecordType.student, studentId);
+    expect(student?.fields.get("display_name")).toBe("Interop Student");
+    const verified = await verifyArchiveSnapshot(unlocked);
+    expect(verified.currentRecords).toBeGreaterThan(0);
+
+    unlocked.lock();
+    expect(unlocked.locked).toBe(true);
+    await expect(unlocked.getRecord(RecordType.student, studentId)).rejects.toMatchObject({
+      code: "archive_locked",
+    });
   });
 });
