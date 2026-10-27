@@ -48,11 +48,12 @@ npm run cli -- archive recover Lesson.tux --json
 npm run cli -- archive recover Lesson.tux --apply --json
 npm run cli -- archive compact Lesson.tux --json
 npm run cli -- archive compact Lesson.tux --apply --json
+npm run cli -- archive repair Lesson.tux --output Lesson-repaired.tux --confirm-sensitive --json
 npm run cli -- --archive Lesson.tux student create --name "Maya Ortiz"
 npm run cli -- --archive Lesson.tux session list --json
 ```
 
-The CLI imports the same archive and domain modules as the UI. File paths are resolved by Node; archive reads are positional and bounded. Recovery is preview-only unless `--apply` is supplied, and it only publishes a complete next generation after full record verification. Compaction is also preview-only unless `--apply` is supplied; it preserves indexed history and original stored payload bytes, but does not yet prune unreferenced asset chunks or support encrypted archives. Do not add a second archive serializer for CLI convenience.
+The CLI imports the same archive and domain modules as the UI. File paths are resolved by Node; archive reads are positional and bounded. Recovery is preview-only unless `--apply` is supplied, and it only publishes a complete next generation after full record verification. Compaction is also preview-only unless `--apply` is supplied; it preserves indexed history and original stored payload bytes, but does not yet prune unreferenced asset chunks or support encrypted archives. Repair creates a separate `.tux` copy from the newest fully verified published generation, may fall back to an earlier generation, and requires `--confirm-sensitive` because it can contain private student records and recordings. Do not add a second archive serializer for CLI convenience.
 
 ## Tests and performance
 
