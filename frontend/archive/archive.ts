@@ -1,6 +1,7 @@
 import {
   ARCHIVE_HEADER_SIZE,
   CAPABILITY_ENCRYPTED,
+  RECORD_HEADER_SIZE,
   decodeArchiveHeader,
   decodeRecordFrame,
   decodeRecordFrameHeader,
@@ -57,6 +58,10 @@ interface CommitCandidate {
   indexEntries: Map<string, bigint>;
 }
 
+interface PublishedCommitCandidate extends CommitCandidate {
+  publishedEndOffset: bigint;
+}
+
 export interface ArchiveManifest {
   displayName: string;
   description: string;
@@ -72,6 +77,7 @@ export class ArchiveSnapshot {
     readonly header: ArchiveHeader,
     readonly commit: CommitInfo,
     private readonly index: ReadonlyMap<string, bigint>,
+    readonly publishedEndOffset = source.size,
   ) {
     this.encrypted = (header.capabilities & CAPABILITY_ENCRYPTED) !== 0n;
     this.locked = this.encrypted;
@@ -332,6 +338,92 @@ export async function verifyArchiveSnapshot(
   };
 }
 
+export interface ArchiveRecoveryResult {
+  snapshot: ArchiveSnapshot;
+  recoveredGeneration: bigint;
+  discardedTrailingBytes: bigint;
+}
+
+/** Recover one complete unpublished generation without changing the supplied source. */
+export async function recoverUnpublishedCommit(
+  snapshot: ArchiveSnapshot,
+): Promise<ArchiveRecoveryResult> {
+  if (snapshot.locked) {
+    throw new ArchiveFormatError(
+      "archive_locked",
+      "Unlock this archive before recovering an unpublished generation.",
+    );
+  }
+  if (snapshot.source.size <= snapshot.publishedEndOffset) {
+    throw new ArchiveFormatError(
+      "archive_recovery_not_available",
+      "No uncommitted trailing data follows the latest published generation.",
+    );
+  }
+
+  const candidate = await scanForUnpublishedCommit(snapshot);
+  if (!candidate) {
+    throw new ArchiveFormatError(
+      "archive_recovery_not_available",
+      "No complete unpublished generation follows the latest published generation.",
+    );
+  }
+
+  const transactionRecords = new Set<bigint>();
+  const knownTypes = new Set(
+    Object.values(RecordType).map((type) => recordTypeName(type).toUpperCase()),
+  );
+  knownTypes.add("UNKNOWN");
+  for (const [key, offset] of candidate.indexEntries) {
+    const separator = key.indexOf(":");
+    if (separator < 1 || key.indexOf(":", separator + 1) !== -1) continue;
+    const typeName = key.slice(0, separator);
+    const id = key.slice(separator + 1);
+    if (
+      knownTypes.has(typeName) &&
+      validArchiveUuid(id) &&
+      offset >= snapshot.publishedEndOffset &&
+      offset < candidate.commit.offset
+    ) {
+      transactionRecords.add(offset);
+    }
+  }
+  if (BigInt(transactionRecords.size) !== candidate.commit.recordCount) {
+    throw new ArchiveFormatError(
+      "archive_recovery_validation_failed",
+      "The unpublished generation record count does not match its current primary index.",
+    );
+  }
+
+  const candidateSnapshot = new ArchiveSnapshot(
+    snapshot.source,
+    snapshot.header,
+    candidate.commit,
+    candidate.indexEntries,
+  );
+  await candidateSnapshot.getManifest();
+  await verifyArchiveSnapshot(candidateSnapshot);
+
+  const commitFrame = await readFrameAt(snapshot.source, candidate.commit.offset);
+  const committedPrefix = new PrefixArchiveSource(snapshot.source, BigInt(commitFrame.endOffset));
+  const recoveredSource = new CompositeArchiveSource(
+    committedPrefix,
+    new MemoryArchiveSource(encodeLocator(candidate.commit.offset, candidate.commit.generation)),
+  );
+  const recoveredSnapshot = new ArchiveSnapshot(
+    recoveredSource,
+    snapshot.header,
+    candidate.commit,
+    candidate.indexEntries,
+    recoveredSource.size,
+  );
+  return {
+    snapshot: recoveredSnapshot,
+    recoveredGeneration: candidate.commit.generation,
+    discardedTrailingBytes: snapshot.source.size - BigInt(commitFrame.endOffset),
+  };
+}
+
 /** Append a new immutable generation while preserving the original archive bytes. */
 export async function appendRecords(
   snapshot: ArchiveSnapshot,
@@ -341,8 +433,7 @@ export async function appendRecords(
     throw new ArchiveFormatError("archive_locked", "Unlock this archive before editing it.");
   }
   if (changes.length === 0) return snapshot;
-  const previousCommitFrame = await readFrameAt(snapshot.source, snapshot.commit.offset);
-  if (snapshot.source.size !== BigInt(previousCommitFrame.endOffset) + BigInt(LOCATOR_SIZE)) {
+  if (snapshot.source.size !== snapshot.publishedEndOffset) {
     throw new ArchiveFormatError(
       "archive_recovery_required",
       "This archive has uncommitted trailing data. Review or recover it before making changes.",
@@ -677,7 +768,13 @@ export async function openArchiveSource(source: ArchiveByteSource): Promise<Arch
       "No valid committed archive generation was found.",
     );
   }
-  return new ArchiveSnapshot(source, header, candidate.commit, candidate.indexEntries);
+  return new ArchiveSnapshot(
+    source,
+    header,
+    candidate.commit,
+    candidate.indexEntries,
+    candidate.publishedEndOffset,
+  );
 }
 
 function primaryIndexKey(type: RecordTypeValue, id: string): string {
@@ -849,7 +946,7 @@ async function scanForCommittedRoot(
   source: ArchiveByteSource,
   searchStart: bigint,
   header: ArchiveHeader,
-): Promise<CommitCandidate | null> {
+): Promise<PublishedCommitCandidate | null> {
   const chunkSize = 64 * 1024;
   let chunkEnd = source.size;
   while (chunkEnd > searchStart) {
@@ -872,7 +969,54 @@ async function scanForCommittedRoot(
         const commit = await decodeCommit(source, commitOffset);
         if (commit.generation !== generation) continue;
         const consistent = await findConsistentCommit(source, header, commit);
-        if (consistent) return consistent;
+        if (consistent?.commit.offset === commit.offset) {
+          return {
+            ...consistent,
+            publishedEndOffset: candidateOffset + BigInt(LOCATOR_SIZE),
+          };
+        }
+      } catch {
+        continue;
+      }
+    }
+    chunkEnd = chunkStart;
+  }
+  return null;
+}
+
+async function scanForUnpublishedCommit(
+  snapshot: ArchiveSnapshot,
+): Promise<CommitCandidate | null> {
+  const source = snapshot.source;
+  const searchStart = snapshot.publishedEndOffset;
+  const chunkSize = 64 * 1024;
+  let chunkEnd = source.size;
+  while (chunkEnd > searchStart) {
+    const chunkStart =
+      chunkEnd - searchStart > BigInt(chunkSize) ? chunkEnd - BigInt(chunkSize) : searchStart;
+    const readStart =
+      chunkStart - searchStart > BigInt(RECORD_HEADER_SIZE - 1)
+        ? chunkStart - BigInt(RECORD_HEADER_SIZE - 1)
+        : searchStart;
+    const bytes = await source.read(readStart, Number(chunkEnd - readStart));
+    let index = bytes.length - RECORD_HEADER_SIZE;
+    while (index >= 0 && (readStart + BigInt(index)) % 8n !== 0n) index -= 1;
+    for (; index >= 0; index -= 8) {
+      const candidateOffset = readStart + BigInt(index);
+      if (candidateOffset < chunkStart) break;
+      if (!hasMagic(bytes, index, "TXRC")) continue;
+      try {
+        const frame = await readFrameAt(source, candidateOffset);
+        if (frame.type !== RecordType.commit) continue;
+        const commit = await decodeCommit(source, candidateOffset);
+        if (
+          commit.previousOffset !== snapshot.commit.offset ||
+          commit.generation !== snapshot.commit.generation + 1n
+        ) {
+          continue;
+        }
+        const consistent = await findConsistentCommit(source, snapshot.header, commit);
+        if (consistent?.commit.offset === commit.offset) return consistent;
       } catch {
         continue;
       }
@@ -1328,6 +1472,30 @@ function validLocator(locator: Uint8Array): boolean {
   );
 }
 
+class PrefixArchiveSource implements ArchiveByteSource {
+  constructor(
+    private readonly source: ArchiveByteSource,
+    readonly size: bigint,
+  ) {
+    if (size < 0n || size > source.size) {
+      throw new RangeError("Archive prefix is outside the source bounds.");
+    }
+  }
+
+  async read(offset: bigint, length: number): Promise<Uint8Array> {
+    if (
+      offset < 0n ||
+      !Number.isSafeInteger(length) ||
+      length < 0 ||
+      offset > this.size ||
+      BigInt(length) > this.size - offset
+    ) {
+      throw new RangeError("Archive read is outside the prefix bounds.");
+    }
+    return this.source.read(offset, length);
+  }
+}
+
 function readLittle(bytes: Uint8Array, offset: number, size: 2 | 4 | 8): bigint {
   if (!Number.isSafeInteger(offset) || offset < 0 || offset + size > bytes.length) {
     throw new ArchiveFormatError("archive_truncated", "Archive structure is truncated.");
@@ -1377,10 +1545,16 @@ async function readRecordMetadataAt(
     );
   }
   if (header.codec !== 0) {
-    throw new ArchiveFormatError(
-      "audio_chunk_codec_unsupported",
-      "Compressed audio chunks cannot be streamed by this playback path.",
+    const frame = await readFrameAt(source, offset);
+    const payload = decodeStoredPayload(frame);
+    const record = decodeRecordPayload(
+      frame.type,
+      frame.id,
+      frame.revision,
+      frame.previousOffset,
+      payload,
     );
+    return { ...record, blob: new Uint8Array() };
   }
 
   const prefixLength = Math.min(header.payloadLength, 64 * 1024);
