@@ -21,6 +21,7 @@ import {
   previewSanitizedCopy,
   type SanitizedCopyCheckpoint,
   type SanitizedCopyOptions,
+  type SanitizedCopyOutputOptions,
   type SanitizedCopySummary,
 } from "../frontend/archive/sanitized-copy";
 import { NodeFileArchiveSource } from "../frontend/archive/node-source";
@@ -137,11 +138,12 @@ Usage:
   tutorux archive recover <file.tux> [--apply] [--json]
   tutorux archive compact <file.tux> [--apply] [--json]
   tutorux archive repair <file.tux> --output <copy.tux> --confirm-sensitive [--json]
-  tutorux archive sanitize <file.tux> --output <copy.tux> [selection options]
-    preview first; confirm with --confirm-sensitive --expected-generation N --expected-selection SHA256 --expected-output FILE
+  tutorux archive sanitize <file.tux> --output <copy.tux> [selection options] [--new-passphrase-env <name>]
+    preview first; confirm with --confirm-sensitive --expected-generation N --expected-selection SHA256 --expected-output FILE --expected-encrypted-output yes|no
     --include-students UUID,... --exclude-students UUID,... --include-sessions UUID,... --exclude-sessions UUID,...
     --include-recordings | --include-recording-tracks UUID,... | --exclude-recording-tracks UUID,...
-    --include-private-annotations --include-generation-logs
+    --include-private-annotations --include-generation-logs --include-credentials
+    encrypted sources and credential-inclusive copies require --new-passphrase-env on confirmation
   tutorux --archive <file.tux> student create --name <name> [--grade <grade>] [--difficulties <text>] [--demonstrated-improvements <text>] [--preferred-guide-template <id>]
   tutorux --archive <file.tux> student list [--include-deleted] [--json]
   tutorux --archive <file.tux> student show <uuid> [--json]
@@ -624,6 +626,16 @@ async function runArchiveCommand(
       includeGenerationLogs: args.flags.has("include-generation-logs"),
       includeCredentials: args.flags.has("include-credentials"),
     };
+    const newPassphraseEnvironment = args.options.get("new-passphrase-env");
+    if (newPassphraseEnvironment === undefined && args.flags.has("new-passphrase-env")) {
+      throw new CliError("--new-passphrase-env requires an environment variable name.");
+    }
+    if (
+      newPassphraseEnvironment !== undefined &&
+      !/^[A-Za-z_][A-Za-z\d_]*$/u.test(newPassphraseEnvironment)
+    ) {
+      throw new CliError("--new-passphrase-env requires a valid environment variable name.");
+    }
     const sourceCanonicalPath = await realpath(archivePath);
     const destinationParentPath = await realpath(dirname(destinationPath));
     const canonicalDestinationPath = resolve(destinationParentPath, basename(destinationPath));
@@ -649,10 +661,11 @@ async function runArchiveCommand(
       if (
         !args.options.has("expected-generation") ||
         !args.options.has("expected-selection") ||
+        !args.options.has("expected-encrypted-output") ||
         !reviewedOutput
       ) {
         throw new CliError(
-          "Confirm the reviewed preview with --expected-generation, --expected-selection, and --expected-output.",
+          "Confirm the reviewed preview with --expected-generation, --expected-selection, --expected-output, and --expected-encrypted-output yes|no.",
         );
       }
       const reviewedPath = resolve(reviewedOutput);
@@ -668,6 +681,7 @@ async function runArchiveCommand(
 
     const openedInfo = await stat(archivePath);
     const source = await NodeFileArchiveSource.open(archivePath);
+    let snapshot: ArchiveSnapshot | undefined;
     try {
       const currentInfo = await stat(archivePath);
       if (
@@ -681,19 +695,24 @@ async function runArchiveCommand(
           "The archive changed while sanitization was starting. Retry the command.",
         );
       }
-      const snapshot = await openArchiveSource(source);
+      snapshot = await unlockSnapshotForCli(await openArchiveSource(source), true);
       const preview = await previewSanitizedCopy(snapshot, options);
       const confirmed = args.flags.has("confirm-sensitive");
+      const encryptedOutput =
+        snapshot.encrypted ||
+        options.includeCredentials === true ||
+        newPassphraseEnvironment !== undefined;
       if (!confirmed) {
         const result = sanitizedCopySummaryObject(
           preview,
           canonicalDestinationPath,
           "preview-required",
+          encryptedOutput,
         );
         emit(
           output,
           result,
-          `Sanitized copy preview for ${canonicalDestinationPath}:\n${formatSanitizedCopySummary(preview)}\nReview the selection and destination; confirm with --confirm-sensitive --expected-generation ${preview.sourceGeneration} --expected-selection ${preview.selectionFingerprint} --expected-output "${canonicalDestinationPath}".`,
+          `Sanitized copy preview for ${canonicalDestinationPath}:\n${formatSanitizedCopySummary(preview)}\nEncrypted output: ${encryptedOutput ? "yes (provide --new-passphrase-env when confirming)" : "no"}.\nReview the selection, encryption choice, and destination; confirm with --confirm-sensitive --expected-generation ${preview.sourceGeneration} --expected-selection ${preview.selectionFingerprint} --expected-output "${canonicalDestinationPath}" --expected-encrypted-output ${encryptedOutput ? "yes" : "no"}.`,
           args.flags.has("json"),
         );
         return 0;
@@ -709,6 +728,22 @@ async function runArchiveCommand(
       }
       if (args.options.get("expected-selection") !== preview.selectionFingerprint) {
         throw new CliError("The selection differs from the reviewed preview; preview again.");
+      }
+      const expectedEncryptedOutput = args.options.get("expected-encrypted-output");
+      if (expectedEncryptedOutput !== (encryptedOutput ? "yes" : "no")) {
+        throw new CliError(
+          "The output encryption choice differs from the reviewed preview; preview again.",
+        );
+      }
+      const destinationPassphrase =
+        newPassphraseEnvironment === undefined ? undefined : process.env[newPassphraseEnvironment];
+      if (newPassphraseEnvironment !== undefined && destinationPassphrase === undefined) {
+        throw new CliError("The new archive passphrase environment variable is not set.");
+      }
+      if ((snapshot.encrypted || options.includeCredentials) && !destinationPassphrase) {
+        throw new CliError(
+          "An encrypted output passphrase is required to preserve source protection or include credentials; provide --new-passphrase-env.",
+        );
       }
       const validateBeforePublish = async (): Promise<void> => {
         const currentInfo = await stat(archivePath);
@@ -766,7 +801,7 @@ async function runArchiveCommand(
         }
         const persistedSource = await NodeFileArchiveSource.open(stagingPath);
         try {
-          return await openArchiveSource(persistedSource);
+          return await next.openNextGeneration(persistedSource);
         } catch (error) {
           await persistedSource.close();
           throw error;
@@ -774,8 +809,13 @@ async function runArchiveCommand(
       };
       let copySnapshot: ArchiveSnapshot | undefined;
       try {
-        const copy = await createSanitizedCopy(snapshot, options, preview, checkpoint);
+        const outputOptions: SanitizedCopyOutputOptions = {
+          checkpoint,
+          ...(destinationPassphrase === undefined ? {} : { destinationPassphrase }),
+        };
+        const copy = await createSanitizedCopy(snapshot, options, preview, outputOptions);
         copySnapshot = copy.snapshot;
+        copy.snapshot.lock();
         await copy.snapshot.source.close?.();
         copySnapshot = undefined;
         await publishStagedFileAtomically(
@@ -791,12 +831,13 @@ async function runArchiveCommand(
       }
       emit(
         output,
-        sanitizedCopySummaryObject(preview, canonicalDestinationPath, "created"),
-        `Sanitized archive created at ${canonicalDestinationPath}.`,
+        sanitizedCopySummaryObject(preview, canonicalDestinationPath, "created", encryptedOutput),
+        `Sanitized ${encryptedOutput ? "encrypted " : ""}archive created at ${canonicalDestinationPath}.`,
         args.flags.has("json"),
       );
       return 0;
     } finally {
+      snapshot?.lock();
       await source.close();
     }
   }
@@ -3945,10 +3986,12 @@ function sanitizedCopySummaryObject(
   summary: SanitizedCopySummary,
   output: string,
   status: string,
-): Record<string, string | number> {
+  encryptedOutput = false,
+): Record<string, string | number | boolean> {
   return {
     status,
     output,
+    encrypted_output: encryptedOutput,
     source_generation: summary.sourceGeneration.toString(),
     selection_fingerprint: summary.selectionFingerprint,
     students: summary.students,
