@@ -27,6 +27,11 @@ export interface SessionInput {
   notes: string;
 }
 
+export interface SessionCreateOptions {
+  linkedEntry?: ArchiveRecord;
+  ensureJournalRoot?: boolean;
+}
+
 export type SessionTransitionAction = "start" | "complete" | "review" | "resume";
 
 export interface SessionCloneInput {
@@ -307,10 +312,7 @@ export function cloneSessionRecords(
       );
     }
     const entryNotesId = crypto.randomUUID();
-    const today = new Date();
-    const entryDate = [today.getFullYear(), today.getMonth() + 1, today.getDate()]
-      .map((part, index) => (index === 0 ? String(part) : String(part).padStart(2, "0")))
-      .join("-");
+    const entryDate = currentUtcJournalDate();
     records.push(
       record(RecordType.settings, entryId, {
         record_role: "journal-entry",
@@ -346,26 +348,40 @@ export function setSessionArchiveState(current: ArchiveRecord, archived: boolean
   return { ...current, fields };
 }
 
-export function makeSessionRecords(input: SessionInput): ArchiveRecord[] {
+export function makeSessionRecords(
+  input: SessionInput,
+  options: SessionCreateOptions = {},
+): ArchiveRecord[] {
   const timestamp = nowUs();
   const sessionId = crypto.randomUUID();
+  const linkedEntry = options.linkedEntry;
+  if (
+    linkedEntry &&
+    (linkedEntry.type !== RecordType.settings ||
+      linkedEntry.fields.get("record_role") !== "journal-entry" ||
+      linkedEntry.fields.get("_deleted") === "true")
+  ) {
+    throw new Error("Select an active journal entry to link to this session.");
+  }
+  const entryId = linkedEntry?.id.toLowerCase() ?? crypto.randomUUID();
   const notesId = crypto.randomUUID();
   const note = cleanText(input.notes, "Session notes", 100_000, true);
-  return [
+  const title = requiredText(input.title, "Session title", 240);
+  const records: ArchiveRecord[] = [
     record(RecordType.session, sessionId, {
       student_id: input.studentId || "anonymous",
-      entry_id: "",
+      entry_id: entryId,
       notes_document_id: notesId,
       subject: cleanText(input.subject, "Subject", 200),
-      title: requiredText(input.title, "Session title", 240),
+      title,
       learning_objectives: cleanText(input.objectives, "Learning objectives", 4_000),
       session_type: "notes-only",
-      session_state: "completed",
+      session_state: "active",
       transcription_language: "auto",
       guide_template_id: "",
       recording_source: "none",
       started_at_us: timestamp,
-      ended_at_us: timestamp,
+      ended_at_us: "0",
       reviewed_at_us: "0",
       recording_state: "not-started",
       processing_state: "not-processed",
@@ -373,8 +389,46 @@ export function makeSessionRecords(input: SessionInput): ArchiveRecord[] {
       created_at_us: timestamp,
       updated_at_us: timestamp,
     }),
-    makeNotesDocument(notesId, sessionId, "", note, timestamp),
+    makeNotesDocument(notesId, entryId, sessionId, note, timestamp),
   ];
+
+  if (linkedEntry) {
+    const fields = new Map(linkedEntry.fields);
+    fields.set("session_ids", mergeIds(fields.get("session_ids") ?? "", sessionId));
+    fields.set("updated_at_us", timestamp);
+    records.push({ ...linkedEntry, fields });
+    return records;
+  }
+
+  const entryNotesId = crypto.randomUUID();
+  const entryDate = currentUtcJournalDate();
+  if (options.ensureJournalRoot ?? true) {
+    records.push(
+      record(RecordType.settings, crypto.randomUUID(), {
+        record_role: "journal",
+        title: "Tutorux journal",
+        created_at_us: timestamp,
+        updated_at_us: timestamp,
+      }),
+    );
+  }
+  records.push(
+    record(RecordType.settings, entryId, {
+      record_role: "journal-entry",
+      title,
+      entry_date: entryDate,
+      collection_ids: "",
+      tag_ids: "",
+      notes_document_id: entryNotesId,
+      session_ids: sessionId,
+      study_guide_ids: "",
+      attachment_ids: "",
+      created_at_us: timestamp,
+      updated_at_us: timestamp,
+    }),
+    makeNotesDocument(entryNotesId, entryId, "", "", timestamp),
+  );
+  return records;
 }
 
 export function makeJournalRecords(input: JournalInput): ArchiveRecord[] {
@@ -768,6 +822,13 @@ function validateJournalDate(value: string): void {
   if (year === 0 || month < 1 || month > 12 || day < 1 || day > monthLengths[month - 1]!) {
     throw new Error("Choose a valid journal date.");
   }
+}
+
+function currentUtcJournalDate(): string {
+  const today = new Date();
+  return [today.getUTCFullYear(), today.getUTCMonth() + 1, today.getUTCDate()]
+    .map((part, index) => (index === 0 ? String(part) : String(part).padStart(2, "0")))
+    .join("-");
 }
 
 function requiredText(value: string, label: string, maximum: number): string {
