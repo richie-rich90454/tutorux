@@ -1,3 +1,5 @@
+mod ai_transport;
+
 use serde::Serialize;
 use std::{
     collections::HashMap,
@@ -50,8 +52,10 @@ fn authorize_archive_path(
     path: String,
     state: State<'_, DesktopState>,
 ) -> Result<ArchiveSelection, String> {
-    let selected = fs::canonicalize(path).map_err(|error| format!("Could not open archive: {error}"))?;
-    let metadata = fs::metadata(&selected).map_err(|error| format!("Could not inspect archive: {error}"))?;
+    let selected =
+        fs::canonicalize(path).map_err(|error| format!("Could not open archive: {error}"))?;
+    let metadata =
+        fs::metadata(&selected).map_err(|error| format!("Could not inspect archive: {error}"))?;
     if !metadata.is_file() {
         return Err("The selected archive is not a regular file.".to_owned());
     }
@@ -133,7 +137,8 @@ fn prepare_archive_save(
         .parent()
         .filter(|path| !path.as_os_str().is_empty())
         .unwrap_or_else(|| Path::new("."));
-    let parent = fs::canonicalize(parent).map_err(|error| format!("Could not access destination folder: {error}"))?;
+    let parent = fs::canonicalize(parent)
+        .map_err(|error| format!("Could not access destination folder: {error}"))?;
     let filename = requested_target
         .file_name()
         .ok_or_else(|| "Archive destination needs a file name.".to_owned())?;
@@ -181,7 +186,9 @@ fn publish_archive_save(
         .and_then(|file| file.sync_all())
         .map_err(|error| format!("The temporary archive could not be finalized: {error}"))?;
 
-    let backup = pending.target.with_file_name(format!(".tutorux-{token}.backup"));
+    let backup = pending
+        .target
+        .with_file_name(format!(".tutorux-{token}.backup"));
     let had_target = pending.target.exists();
     if had_target {
         fs::rename(&pending.target, &backup)
@@ -261,7 +268,10 @@ fn write_export_file(path: String, contents: String) -> Result<(), String> {
         .create_new(true)
         .open(&temporary)
         .map_err(|error| format!("Could not create transcript export: {error}"))?;
-    if let Err(error) = file.write_all(contents.as_bytes()).and_then(|()| file.sync_all()) {
+    if let Err(error) = file
+        .write_all(contents.as_bytes())
+        .and_then(|()| file.sync_all())
+    {
         drop(file);
         let _ = fs::remove_file(&temporary);
         return Err(format!("Could not write transcript export: {error}"));
@@ -425,7 +435,8 @@ fn main() {
             publish_archive_save,
             cancel_archive_save,
             take_pending_open_archive,
-            write_export_file
+            write_export_file,
+            ai_transport::send_ai_request
         ])
         .run(tauri::generate_context!())
         .expect("Tutorux desktop host failed to start");
