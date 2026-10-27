@@ -37,7 +37,7 @@ npm run desktop:dev
 npm run desktop:build
 ```
 
-The desktop adapter is selected with Vite's `desktop` mode. The Rust host lives in `src-tauri/` and is intentionally limited to operating-system file access. Run `cargo check --manifest-path src-tauri/Cargo.toml` for a fast host check. Build release bundles on each target OS; Tauri's native toolchain and WebView dependencies are host-specific.
+The desktop adapter is selected with Vite's `desktop` mode. The Rust host lives in `src-tauri/` and provides native file operations plus the narrowly scoped HTTP transport for the user's explicitly reviewed AI provider request. It validates the exact reviewed endpoint and request hash, applies provider-route and size limits, and returns response bytes; provider parsing and tutoring rules stay in TypeScript. Run `cargo check --manifest-path src-tauri/Cargo.toml` for a fast host check. Build release bundles on each target OS; Tauri's native toolchain and WebView dependencies are host-specific.
 
 ## CLI workflow
 
