@@ -5,6 +5,7 @@ import { executeCli } from "./main";
 import {
   appendRecords,
   createArchiveBytes,
+  createEncryptedArchiveBytes,
   openArchiveBytes,
   verifyArchiveSnapshot,
 } from "../frontend/archive/archive";
@@ -155,6 +156,8 @@ describe("CLI sanitized archive copies", () => {
             preview.source_generation,
             "--expected-selection",
             preview.selection_fingerprint,
+            "--expected-encrypted-output",
+            "no",
             "--expected-output",
             outputPath,
             "--json",
@@ -189,6 +192,251 @@ describe("CLI sanitized archive copies", () => {
       ).toBe(2);
       expect(stderr.at(-1)).toContain("already exists");
     } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects a confirmation that removes encryption promised by the preview", async () => {
+    const directory = await mkdtemp(join(process.cwd(), "tmp", "tutorux-cli-sanitize-choice-"));
+    const archivePath = join(directory, "lesson.tux");
+    const outputPath = join(directory, "encrypted-copy.tux");
+    const environmentName = "TUTORUX_CLI_TEST_SANITIZE_OPTIONAL_PASSPHRASE";
+    const passphrase = "Optional encrypted sanitized copy phrase";
+    const previousPassphrase = process.env[environmentName];
+    const stdout: string[] = [];
+    const stderr: string[] = [];
+    const io = {
+      stdout: (value: string) => stdout.push(value),
+      stderr: (value: string) => stderr.push(value),
+    };
+
+    try {
+      process.env[environmentName] = passphrase;
+      const source = await openArchiveBytes(await createArchiveBytes("Sanitize encryption choice"));
+      const studentId = newUuid();
+      const populated = await appendRecords(source, [
+        {
+          type: RecordType.student,
+          id: studentId,
+          revision: 0n,
+          previousOffset: 0n,
+          fields: new Map([["display_name", "Mina"]]),
+          blob: new Uint8Array(),
+        },
+      ]);
+      const sourceBytes = await populated.source.read(0n, Number(populated.source.size));
+      await writeFile(archivePath, sourceBytes);
+      const selectionArgs = [
+        "archive",
+        "sanitize",
+        archivePath,
+        "--output",
+        outputPath,
+        "--include-students",
+        studentId,
+      ];
+      expect(
+        await executeCli([...selectionArgs, "--new-passphrase-env", environmentName, "--json"], io),
+      ).toBe(0);
+      const preview = JSON.parse(stdout.at(-1)!) as {
+        source_generation: string;
+        selection_fingerprint: string;
+        encrypted_output: boolean;
+      };
+      expect(preview.encrypted_output).toBe(true);
+
+      expect(
+        await executeCli(
+          [
+            ...selectionArgs,
+            "--confirm-sensitive",
+            "--expected-generation",
+            preview.source_generation,
+            "--expected-selection",
+            preview.selection_fingerprint,
+            "--expected-output",
+            outputPath,
+            "--expected-encrypted-output",
+            "yes",
+            "--json",
+          ],
+          io,
+        ),
+      ).toBe(2);
+      expect(stderr.at(-1)).toContain("encryption choice differs");
+      expect(await readFile(archivePath)).toEqual(Buffer.from(sourceBytes));
+      await expect(readFile(outputPath)).rejects.toMatchObject({ code: "ENOENT" });
+
+      expect(
+        await executeCli(
+          [
+            ...selectionArgs,
+            "--confirm-sensitive",
+            "--expected-generation",
+            preview.source_generation,
+            "--expected-selection",
+            preview.selection_fingerprint,
+            "--expected-output",
+            outputPath,
+            "--expected-encrypted-output",
+            "yes",
+            "--new-passphrase-env",
+            environmentName,
+            "--json",
+          ],
+          io,
+        ),
+      ).toBe(0);
+      const lockedCopy = await openArchiveBytes(await readFile(outputPath));
+      const encryptedCopy = await lockedCopy.unlock(passphrase);
+      const verification = await verifyArchiveSnapshot(encryptedCopy);
+      expect(verification.currentRecords).toBeGreaterThan(0);
+      encryptedCopy.lock();
+      lockedCopy.lock();
+      populated.lock();
+      source.lock();
+    } finally {
+      if (previousPassphrase === undefined) delete process.env[environmentName];
+      else process.env[environmentName] = previousPassphrase;
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("CLI encrypted sanitized archive copies", () => {
+  it("previews, confirms, encrypts, and verifies a credential-inclusive copy", async () => {
+    const directory = await mkdtemp(join(process.cwd(), "tmp", "tutorux-cli-sanitize-encrypted-"));
+    const archivePath = join(directory, "protected.tux");
+    const outputPath = join(directory, "sanitized.tux");
+    const sourceEnvironmentName = "TUTORUX_CLI_TEST_SANITIZE_SOURCE_PASSPHRASE";
+    const destinationEnvironmentName = "TUTORUX_CLI_TEST_SANITIZE_DESTINATION_PASSPHRASE";
+    const sourcePassphrase = "Source archive phrase for CLI sanitizer";
+    const destinationPassphrase = "Destination archive phrase for CLI sanitizer";
+    const credentialValue = "provider-token-never-printed-or-written-plaintext";
+    const previousSourcePassphrase = process.env[sourceEnvironmentName];
+    const previousDestinationPassphrase = process.env[destinationEnvironmentName];
+    const stdout: string[] = [];
+    const stderr: string[] = [];
+    const io = {
+      stdout: (value: string) => stdout.push(value),
+      stderr: (value: string) => stderr.push(value),
+    };
+
+    try {
+      process.env[sourceEnvironmentName] = sourcePassphrase;
+      delete process.env[destinationEnvironmentName];
+      const locked = await openArchiveBytes(
+        await createEncryptedArchiveBytes("Protected sanitizer source", "", sourcePassphrase),
+      );
+      const unlocked = await locked.unlock(sourcePassphrase);
+      const credentialId = newUuid();
+      const source = await appendRecords(unlocked, [
+        {
+          type: RecordType.student,
+          id: newUuid(),
+          revision: 0n,
+          previousOffset: 0n,
+          fields: new Map([["display_name", "Mina"]]),
+          blob: new Uint8Array(),
+        },
+        {
+          type: RecordType.settings,
+          id: credentialId,
+          revision: 0n,
+          previousOffset: 0n,
+          fields: new Map([
+            ["record_role", "credential"],
+            ["key", "openai-api-key"],
+            ["value", credentialValue],
+          ]),
+          blob: new Uint8Array(),
+        },
+      ]);
+      const sourceBytes = await source.source.read(0n, Number(source.source.size));
+      await writeFile(archivePath, sourceBytes);
+
+      const baseArgs = [
+        "--passphrase-env",
+        sourceEnvironmentName,
+        "archive",
+        "sanitize",
+        archivePath,
+        "--output",
+        outputPath,
+        "--include-credentials",
+        "--json",
+      ];
+      expect(await executeCli(baseArgs, io)).toBe(0);
+      const preview = JSON.parse(stdout.at(-1)!) as {
+        source_generation: string;
+        selection_fingerprint: string;
+        credentials: number;
+        encrypted_output: boolean;
+      };
+      expect(preview).toMatchObject({ credentials: 1, encrypted_output: true });
+
+      const confirmationArgs = [
+        ...baseArgs.slice(0, -1),
+        "--confirm-sensitive",
+        "--expected-generation",
+        preview.source_generation,
+        "--expected-selection",
+        preview.selection_fingerprint,
+        "--expected-encrypted-output",
+        "yes",
+        "--expected-output",
+        outputPath,
+        "--json",
+      ];
+      expect(await executeCli(confirmationArgs, io)).toBe(2);
+      expect(stderr.at(-1)).toContain("--new-passphrase-env");
+      expect(await readFile(archivePath)).toEqual(Buffer.from(sourceBytes));
+
+      process.env[destinationEnvironmentName] = destinationPassphrase;
+      expect(
+        await executeCli(
+          [
+            ...confirmationArgs.slice(0, -1),
+            "--new-passphrase-env",
+            destinationEnvironmentName,
+            "--json",
+          ],
+          io,
+        ),
+      ).toBe(0);
+      expect(JSON.parse(stdout.at(-1)!)).toMatchObject({
+        status: "created",
+        encrypted_output: true,
+        credentials: 1,
+      });
+      expect(await readFile(archivePath)).toEqual(Buffer.from(sourceBytes));
+      expect(stdout.join("\n")).not.toContain(credentialValue);
+      expect(stderr.join("\n")).not.toContain(destinationPassphrase);
+
+      const outputBytes = new Uint8Array(await readFile(outputPath));
+      expect(new TextDecoder().decode(outputBytes)).not.toContain(credentialValue);
+      const protectedCopy = await openArchiveBytes(outputBytes);
+      await expect(protectedCopy.unlock(sourcePassphrase)).rejects.toBeDefined();
+      const verifiedCopy = await protectedCopy.unlock(destinationPassphrase);
+      await expect(verifyArchiveSnapshot(verifiedCopy)).resolves.toMatchObject({
+        currentRecords: 4,
+      });
+      const credentials = (await verifiedCopy.listRecords(RecordType.settings)).filter(
+        (record) => record.fields.get("record_role") === "credential",
+      );
+      expect(credentials).toHaveLength(1);
+      expect(credentials[0]!.fields.get("value")).toBe(credentialValue);
+      verifiedCopy.lock();
+      protectedCopy.lock();
+      source.lock();
+      unlocked.lock();
+      locked.lock();
+    } finally {
+      if (previousSourcePassphrase === undefined) delete process.env[sourceEnvironmentName];
+      else process.env[sourceEnvironmentName] = previousSourcePassphrase;
+      if (previousDestinationPassphrase === undefined)
+        delete process.env[destinationEnvironmentName];
+      else process.env[destinationEnvironmentName] = previousDestinationPassphrase;
       await rm(directory, { recursive: true, force: true });
     }
   });
