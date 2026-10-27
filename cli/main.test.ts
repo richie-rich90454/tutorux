@@ -193,3 +193,115 @@ describe("CLI sanitized archive copies", () => {
     }
   });
 });
+
+describe("CLI encrypted archive access", () => {
+  it("unlocks, verifies, reads, and appends an encrypted archive generation", async () => {
+    const directory = await mkdtemp(join(process.cwd(), "tmp", "tutorux-cli-encrypted-"));
+    const archivePath = join(directory, "encrypted.tux");
+    const fixture = new URL("../tests/fixtures/encrypted-v1.tux", import.meta.url);
+    const fixtureBytes = await readFile(fixture);
+    const initial = await openArchiveBytes(new Uint8Array(fixtureBytes));
+    const studentEntry = [...initial.allIndexEntries()].find(([key]) => key.startsWith("STUDENT:"));
+    expect(studentEntry).toBeDefined();
+    const studentId = studentEntry![0].slice("STUDENT:".length);
+    const environmentName = "TUTORUX_CLI_TEST_ENCRYPTED_PASSPHRASE";
+    const previousPassphrase = process.env[environmentName];
+    const stdout: string[] = [];
+    const stderr: string[] = [];
+    const io = {
+      stdout: (value: string) => stdout.push(value),
+      stderr: (value: string) => stderr.push(value),
+    };
+
+    try {
+      await writeFile(archivePath, fixtureBytes);
+      delete process.env[environmentName];
+
+      expect(await executeCli(["archive", "info", archivePath, "--json"], io)).toBe(0);
+      expect(JSON.parse(stdout.at(-1)!)).toMatchObject({
+        encrypted: true,
+        locked: true,
+        verified: false,
+      });
+      expect(await executeCli(["archive", "verify", archivePath], io)).toBe(2);
+      expect(stderr.at(-1)).toContain("--passphrase-env");
+
+      process.env[environmentName] = "Tutorux cross-language fixture phrase 2026";
+
+      expect(
+        await executeCli(
+          ["archive", "verify", archivePath, "--passphrase-env", environmentName, "--json"],
+          io,
+        ),
+      ).toBe(0);
+      expect(JSON.parse(stdout.at(-1)!)).toMatchObject({
+        encrypted: true,
+        locked: false,
+        verified: true,
+      });
+
+      expect(
+        await executeCli(
+          [
+            "--archive",
+            archivePath,
+            "--passphrase-env",
+            environmentName,
+            "student",
+            "list",
+            "--json",
+          ],
+          io,
+        ),
+      ).toBe(0);
+      expect(JSON.parse(stdout.at(-1)!)).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ id: studentId, display_name: "Interop Student" }),
+        ]),
+      );
+
+      expect(
+        await executeCli(
+          [
+            "--archive",
+            archivePath,
+            "--passphrase-env",
+            environmentName,
+            "student",
+            "update",
+            studentId,
+            "--name",
+            "CLI encrypted update",
+            "--json",
+          ],
+          io,
+        ),
+      ).toBe(0);
+      expect(JSON.parse(stdout.at(-1)!)).toMatchObject({
+        fields: { display_name: "CLI encrypted update" },
+      });
+
+      const reopened = await openArchiveBytes(new Uint8Array(await readFile(archivePath)));
+      const unlocked = await reopened.unlock("Tutorux cross-language fixture phrase 2026");
+      await expect(verifyArchiveSnapshot(unlocked)).resolves.toMatchObject({ currentRecords: 3 });
+      expect(
+        (await unlocked.getRecord(RecordType.student, studentId))?.fields.get("display_name"),
+      ).toBe("CLI encrypted update");
+      unlocked.lock();
+
+      process.env[environmentName] = "incorrect passphrase";
+      expect(
+        await executeCli(
+          ["archive", "verify", archivePath, "--passphrase-env", environmentName],
+          io,
+        ),
+      ).toBe(1);
+      expect(stderr.at(-1)).toContain("Passphrase is incorrect");
+      expect(stderr.at(-1)).not.toContain("incorrect passphrase");
+    } finally {
+      if (previousPassphrase === undefined) delete process.env[environmentName];
+      else process.env[environmentName] = previousPassphrase;
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+});
