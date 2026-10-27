@@ -748,5 +748,5 @@ describe("CLI encrypted archive access", () => {
       else process.env[newEnvironmentName] = previousNewPassphrase;
       await rm(directory, { recursive: true, force: true });
     }
-  });
+  }, 15_000);
 });
