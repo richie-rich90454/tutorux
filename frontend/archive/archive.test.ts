@@ -6,7 +6,7 @@ import {
   openArchiveSource,
   verifyArchiveSnapshot,
 } from "./archive";
-import { RecordType } from "./format";
+import { decodeRecordFrame, recordTypeName, RecordType } from "./format";
 import { CompositeArchiveSource, MemoryArchiveSource, type ArchiveByteSource } from "./source";
 
 describe("Tutorux archive snapshots", () => {
@@ -84,6 +84,75 @@ describe("Tutorux archive snapshots", () => {
     const roundTrip = await openArchiveSource(changed.source);
     expect(roundTrip.indexEntryCount()).toBe(2);
     expect((await roundTrip.getRecord(RecordType.student, studentId))?.revision).toBe(1n);
+  });
+
+  it("compresses eligible records while preserving asset and encoded-audio payloads", async () => {
+    const archive = await openArchiveBytes(await createArchiveBytes("Record compression"));
+    const studentId = crypto.randomUUID();
+    const assetId = crypto.randomUUID();
+    const sessionId = crypto.randomUUID();
+    const trackId = crypto.randomUUID();
+    const encodedAudioId = crypto.randomUUID();
+    const pcmAudioId = crypto.randomUUID();
+    const repeated = "Tutorux archive compression. ".repeat(100);
+    const changed = await appendRecords(archive, [
+      {
+        type: RecordType.student,
+        id: studentId,
+        revision: 0n,
+        previousOffset: 0n,
+        fields: new Map([["notes", repeated]]),
+        blob: new Uint8Array(),
+      },
+      {
+        type: RecordType.assetBlob,
+        id: assetId,
+        revision: 0n,
+        previousOffset: 0n,
+        fields: new Map(),
+        blob: new Uint8Array(4096).fill(0x61),
+      },
+      {
+        type: RecordType.audioChunk,
+        id: encodedAudioId,
+        revision: 0n,
+        previousOffset: 0n,
+        fields: new Map([
+          ["codec", "opus"],
+          ["session_id", sessionId],
+          ["track_id", trackId],
+          ["sequence_number", "1"],
+        ]),
+        blob: new Uint8Array(4096).fill(0x61),
+      },
+      {
+        type: RecordType.audioChunk,
+        id: pcmAudioId,
+        revision: 0n,
+        previousOffset: 0n,
+        fields: new Map([
+          ["codec", "none"],
+          ["session_id", sessionId],
+          ["track_id", trackId],
+          ["sequence_number", "2"],
+        ]),
+        blob: new Uint8Array(4096).fill(0x61),
+      },
+    ]);
+
+    const codecFor = async (type: number, id: string): Promise<number> => {
+      const offset = changed.allIndexEntries().get(`${recordTypeName(type).toUpperCase()}:${id}`)!;
+      const bytes = await changed.source.read(offset, Number(changed.source.size - offset));
+      return decodeRecordFrame(bytes).codec;
+    };
+
+    expect(await codecFor(RecordType.student, studentId)).toBe(1);
+    expect(await codecFor(RecordType.assetBlob, assetId)).toBe(0);
+    expect(await codecFor(RecordType.audioChunk, encodedAudioId)).toBe(0);
+    expect(await codecFor(RecordType.audioChunk, pcmAudioId)).toBe(1);
+    expect((await changed.getRecord(RecordType.student, studentId))?.fields.get("notes")).toBe(
+      repeated,
+    );
   });
 
   it("verifies current records, including trashed and forward-compatible record types", async () => {
