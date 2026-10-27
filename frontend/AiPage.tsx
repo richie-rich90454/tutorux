@@ -1,7 +1,13 @@
 import { For, Show, createEffect, createMemo, createSignal, onCleanup, type JSX } from "solid-js";
 import type { ArchiveRecord } from "./archive/format";
-import { aiPackageText, type AiPackageSummary } from "./ai/package";
-import { createAiRequestPreview, type AiRequestPreview } from "./ai/request";
+import {
+  aiPackageText,
+  isAiImageAttachmentCandidate,
+  MAX_AI_IMAGE_ATTACHMENT_BYTES,
+  MAX_AI_IMAGE_ATTACHMENT_COUNT,
+  type AiPackageSummary,
+} from "./ai/package";
+import type { AiRequestPreview } from "./ai/request";
 import { AI_RESPONSE_PREVIEW_CHARACTER_LIMIT, type AiExecutionSummary } from "./ai/response";
 import { AI_PROVIDERS, type AiProviderConfigurationInput } from "./ai/providers";
 import type { AiCredentialStorage } from "./platform/types";
@@ -12,6 +18,7 @@ import "./ai.css";
 interface AiPageProps {
   archiveId: string;
   sessions: readonly ArchiveRecord[];
+  assets: readonly ArchiveRecord[];
   customTemplates: readonly ArchiveRecord[];
   jobs: readonly ArchiveRecord[];
   providerSettings: readonly ArchiveRecord[];
@@ -21,7 +28,16 @@ interface AiPageProps {
   busy: boolean;
   execution: AiExecutionSummary | null;
   onClearExecution: () => void;
-  onPrepare: (sessionId: string, templateId: string) => Promise<AiPackageSummary>;
+  onPrepare: (
+    sessionId: string,
+    templateId: string,
+    attachmentIds: readonly string[],
+  ) => Promise<AiPackageSummary>;
+  onCreateRequestPreview: (
+    packageJob: ArchiveRecord,
+    providerId: string,
+    credentialStorage: AiCredentialStorage,
+  ) => Promise<AiRequestPreview>;
   onSave: (summary: AiPackageSummary) => Promise<boolean>;
   onLoad: (jobId: string) => Promise<ArchiveRecord | null>;
   onSend: (
@@ -47,6 +63,7 @@ interface AiPageProps {
 export function AiPage(props: AiPageProps): JSX.Element {
   const [sessionId, setSessionId] = createSignal("");
   const [templateId, setTemplateId] = createSignal("auto");
+  const [selectedImageIds, setSelectedImageIds] = createSignal<string[]>([]);
   const [review, setReview] = createSignal<AiPackageSummary | null>(null);
   const [requestPreview, setRequestPreview] = createSignal<AiRequestPreview | null>(null);
   const [requestPreviewMessage, setRequestPreviewMessage] = createSignal("");
@@ -148,6 +165,27 @@ export function AiPage(props: AiPageProps): JSX.Element {
     ...GUIDE_TEMPLATES,
     ...props.customTemplates.map(guideTemplateFromRecord),
   ]);
+  const sessionImages = createMemo(() =>
+    props.assets
+      .filter(
+        (asset) =>
+          asset.fields.get("session_id")?.toLowerCase() === sessionId().toLowerCase() &&
+          isAiImageAttachmentCandidate(asset),
+      )
+      .sort((left, right) =>
+        (left.fields.get("filename") ?? "").localeCompare(right.fields.get("filename") ?? ""),
+      ),
+  );
+  const selectedImages = createMemo(() => {
+    const selected = new Set(selectedImageIds());
+    return sessionImages().filter((asset) => selected.has(asset.id.toLowerCase()));
+  });
+  const selectedImageBytes = createMemo(() =>
+    selectedImages().reduce(
+      (total, asset) => total + Number(asset.fields.get("byte_size") ?? 0),
+      0,
+    ),
+  );
   const latestJobs = createMemo(() =>
     [...props.jobs]
       .filter((job) => job.fields.get("mode") === "manual")
@@ -166,9 +204,10 @@ export function AiPage(props: AiPageProps): JSX.Element {
     setReview(null);
     setRequestPreview(null);
     setReviewed(false);
+    setSendConfirmed(false);
     setShowJson(false);
     try {
-      const summary = await props.onPrepare(sessionId(), templateId());
+      const summary = await props.onPrepare(sessionId(), templateId(), selectedImageIds());
       setReview(summary);
       setMessage("Package assembled locally. Nothing has been sent or saved yet.");
     } catch (cause) {
@@ -184,6 +223,8 @@ export function AiPage(props: AiPageProps): JSX.Element {
       setReview(null);
       setReviewed(false);
       setShowJson(false);
+      setRequestPreview(null);
+      setSendConfirmed(false);
       setMessage("Reviewed package saved in this archive. No provider was contacted.");
     }
   }
@@ -299,20 +340,14 @@ export function AiPage(props: AiPageProps): JSX.Element {
       return;
     }
     try {
-      const usingSystemKeychain = credentialStorage() === "system-keychain";
-      const systemKeyAvailable = usingSystemKeychain
-        ? await props.hasSystemCredential(currentProvider().id)
-        : false;
-      setSystemCredentialSaved(systemKeyAvailable);
-      setRequestPreview(
-        await createAiRequestPreview(
-          summary.job,
-          configuration,
-          undefined,
-          usingSystemKeychain ? [] : props.credentials,
-          systemKeyAvailable,
-        ),
+      const storage = credentialStorage();
+      const preview = await props.onCreateRequestPreview(
+        summary.job,
+        currentProvider().id,
+        storage,
       );
+      setSystemCredentialSaved(storage === "system-keychain" && preview.credentialAvailable);
+      setRequestPreview(preview);
     } catch (cause) {
       setRequestPreviewMessage(
         cause instanceof Error ? cause.message : "The provider request preview could not be built.",
@@ -347,6 +382,11 @@ export function AiPage(props: AiPageProps): JSX.Element {
       setRequestPreviewMessage(
         cause instanceof Error ? cause.message : "The provider request could not be completed.",
       );
+    } finally {
+      if (preview.attachedImages.length > 0) {
+        setRequestPreview(null);
+        setSendConfirmed(false);
+      }
     }
   }
 
@@ -595,8 +635,12 @@ export function AiPage(props: AiPageProps): JSX.Element {
               disabled={props.disabled || props.busy || props.sessions.length === 0}
               onChange={(event) => {
                 setSessionId(event.currentTarget.value);
+                setSelectedImageIds([]);
                 setReview(null);
                 setReviewed(false);
+                setRequestPreview(null);
+                setRequestPreviewMessage("");
+                setSendConfirmed(false);
               }}
             >
               <option value="">Choose a session…</option>
@@ -623,6 +667,9 @@ export function AiPage(props: AiPageProps): JSX.Element {
                 setTemplateId(event.currentTarget.value);
                 setReview(null);
                 setReviewed(false);
+                setRequestPreview(null);
+                setRequestPreviewMessage("");
+                setSendConfirmed(false);
               }}
             >
               <option value="auto">Choose from student preference and session subject</option>
@@ -632,6 +679,63 @@ export function AiPage(props: AiPageProps): JSX.Element {
             </select>
           </label>
         </div>
+        <fieldset class="ai-image-picker" disabled={props.disabled || props.busy || !sessionId()}>
+          <legend>Include session images in a reviewed AI request</legend>
+          <p>
+            Images stay in your archive until you review and authorize a provider request. Select up
+            to {MAX_AI_IMAGE_ATTACHMENT_COUNT} PNG, JPEG, or WebP images,{" "}
+            {formatBytes(MAX_AI_IMAGE_ATTACHMENT_BYTES)} total. Image requests require a
+            vision-capable model; for Ollama, choose a vision model.
+          </p>
+          <Show
+            when={sessionImages().length > 0}
+            fallback={
+              <span class="ai-image-empty">This session has no eligible image materials.</span>
+            }
+          >
+            <div class="ai-image-options">
+              <For each={sessionImages()}>
+                {(asset) => {
+                  const filename = asset.fields.get("filename") || "Untitled image";
+                  const size = Number(asset.fields.get("byte_size") ?? 0);
+                  const checked = () => selectedImageIds().includes(asset.id.toLowerCase());
+                  const capacityExceeded = () =>
+                    !checked() &&
+                    (selectedImages().length >= MAX_AI_IMAGE_ATTACHMENT_COUNT ||
+                      selectedImageBytes() + size > MAX_AI_IMAGE_ATTACHMENT_BYTES);
+                  return (
+                    <label class="ai-image-option">
+                      <input
+                        type="checkbox"
+                        checked={checked()}
+                        disabled={capacityExceeded()}
+                        onChange={(event) => {
+                          const next = new Set(selectedImageIds());
+                          if (event.currentTarget.checked) next.add(asset.id.toLowerCase());
+                          else next.delete(asset.id.toLowerCase());
+                          setSelectedImageIds([...next]);
+                          setReview(null);
+                          setReviewed(false);
+                          setRequestPreview(null);
+                          setSendConfirmed(false);
+                        }}
+                      />
+                      <span class="ai-image-option-copy">
+                        <strong>{filename}</strong>
+                        <small>
+                          {formatBytes(size)} · {asset.fields.get("mime_type")}
+                        </small>
+                      </span>
+                    </label>
+                  );
+                }}
+              </For>
+            </div>
+          </Show>
+          <span class="ai-image-selection-count" aria-live="polite">
+            {selectedImages().length} selected · {formatBytes(selectedImageBytes())}
+          </span>
+        </fieldset>
         <div class="ai-form-footer">
           <p>Session source text is treated as untrusted content in the package instructions.</p>
           <button
@@ -666,6 +770,7 @@ export function AiPage(props: AiPageProps): JSX.Element {
               <ReviewStat label="Observations" value={summary().annotationCount} />
               <ReviewStat label="Evidence items" value={summary().evidenceCount} />
               <ReviewStat label="Material names" value={summary().assetCount} />
+              <ReviewStat label="Images for request" value={summary().attachedImages.length} />
               <ReviewStat label="Package size" value={formatBytes(summary().byteLength)} />
             </div>
             <details
@@ -685,8 +790,8 @@ export function AiPage(props: AiPageProps): JSX.Element {
               <div>
                 <strong>Provider request review</strong>
                 <p>
-                  Build the exact text request for the saved provider. This preview does not read
-                  your API key or send anything.
+                  Build the exact request for the saved provider, including selected image payloads
+                  when present. This preview does not read your API key or send anything.
                 </p>
               </div>
               <button
@@ -740,6 +845,21 @@ export function AiPage(props: AiPageProps): JSX.Element {
                       </dd>
                     </div>
                   </dl>
+                  <Show when={preview().attachedImages.length > 0}>
+                    <div class="ai-request-images" aria-label="Attached image materials">
+                      <strong>Images included in this request</strong>
+                      <For each={preview().attachedImages}>
+                        {(image) => (
+                          <div>
+                            <span>
+                              {image.filename} · {formatBytes(image.byteSize)}
+                            </span>
+                            <code>SHA-256 · {image.contentHash}</code>
+                          </div>
+                        )}
+                      </For>
+                    </div>
+                  </Show>
                   <div class="ai-request-headers" aria-label="Request headers">
                     <strong>Headers sent</strong>
                     <For each={preview().headers}>
@@ -756,17 +876,29 @@ export function AiPage(props: AiPageProps): JSX.Element {
                       available in the selected secure store.
                     </p>
                   </Show>
-                  <details class="ai-json-disclosure ai-request-body-disclosure">
-                    <summary>Inspect the exact provider request JSON</summary>
-                    <textarea
-                      aria-label="Exact provider request body"
-                      readOnly
-                      value={preview().requestBody}
-                    />
-                  </details>
+                  <Show
+                    when={preview().attachedImages.length === 0}
+                    fallback={
+                      <p class="ai-image-body-note">
+                        The exact request body hash covers the package text and selected image
+                        bytes. Image data is sent as base64 and is omitted from this text preview.
+                      </p>
+                    }
+                  >
+                    <details class="ai-json-disclosure ai-request-body-disclosure">
+                      <summary>Inspect the exact provider request JSON</summary>
+                      <textarea
+                        aria-label="Exact provider request body"
+                        readOnly
+                        value={preview().requestBody}
+                      />
+                    </details>
+                  </Show>
                   <p class="ai-request-privacy-note">
-                    The request body contains the reviewed package text. Authentication secrets stay
-                    out of this preview and are not read during preparation.
+                    The request body contains the reviewed package text
+                    {preview().attachedImages.length > 0 ? " and selected image bytes" : ""}.
+                    Authentication secrets stay out of this preview and are not read during
+                    preparation.
                   </p>
                   <label class="ai-review-consent ai-send-consent">
                     <input
@@ -784,6 +916,9 @@ export function AiPage(props: AiPageProps): JSX.Element {
                       {preview().providerName} at <code>{preview().endpoint}</code>. The exact
                       request body hash is <code>{preview().requestBodyHash}</code>. The complete
                       response, including error or partial bytes, will be saved in this archive.
+                      {preview().attachedImages.length > 0
+                        ? ` This request also includes ${preview().attachedImages.length} selected session image${preview().attachedImages.length === 1 ? "" : "s"}; their names and content hashes are listed above.`
+                        : ""}
                       {preview().localOnly
                         ? " This sends the package to the loopback Ollama service."
                         : " This sends the package to the external provider with the saved API key."}
@@ -831,7 +966,15 @@ export function AiPage(props: AiPageProps): JSX.Element {
               </span>
             </label>
             <div class="ai-review-actions">
-              <button class="button button-quiet" type="button" onClick={() => setReview(null)}>
+              <button
+                class="button button-quiet"
+                type="button"
+                onClick={() => {
+                  setReview(null);
+                  setRequestPreview(null);
+                  setSendConfirmed(false);
+                }}
+              >
                 Discard draft
               </button>
               <button
