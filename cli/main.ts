@@ -14,6 +14,13 @@ import {
   verifyArchiveSnapshot,
   type ArchiveSnapshot,
 } from "../frontend/archive/archive";
+import {
+  createSanitizedCopy,
+  previewSanitizedCopy,
+  type SanitizedCopyCheckpoint,
+  type SanitizedCopyOptions,
+  type SanitizedCopySummary,
+} from "../frontend/archive/sanitized-copy";
 import { NodeFileArchiveSource } from "../frontend/archive/node-source";
 import { MAX_ASSET_BYTES, makeAssetImport, readAssetBytes } from "../frontend/domain/assets";
 import {
@@ -126,6 +133,11 @@ Usage:
   tutorux archive recover <file.tux> [--apply] [--json]
   tutorux archive compact <file.tux> [--apply] [--json]
   tutorux archive repair <file.tux> --output <copy.tux> --confirm-sensitive [--json]
+  tutorux archive sanitize <file.tux> --output <copy.tux> [selection options]
+    preview first; confirm with --confirm-sensitive --expected-generation N --expected-selection SHA256 --expected-output FILE
+    --include-students UUID,... --exclude-students UUID,... --include-sessions UUID,... --exclude-sessions UUID,...
+    --include-recordings | --include-recording-tracks UUID,... | --exclude-recording-tracks UUID,...
+    --include-private-annotations --include-generation-logs
   tutorux --archive <file.tux> student create --name <name> [--grade <grade>] [--difficulties <text>] [--demonstrated-improvements <text>] [--preferred-guide-template <id>]
   tutorux --archive <file.tux> student list [--include-deleted] [--json]
   tutorux --archive <file.tux> student show <uuid> [--json]
@@ -445,6 +457,220 @@ async function runArchiveCommand(
         output,
         result,
         `Validated repair copy created at ${destinationPath}; the original archive was preserved. Selected verified generation ${result.selected_verified_generation}; discarded ${result.discarded_bytes} source bytes.`,
+        args.flags.has("json"),
+      );
+      return 0;
+    } finally {
+      await source.close();
+    }
+  }
+  if (action === "sanitize") {
+    const archivePath = resolve(path);
+    const destinationPath = resolve(requiredOption(args, "output"));
+    if (!destinationPath.toLowerCase().endsWith(".tux")) {
+      throw new CliError("Sanitized archive copies must use the .tux extension.");
+    }
+    const selectionIds = (name: string): Set<string> => {
+      const value = args.options.get(name);
+      if (value === undefined) return new Set();
+      const ids = new Set<string>();
+      if (!value.trim()) return ids;
+      for (const rawId of value.split(",").map((candidate) => candidate.trim().toLowerCase())) {
+        if (!/^[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}$/u.test(rawId)) {
+          throw new CliError(`Option '--${name}' contains an invalid UUID.`);
+        }
+        const id = rawId;
+        if (ids.has(id)) throw new CliError(`Option '--${name}' contains a duplicate UUID.`);
+        ids.add(id);
+      }
+      return ids;
+    };
+    const includeRecordingTracks = selectionIds("include-recording-tracks");
+    const excludeRecordingTracks = selectionIds("exclude-recording-tracks");
+    const options: SanitizedCopyOptions = {
+      includeStudents: selectionIds("include-students"),
+      excludeStudents: selectionIds("exclude-students"),
+      includeSessions: selectionIds("include-sessions"),
+      excludeSessions: selectionIds("exclude-sessions"),
+      includeRecordingTracks,
+      excludeRecordingTracks,
+      includeRecordings:
+        args.flags.has("include-recordings") ||
+        includeRecordingTracks.size > 0 ||
+        excludeRecordingTracks.size > 0,
+      includePrivateAnnotations: args.flags.has("include-private-annotations"),
+      includeGenerationLogs: args.flags.has("include-generation-logs"),
+      includeCredentials: args.flags.has("include-credentials"),
+    };
+    const sourceCanonicalPath = await realpath(archivePath);
+    const destinationParentPath = await realpath(dirname(destinationPath));
+    const canonicalDestinationPath = resolve(destinationParentPath, basename(destinationPath));
+    const samePath =
+      process.platform === "win32"
+        ? sourceCanonicalPath.toLowerCase() === canonicalDestinationPath.toLowerCase()
+        : sourceCanonicalPath === canonicalDestinationPath;
+    if (samePath) throw new CliError("Sanitized output must be a separate archive copy.");
+    const destinationDirectory = await stat(destinationParentPath);
+    if (!destinationDirectory.isDirectory()) {
+      throw new CliError("The sanitized-copy destination directory is unavailable.");
+    }
+    try {
+      await stat(destinationPath);
+      throw new CliError(`Sanitized output already exists: ${destinationPath}`);
+    } catch (error) {
+      if (error instanceof CliError) throw error;
+      if (!isNotFound(error)) throw error;
+    }
+
+    const reviewedOutput = args.options.get("expected-output");
+    if (args.flags.has("confirm-sensitive")) {
+      if (
+        !args.options.has("expected-generation") ||
+        !args.options.has("expected-selection") ||
+        !reviewedOutput
+      ) {
+        throw new CliError(
+          "Confirm the reviewed preview with --expected-generation, --expected-selection, and --expected-output.",
+        );
+      }
+      const reviewedPath = resolve(reviewedOutput);
+      const reviewedParent = await realpath(dirname(reviewedPath));
+      const canonicalReviewedPath = resolve(reviewedParent, basename(reviewedPath));
+      const pathsMatch =
+        process.platform === "win32"
+          ? canonicalReviewedPath.toLowerCase() === canonicalDestinationPath.toLowerCase()
+          : canonicalReviewedPath === canonicalDestinationPath;
+      if (!pathsMatch)
+        throw new CliError("The output path differs from the reviewed preview; preview again.");
+    }
+
+    const openedInfo = await stat(archivePath);
+    const source = await NodeFileArchiveSource.open(archivePath);
+    try {
+      const currentInfo = await stat(archivePath);
+      if (
+        BigInt(openedInfo.size) !== source.size ||
+        currentInfo.size !== openedInfo.size ||
+        currentInfo.mtimeMs !== openedInfo.mtimeMs ||
+        currentInfo.dev !== openedInfo.dev ||
+        currentInfo.ino !== openedInfo.ino
+      ) {
+        throw new CliError(
+          "The archive changed while sanitization was starting. Retry the command.",
+        );
+      }
+      const snapshot = await openArchiveSource(source);
+      const preview = await previewSanitizedCopy(snapshot, options);
+      const confirmed = args.flags.has("confirm-sensitive");
+      if (!confirmed) {
+        const result = sanitizedCopySummaryObject(
+          preview,
+          canonicalDestinationPath,
+          "preview-required",
+        );
+        emit(
+          output,
+          result,
+          `Sanitized copy preview for ${canonicalDestinationPath}:\n${formatSanitizedCopySummary(preview)}\nReview the selection and destination; confirm with --confirm-sensitive --expected-generation ${preview.sourceGeneration} --expected-selection ${preview.selectionFingerprint} --expected-output "${canonicalDestinationPath}".`,
+          args.flags.has("json"),
+        );
+        return 0;
+      }
+      const expectedGenerationText = requiredOption(args, "expected-generation");
+      if (
+        !/^\d+$/u.test(expectedGenerationText) ||
+        BigInt(expectedGenerationText) !== preview.sourceGeneration
+      ) {
+        throw new CliError(
+          "The source generation differs from the reviewed preview; preview again.",
+        );
+      }
+      if (args.options.get("expected-selection") !== preview.selectionFingerprint) {
+        throw new CliError("The selection differs from the reviewed preview; preview again.");
+      }
+      const validateBeforePublish = async (): Promise<void> => {
+        const currentInfo = await stat(archivePath);
+        if (
+          currentInfo.size !== openedInfo.size ||
+          currentInfo.mtimeMs !== openedInfo.mtimeMs ||
+          currentInfo.dev !== openedInfo.dev ||
+          currentInfo.ino !== openedInfo.ino
+        ) {
+          throw new CliError(
+            "The archive changed during sanitization. Review it again before retrying.",
+          );
+        }
+      };
+      const stagingPath = join(
+        dirname(canonicalDestinationPath),
+        `.tutorux-${randomUUID()}.partial`,
+      );
+      const checkpoint: SanitizedCopyCheckpoint = async (next, previousSize) => {
+        const staged = await open(stagingPath, previousSize === 0n ? "wx" : "r+", 0o600);
+        try {
+          const stagedInfo = await staged.stat({ bigint: true });
+          if (stagedInfo.size !== previousSize) {
+            throw new CliError("The sanitized-copy staging archive changed unexpectedly.");
+          }
+          const chunkSize = 1024 * 1024;
+          for (let offset = previousSize; offset < next.source.size;) {
+            const length = Number(
+              next.source.size - offset > BigInt(chunkSize)
+                ? BigInt(chunkSize)
+                : next.source.size - offset,
+            );
+            const bytes = await next.source.read(offset, length);
+            if (bytes.byteLength !== length) {
+              throw new CliError("The generated archive source returned an incomplete read.");
+            }
+            let written = 0;
+            while (written < bytes.length) {
+              const result = await staged.write(
+                bytes,
+                written,
+                bytes.length - written,
+                Number(offset) + written,
+              );
+              if (result.bytesWritten === 0) {
+                throw new Error("Archive output stopped accepting bytes.");
+              }
+              written += result.bytesWritten;
+            }
+            offset += BigInt(length);
+          }
+          await staged.sync();
+        } finally {
+          await staged.close();
+        }
+        const persistedSource = await NodeFileArchiveSource.open(stagingPath);
+        try {
+          return await openArchiveSource(persistedSource);
+        } catch (error) {
+          await persistedSource.close();
+          throw error;
+        }
+      };
+      let copySnapshot: ArchiveSnapshot | undefined;
+      try {
+        const copy = await createSanitizedCopy(snapshot, options, preview, checkpoint);
+        copySnapshot = copy.snapshot;
+        await copy.snapshot.source.close?.();
+        copySnapshot = undefined;
+        await publishStagedFileAtomically(
+          stagingPath,
+          canonicalDestinationPath,
+          validateBeforePublish,
+          "Sanitized copy",
+        );
+      } catch (error) {
+        await copySnapshot?.source.close?.();
+        await rm(stagingPath, { force: true });
+        throw error;
+      }
+      emit(
+        output,
+        sanitizedCopySummaryObject(preview, canonicalDestinationPath, "created"),
+        `Sanitized archive created at ${canonicalDestinationPath}.`,
         args.flags.has("json"),
       );
       return 0;
@@ -3596,6 +3822,46 @@ function updateJournalNote(current: ArchiveRecord, text: string): ArchiveRecord 
   return { ...current, revision: 0n, previousOffset: 0n, fields };
 }
 
+function sanitizedCopySummaryObject(
+  summary: SanitizedCopySummary,
+  output: string,
+  status: string,
+): Record<string, string | number> {
+  return {
+    status,
+    output,
+    source_generation: summary.sourceGeneration.toString(),
+    selection_fingerprint: summary.selectionFingerprint,
+    students: summary.students,
+    sessions: summary.sessions,
+    annotations: summary.annotations,
+    assets: summary.assets,
+    evidence_items: summary.evidenceItems,
+    guides: summary.guides,
+    recording_tracks: summary.recordingTracks,
+    recording_chunks: summary.recordings,
+    generation_logs: summary.generationLogs,
+    credentials: summary.credentials,
+    warning:
+      "Review included records and destination before confirming; excluded data is omitted from the new archive.",
+  };
+}
+
+function formatSanitizedCopySummary(summary: SanitizedCopySummary): string {
+  return [
+    `  Students: ${summary.students}`,
+    `  Sessions: ${summary.sessions}`,
+    `  Annotations: ${summary.annotations}`,
+    `  Assets: ${summary.assets}`,
+    `  Evidence items: ${summary.evidenceItems}`,
+    `  Guides: ${summary.guides}`,
+    `  Recording tracks: ${summary.recordingTracks}`,
+    `  Recording chunks: ${summary.recordings}`,
+    `  Generation logs: ${summary.generationLogs}`,
+    `  Credentials: ${summary.credentials}`,
+  ].join("\n");
+}
+
 function timestampNow(): string {
   return (BigInt(Date.now()) * 1000n).toString();
 }
@@ -3734,11 +4000,12 @@ async function writeSourceToNewFileAtomically(
   path: string,
   snapshot: ArchiveSnapshot,
   validateBeforePublish?: () => Promise<void>,
+  purpose = "Repair",
 ): Promise<void> {
   const destination = resolve(path);
   try {
     await stat(destination);
-    throw new CliError(`Repair output already exists: ${destination}`);
+    throw new CliError(`${purpose} output already exists: ${destination}`);
   } catch (error) {
     if (error instanceof CliError) throw error;
     if (!isNotFound(error)) throw error;
@@ -3757,7 +4024,7 @@ async function writeSourceToNewFileAtomically(
       );
       const bytes = await snapshot.source.read(offset, length);
       if (bytes.byteLength !== length) {
-        throw new CliError("The repaired archive source returned an incomplete read.");
+        throw new CliError("The generated archive source returned an incomplete read.");
       }
       let written = 0;
       while (written < bytes.length) {
@@ -3770,12 +4037,35 @@ async function writeSourceToNewFileAtomically(
     await output.sync();
     await output.close();
     closed = true;
+  } catch (error) {
+    if (!closed) await output.close();
+    await rm(temporary, { force: true });
+    throw error;
+  }
+  await publishStagedFileAtomically(temporary, destination, validateBeforePublish, purpose);
+}
+
+async function publishStagedFileAtomically(
+  temporary: string,
+  path: string,
+  validateBeforePublish?: () => Promise<void>,
+  purpose = "Archive",
+): Promise<void> {
+  const destination = resolve(path);
+  try {
+    await stat(destination);
+    throw new CliError(`${purpose} output already exists: ${destination}`);
+  } catch (error) {
+    if (error instanceof CliError) throw error;
+    if (!isNotFound(error)) throw error;
+  }
+  try {
     await validateBeforePublish?.();
     if (process.platform === "win32") {
       const script = [
         "$ErrorActionPreference = 'Stop'",
-        "$source = [Environment]::GetEnvironmentVariable('TUTORUX_REPAIR_TEMP')",
-        "$target = [Environment]::GetEnvironmentVariable('TUTORUX_REPAIR_DESTINATION')",
+        "$source = [Environment]::GetEnvironmentVariable('TUTORUX_PUBLISH_TEMP')",
+        "$target = [Environment]::GetEnvironmentVariable('TUTORUX_PUBLISH_DESTINATION')",
         "[System.IO.File]::Move($source, $target)",
       ].join("\n");
       const encodedCommand = Buffer.from(script, "utf16le").toString("base64");
@@ -3787,8 +4077,8 @@ async function writeSourceToNewFileAtomically(
             windowsHide: true,
             env: {
               ...process.env,
-              TUTORUX_REPAIR_TEMP: temporary,
-              TUTORUX_REPAIR_DESTINATION: destination,
+              TUTORUX_PUBLISH_TEMP: temporary,
+              TUTORUX_PUBLISH_DESTINATION: destination,
             },
           },
           (error) => (error ? rejectPromise(error) : resolvePromise()),
@@ -3799,14 +4089,13 @@ async function writeSourceToNewFileAtomically(
       await rm(temporary, { force: true }).catch(() => undefined);
     }
   } catch (error) {
-    if (!closed) await output.close();
     await rm(temporary, { force: true });
     if (error instanceof Error && "code" in error && error.code === "EEXIST") {
-      throw new CliError(`Repair output already exists: ${destination}`);
+      throw new CliError(`${purpose} output already exists: ${destination}`);
     }
     try {
       await stat(destination);
-      throw new CliError(`Repair output already exists: ${destination}`);
+      throw new CliError(`${purpose} output already exists: ${destination}`);
     } catch (destinationError) {
       if (destinationError instanceof CliError) throw destinationError;
       if (!isNotFound(destinationError)) throw destinationError;
@@ -3824,7 +4113,7 @@ async function writeSourceToNewFileAtomically(
     } catch (error) {
       const detail = error instanceof Error ? error.message : "unknown filesystem error";
       throw new CliError(
-        `Repair copy exists at ${destination}, but its directory could not be durably flushed: ${detail}`,
+        `${purpose} exists at ${destination}, but its directory could not be durably flushed: ${detail}`,
       );
     }
   }
