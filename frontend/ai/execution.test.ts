@@ -129,6 +129,40 @@ describe("reviewed AI generation", () => {
     expect(result.guide?.fields.get("section.0.block.0.source_ids")).toBe(session.id);
   });
 
+  it("references system keychain credentials without passing their value through the frontend", async () => {
+    const session = createSession();
+    const preview = createPreview();
+    const chunk = responseChunk(session.id);
+    const send = vi.fn(async (_request, onChunk) => {
+      onChunk(chunk);
+      return {
+        status: 200,
+        contentType: "text/event-stream",
+        responseBytes: chunk.byteLength,
+        complete: true,
+      };
+    });
+
+    await executeAiGeneration({
+      packageJob: createPackageJob(),
+      expectedTemplateId: "general",
+      preview,
+      confirmedEndpoint: preview.endpoint,
+      confirmedBodyHash: preview.requestBodyHash,
+      credential: "",
+      credentialStorage: "system-keychain",
+      session,
+      sourceRecords: [session],
+      send,
+      onProgress: () => undefined,
+    });
+
+    expect(send.mock.calls[0]?.[0]).toMatchObject({
+      credential: "",
+      credentialStorage: "system-keychain",
+    });
+  });
+
   it("does not call the provider if either explicit confirmation no longer matches", async () => {
     const session = createSession();
     const preview = createPreview();
