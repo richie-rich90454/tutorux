@@ -98,11 +98,19 @@ const CRC_TABLE = (() => {
 })();
 
 export function crc32(bytes: Uint8Array): number {
-  let crc = 0xffffffff;
+  return crc32Finalize(crc32Update(0xffffffff, bytes));
+}
+
+export function crc32Update(state: number, bytes: Uint8Array): number {
+  let crc = state >>> 0;
   for (let index = 0; index < bytes.length; index += 1) {
     crc = (crc >>> 8) ^ CRC_TABLE[(crc ^ bytes[index]!) & 0xff]!;
   }
-  return ~crc >>> 0;
+  return crc >>> 0;
+}
+
+export function crc32Finalize(state: number): number {
+  return ~state >>> 0;
 }
 
 function readLittle(bytes: Uint8Array, offset: number, size: 2 | 4 | 8): bigint {
@@ -228,31 +236,54 @@ export function decodeArchiveHeader(bytes: Uint8Array): ArchiveHeader {
   };
 }
 
+export function validateRecordPayloadSize(
+  fields: Iterable<readonly [string, string]>,
+  blobLength = 0,
+  maximumBytes = MAX_RECORD_PAYLOAD,
+): number {
+  if (
+    !Number.isSafeInteger(blobLength) ||
+    blobLength < 0 ||
+    maximumBytes < 0n ||
+    BigInt(16 + blobLength) > maximumBytes
+  ) {
+    throw new ArchiveFormatError("record_payload_limit", "Record payload exceeds the v1 limit.");
+  }
+  let count = 0;
+  let total = 16 + blobLength;
+  for (const [key, value] of fields) {
+    count += 1;
+    const keyLength = utf8ByteLength(key);
+    const valueLength = utf8ByteLength(value);
+    if (count > 0xffff) {
+      throw new ArchiveFormatError("record_field_limit", "Record contains too many fields.");
+    }
+    if (keyLength === 0 || keyLength > 0xffff || valueLength > 0xffffffff) {
+      throw new ArchiveFormatError("record_field_limit", "Record field exceeds format limits.");
+    }
+    total += 6 + keyLength + valueLength;
+    if (!Number.isSafeInteger(total) || BigInt(total) > maximumBytes) {
+      throw new ArchiveFormatError("record_payload_limit", "Record payload exceeds the v1 limit.");
+    }
+  }
+  return total;
+}
+
 export function encodeRecordPayload(record: Pick<ArchiveRecord, "fields" | "blob">): Uint8Array {
+  const total = validateRecordPayloadSize(record.fields, record.blob.byteLength);
   const fields = Array.from(record.fields, ([key, value]) => ({
     key: encodeUtf8(key),
     value: encodeUtf8(value),
   }));
-  if (fields.length > 0xffff) {
-    throw new ArchiveFormatError("record_field_limit", "Record contains too many fields.");
-  }
   fields.sort((left, right) => compareBytes(left.key, right.key));
-  let total = 16 + record.blob.byteLength;
   for (let index = 0; index < fields.length; index += 1) {
     const field = fields[index]!;
-    if (field.key.length === 0 || field.key.length > 0xffff || field.value.length > 0xffffffff) {
-      throw new ArchiveFormatError("record_field_limit", "Record field exceeds format limits.");
-    }
     if (index > 0 && compareBytes(fields[index - 1]!.key, field.key) === 0) {
       throw new ArchiveFormatError(
         "record_field_duplicate",
         "Record contains duplicate field names.",
       );
     }
-    total += 6 + field.key.length + field.value.length;
-  }
-  if (BigInt(total) > MAX_RECORD_PAYLOAD) {
-    throw new ArchiveFormatError("record_payload_limit", "Record payload exceeds the v1 limit.");
   }
   const output = new Uint8Array(total);
   const view = new DataView(output.buffer);
@@ -272,6 +303,27 @@ export function encodeRecordPayload(record: Pick<ArchiveRecord, "fields" | "blob
   }
   output.set(record.blob, cursor);
   return output;
+}
+
+function utf8ByteLength(value: string): number {
+  let byteLength = 0;
+  for (let index = 0; index < value.length; index += 1) {
+    const code = value.charCodeAt(index);
+    if (code <= 0x7f) byteLength += 1;
+    else if (code <= 0x7ff) byteLength += 2;
+    else if (code >= 0xd800 && code <= 0xdbff) {
+      const next = value.charCodeAt(index + 1);
+      if (next >= 0xdc00 && next <= 0xdfff) {
+        byteLength += 4;
+        index += 1;
+      } else {
+        byteLength += 3;
+      }
+    } else {
+      byteLength += 3;
+    }
+  }
+  return byteLength;
 }
 
 export function decodeRecordPayload(
