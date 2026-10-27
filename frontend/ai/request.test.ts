@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { RecordType, type ArchiveRecord } from "../archive/format";
+import { appendRecords, createArchiveBytes, openArchiveBytes } from "../archive/archive";
+import { newUuid, RecordType, type ArchiveRecord } from "../archive/format";
+import { makeAssetImport } from "../domain/assets";
+import { createAiPackageRecord } from "./package";
 import {
   createProviderConfigurationRecord,
   createProviderCredentialRecord,
@@ -167,6 +170,127 @@ describe("AI request preview", () => {
     expect(preview.requestBody).not.toContain("api-key");
   });
 
+  it("sends selected archive images using each supported vision protocol and binds their hashes", async () => {
+    const sessionId = newUuid();
+    const imageBytes = new Uint8Array([
+      0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x01, 0x02, 0x03,
+    ]);
+    const initial = await openArchiveBytes(await createArchiveBytes("AI image fixture"));
+    const withSession = await appendRecords(initial, [
+      makeRecord(RecordType.session, sessionId, { subject: "Biology", student_id: "anonymous" }),
+    ]);
+    const imported = await makeAssetImport(
+      withSession,
+      {
+        name: "leaf-cell.png",
+        size: imageBytes.byteLength,
+        readBytes: async () => imageBytes.slice(),
+      },
+      sessionId,
+    );
+    const snapshot = await appendRecords(withSession, imported.records);
+    const packageSummary = await createAiPackageRecord(snapshot, sessionId, "auto", [
+      imported.metadata.id,
+    ]);
+    const expectedBase64 = btoa(String.fromCharCode(...imageBytes));
+    const cases = [
+      {
+        providerId: "openai",
+        endpoint: "https://api.openai.com/v1",
+        model: "gpt-4.1",
+        check: (body: Record<string, unknown>) => {
+          const messages = body["messages"] as { role: string; content: unknown }[];
+          const content = messages[1]?.content as { type: string; image_url?: { url: string } }[];
+          expect(content[1]).toMatchObject({
+            type: "image_url",
+            image_url: { url: `data:image/png;base64,${expectedBase64}` },
+          });
+        },
+      },
+      {
+        providerId: "anthropic",
+        endpoint: "https://api.anthropic.com",
+        model: "claude-sonnet-4",
+        check: (body: Record<string, unknown>) => {
+          const messages = body["messages"] as {
+            content: { type: string; source?: { media_type: string; data: string } }[];
+          }[];
+          expect(messages[0]?.content[1]).toMatchObject({
+            type: "image",
+            source: { media_type: "image/png", data: expectedBase64 },
+          });
+        },
+      },
+      {
+        providerId: "google-gemini",
+        endpoint: "https://generativelanguage.googleapis.com/v1beta",
+        model: "gemini-2.5-flash",
+        check: (body: Record<string, unknown>) => {
+          const contents = body["contents"] as {
+            parts: { inlineData?: { mimeType: string; data: string } }[];
+          }[];
+          expect(contents[0]?.parts[1]?.inlineData).toEqual({
+            mimeType: "image/png",
+            data: expectedBase64,
+          });
+        },
+      },
+      {
+        providerId: "ollama",
+        endpoint: "http://127.0.0.1:11434",
+        model: "llava",
+        check: (body: Record<string, unknown>) => {
+          const messages = body["messages"] as { images?: string[] }[];
+          expect(messages[1]?.images).toEqual([expectedBase64]);
+        },
+      },
+    ];
+
+    for (const testCase of cases) {
+      const provider = await makeProvider(testCase.providerId, testCase.endpoint, testCase.model);
+      const preview = await createAiRequestPreview(
+        packageSummary.job,
+        provider,
+        undefined,
+        [],
+        false,
+        snapshot,
+      );
+      const body = JSON.parse(preview.requestBody) as Record<string, unknown>;
+      testCase.check(body);
+      expect(preview.attachedImages).toEqual(packageSummary.attachedImages);
+      expect(preview.requestBodyHash).toBe(await hash(encoder.encode(preview.requestBody)));
+      expect(preview.requestBody).toContain(expectedBase64);
+    }
+  });
+
+  it("refuses image attachments for providers without a reviewed image protocol", async () => {
+    const sessionId = newUuid();
+    const imageBytes = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1]);
+    const initial = await openArchiveBytes(await createArchiveBytes("AI image fixture"));
+    const withSession = await appendRecords(initial, [
+      makeRecord(RecordType.session, sessionId, { subject: "Biology", student_id: "anonymous" }),
+    ]);
+    const imported = await makeAssetImport(
+      withSession,
+      {
+        name: "leaf-cell.png",
+        size: imageBytes.byteLength,
+        readBytes: async () => imageBytes.slice(),
+      },
+      sessionId,
+    );
+    const snapshot = await appendRecords(withSession, imported.records);
+    const packageSummary = await createAiPackageRecord(snapshot, sessionId, "auto", [
+      imported.metadata.id,
+    ]);
+    const provider = await makeProvider("cohere", "https://api.cohere.com", "command-a-03-2025");
+
+    await expect(
+      createAiRequestPreview(packageSummary.job, provider, undefined, [], false, snapshot),
+    ).rejects.toThrow("does not support image attachments in Tutorux");
+  });
+
   it("rejects unsupported jobs, stale hashes, invalid models, and oversized exact bodies", async () => {
     const packageJob = await makePackageJob({ manifest: { format: "tutorux-ai-package-v1" } });
     const provider = await makeProvider("openai", "https://api.openai.com/v1", "gpt-4.1");
@@ -213,6 +337,17 @@ async function makeProvider(
   model: string,
 ): Promise<ArchiveRecord> {
   return createProviderConfigurationRecord({ providerId, endpoint, model });
+}
+
+function makeRecord(type: number, id: string, fields: Record<string, string>): ArchiveRecord {
+  return {
+    type,
+    id,
+    revision: 0n,
+    previousOffset: 0n,
+    fields: new Map(Object.entries(fields)),
+    blob: new Uint8Array(),
+  };
 }
 
 async function makePackageJob(value: unknown): Promise<ArchiveRecord> {
