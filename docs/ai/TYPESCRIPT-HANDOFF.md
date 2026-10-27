@@ -36,12 +36,15 @@ Sending requires a second confirmation that names the exact endpoint and body SH
 bridge independently checks the hash and provider route, restricts cloud requests to HTTPS, limits
 Ollama to loopback HTTP, disables redirects and retries, sets connection/read/total timeouts, and
 bounds request and response bodies to 16 MiB. It streams response chunks to the UI without logging
-request bodies, credentials, or provider error bodies. Browser mode uses a same-origin browser fetch
-with redirects disabled; provider CORS rules may prevent it, so the desktop app is the supported
+request bodies, credentials, or provider error bodies. Browser mode uses Fetch with redirects
+disabled; provider CORS rules may prevent cross-origin requests, so the desktop app is the supported
 native path.
 
-Successful responses are retained as bounded raw bytes in an archive AI job with package, request,
-and response hashes plus the confirmation method. The provider stream is decoded for OpenAI Chat
+Every response with an HTTP result is retained as bounded raw bytes in an archive AI job with
+package, request, and response hashes, HTTP status, content type, completion state, and confirmation
+method. This includes provider errors, unsupported formats, decode failures, and the received prefix
+of a stream that fails or exceeds the 16 MiB cap. The UI never renders raw provider error bytes;
+they remain available for explicit export. The provider stream is decoded for OpenAI Chat
 Completions, Anthropic Messages, Gemini, Cohere, Perplexity Agent, and Ollama. Tutorux converts
 structured output into a source-checked, unapproved guide draft; malformed output is kept as editable
 text, and off-session citations are removed from the draft and marked for correction. Tutors must
