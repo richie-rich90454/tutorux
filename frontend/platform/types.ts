@@ -8,6 +8,7 @@ export interface OpenedArchive {
 
 export type BinaryExportPayload = Uint8Array | ReadableStream<Uint8Array>;
 export type BinaryExportSource = BinaryExportPayload | (() => Promise<BinaryExportPayload>);
+export type AiCredentialStorage = "none" | "encrypted-archive" | "system-keychain";
 
 export interface AiTransportRequest {
   providerId: string;
@@ -18,6 +19,7 @@ export interface AiTransportRequest {
   requestBody: string;
   requestBodyHash: string;
   confirmedBodyHash: string;
+  credentialStorage: AiCredentialStorage;
   credential: string;
 }
 
@@ -46,6 +48,10 @@ export interface ArchivePlatform {
     request: AiTransportRequest,
     onChunk: (chunk: Uint8Array) => void,
   ): Promise<AiTransportResult>;
+  aiCredentialStoreAvailable(): Promise<boolean>;
+  hasAiCredential(providerId: string): Promise<boolean>;
+  saveAiCredential(providerId: string, value: string): Promise<void>;
+  removeAiCredential(providerId: string): Promise<void>;
   createArchiveLocation(suggestedName: string): Promise<string | null>;
   notify(message: string, tone?: "success" | "info" | "error"): void;
   onNativeCommand?(handler: (command: string) => void): Promise<() => void>;
