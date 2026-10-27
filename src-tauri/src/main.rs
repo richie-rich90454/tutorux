@@ -1,4 +1,5 @@
 mod ai_transport;
+mod credentials;
 
 use serde::Serialize;
 use std::{
@@ -465,6 +466,10 @@ fn main() {
             _ => {}
         })
         .invoke_handler(tauri::generate_handler![
+            credentials::ai_credential_store_available,
+            credentials::has_ai_credential,
+            credentials::save_ai_credential,
+            credentials::remove_ai_credential,
             authorize_archive_path,
             close_archive,
             read_archive_range,
