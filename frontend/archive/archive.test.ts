@@ -1,13 +1,14 @@
 import { describe, expect, it } from "vitest";
 import {
   appendRecords,
+  compactArchiveSnapshot,
   createArchiveBytes,
   openArchiveBytes,
   openArchiveSource,
   recoverUnpublishedCommit,
   verifyArchiveSnapshot,
 } from "./archive";
-import { decodeRecordFrame, recordTypeName, RecordType } from "./format";
+import { decodeRecordFrame, encodeRecordFrame, recordTypeName, RecordType } from "./format";
 import { CompositeArchiveSource, MemoryArchiveSource, type ArchiveByteSource } from "./source";
 
 describe("Tutorux archive snapshots", () => {
@@ -120,6 +121,9 @@ describe("Tutorux archive snapshots", () => {
         },
       ]),
     ).rejects.toMatchObject({ code: "archive_recovery_required" });
+    await expect(compactArchiveSnapshot(damaged)).rejects.toMatchObject({
+      code: "archive_recovery_required",
+    });
 
     const recovered = await recoverUnpublishedCommit(damaged);
     expect(recovered.recoveredGeneration).toBe(2n);
@@ -258,6 +262,163 @@ describe("Tutorux archive snapshots", () => {
       currentRecords: 4,
       liveRecords: 3,
       deletedRecords: 1,
+    });
+  });
+
+  it("compacts old generations while preserving every indexed revision and stored payload", async () => {
+    const created = await openArchiveBytes(await createArchiveBytes("Archive compaction"));
+    const studentId = crypto.randomUUID();
+    const sessionId = crypto.randomUUID();
+    const extensionId = crypto.randomUUID();
+    const first = await appendRecords(created, [
+      {
+        type: RecordType.student,
+        id: studentId,
+        revision: 0n,
+        previousOffset: 0n,
+        fields: new Map([
+          ["notes", "Preserve this compressed extension-compatible history. ".repeat(32)],
+        ]),
+        blob: new Uint8Array(),
+      },
+      {
+        type: RecordType.session,
+        id: sessionId,
+        revision: 0n,
+        previousOffset: 0n,
+        fields: new Map([["student_id", studentId]]),
+        blob: new Uint8Array(),
+      },
+      {
+        type: 99,
+        id: extensionId,
+        revision: 0n,
+        previousOffset: 0n,
+        fields: new Map([
+          [
+            "extension_payload",
+            "Forward-compatible data must retain its exact encoded bytes. ".repeat(24),
+          ],
+        ]),
+        blob: new Uint8Array(),
+      },
+    ]);
+    const current = await appendRecords(first, [
+      {
+        type: RecordType.student,
+        id: studentId,
+        revision: 0n,
+        previousOffset: 0n,
+        fields: new Map([["notes", "The newest revision remains readable after compaction."]]),
+        blob: new Uint8Array(),
+      },
+      {
+        type: 99,
+        id: extensionId,
+        revision: 0n,
+        previousOffset: 0n,
+        fields: new Map([["extension_payload", "Newest extension revision."]]),
+        blob: new Uint8Array(),
+      },
+    ]);
+    const extensionKey = `UNKNOWN:${extensionId}`;
+    const oldExtensionOffset = current.allIndexEntries().get(extensionKey)!;
+    const oldExtensionFrame = decodeRecordFrame(
+      await current.source.read(
+        oldExtensionOffset,
+        Number(current.source.size - oldExtensionOffset),
+      ),
+    );
+
+    const compacted = await compactArchiveSnapshot(current);
+    const compactedExtensionOffset = compacted.snapshot.allIndexEntries().get(extensionKey)!;
+    const compactedExtensionFrame = decodeRecordFrame(
+      await compacted.snapshot.source.read(
+        compactedExtensionOffset,
+        Number(compacted.snapshot.source.size - compactedExtensionOffset),
+      ),
+    );
+    const originalStudentHistory = await current.getRecordHistory(RecordType.student, studentId);
+    const compactedStudentHistory = await compacted.snapshot.getRecordHistory(
+      RecordType.student,
+      studentId,
+    );
+    const originalExtensionHistory = await current.getRecordHistory(99, extensionId);
+    const compactedExtensionHistory = await compacted.snapshot.getRecordHistory(99, extensionId);
+
+    expect(compacted.snapshot.commit.generation).toBe(1n);
+    expect(compacted.snapshot.header.id).toBe(current.header.id);
+    expect(compacted.compactedBytes).toBeLessThan(compacted.originalBytes);
+    expect(compacted.preservedRecords).toBe(8);
+    expect([...compacted.snapshot.allIndexEntries().keys()].sort()).toEqual(
+      [...current.allIndexEntries().keys()].sort(),
+    );
+    expect(compactedStudentHistory.map((record) => [...record.fields])).toEqual(
+      originalStudentHistory.map((record) => [...record.fields]),
+    );
+    expect(compactedExtensionHistory.map((record) => [...record.fields])).toEqual(
+      originalExtensionHistory.map((record) => [...record.fields]),
+    );
+    expect(compactedExtensionFrame.codec).toBe(oldExtensionFrame.codec);
+    expect(compactedExtensionFrame.storedPayload).toEqual(oldExtensionFrame.storedPayload);
+    await expect(verifyArchiveSnapshot(compacted.snapshot)).resolves.toMatchObject({
+      generation: "1",
+      currentRecords: 4,
+    });
+  });
+
+  it("preserves opaque forward-compatible payloads without decoding their schema", async () => {
+    const initial = await openArchiveBytes(await createArchiveBytes("Opaque compaction"));
+    const extensionId = crypto.randomUUID();
+    const withExtension = await appendRecords(initial, [
+      {
+        type: 99,
+        id: extensionId,
+        revision: 0n,
+        previousOffset: 0n,
+        fields: new Map([["extension", "temporary structured payload"]]),
+        blob: new Uint8Array(),
+      },
+    ]);
+    const originalOffset = withExtension.allIndexEntries().get(`UNKNOWN:${extensionId}`)!;
+    const originalFrame = decodeRecordFrame(
+      await withExtension.source.read(
+        originalOffset,
+        Number(withExtension.source.size - originalOffset),
+      ),
+    );
+    const opaquePayload = new Uint8Array(originalFrame.payloadLength).fill(0xa5);
+    const opaqueFrame = encodeRecordFrame(
+      {
+        type: originalFrame.type,
+        id: originalFrame.id,
+        revision: originalFrame.revision,
+        previousOffset: originalFrame.previousOffset,
+      },
+      opaquePayload,
+    );
+    expect(opaqueFrame.byteLength).toBe(originalFrame.endOffset);
+    const archiveBytes = await withExtension.source.read(0n, Number(withExtension.source.size));
+    archiveBytes.set(opaqueFrame, Number(originalOffset));
+    const opaqueArchive = await openArchiveBytes(archiveBytes);
+
+    await expect(verifyArchiveSnapshot(opaqueArchive)).resolves.toMatchObject({
+      currentRecords: 2,
+      liveRecords: 2,
+    });
+    const compacted = await compactArchiveSnapshot(opaqueArchive);
+    const copiedOffset = compacted.snapshot.allIndexEntries().get(`UNKNOWN:${extensionId}`)!;
+    const copiedFrame = decodeRecordFrame(
+      await compacted.snapshot.source.read(
+        copiedOffset,
+        Number(compacted.snapshot.source.size - copiedOffset),
+      ),
+    );
+    expect(copiedFrame.storedPayload).toEqual(opaquePayload);
+    await expect(verifyArchiveSnapshot(compacted.snapshot)).resolves.toMatchObject({
+      currentRecords: 2,
+      liveRecords: 2,
+      generation: "1",
     });
   });
 
