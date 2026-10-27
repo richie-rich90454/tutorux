@@ -537,6 +537,104 @@ describe("TypeScript CLI", () => {
     }
   });
 
+  it("creates a verified repair copy without changing the damaged source", async () => {
+    const directory = await mkdtemp(join(process.cwd(), "tmp", "tutorux-cli-repair-"));
+    const archivePath = join(directory, "lesson.tux");
+    const outputPath = join(directory, "repaired.tux");
+    const stdout: string[] = [];
+    const stderr: string[] = [];
+    const io = {
+      stdout: (value: string) => stdout.push(value),
+      stderr: (value: string) => stderr.push(value),
+    };
+
+    try {
+      const initial = await openArchiveBytes(await createArchiveBytes("Repair lesson"));
+      const id = newUuid();
+      const generationTwo = await appendRecords(initial, [
+        {
+          type: RecordType.student,
+          id,
+          revision: 0n,
+          previousOffset: 0n,
+          fields: new Map([["display_name", "Mina"]]),
+          blob: new Uint8Array(),
+        },
+      ]);
+      const generationThree = await appendRecords(generationTwo, [
+        {
+          type: RecordType.student,
+          id,
+          revision: 0n,
+          previousOffset: 0n,
+          fields: new Map([["display_name", "Corrupted revision"]]),
+          blob: new Uint8Array(),
+        },
+      ]);
+      const sourceBytes = (
+        await generationThree.source.read(0n, Number(generationThree.source.size))
+      ).slice();
+      const latestOffset = generationThree.allIndexEntries().get(`STUDENT:${id}`)!;
+      const damagedByteOffset = Number(latestOffset) + 64;
+      sourceBytes[damagedByteOffset] = sourceBytes[damagedByteOffset]! ^ 0xff;
+      await writeFile(archivePath, sourceBytes);
+
+      expect(
+        await executeCli(["archive", "repair", archivePath, "--output", outputPath, "--json"], io),
+      ).toBe(2);
+      expect(stderr.at(-1)).toContain("--confirm-sensitive");
+      expect(await readFile(archivePath)).toEqual(Buffer.from(sourceBytes));
+
+      const repairStatus = await executeCli(
+        ["archive", "repair", archivePath, "--output", outputPath, "--confirm-sensitive", "--json"],
+        io,
+      );
+      if (repairStatus !== 0) throw new Error(stderr.at(-1));
+      const result = JSON.parse(stdout.at(-1)!) as {
+        output: string;
+        status: string;
+        original_preserved: boolean;
+        selected_verified_generation: string;
+        discarded_bytes: string;
+      };
+      expect(result).toMatchObject({
+        output: outputPath,
+        status: "repaired-copy",
+        original_preserved: true,
+        selected_verified_generation: "2",
+      });
+      expect(BigInt(result.discarded_bytes)).toBeGreaterThan(0n);
+      expect(await readFile(archivePath)).toEqual(Buffer.from(sourceBytes));
+      const repaired = await openArchiveBytes(await readFile(outputPath));
+      expect((await repaired.getRecord(RecordType.student, id))?.fields.get("display_name")).toBe(
+        "Mina",
+      );
+      await expect(verifyArchiveSnapshot(repaired)).resolves.toMatchObject({
+        generation: "1",
+        currentRecords: 2,
+      });
+
+      expect(
+        await executeCli(
+          [
+            "archive",
+            "repair",
+            archivePath,
+            "--output",
+            outputPath,
+            "--confirm-sensitive",
+            "--json",
+          ],
+          io,
+        ),
+      ).toBe(2);
+      expect(stderr.at(-1)).toContain("already exists");
+      expect(stderr).toHaveLength(2);
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
   it("refuses to overwrite an existing archive during init", async () => {
     const directory = await mkdtemp(join(process.cwd(), "tmp", "tutorux-cli-"));
     const archivePath = join(directory, "lesson.tux");
