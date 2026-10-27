@@ -40,6 +40,8 @@ The current browser workspace is an in-memory snapshot. Record writes create a n
 
 No database or hosted service is part of the current migration slice. Preferences persist the system/light/dark appearance choice in browser local storage; system mode follows operating-system appearance changes. The existing archive remains the canonical user-data format.
 
+Session and journal notes remain in legacy-compatible `journal-notes` records. The Solid editor reads and writes ordered, typed blocks in that schema, keeps their IDs stable through edits, and leaves unknown block kinds or extension fields untouched.
+
 ## Error handling and security boundaries
 
 Archive reads validate source ranges before touching a file. The archive parser checks header/record CRCs, bounded payload sizes, index depth, frame boundaries, commit roots, and record identity. Archive health and `archive verify` decode every current primary record, including trashed and unknown-type records, and check its index reference. Domain form input has size and control-character limits. Tauri file reads require an opaque token issued after a file picker selection and cap each native range request at 4 MiB; the TypeScript adapter composes larger archive frames from bounded reads. Saves use a same-directory temporary file and restore the old destination if publication fails. Asset imports are currently capped at 256 MiB to bound the browser-side transaction; importing larger material files requires a streaming writer.
