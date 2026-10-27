@@ -3,6 +3,8 @@ import {
   ArchiveFormatError,
   compressRecordPayload,
   crc32,
+  crc32Finalize,
+  crc32Update,
   decodeArchiveHeader,
   decodeLz4Block,
   decodeRecordFrame,
@@ -16,7 +18,10 @@ import {
 
 describe("Tutorux archive v1 encoding", () => {
   it("uses the CRC-32/IEEE check value", () => {
-    expect(crc32(new TextEncoder().encode("123456789"))).toBe(0xcbf43926);
+    const bytes = new TextEncoder().encode("123456789");
+    expect(crc32(bytes)).toBe(0xcbf43926);
+    const state = crc32Update(crc32Update(0xffffffff, bytes.subarray(0, 4)), bytes.subarray(4));
+    expect(crc32Finalize(state)).toBe(crc32(bytes));
   });
 
   it("round-trips a v1 header and preserves its 64-bit timestamps", () => {
