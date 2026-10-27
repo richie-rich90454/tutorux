@@ -2,7 +2,7 @@ use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use reqwest::{
     header::{HeaderValue, ACCEPT, AUTHORIZATION, CONTENT_TYPE},
     redirect::Policy,
-    Client, StatusCode, Url,
+    Client, Url,
 };
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -50,6 +50,7 @@ pub struct AiTransportResult {
     status: u16,
     content_type: String,
     response_bytes: usize,
+    complete: bool,
 }
 
 #[tauri::command]
@@ -125,9 +126,6 @@ pub async fn send_ai_request(
     let mut response = response_result
         .map_err(|_| "The provider request could not be completed. Check the endpoint and connection, then try again.".to_owned())?;
     let status = response.status();
-    if !status.is_success() {
-        return Err(safe_status_error(status));
-    }
     let content_type = response
         .headers()
         .get(CONTENT_TYPE)
@@ -138,28 +136,22 @@ pub async fn send_ai_request(
         .unwrap_or_default()
         .trim()
         .to_ascii_lowercase();
-    if !accepted_response_type(provider_id, &content_type) {
-        return Err("The provider returned an unsupported response format.".to_owned());
-    }
-    if response
-        .content_length()
-        .is_some_and(|length| length > MAX_RESPONSE_BYTES as u64)
-    {
-        return Err("The provider response exceeded the 16 MiB safety limit.".to_owned());
-    }
-
     let mut total = 0usize;
     let mut batch = Vec::with_capacity(CHANNEL_BATCH_BYTES);
-    while let Some(chunk) = response
-        .chunk()
-        .await
-        .map_err(|_| "The provider response stream ended unexpectedly.".to_owned())?
-    {
-        total = total
-            .checked_add(chunk.len())
-            .filter(|size| *size <= MAX_RESPONSE_BYTES)
-            .ok_or_else(|| "The provider response exceeded the 16 MiB safety limit.".to_owned())?;
-        let mut remaining = chunk.as_ref();
+    let mut complete = true;
+    loop {
+        let chunk = match response.chunk().await {
+            Ok(Some(chunk)) => chunk,
+            Ok(None) => break,
+            Err(_) => {
+                complete = false;
+                break;
+            }
+        };
+        let allowed = MAX_RESPONSE_BYTES.saturating_sub(total);
+        let copied_bytes = allowed.min(chunk.len());
+        let mut remaining = &chunk[..copied_bytes];
+        total += copied_bytes;
         while !remaining.is_empty() {
             let room = CHANNEL_BATCH_BYTES - batch.len();
             let copied = room.min(remaining.len());
@@ -168,6 +160,10 @@ pub async fn send_ai_request(
             if batch.len() == CHANNEL_BATCH_BYTES {
                 send_batch(&on_chunk, &mut batch)?;
             }
+        }
+        if copied_bytes != chunk.len() {
+            complete = false;
+            break;
         }
     }
     if !batch.is_empty() {
@@ -178,6 +174,7 @@ pub async fn send_ai_request(
         status: status.as_u16(),
         content_type,
         response_bytes: total,
+        complete,
     })
 }
 
@@ -304,19 +301,6 @@ fn encode_path_segment(value: &str) -> String {
         }
     }
     encoded
-}
-
-fn accepted_response_type(provider_id: &str, content_type: &str) -> bool {
-    content_type == "application/json"
-        || (provider_id == "ollama" && content_type == "application/x-ndjson")
-        || (provider_id != "ollama" && content_type == "text/event-stream")
-}
-
-fn safe_status_error(status: StatusCode) -> String {
-    format!(
-        "The provider returned HTTP {}. Review the provider settings and try again.",
-        status.as_u16()
-    )
 }
 
 fn constant_time_equal(left: &str, right: &str) -> bool {
