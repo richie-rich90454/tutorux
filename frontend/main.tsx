@@ -539,7 +539,10 @@ function App(): JSX.Element {
       }
       setWorkspace(next);
       setView("home");
-      announce("Archive unlocked; commit, index, and manifest authentication passed.", "success");
+      announce(
+        "Archive unlocked; commit, index pages, and manifest authentication passed.",
+        "success",
+      );
     } catch (error) {
       unlocked?.lock();
       throw error;
@@ -652,16 +655,22 @@ function App(): JSX.Element {
       announce(
         current.snapshot.locked
           ? "Unlock this archive before editing it."
-          : "Encrypted archives are read-only in this version. You can still verify or save a copy.",
+          : "This archive cannot be edited in its current state.",
         "error",
       );
       return false;
     }
     setBusy(true);
+    let nextSnapshot: ArchiveSnapshot | undefined;
     try {
-      const snapshot = await appendRecords(current.snapshot, records);
-      const updated = await readWorkspace(snapshot, current.name, current.location, true);
+      nextSnapshot = await appendRecords(current.snapshot, records);
+      const updated = await readWorkspace(nextSnapshot, current.name, current.location, true);
+      if (workspace()?.snapshot !== current.snapshot) {
+        nextSnapshot.lock();
+        return false;
+      }
       setWorkspace(updated);
+      if (nextSnapshot !== current.snapshot) current.snapshot.lock();
       setView(view());
       announce(successMessage, "success");
       setDialog(null);
@@ -670,6 +679,7 @@ function App(): JSX.Element {
       setPendingSessionTrash(null);
       return true;
     } catch (error) {
+      if (nextSnapshot && workspace()?.snapshot !== nextSnapshot) nextSnapshot.lock();
       announce(errorMessage(error), "error");
       return false;
     } finally {
@@ -1751,18 +1761,6 @@ function App(): JSX.Element {
                       </p>
                     </div>
                     <UnlockArchivePanel onUnlock={unlockCurrentArchive} busy={busy()} />
-                  </section>
-                </Show>
-                <Show when={state.snapshot.encrypted && !state.snapshot.locked}>
-                  <section class="locked-banner locked-panel archive-readonly-banner" role="status">
-                    <Icon name="shield" />
-                    <div class="locked-copy">
-                      <strong>Encrypted archive · read only</strong>
-                      <p>
-                        Contents are unlocked for review and verification. Editing, recovery,
-                        compaction, and sanitized copies are not available yet.
-                      </p>
-                    </div>
                   </section>
                 </Show>
                 <Show when={view() === "home"}>
@@ -5839,7 +5837,7 @@ function ArchivePage(props: {
               {props.state.snapshot.locked
                 ? "Encrypted · locked"
                 : props.state.snapshot.encrypted
-                  ? "Encrypted · read only"
+                  ? "Encrypted · unlocked"
                   : "Ready to use"}
             </span>
             <span>
@@ -5861,7 +5859,7 @@ function ArchivePage(props: {
       </section>
       <Show when={props.state.snapshot.encrypted && !props.state.snapshot.locked}>
         <div class="archive-lock-action">
-          <span>Archive contents are unlocked for review and verification.</span>
+          <span>Archive contents are unlocked for this session.</span>
           <button class="button button-outline" type="button" onClick={() => props.onLock()}>
             <Icon name="shield" />
             Lock archive
