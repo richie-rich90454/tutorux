@@ -251,6 +251,17 @@ test("sends one confirmed provider request and saves an unapproved guide result"
   const archiveDownload = page.waitForEvent("download");
   await page.getByRole("button", { name: "Save archive" }).click();
   await (await archiveDownload).saveAs(info.outputPath("ai-run-saved.tux"));
+
+  await page.getByRole("navigation").getByRole("button", { name: "Archive health" }).click();
+  await page.getByRole("button", { name: "Lock archive" }).click();
+  const lockedPassphrase = page.getByLabel("Archive passphrase");
+  await expect(lockedPassphrase).toBeVisible();
+  await lockedPassphrase.fill("provider-execution-test-passphrase");
+  await page.getByRole("button", { name: "Unlock archive" }).click();
+  await expect(lockedPassphrase).toHaveCount(0);
+  await page.getByRole("navigation").getByRole("button", { name: "AI workspace" }).click();
+  await expect(page.getByRole("heading", { name: "Proposed study guide is ready" })).toHaveCount(0);
+
   const locked = await openArchiveBytes(
     new Uint8Array(await readFile(info.outputPath("ai-run-saved.tux"))),
   );
