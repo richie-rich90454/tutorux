@@ -356,7 +356,7 @@ describe("TypeScript CLI", () => {
       expect(student.fields.demonstrated_improvements).toBe("Explains the scale factor");
       expect(student.fields.preferred_guide_template).toBe("mathematics");
       expect(studentList).toHaveLength(1);
-      expect(studentList[0].fields.display_name).toBe("Mina");
+      expect(studentList[0].display_name).toBe("Mina");
       expect(
         await executeCli(
           [
@@ -398,6 +398,64 @@ describe("TypeScript CLI", () => {
       expect(verification.records).toBeGreaterThan(1);
       expect(stderr).toEqual([]);
       expect((await readFile(archivePath)).subarray(0, 8).toString()).toBe("TUTORUX\0");
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("previews and applies recovery for a complete unpublished generation", async () => {
+    const directory = await mkdtemp(join(process.cwd(), "tmp", "tutorux-cli-recovery-"));
+    const archivePath = join(directory, "lesson.tux");
+    const stdout: string[] = [];
+    const stderr: string[] = [];
+    const io = {
+      stdout: (value: string) => stdout.push(value),
+      stderr: (value: string) => stderr.push(value),
+    };
+
+    try {
+      expect(await executeCli(["archive", "init", archivePath, "--name", "Recovery"], io)).toBe(0);
+      expect(
+        await executeCli(
+          ["--json", "--archive", archivePath, "student", "create", "--name", "Mina"],
+          io,
+        ),
+      ).toBe(0);
+      const completeBytes = await readFile(archivePath);
+      const unpublishedBytes = completeBytes.subarray(0, completeBytes.length - 32);
+      await writeFile(archivePath, unpublishedBytes);
+
+      expect(await executeCli(["archive", "recover", archivePath, "--json"], io)).toBe(0);
+      const preview = JSON.parse(stdout.at(-1)!) as {
+        recoverable: boolean;
+        recoveredGeneration: string;
+        applied: boolean;
+      };
+      expect(preview).toEqual({
+        path: archivePath,
+        previousGeneration: "1",
+        recoveredGeneration: "2",
+        discardedTrailingBytes: "0",
+        recoverable: true,
+        applied: false,
+      });
+      expect(await readFile(archivePath)).toEqual(unpublishedBytes);
+
+      expect(await executeCli(["archive", "recover", archivePath, "--apply", "--json"], io)).toBe(
+        0,
+      );
+      expect(JSON.parse(stdout.at(-1)!)).toMatchObject({
+        recoveredGeneration: "2",
+        recoverable: true,
+        applied: true,
+      });
+      expect(await executeCli(["archive", "verify", archivePath, "--json"], io)).toBe(0);
+      expect(JSON.parse(stdout.at(-1)!)).toMatchObject({
+        generation: "2",
+        recordsVerified: 2,
+        verified: true,
+      });
+      expect(stderr).toEqual([]);
     } finally {
       await rm(directory, { recursive: true, force: true });
     }
