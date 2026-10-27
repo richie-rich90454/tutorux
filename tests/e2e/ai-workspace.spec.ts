@@ -146,10 +146,11 @@ test("saves provider preferences and keeps API keys inside encrypted archives", 
   archive.lock();
 });
 
-test("sends one confirmed provider request and saves an unapproved guide result", async ({
+test("archives successful and HTTP-error responses after explicit request confirmation", async ({
   page,
 }, info) => {
   const apiKey = "sk-e2e-only-secret";
+  const rawProviderError = JSON.stringify({ error: { message: "rate limit details" } });
   let providerPosts = 0;
   await page.route("https://api.openai.com/v1/chat/completions", async (route) => {
     const request = route.request();
@@ -169,6 +170,17 @@ test("sends one confirmed provider request and saves an unapproved guide result"
     providerPosts += 1;
     expect(request.method()).toBe("POST");
     expect(request.headers()["authorization"]).toBe(`Bearer ${apiKey}`);
+    if (providerPosts > 1) {
+      await route.fulfill({
+        status: 429,
+        headers: {
+          "Access-Control-Allow-Origin": origin,
+          "Content-Type": "application/json; charset=utf-8",
+        },
+        body: rawProviderError,
+      });
+      return;
+    }
     const requestBody = JSON.parse(request.postData() ?? "{}") as {
       model: string;
       messages: { role: string; content: string }[];
@@ -248,6 +260,29 @@ test("sends one confirmed provider request and saves an unapproved guide result"
   await expect(page.locator("body")).not.toContainText(apiKey);
   expect(providerPosts).toBe(1);
 
+  const retrySessionOption = page.getByRole("option", { name: /Fractions review/u });
+  await page
+    .getByLabel("Session to prepare")
+    .selectOption((await retrySessionOption.getAttribute("value"))!);
+  await page.getByRole("button", { name: "Prepare for review" }).click();
+  await expect(page.getByRole("heading", { name: "Mathematics" })).toBeVisible();
+  await page.getByRole("button", { name: "Preview exact request" }).click();
+  await expect(page.getByRole("heading", { name: "Request ready for review" })).toBeVisible();
+  await page.getByRole("checkbox", { name: /I reviewed the package contents/u }).check();
+  await page.locator(".ai-send-consent input").check();
+  await page.getByRole("button", { name: "Send exact reviewed request" }).click();
+  await expect(
+    page.getByRole("heading", { name: "Provider response saved for review" }),
+  ).toBeVisible();
+  await expect(page.locator("body")).not.toContainText("rate limit details");
+  expect(providerPosts).toBe(2);
+  const rawResponseDownload = page.waitForEvent("download");
+  await page.getByRole("button", { name: "Export raw response" }).click();
+  await (await rawResponseDownload).saveAs(info.outputPath("ai-provider-error.json"));
+  expect(await readFile(info.outputPath("ai-provider-error.json"))).toEqual(
+    Buffer.from(rawProviderError),
+  );
+
   const archiveDownload = page.waitForEvent("download");
   await page.getByRole("button", { name: "Save archive" }).click();
   await (await archiveDownload).saveAs(info.outputPath("ai-run-saved.tux"));
@@ -261,19 +296,30 @@ test("sends one confirmed provider request and saves an unapproved guide result"
   await expect(lockedPassphrase).toHaveCount(0);
   await page.getByRole("navigation").getByRole("button", { name: "AI workspace" }).click();
   await expect(page.getByRole("heading", { name: "Proposed study guide is ready" })).toHaveCount(0);
+  await expect(
+    page.getByRole("heading", { name: "Provider response saved for review" }),
+  ).toHaveCount(0);
 
   const locked = await openArchiveBytes(
     new Uint8Array(await readFile(info.outputPath("ai-run-saved.tux"))),
   );
   const archive = await locked.unlock("provider-execution-test-passphrase");
   const jobs = await archive.listRecords(RecordType.aiJob);
-  const responseJob = jobs.find((job) => job.fields.get("mode") === "byok");
-  expect(responseJob?.fields.get("status")).toBe("response-needs-review");
-  expect(responseJob?.fields.get("outbound_consent_hash")).toBe(
-    responseJob?.fields.get("request_body_sha256"),
+  const responseJobs = jobs.filter((job) => job.fields.get("mode") === "byok");
+  const successfulJob = responseJobs.find(
+    (job) => job.fields.get("status") === "response-needs-review",
   );
-  expect(new TextDecoder().decode(responseJob?.blob)).toContain("data: ");
-  expect(responseJob?.fields.get("error_message")).toBeUndefined();
+  const errorJob = responseJobs.find((job) => job.fields.get("status") === "provider-error");
+  expect(successfulJob).toBeDefined();
+  expect(errorJob?.fields.get("http_status")).toBe("429");
+  expect(errorJob?.fields.get("response_content_type")).toBe("application/json");
+  expect(errorJob?.fields.get("response_complete")).toBe("true");
+  expect(errorJob?.blob).toEqual(Buffer.from(rawProviderError));
+  expect(successfulJob?.fields.get("outbound_consent_hash")).toBe(
+    successfulJob?.fields.get("request_body_sha256"),
+  );
+  expect(new TextDecoder().decode(successfulJob?.blob)).toContain("data: ");
+  expect(successfulJob?.fields.get("error_message")).toBeUndefined();
   expect((await archive.listRecords(RecordType.guide))[0]?.fields.get("approval_state")).toBe(
     "draft",
   );
