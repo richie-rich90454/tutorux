@@ -221,6 +221,78 @@ describe("student profile lifecycle", () => {
     expect(notesEditState({ ...created[1]!, fields: fieldsWithExtension }).editable).toBe(false);
   });
 
+  it("rejects editing a journal notes document linked to another entry", () => {
+    const first = makeJournalRecords({
+      title: "First reflection",
+      date: "2024-02-29",
+      notes: "First notes",
+    });
+    const second = makeJournalRecords({
+      title: "Second reflection",
+      date: "2024-03-01",
+      notes: "Second notes",
+    });
+    const secondNotes = second[1]!;
+    const firstWithSecondNoteLink = {
+      ...first[0]!,
+      fields: new Map(first[0]!.fields),
+    };
+    firstWithSecondNoteLink.fields.set("notes_document_id", secondNotes.id);
+
+    expect(
+      notesEditState(secondNotes, { entryId: firstWithSecondNoteLink.id, sessionId: "" }).editable,
+    ).toBe(false);
+    expect(() =>
+      updateJournalRecords(
+        firstWithSecondNoteLink,
+        { title: "Hijacked reflection", date: "2024-02-29", notes: "Changed" },
+        secondNotes,
+        true,
+      ),
+    ).toThrow("structured format");
+    expect(secondNotes.fields.get("entry_id")).toBe(second[0]!.id);
+    expect(secondNotes.fields.get("block.0.text")).toBe("Second notes");
+  });
+
+  it("rejects editing session notes linked to another session", () => {
+    const first = makeSessionRecords({
+      studentId: "student-id",
+      subject: "Math",
+      title: "First session",
+      objectives: "Fractions",
+      notes: "First notes",
+    });
+    const second = makeSessionRecords({
+      studentId: "student-id",
+      subject: "Math",
+      title: "Second session",
+      objectives: "Ratios",
+      notes: "Second notes",
+    });
+    const firstWithSecondNoteLink = {
+      ...first[0]!,
+      fields: new Map(first[0]!.fields),
+    };
+    firstWithSecondNoteLink.fields.set("notes_document_id", second[1]!.id);
+
+    expect(() =>
+      updateSessionRecords(
+        firstWithSecondNoteLink,
+        {
+          studentId: "student-id",
+          subject: "Math",
+          title: "Hijacked session",
+          objectives: "Fractions",
+          notes: "Changed",
+        },
+        second[1]!,
+        true,
+      ),
+    ).toThrow("structured format");
+    expect(second[1]!.fields.get("session_id")).toBe(second[0]!.id);
+    expect(second[1]!.fields.get("block.0.text")).toBe("Second notes");
+  });
+
   it("rejects duplicate note block IDs and preserves large multibyte legacy blocks", () => {
     expect(() =>
       makeJournalRecords({
