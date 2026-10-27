@@ -17,6 +17,7 @@ export interface AiRequestHeaderPreview {
 export interface AiRequestPreview {
   providerId: string;
   providerName: string;
+  guideTemplateId: string | null;
   endpoint: string;
   model: string;
   method: "POST";
@@ -110,6 +111,10 @@ export async function createAiRequestPreview(
   return {
     providerId: provider.id,
     providerName: provider.name,
+    guideTemplateId:
+      typeof packageManifest["guide_template_id"] === "string"
+        ? packageManifest["guide_template_id"]
+        : null,
     endpoint: requestEndpoint,
     model,
     method: "POST",
