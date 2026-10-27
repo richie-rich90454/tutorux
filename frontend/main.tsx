@@ -784,6 +784,7 @@ function App(): JSX.Element {
   async function prepareAiPackage(
     sessionId: string,
     templateId: string,
+    attachmentIds: readonly string[],
   ): Promise<AiPackageSummary> {
     const current = workspace();
     if (!current) throw new Error("Create or open an archive before preparing a package.");
@@ -793,7 +794,12 @@ function App(): JSX.Element {
     if (busy()) throw new Error("Wait for the current archive operation to finish.");
     setBusy(true);
     try {
-      const summary = await createAiPackageRecord(current.snapshot, sessionId, templateId);
+      const summary = await createAiPackageRecord(
+        current.snapshot,
+        sessionId,
+        templateId,
+        attachmentIds,
+      );
       if (workspace()?.snapshot !== current.snapshot) {
         throw new Error("The active archive changed while the package was being prepared.");
       }
@@ -801,6 +807,40 @@ function App(): JSX.Element {
     } finally {
       setBusy(false);
     }
+  }
+
+  async function createAiProviderPreview(
+    packageJob: ArchiveRecord,
+    providerId: string,
+    credentialStorage: AiCredentialStorage,
+  ): Promise<AiRequestPreview> {
+    const current = workspace();
+    if (!current || current.snapshot.locked) {
+      throw new Error("Unlock the archive before reviewing an AI request.");
+    }
+    const providerMetadata = current.providerSettings.find(
+      (record) => record.fields.get("provider_id") === providerId,
+    );
+    if (!providerMetadata)
+      throw new Error("Save the selected provider settings before previewing.");
+    const providerConfiguration = await current.snapshot.getRecord(
+      RecordType.settings,
+      providerMetadata.id,
+    );
+    if (!providerConfiguration) throw new Error("The saved provider settings could not be loaded.");
+    const useSystemCredentialStore = credentialStorage === "system-keychain";
+    const hasSystemCredential =
+      useSystemCredentialStore &&
+      platform.kind === "desktop" &&
+      (await platform.hasAiCredential(providerId));
+    return createAiRequestPreview(
+      packageJob,
+      providerConfiguration,
+      undefined,
+      useSystemCredentialStore ? [] : current.credentials,
+      hasSystemCredential,
+      current.snapshot,
+    );
   }
 
   async function saveAiPackage(summary: AiPackageSummary): Promise<boolean> {
@@ -868,6 +908,7 @@ function App(): JSX.Element {
       preview.maxOutputTokens,
       useSystemCredentialStore ? [] : current.credentials,
       hasSystemCredential,
+      current.snapshot,
     );
     if (
       freshPreview.providerId !== preview.providerId ||
@@ -2223,6 +2264,7 @@ function App(): JSX.Element {
                   <AiPage
                     archiveId={state.snapshot.header.id}
                     sessions={[...state.sessions, ...state.archivedSessions]}
+                    assets={state.assets}
                     customTemplates={state.guideTemplates}
                     jobs={state.aiJobs}
                     providerSettings={state.providerSettings}
@@ -2239,6 +2281,7 @@ function App(): JSX.Element {
                     }
                     onClearExecution={() => setLastAiExecution(null)}
                     onPrepare={prepareAiPackage}
+                    onCreateRequestPreview={createAiProviderPreview}
                     onSave={saveAiPackage}
                     onLoad={loadAiPackage}
                     onSend={sendAiProviderRequest}
