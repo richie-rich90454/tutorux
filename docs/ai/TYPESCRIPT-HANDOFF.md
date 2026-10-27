@@ -20,13 +20,16 @@ the user opens the JSON preview or exports a saved package.
 The AI workspace also saves compatible provider endpoint and model settings for OpenAI, Anthropic,
 Google Gemini, Cohere, Perplexity, Ollama, and custom OpenAI-compatible services. Cloud endpoints
 must use HTTPS; Ollama is restricted to loopback HTTP. Configuration is archive-backed and does not
-test or contact a provider.
+test or contact a provider. Once a package and model are ready, Tutorux can build and display the
+exact text-only request body for the provider protocol, endpoint, headers, package hash, and request
+body hash. Authentication values stay hidden, and preview preparation does not read a credential
+or contact a provider. The current request limit is 16 MiB, with an 8 MiB package cap.
 
 API keys can be saved as separate credential-role records only when the active archive is encrypted.
 The UI requires an explicit storage confirmation, never reads the key back into its display, masks
 credential values in workspace metadata, and soft-deletes a credential when removed. This storage
 does not yet provide a system-keychain backend or feed keys to provider requests.
 
-Outbound request review and confirmation, provider execution, response import, local model jobs,
-and the CLI AI command group are still unported. The migration inventory tracks those remaining
-areas.
+Explicit confirmation before sending, provider execution, response import, local model jobs, asset
+payload attachment, and the CLI AI command group are still unported. The migration inventory tracks
+those remaining areas.
