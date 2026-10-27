@@ -66,6 +66,7 @@ import {
   type JournalCollectionInput,
   type JournalTagInput,
   type SessionCloneInput,
+  type SessionCreateOptions,
   type SessionTransitionAction,
   updateSessionRecords,
 } from "../frontend/domain/records";
@@ -124,7 +125,7 @@ Usage:
   tutorux --archive <file.tux> student history <student-id> [--json]
   tutorux --archive <file.tux> student progress <student-id> [--json]
   tutorux --archive <file.tux> student progress-review <student-id> --skill <name> --classification <value> --evidence-ids <uuid,...> --reviewed-by <name> [--note <text>]
-  tutorux --archive <file.tux> session create --title <title> --subject <subject> [--student <uuid>]
+  tutorux --archive <file.tux> session create --title <title> --subject <subject> [--student <uuid>] [--entry-id <uuid>]
   tutorux --archive <file.tux> session list [--student-id <uuid>] [--entry-id <uuid>] [--from <YYYY-MM-DD>] [--to <YYYY-MM-DD>] [--archived|--unarchived] [--include-deleted] [--json]
   tutorux --archive <file.tux> session show|verify <uuid> [--json]
   tutorux --archive <file.tux> session update <uuid> [--title <title>] [--subject <subject>] [--objectives <text>] [--student-id <uuid>] [--notes <text>]
@@ -354,27 +355,54 @@ async function runRecordCommand(
   }
   if (group === "session" && action === "create") {
     const snapshot = await openForCommand(path);
+    let expectedGeneration: bigint;
+    let creationOptions: SessionCreateOptions;
     try {
+      expectedGeneration = snapshot.commit.generation;
       const studentId = args.options.get("student") ?? args.options.get("student-id") ?? "";
-      if (studentId && !(await snapshot.getRecord(RecordType.student, studentId))) {
+      const student = studentId ? await snapshot.getRecord(RecordType.student, studentId) : null;
+      if (studentId && (!student || field(student, "_deleted") === "true")) {
         throw new CliError(`Student ${studentId} was not found in this archive.`);
       }
+      if (args.flags.has("entry-id"))
+        throw new CliError("--entry-id requires a journal entry UUID.");
+      const linkedEntryId = args.options.get("entry-id");
+      const linkedEntry = linkedEntryId
+        ? await getJournalEntry(snapshot, linkedEntryId.toLowerCase())
+        : undefined;
+      const settings = await snapshot.listRecords(RecordType.settings);
+      creationOptions = {
+        ensureJournalRoot: !settings.some((record) => field(record, "record_role") === "journal"),
+        ...(linkedEntry ? { linkedEntry } : {}),
+      };
     } finally {
       await closeSnapshot(snapshot);
     }
-    const records = makeSessionRecords({
-      studentId: args.options.get("student") ?? args.options.get("student-id") ?? "",
-      subject: requiredOption(args, "subject"),
-      title: requiredOption(args, "title"),
-      objectives: args.options.get("objectives") ?? "",
-      notes: args.options.get("notes") ?? "",
-    });
-    const saved = await mutateArchive(path, records);
+    const records = makeSessionRecords(
+      {
+        studentId: args.options.get("student") ?? args.options.get("student-id") ?? "",
+        subject: requiredOption(args, "subject"),
+        title: requiredOption(args, "title"),
+        objectives: args.options.get("objectives") ?? "",
+        notes: args.options.get("notes") ?? "",
+      },
+      creationOptions,
+    );
+    const saved = await mutateArchive(
+      path,
+      records,
+      expectedGeneration,
+      "The archive changed while the new session and journal link were being prepared. Retry the command.",
+    );
     const session = saved[0] ?? records[0]!;
     emit(
       output,
-      { session: toPlainRecord(session), notesDocumentId: (saved[1] ?? records[1]!).id },
-      `Created session ${field(session, "title")} (${session.id}).`,
+      {
+        session: toPlainRecord(session),
+        notesDocumentId: (saved[1] ?? records[1]!).id,
+        entryId: field(session, "entry_id"),
+      },
+      `Created session ${field(session, "title")} (${session.id}) in journal entry ${field(session, "entry_id")}.`,
       args.flags.has("json"),
     );
     return 0;
