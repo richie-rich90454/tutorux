@@ -1,4 +1,4 @@
-import { RecordType, type ArchiveRecord } from "../archive/format";
+import { RecordType, type ArchiveRecord, validateRecordPayloadSize } from "../archive/format";
 
 let lastTimestampUs = 0n;
 
@@ -19,13 +19,16 @@ export interface StudentInput {
   preferredGuideTemplate?: string;
 }
 
-export interface SessionInput {
+export type NotesInput =
+  | { notes: string; noteBlocks?: never }
+  | { notes?: never; noteBlocks: readonly JournalNoteBlock[] };
+
+export type SessionInput = {
   studentId: string;
   subject: string;
   title: string;
   objectives: string;
-  notes: string;
-}
+} & NotesInput;
 
 export interface SessionCreateOptions {
   linkedEntry?: ArchiveRecord;
@@ -40,13 +43,12 @@ export interface SessionCloneInput {
   ensureJournalRoot?: boolean;
 }
 
-export interface JournalInput {
+export type JournalInput = {
   title: string;
   date: string;
-  notes: string;
   collectionIds?: readonly string[];
   tagIds?: readonly string[];
-}
+} & NotesInput;
 
 export interface JournalCollectionInput {
   name: string;
@@ -60,8 +62,28 @@ export interface JournalTagInput {
 }
 
 export interface NotesEditState {
-  text: string;
+  blocks: JournalNoteBlock[];
   editable: boolean;
+}
+
+export const MAX_JOURNAL_NOTE_BLOCKS = 10_000;
+
+export const JOURNAL_NOTE_BLOCK_KINDS = [
+  "paragraph",
+  "heading",
+  "bullet-list",
+  "numbered-list",
+  "checklist",
+  "quote",
+  "code",
+] as const;
+
+export type JournalNoteBlockKind = (typeof JOURNAL_NOTE_BLOCK_KINDS)[number];
+
+export interface JournalNoteBlock {
+  id: string;
+  kind: JournalNoteBlockKind;
+  text: string;
 }
 
 export function makeStudentRecord(input: StudentInput): ArchiveRecord {
@@ -327,10 +349,10 @@ export function cloneSessionRecords(
         created_at_us: timestamp,
         updated_at_us: timestamp,
       }),
-      makeNotesDocument(entryNotesId, entryId, "", "", timestamp),
+      makeNotesDocument(entryNotesId, entryId, "", timestamp, { notes: "" }),
     );
   }
-  records.push(makeNotesDocument(sessionNotesId, entryId, sessionId, "", timestamp));
+  records.push(makeNotesDocument(sessionNotesId, entryId, sessionId, timestamp, { notes: "" }));
   return records;
 }
 
@@ -365,7 +387,6 @@ export function makeSessionRecords(
   }
   const entryId = linkedEntry?.id.toLowerCase() ?? crypto.randomUUID();
   const notesId = crypto.randomUUID();
-  const note = cleanText(input.notes, "Session notes", 100_000, true);
   const title = requiredText(input.title, "Session title", 240);
   const records: ArchiveRecord[] = [
     record(RecordType.session, sessionId, {
@@ -389,7 +410,7 @@ export function makeSessionRecords(
       created_at_us: timestamp,
       updated_at_us: timestamp,
     }),
-    makeNotesDocument(notesId, entryId, sessionId, note, timestamp),
+    makeNotesDocument(notesId, entryId, sessionId, timestamp, input),
   ];
 
   if (linkedEntry) {
@@ -426,7 +447,7 @@ export function makeSessionRecords(
       created_at_us: timestamp,
       updated_at_us: timestamp,
     }),
-    makeNotesDocument(entryNotesId, entryId, "", "", timestamp),
+    makeNotesDocument(entryNotesId, entryId, "", timestamp, { notes: "" }),
   );
   return records;
 }
@@ -435,7 +456,6 @@ export function makeJournalRecords(input: JournalInput): ArchiveRecord[] {
   const timestamp = nowUs();
   const entryId = crypto.randomUUID();
   const notesId = crypto.randomUUID();
-  const note = cleanText(input.notes, "Journal note", 100_000, true);
   validateJournalDate(input.date);
   return [
     record(RecordType.settings, entryId, {
@@ -451,7 +471,7 @@ export function makeJournalRecords(input: JournalInput): ArchiveRecord[] {
       created_at_us: timestamp,
       updated_at_us: timestamp,
     }),
-    makeNotesDocument(notesId, entryId, "", note, timestamp),
+    makeNotesDocument(notesId, entryId, "", timestamp, input),
   ];
 }
 
@@ -594,25 +614,57 @@ export function restoreJournalOrganizerRecord(
   return [...changes, { ...current, fields }];
 }
 
-/** Return editable text only for the simple paragraph representation used by the current form. */
+/** Decode known archive-backed note blocks without claiming ownership of unknown legacy fields. */
 export function notesEditState(document: ArchiveRecord | null | undefined): NotesEditState {
-  if (!document) return { text: "", editable: true };
+  if (!document) return { blocks: [], editable: true };
   if (
     document.type !== RecordType.settings ||
     document.fields.get("record_role") !== "journal-notes" ||
     document.fields.get("_deleted") === "true"
   ) {
-    return { text: "", editable: false };
+    return { blocks: [], editable: false };
   }
-  const count = document.fields.get("block_count");
-  if (count === "0") return { text: "", editable: true };
-  if (count !== "1" || !document.fields.get("block.0.id")) {
-    return { text: "", editable: false };
+  try {
+    validateRecordPayloadSize(document.fields, document.blob.byteLength);
+  } catch {
+    return { blocks: [], editable: false };
   }
-  if (document.fields.get("block.0.kind") !== "paragraph") {
-    return { text: "", editable: false };
+  const countText = document.fields.get("block_count") ?? "";
+  if (!/^\d+$/u.test(countText)) return { blocks: [], editable: false };
+  const count = Number(countText);
+  if (!Number.isSafeInteger(count) || count < 0 || count > MAX_JOURNAL_NOTE_BLOCKS) {
+    return { blocks: [], editable: false };
   }
-  return { text: document.fields.get("block.0.text") ?? "", editable: true };
+  const blocks: JournalNoteBlock[] = [];
+  const ids = new Set<string>();
+  const knownBlockFields = new Set<string>();
+  for (let index = 0; index < count; index += 1) {
+    const prefix = `block.${index}`;
+    const id = document.fields.get(`${prefix}.id`) ?? "";
+    const kind = document.fields.get(`${prefix}.kind`) ?? "";
+    const text = document.fields.get(`${prefix}.text`) ?? "";
+    if (
+      !id ||
+      ids.has(id) ||
+      !isWellFormedUnicode(id) ||
+      !isJournalNoteBlockKind(kind) ||
+      !isWellFormedUnicode(text) ||
+      containsUnsupportedControl(text, true)
+    ) {
+      return { blocks: [], editable: false };
+    }
+    ids.add(id);
+    knownBlockFields.add(`${prefix}.id`);
+    knownBlockFields.add(`${prefix}.kind`);
+    knownBlockFields.add(`${prefix}.text`);
+    blocks.push({ id, kind, text });
+  }
+  for (const key of document.fields.keys()) {
+    if (/^block\.\d+\./u.test(key) && !knownBlockFields.has(key)) {
+      return { blocks: [], editable: false };
+    }
+  }
+  return { blocks, editable: true };
 }
 
 /** Update a session while preserving its recording, transcript, timing, and extension fields. */
@@ -639,16 +691,16 @@ export function updateSessionRecords(
   const noteDocument = updateNotesDocument(
     notesDocument,
     existingId,
-    input.notes,
     fields.get("entry_id") ?? "",
     sessionId,
     timestamp,
+    input,
   );
   fields.set("notes_document_id", noteDocument.id);
   return [updatedSession, noteDocument];
 }
 
-/** Update a journal entry and, when safe, its single-paragraph notes document. */
+/** Update a journal entry and, when safe, its archive-backed notes document. */
 export function updateJournalRecords(
   current: ArchiveRecord,
   input: JournalInput,
@@ -678,10 +730,10 @@ export function updateJournalRecords(
   const noteDocument = updateNotesDocument(
     notesDocument,
     existingId,
-    input.notes,
     entryId,
     "",
     timestamp,
+    input,
   );
   fields.set("notes_document_id", noteDocument.id);
   return [updatedEntry, noteDocument];
@@ -751,35 +803,31 @@ function makeNotesDocument(
   id: string,
   entryId: string,
   sessionId: string,
-  text: string,
   timestamp: string,
+  notes: NotesInput,
 ): ArchiveRecord {
-  return record(RecordType.settings, id, {
+  const blocks = normalizeJournalNoteBlocks(notes);
+  const fields: Record<string, string> = {
     record_role: "journal-notes",
     entry_id: entryId,
     session_id: sessionId,
     created_at_us: timestamp,
     updated_at_us: timestamp,
-    block_count: text ? "1" : "0",
-    ...(text
-      ? {
-          "block.0.id": crypto.randomUUID(),
-          "block.0.kind": "paragraph",
-          "block.0.text": text,
-        }
-      : {}),
-  });
+    block_count: String(blocks.length),
+  };
+  appendNoteBlocks(fields, blocks);
+  validateRecordPayloadSize(Object.entries(fields));
+  return record(RecordType.settings, id, fields);
 }
 
 function updateNotesDocument(
   current: ArchiveRecord | null,
   expectedId: string,
-  value: string,
   entryId: string,
   sessionId: string,
   timestamp: string,
+  notes: NotesInput,
 ): ArchiveRecord {
-  const text = cleanText(value, "Notes", 100_000, true);
   if (!current) {
     if (expectedId) {
       throw new Error(
@@ -787,14 +835,31 @@ function updateNotesDocument(
       );
     }
     const id = crypto.randomUUID();
-    return makeNotesDocument(id, entryId, sessionId, text, timestamp);
+    return makeNotesDocument(id, entryId, sessionId, timestamp, notes);
   }
   const state = notesEditState(current);
   if (!state.editable || current.id !== expectedId) {
-    throw new Error(
-      "These notes use a structured format and cannot be replaced by the simple editor.",
-    );
+    throw new Error("These notes use a structured format the current editor cannot safely change.");
   }
+  if (
+    notes.noteBlocks === undefined &&
+    (state.blocks.length > 1 ||
+      (state.blocks.length === 1 && state.blocks[0]!.kind !== "paragraph"))
+  ) {
+    throw new Error("These notes use a structured format the current editor cannot safely change.");
+  }
+  const blocks =
+    notes.noteBlocks === undefined
+      ? notes.notes
+        ? [
+            {
+              id: state.blocks[0]?.id ?? crypto.randomUUID(),
+              kind: "paragraph" as const,
+              text: cleanText(notes.notes, "Notes", 100_000, true),
+            },
+          ]
+        : []
+      : normalizeJournalNoteBlocks(notes);
   const fields = new Map(current.fields);
   for (const key of fields.keys()) {
     if (/^block\.\d+\.(?:id|kind|text)$/u.test(key)) fields.delete(key);
@@ -802,13 +867,79 @@ function updateNotesDocument(
   fields.set("entry_id", entryId);
   fields.set("session_id", sessionId);
   fields.set("updated_at_us", timestamp);
-  fields.set("block_count", text ? "1" : "0");
-  if (text) {
-    fields.set("block.0.id", current.fields.get("block.0.id") ?? crypto.randomUUID());
-    fields.set("block.0.kind", "paragraph");
-    fields.set("block.0.text", text);
-  }
+  fields.set("block_count", String(blocks.length));
+  appendNoteBlocks(fields, blocks);
+  validateRecordPayloadSize(fields, current.blob.byteLength);
   return { ...current, fields };
+}
+
+function normalizeJournalNoteBlocks(notes: NotesInput): JournalNoteBlock[] {
+  if (notes.noteBlocks === undefined) {
+    const text = cleanText(notes.notes ?? "", "Notes", 100_000, true);
+    return text
+      ? [
+          {
+            id: crypto.randomUUID(),
+            kind: "paragraph",
+            text: cleanText(text, "Notes", 100_000, true),
+          },
+        ]
+      : [];
+  }
+  const noteBlocks = notes.noteBlocks;
+  if (noteBlocks.length > MAX_JOURNAL_NOTE_BLOCKS) {
+    throw new Error(
+      `Notes can contain at most ${MAX_JOURNAL_NOTE_BLOCKS.toLocaleString("en-US")} blocks.`,
+    );
+  }
+  const ids = new Set<string>();
+  const normalized = noteBlocks.map((block, index) => {
+    const id = block.id;
+    if (!id || !isWellFormedUnicode(id) || ids.has(id)) {
+      throw new Error("Document block IDs must be present and unique valid Unicode text.");
+    }
+    if (!isJournalNoteBlockKind(block.kind)) {
+      throw new Error(`Block ${index + 1} uses an unsupported document type.`);
+    }
+    ids.add(id);
+    const blockText = block.text;
+    if (!isWellFormedUnicode(blockText)) {
+      throw new Error(`Block ${index + 1} contains invalid Unicode text.`);
+    }
+    if (containsUnsupportedControl(blockText, true)) {
+      throw new Error(`Block ${index + 1} contains unsupported control characters.`);
+    }
+    return { id, kind: block.kind, text: blockText };
+  });
+  if (normalized.length === 1 && normalized[0]!.kind === "paragraph" && !normalized[0]!.text) {
+    return [];
+  }
+  return normalized;
+}
+
+function appendNoteBlocks(
+  fields: Record<string, string> | Map<string, string>,
+  blocks: readonly JournalNoteBlock[],
+): void {
+  blocks.forEach((block, index) => {
+    const prefix = `block.${index}`;
+    const entries: readonly (readonly [string, string])[] = [
+      [`${prefix}.id`, block.id],
+      [`${prefix}.kind`, block.kind],
+      [`${prefix}.text`, block.text],
+    ];
+    if (fields instanceof Map) {
+      entries.forEach(([key, value]) => fields.set(key, value));
+    } else {
+      entries.forEach(([key, value]) => {
+        fields[key] = value;
+      });
+    }
+  });
+}
+
+function isJournalNoteBlockKind(value: string): value is JournalNoteBlockKind {
+  return JOURNAL_NOTE_BLOCK_KINDS.some((kind) => kind === value);
 }
 
 function validateJournalDate(value: string): void {
