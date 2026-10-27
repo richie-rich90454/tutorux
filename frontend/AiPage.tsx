@@ -1,6 +1,7 @@
 import { For, Show, createEffect, createMemo, createSignal, type JSX } from "solid-js";
 import type { ArchiveRecord } from "./archive/format";
 import { aiPackageText, type AiPackageSummary } from "./ai/package";
+import { createAiRequestPreview, type AiRequestPreview } from "./ai/request";
 import { AI_PROVIDERS, type AiProviderConfigurationInput } from "./ai/providers";
 import { GUIDE_TEMPLATES, type GuideTemplate } from "./domain/guides";
 import { guideTemplateFromRecord } from "./domain/templates";
@@ -27,6 +28,8 @@ export function AiPage(props: AiPageProps): JSX.Element {
   const [sessionId, setSessionId] = createSignal("");
   const [templateId, setTemplateId] = createSignal("auto");
   const [review, setReview] = createSignal<AiPackageSummary | null>(null);
+  const [requestPreview, setRequestPreview] = createSignal<AiRequestPreview | null>(null);
+  const [requestPreviewMessage, setRequestPreviewMessage] = createSignal("");
   const [reviewed, setReviewed] = createSignal(false);
   const [showJson, setShowJson] = createSignal(false);
   const [message, setMessage] = createSignal("");
@@ -56,6 +59,8 @@ export function AiPage(props: AiPageProps): JSX.Element {
     setProviderModel(saved?.fields.get("selected_model") ?? "");
     setCredentialInput("");
     setCredentialConfirmed(false);
+    setRequestPreview(null);
+    setRequestPreviewMessage("");
   });
   const templates = createMemo<GuideTemplate[]>(() => [
     ...GUIDE_TEMPLATES,
@@ -71,6 +76,7 @@ export function AiPage(props: AiPageProps): JSX.Element {
   async function prepare(): Promise<void> {
     setMessage("");
     setReview(null);
+    setRequestPreview(null);
     setReviewed(false);
     setShowJson(false);
     try {
@@ -159,6 +165,26 @@ export function AiPage(props: AiPageProps): JSX.Element {
     } catch (cause) {
       setProviderMessage(
         cause instanceof Error ? cause.message : "The saved API key could not be removed.",
+      );
+    }
+  }
+
+  async function previewProviderRequest(): Promise<void> {
+    const summary = review();
+    const configuration = savedProvider();
+    setRequestPreview(null);
+    setRequestPreviewMessage("");
+    if (!summary || !configuration) {
+      setRequestPreviewMessage("Save provider settings and a model before reviewing a request.");
+      return;
+    }
+    try {
+      setRequestPreview(
+        await createAiRequestPreview(summary.job, configuration, undefined, props.credentials),
+      );
+    } catch (cause) {
+      setRequestPreviewMessage(
+        cause instanceof Error ? cause.message : "The provider request preview could not be built.",
       );
     }
   }
@@ -439,6 +465,101 @@ export function AiPage(props: AiPageProps): JSX.Element {
                 />
               </Show>
             </details>
+            <div class="ai-request-review-callout">
+              <div>
+                <strong>Provider request review</strong>
+                <p>
+                  Build the exact text request for the saved provider. This preview does not read
+                  your API key or send anything.
+                </p>
+              </div>
+              <button
+                class="button button-outline"
+                type="button"
+                disabled={
+                  props.disabled ||
+                  props.busy ||
+                  !savedProvider() ||
+                  !savedProvider()?.fields.get("selected_model")
+                }
+                onClick={() => void previewProviderRequest()}
+              >
+                Preview exact request
+              </button>
+            </div>
+            <Show when={requestPreview()}>
+              {(preview) => (
+                <section class="ai-request-preview" aria-labelledby="ai-request-preview-title">
+                  <div class="ai-request-preview-heading">
+                    <div>
+                      <span class="eyebrow">NO REQUEST SENT</span>
+                      <h3 id="ai-request-preview-title">Request ready for review</h3>
+                    </div>
+                    <span class="ai-request-protocol">{preview().providerName}</span>
+                  </div>
+                  <dl class="ai-request-facts">
+                    <div>
+                      <dt>Method and endpoint</dt>
+                      <dd>
+                        {preview().method} {preview().endpoint}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>Model</dt>
+                      <dd>{preview().model}</dd>
+                    </div>
+                    <div>
+                      <dt>Authentication</dt>
+                      <dd>{preview().authentication}</dd>
+                    </div>
+                    <div>
+                      <dt>Exact body SHA-256</dt>
+                      <dd class="ai-request-hash">{preview().requestBodyHash}</dd>
+                    </div>
+                    <div>
+                      <dt>Package and request size</dt>
+                      <dd>
+                        {formatBytes(preview().packageBytes)} package ·{" "}
+                        {formatBytes(preview().requestBytes)} request
+                      </dd>
+                    </div>
+                  </dl>
+                  <div class="ai-request-headers" aria-label="Request headers">
+                    <strong>Headers sent</strong>
+                    <For each={preview().headers}>
+                      {(header) => (
+                        <span>
+                          <code>{header.name}</code> {header.valueDescription}
+                        </span>
+                      )}
+                    </For>
+                  </div>
+                  <Show when={!preview().localOnly && !preview().credentialAvailable}>
+                    <p class="ai-request-key-missing" role="status">
+                      No API key is saved for this provider. A request cannot be sent until a key is
+                      available in this encrypted archive.
+                    </p>
+                  </Show>
+                  <details class="ai-json-disclosure ai-request-body-disclosure">
+                    <summary>Inspect the exact provider request JSON</summary>
+                    <textarea
+                      aria-label="Exact provider request body"
+                      readOnly
+                      value={preview().requestBody}
+                    />
+                  </details>
+                  <p class="ai-request-privacy-note">
+                    The request body contains the reviewed package text. Authentication secrets stay
+                    out of this preview and are not read during preparation.
+                  </p>
+                </section>
+              )}
+            </Show>
+            <Show when={requestPreviewMessage()}>
+              <p class="ai-message" role="status">
+                {requestPreviewMessage()}
+              </p>
+            </Show>
             <label class="ai-review-consent">
               <input
                 type="checkbox"
