@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { appendRecords, createArchiveBytes, openArchiveBytes } from "../archive/archive";
 import { newUuid, RecordType, type ArchiveRecord } from "../archive/format";
+import { makeAssetImport } from "../domain/assets";
 import { makeCustomGuideTemplateRecord } from "../domain/templates";
 import { encodeStudentProgress } from "../domain/student-progress";
 import { aiPackageText, createAiPackageRecord } from "./package";
@@ -104,6 +105,75 @@ describe("manual AI package preparation", () => {
       byte.toString(16).padStart(2, "0"),
     ).join("");
     expect(prepared.job.fields.get("content_hash")).toBe(actualHash);
+  });
+
+  it("records explicitly selected image attachments without copying their bytes into the package", async () => {
+    const sessionId = newUuid();
+    const rawImageBytes = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3]);
+    const initial = await archiveWith([
+      record(RecordType.session, sessionId, { subject: "Science", student_id: "anonymous" }),
+    ]);
+    const imported = await makeAssetImport(
+      initial,
+      {
+        name: "leaf-cell.png",
+        size: rawImageBytes.byteLength,
+        readBytes: async () => rawImageBytes.slice(),
+      },
+      sessionId,
+    );
+    const archive = await appendRecords(initial, imported.records);
+    const prepared = await createAiPackageRecord(archive, sessionId, "auto", [
+      imported.metadata.id,
+    ]);
+    const json = JSON.parse(aiPackageText(prepared.job)) as {
+      manifest: { attached_image_ids: string[] };
+      attached_images: { id: string; filename: string; mime_type: string; byte_size: number }[];
+    };
+
+    expect(prepared.attachedImages).toHaveLength(1);
+    expect(json.manifest.attached_image_ids).toEqual([imported.metadata.id]);
+    expect(json.attached_images).toEqual([
+      {
+        id: imported.metadata.id,
+        filename: "leaf-cell.png",
+        mime_type: "image/png",
+        content_hash: imported.metadata.fields.get("content_hash"),
+        byte_size: rawImageBytes.byteLength,
+      },
+    ]);
+    expect(aiPackageText(prepared.job)).not.toContain("iVBORw");
+  });
+
+  it("rejects image selections outside the current session and unsupported file types", async () => {
+    const sessionId = newUuid();
+    const otherSessionId = newUuid();
+    const pdf = record(RecordType.assetMetadata, newUuid(), {
+      session_id: sessionId,
+      filename: "handout.pdf",
+      mime_type: "application/pdf",
+      byte_size: "100",
+      content_hash: "a".repeat(64),
+    });
+    const otherImage = record(RecordType.assetMetadata, newUuid(), {
+      session_id: otherSessionId,
+      filename: "other.png",
+      mime_type: "image/png",
+      byte_size: "10",
+      content_hash: "b".repeat(64),
+    });
+    const archive = await archiveWith([
+      record(RecordType.session, sessionId, { subject: "Science", student_id: "anonymous" }),
+      pdf,
+      otherImage,
+    ]);
+
+    await expect(createAiPackageRecord(archive, sessionId, "auto", [pdf.id])).rejects.toThrow(
+      "Choose PNG, JPEG, or WebP images",
+    );
+    await expect(
+      createAiPackageRecord(archive, sessionId, "auto", [otherImage.id]),
+    ).rejects.toThrow("no longer available in this session");
   });
 
   it("keeps reviewed progress citations explicit and adds validated cross-session evidence", async () => {
