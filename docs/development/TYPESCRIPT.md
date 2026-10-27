@@ -49,11 +49,13 @@ npm run cli -- archive recover Lesson.tux --apply --json
 npm run cli -- archive compact Lesson.tux --json
 npm run cli -- archive compact Lesson.tux --apply --json
 npm run cli -- archive repair Lesson.tux --output Lesson-repaired.tux --confirm-sensitive --json
+npm run cli -- archive sanitize Lesson.tux --output Lesson-sanitized.tux --include-students <uuid> --json
+npm run cli -- archive sanitize Lesson.tux --output Lesson-sanitized.tux --include-students <uuid> --confirm-sensitive --expected-generation <generation> --expected-selection <sha256> --expected-output Lesson-sanitized.tux --json
 npm run cli -- --archive Lesson.tux student create --name "Maya Ortiz"
 npm run cli -- --archive Lesson.tux session list --json
 ```
 
-The CLI imports the same archive and domain modules as the UI. File paths are resolved by Node; archive reads are positional and bounded. Recovery is preview-only unless `--apply` is supplied, and it only publishes a complete next generation after full record verification. Compaction is also preview-only unless `--apply` is supplied; it preserves indexed history and original stored payload bytes, but does not yet prune unreferenced asset chunks or support encrypted archives. Repair creates a separate `.tux` copy from the newest fully verified published generation, may fall back to an earlier generation, and requires `--confirm-sensitive` because it can contain private student records and recordings. Do not add a second archive serializer for CLI convenience.
+The CLI imports the same archive and domain modules as the UI. File paths are resolved by Node; archive reads are positional and bounded. Recovery is preview-only unless `--apply` is supplied, and it only publishes a complete next generation after full record verification. Compaction is also preview-only unless `--apply` is supplied; it preserves indexed history and original stored payload bytes, but does not yet prune unreferenced asset chunks or support encrypted archives. Repair creates a separate `.tux` copy from the newest fully verified published generation, may fall back to an earlier generation, and requires `--confirm-sensitive` because it can contain private student records and recordings. Sanitization first reports included record counts and a selection fingerprint; confirmation must repeat the same generation, selection, and output path before an unencrypted copy is written. Student/session and recording-track filters are supported, private annotations and generation logs are opt-in, credentials are excluded, and encrypted output remains unavailable until wire-compatible archive cryptography is implemented. The CLI checkpoints bounded copy batches to a private disk-backed staging file, verifies the finished archive there, then publishes it atomically. Do not add a second archive serializer for CLI convenience.
 
 ## Tests and performance
 
