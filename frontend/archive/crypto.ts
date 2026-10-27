@@ -149,6 +149,110 @@ function keyWrapAssociatedData(archiveId: string): Uint8Array {
   return concatenate([ascii("TUTORUX-ARCHIVE-KEY-V1"), uuidToBytes(archiveId)]);
 }
 
+/** Internal worker entry point; callers should use ArchiveDataKey.unwrap instead. */
+export async function unwrapArchiveDataKeyBytes(
+  passphrase: string,
+  envelope: ArchiveEncryptionEnvelope,
+  archiveId: string,
+): Promise<Uint8Array> {
+  await ready;
+  ensureBytes(envelope.salt, ENVELOPE_SALT_BYTES, "salt");
+  ensureBytes(envelope.nonce, ENVELOPE_NONCE_BYTES, "nonce");
+  ensureBytes(envelope.wrappedKey, WRAPPED_KEY_BYTES, "wrapped_key");
+  validateKdfLimits(envelope.opsLimit, envelope.memoryLimit);
+  const associatedData = keyWrapAssociatedData(archiveId);
+  const password = encodePassphrase(passphrase);
+  let wrappingKey: Uint8Array | undefined;
+  try {
+    try {
+      wrappingKey = sodium.crypto_pwhash(
+        DATA_KEY_BYTES,
+        password,
+        envelope.salt,
+        envelope.opsLimit,
+        envelope.memoryLimit,
+        sodium.crypto_pwhash_ALG_ARGON2ID13,
+      );
+    } catch {
+      throw formatError(
+        "crypto_memory_unavailable",
+        "Unable to derive the archive key with the available memory.",
+      );
+    }
+    try {
+      return sodium.crypto_aead_xchacha20poly1305_ietf_decrypt(
+        null,
+        envelope.wrappedKey,
+        associatedData,
+        envelope.nonce,
+        wrappingKey,
+      );
+    } catch {
+      throw formatError(
+        "archive_passphrase_invalid",
+        "Passphrase is incorrect or the key envelope is damaged.",
+      );
+    }
+  } finally {
+    sodium.memzero(password);
+    if (wrappingKey) sodium.memzero(wrappingKey);
+  }
+}
+
+async function unwrapArchiveDataKeyInWorker(
+  passphrase: string,
+  envelope: ArchiveEncryptionEnvelope,
+  archiveId: string,
+): Promise<Uint8Array> {
+  return new Promise((resolve, reject) => {
+    const worker = new Worker(new URL("./crypto-worker.ts", import.meta.url), {
+      type: "module",
+      name: "tutorux-archive-unlock",
+    });
+    const fail = (error: ArchiveFormatError): void => {
+      worker.terminate();
+      reject(error);
+    };
+    worker.onmessage = (event: MessageEvent<CryptoWorkerResponse>): void => {
+      const response = event.data;
+      worker.terminate();
+      if (!response || typeof response !== "object") {
+        reject(
+          formatError("crypto_worker_failed", "Archive key worker returned an invalid result."),
+        );
+      } else if (response.success) {
+        if (!(response.key instanceof ArrayBuffer) || response.key.byteLength !== DATA_KEY_BYTES) {
+          reject(
+            formatError("crypto_worker_failed", "Archive key worker returned an invalid key."),
+          );
+        } else {
+          resolve(new Uint8Array(response.key));
+        }
+      } else {
+        reject(formatError(response.code, response.message));
+      }
+    };
+    worker.onerror = (event: ErrorEvent): void => {
+      event.preventDefault();
+      fail(formatError("crypto_worker_failed", "Unable to derive the archive key in a worker."));
+    };
+    try {
+      worker.postMessage({ passphrase, envelope, archiveId } satisfies CryptoWorkerRequest);
+    } catch {
+      fail(formatError("crypto_worker_failed", "Unable to start archive key derivation."));
+    }
+  });
+}
+
+interface CryptoWorkerRequest {
+  passphrase: string;
+  envelope: ArchiveEncryptionEnvelope;
+  archiveId: string;
+}
+
+type CryptoWorkerResponse =
+  { success: true; key: ArrayBuffer } | { success: false; code: string; message: string };
+
 function decodeHex(value: string, field: string, expectedBytes: number): Uint8Array {
   if (!/^(?:[\da-f]{2})*$/iu.test(value) || value.length !== expectedBytes * 2) {
     throw formatError(
@@ -260,49 +364,18 @@ export class ArchiveDataKey {
     envelope: ArchiveEncryptionEnvelope,
     archiveId: string,
   ): Promise<ArchiveDataKey> {
-    await ready;
-    ensureBytes(envelope.salt, ENVELOPE_SALT_BYTES, "salt");
-    ensureBytes(envelope.nonce, ENVELOPE_NONCE_BYTES, "nonce");
-    ensureBytes(envelope.wrappedKey, WRAPPED_KEY_BYTES, "wrapped_key");
-    validateKdfLimits(envelope.opsLimit, envelope.memoryLimit);
-    const associatedData = keyWrapAssociatedData(archiveId);
-    const password = encodePassphrase(passphrase);
-    let wrappingKey: Uint8Array | undefined;
-    try {
-      try {
-        wrappingKey = sodium.crypto_pwhash(
-          DATA_KEY_BYTES,
-          password,
-          envelope.salt,
-          envelope.opsLimit,
-          envelope.memoryLimit,
-          sodium.crypto_pwhash_ALG_ARGON2ID13,
-        );
-      } catch {
-        throw formatError(
-          "crypto_memory_unavailable",
-          "Unable to derive the archive key with the available memory.",
-        );
-      }
-      try {
-        const bytes = sodium.crypto_aead_xchacha20poly1305_ietf_decrypt(
-          null,
-          envelope.wrappedKey,
-          associatedData,
-          envelope.nonce,
-          wrappingKey,
-        );
-        return new ArchiveDataKey(bytes);
-      } catch {
-        throw formatError(
-          "archive_passphrase_invalid",
-          "Passphrase is incorrect or the key envelope is damaged.",
-        );
-      }
-    } finally {
-      sodium.memzero(password);
-      if (wrappingKey) sodium.memzero(wrappingKey);
-    }
+    const bytes =
+      typeof window === "undefined"
+        ? await unwrapArchiveDataKeyBytes(passphrase, envelope, archiveId)
+        : typeof Worker === "undefined"
+          ? (() => {
+              throw formatError(
+                "crypto_worker_unavailable",
+                "Archive key derivation requires Web Worker support in this environment.",
+              );
+            })()
+          : await unwrapArchiveDataKeyInWorker(passphrase, envelope, archiveId);
+    return new ArchiveDataKey(bytes);
   }
 
   async wrap(passphrase: string, archiveId: string): Promise<ArchiveEncryptionEnvelope> {
