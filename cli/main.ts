@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { ArchiveFormatError, RecordType, type ArchiveRecord } from "../frontend/archive/format";
 import {
   appendRecords,
+  compactArchiveSnapshot,
   createArchiveBytes,
   openArchiveSource,
   recoverUnpublishedCommit,
@@ -121,6 +122,7 @@ Usage:
   tutorux archive info <file.tux> [--json]
   tutorux archive verify <file.tux> [--json]
   tutorux archive recover <file.tux> [--apply] [--json]
+  tutorux archive compact <file.tux> [--apply] [--json]
   tutorux --archive <file.tux> student create --name <name> [--grade <grade>] [--difficulties <text>] [--demonstrated-improvements <text>] [--preferred-guide-template <id>]
   tutorux --archive <file.tux> student list [--include-deleted] [--json]
   tutorux --archive <file.tux> student show <uuid> [--json]
@@ -319,6 +321,52 @@ async function runArchiveCommand(
         applied
           ? `Recovered ${basename(path)} to generation ${result.recoveredGeneration}; discarded ${result.discardedTrailingBytes} trailing bytes.`
           : `Generation ${result.recoveredGeneration} is recoverable. Add --apply to publish it.`,
+        args.flags.has("json"),
+      );
+      return 0;
+    } finally {
+      await source.close();
+    }
+  }
+  if (action === "compact") {
+    const archivePath = resolve(path);
+    const openedInfo = await stat(archivePath);
+    const source = await NodeFileArchiveSource.open(archivePath);
+    try {
+      if (BigInt(openedInfo.size) !== source.size) {
+        throw new CliError("The archive changed while compaction was starting. Retry the command.");
+      }
+      const snapshot = await openArchiveSource(source);
+      const compaction = await compactArchiveSnapshot(snapshot);
+      const applied = args.flags.has("apply");
+      if (applied) {
+        const currentInfo = await stat(archivePath);
+        if (
+          currentInfo.size !== openedInfo.size ||
+          currentInfo.mtimeMs !== openedInfo.mtimeMs ||
+          currentInfo.dev !== openedInfo.dev ||
+          currentInfo.ino !== openedInfo.ino
+        ) {
+          throw new CliError("The archive changed during compaction review. Retry the command.");
+        }
+        await writeSourceAtomically(archivePath, compaction.snapshot);
+      }
+      const result = {
+        path: archivePath,
+        generation: snapshot.commit.generation.toString(),
+        compactedGeneration: compaction.snapshot.commit.generation.toString(),
+        originalBytes: compaction.originalBytes.toString(),
+        compactedBytes: compaction.compactedBytes.toString(),
+        bytesSaved: (compaction.originalBytes - compaction.compactedBytes).toString(),
+        recordsPreserved: compaction.preservedRecords,
+        applied,
+      };
+      emit(
+        output,
+        result,
+        applied
+          ? `Compacted ${basename(path)} from ${result.originalBytes} to ${result.compactedBytes} bytes.`
+          : `Compaction would reduce ${basename(path)} from ${result.originalBytes} to ${result.compactedBytes} bytes. Add --apply to replace it.`,
         args.flags.has("json"),
       );
       return 0;
