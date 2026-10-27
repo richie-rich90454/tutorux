@@ -426,9 +426,47 @@
   line-height: 1.55;
 }
 
+.ai-credential-storage {
+  display: grid;
+  flex: 0 1 220px;
+  gap: 8px;
+  min-width: 190px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.ai-credential-storage legend {
+  margin-bottom: 8px;
+  color: var(--faint);
+  font-size: 10px;
+  font-weight: 650;
+}
+
+.ai-credential-storage label {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  color: var(--ink-soft);
+  font-size: 10px;
+  line-height: 1.45;
+}
+
+.ai-credential-storage input {
+  margin: 1px 0 0;
+  accent-color: var(--accent);
+}
+
+.ai-credential-storage small {
+  display: block;
+  color: var(--muted);
+  font-size: 9px;
+}
+
 .ai-credential-editor {
   display: grid;
   gap: 10px;
+  flex: 0 1 430px;
   width: min(100%, 430px);
 }
 
@@ -820,6 +858,7 @@
     flex-direction: column;
   }
 
+  .ai-credential-storage,
   .ai-credential-editor {
     width: 100%;
   }
