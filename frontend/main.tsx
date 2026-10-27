@@ -304,6 +304,16 @@ function App(): JSX.Element {
     archiveId: string;
     summary: AiExecutionSummary;
   } | null>(null);
+  createEffect(() => {
+    const execution = lastAiExecution();
+    const active = workspace();
+    if (
+      execution &&
+      (!active || active.snapshot.locked || active.snapshot.header.id !== execution.archiveId)
+    ) {
+      setLastAiExecution(null);
+    }
+  });
   let noticeTimer = 0;
   let removeNativeCommandListener: (() => void) | undefined;
   let nativeCommandListenerDisposed = false;
