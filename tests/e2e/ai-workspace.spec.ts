@@ -27,6 +27,10 @@ test("reviews, saves, exports, and reopens a private manual AI package", async (
   await expect(page.getByRole("heading", { name: "Fractions review" })).toBeVisible();
 
   await page.getByRole("navigation").getByRole("button", { name: "AI workspace" }).click();
+  await page.getByLabel("AI model ID").fill("gpt-4.1");
+  await page.getByRole("button", { name: "Save provider settings" }).click();
+  await expect(page.getByText("Configured", { exact: true })).toBeVisible();
+
   const sessionOption = page.getByRole("option", { name: /Fractions review/u });
   await page
     .getByLabel("Session to prepare")
@@ -34,6 +38,19 @@ test("reviews, saves, exports, and reopens a private manual AI package", async (
   await page.getByRole("button", { name: "Prepare for review" }).click();
   await expect(page.getByRole("heading", { name: "Mathematics" })).toBeVisible();
   await expect(page.locator(".ai-message")).toContainText("Nothing has been sent or saved yet");
+
+  await page.getByRole("button", { name: "Preview exact request" }).click();
+  await expect(page.getByRole("heading", { name: "Request ready for review" })).toBeVisible();
+  await expect(page.getByText(/No API key is saved for this provider/u)).toBeVisible();
+  await page.getByText("Inspect the exact provider request JSON").click();
+  const requestInspector = page.getByLabel("Exact provider request body");
+  const requestBody = JSON.parse(await requestInspector.inputValue()) as {
+    model: string;
+    messages: { role: string; content: string }[];
+  };
+  expect(requestBody.model).toBe("gpt-4.1");
+  expect(requestBody.messages[1]?.content).toContain('"format":"tutorux-ai-package-v1"');
+  await expect(page.getByRole("heading", { name: "Request ready for review" })).toBeVisible();
 
   const inspector = page.getByLabel("Complete AI package JSON");
   await page.getByText("Inspect the complete package JSON").click();
