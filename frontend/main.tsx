@@ -123,6 +123,7 @@ import {
   type TranscriptExportFormat,
 } from "./domain/transcript";
 import { platform } from "@platform";
+import type { AiCredentialStorage } from "./platform/types";
 import { GuidesPage } from "./GuidesPage";
 import { StudentProgressPanel } from "./StudentProgressPanel";
 import { JournalOrganizer } from "./JournalOrganizer";
@@ -304,6 +305,7 @@ function App(): JSX.Element {
     archiveId: string;
     summary: AiExecutionSummary;
   } | null>(null);
+  const [systemCredentialStoreAvailable, setSystemCredentialStoreAvailable] = createSignal(false);
   createEffect(() => {
     const execution = lastAiExecution();
     const active = workspace();
@@ -320,6 +322,12 @@ function App(): JSX.Element {
   let launchArchiveQueue: Promise<void> = Promise.resolve();
 
   onMount(() => {
+    if (platform.kind === "desktop") {
+      void platform
+        .aiCredentialStoreAvailable()
+        .then(setSystemCredentialStoreAvailable)
+        .catch(() => setSystemCredentialStoreAvailable(false));
+    }
     const mediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
     const savedTheme = localStorage.getItem("tutorux.theme");
     const initialMode: ThemeMode =
@@ -808,6 +816,7 @@ function App(): JSX.Element {
     preview: AiRequestPreview,
     confirmedEndpoint: string,
     confirmedBodyHash: string,
+    credentialStorage: AiCredentialStorage,
     onProgress: (responseBytes: number) => void,
   ): Promise<void> {
     let current = workspace();
@@ -848,11 +857,17 @@ function App(): JSX.Element {
       providerMetadata.id,
     );
     if (!providerConfiguration) throw new Error("The saved provider settings could not be loaded.");
+    const useSystemCredentialStore = credentialStorage === "system-keychain";
+    const hasSystemCredential =
+      useSystemCredentialStore &&
+      platform.kind === "desktop" &&
+      (await platform.hasAiCredential(preview.providerId));
     const freshPreview = await createAiRequestPreview(
       savedPackage,
       providerConfiguration,
       preview.maxOutputTokens,
-      current.credentials,
+      useSystemCredentialStore ? [] : current.credentials,
+      hasSystemCredential,
     );
     if (
       freshPreview.providerId !== preview.providerId ||
@@ -876,26 +891,38 @@ function App(): JSX.Element {
     if (!session) throw new Error("The session for this AI package is no longer available.");
     let credential = "";
     if (!freshPreview.localOnly) {
-      if (!current.snapshot.encrypted) {
-        throw new Error("Save a provider key inside an encrypted archive before sending.");
+      if (!freshPreview.credentialAvailable) {
+        throw new Error("Save an API key in the selected secure store before sending.");
       }
-      const metadata = current.credentials.find(
-        (record) =>
-          record.fields.get("provider_id") === freshPreview.providerId ||
-          record.fields.get("key") === providerById(freshPreview.providerId)?.credentialKey,
-      );
-      if (!metadata) throw new Error("Save an API key in this encrypted archive before sending.");
-      const savedCredential = await current.snapshot.getRecord(RecordType.settings, metadata.id);
-      if (
-        !savedCredential ||
-        savedCredential.fields.get("record_role") !== "credential" ||
-        savedCredential.fields.get("_deleted") === "true" ||
-        savedCredential.fields.get("provider_id") !== freshPreview.providerId
-      ) {
-        throw new Error("The saved API key could not be verified in this encrypted archive.");
+      if (credentialStorage === "system-keychain") {
+        if (platform.kind !== "desktop" || !systemCredentialStoreAvailable()) {
+          throw new Error("The operating-system credential store is not available.");
+        }
+      } else if (credentialStorage === "encrypted-archive") {
+        if (!current.snapshot.encrypted) {
+          throw new Error("Save a provider key inside an encrypted archive before sending.");
+        }
+        const metadata = current.credentials.find(
+          (record) =>
+            record.fields.get("provider_id") === freshPreview.providerId ||
+            record.fields.get("key") === providerById(freshPreview.providerId)?.credentialKey,
+        );
+        if (!metadata) throw new Error("Save an API key in this encrypted archive before sending.");
+        const savedCredential = await current.snapshot.getRecord(RecordType.settings, metadata.id);
+        if (
+          !savedCredential ||
+          savedCredential.fields.get("record_role") !== "credential" ||
+          savedCredential.fields.get("_deleted") === "true" ||
+          savedCredential.fields.get("provider_id") !== freshPreview.providerId
+        ) {
+          throw new Error("The saved API key could not be verified in this encrypted archive.");
+        }
+        credential = savedCredential.fields.get("value") ?? "";
+        if (!credential)
+          throw new Error("The saved API key is empty. Save it again before sending.");
+      } else {
+        throw new Error("Choose a secure credential store before sending.");
       }
-      credential = savedCredential.fields.get("value") ?? "";
-      if (!credential) throw new Error("The saved API key is empty. Save it again before sending.");
     }
 
     if (workspace()?.snapshot !== current.snapshot) {
@@ -912,6 +939,7 @@ function App(): JSX.Element {
         preview: freshPreview,
         confirmedEndpoint,
         confirmedBodyHash,
+        credentialStorage,
         credential,
         session,
         sourceRecords: guideSourceRecords(current),
@@ -951,7 +979,18 @@ function App(): JSX.Element {
     );
   }
 
-  async function saveAiCredential(providerId: string, value: string): Promise<boolean> {
+  async function saveAiCredential(
+    providerId: string,
+    value: string,
+    storage: AiCredentialStorage,
+  ): Promise<boolean> {
+    if (storage === "system-keychain") {
+      if (platform.kind !== "desktop" || !systemCredentialStoreAvailable()) {
+        throw new Error("The operating-system credential store is not available.");
+      }
+      await platform.saveAiCredential(providerId, value);
+      return true;
+    }
     const current = workspace();
     if (!current) throw new Error("Create or open an archive before saving an API key.");
     const record = await createProviderCredentialRecord(
@@ -962,7 +1001,17 @@ function App(): JSX.Element {
     return addRecords([record], "API key saved in the encrypted archive.");
   }
 
-  async function removeAiCredential(providerId: string): Promise<boolean> {
+  async function removeAiCredential(
+    providerId: string,
+    storage: AiCredentialStorage,
+  ): Promise<boolean> {
+    if (storage === "system-keychain") {
+      if (platform.kind !== "desktop") {
+        throw new Error("System keychain storage is available only in the desktop app.");
+      }
+      await platform.removeAiCredential(providerId);
+      return true;
+    }
     const current = workspace();
     if (!current || current.snapshot.locked || !current.snapshot.canMutate) {
       throw new Error("Unlock this archive before removing a saved API key.");
@@ -2178,6 +2227,8 @@ function App(): JSX.Element {
                     jobs={state.aiJobs}
                     providerSettings={state.providerSettings}
                     credentials={state.credentials}
+                    systemCredentialStoreAvailable={systemCredentialStoreAvailable()}
+                    hasSystemCredential={platform.hasAiCredential}
                     encrypted={state.snapshot.encrypted}
                     disabled={state.snapshot.locked || !state.snapshot.canMutate}
                     busy={busy()}
