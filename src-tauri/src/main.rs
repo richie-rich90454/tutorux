@@ -2,7 +2,7 @@ mod ai_transport;
 
 use serde::Serialize;
 use std::{
-    collections::HashMap,
+    collections::{HashMap, VecDeque},
     fs::{self, File, OpenOptions},
     io::{Read, Seek, SeekFrom, Write},
     path::{Path, PathBuf},
@@ -23,7 +23,7 @@ const MAX_EXPORT_BYTES: usize = 256 * 1024 * 1024;
 struct DesktopState {
     opened_archives: Mutex<HashMap<String, PathBuf>>,
     pending_saves: Mutex<HashMap<String, PendingSave>>,
-    pending_open: Mutex<Option<PathBuf>>,
+    pending_open: Mutex<VecDeque<PathBuf>>,
 }
 
 #[derive(Clone)]
@@ -236,8 +236,27 @@ fn take_pending_open_archive(state: State<'_, DesktopState>) -> Result<Option<St
         .pending_open
         .lock()
         .map_err(|_| "Launch file state is unavailable.".to_owned())?
-        .take();
+        .pop_front();
     Ok(path.map(|path| path.to_string_lossy().into_owned()))
+}
+
+fn archive_launch_path(
+    arguments: impl IntoIterator<Item = PathBuf>,
+    current_directory: &Path,
+) -> Option<PathBuf> {
+    arguments
+        .into_iter()
+        .find(|path| {
+            path.extension()
+                .is_some_and(|extension| extension.to_string_lossy().eq_ignore_ascii_case("tux"))
+        })
+        .map(|path| {
+            if path.is_absolute() {
+                path
+            } else {
+                current_directory.join(path)
+            }
+        })
 }
 
 #[tauri::command]
@@ -391,20 +410,38 @@ fn install_native_menu(app: &mut tauri::App) -> Result<(), Box<dyn std::error::E
 
 fn main() {
     tauri::Builder::default()
+        .manage(DesktopState::default())
+        .plugin(tauri_plugin_single_instance::init(
+            |app, arguments, current_directory| {
+                if let Some(path) = archive_launch_path(
+                    arguments.into_iter().skip(1).map(PathBuf::from),
+                    Path::new(&current_directory),
+                ) {
+                    if let Ok(mut pending) = app.state::<DesktopState>().pending_open.lock() {
+                        pending.push_back(path);
+                        let _ = app.emit("tutorux:native-command", "open-launch-archive");
+                    }
+                }
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.unminimize();
+                    let _ = window.show();
+                    let _ = window.set_focus();
+                }
+            },
+        ))
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
-        .manage(DesktopState::default())
         .setup(|app| {
-            if let Some(path) = std::env::args_os().skip(1).map(PathBuf::from).find(|path| {
-                path.extension()
-                    .and_then(|extension| extension.to_str())
-                    .is_some_and(|extension| extension.eq_ignore_ascii_case("tux"))
-            }) {
-                *app.state::<DesktopState>()
+            let current_directory = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+            if let Some(path) = archive_launch_path(
+                std::env::args_os().skip(1).map(PathBuf::from),
+                &current_directory,
+            ) {
+                app.state::<DesktopState>()
                     .pending_open
                     .lock()
-                    .map_err(|_| std::io::Error::other("Launch archive state is unavailable."))? =
-                    Some(path);
+                    .map_err(|_| std::io::Error::other("Launch archive state is unavailable."))?
+                    .push_back(path);
             }
             install_native_menu(app)
         })
@@ -440,4 +477,35 @@ fn main() {
         ])
         .run(tauri::generate_context!())
         .expect("Tutorux desktop host failed to start");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::archive_launch_path;
+    use std::path::{Path, PathBuf};
+
+    #[test]
+    fn archive_launch_path_ignores_non_archives_and_resolves_relative_paths() {
+        let cwd = Path::new("launch-directory");
+        let path = archive_launch_path(
+            [
+                PathBuf::from("Tutorux.exe"),
+                PathBuf::from("lessons/Math.TUX"),
+                PathBuf::from("ignored.tux"),
+            ],
+            cwd,
+        );
+
+        assert_eq!(path, Some(cwd.join("lessons/Math.TUX")));
+    }
+
+    #[test]
+    fn archive_launch_path_preserves_absolute_paths() {
+        let absolute_path = std::env::current_dir()
+            .expect("test working directory should be available")
+            .join("lesson.tux");
+        let path = archive_launch_path([absolute_path.clone()], Path::new("other-directory"));
+
+        assert_eq!(path, Some(absolute_path));
+    }
 }
