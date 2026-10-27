@@ -5,6 +5,7 @@ import {
   createArchiveBytes,
   openArchiveBytes,
   openArchiveSource,
+  repairArchiveSnapshot,
   recoverUnpublishedCommit,
   verifyArchiveSnapshot,
 } from "./archive";
@@ -419,6 +420,56 @@ describe("Tutorux archive snapshots", () => {
       currentRecords: 2,
       liveRecords: 2,
       generation: "1",
+    });
+  });
+
+  it("repairs to a separate snapshot from the newest fully verified generation", async () => {
+    const initial = await openArchiveBytes(await createArchiveBytes("Verified-generation repair"));
+    const studentId = crypto.randomUUID();
+    const generationTwo = await appendRecords(initial, [
+      {
+        type: RecordType.student,
+        id: studentId,
+        revision: 0n,
+        previousOffset: 0n,
+        fields: new Map([["display_name", "Mina"]]),
+        blob: new Uint8Array(),
+      },
+    ]);
+    const generationThree = await appendRecords(generationTwo, [
+      {
+        type: RecordType.student,
+        id: studentId,
+        revision: 0n,
+        previousOffset: 0n,
+        fields: new Map([["display_name", "Corrupted newest revision"]]),
+        blob: new Uint8Array(),
+      },
+    ]);
+    const damagedBytes = (
+      await generationThree.source.read(0n, Number(generationThree.source.size))
+    ).slice();
+    const latestOffset = generationThree.allIndexEntries().get(`STUDENT:${studentId}`)!;
+    const damagedByteOffset = Number(latestOffset) + 64;
+    damagedBytes[damagedByteOffset] = damagedBytes[damagedByteOffset]! ^ 0xff;
+    const damaged = await openArchiveBytes(damagedBytes);
+
+    await expect(verifyArchiveSnapshot(damaged)).rejects.toMatchObject({
+      code: "record_payload_checksum",
+    });
+    const repaired = await repairArchiveSnapshot(damaged);
+    expect(repaired.selectedGeneration).toBe(2n);
+    expect(repaired.discardedTrailingBytes).toBeGreaterThan(0n);
+    expect(repaired.snapshot.commit.generation).toBe(1n);
+    expect(
+      (await repaired.snapshot.getRecord(RecordType.student, studentId))?.fields.get(
+        "display_name",
+      ),
+    ).toBe("Mina");
+    expect(await damaged.source.read(0n, Number(damaged.source.size))).toEqual(damagedBytes);
+    await expect(verifyArchiveSnapshot(repaired.snapshot)).resolves.toMatchObject({
+      generation: "1",
+      currentRecords: 2,
     });
   });
 
