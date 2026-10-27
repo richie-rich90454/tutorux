@@ -26,6 +26,13 @@ import { DocumentEditor } from "./DocumentEditor";
 import type { ArchiveByteSource } from "./archive/source";
 import { AiPage } from "./AiPage";
 import { createAiPackageRecord, type AiPackageSummary } from "./ai/package";
+import {
+  createProviderConfigurationRecord,
+  createProviderCredentialRecord,
+  maskCredentialMetadata,
+  providerById,
+  type AiProviderConfigurationInput,
+} from "./ai/providers";
 import { MAX_ASSET_BYTES, makeAssetImport, readAssetBytes } from "./domain/assets";
 import {
   buildAudioTrackWavStream,
@@ -170,6 +177,8 @@ interface Workspace {
   evidence: ArchiveRecord[];
   evidenceEdges: ArchiveRecord[];
   aiJobs: ArchiveRecord[];
+  providerSettings: ArchiveRecord[];
+  credentials: ArchiveRecord[];
   dirty: boolean;
 }
 
@@ -419,6 +428,8 @@ function App(): JSX.Element {
         evidence: [],
         evidenceEdges: [],
         aiJobs: [],
+        providerSettings: [],
+        credentials: [],
       };
     }
     const [
@@ -507,6 +518,16 @@ function App(): JSX.Element {
       evidence: alive(evidence),
       evidenceEdges: alive(evidenceEdges),
       aiJobs,
+      providerSettings: alive(settings).filter(
+        (record) => record.fields.get("record_role") === "ai-provider",
+      ),
+      credentials: settings
+        .filter(
+          (record) =>
+            record.fields.get("record_role") === "credential" &&
+            record.fields.get("_deleted") !== "true",
+        )
+        .map(maskCredentialMetadata),
     };
   }
 
@@ -593,6 +614,8 @@ function App(): JSX.Element {
       assets: [],
       evidence: [],
       evidenceEdges: [],
+      providerSettings: [],
+      credentials: [],
     });
     setDialog(null);
     setDialogRecord(null);
@@ -751,6 +774,47 @@ function App(): JSX.Element {
     const current = workspace();
     if (!current || current.snapshot.locked) return null;
     return current.snapshot.getRecord(RecordType.aiJob, jobId);
+  }
+
+  async function saveAiProvider(input: AiProviderConfigurationInput): Promise<boolean> {
+    const provider = providerById(input.providerId);
+    const record = await createProviderConfigurationRecord(input);
+    return addRecords(
+      [record],
+      `Saved ${provider?.name ?? "AI provider"} settings. No connection was made.`,
+    );
+  }
+
+  async function saveAiCredential(providerId: string, value: string): Promise<boolean> {
+    const current = workspace();
+    if (!current) throw new Error("Create or open an archive before saving an API key.");
+    const record = await createProviderCredentialRecord(
+      providerId,
+      value,
+      current.snapshot.encrypted,
+    );
+    return addRecords([record], "API key saved in the encrypted archive.");
+  }
+
+  async function removeAiCredential(providerId: string): Promise<boolean> {
+    const current = workspace();
+    if (!current || current.snapshot.locked || !current.snapshot.canMutate) {
+      throw new Error("Unlock this archive before removing a saved API key.");
+    }
+    const credentialKey = providerById(providerId)?.credentialKey;
+    const metadata = current.credentials.find(
+      (record) =>
+        record.fields.get("provider_id") === providerId ||
+        (typeof credentialKey === "string" && record.fields.get("key") === credentialKey),
+    );
+    if (!metadata) return false;
+    const credential = await current.snapshot.getRecord(RecordType.settings, metadata.id);
+    if (!credential || credential.fields.get("record_role") !== "credential") {
+      throw new Error("The saved API key could not be found in this archive.");
+    }
+    const fields = new Map(credential.fields);
+    fields.set("_deleted", "true");
+    return addRecords([{ ...credential, fields }], "Saved API key removed from this archive.");
   }
 
   async function changeCurrentPassphrase(
@@ -1944,11 +2008,17 @@ function App(): JSX.Element {
                     sessions={[...state.sessions, ...state.archivedSessions]}
                     customTemplates={state.guideTemplates}
                     jobs={state.aiJobs}
+                    providerSettings={state.providerSettings}
+                    credentials={state.credentials}
+                    encrypted={state.snapshot.encrypted}
                     disabled={state.snapshot.locked || !state.snapshot.canMutate}
                     busy={busy()}
                     onPrepare={prepareAiPackage}
                     onSave={saveAiPackage}
                     onLoad={loadAiPackage}
+                    onSaveProvider={saveAiProvider}
+                    onSaveCredential={saveAiCredential}
+                    onRemoveCredential={removeAiCredential}
                   />
                 </Show>
                 <Show when={view() === "annotations"}>
