@@ -23,6 +23,7 @@ import {
   crc32,
 } from "./format";
 import { CompositeArchiveSource, MemoryArchiveSource, type ArchiveByteSource } from "./source";
+import type { ArchiveDataKey } from "./crypto";
 
 const LOCATOR_SIZE = 32;
 const RECOVERY_WINDOW = 64 * 1024 * 1024;
@@ -73,7 +74,15 @@ export interface ArchiveManifest {
 
 export class ArchiveSnapshot {
   readonly encrypted: boolean;
-  readonly locked: boolean;
+  #dataKey: ArchiveDataKey | undefined;
+
+  get locked(): boolean {
+    return this.encrypted && this.#dataKey === undefined;
+  }
+
+  get canMutate(): boolean {
+    return !this.encrypted;
+  }
 
   constructor(
     readonly source: ArchiveByteSource,
@@ -81,9 +90,100 @@ export class ArchiveSnapshot {
     readonly commit: CommitInfo,
     private readonly index: ReadonlyMap<string, bigint>,
     readonly publishedEndOffset = source.size,
+    dataKey?: ArchiveDataKey,
   ) {
     this.encrypted = (header.capabilities & CAPABILITY_ENCRYPTED) !== 0n;
-    this.locked = this.encrypted;
+    this.#dataKey = dataKey;
+  }
+
+  async unlock(passphrase: string): Promise<ArchiveSnapshot> {
+    if (!this.encrypted) {
+      throw new ArchiveFormatError("archive_not_encrypted", "This archive is not encrypted.");
+    }
+    if (!this.locked) return this;
+    const { ArchiveDataKey, encryptionEnvelopeFromRecord } = await import("./crypto");
+    const envelopeRecord = await this.getRecord(RecordType.encryption, this.header.id);
+    if (!envelopeRecord) {
+      throw new ArchiveFormatError(
+        "archive_encryption_metadata_missing",
+        "Encrypted archive is missing its key-wrapping metadata.",
+      );
+    }
+    const envelope = encryptionEnvelopeFromRecord(envelopeRecord, this.header.id);
+    const dataKey = await ArchiveDataKey.unwrap(passphrase, envelope, this.header.id);
+    const unlocked = new ArchiveSnapshot(
+      this.source,
+      this.header,
+      this.commit,
+      this.index,
+      this.publishedEndOffset,
+      dataKey,
+    );
+    try {
+      await unlocked.verifyEncryptionAuthentication();
+      return unlocked;
+    } catch (error) {
+      unlocked.lock();
+      throw error;
+    }
+  }
+
+  lock(): void {
+    const dataKey = this.#dataKey;
+    this.#dataKey = undefined;
+    dataKey?.dispose();
+  }
+
+  async verifyEncryptionAuthentication(): Promise<void> {
+    if (!this.encrypted) return;
+    const dataKey = this.#dataKey;
+    if (!dataKey) {
+      throw new ArchiveFormatError(
+        "archive_locked",
+        "Unlock this archive before verifying its authentication data.",
+      );
+    }
+    const commitFrame = await readFrameAt(this.source, this.commit.offset);
+    const commitPayload = decodeStoredPayload(commitFrame);
+    if (
+      commitFrame.type !== RecordType.commit ||
+      commitFrame.flags !== 0 ||
+      commitPayload.byteLength !== 124 ||
+      !(await dataKey.authenticationMatches(
+        "TUTORUX-COMMIT-V1",
+        commitPayload.subarray(0, 92),
+        commitPayload.subarray(92),
+      ))
+    ) {
+      throw new ArchiveFormatError(
+        "archive_commit_authentication_failed",
+        "Encrypted archive commit authentication failed.",
+      );
+    }
+    const rootFrame = await readFrameAt(this.source, this.commit.rootOffset);
+    if (
+      rootFrame.type !== RecordType.indexPage ||
+      !bytesEqual(await sha256(rootFrame.storedPayload), this.commit.rootHash)
+    ) {
+      throw new ArchiveFormatError(
+        "archive_index_authentication_failed",
+        "Encrypted archive root index does not match its committed hash.",
+      );
+    }
+    const verifiedIndex = await readIndexTree(this.source, this.commit, rootFrame, true, dataKey);
+    if (!indexEntriesMatch(verifiedIndex, this.index)) {
+      throw new ArchiveFormatError(
+        "archive_index_authentication_failed",
+        "Authenticated index does not match the opened archive index.",
+      );
+    }
+    const manifest = await this.getRecord(RecordType.settings, this.header.id);
+    if (manifest?.fields.get("record_role") !== "archive-manifest") {
+      throw new ArchiveFormatError(
+        "archive_manifest_missing",
+        "Encrypted archive manifest is missing or invalid.",
+      );
+    }
   }
 
   async getManifest(): Promise<ArchiveManifest> {
@@ -112,16 +212,14 @@ export class ArchiveSnapshot {
         "Archive index points to a different record.",
       );
     }
-    const payload = decodeStoredPayload(frame);
-    return decodeRecordPayload(frame.type, frame.id, frame.revision, frame.previousOffset, payload);
+    return this.decodeFrameRecord(frame);
   }
 
   async getRecordByIndexKey(key: string): Promise<ArchiveRecord | null> {
     const offset = this.index.get(key);
     if (offset === undefined) return null;
     const frame = await readFrameAt(this.source, offset);
-    const payload = decodeStoredPayload(frame);
-    return decodeRecordPayload(frame.type, frame.id, frame.revision, frame.previousOffset, payload);
+    return this.decodeFrameRecord(frame);
   }
 
   /** Return the latest record revision first, following the on-disk previous-offset chain. */
@@ -162,14 +260,18 @@ export class ArchiveSnapshot {
     const records: ArchiveRecord[] = [];
     for (const [key, offset] of this.index) {
       if (!key.startsWith(prefix) || key.length !== prefix.length + 36) continue;
-      const record = await readRecordMetadataAt(this.source, offset);
+      const record = this.encrypted
+        ? await this.getRecordAt(offset, type, key.slice(prefix.length))
+        : await readRecordMetadataAt(this.source, offset);
       if (record.type !== type || record.id.toLowerCase() !== key.slice(prefix.length)) {
         throw new ArchiveFormatError(
           "record_index_mismatch",
           "Archive index points to a different record.",
         );
       }
-      if (includeDeleted || record.fields.get("_deleted") !== "true") records.push(record);
+      if (includeDeleted || record.fields.get("_deleted") !== "true") {
+        records.push(this.encrypted ? { ...record, blob: new Uint8Array() } : record);
+      }
     }
     return records;
   }
@@ -203,7 +305,9 @@ export class ArchiveSnapshot {
     for (const key of indexedKeys.sort()) {
       const offset = this.index.get(key);
       if (offset === undefined) continue;
-      const record = await readRecordMetadataAt(this.source, offset);
+      const record = this.encrypted
+        ? await this.decodeFrameRecord(await readFrameAt(this.source, offset))
+        : await readRecordMetadataAt(this.source, offset);
       if (record.type !== RecordType.audioChunk) {
         throw new ArchiveFormatError(
           "audio_chunk_index_invalid",
@@ -296,8 +400,64 @@ export class ArchiveSnapshot {
         "Archive index points to a different record.",
       );
     }
-    const payload = decodeStoredPayload(frame);
-    return decodeRecordPayload(frame.type, frame.id, frame.revision, frame.previousOffset, payload);
+    return this.decodeFrameRecord(frame);
+  }
+
+  async decodeFramePayload(frame: ArchiveRecordFrame): Promise<Uint8Array> {
+    const metadataRecord =
+      (frame.type === RecordType.settings || frame.type === RecordType.encryption) &&
+      frame.id.toLowerCase() === this.header.id.toLowerCase();
+    if ((frame.flags & 1) !== 0) {
+      if (!this.encrypted || metadataRecord) {
+        throw new ArchiveFormatError(
+          "archive_record_encryption_invalid",
+          "Archive record encryption flags are inconsistent with its type or header.",
+        );
+      }
+      const dataKey = this.#dataKey;
+      if (!dataKey) {
+        throw new ArchiveFormatError(
+          "archive_locked",
+          "Unlock this archive before reading its encrypted records.",
+        );
+      }
+      const decryptedPayload = await dataKey.decryptRecordPayload(frame.storedPayload, {
+        archiveId: this.header.id,
+        type: frame.type,
+        recordId: frame.id,
+        revision: frame.revision,
+        previousOffset: frame.previousOffset,
+        codec: frame.codec,
+      });
+      return decodeStoredPayload({ ...frame, flags: 0, storedPayload: decryptedPayload });
+    }
+    if (this.encrypted && !metadataRecord) {
+      throw new ArchiveFormatError(
+        "archive_record_unencrypted",
+        "Encrypted archive contains a plaintext data record.",
+      );
+    }
+    return decodeStoredPayload(frame);
+  }
+
+  private async decodeFrameRecord(frame: ArchiveRecordFrame): Promise<ArchiveRecord> {
+    const payload = await this.decodeFramePayload(frame);
+    const record = decodeRecordPayload(
+      frame.type,
+      frame.id,
+      frame.revision,
+      frame.previousOffset,
+      payload,
+    );
+    if (
+      this.encrypted &&
+      this.#dataKey &&
+      frame.type === RecordType.settings &&
+      frame.id.toLowerCase() === this.header.id.toLowerCase()
+    ) {
+      return verifyManifestAuthentication(record, this.#dataKey);
+    }
+    return record;
   }
 }
 
@@ -319,6 +479,7 @@ export async function verifyArchiveSnapshot(
       "Unlock this archive before verifying its records.",
     );
   }
+  await snapshot.verifyEncryptionAuthentication();
   const typeNames = new Set(
     Object.values(RecordType).map((type) => recordTypeName(type).toUpperCase()),
   );
@@ -346,7 +507,7 @@ export async function verifyArchiveSnapshot(
       );
     }
     currentRecords += 1;
-    const payload = decodeStoredPayload(frame);
+    const payload = await snapshot.decodeFramePayload(frame);
     if (typeName === "UNKNOWN") {
       liveRecords += 1;
       continue;
@@ -380,6 +541,12 @@ export interface ArchiveRecoveryResult {
 export async function recoverUnpublishedCommit(
   snapshot: ArchiveSnapshot,
 ): Promise<ArchiveRecoveryResult> {
+  if (snapshot.encrypted) {
+    throw new ArchiveFormatError(
+      "archive_encrypted_workflow_unsupported",
+      "Encrypted archive recovery is not supported yet.",
+    );
+  }
   if (snapshot.locked) {
     throw new ArchiveFormatError(
       "archive_locked",
@@ -472,6 +639,12 @@ export interface ArchiveRepairResult extends ArchiveCompactionResult {
 export async function repairArchiveSnapshot(
   snapshot: ArchiveSnapshot,
 ): Promise<ArchiveRepairResult> {
+  if (snapshot.encrypted) {
+    throw new ArchiveFormatError(
+      "archive_encrypted_workflow_unsupported",
+      "Encrypted archive repair is not supported yet.",
+    );
+  }
   if (snapshot.locked) {
     throw new ArchiveFormatError("archive_locked", "Unlock this archive before repairing a copy.");
   }
@@ -548,6 +721,12 @@ async function rebuildArchiveSnapshot(
   snapshot: ArchiveSnapshot,
   allowUnpublishedTail: boolean,
 ): Promise<ArchiveCompactionResult> {
+  if (snapshot.encrypted) {
+    throw new ArchiveFormatError(
+      "archive_encrypted_workflow_unsupported",
+      "Encrypted archive compaction is not supported yet.",
+    );
+  }
   if (snapshot.locked) {
     throw new ArchiveFormatError("archive_locked", "Unlock this archive before compacting it.");
   }
@@ -752,6 +931,12 @@ export async function appendRecords(
   snapshot: ArchiveSnapshot,
   changes: readonly ArchiveRecord[],
 ): Promise<ArchiveSnapshot> {
+  if (snapshot.encrypted) {
+    throw new ArchiveFormatError(
+      "archive_encrypted_workflow_unsupported",
+      "Writing encrypted archives is not supported yet.",
+    );
+  }
   if (snapshot.locked) {
     throw new ArchiveFormatError("archive_locked", "Unlock this archive before editing it.");
   }
@@ -1447,6 +1632,7 @@ async function readIndexTree(
   commit: CommitInfo,
   rootFrame: ArchiveRecordFrame,
   encrypted: boolean,
+  dataKey?: ArchiveDataKey,
 ): Promise<Map<string, bigint>> {
   const entries = new Map<string, bigint>();
   const visited = new Set<string>();
@@ -1474,7 +1660,21 @@ async function readIndexTree(
           "Encrypted index page is truncated.",
         );
       }
-      payload = payload.subarray(0, payload.length - 32);
+      const authenticatedLength = payload.length - 32;
+      if (
+        dataKey &&
+        !(await dataKey.authenticationMatches(
+          "TUTORUX-INDEX-PAGE-V1",
+          payload.subarray(0, authenticatedLength),
+          payload.subarray(authenticatedLength),
+        ))
+      ) {
+        throw new ArchiveFormatError(
+          "archive_index_authentication_failed",
+          "Encrypted archive index authentication failed.",
+        );
+      }
+      payload = payload.subarray(0, authenticatedLength);
     }
     const page = decodeIndexPage(payload);
     if (page.leaf) {
@@ -2105,6 +2305,46 @@ function bytesEqual(left: Uint8Array, right: Uint8Array): boolean {
   let difference = 0;
   for (let index = 0; index < left.length; index += 1) difference |= left[index]! ^ right[index]!;
   return difference === 0;
+}
+
+function indexEntriesMatch(
+  left: ReadonlyMap<string, bigint>,
+  right: ReadonlyMap<string, bigint>,
+): boolean {
+  if (left.size !== right.size) return false;
+  for (const [key, offset] of left) {
+    if (right.get(key) !== offset) return false;
+  }
+  return true;
+}
+
+async function verifyManifestAuthentication(
+  record: ArchiveRecord,
+  dataKey: ArchiveDataKey,
+): Promise<ArchiveRecord> {
+  const authenticationHex = record.fields.get("manifest_auth") ?? "";
+  if (!/^[\da-f]{64}$/iu.test(authenticationHex)) {
+    throw new ArchiveFormatError(
+      "archive_manifest_authentication_failed",
+      "Encrypted archive manifest authentication data is missing or malformed.",
+    );
+  }
+  const authentication = new Uint8Array(32);
+  for (let index = 0; index < authentication.byteLength; index += 1) {
+    authentication[index] = Number.parseInt(authenticationHex.slice(index * 2, index * 2 + 2), 16);
+  }
+  const fields = new Map(record.fields);
+  fields.delete("manifest_auth");
+  const unsignedPayload = encodeRecordPayload({ ...record, fields });
+  if (
+    !(await dataKey.authenticationMatches("TUTORUX-MANIFEST-V1", unsignedPayload, authentication))
+  ) {
+    throw new ArchiveFormatError(
+      "archive_manifest_authentication_failed",
+      "Encrypted archive manifest authentication failed.",
+    );
+  }
+  return { ...record, fields };
 }
 
 function compareKeys(left: string, right: string): number {
