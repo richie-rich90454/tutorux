@@ -135,7 +135,7 @@ The v1 format description remains at [TUX-FORMAT-V1.md](docs/archive-format/TUX-
 
 ## Design and assets
 
-The interface uses the repository’s archival green and warm paper surfaces, responsive workspace navigation, compact command palette, keyboard shortcuts, Noto Sans fonts, `web/assets/tutorux.svg`, and the existing ICO/PNG/ICNS artwork. Tauri uses the operating system’s standard decorated window, native File/Edit/View menus, native file dialogs, and `.tux` launch association while sharing the same SolidJS screens and TypeScript archive code as the browser build.
+The interface uses the repository’s archival green and warm paper surfaces, responsive workspace navigation, compact command palette, keyboard shortcuts, Noto Sans fonts, `web/assets/tutorux.svg`, and the existing ICO/PNG/ICNS artwork. Tauri uses the operating system’s standard decorated window, native File/Edit/View menus, native file dialogs, single-instance `.tux` launch routing, and existing-window focus while sharing the same SolidJS screens and TypeScript archive code as the browser build.
 
 ## License
 
