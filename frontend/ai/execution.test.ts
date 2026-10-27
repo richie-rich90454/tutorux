@@ -86,7 +86,12 @@ describe("reviewed AI generation", () => {
     const chunk = responseChunk(session.id);
     const send = vi.fn(async (_request, onChunk) => {
       onChunk(chunk);
-      return { status: 200, contentType: "text/event-stream", responseBytes: chunk.byteLength };
+      return {
+        status: 200,
+        contentType: "text/event-stream",
+        responseBytes: chunk.byteLength,
+        complete: true,
+      };
     });
     const progress = vi.fn();
     const result = await executeAiGeneration({
@@ -120,8 +125,8 @@ describe("reviewed AI generation", () => {
     expect(result.job.fields.get("response_sha256")).toMatch(/^[\da-f]{64}$/u);
     expect(result.job.fields.has("value")).toBe(false);
     expect(result.job.blob).toEqual(chunk);
-    expect(result.guide.fields.get("approval_state")).toBe("draft");
-    expect(result.guide.fields.get("section.0.block.0.source_ids")).toBe(session.id);
+    expect(result.guide?.fields.get("approval_state")).toBe("draft");
+    expect(result.guide?.fields.get("section.0.block.0.source_ids")).toBe(session.id);
   });
 
   it("does not call the provider if either explicit confirmation no longer matches", async () => {
@@ -145,6 +150,75 @@ describe("reviewed AI generation", () => {
     expect(send).not.toHaveBeenCalled();
   });
 
+  it("archives raw provider error responses without creating a guide", async () => {
+    const session = createSession();
+    const preview = createPreview();
+    const rawError = encoder.encode('{"error":{"message":"rate limit"}}');
+    const result = await executeAiGeneration({
+      packageJob: createPackageJob(),
+      expectedTemplateId: "general",
+      preview,
+      confirmedEndpoint: preview.endpoint,
+      confirmedBodyHash: preview.requestBodyHash,
+      credential: "private-provider-key",
+      session,
+      sourceRecords: [session],
+      send: async (_request, onChunk) => {
+        onChunk(rawError);
+        return {
+          status: 429,
+          contentType: "application/json",
+          responseBytes: rawError.byteLength,
+          complete: true,
+        };
+      },
+      onProgress: () => undefined,
+    });
+
+    expect(result.job.blob).toEqual(rawError);
+    expect(result.job.fields.get("http_status")).toBe("429");
+    expect(result.job.fields.get("response_complete")).toBe("true");
+    expect(result.job.fields.get("status")).toBe("provider-error");
+    expect(result.job.fields.get("error_message")).toBeUndefined();
+    expect(result.guide).toBeNull();
+    expect(result.summary.guideId).toBeNull();
+    expect(result.summary.warnings).toContain(
+      "The provider returned HTTP 429. Its raw response was saved for export.",
+    );
+  });
+
+  it("archives received raw bytes when a response stream is interrupted", async () => {
+    const session = createSession();
+    const preview = createPreview();
+    const partial = encoder.encode("data: partial provider response");
+    const result = await executeAiGeneration({
+      packageJob: createPackageJob(),
+      expectedTemplateId: "general",
+      preview,
+      confirmedEndpoint: preview.endpoint,
+      confirmedBodyHash: preview.requestBodyHash,
+      credential: "private-provider-key",
+      session,
+      sourceRecords: [session],
+      send: async (_request, onChunk) => {
+        onChunk(partial);
+        return {
+          status: 200,
+          contentType: "text/event-stream",
+          responseBytes: partial.byteLength,
+          complete: false,
+        };
+      },
+      onProgress: () => undefined,
+    });
+
+    expect(result.job.blob).toEqual(partial);
+    expect(result.job.fields.get("response_complete")).toBe("false");
+    expect(result.job.fields.get("status")).toBe("response-partial");
+    expect(result.guide).toBeNull();
+    expect(result.summary.responseBytes).toBe(partial.byteLength);
+  });
+
   it("keeps an off-session citation as an editable response that needs correction", async () => {
     const session = createSession();
     const preview = createPreview();
@@ -160,14 +234,19 @@ describe("reviewed AI generation", () => {
       sourceRecords: [session],
       send: async (_request, onChunk) => {
         onChunk(chunk);
-        return { status: 200, contentType: "text/event-stream", responseBytes: chunk.byteLength };
+        return {
+          status: 200,
+          contentType: "text/event-stream",
+          responseBytes: chunk.byteLength,
+          complete: true,
+        };
       },
       onProgress: () => undefined,
     });
 
     expect(result.summary.status).toBe("response-needs-correction");
     expect(result.summary.sourceValidation).toBe("failed");
-    expect(result.guide.fields.get("section.0.block.0.source_ids")).toBe("");
+    expect(result.guide?.fields.get("section.0.block.0.source_ids")).toBe("");
     expect(result.summary.warnings).toContain(
       "Some generated guide content or source links need correction; the response was saved as editable text.",
     );
