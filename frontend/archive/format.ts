@@ -329,33 +329,62 @@ export function encodeRecordFrame(
   codec: 0 | 1 = 0,
   flags = 0,
 ): Uint8Array {
+  const header = encodeRecordFrameHeader(
+    record,
+    storedPayload.byteLength,
+    codec,
+    flags,
+    crc32(storedPayload),
+  );
+  const paddingLength = (8 - (storedPayload.byteLength % 8)) % 8;
+  const output = new Uint8Array(RECORD_HEADER_SIZE + storedPayload.byteLength + paddingLength);
+  output.set(header);
+  output.set(storedPayload, RECORD_HEADER_SIZE);
+  return output;
+}
+
+export function encodeRecordFrameHeader(
+  record: Pick<ArchiveRecord, "type" | "id" | "revision" | "previousOffset">,
+  payloadLength: number,
+  codec: 0 | 1,
+  flags: number,
+  payloadChecksum: number,
+): Uint8Array {
   if (!Number.isInteger(record.type) || record.type < 0 || record.type > 0xffff) {
     throw new ArchiveFormatError("record_type_invalid", "Record type is outside the v1 range.");
   }
-  if (storedPayload.byteLength > Number(MAX_RECORD_PAYLOAD)) {
+  if (
+    !Number.isSafeInteger(payloadLength) ||
+    payloadLength < 0 ||
+    BigInt(payloadLength) > MAX_RECORD_PAYLOAD
+  ) {
     throw new ArchiveFormatError("record_payload_limit", "Record exceeds the v1 payload limit.");
+  }
+  if (codec !== 0 && codec !== 1) {
+    throw new ArchiveFormatError("record_codec_invalid", "Record framing codec is invalid.");
   }
   if (!Number.isInteger(flags) || flags < 0 || flags > 0xff || (flags & ~1) !== 0) {
     throw new ArchiveFormatError("record_flags_invalid", "Record framing flags are invalid.");
   }
-  const paddingLength = (8 - (storedPayload.byteLength % 8)) % 8;
-  const output = new Uint8Array(RECORD_HEADER_SIZE + storedPayload.byteLength + paddingLength);
-  const view = new DataView(output.buffer);
-  writeMagic(output, 0, "TXRC");
+  if (!Number.isInteger(payloadChecksum) || payloadChecksum < 0 || payloadChecksum > 0xffffffff) {
+    throw new ArchiveFormatError("record_payload_checksum", "Record payload checksum is invalid.");
+  }
+  const header = new Uint8Array(RECORD_HEADER_SIZE);
+  const view = new DataView(header.buffer);
+  writeMagic(header, 0, "TXRC");
   writeLittle(view, 4, 2, BigInt(record.type));
   writeLittle(view, 6, 2, 1n);
   writeLittle(view, 8, 4, BigInt(RECORD_HEADER_SIZE));
-  writeLittle(view, 12, 8, BigInt(storedPayload.byteLength));
-  output.set(uuidToBytes(record.id), 20);
+  writeLittle(view, 12, 8, BigInt(payloadLength));
+  header.set(uuidToBytes(record.id), 20);
   writeLittle(view, 36, 8, record.revision);
   writeLittle(view, 44, 8, record.previousOffset);
-  output[52] = codec;
-  output[53] = flags;
+  header[52] = codec;
+  header[53] = flags;
   writeLittle(view, 54, 2, 0n);
-  writeLittle(view, 56, 4, BigInt(crc32(storedPayload)));
-  writeLittle(view, 60, 4, BigInt(crc32(output.subarray(0, 60))));
-  output.set(storedPayload, RECORD_HEADER_SIZE);
-  return output;
+  writeLittle(view, 56, 4, BigInt(payloadChecksum));
+  writeLittle(view, 60, 4, BigInt(crc32(header.subarray(0, 60))));
+  return header;
 }
 
 export function decodeRecordFrame(bytes: Uint8Array, offset = 0): ArchiveRecordFrame {
