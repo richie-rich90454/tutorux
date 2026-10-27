@@ -29,7 +29,16 @@ pub struct AiTransportRequest {
     request_body: String,
     request_body_hash: String,
     confirmed_body_hash: String,
+    credential_storage: CredentialStorage,
     credential: String,
+}
+
+#[derive(Clone, Copy, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+enum CredentialStorage {
+    None,
+    EncryptedArchive,
+    SystemKeychain,
 }
 
 impl Drop for AiTransportRequest {
@@ -75,6 +84,22 @@ pub async fn send_ai_request(
     }
     validate_request(&request)?;
 
+    let credential = match request.credential_storage {
+        CredentialStorage::None => Zeroizing::new(String::new()),
+        CredentialStorage::EncryptedArchive => {
+            Zeroizing::new(std::mem::take(&mut request.credential))
+        }
+        CredentialStorage::SystemKeychain => {
+            let provider_id = request.provider_id.clone();
+            tauri::async_runtime::spawn_blocking(move || crate::credentials::load(&provider_id))
+                .await
+                .map_err(|_| "The system credential store could not be read.".to_owned())??
+        }
+    };
+    if !credential.is_empty() {
+        validate_credential(&credential)?;
+    }
+
     let provider_id = request.provider_id.as_str();
     let local = provider_id == "ollama";
     let endpoint = Url::parse(&request.endpoint)
@@ -96,12 +121,15 @@ pub async fn send_ai_request(
         .post(endpoint)
         .header(CONTENT_TYPE, "application/json")
         .header(ACCEPT, request.accept.as_str());
-    if !request.credential.is_empty() {
+    if !credential.is_empty() {
         let auth_value = if provider_id == "anthropic" || provider_id == "google-gemini" {
-            HeaderValue::from_str(&request.credential)
+            HeaderValue::from_str(&credential)
                 .map_err(|_| "The saved provider credential is invalid.".to_owned())?
         } else {
-            HeaderValue::from_str(&format!("Bearer {}", request.credential))
+            let mut bearer_value = Zeroizing::new(String::with_capacity(7 + credential.len()));
+            bearer_value.push_str("Bearer ");
+            bearer_value.push_str(credential.as_str());
+            HeaderValue::from_str(bearer_value.as_str())
                 .map_err(|_| "The saved provider credential is invalid.".to_owned())?
         };
         let auth_header = match provider_id {
@@ -117,7 +145,6 @@ pub async fn send_ai_request(
         builder = builder.header("anthropic-version", "2023-06-01");
     }
 
-    let credential = Zeroizing::new(std::mem::take(&mut request.credential));
     let response_result = builder
         .body(std::mem::take(&mut request.request_body))
         .send()
@@ -188,13 +215,14 @@ fn validate_request(request: &AiTransportRequest) -> Result<(), String> {
     }
     let local = request.provider_id == "ollama";
     let requires_credential = !local;
-    if (requires_credential && request.credential.is_empty())
-        || request.credential.len() > MAX_CREDENTIAL_BYTES
-        || request
-            .credential
-            .chars()
-            .any(|character| character.is_whitespace() || character.is_control())
-        || (!requires_credential && !request.credential.is_empty())
+    if (requires_credential && request.credential_storage == CredentialStorage::None)
+        || (!requires_credential
+            && (request.credential_storage != CredentialStorage::None
+                || !request.credential.is_empty()))
+        || (request.credential_storage == CredentialStorage::SystemKeychain
+            && !request.credential.is_empty())
+        || (request.credential_storage == CredentialStorage::EncryptedArchive
+            && request.credential.is_empty())
     {
         return Err("The saved provider credential is missing or invalid.".to_owned());
     }
@@ -271,6 +299,18 @@ fn validate_request(request: &AiTransportRequest) -> Result<(), String> {
     Ok(())
 }
 
+fn validate_credential(credential: &str) -> Result<(), String> {
+    if credential.is_empty()
+        || credential.len() > MAX_CREDENTIAL_BYTES
+        || credential
+            .chars()
+            .any(|character| character.is_whitespace() || character.is_control())
+    {
+        return Err("The saved provider credential is missing or invalid.".to_owned());
+    }
+    Ok(())
+}
+
 fn is_loopback_host(url: &Url) -> bool {
     let Some(host) = url.host_str() else {
         return false;
@@ -327,7 +367,7 @@ fn send_batch(channel: &Channel<AiTransportEvent>, batch: &mut Vec<u8>) -> Resul
 mod tests {
     use super::{
         constant_time_equal, encode_path_segment, is_loopback_host, validate_request,
-        AiTransportRequest,
+        AiTransportRequest, CredentialStorage,
     };
     use reqwest::Url;
 
@@ -347,6 +387,11 @@ mod tests {
             },
             request_body_hash: String::new(),
             confirmed_body_hash: String::new(),
+            credential_storage: if provider_id == "ollama" {
+                CredentialStorage::None
+            } else {
+                CredentialStorage::EncryptedArchive
+            },
             credential: if provider_id == "ollama" {
                 String::new()
             } else {
@@ -411,6 +456,22 @@ mod tests {
             "application/x-ndjson",
         );
         assert!(validate_request(&remote_ollama).is_err());
+    }
+
+    #[test]
+    fn keychain_requests_reference_a_provider_without_sending_a_secret_over_ipc() {
+        let mut keychain = request(
+            "openai",
+            "https://api.example/v1/chat/completions",
+            "gpt-x",
+            "text/event-stream",
+        );
+        keychain.credential_storage = CredentialStorage::SystemKeychain;
+        keychain.credential.clear();
+        assert!(validate_request(&keychain).is_ok());
+
+        keychain.credential = "unexpected-frontend-secret".to_owned();
+        assert!(validate_request(&keychain).is_err());
     }
 
     #[test]
