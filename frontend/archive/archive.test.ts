@@ -4,6 +4,7 @@ import {
   createArchiveBytes,
   openArchiveBytes,
   openArchiveSource,
+  recoverUnpublishedCommit,
   verifyArchiveSnapshot,
 } from "./archive";
 import { decodeRecordFrame, recordTypeName, RecordType } from "./format";
@@ -84,6 +85,68 @@ describe("Tutorux archive snapshots", () => {
     const roundTrip = await openArchiveSource(changed.source);
     expect(roundTrip.indexEntryCount()).toBe(2);
     expect((await roundTrip.getRecord(RecordType.student, studentId))?.revision).toBe(1n);
+  });
+
+  it("recovers a complete unpublished generation and removes later crash-tail bytes", async () => {
+    const original = await openArchiveBytes(await createArchiveBytes("Crash recovery"));
+    const studentId = crypto.randomUUID();
+    const complete = await appendRecords(original, [
+      {
+        type: RecordType.student,
+        id: studentId,
+        revision: 0n,
+        previousOffset: 0n,
+        fields: new Map([["display_name", "Mina Chen"]]),
+        blob: new Uint8Array(),
+      },
+    ]);
+    const completeBytes = await complete.source.read(0n, Number(complete.source.size));
+    const damagedBytes = new Uint8Array(completeBytes.length + 8 - 32);
+    damagedBytes.set(completeBytes.subarray(0, completeBytes.length - 32));
+    damagedBytes.set([1, 2, 3, 4, 5, 6, 7, 8], completeBytes.length - 32);
+
+    const damaged = await openArchiveBytes(damagedBytes);
+    expect(damaged.commit.generation).toBe(1n);
+    expect(damaged.publishedEndOffset).toBe(original.source.size);
+    await expect(
+      appendRecords(damaged, [
+        {
+          type: RecordType.student,
+          id: crypto.randomUUID(),
+          revision: 0n,
+          previousOffset: 0n,
+          fields: new Map([["display_name", "Another student"]]),
+          blob: new Uint8Array(),
+        },
+      ]),
+    ).rejects.toMatchObject({ code: "archive_recovery_required" });
+
+    const recovered = await recoverUnpublishedCommit(damaged);
+    expect(recovered.recoveredGeneration).toBe(2n);
+    expect(recovered.discardedTrailingBytes).toBe(8n);
+    expect(damaged.source.size).toBe(BigInt(damagedBytes.length));
+    expect(recovered.snapshot.source.size).toBe(complete.source.size);
+    expect(recovered.snapshot.publishedEndOffset).toBe(complete.source.size);
+    expect(await recovered.snapshot.getRecord(RecordType.student, studentId)).toMatchObject({
+      fields: new Map([["display_name", "Mina Chen"]]),
+    });
+    await expect(verifyArchiveSnapshot(recovered.snapshot)).resolves.toMatchObject({
+      generation: "2",
+      currentRecords: 2,
+    });
+  });
+
+  it("does not recover incomplete trailing data", async () => {
+    const archiveBytes = await createArchiveBytes("Incomplete crash tail");
+    const damagedBytes = new Uint8Array(archiveBytes.length + 8);
+    damagedBytes.set(archiveBytes);
+    damagedBytes.set([1, 2, 3, 4, 5, 6, 7, 8], archiveBytes.length);
+    const damaged = await openArchiveBytes(damagedBytes);
+
+    await expect(recoverUnpublishedCommit(damaged)).rejects.toMatchObject({
+      code: "archive_recovery_not_available",
+    });
+    expect(damaged.source.size).toBe(BigInt(damagedBytes.length));
   });
 
   it("compresses eligible records while preserving asset and encoded-audio payloads", async () => {
