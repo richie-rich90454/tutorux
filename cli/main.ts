@@ -131,6 +131,7 @@ const HELP = `Tutorux — local-first tutoring archive tools
 
 Usage:
   tutorux archive init <file.tux> --name <name> [--description <text>] [--new-passphrase-env <name>]
+  tutorux --passphrase-env <current-name> archive change-passphrase <file.tux> --new-passphrase-env <new-name>
   tutorux archive info <file.tux> [--json]
   tutorux archive verify <file.tux> [--passphrase-env <name>] [--json]
   tutorux archive recover <file.tux> [--apply] [--json]
@@ -344,6 +345,81 @@ async function runArchiveCommand(
       args.flags.has("json"),
     );
     return 0;
+  }
+  if (action === "change-passphrase") {
+    const newPassphraseEnvironment = args.options.get("new-passphrase-env");
+    if (newPassphraseEnvironment === undefined && args.flags.has("new-passphrase-env")) {
+      throw new CliError("--new-passphrase-env requires an environment variable name.");
+    }
+    if (newPassphraseEnvironment === undefined) {
+      throw new CliError("archive change-passphrase requires --new-passphrase-env <name>.");
+    }
+    if (!/^[A-Za-z_][A-Za-z\d_]*$/u.test(newPassphraseEnvironment)) {
+      throw new CliError("--new-passphrase-env requires a valid environment variable name.");
+    }
+    const newPassphrase = process.env[newPassphraseEnvironment];
+    if (newPassphrase === undefined) {
+      throw new CliError("The new archive passphrase environment variable is not set.");
+    }
+
+    const archivePath = resolve(path);
+    const openedInfo = await stat(archivePath);
+    const source = await NodeFileArchiveSource.open(archivePath);
+    let current: ArchiveSnapshot | undefined;
+    let next: ArchiveSnapshot | undefined;
+    let verified: ArchiveSnapshot | undefined;
+    try {
+      if (BigInt(openedInfo.size) !== source.size) {
+        throw new CliError(
+          "The archive changed while passphrase rotation was starting. Retry the command.",
+        );
+      }
+      current = await unlockSnapshotForCli(await openArchiveSource(source), true);
+      if (!current.encrypted) {
+        throw new CliError("Passphrase changes are only available for encrypted archives.");
+      }
+      const currentPassphrase = archiveAccessContext.getStore()?.passphrase;
+      if (currentPassphrase === undefined) {
+        throw new CliError("Supply the current archive passphrase with --passphrase-env <name>.");
+      }
+      if (currentPassphrase === newPassphrase) {
+        throw new CliError("Choose a different new passphrase from the current one.");
+      }
+      next = await current.changePassphrase(currentPassphrase, newPassphrase);
+      verified = await (await openArchiveSource(next.source)).unlock(newPassphrase);
+      await verifyArchiveSnapshot(verified);
+
+      const currentInfo = await stat(archivePath);
+      if (
+        currentInfo.size !== openedInfo.size ||
+        currentInfo.mtimeMs !== openedInfo.mtimeMs ||
+        currentInfo.dev !== openedInfo.dev ||
+        currentInfo.ino !== openedInfo.ino
+      ) {
+        throw new CliError("The archive changed during passphrase rotation. Retry the command.");
+      }
+      await writeSourceAtomically(archivePath, next);
+      const result = {
+        path: archivePath,
+        previous_generation: current.commit.generation.toString(),
+        generation: next.commit.generation.toString(),
+        encrypted: true,
+        verified: true,
+        passphrase_changed: true,
+      };
+      emit(
+        output,
+        result,
+        `Passphrase changed and verified for ${basename(path)} at generation ${result.generation}.`,
+        args.flags.has("json"),
+      );
+      return 0;
+    } finally {
+      verified?.lock();
+      current?.lock();
+      if (next && next !== current) next.lock();
+      await source.close();
+    }
   }
   if (action === "recover") {
     const archivePath = resolve(path);
