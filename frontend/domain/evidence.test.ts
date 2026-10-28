@@ -1,7 +1,13 @@
 import { describe, expect, it, vi } from "vitest";
 import type { ArchiveSnapshot } from "../archive/archive";
 import { RecordType, type ArchiveRecord } from "../archive/format";
-import { restoreEvidenceRecordGroup, trashEvidenceRecord, updateEvidenceRecord } from "./evidence";
+import {
+  makeEvidenceRecord,
+  restoreEvidenceRecordGroup,
+  trashEvidenceEdge,
+  trashEvidenceRecord,
+  updateEvidenceRecord,
+} from "./evidence";
 
 function evidenceRecord(overrides: Record<string, string> = {}): ArchiveRecord {
   return {
@@ -40,6 +46,93 @@ function evidenceEdge(fromId: string, toId: string, id: string): ArchiveRecord {
 }
 
 describe("evidence editing and recoverable relationships", () => {
+  it("creates tutor-authored evidence with current transcript and material provenance", async () => {
+    const sessionId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+    const segmentId = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
+    const assetId = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
+    const session: ArchiveRecord = {
+      ...evidenceRecord(),
+      type: RecordType.session,
+      id: sessionId,
+      fields: new Map([["student_id", "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee"]]),
+    };
+    const segment: ArchiveRecord = {
+      ...evidenceRecord(),
+      type: RecordType.transcriptSegment,
+      id: segmentId,
+      revision: 7n,
+      fields: new Map([
+        ["session_id", sessionId],
+        ["linked_asset_ids", assetId],
+        ["speaker_label", "Tutor"],
+        ["start_time_us", "1200000"],
+        ["end_time_us", "3400000"],
+      ]),
+    };
+    const snapshot = {
+      getRecord: vi.fn(async (type: number) => (type === RecordType.session ? session : segment)),
+    } as unknown as ArchiveSnapshot;
+
+    const created = await makeEvidenceRecord(snapshot, sessionId, segmentId, {
+      title: "Tutor explanation",
+      type: "Tutor Explanation",
+      content: "The learner used a common denominator.",
+      priority: "high",
+    });
+
+    expect(created.type).toBe(RecordType.evidenceNode);
+    expect(created.revision).toBe(0n);
+    expect(created.fields.get("student_id")).toBe("eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee");
+    expect(created.fields.get("origin")).toBe("tutor-authored");
+    expect(created.fields.get("type")).toBe("tutor-explanation");
+    expect(created.fields.get("verification_state")).toBe("needs-review");
+    expect(created.fields.get("source_segment_ids")).toBe(segmentId);
+    expect(created.fields.get("source_segment_revision")).toBe("7");
+    expect(created.fields.get("source_segment_revisions")).toBe(`${segmentId}=7`);
+    expect(created.fields.get("source_asset_ids")).toBe(assetId);
+    expect(created.fields.get("source_speaker_label")).toBe("Tutor");
+    expect(created.fields.get("start_time_us")).toBe("1200000");
+    expect(created.fields.get("end_time_us")).toBe("3400000");
+  });
+
+  it("rejects transcript sources from another session and empty content", async () => {
+    const sessionId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+    const segmentId = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
+    const session = { ...evidenceRecord(), type: RecordType.session, id: sessionId };
+    const segment = {
+      ...evidenceRecord({ session_id: "ffffffff-ffff-4fff-8fff-ffffffffffff" }),
+      type: RecordType.transcriptSegment,
+      id: segmentId,
+    };
+    const snapshot = {
+      getRecord: vi.fn(async (type: number) => (type === RecordType.session ? session : segment)),
+    } as unknown as ArchiveSnapshot;
+
+    await expect(
+      makeEvidenceRecord(snapshot, sessionId, segmentId, {
+        title: "Title",
+        type: "claim",
+        content: "Text",
+        priority: "normal",
+      }),
+    ).rejects.toThrow("selected session");
+    await expect(
+      makeEvidenceRecord(
+        {
+          ...snapshot,
+          getRecord: vi.fn(async (type: number) =>
+            type === RecordType.session
+              ? session
+              : { ...segment, fields: new Map([["session_id", sessionId]]) },
+          ),
+        } as unknown as ArchiveSnapshot,
+        sessionId,
+        segmentId,
+        { title: "Title", type: "claim", content: " ", priority: "normal" },
+      ),
+    ).rejects.toThrow("Evidence content cannot be empty");
+  });
+
   it("updates editable fields and returns the item to source review", () => {
     const original = evidenceRecord();
     const updated = updateEvidenceRecord(original, {
@@ -118,5 +211,18 @@ describe("evidence editing and recoverable relationships", () => {
     expect(restored[0]?.fields.get("source_segment_ids")).toBe(
       "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
     );
+  });
+
+  it("moves one relationship into its own recoverable Trash group", () => {
+    const edge = evidenceEdge(
+      "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+      "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+    );
+    const trashed = trashEvidenceEdge(edge);
+    expect(trashed.fields.get("_deleted")).toBe("true");
+    expect(trashed.fields.get("_trash_group_id")).toBe(edge.id);
+    expect(edge.fields.get("_deleted")).toBeUndefined();
+    expect(() => trashEvidenceEdge(trashed)).toThrow("active evidence relationship");
   });
 });
