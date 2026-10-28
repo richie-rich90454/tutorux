@@ -1078,6 +1078,33 @@ button:disabled {
   gap: 8px;
   padding-bottom: 2px;
 }
+.record-heading-actions {
+  min-width: 0;
+  display: flex;
+  align-items: flex-end;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding-bottom: 2px;
+}
+.session-package-student-picker {
+  min-width: 220px;
+  display: grid;
+  gap: 5px;
+  color: var(--muted);
+  font-size: 9px;
+  font-weight: 600;
+}
+.session-package-student-picker select {
+  width: 100%;
+  min-height: 34px;
+  padding: 0 28px 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  color: var(--ink-soft);
+  background: var(--surface);
+  font-size: 10px;
+}
 .overview-stat-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -3256,6 +3283,17 @@ button:disabled {
   .heading-action-group {
     width: 100%;
   }
+  .record-heading-actions {
+    width: 100%;
+    justify-content: flex-start;
+    align-items: stretch;
+  }
+  .session-package-student-picker {
+    flex: 1 1 250px;
+  }
+  .record-heading-actions > .button {
+    min-height: 34px;
+  }
   .heading-action-group > .button {
     flex: 1;
   }
@@ -3294,7 +3332,8 @@ button:disabled {
   .activity-chart {
     gap: 6px;
   }
-  .record-heading > .button {
+  .record-heading-actions > .button {
+    flex: 1 1 180px;
     align-self: stretch;
   }
   .record-list-toolbar {
