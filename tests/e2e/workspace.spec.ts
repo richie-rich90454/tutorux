@@ -292,27 +292,53 @@ test("creates, updates, exports, and reopens a portable tutoring workspace", asy
   await page.getByRole("button", { name: "Observations", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Check the sign change" })).toBeVisible();
 
+  await page.getByRole("button", { name: "Add observation", exact: true }).click();
+  await page.getByRole("combobox", { name: "Type" }).selectOption("follow-up-priority");
+  await page.getByRole("textbox", { name: "Title optional" }).fill("Plan a model follow-up");
+  await page.getByLabel("Start time").fill("00:00:05");
+  await page.getByLabel("End time").fill("00:00:07");
+  await page
+    .getByRole("textbox", { name: "Observation", exact: true })
+    .fill("Prepare one more balance-scale practice problem.");
+  await page.getByRole("button", { name: "Save observation", exact: true }).click();
+
   await page.getByRole("button", { name: "Evidence", exact: true }).click();
   await page.getByRole("button", { name: "Extract session evidence" }).click();
   await expect(page.getByRole("heading", { name: "Check the sign change" })).toBeVisible();
-  const evidenceCard = page.locator(".evidence-card").first();
-  await evidenceCard.getByRole("button", { name: "Edit evidence" }).click();
-  await evidenceCard.getByLabel("Title").fill("Reviewed sign change evidence");
-  await evidenceCard.getByLabel("Type").fill("tutor observation");
-  await evidenceCard.getByLabel("Priority").fill("high");
-  await evidenceCard.getByLabel("Evidence").fill("The tutor will revisit the sign with Mina.");
-  await evidenceCard.getByRole("button", { name: "Save changes" }).click();
+  const evidenceCard = page
+    .locator(".evidence-card")
+    .filter({ has: page.getByRole("heading", { name: "Check the sign change" }) });
+  const evidenceId = await evidenceCard.getAttribute("data-evidence-id");
+  expect(evidenceId).toMatch(/^[\da-f-]{36}$/iu);
+  await page.getByLabel("From", { exact: true }).selectOption({ label: "Check the sign change" });
+  await page.getByLabel("Relationship").selectOption("contradicts");
+  await page.getByLabel("To", { exact: true }).selectOption({ label: "Plan a model follow-up" });
+  await page.getByRole("button", { name: "Add relationship" }).click();
   await expect(
-    evidenceCard.getByRole("heading", { name: "Reviewed sign change evidence" }),
+    page.getByRole("img", { name: "2 evidence items connected by 1 relationship" }),
   ).toBeVisible();
-  await expect(evidenceCard.getByText("Needs review", { exact: true })).toBeVisible();
-  await evidenceCard.getByRole("button", { name: "Move to Trash" }).click();
+  await expect(page.locator(".evidence-contradiction-row")).toContainText("contradicts");
+  const stableEvidenceCard = page.locator(`[data-evidence-id="${evidenceId}"]`);
+  await stableEvidenceCard.getByRole("button", { name: "Edit evidence" }).click();
+  await stableEvidenceCard.getByLabel("Title").fill("Reviewed sign change evidence");
+  await stableEvidenceCard.getByLabel("Type").fill("tutor observation");
+  await stableEvidenceCard.getByLabel("Priority").fill("high");
+  await stableEvidenceCard
+    .getByLabel("Evidence")
+    .fill("The tutor will revisit the sign with Mina.");
+  await stableEvidenceCard.getByRole("button", { name: "Save changes" }).click();
+  await expect(
+    stableEvidenceCard.getByRole("heading", { name: "Reviewed sign change evidence" }),
+  ).toBeVisible();
+  await expect(stableEvidenceCard.getByText("Needs review", { exact: true })).toBeVisible();
+  await stableEvidenceCard.getByRole("button", { name: "Move to Trash" }).click();
   await expect(page.getByRole("heading", { name: "Reviewed sign change evidence" })).toHaveCount(0);
   await page.getByRole("button", { name: "Trash", exact: true }).click();
   await expect(page.getByText("Reviewed sign change evidence", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Restore", exact: true }).click();
   await page.getByRole("button", { name: "Evidence", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Reviewed sign change evidence" })).toBeVisible();
+  await expect(page.locator(".evidence-contradiction-row")).toHaveCount(1);
   await page.getByRole("button", { name: "Students", exact: true }).click();
   const studentHistory = page.locator(".student-history");
   await studentHistory.locator("summary").click();
