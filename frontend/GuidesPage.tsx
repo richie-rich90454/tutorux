@@ -10,6 +10,7 @@ import {
   generateGuideDraftFromSession,
   getGuideTemplate,
   guideDraftFromRecord,
+  isGuideNotesSource,
   type GuideBlockDraft,
   type GuideDraft,
   type GuideTemplate,
@@ -52,7 +53,10 @@ export function GuidesPage(props: GuidePageProps): JSX.Element {
   const [generation, setGeneration] = createSignal<{
     sessionId: string;
     templateId: string;
+    includeEntryEvidence: boolean;
+    record: ArchiveRecord | null;
   } | null>(null);
+  const [regenerationTitle, setRegenerationTitle] = createSignal("");
   const [generationError, setGenerationError] = createSignal("");
   const [templateEditor, setTemplateEditor] = createSignal<{
     current: ArchiveRecord | null;
@@ -64,7 +68,47 @@ export function GuidesPage(props: GuidePageProps): JSX.Element {
 
   function openGeneration(): void {
     setGenerationError("");
-    setGeneration({ sessionId: props.sessions[0]?.id ?? "", templateId: "auto" });
+    setRegenerationTitle("");
+    setGeneration({
+      sessionId: props.sessions[0]?.id ?? "",
+      templateId: "auto",
+      includeEntryEvidence: false,
+      record: null,
+    });
+  }
+
+  function openRegeneration(record: ArchiveRecord): void {
+    const sessionId = field(record, "session_id");
+    const savedTemplateId = field(record, "template_id", "auto");
+    const recordDraft = guideDraftFromRecord(record);
+    const entryNoteIds = new Set(
+      props.sourceRecords
+        .filter(
+          (source) =>
+            source.type === RecordType.settings &&
+            field(source, "record_role") === "journal-notes" &&
+            field(source, "entry_id").toLowerCase() === field(record, "entry_id").toLowerCase() &&
+            field(source, "session_id").toLowerCase() !== sessionId.toLowerCase(),
+        )
+        .map((source) => source.id.toLowerCase()),
+    );
+    const includesEntryNotes = recordDraft.sections.some((section) =>
+      section.blocks.some((block) =>
+        block.sourceIds
+          .split(/[\s,;]+/u)
+          .some((sourceId) => entryNoteIds.has(sourceId.toLowerCase())),
+      ),
+    );
+    setGenerationError("");
+    setRegenerationTitle(field(record, "title"));
+    setGeneration({
+      sessionId,
+      templateId: allTemplates().some((template) => template.id === savedTemplateId)
+        ? savedTemplateId
+        : "auto",
+      includeEntryEvidence: includesEntryNotes,
+      record,
+    });
   }
 
   function generateSelectedGuide(event: SubmitEvent): void {
@@ -83,8 +127,10 @@ export function GuidesPage(props: GuidePageProps): JSX.Element {
         props.sourceRecords,
         props.students,
         allTemplates(),
+        selection.includeEntryEvidence,
       );
-      setEditor({ record: null, templateId: draft.templateId, initialDraft: draft });
+      if (selection.record) draft.title = regenerationTitle() || draft.title;
+      setEditor({ record: selection.record, templateId: draft.templateId, initialDraft: draft });
       setGeneration(null);
     } catch (cause) {
       setGenerationError(
@@ -142,10 +188,12 @@ export function GuidesPage(props: GuidePageProps): JSX.Element {
               <header class="guide-editor-header">
                 <div>
                   <span class="eyebrow">A DRAFT GROUNDED IN YOUR ARCHIVE</span>
-                  <h2 id="guide-generation-title">Generate a study guide</h2>
+                  <h2 id="guide-generation-title">
+                    {selection.record ? "Regenerate a study guide" : "Generate a study guide"}
+                  </h2>
                   <p>
                     Choose a session and structure. The result opens as an editable draft for tutor
-                    review.
+                    review before it is saved.
                   </p>
                 </div>
                 <button
@@ -164,6 +212,7 @@ export function GuidesPage(props: GuidePageProps): JSX.Element {
                     <select
                       required
                       value={selection.sessionId}
+                      disabled={Boolean(selection.record)}
                       onChange={(event) =>
                         setGeneration((current) =>
                           current ? { ...current, sessionId: event.currentTarget.value } : current,
@@ -197,10 +246,42 @@ export function GuidesPage(props: GuidePageProps): JSX.Element {
                     </select>
                   </label>
                 </div>
+                <Show when={selection.record}>
+                  <label class="form-field guide-regeneration-title">
+                    <span>Guide title</span>
+                    <input
+                      required
+                      maxlength="240"
+                      value={regenerationTitle()}
+                      onInput={(event) => setRegenerationTitle(event.currentTarget.value)}
+                    />
+                  </label>
+                </Show>
+                <label class="guide-generation-entry-evidence">
+                  <input
+                    type="checkbox"
+                    checked={selection.includeEntryEvidence}
+                    onChange={(event) =>
+                      setGeneration((current) =>
+                        current
+                          ? { ...current, includeEntryEvidence: event.currentTarget.checked }
+                          : current,
+                      )
+                    }
+                  />
+                  <span>
+                    Include notes from the linked journal entry
+                    <small>Bring in reflection notes saved with this entry and its sessions.</small>
+                  </span>
+                </label>
                 <p class="guide-generation-note">
-                  Tutor observations and session notes are included with citations. Transcript
-                  excerpts stay marked for review; transcript-derived claims appear only after a
-                  tutor verifies them.
+                  Tutor observations and notes are included with citations. Transcript excerpts stay
+                  marked for review; transcript-derived claims appear only after a tutor verifies
+                  them.
+                  <Show when={selection.record}>
+                    <br /> Saving this regenerated draft creates a new revision and keeps the
+                    previous guide in history.
+                  </Show>
                 </p>
                 <Show when={generationError()}>
                   <p class="guide-editor-error" role="alert">
@@ -527,6 +608,14 @@ export function GuidesPage(props: GuidePageProps): JSX.Element {
                       <details class="guide-export-menu">
                         <summary class="button button-quiet">More</summary>
                         <div class="guide-export-menu-popover" aria-label="More guide exports">
+                          <button
+                            class="button button-quiet"
+                            type="button"
+                            disabled={!canEdit() || props.busy}
+                            onClick={() => openRegeneration(record)}
+                          >
+                            Regenerate from latest evidence
+                          </button>
                           <button
                             class="button button-quiet"
                             type="button"
@@ -1238,7 +1327,7 @@ function sourceOptions(
       if (
         record.id.toLowerCase() === sessionId ||
         record.id.toLowerCase() === studentId ||
-        record.id.toLowerCase() === notesId
+        (record.id.toLowerCase() === notesId && isGuideNotesSource(record, session, records))
       )
         return true;
       if (record.type === RecordType.assetMetadata)
@@ -1253,14 +1342,15 @@ function sourceOptions(
       ];
       if (sessionSourceTypes.includes(record.type))
         return field(record, "session_id").toLowerCase() === sessionId;
-      if (record.type === RecordType.settings)
-        return field(record, "session_id").toLowerCase() === sessionId;
+      if (record.type === RecordType.settings) return isGuideNotesSource(record, session, records);
       return false;
     })
-    .map((record) => ({
-      id: record.id,
-      label: `${sourceKind(record)} · ${field(record, "title", field(record, "text", field(record, "content", field(record, "display_name", record.id))))}`,
-    }));
+    .map((record) => {
+      return {
+        id: record.id,
+        label: `${sourceKind(record)} · ${field(record, "title", field(record, "text", field(record, "content", field(record, "display_name", record.id))))}`,
+      };
+    });
 }
 
 function sourceKind(record: ArchiveRecord): string {
