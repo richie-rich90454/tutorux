@@ -1,0 +1,61 @@
+.student-version-history {
+  border-top: 1px solid var(--line);
+  margin-top: 12px;
+}
+.student-version-history > summary {
+  cursor: pointer;
+  padding: 14px 0;
+  font-weight: 600;
+}
+.student-versions-content {
+  padding-bottom: 16px;
+  color: var(--muted);
+  font-size: 0.875rem;
+}
+.student-versions-error {
+  color: var(--danger);
+}
+.student-versions-list {
+  list-style: none;
+  padding: 0;
+  margin: 12px 0 0;
+}
+.student-versions-list > li {
+  border-top: 1px solid var(--line-soft);
+}
+.student-versions-list summary {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  cursor: pointer;
+  padding: 12px 0;
+}
+.student-versions-list summary strong {
+  color: var(--ink);
+}
+.student-versions-list dl {
+  display: grid;
+  gap: 10px;
+  margin: 0 0 14px;
+}
+.student-versions-list dt {
+  font-weight: 600;
+  color: var(--ink-soft);
+}
+.student-versions-list dd {
+  margin: 3px 0 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.student-versions-list details {
+  padding-bottom: 10px;
+}
+.student-versions-confirm {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+.student-versions-confirm p {
+  flex: 1 1 200px;
+}
