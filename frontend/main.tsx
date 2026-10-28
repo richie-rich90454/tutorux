@@ -84,6 +84,7 @@ import {
   updateEvidenceRecord,
   type EvidenceUpdateInput,
 } from "./domain/evidence";
+import { createEvidenceGraphLayout, type EvidenceGraphLayout } from "./domain/evidence-graph";
 import {
   ANNOTATION_PRIORITIES,
   ANNOTATION_TYPES,
@@ -3267,11 +3268,16 @@ function EvidencePage(props: {
       });
   });
   const sessionEdges = createMemo(() => {
-    const ids = new Set(sessionRecords().map((record) => record.id));
+    const ids = new Set(sessionRecords().map((record) => record.id.toLowerCase()));
+    const sessionId = selectedSession()?.id.toLowerCase() ?? "";
     return props.edges.filter(
-      (edge) => ids.has(field(edge, "from_id")) && ids.has(field(edge, "to_id")),
+      (edge) =>
+        field(edge, "session_id").toLowerCase() === sessionId ||
+        ids.has(field(edge, "from_id").toLowerCase()) ||
+        ids.has(field(edge, "to_id").toLowerCase()),
     );
   });
+  const graph = createMemo(() => createEvidenceGraphLayout(sessionRecords(), sessionEdges()));
 
   return (
     <div class="page-body evidence-page">
@@ -3397,9 +3403,64 @@ function EvidencePage(props: {
                 <h2>Connect the evidence</h2>
               </div>
               <span>
-                {sessionEdges().length} {sessionEdges().length === 1 ? "link" : "links"}
+                {graph().nodes.length} items · {graph().edges.length} links
               </span>
             </div>
+            <div class="evidence-graph-legend" aria-label="Evidence map legend">
+              <span>
+                <i class="evidence-legend-dot evidence-legend-review" aria-hidden="true" />
+                Needs review
+              </span>
+              <span>
+                <i class="evidence-legend-dot evidence-legend-verified" aria-hidden="true" />
+                Verified
+              </span>
+              <span>
+                <i class="evidence-legend-line evidence-legend-contradiction" aria-hidden="true" />
+                Contradicts
+              </span>
+            </div>
+            <EvidenceNetwork layout={graph()} />
+            <section
+              class="evidence-contradictions"
+              aria-labelledby="evidence-contradictions-title"
+            >
+              <div class="evidence-contradictions-heading">
+                <div>
+                  <span class="eyebrow">SOURCE REVIEW</span>
+                  <h3 id="evidence-contradictions-title">Explicit contradiction links</h3>
+                </div>
+                <span>{graph().contradictions.length}</span>
+              </div>
+              <p>
+                These pairs were explicitly linked as contradictions. Review each item’s source
+                status above.
+              </p>
+              <Show
+                when={graph().contradictions.length > 0}
+                fallback={
+                  <small>No evidence items are explicitly linked as contradicting another.</small>
+                }
+              >
+                <div class="evidence-contradiction-list">
+                  <For each={graph().contradictions}>
+                    {(pair) => (
+                      <div class="evidence-contradiction-row">
+                        <span>{field(pair.first, "title", "Evidence item")}</span>
+                        <strong>contradicts</strong>
+                        <span>{field(pair.second, "title", "Evidence item")}</span>
+                      </div>
+                    )}
+                  </For>
+                </div>
+              </Show>
+              <Show when={graph().invalidEdgeCount > 0}>
+                <p class="evidence-graph-warning" role="status">
+                  {graph().invalidEdgeCount} relationship{graph().invalidEdgeCount === 1 ? "" : "s"}{" "}
+                  could not be drawn because an endpoint or session reference is invalid.
+                </p>
+              </Show>
+            </section>
             <form
               class="evidence-link-form"
               onSubmit={(event) => {
@@ -3472,14 +3533,29 @@ function EvidencePage(props: {
                 <For each={sessionEdges()}>
                   {(edge) => {
                     const from = () =>
-                      sessionRecords().find((record) => record.id === field(edge, "from_id"));
+                      sessionRecords().find(
+                        (record) =>
+                          record.id.toLowerCase() === field(edge, "from_id").toLowerCase(),
+                      );
                     const to = () =>
-                      sessionRecords().find((record) => record.id === field(edge, "to_id"));
+                      sessionRecords().find(
+                        (record) => record.id.toLowerCase() === field(edge, "to_id").toLowerCase(),
+                      );
                     return (
                       <div class="evidence-edge-row">
-                        <span>{field(from()!, "title", field(from()!, "type", "Evidence"))}</span>
-                        <strong>{field(edge, "relationship").replaceAll("-", " ")}</strong>
-                        <span>{field(to()!, "title", field(to()!, "type", "Evidence"))}</span>
+                        <span>
+                          {from()
+                            ? field(from()!, "title", field(from()!, "type", "Evidence"))
+                            : "Missing evidence item"}
+                        </span>
+                        <strong>
+                          {field(edge, "relationship", "unknown").replaceAll("-", " ")}
+                        </strong>
+                        <span>
+                          {to()
+                            ? field(to()!, "title", field(to()!, "type", "Evidence"))
+                            : "Missing evidence item"}
+                        </span>
                       </div>
                     );
                   }}
@@ -3489,6 +3565,79 @@ function EvidencePage(props: {
           </section>
         </Show>
       </Show>
+    </div>
+  );
+}
+
+function EvidenceNetwork(props: { layout: EvidenceGraphLayout }): JSX.Element {
+  const itemLabel = () => (props.layout.nodes.length === 1 ? "evidence item" : "evidence items");
+  const relationshipLabel = () =>
+    props.layout.edges.length === 1 ? "relationship" : "relationships";
+  return (
+    <div class="evidence-network-scroll" role="region" aria-label="Evidence relationship map">
+      <svg
+        class="evidence-network"
+        viewBox={`0 0 ${props.layout.width} ${props.layout.height}`}
+        role="img"
+        aria-label={`${props.layout.nodes.length} ${itemLabel()} connected by ${props.layout.edges.length} ${relationshipLabel()}`}
+      >
+        <defs>
+          <marker
+            id="evidence-edge-arrow"
+            viewBox="0 0 10 10"
+            refX="9"
+            refY="5"
+            markerWidth="6"
+            markerHeight="6"
+            orient="auto-start-reverse"
+          >
+            <path d="M 0 0 L 10 5 L 0 10 z" class="evidence-network-arrow" />
+          </marker>
+        </defs>
+        <For each={props.layout.edges}>
+          {(edge) => {
+            const relationship = field(edge.record, "relationship", "references");
+            return (
+              <g class={`evidence-network-link evidence-network-link-${relationship}`}>
+                <path d={edge.path} marker-end="url(#evidence-edge-arrow)">
+                  <title>{relationship.replaceAll("-", " ")}</title>
+                </path>
+                <text x={edge.labelX} y={edge.labelY - 5} text-anchor="middle">
+                  {relationship.replaceAll("-", " ")}
+                </text>
+              </g>
+            );
+          }}
+        </For>
+        <For each={props.layout.nodes}>
+          {(node) => {
+            const state = field(node.record, "verification_state", "needs-review");
+            const title = field(node.record, "title", "Evidence item");
+            const titleCharacters = Array.from(title);
+            const shortTitle =
+              titleCharacters.length > 23 ? `${titleCharacters.slice(0, 22).join("")}…` : title;
+            return (
+              <g
+                class={`evidence-network-node evidence-network-node-${state}`}
+                transform={`translate(${node.x} ${node.y})`}
+              >
+                <title>{`${title} · ${state.replaceAll("-", " ")}`}</title>
+                <rect width="176" height="64" rx="8" />
+                <circle cx="14" cy="15" r="4" />
+                <text class="evidence-network-state" x="24" y="18">
+                  {state.replaceAll("-", " ")}
+                </text>
+                <text class="evidence-network-title" x="12" y="39">
+                  {shortTitle}
+                </text>
+                <text class="evidence-network-type" x="12" y="55">
+                  {field(node.record, "type", "learning evidence").replaceAll("-", " ")}
+                </text>
+              </g>
+            );
+          }}
+        </For>
+      </svg>
     </div>
   );
 }
@@ -3542,7 +3691,10 @@ function EvidenceCard(props: {
   };
 
   return (
-    <article class={`evidence-card surface-card evidence-${state()}`}>
+    <article
+      class={`evidence-card surface-card evidence-${state()}`}
+      data-evidence-id={props.record.id}
+    >
       <div class="evidence-card-rail" aria-hidden="true">
         <span />
       </div>
