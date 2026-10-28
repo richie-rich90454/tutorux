@@ -633,6 +633,7 @@ function guideTimestamp(value: string): string {
 }
 
 function transcriptTimeRange(segment: ArchiveRecord): string {
+  if (field(segment, "timestamp_state") === "not-timestamped") return "time not provided";
   const start = parseGuideInteger(field(segment, "start_time_us"));
   const end = parseGuideInteger(field(segment, "end_time_us"));
   return end > start
