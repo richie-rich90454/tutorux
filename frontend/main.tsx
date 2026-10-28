@@ -1435,7 +1435,9 @@ function App(): JSX.Element {
       return false;
     }
     try {
-      const session = state.sessions.find((item) => item.id === draft.sessionId);
+      const session = [...state.sessions, ...state.archivedSessions].find(
+        (item) => item.id === draft.sessionId,
+      );
       if (!session) throw new Error("Choose an active session for this study guide.");
       const record = makeGuideRecord(
         draft,
@@ -1457,7 +1459,9 @@ function App(): JSX.Element {
     if (!state) return;
     try {
       const draft = guideDraftFromRecord(record);
-      const session = state.sessions.find((item) => item.id === draft.sessionId);
+      const session = [...state.sessions, ...state.archivedSessions].find(
+        (item) => item.id === draft.sessionId,
+      );
       if (!session)
         throw new Error(
           "The source session is unavailable. Restore it before approving this guide.",
@@ -2623,7 +2627,7 @@ function App(): JSX.Element {
                 <Show when={view() === "guides"}>
                   <GuidesPage
                     records={filteredRecords()}
-                    sessions={state.sessions}
+                    sessions={[...state.sessions, ...state.archivedSessions]}
                     students={state.students}
                     sourceRecords={guideSourceRecords(state)}
                     customTemplates={state.guideTemplates}
