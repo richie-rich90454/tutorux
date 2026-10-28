@@ -79,6 +79,10 @@ import {
   extractSessionEvidence,
   makeEvidenceEdge,
   reviewEvidenceRecord,
+  restoreEvidenceRecordGroup,
+  trashEvidenceRecord,
+  updateEvidenceRecord,
+  type EvidenceUpdateInput,
 } from "./domain/evidence";
 import {
   ANNOTATION_PRIORITIES,
@@ -175,6 +179,7 @@ interface Workspace {
   trashedStudents: ArchiveRecord[];
   trashedAnnotations: ArchiveRecord[];
   trashedGuides: ArchiveRecord[];
+  trashedEvidence: ArchiveRecord[];
   sessions: ArchiveRecord[];
   archivedSessions: ArchiveRecord[];
   trashedSessions: ArchiveRecord[];
@@ -448,6 +453,7 @@ function App(): JSX.Element {
         trashedStudents: [],
         trashedAnnotations: [],
         trashedGuides: [],
+        trashedEvidence: [],
         sessions: [],
         archivedSessions: [],
         trashedSessions: [],
@@ -491,11 +497,16 @@ function App(): JSX.Element {
       snapshot.listRecords(RecordType.annotation, true),
       snapshot.listRecords(RecordType.transcriptSegment),
       snapshot.listRecords(RecordType.assetMetadata, true),
-      snapshot.listRecords(RecordType.evidenceNode),
-      snapshot.listRecords(RecordType.evidenceEdge),
+      snapshot.listRecords(RecordType.evidenceNode, true),
+      snapshot.listRecords(RecordType.evidenceEdge, true),
       snapshot.listRecordMetadata(RecordType.aiJob),
     ]);
     const liveSessions = alive(sessions);
+    const trashedSessionIds = new Set(
+      sessions
+        .filter((record) => record.fields.get("_deleted") === "true")
+        .map((record) => record.id.toLowerCase()),
+    );
     const liveAssets = alive(assets);
     const indexedAudioTracks = snapshot.audioTrackIdsBySession();
     return {
@@ -513,6 +524,11 @@ function App(): JSX.Element {
       trashedGuides: guides.filter(
         (record) =>
           record.fields.get("_deleted") === "true" && !record.fields.get("_trash_group_id"),
+      ),
+      trashedEvidence: evidence.filter(
+        (record) =>
+          record.fields.get("_deleted") === "true" &&
+          !trashedSessionIds.has(field(record, "_trash_group_id").toLowerCase()),
       ),
       sessions: liveSessions.filter((record) => record.fields.get("archived") !== "true"),
       archivedSessions: liveSessions.filter((record) => record.fields.get("archived") === "true"),
@@ -1300,6 +1316,17 @@ function App(): JSX.Element {
     await addRecords([restoreRecordFromTrash(record)], "Observation restored from Trash.");
   }
 
+  async function restoreEvidence(record: ArchiveRecord): Promise<void> {
+    const state = workspace();
+    if (!state) return;
+    try {
+      const changes = await restoreEvidenceRecordGroup(state.snapshot, record);
+      await addRecords(changes, "Evidence and its relationships restored.");
+    } catch (error) {
+      announce(errorMessage(error), "error");
+    }
+  }
+
   async function reviewSessionTrash(session: ArchiveRecord): Promise<void> {
     const state = workspace();
     if (!state || busy()) return;
@@ -1851,6 +1878,35 @@ function App(): JSX.Element {
           ? "Evidence source checked and approved."
           : "Evidence candidate rejected.",
       );
+    } catch (error) {
+      announce(errorMessage(error), "error");
+    }
+  }
+
+  async function updateEvidence(
+    record: ArchiveRecord,
+    input: EvidenceUpdateInput,
+  ): Promise<boolean> {
+    const state = workspace();
+    if (!state) return false;
+    try {
+      const updated = updateEvidenceRecord(record, input);
+      return await addRecords(
+        [updated],
+        "Evidence updated. Review the source again before approval.",
+      );
+    } catch (error) {
+      announce(errorMessage(error), "error");
+      return false;
+    }
+  }
+
+  async function trashEvidence(record: ArchiveRecord): Promise<void> {
+    const state = workspace();
+    if (!state) return;
+    try {
+      const changes = await trashEvidenceRecord(state.snapshot, record);
+      await addRecords(changes, "Evidence and its relationships moved to Trash.");
     } catch (error) {
       announce(errorMessage(error), "error");
     }
@@ -2488,6 +2544,8 @@ function App(): JSX.Element {
                     onExtract={extractEvidence}
                     onReview={reviewEvidence}
                     onLink={linkEvidence}
+                    onUpdate={updateEvidence}
+                    onTrash={(record) => void trashEvidence(record)}
                   />
                 </Show>
                 <Show when={view() === "assets"}>
@@ -2505,10 +2563,12 @@ function App(): JSX.Element {
                     records={state.trashedStudents}
                     annotations={state.trashedAnnotations}
                     guides={state.trashedGuides}
+                    evidence={state.trashedEvidence}
                     sessions={state.trashedSessions}
                     onRestore={(record) => void restoreStudent(record)}
                     onRestoreAnnotation={(record) => void restoreTrashedAnnotation(record)}
                     onRestoreGuide={(record) => void restoreGuide(record)}
+                    onRestoreEvidence={(record) => void restoreEvidence(record)}
                     onRestoreSession={(record) => void restoreSessionGroup(record)}
                     disabled={state.snapshot.locked || !state.snapshot.canMutate || busy()}
                   />
@@ -2729,6 +2789,7 @@ function App(): JSX.Element {
                   (workspace()?.trashedStudents.length ?? 0) +
                     (workspace()?.trashedAnnotations.length ?? 0) +
                     (workspace()?.trashedGuides.length ?? 0) +
+                    (workspace()?.trashedEvidence.length ?? 0) +
                     (workspace()?.trashedSessions.length ?? 0)
                 }
               >
@@ -2736,6 +2797,7 @@ function App(): JSX.Element {
                   {(workspace()?.trashedStudents.length ?? 0) +
                     (workspace()?.trashedAnnotations.length ?? 0) +
                     (workspace()?.trashedGuides.length ?? 0) +
+                    (workspace()?.trashedEvidence.length ?? 0) +
                     (workspace()?.trashedSessions.length ?? 0)}
                 </span>
               </Show>
@@ -3173,6 +3235,8 @@ function EvidencePage(props: {
   onExtract: (sessionId: string) => void;
   onReview: (record: ArchiveRecord, outcome: "human-verified" | "rejected") => void;
   onLink: (fromId: string, toId: string, relationship: string) => void;
+  onUpdate: (record: ArchiveRecord, input: EvidenceUpdateInput) => Promise<boolean>;
+  onTrash: (record: ArchiveRecord) => void;
 }): JSX.Element {
   const [fromId, setFromId] = createSignal("");
   const [toId, setToId] = createSignal("");
@@ -3314,83 +3378,15 @@ function EvidencePage(props: {
         >
           <section class="evidence-list" aria-label="Session evidence">
             <For each={sessionRecords()}>
-              {(record) => {
-                const state = () => field(record, "verification_state", "needs-review");
-                const fromAnnotation = () => Boolean(field(record, "source_annotation_id"));
-                const sourceLabel = () =>
-                  fromAnnotation()
-                    ? "Tutor observation"
-                    : field(record, "source_segment_ids")
-                      ? "Transcript candidate"
-                      : "Imported evidence";
-                const timestamp = () => field(record, "start_time_us");
-                const formattedTimestamp = () => {
-                  try {
-                    return formatTranscriptTimestampUs(BigInt(timestamp()));
-                  } catch {
-                    return "Timestamp unavailable";
-                  }
-                };
-                return (
-                  <article class={`evidence-card surface-card evidence-${state()}`}>
-                    <div class="evidence-card-rail" aria-hidden="true">
-                      <span />
-                    </div>
-                    <div class="evidence-card-content">
-                      <header class="evidence-card-header">
-                        <div class="evidence-card-labels">
-                          <span class="eyebrow">{sourceLabel()}</span>
-                          <span class={`evidence-state evidence-state-${state()}`}>
-                            {state() === "human-verified"
-                              ? "Verified"
-                              : state() === "rejected"
-                                ? "Rejected"
-                                : "Needs review"}
-                          </span>
-                        </div>
-                        <span class="evidence-type">
-                          {field(record, "type", "learning evidence").replaceAll("-", " ")}
-                        </span>
-                      </header>
-                      <h2>{field(record, "title", "Evidence from this session")}</h2>
-                      <p class="evidence-content">{field(record, "content")}</p>
-                      <div class="evidence-source-meta">
-                        <Show when={timestamp()}>
-                          <span>
-                            <Icon name="clock" /> {formattedTimestamp()}
-                          </span>
-                        </Show>
-                        <Show when={field(record, "detection_confidence")}>
-                          <span>Heuristic confidence {field(record, "detection_confidence")}</span>
-                        </Show>
-                        <Show when={field(record, "source_speaker_label")}>
-                          <span>Speaker: {field(record, "source_speaker_label")}</span>
-                        </Show>
-                      </div>
-                      <Show when={state() === "needs-review"}>
-                        <div class="evidence-review-actions">
-                          <button
-                            class="button button-primary"
-                            type="button"
-                            disabled={props.disabled}
-                            onClick={() => props.onReview(record, "human-verified")}
-                          >
-                            Approve source
-                          </button>
-                          <button
-                            class="button button-quiet"
-                            type="button"
-                            disabled={props.disabled}
-                            onClick={() => props.onReview(record, "rejected")}
-                          >
-                            Reject candidate
-                          </button>
-                        </div>
-                      </Show>
-                    </div>
-                  </article>
-                );
-              }}
+              {(record) => (
+                <EvidenceCard
+                  record={record}
+                  disabled={props.disabled}
+                  onReview={props.onReview}
+                  onUpdate={props.onUpdate}
+                  onTrash={props.onTrash}
+                />
+              )}
             </For>
           </section>
 
@@ -3494,6 +3490,199 @@ function EvidencePage(props: {
         </Show>
       </Show>
     </div>
+  );
+}
+
+function EvidenceCard(props: {
+  record: ArchiveRecord;
+  disabled: boolean;
+  onReview: (record: ArchiveRecord, outcome: "human-verified" | "rejected") => void;
+  onUpdate: (record: ArchiveRecord, input: EvidenceUpdateInput) => Promise<boolean>;
+  onTrash: (record: ArchiveRecord) => void;
+}): JSX.Element {
+  const [editing, setEditing] = createSignal(false);
+  const [title, setTitle] = createSignal("");
+  const [type, setType] = createSignal("");
+  const [priority, setPriority] = createSignal("");
+  const [content, setContent] = createSignal("");
+  const state = () => field(props.record, "verification_state", "needs-review");
+  const sourceLabel = () =>
+    field(props.record, "source_annotation_id")
+      ? "Tutor observation"
+      : field(props.record, "source_segment_ids")
+        ? "Transcript candidate"
+        : "Imported evidence";
+  const beginEditing = (): void => {
+    setTitle(field(props.record, "title", "Evidence from this session"));
+    setType(field(props.record, "type", "learning-evidence"));
+    setPriority(field(props.record, "priority", "normal"));
+    setContent(field(props.record, "content"));
+    setEditing(true);
+  };
+  const save = (event: SubmitEvent): void => {
+    event.preventDefault();
+    void props
+      .onUpdate(props.record, {
+        title: title(),
+        type: type(),
+        priority: priority(),
+        content: content(),
+      })
+      .then((saved) => {
+        if (saved) setEditing(false);
+      });
+  };
+  const timestamp = () => field(props.record, "start_time_us");
+  const formattedTimestamp = () => {
+    try {
+      return formatTranscriptTimestampUs(BigInt(timestamp()));
+    } catch {
+      return "Timestamp unavailable";
+    }
+  };
+
+  return (
+    <article class={`evidence-card surface-card evidence-${state()}`}>
+      <div class="evidence-card-rail" aria-hidden="true">
+        <span />
+      </div>
+      <div class="evidence-card-content">
+        <header class="evidence-card-header">
+          <div class="evidence-card-labels">
+            <span class="eyebrow">{sourceLabel()}</span>
+            <span class={`evidence-state evidence-state-${state()}`}>
+              {state() === "human-verified"
+                ? "Verified"
+                : state() === "rejected"
+                  ? "Rejected"
+                  : "Needs review"}
+            </span>
+          </div>
+          <span class="evidence-type">
+            {field(props.record, "type", "learning evidence").replaceAll("-", " ")}
+          </span>
+        </header>
+        <Show
+          when={editing()}
+          fallback={
+            <>
+              <h2>{field(props.record, "title", "Evidence from this session")}</h2>
+              <p class="evidence-content">{field(props.record, "content")}</p>
+            </>
+          }
+        >
+          <form class="evidence-edit-form" onSubmit={save}>
+            <label>
+              <span>Title</span>
+              <input
+                value={title()}
+                maxLength={512}
+                required
+                disabled={props.disabled}
+                onInput={(event) => setTitle(event.currentTarget.value)}
+              />
+            </label>
+            <div class="evidence-edit-row">
+              <label>
+                <span>Type</span>
+                <input
+                  value={type()}
+                  maxLength={128}
+                  required
+                  disabled={props.disabled}
+                  onInput={(event) => setType(event.currentTarget.value)}
+                />
+              </label>
+              <label>
+                <span>Priority</span>
+                <input
+                  value={priority()}
+                  maxLength={32}
+                  required
+                  disabled={props.disabled}
+                  onInput={(event) => setPriority(event.currentTarget.value)}
+                />
+              </label>
+            </div>
+            <label>
+              <span>Evidence</span>
+              <textarea
+                value={content()}
+                maxLength={16 * 1024 * 1024}
+                rows={5}
+                required
+                disabled={props.disabled}
+                onInput={(event) => setContent(event.currentTarget.value)}
+              />
+            </label>
+            <div class="evidence-review-actions">
+              <button class="button button-primary" type="submit" disabled={props.disabled}>
+                Save changes
+              </button>
+              <button
+                class="button button-quiet"
+                type="button"
+                disabled={props.disabled}
+                onClick={() => setEditing(false)}
+              >
+                Cancel
+              </button>
+            </div>
+          </form>
+        </Show>
+        <div class="evidence-source-meta">
+          <Show when={timestamp()}>
+            <span>
+              <Icon name="clock" /> {formattedTimestamp()}
+            </span>
+          </Show>
+          <Show when={field(props.record, "detection_confidence")}>
+            <span>Heuristic confidence {field(props.record, "detection_confidence")}</span>
+          </Show>
+          <Show when={field(props.record, "source_speaker_label")}>
+            <span>Speaker: {field(props.record, "source_speaker_label")}</span>
+          </Show>
+        </div>
+        <Show when={!editing()}>
+          <div class="evidence-review-actions evidence-card-actions">
+            <button
+              class="button button-outline"
+              type="button"
+              disabled={props.disabled}
+              onClick={beginEditing}
+            >
+              Edit evidence
+            </button>
+            <button
+              class="button button-quiet"
+              type="button"
+              disabled={props.disabled}
+              onClick={() => props.onTrash(props.record)}
+            >
+              Move to Trash
+            </button>
+            <Show when={state() === "needs-review"}>
+              <button
+                class="button button-primary"
+                type="button"
+                disabled={props.disabled}
+                onClick={() => props.onReview(props.record, "human-verified")}
+              >
+                Approve source
+              </button>
+              <button
+                class="button button-quiet"
+                type="button"
+                disabled={props.disabled}
+                onClick={() => props.onReview(props.record, "rejected")}
+              >
+                Reject candidate
+              </button>
+            </Show>
+          </div>
+        </Show>
+      </div>
+    </article>
   );
 }
 
@@ -4406,11 +4595,13 @@ function TrashPage(props: {
   records: ArchiveRecord[];
   annotations: ArchiveRecord[];
   guides: ArchiveRecord[];
+  evidence: ArchiveRecord[];
   sessions: ArchiveRecord[];
   disabled: boolean;
   onRestore: (record: ArchiveRecord) => void;
   onRestoreAnnotation: (record: ArchiveRecord) => void;
   onRestoreGuide: (record: ArchiveRecord) => void;
+  onRestoreEvidence: (record: ArchiveRecord) => void;
   onRestoreSession: (record: ArchiveRecord) => void;
 }): JSX.Element {
   const trashed = () => {
@@ -4418,13 +4609,17 @@ function TrashPage(props: {
       const raw = field(record, "deleted_at_us");
       return /^\d+$/u.test(raw) ? BigInt(raw) : 0n;
     };
-    return [...props.sessions, ...props.records, ...props.annotations, ...props.guides].sort(
-      (left, right) => {
-        const a = removedAt(left);
-        const b = removedAt(right);
-        return a > b ? -1 : a < b ? 1 : left.id.localeCompare(right.id);
-      },
-    );
+    return [
+      ...props.sessions,
+      ...props.records,
+      ...props.annotations,
+      ...props.guides,
+      ...props.evidence,
+    ].sort((left, right) => {
+      const a = removedAt(left);
+      const b = removedAt(right);
+      return a > b ? -1 : a < b ? 1 : left.id.localeCompare(right.id);
+    });
   };
   const total = () => trashed().length;
   return (
@@ -4454,7 +4649,7 @@ function TrashPage(props: {
             <EmptyState
               icon="trash"
               title="Trash is empty"
-              text="Sessions, students, observations, and study guides you move here can be restored at any time."
+              text="Sessions, students, observations, study guides, and evidence you move here can be restored at any time."
               action="Back to students"
               onAction={() => undefined}
               disabled
@@ -4474,7 +4669,9 @@ function TrashPage(props: {
                             ? "annotations"
                             : record.type === RecordType.guide
                               ? "guides"
-                              : "students"
+                              : record.type === RecordType.evidenceNode
+                                ? "evidence"
+                                : "students"
                       }
                     />
                   </span>
@@ -4486,7 +4683,9 @@ function TrashPage(props: {
                           ? "SESSION OBSERVATION"
                           : record.type === RecordType.guide
                             ? "STUDY GUIDE"
-                            : "STUDENT PROFILE"}
+                            : record.type === RecordType.evidenceNode
+                              ? "EVIDENCE ITEM"
+                              : "STUDENT PROFILE"}
                     </span>
                     <h2>
                       {record.type === RecordType.session
@@ -4499,7 +4698,9 @@ function TrashPage(props: {
                             )
                           : record.type === RecordType.guide
                             ? field(record, "title", "Untitled guide")
-                            : field(record, "display_name", "Unnamed student")}
+                            : record.type === RecordType.evidenceNode
+                              ? field(record, "title", "Evidence item")
+                              : field(record, "display_name", "Unnamed student")}
                     </h2>
                     <p>
                       {record.type === RecordType.session
@@ -4510,7 +4711,9 @@ function TrashPage(props: {
                           ? field(record, "content", "Observation")
                           : record.type === RecordType.guide
                             ? `${field(record, "approval_state", "draft")} · ${field(record, "template_id", "general")}`
-                            : field(record, "grade", "Learner")}
+                            : record.type === RecordType.evidenceNode
+                              ? field(record, "content", "Evidence")
+                              : field(record, "grade", "Learner")}
                       {field(record, "deleted_at_us")
                         ? ` · Deleted ${formatTimestamp(field(record, "deleted_at_us"))}`
                         : " · Deletion date unavailable"}
@@ -4533,7 +4736,9 @@ function TrashPage(props: {
                           ? props.onRestoreAnnotation(record)
                           : record.type === RecordType.guide
                             ? props.onRestoreGuide(record)
-                            : props.onRestore(record)
+                            : record.type === RecordType.evidenceNode
+                              ? props.onRestoreEvidence(record)
+                              : props.onRestore(record)
                     }
                   >
                     Restore
