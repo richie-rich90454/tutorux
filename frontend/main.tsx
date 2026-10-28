@@ -25,6 +25,8 @@ import { ArchiveFormatError, RecordType, type ArchiveRecord } from "./archive/fo
 import { DocumentEditor } from "./DocumentEditor";
 import { AnnotationPage } from "./AnnotationPage";
 import { AudioWaveform } from "./AudioWaveform";
+import { ArchiveSettings } from "./ArchiveSettings";
+import { JournalHistory } from "./JournalHistory";
 import { sourceStream, type ArchiveByteSource } from "./archive/source";
 import { AiPage } from "./AiPage";
 import { createAiPackageRecord, type AiPackageSummary } from "./ai/package";
@@ -97,8 +99,6 @@ import {
 } from "./domain/evidence";
 import { createEvidenceGraphLayout, type EvidenceGraphLayout } from "./domain/evidence-graph";
 import {
-  ANNOTATION_PRIORITIES,
-  ANNOTATION_TYPES,
   duplicateAnnotationRecord,
   makeAnnotationRecord,
   removeAnnotationRecord,
@@ -2862,6 +2862,7 @@ function App(): JSX.Element {
                     kind="journal"
                     records={filteredRecords()}
                     state={state}
+                    onWriteRecords={(records, message) => addRecords(records, message)}
                     onAdd={() => openDialog("journal")}
                     onEdit={(record) => editRecord("journal", record)}
                     onSaveOrganizer={(record, message) => addRecords([record], message)}
@@ -2965,6 +2966,7 @@ function App(): JSX.Element {
                     onChangePassphrase={() => openDialog("passphrase")}
                     onSaveArchive={() => void saveCurrentArchive()}
                     onSaveMarkerKeys={saveMarkerKeys}
+                    onSaveSettings={(records, message) => addRecords(records, message)}
                   />
                 </Show>
               </>
@@ -4811,6 +4813,7 @@ function RecordPage(props: {
   onSaveOrganizer?: (record: ArchiveRecord, message: string) => Promise<boolean>;
   onArchiveOrganizer?: (record: ArchiveRecord) => void;
   onRestoreOrganizer?: (record: ArchiveRecord) => void;
+  onWriteRecords?: (records: ArchiveRecord[], message: string) => Promise<boolean>;
 }): JSX.Element {
   const [collectionFilter, setCollectionFilter] = createSignal("");
   const [tagFilter, setTagFilter] = createSignal("");
@@ -5097,6 +5100,9 @@ function RecordPage(props: {
                   collections={props.state.collections}
                   tags={props.state.tags}
                   guideTemplates={props.state.guideTemplates}
+                  snapshot={props.state.snapshot}
+                  notesDocuments={props.state.notesDocuments}
+                  onWriteRecords={props.onWriteRecords}
                   disabled={!props.state.snapshot.canMutate}
                   busy={busy()}
                   onProgressReview={props.onProgressReview}
@@ -5127,6 +5133,9 @@ function RecordCard(props: {
   collections: ArchiveRecord[];
   tags: ArchiveRecord[];
   guideTemplates: ArchiveRecord[];
+  snapshot: ArchiveSnapshot;
+  notesDocuments: ArchiveRecord[];
+  onWriteRecords: ((records: ArchiveRecord[], message: string) => Promise<boolean>) | undefined;
   disabled: boolean;
   busy: boolean;
   onProgressReview:
@@ -5312,6 +5321,20 @@ function RecordCard(props: {
                 )}
               </For>
             </div>
+          </Show>
+          <Show when={props.onWriteRecords}>
+            {(writeRecords) => (
+              <JournalHistory
+                entry={record}
+                notesDocument={props.notesDocuments.find(
+                  (document) =>
+                    document.id.toLowerCase() === field(record, "notes_document_id").toLowerCase(),
+                )}
+                snapshot={props.snapshot}
+                disabled={props.disabled || props.busy}
+                onWriteRecords={writeRecords()}
+              />
+            )}
           </Show>
         </div>
         <Show when={props.onEdit}>
@@ -7306,6 +7329,7 @@ function SettingsPage(props: {
   onChangePassphrase: () => void;
   onSaveArchive: () => void;
   onSaveMarkerKeys: (keys: string[]) => Promise<boolean>;
+  onSaveSettings: (records: ArchiveRecord[], message: string) => Promise<boolean>;
 }): JSX.Element {
   const [keys, setKeys] = createSignal(markerKeys(props.state));
   createEffect(() => {
@@ -7472,6 +7496,11 @@ function SettingsPage(props: {
           </div>
         </Show>
       </section>
+      <ArchiveSettings
+        records={props.state.settings}
+        disabled={props.busy || props.state.snapshot.locked || !props.state.snapshot.canMutate}
+        onSave={props.onSaveSettings}
+      />
       <section class="settings-note">
         <Icon name="book" />
         <div>
