@@ -38,6 +38,7 @@ import {
   createGuideDraft,
   createGuideDraftFromSections,
   guideDraftFromRecord,
+  generateGuideDraftFromSession,
   GUIDE_BLOCK_KINDS,
   makeGuideRecord,
   renderGuideMarkdown,
@@ -104,6 +105,7 @@ import {
   type TranscriptExportFormat,
 } from "../frontend/domain/transcript";
 import {
+  guideTemplateFromRecord,
   makeCustomGuideTemplateRecord,
   parseGuideTemplateImport,
   type GuideTemplateInput,
@@ -195,7 +197,8 @@ Usage:
   tutorux --archive <file.tux> evidence link --from <id> --to <id> --relationship <type>
   tutorux --archive <file.tux> evidence unlink <edge-id>
   tutorux --archive <file.tux> evidence edges --session <uuid>
-  tutorux --archive <file.tux> guide create --session <uuid> [--template general|english|mathematics|science|programming|language-learning]
+  tutorux --archive <file.tux> guide create --session <uuid> [--template <id>] [--title <title>]
+  tutorux --archive <file.tux> guide generate --session <uuid> [--template <id|auto>] [--title <title>] [--json]
   tutorux --archive <file.tux> guide list [--session <uuid>] [--include-deleted] [--json]
   tutorux --archive <file.tux> guide show|approve|trash|restore|history <id>
   tutorux --archive <file.tux> guide update <id> [--title <title>]
@@ -1434,6 +1437,43 @@ async function runGuideCommand(
       output,
       toPlainRecord(saved),
       `Created study guide ${field(saved, "title")} (${saved.id}).`,
+      json,
+    );
+    return 0;
+  }
+
+  if (action === "generate") {
+    const sessionId = requiredOption(args, "session").toLowerCase();
+    const snapshot = await openForCommand(path);
+    let record: ArchiveRecord;
+    try {
+      const scope = await readGuideScope(snapshot, sessionId);
+      const students = scope.records.filter((item) => item.type === RecordType.student);
+      const customTemplates = scope.records
+        .filter(
+          (item) =>
+            item.type === RecordType.settings &&
+            field(item, "record_role") === "guide-template" &&
+            !field(item, "builtin_template_id"),
+        )
+        .map(guideTemplateFromRecord);
+      const draft = generateGuideDraftFromSession(
+        scope.session,
+        args.options.get("template") ?? "auto",
+        scope.records,
+        students,
+        [...GUIDE_TEMPLATES, ...customTemplates],
+      );
+      if (args.options.has("title")) draft.title = args.options.get("title")!;
+      record = makeGuideRecord(draft, scope);
+    } finally {
+      await closeSnapshot(snapshot);
+    }
+    const saved = (await mutateArchive(path, [record]))[0] ?? record;
+    emit(
+      output,
+      toPlainRecord(saved),
+      `Generated study guide ${field(saved, "title")} (${saved.id}).`,
       json,
     );
     return 0;
