@@ -27,6 +27,8 @@ import { AnnotationPage } from "./AnnotationPage";
 import { AudioWaveform } from "./AudioWaveform";
 import { ArchiveSettings } from "./ArchiveSettings";
 import { JournalHistory } from "./JournalHistory";
+import { JournalRelations } from "./JournalRelations";
+import { StudentVersionHistory } from "./StudentVersionHistory";
 import { sourceStream, type ArchiveByteSource } from "./archive/source";
 import { AiPage } from "./AiPage";
 import { createAiPackageRecord, type AiPackageSummary } from "./ai/package";
@@ -2742,6 +2744,7 @@ function App(): JSX.Element {
                     kind="students"
                     records={filteredRecords()}
                     state={state}
+                    onWriteRecords={(records, message) => addRecords(records, message)}
                     onAdd={() => openDialog("student")}
                     onEdit={editStudent}
                     onTrash={(record) => setPendingDelete(record)}
@@ -5101,6 +5104,7 @@ function RecordPage(props: {
                   tags={props.state.tags}
                   guideTemplates={props.state.guideTemplates}
                   snapshot={props.state.snapshot}
+                  workspace={props.state}
                   notesDocuments={props.state.notesDocuments}
                   onWriteRecords={props.onWriteRecords}
                   disabled={!props.state.snapshot.canMutate}
@@ -5134,6 +5138,7 @@ function RecordCard(props: {
   tags: ArchiveRecord[];
   guideTemplates: ArchiveRecord[];
   snapshot: ArchiveSnapshot;
+  workspace: Workspace;
   notesDocuments: ArchiveRecord[];
   onWriteRecords: ((records: ArchiveRecord[], message: string) => Promise<boolean>) | undefined;
   disabled: boolean;
@@ -5234,6 +5239,16 @@ function RecordCard(props: {
               onSave={props.onProgressReview!}
             />
           </Show>
+          <Show when={props.onWriteRecords}>
+            {(save) => (
+              <StudentVersionHistory
+                student={record}
+                snapshot={props.snapshot}
+                disabled={props.disabled || props.busy}
+                onSave={save()}
+              />
+            )}
+          </Show>
         </div>
         <Show when={props.onEdit || props.onTrash}>
           <div class="record-actions">
@@ -5331,6 +5346,20 @@ function RecordCard(props: {
                     document.id.toLowerCase() === field(record, "notes_document_id").toLowerCase(),
                 )}
                 snapshot={props.snapshot}
+                disabled={props.disabled || props.busy}
+                onWriteRecords={writeRecords()}
+              />
+            )}
+          </Show>
+          <Show when={props.onWriteRecords}>
+            {(writeRecords) => (
+              <JournalRelations
+                entry={record}
+                entries={props.workspace.entries}
+                sessions={[...props.workspace.sessions, ...props.workspace.archivedSessions]}
+                guides={props.workspace.guides}
+                assets={props.workspace.assets}
+                notesDocuments={props.workspace.notesDocuments}
                 disabled={props.disabled || props.busy}
                 onWriteRecords={writeRecords()}
               />
