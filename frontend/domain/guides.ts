@@ -234,6 +234,7 @@ export function generateGuideDraftFromSession(
   records: readonly ArchiveRecord[],
   students: readonly ArchiveRecord[],
   templates: readonly GuideTemplate[] = GUIDE_TEMPLATES,
+  includeEntryEvidence = false,
 ): GuideDraft {
   if (session.type !== RecordType.session || field(session, "_deleted") === "true") {
     throw new Error("Choose an active session before generating a study guide.");
@@ -263,10 +264,19 @@ export function generateGuideDraftFromSession(
 
   const draft = createGuideDraftFromSections(session, template.id, template.sections);
   const sessionId = session.id.toLocaleLowerCase();
+  const entryId = field(session, "entry_id").toLocaleLowerCase();
   const activeRecords = records.filter((record) => field(record, "_deleted") !== "true");
-  const sessionRecords = activeRecords.filter(
-    (record) => field(record, "session_id").toLocaleLowerCase() === sessionId,
-  );
+  const sessionRecords = activeRecords.filter((record) => {
+    const sourceSessionId = field(record, "session_id").toLocaleLowerCase();
+    if (sourceSessionId === sessionId) return true;
+    return (
+      includeEntryEvidence &&
+      Boolean(entryId) &&
+      record.type === RecordType.settings &&
+      field(record, "record_role") === "journal-notes" &&
+      field(record, "entry_id").toLocaleLowerCase() === entryId
+    );
+  });
   const overview = getOrAddGuideSection(draft, "Session overview");
   const sessionTitle = field(session, "title", "Tutoring Session");
   const subject = field(session, "subject");
@@ -372,8 +382,28 @@ export function generateGuideDraftFromSession(
     (record) =>
       record.type === RecordType.settings && field(record, "record_role") === "journal-notes",
   )) {
-    const decoded = notesEditState(notes);
+    const notesSessionId = field(notes, "session_id").toLocaleLowerCase();
+    const notesEntryId = field(notes, "entry_id").toLocaleLowerCase();
+    if (
+      !isGuideNotesSource(notes, session, activeRecords) ||
+      (notesSessionId !== sessionId && !includeEntryEvidence)
+    ) {
+      continue;
+    }
+    const decoded = notesEditState(notes, {
+      entryId: entryId || notesEntryId,
+      sessionId: notesSessionId,
+    });
     if (!decoded.editable) continue;
+    const noteSession = activeRecords.find(
+      (record) =>
+        record.type === RecordType.session && record.id.toLocaleLowerCase() === notesSessionId,
+    );
+    const heading = noteSession
+      ? noteSession.id.toLocaleLowerCase() === sessionId
+        ? "Session notes"
+        : `Session notes · ${field(noteSession, "title", "Related session")}`
+      : "Journal reflection";
     const blocks = decoded.blocks
       .filter((block) => block.text.length > 0)
       .map((block) => ({
@@ -383,7 +413,7 @@ export function generateGuideDraftFromSession(
         stale: false,
         origin: "session-evidence" as const,
       }));
-    if (blocks.length) draft.sections.push({ id: newUuid(), heading: "Session notes", blocks });
+    if (blocks.length) draft.sections.push({ id: newUuid(), heading, blocks });
   }
 
   if (draft.sections.length === 1) {
@@ -1081,6 +1111,54 @@ export function field(record: ArchiveRecord, key: string, fallback = ""): string
   return record.fields.get(key) ?? fallback;
 }
 
+export function isGuideNotesSource(
+  record: ArchiveRecord,
+  session: ArchiveRecord,
+  records: readonly ArchiveRecord[],
+): boolean {
+  if (
+    record.type !== RecordType.settings ||
+    field(record, "record_role") !== "journal-notes" ||
+    field(record, "_deleted") === "true"
+  ) {
+    return false;
+  }
+  const noteId = record.id.toLowerCase();
+  const sessionId = session.id.toLowerCase();
+  const notesSessionId = field(record, "session_id").toLowerCase();
+  const entryId = field(session, "entry_id").toLowerCase();
+  const notesEntryId = field(record, "entry_id").toLowerCase();
+
+  if (
+    notesSessionId === sessionId &&
+    field(session, "notes_document_id").toLowerCase() === noteId &&
+    notesEntryId === entryId
+  ) {
+    return true;
+  }
+  if (!entryId || notesEntryId !== entryId) return false;
+
+  if (!notesSessionId) {
+    return records.some(
+      (candidate) =>
+        candidate.type === RecordType.settings &&
+        candidate.id.toLowerCase() === entryId &&
+        field(candidate, "record_role") === "journal-entry" &&
+        field(candidate, "_deleted") !== "true" &&
+        field(candidate, "notes_document_id").toLowerCase() === noteId,
+    );
+  }
+
+  return records.some(
+    (candidate) =>
+      candidate.type === RecordType.session &&
+      candidate.id.toLowerCase() === notesSessionId &&
+      field(candidate, "_deleted") !== "true" &&
+      field(candidate, "entry_id").toLowerCase() === entryId &&
+      field(candidate, "notes_document_id").toLowerCase() === noteId,
+  );
+}
+
 function parseSourceIds(raw: string, text: string, kind: GuideBlockKind): string[] {
   const ids = raw
     .split(/[\s,;]+/u)
@@ -1118,8 +1196,6 @@ function parseSourceIds(raw: string, text: string, kind: GuideBlockKind): string
 function isSourceInScope(sourceId: string, scope: GuideSourceScope): boolean {
   const sessionId = scope.session.id.toLowerCase();
   const studentId = field(scope.session, "student_id").toLowerCase();
-  const entryId = field(scope.session, "entry_id").toLowerCase();
-  const notesId = field(scope.session, "notes_document_id").toLowerCase();
   if (sourceId === sessionId) return true;
   const record = scope.records.find((item) => item.id.toLowerCase() === sourceId);
   if (!record || field(record, "_deleted") === "true") return false;
@@ -1127,11 +1203,8 @@ function isSourceInScope(sourceId: string, scope: GuideSourceScope): boolean {
   if (record.type === RecordType.student) return record.id.toLowerCase() === studentId;
   if (record.type === RecordType.settings) {
     return (
-      (field(record, "record_role") === "journal-notes" &&
-        (record.id.toLowerCase() === notesId ||
-          field(record, "session_id").toLowerCase() === sessionId ||
-          (Boolean(entryId) && field(record, "entry_id").toLowerCase() === entryId))) ||
-      false
+      field(record, "record_role") === "journal-notes" &&
+      isGuideNotesSource(record, scope.session, scope.records)
     );
   }
   if (record.type === RecordType.assetMetadata) {
