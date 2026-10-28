@@ -63,6 +63,7 @@ import {
   approveGuideRecord,
   GUIDE_TEMPLATES,
   guideDraftFromRecord,
+  guideRecordsWithEntryLinks,
   makeGuideRecord,
   renderGuideHtml,
   renderGuideMarkdown,
@@ -1435,17 +1436,25 @@ function App(): JSX.Element {
       return false;
     }
     try {
-      const session = [...state.sessions, ...state.archivedSessions].find(
-        (item) => item.id === draft.sessionId,
-      );
-      if (!session) throw new Error("Choose an active session for this study guide.");
+      const session = draft.sessionId
+        ? [...state.sessions, ...state.archivedSessions].find((item) => item.id === draft.sessionId)
+        : undefined;
+      const entry = !draft.sessionId
+        ? state.entries.find((item) => item.id === draft.entryId)
+        : undefined;
+      if (!session && !entry)
+        throw new Error("Restore the source journal entry or session before saving this guide.");
       const record = makeGuideRecord(
         draft,
-        { session, records: guideSourceRecords(state) },
+        {
+          ...(session ? { session } : {}),
+          ...(entry ? { entry } : {}),
+          records: guideSourceRecords(state),
+        },
         current,
       );
       return await addRecords(
-        [record],
+        guideRecordsWithEntryLinks(record, current, state.entries),
         current ? "Study guide updated." : "Study guide draft added to the archive.",
       );
     } catch (error) {
@@ -1459,30 +1468,57 @@ function App(): JSX.Element {
     if (!state) return;
     try {
       const draft = guideDraftFromRecord(record);
-      const session = [...state.sessions, ...state.archivedSessions].find(
-        (item) => item.id === draft.sessionId,
-      );
-      if (!session)
-        throw new Error(
-          "The source session is unavailable. Restore it before approving this guide.",
-        );
+      const session = draft.sessionId
+        ? [...state.sessions, ...state.archivedSessions].find((item) => item.id === draft.sessionId)
+        : undefined;
+      const entry = !draft.sessionId
+        ? state.entries.find((item) => item.id === draft.entryId)
+        : undefined;
+      if (!session && !entry) {
+        throw new Error("Restore the source journal entry or session before approving this guide.");
+      }
       const checked = makeGuideRecord(
         draft,
-        { session, records: guideSourceRecords(state) },
+        {
+          ...(session ? { session } : {}),
+          ...(entry ? { entry } : {}),
+          records: guideSourceRecords(state),
+        },
         record,
       );
-      await addRecords([approveGuideRecord(checked)], "Study guide approved.");
+      await addRecords(
+        guideRecordsWithEntryLinks(approveGuideRecord(checked), record, state.entries),
+        "Study guide approved.",
+      );
     } catch (error) {
       announce(errorMessage(error), "error");
     }
   }
 
   async function trashGuide(record: ArchiveRecord): Promise<void> {
-    await addRecords([moveRecordToTrash(record)], "Study guide moved to Trash.");
+    const state = workspace();
+    if (!state) return;
+    try {
+      await addRecords(
+        guideRecordsWithEntryLinks(moveRecordToTrash(record), record, state.entries),
+        "Study guide moved to Trash.",
+      );
+    } catch (error) {
+      announce(errorMessage(error), "error");
+    }
   }
 
   async function restoreGuide(record: ArchiveRecord): Promise<void> {
-    await addRecords([restoreRecordFromTrash(record)], "Study guide restored from Trash.");
+    const state = workspace();
+    if (!state) return;
+    try {
+      await addRecords(
+        guideRecordsWithEntryLinks(restoreRecordFromTrash(record), record, state.entries),
+        "Study guide restored from Trash.",
+      );
+    } catch (error) {
+      announce(errorMessage(error), "error");
+    }
   }
 
   async function saveGuideTemplate(
@@ -2628,6 +2664,7 @@ function App(): JSX.Element {
                   <GuidesPage
                     records={filteredRecords()}
                     sessions={[...state.sessions, ...state.archivedSessions]}
+                    entries={state.entries}
                     students={state.students}
                     sourceRecords={guideSourceRecords(state)}
                     customTemplates={state.guideTemplates}
