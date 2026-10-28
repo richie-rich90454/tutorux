@@ -291,7 +291,7 @@ export class ArchiveSnapshot {
 
   async getManifest(): Promise<ArchiveManifest> {
     const record = await this.getRecord(RecordType.settings, this.header.id);
-    if (record?.fields.get("record_role") !== "archive-manifest") {
+    if (!isSupportedManifest(record)) {
       throw new ArchiveFormatError(
         "archive_manifest_missing",
         "Archive manifest is missing or invalid.",
@@ -1394,7 +1394,7 @@ async function appendRecordsCore(
   );
   const currentManifest =
     explicitManifest ?? (await snapshot.getRecord(RecordType.settings, snapshot.header.id));
-  if (!currentManifest || currentManifest.fields.get("record_role") !== "archive-manifest") {
+  if (!isSupportedManifest(currentManifest)) {
     throw new ArchiveFormatError(
       "archive_manifest_missing",
       "Archive manifest is missing or invalid.",
@@ -1979,6 +1979,15 @@ function markGuideBlocksStale(record: ArchiveRecord, sourceId: string): ArchiveR
 
 function validArchiveUuid(value: string): boolean {
   return /^[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}$/u.test(value);
+}
+
+function isSupportedManifest(record: ArchiveRecord | null): record is ArchiveRecord {
+  if (record?.fields.get("record_role") === "archive-manifest") return true;
+  return (
+    record?.fields.get("record_role") === "tutorux-session-package" &&
+    record.fields.get("package_version") === "1" &&
+    validArchiveUuid(record.fields.get("source_session_id") ?? "")
+  );
 }
 
 function secondaryIndexKeys(record: ArchiveRecord): string[] {
