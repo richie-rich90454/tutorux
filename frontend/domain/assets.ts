@@ -1,5 +1,6 @@
 import { ArchiveFormatError, RecordType, newUuid, type ArchiveRecord } from "../archive/format";
 import type { ArchiveSnapshot } from "../archive/archive";
+import { extractDocumentText } from "./document-text";
 
 export const MAX_ASSET_BYTES = 256 * 1024 * 1024;
 const ASSET_CHUNK_BYTES = 8 * 1024 * 1024;
@@ -117,9 +118,11 @@ export async function makeAssetImport(
     ["created_at_us", (BigInt(Date.now()) * 1000n).toString()],
   ]);
   if (sessionId) fields.set("session_id", sessionId.toLowerCase());
-  const extraction = extractDocumentText(filename, mimeType, bytes);
-  if (extraction.status) fields.set("text_extraction_status", extraction.status);
-  if (extraction.text) fields.set("extracted_text", extraction.text);
+  const extraction = await extractDocumentText(filename, mimeType, bytes);
+  if (extraction) {
+    fields.set("text_extraction_status", extraction.status);
+    if (extraction.text) fields.set("extracted_text", extraction.text);
+  }
   const metadata: ArchiveRecord = {
     type: RecordType.assetMetadata,
     id: newUuid(),
@@ -267,21 +270,6 @@ async function sha256(bytes: Uint8Array): Promise<Uint8Array> {
       ? bytes.buffer
       : bytes.slice().buffer;
   return new Uint8Array(await crypto.subtle.digest("SHA-256", input));
-}
-
-function extractDocumentText(
-  filename: string,
-  mimeType: string,
-  bytes: Uint8Array,
-): { status: string; text: string } {
-  const extension = filename.split(".").at(-1)?.toLocaleLowerCase() ?? "";
-  const isSupportedDocument = mimeType === "application/pdf" || extension === "docx";
-  if (!isSupportedDocument) return { status: "", text: "" };
-  if (bytes.byteLength > 16 * 1024 * 1024) return { status: "size-limit", text: "" };
-  if (mimeType === "application/pdf" || extension === "pdf") {
-    return { status: "extractor-unavailable", text: "" };
-  }
-  return { status: "extractor-unavailable", text: "" };
 }
 
 function detectMimeType(filename: string, bytes: Uint8Array): string {
