@@ -108,14 +108,14 @@ export const platform: ArchivePlatform = {
     mimeType: string,
   ): Promise<string | null> {
     const extension = suggestedName.split(".").at(-1) ?? "txt";
-    const isJson = mimeType === "application/json";
+    const isJson = mimeType.startsWith("application/json");
     const isHtml = mimeType.startsWith("text/html");
     const title = isJson
-      ? "Export Tutorux template"
+      ? "Export JSON file"
       : isHtml
         ? "Export study guide as HTML"
         : "Export text file";
-    const filterName = isJson ? "Tutorux template" : isHtml ? "HTML document" : "Text file";
+    const filterName = isJson ? "JSON file" : isHtml ? "HTML document" : "Text file";
     const path = await save({
       title,
       defaultPath: suggestedName,
@@ -132,11 +132,22 @@ export const platform: ArchivePlatform = {
     mimeType: string,
   ): Promise<string | null> {
     const isWav = mimeType === "audio/wav";
+    const isDocx =
+      mimeType === "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
     const extension = suggestedName.split(".").at(-1) ?? "bin";
     const path = await save({
-      title: isWav ? "Export audio track" : "Export material",
+      title: isWav
+        ? "Export audio track"
+        : isDocx
+          ? "Export study guide as Word"
+          : "Export material",
       defaultPath: suggestedName,
-      filters: [{ name: isWav ? "WAV audio" : "Material", extensions: [extension] }],
+      filters: [
+        {
+          name: isWav ? "WAV audio" : isDocx ? "Word document" : "Material",
+          extensions: [extension],
+        },
+      ],
     });
     if (!path) return null;
     const { token, temporaryPath } = await invoke<{ token: string; temporaryPath: string }>(
