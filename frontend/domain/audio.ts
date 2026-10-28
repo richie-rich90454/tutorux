@@ -69,32 +69,35 @@ export function listSessionAudioTracks(
   const metadataById = new Map(
     assetMetadata.map((record) => [record.id.toLowerCase(), record] as const),
   );
-  return [...trackIds].map((id, index) => {
-    const metadata = metadataById.get(id);
-    const source = metadata?.fields.get("source") || session.fields.get("recording_source") || "";
-    return {
-      sessionId,
-      id,
-      label: metadata?.fields.get("label") || (source ? sourceLabel(source) : `Track ${index + 1}`),
-      source,
-      state: metadata?.fields.get("state") || session.fields.get("recording_state") || "stored",
-      sampleFormat:
-        metadata?.fields.get("sample_format") ||
-        session.fields.get("recording_sample_format") ||
-        session.fields.get("audio_import_sample_format") ||
-        "",
-      sampleRateHz: safeNumber(
-        metadata?.fields.get("sample_rate_hz") ||
-          session.fields.get("recording_sample_rate_hz") ||
-          session.fields.get("audio_import_sample_rate_hz"),
-      ),
-      channelCount: safeNumber(
-        metadata?.fields.get("channel_count") ||
-          session.fields.get("recording_channel_count") ||
-          session.fields.get("audio_import_channel_count"),
-      ),
-    };
-  });
+  return [...trackIds]
+    .filter((id) => metadataById.get(id)?.fields.get("_deleted") !== "true")
+    .map((id, index) => {
+      const metadata = metadataById.get(id);
+      const source = metadata?.fields.get("source") || session.fields.get("recording_source") || "";
+      return {
+        sessionId,
+        id,
+        label:
+          metadata?.fields.get("label") || (source ? sourceLabel(source) : `Track ${index + 1}`),
+        source,
+        state: metadata?.fields.get("state") || session.fields.get("recording_state") || "stored",
+        sampleFormat:
+          metadata?.fields.get("sample_format") ||
+          session.fields.get("recording_sample_format") ||
+          session.fields.get("audio_import_sample_format") ||
+          "",
+        sampleRateHz: safeNumber(
+          metadata?.fields.get("sample_rate_hz") ||
+            session.fields.get("recording_sample_rate_hz") ||
+            session.fields.get("audio_import_sample_rate_hz"),
+        ),
+        channelCount: safeNumber(
+          metadata?.fields.get("channel_count") ||
+            session.fields.get("recording_channel_count") ||
+            session.fields.get("audio_import_channel_count"),
+        ),
+      };
+    });
 }
 
 /** Build a bounded WAV preview from one archive track and timeline range. */
