@@ -37,7 +37,9 @@ import {
   approveGuideRecord,
   createGuideDraft,
   createGuideDraftFromSections,
+  generateGuideDraftFromEntry,
   guideDraftFromRecord,
+  guideRecordsWithEntryLinks,
   generateGuideDraftFromSession,
   GUIDE_BLOCK_KINDS,
   makeGuideRecord,
@@ -198,9 +200,9 @@ Usage:
   tutorux --archive <file.tux> evidence unlink <edge-id>
   tutorux --archive <file.tux> evidence edges --session <uuid>
   tutorux --archive <file.tux> guide create --session <uuid> [--template <id>] [--title <title>]
-  tutorux --archive <file.tux> guide generate --session <uuid> [--template <id|auto>] [--title <title>] [--include-entry-evidence] [--json]
+  tutorux --archive <file.tux> guide generate (--session <uuid>|--entry-id <uuid>) [--template <id|auto>] [--title <title>] [--include-entry-evidence] [--json]
   tutorux --archive <file.tux> guide regenerate <id> [--template <id|auto>] [--title <title>] [--include-entry-evidence|--session-only] [--json]
-  tutorux --archive <file.tux> guide list [--session <uuid>] [--include-deleted] [--json]
+  tutorux --archive <file.tux> guide list [--session <uuid>] [--entry-id <uuid>] [--include-deleted] [--json]
   tutorux --archive <file.tux> guide show|approve|trash|restore|history <id>
   tutorux --archive <file.tux> guide update <id> [--title <title>]
   tutorux --archive <file.tux> guide add-section <id> --heading <heading> [--text <text>]
@@ -1385,6 +1387,20 @@ async function runGuideCommand(
         records = records.filter(
           (record) => field(record, "session_id").toLowerCase() === sessionId,
         );
+      const entryId = args.options.get("entry-id")?.toLowerCase();
+      if (entryId) {
+        const sessions = await snapshot.listRecords(RecordType.session);
+        const sessionIds = new Set(
+          sessions
+            .filter((session) => field(session, "entry_id").toLowerCase() === entryId)
+            .map((session) => session.id.toLowerCase()),
+        );
+        records = records.filter(
+          (record) =>
+            field(record, "entry_id").toLowerCase() === entryId ||
+            sessionIds.has(field(record, "session_id").toLowerCase()),
+        );
+      }
       const rows = records.map(toPlainRecord);
       emit(
         output,
@@ -1404,6 +1420,7 @@ async function runGuideCommand(
     const sessionId = requiredOption(args, "session").toLowerCase();
     const snapshot = await openForCommand(path);
     let record: ArchiveRecord;
+    let changes: ArchiveRecord[];
     try {
       const scope = await readGuideScope(snapshot, sessionId);
       const requestedTemplate = args.options.get("template");
@@ -1430,10 +1447,11 @@ async function runGuideCommand(
       }
       if (args.options.has("title")) draft.title = args.options.get("title")!;
       record = makeGuideRecord(draft, scope);
+      changes = guideRecordsWithEntryLinks(record, null, scope.records);
     } finally {
       await closeSnapshot(snapshot);
     }
-    const saved = (await mutateArchive(path, [record]))[0] ?? record;
+    const saved = (await mutateArchive(path, changes))[0] ?? record;
     emit(
       output,
       toPlainRecord(saved),
@@ -1444,11 +1462,18 @@ async function runGuideCommand(
   }
 
   if (action === "generate") {
-    const sessionId = requiredOption(args, "session").toLowerCase();
+    const sessionId = args.options.get("session")?.toLowerCase();
+    const entryId = args.options.get("entry-id")?.toLowerCase();
+    if (Boolean(sessionId) === Boolean(entryId)) {
+      throw new CliError("Provide exactly one of --session or --entry-id.");
+    }
     const snapshot = await openForCommand(path);
     let record: ArchiveRecord;
+    let changes: ArchiveRecord[];
     try {
-      const scope = await readGuideScope(snapshot, sessionId);
+      const scope = sessionId
+        ? await readGuideScope(snapshot, sessionId)
+        : await readGuideEntryScope(snapshot, entryId!);
       const students = scope.records.filter((item) => item.type === RecordType.student);
       const customTemplates = scope.records
         .filter(
@@ -1458,20 +1483,30 @@ async function runGuideCommand(
             !field(item, "builtin_template_id"),
         )
         .map(guideTemplateFromRecord);
-      const draft = generateGuideDraftFromSession(
-        scope.session,
-        args.options.get("template") ?? "auto",
-        scope.records,
-        students,
-        [...GUIDE_TEMPLATES, ...customTemplates],
-        args.flags.has("include-entry-evidence"),
-      );
+      const templates = [...GUIDE_TEMPLATES, ...customTemplates];
+      const draft = scope.session
+        ? generateGuideDraftFromSession(
+            scope.session,
+            args.options.get("template") ?? "auto",
+            scope.records,
+            students,
+            templates,
+            args.flags.has("include-entry-evidence"),
+          )
+        : generateGuideDraftFromEntry(
+            scope.entry!,
+            args.options.get("template") ?? "auto",
+            scope.records,
+            students,
+            templates,
+          );
       if (args.options.has("title")) draft.title = args.options.get("title")!;
       record = makeGuideRecord(draft, scope);
+      changes = guideRecordsWithEntryLinks(record, null, scope.records);
     } finally {
       await closeSnapshot(snapshot);
     }
-    const saved = (await mutateArchive(path, [record]))[0] ?? record;
+    const saved = (await mutateArchive(path, changes))[0] ?? record;
     emit(
       output,
       toPlainRecord(saved),
@@ -1532,6 +1567,7 @@ async function runGuideCommand(
   if (action === "trash" || action === "delete" || action === "restore") {
     const snapshot = await openForCommand(path);
     let record: ArchiveRecord | null;
+    let entries: ArchiveRecord[];
     try {
       record = await snapshot.getRecord(RecordType.guide, id);
       if (!record || (action !== "restore" && field(record, "_deleted") === "true")) {
@@ -1540,12 +1576,13 @@ async function runGuideCommand(
       if (action === "restore" && field(record, "_deleted") !== "true") {
         throw new CliError(`Study guide ${id} is not in Trash.`);
       }
+      entries = await snapshot.listRecords(RecordType.settings);
     } finally {
       await closeSnapshot(snapshot);
     }
     const changed =
       action === "restore" ? restoreRecordFromTrash(record) : moveGuideToTrash(record);
-    await mutateArchive(path, [changed]);
+    await mutateArchive(path, guideRecordsWithEntryLinks(changed, record, entries));
     emit(
       output,
       { id: changed.id, deleted: action !== "restore" },
@@ -1588,25 +1625,39 @@ async function runGuideCommand(
     const includeEntryEvidence =
       args.flags.has("include-entry-evidence") ||
       (!args.flags.has("session-only") && alreadyIncludesEntryNotes);
-    const regenerated = generateGuideDraftFromSession(
-      scope.session,
-      args.options.get("template") ?? draft.templateId,
-      scope.records,
-      students,
-      [...GUIDE_TEMPLATES, ...customTemplates],
-      includeEntryEvidence,
-    );
+    const templates = [...GUIDE_TEMPLATES, ...customTemplates];
+    const regenerated = scope.session
+      ? generateGuideDraftFromSession(
+          scope.session,
+          args.options.get("template") ?? draft.templateId,
+          scope.records,
+          students,
+          templates,
+          includeEntryEvidence,
+        )
+      : generateGuideDraftFromEntry(
+          scope.entry!,
+          args.options.get("template") ?? draft.templateId,
+          scope.records,
+          students,
+          templates,
+        );
     if (args.options.has("title")) regenerated.title = args.options.get("title")!;
     else regenerated.title = draft.title;
     const updated = makeGuideRecord(regenerated, scope, current);
-    const saved = (await mutateArchive(path, [updated]))[0] ?? updated;
+    const saved =
+      (await mutateArchive(path, guideRecordsWithEntryLinks(updated, current, scope.records)))[0] ??
+      updated;
     emit(output, toPlainRecord(saved), `Regenerated study guide ${saved.id}.`, json);
     return 0;
   }
   if (action === "approve") {
     const checked = makeGuideRecord(draft, scope, current);
     const approved = approveGuideRecord(checked);
-    const saved = (await mutateArchive(path, [approved]))[0] ?? approved;
+    const saved =
+      (
+        await mutateArchive(path, guideRecordsWithEntryLinks(approved, current, scope.records))
+      )[0] ?? approved;
     emit(output, toPlainRecord(saved), `Approved study guide ${saved.id}.`, json);
     return 0;
   }
@@ -1614,7 +1665,9 @@ async function runGuideCommand(
   if (action === "duplicate") {
     const copy = { ...draft, title: `${draft.title} (copy)` };
     const duplicated = makeGuideRecord(copy, scope);
-    const saved = (await mutateArchive(path, [duplicated]))[0] ?? duplicated;
+    const saved =
+      (await mutateArchive(path, guideRecordsWithEntryLinks(duplicated, null, scope.records)))[0] ??
+      duplicated;
     emit(output, toPlainRecord(saved), `Duplicated study guide ${saved.id}.`, json);
     return 0;
   }
@@ -1722,7 +1775,9 @@ async function runGuideCommand(
   }
 
   const updated = makeGuideRecord(draft, scope, current);
-  const saved = (await mutateArchive(path, [updated]))[0] ?? updated;
+  const saved =
+    (await mutateArchive(path, guideRecordsWithEntryLinks(updated, current, scope.records)))[0] ??
+    updated;
   emit(output, toPlainRecord(saved), `Study guide ${saved.id} updated.`, json);
   return 0;
 }
@@ -1762,8 +1817,22 @@ function guideIndex(raw: string | undefined, name: string, length: number): numb
 async function readGuideScope(
   snapshot: ArchiveSnapshot,
   sessionId: string,
-): Promise<GuideSourceScope> {
+): Promise<GuideSourceScope & { session: ArchiveRecord }> {
   const session = await requireLiveRecord(snapshot, RecordType.session, sessionId);
+  return { session, records: await readGuideSourceRecords(snapshot) };
+}
+
+async function readGuideEntryScope(
+  snapshot: ArchiveSnapshot,
+  entryId: string,
+): Promise<GuideSourceScope & { entry: ArchiveRecord }> {
+  const entry = await requireLiveRecord(snapshot, RecordType.settings, entryId);
+  if (field(entry, "record_role") !== "journal-entry")
+    throw new CliError(`Journal entry ${entryId} was not found.`);
+  return { entry, records: await readGuideSourceRecords(snapshot) };
+}
+
+async function readGuideSourceRecords(snapshot: ArchiveSnapshot): Promise<ArchiveRecord[]> {
   const [students, sessions, settings, transcripts, annotations, assets, evidence] =
     await Promise.all([
       snapshot.listRecords(RecordType.student),
@@ -1774,18 +1843,15 @@ async function readGuideScope(
       snapshot.listRecords(RecordType.assetMetadata),
       snapshot.listRecords(RecordType.evidenceNode),
     ]);
-  return {
-    session,
-    records: [
-      ...students,
-      ...sessions,
-      ...settings,
-      ...transcripts,
-      ...annotations,
-      ...assets,
-      ...evidence,
-    ],
-  };
+  return [
+    ...students,
+    ...sessions,
+    ...settings,
+    ...transcripts,
+    ...annotations,
+    ...assets,
+    ...evidence,
+  ];
 }
 
 async function readGuideContext(
@@ -1796,11 +1862,12 @@ async function readGuideContext(
   try {
     const current = await requireLiveRecord(snapshot, RecordType.guide, id);
     const draft = guideDraftFromRecord(current);
-    if (!draft.sessionId)
-      throw new CliError(
-        "This guide is linked to a journal entry but not a session; CLI editing currently requires a session.",
-      );
-    const scope = await readGuideScope(snapshot, draft.sessionId);
+    const scope = draft.sessionId
+      ? await readGuideScope(snapshot, draft.sessionId)
+      : draft.entryId
+        ? await readGuideEntryScope(snapshot, draft.entryId)
+        : null;
+    if (!scope) throw new CliError("This guide has no journal entry or session scope.");
     return { current, draft, scope };
   } finally {
     await closeSnapshot(snapshot);
