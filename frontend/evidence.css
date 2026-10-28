@@ -167,6 +167,48 @@
   font-size: 11px;
 }
 
+.evidence-card-actions {
+  flex-wrap: wrap;
+}
+
+.evidence-edit-form {
+  display: grid;
+  gap: 11px;
+  margin-top: 14px;
+}
+
+.evidence-edit-form label {
+  min-width: 0;
+  display: grid;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.evidence-edit-form input,
+.evidence-edit-form textarea {
+  width: 100%;
+  min-width: 0;
+  padding: 9px 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  color: var(--ink-soft);
+  background: var(--surface-subtle);
+  font: inherit;
+  font-size: 12px;
+}
+
+.evidence-edit-form textarea {
+  resize: vertical;
+  line-height: 1.6;
+}
+
+.evidence-edit-row {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(120px, 1fr);
+  gap: 10px;
+}
+
 .evidence-graph {
   padding: 19px;
 }
@@ -316,6 +358,10 @@
   .evidence-card-header {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .evidence-edit-row {
+    grid-template-columns: 1fr;
   }
 
   .evidence-link-form {
