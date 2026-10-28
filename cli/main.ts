@@ -4,6 +4,7 @@ import { execFile } from "node:child_process";
 import { link, lstat, open, readFile, readdir, realpath, rename, rm, stat } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { availableParallelism, freemem, platform as osPlatform, release, totalmem } from "node:os";
 import { ArchiveFormatError, RecordType, type ArchiveRecord } from "../frontend/archive/format";
 import {
   appendRecords,
@@ -26,7 +27,19 @@ import {
   type SanitizedCopyOutputOptions,
   type SanitizedCopySummary,
 } from "../frontend/archive/sanitized-copy";
-import { AI_PROVIDERS, deterministicUuid } from "../frontend/ai/providers";
+import {
+  AI_PROVIDERS,
+  createProviderConfigurationRecord,
+  deterministicUuid,
+  providerById,
+} from "../frontend/ai/providers";
+import { createAiPackageRecord } from "../frontend/ai/package";
+import { createAiRequestPreview } from "../frontend/ai/request";
+import { createAiGuideProposal } from "../frontend/ai/response";
+import { executeAiGeneration } from "../frontend/ai/execution";
+import type { AiTransportRequest, AiTransportResult } from "../frontend/platform/types";
+import { packAiContext } from "./ai-context";
+import { exportAiPackage } from "./ai-export";
 import { NodeFileArchiveSource } from "../frontend/archive/node-source";
 import { MAX_ASSET_BYTES, makeAssetImport, readAssetBytes } from "../frontend/domain/assets";
 import {
@@ -222,6 +235,18 @@ Usage:
   tutorux --archive <file.tux> settings import --input <file>|copy-to-archive --source-archive <file> [--key <key>]
   tutorux --archive <file.tux> settings credential-list|credential-remove --key <key>
     Sensitive settings require --store-credential --value-env <name> and an encrypted archive.
+  tutorux ai providers [--json]
+  tutorux --archive <file.tux> ai context --session <uuid> [--token-budget <n>] [--max-item-tokens <n>]
+  tutorux --archive <file.tux> ai models|test --provider <id> [--refresh] [--api-key-env <name>]
+  tutorux --archive <file.tux> ai capabilities --provider <id> --model <id>
+  tutorux --archive <file.tux> ai configure --provider <id> [--endpoint <url>] [--model <id>]
+  tutorux --archive <file.tux> ai package --session <uuid> [--template <id|auto>] [--image-ids <uuid,...>] [--output <file>]
+  tutorux --archive <file.tux> ai generate --job <uuid> --provider <id> [--model <id>] [--api-key-env <name>] [--max-tokens <n>] [--request-output <file>] [--confirm-outbound --confirm-hash <sha256>]
+  tutorux --archive <file.tux> ai import --session <uuid> --input <file> [--template <id>]
+  tutorux --archive <file.tux> ai jobs|cancel <job-id> [--json]
+  tutorux --archive <file.tux> model list|select|inspect|verify|remove-reference
+  tutorux diagnostics run|archive|report [--full] | providers | graphics | audio | network
+  tutorux benchmark startup|memory|cpu|indexing|rendering|export|full
   tutorux --archive <file.tux> record take-list --session <uuid> [--include-deleted] [--json]
   tutorux --archive <file.tux> record take-rename --session <uuid> --take <uuid> --label <name>
   tutorux --archive <file.tux> record take-delete|take-restore --session <uuid> --take <uuid>
@@ -282,6 +307,20 @@ export async function executeCli(argv: readonly string[], output: CliIo = io): P
         if (jsonOutput) parsed.flags.add("json");
 
         if (group === "archive") return await runArchiveCommand(action, parsed, output);
+        if (group === "ai" && action === "providers") {
+          emit(
+            output,
+            AI_PROVIDERS,
+            AI_PROVIDERS.map(
+              (provider) => `${provider.id}  ${provider.name}  ${provider.protocol}`,
+            ).join("\n"),
+            parsed.flags.has("json"),
+          );
+          return 0;
+        }
+        if (group === "diagnostics")
+          return runDiagnosticsCommand(action, archivePath, parsed, output);
+        if (group === "benchmark") return runBenchmarkCommand(action, archivePath, parsed, output);
         if (!archivePath) throw new CliError("Record commands require --archive <path>.");
         return await runRecordCommand(group, action, archivePath, parsed, output);
       } finally {
@@ -1017,6 +1056,8 @@ async function runRecordCommand(
   args: ParsedArguments,
   output: CliIo,
 ): Promise<number> {
+  if (group === "ai") return runAiCommand(action, path, args, output);
+  if (group === "model") return runModelCommand(action, path, args, output);
   if (group === "record") return runRecordingTakeCommand(action, path, args, output);
   if (group === "journal" && (action === "collection" || action === "tag")) {
     return runJournalOrganizerCommand(action, path, args, output);
@@ -1820,6 +1861,870 @@ function guideIndex(raw: string | undefined, name: string, length: number): numb
   const value = parseBoundedOption(raw, name, -1, 0, Math.max(0, length - 1));
   if (value >= length) throw new CliError(`--${name} is outside the available range.`);
   return value;
+}
+
+async function runModelCommand(
+  action: string,
+  path: string,
+  args: ParsedArguments,
+  output: CliIo,
+): Promise<number> {
+  const snapshot = await openForCommand(path);
+  const generation = snapshot.commit.generation;
+  let changes: ArchiveRecord[] = [];
+  let result: unknown;
+  let message: string;
+  let exitCode = 0;
+  try {
+    if (action === "list") {
+      const references = (await snapshot.listRecords(RecordType.settings)).filter(
+        (record) =>
+          field(record, "record_role") === "model-reference" &&
+          field(record, "_deleted") !== "true",
+      );
+      result = references.map(toPlainRecord);
+      message =
+        references
+          .map(
+            (record) =>
+              `${record.id}  ${field(record, "provider")} / ${field(record, "model_id")}  ${field(record, "path")}${field(record, "active") === "true" ? "  selected" : ""}`,
+          )
+          .join("\n") || "No model references in this archive.";
+    } else if (action === "select") {
+      const provider = requiredOption(args, "provider").toLowerCase();
+      const model = requiredOption(args, "model");
+      const modelPath = args.options.get("path") ?? "";
+      const localFile = ["whisper", "whisper.cpp", "local-whisper", "llama.cpp-embedded"].includes(
+        provider,
+      );
+      if (localFile && !modelPath)
+        throw new CliError("This provider requires --path to a selected model file.");
+      if (localFile) {
+        const checked = await inspectCliModel(resolve(dirname(resolve(path)), modelPath));
+        if (!checked.available)
+          throw new CliError("Selected model must be a regular non-symlink file.");
+        if (provider === "llama.cpp-embedded" && checked.format !== "GGUF")
+          throw new CliError("Select a GGUF file for the embedded model.");
+      }
+      const id = await deterministicUuid(`model-reference:${provider}:${model}`);
+      const references = await snapshot.listRecords(RecordType.settings);
+      changes = references
+        .filter(
+          (record) =>
+            field(record, "record_role") === "model-reference" &&
+            field(record, "provider") === provider &&
+            field(record, "active") === "true" &&
+            field(record, "_deleted") !== "true" &&
+            record.id !== id,
+        )
+        .map((record) => ({
+          ...record,
+          fields: new Map(record.fields)
+            .set("active", "false")
+            .set("updated_at_us", timestampNow()),
+        }));
+      const fields = new Map([
+        ["record_role", "model-reference"],
+        ["provider", provider],
+        ["model_id", model],
+        ["path", modelPath],
+        ["capabilities", args.options.get("capabilities") ?? "unknown"],
+        ["active", "true"],
+        ["updated_at_us", timestampNow()],
+      ]);
+      if (provider === "llama.cpp-embedded") {
+        const context = parseBoundedOption(
+          args.options.get("context-tokens"),
+          "context-tokens",
+          4096,
+          32,
+          1_048_576,
+        );
+        const threads = parseBoundedOption(args.options.get("threads"), "threads", 0, 0, 64);
+        const maxThreads = parseBoundedOption(
+          args.options.get("max-threads"),
+          "max-threads",
+          16,
+          1,
+          64,
+        );
+        const layers = parseBoundedOption(
+          args.options.get("gpu-layers"),
+          "gpu-layers",
+          0,
+          0,
+          1_000_000,
+        );
+        if (threads > maxThreads) throw new CliError("--threads cannot exceed --max-threads.");
+        fields.set("context_tokens", String(context));
+        fields.set("cpu_threads", String(threads));
+        fields.set("maximum_cpu_threads", String(maxThreads));
+        fields.set("gpu_layers", String(layers));
+      }
+      const record: ArchiveRecord = {
+        type: RecordType.settings,
+        id,
+        revision: 0n,
+        previousOffset: 0n,
+        fields,
+        blob: new Uint8Array(),
+      };
+      changes.push(record);
+      result = toPlainRecord(record);
+      message = `Model reference ${id} selected.`;
+    } else if (action === "remove-reference") {
+      const record = await requireLiveRecord(
+        snapshot,
+        RecordType.settings,
+        requiredPosition(args, 0, "model reference ID"),
+      );
+      if (field(record, "record_role") !== "model-reference")
+        throw new CliError("Model reference not found.");
+      changes = [{ ...record, fields: new Map(record.fields).set("_deleted", "true") }];
+      result = toPlainRecord(changes[0]!);
+      message = "Model reference removed from this archive.";
+    } else if (action === "inspect" || action === "verify") {
+      const selected = args.options.get("path") ?? requiredPosition(args, 0, "model path");
+      const report = await inspectCliModel(resolve(dirname(resolve(path)), selected));
+      result = report;
+      if (!report.available) {
+        if (action === "inspect")
+          throw new CliError(
+            "Selected model path is missing or is not a regular non-symlink file.",
+          );
+        exitCode = 2;
+      }
+      message = report.available
+        ? `Model file: ${report.path} (${report.size_bytes} bytes; ${report.metadata}).`
+        : "Selected model file is missing or not a regular non-symlink file.";
+    } else throw new CliError(`Unknown model action: ${action}.`);
+  } finally {
+    await closeSnapshot(snapshot);
+  }
+  if (changes.length) await mutateArchive(path, changes, generation);
+  emit(output, result, message, args.flags.has("json"));
+  return exitCode;
+}
+
+async function inspectCliModel(path: string): Promise<{
+  path: string;
+  available: boolean;
+  size_bytes?: number;
+  format?: string;
+  metadata?: string;
+  gguf_version?: number;
+  tensor_count?: string;
+  metadata_count?: string;
+}> {
+  try {
+    const info = await lstat(path);
+    if (!info.isFile() || info.isSymbolicLink()) return { path, available: false };
+    const report: {
+      path: string;
+      available: boolean;
+      size_bytes: number;
+      format: string;
+      metadata: string;
+      gguf_version?: number;
+      tensor_count?: string;
+      metadata_count?: string;
+    } = {
+      path,
+      available: true,
+      size_bytes: info.size,
+      format: path.toLowerCase().endsWith(".gguf") ? "GGUF" : "unknown",
+      metadata: "not-inspected",
+    };
+    if (report.format === "GGUF") {
+      const file = await open(path, "r");
+      try {
+        const header = Buffer.alloc(24);
+        const read = await file.read(header, 0, 24, 0);
+        if (read.bytesRead < 24 || header.toString("ascii", 0, 4) !== "GGUF")
+          throw new CliError("The GGUF header is invalid.");
+        const version = header.readUInt32LE(4);
+        if (version !== 2 && version !== 3) throw new CliError("Unsupported GGUF version.");
+        report.gguf_version = version;
+        report.tensor_count = header.readBigUInt64LE(8).toString();
+        report.metadata_count = header.readBigUInt64LE(16).toString();
+        report.metadata = "header-inspected";
+      } finally {
+        await file.close();
+      }
+    }
+    return report;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return { path, available: false };
+    throw error;
+  }
+}
+
+async function runDiagnosticsCommand(
+  action: string,
+  path: string | undefined,
+  args: ParsedArguments,
+  output: CliIo,
+): Promise<number> {
+  if (action === "providers") {
+    emit(
+      output,
+      AI_PROVIDERS,
+      AI_PROVIDERS.map((provider) => `${provider.id}  ${provider.name}`).join("\n"),
+      args.flags.has("json"),
+    );
+    return 0;
+  }
+  if (action === "network") {
+    if (!args.options.has("provider")) {
+      emit(
+        output,
+        { network_checked: false, reason: "provider-not-selected" },
+        "No provider selected; no request sent.",
+        args.flags.has("json"),
+      );
+      return 0;
+    }
+    if (!path) throw new CliError("Network diagnostics require --archive.");
+    return runAiCommand("test", path, args, output);
+  }
+  if (action === "audio" || action === "graphics") {
+    const report = {
+      status: "unavailable-in-cli",
+      reason:
+        action === "audio"
+          ? "Device enumeration requires the desktop application."
+          : "Rendering requires the desktop application.",
+    };
+    emit(output, report, report.reason, args.flags.has("json"));
+    return 0;
+  }
+  if (!["run", "archive", "report"].includes(action))
+    throw new CliError(`Unknown diagnostics action: ${action}.`);
+  if (!path) throw new CliError("Archive diagnostics require --archive.");
+  const snapshot = await openForCommand(path);
+  let report: object;
+  try {
+    const verification = args.flags.has("full") ? await verifyArchiveSnapshot(snapshot) : null;
+    report = {
+      archive_valid: true,
+      archive_generation: snapshot.commit.generation.toString(),
+      archive_id: snapshot.header.id,
+      encrypted: snapshot.encrypted,
+      full_verification: verification,
+    };
+  } finally {
+    await closeSnapshot(snapshot);
+  }
+  if (action === "report") {
+    const destination = resolve(requiredOption(args, "output"));
+    if (await sameFileIdentity(destination, path))
+      throw new CliError("Diagnostic output cannot replace its source archive.");
+    await writeTextAtomically(destination, `${JSON.stringify(report, null, 2)}\n`);
+    emit(
+      output,
+      { output: destination, status: "exported" },
+      `Diagnostic report exported to ${destination}.`,
+      args.flags.has("json"),
+    );
+  } else emit(output, report, JSON.stringify(report, null, 2), args.flags.has("json"));
+  return 0;
+}
+
+async function runBenchmarkCommand(
+  action: string,
+  path: string | undefined,
+  args: ParsedArguments,
+  output: CliIo,
+): Promise<number> {
+  if (
+    !["startup", "memory", "cpu", "audio", "indexing", "rendering", "export", "full"].includes(
+      action,
+    )
+  )
+    throw new CliError(`Unknown benchmark: ${action}.`);
+  const start = performance.now();
+  const report: Record<string, unknown> = {
+    benchmark: action,
+    platform: osPlatform(),
+    os_release: release(),
+    cpu_count: availableParallelism(),
+    total_memory_bytes: totalmem(),
+    available_memory_bytes: freemem(),
+    resident_memory_bytes: process.memoryUsage().rss,
+    process_uptime_seconds: process.uptime(),
+    measurement_scope: "current-process",
+  };
+  if (["indexing", "export", "full"].includes(action)) {
+    if (!path) throw new CliError(`benchmark ${action} requires --archive.`);
+    const snapshot = await openForCommand(path);
+    try {
+      if (action === "indexing" || action === "full") {
+        const begin = performance.now();
+        const lists = await Promise.all(
+          [
+            RecordType.student,
+            RecordType.session,
+            RecordType.transcriptSegment,
+            RecordType.annotation,
+            RecordType.assetMetadata,
+            RecordType.evidenceNode,
+            RecordType.guide,
+          ].map((type) => snapshot.listRecordMetadata(type)),
+        );
+        report["index_records"] = lists.reduce((sum, rows) => sum + rows.length, 0);
+        report["index_elapsed_us"] = Math.round((performance.now() - begin) * 1000);
+        report["archive_generation"] = snapshot.commit.generation.toString();
+      }
+      if (action === "export") {
+        const guide = await requireLiveRecord(
+          snapshot,
+          RecordType.guide,
+          requiredOption(args, "guide"),
+        );
+        const begin = performance.now();
+        const markdown = renderGuideMarkdown(guide);
+        report["export_format"] = "markdown-render";
+        report["export_bytes"] = new TextEncoder().encode(markdown).length;
+        report["export_elapsed_us"] = Math.round((performance.now() - begin) * 1000);
+      }
+    } finally {
+      await closeSnapshot(snapshot);
+    }
+  }
+  if (action === "audio" || action === "full")
+    report["audio_reason"] = "Device enumeration requires the desktop application.";
+  if (action === "rendering")
+    report["rendering_reason"] = "Rendering requires the desktop application.";
+  report["command_elapsed_us"] = Math.round((performance.now() - start) * 1000);
+  emit(output, report, JSON.stringify(report, null, 2), args.flags.has("json"));
+  return 0;
+}
+
+async function runAiCommand(
+  action: string,
+  path: string,
+  args: ParsedArguments,
+  output: CliIo,
+): Promise<number> {
+  const json = args.flags.has("json");
+  const snapshot = await openForCommand(path);
+  const generation = snapshot.commit.generation;
+  let changes: ArchiveRecord[] = [];
+  let result: unknown;
+  let message: string;
+  try {
+    if (action === "configure") {
+      if (args.options.has("api-key"))
+        throw new CliError(
+          "Use --api-key-env when generating; credentials are not accepted in configuration.",
+        );
+      const provider = providerById(requiredOption(args, "provider"));
+      if (!provider) throw new CliError("Choose a supported AI provider.");
+      const configuration = await createProviderConfigurationRecord({
+        providerId: provider.id,
+        endpoint: args.options.get("endpoint") ?? provider.defaultEndpoint,
+        model: args.options.get("model") ?? "",
+      });
+      changes = [configuration];
+      result = toPlainRecord(configuration);
+      message = `Provider ${provider.name} configured.`;
+    } else if (action === "context") {
+      const budget = parseBoundedOption(
+        args.options.get("token-budget"),
+        "token-budget",
+        8192,
+        1,
+        10_000_000,
+      );
+      const itemLimit = parseBoundedOption(
+        args.options.get("max-item-tokens"),
+        "max-item-tokens",
+        budget,
+        1,
+        budget,
+      );
+      const packed = await packAiContext(
+        snapshot,
+        requiredOption(args, "session").toLowerCase(),
+        budget,
+        itemLimit,
+      );
+      result = packed;
+      message = `Context preview: ${packed.used_tokens} / ${budget} estimated tokens; ${packed.included.length} included fragment(s), ${packed.omitted.length} omitted fragment(s).\n${packed.included.map((row) => JSON.stringify(row)).join("\n")}`;
+    } else if (action === "capabilities") {
+      const provider = providerById(requiredOption(args, "provider"));
+      if (!provider) throw new CliError("Choose a supported AI provider.");
+      const model = requiredOption(args, "model");
+      result = {
+        provider: provider.id,
+        model,
+        protocol: provider.protocol,
+        local: provider.local,
+        image_input_supported_by_protocol: [
+          "openai",
+          "openai-compatible",
+          "anthropic",
+          "google-gemini",
+          "ollama",
+        ].includes(provider.id),
+        model_capabilities: "unknown",
+      };
+      message = `${provider.name}: ${provider.protocol}; model-specific capabilities are unknown.`;
+    } else if (action === "models" || action === "test") {
+      const provider = providerById(requiredOption(args, "provider"));
+      if (!provider) throw new CliError("Choose a supported AI provider.");
+      const cacheId = await deterministicUuid(`ai-model-cache:${provider.id}`);
+      const cached = await snapshot.getRecord(RecordType.settings, cacheId);
+      if (
+        action === "models" &&
+        !args.flags.has("refresh") &&
+        !args.flags.has("refresh-if-stale")
+      ) {
+        if (!cached || field(cached, "_deleted") === "true")
+          throw new CliError(`No cached models for ${provider.id}. Retry with --refresh.`);
+        const models: unknown = JSON.parse(new TextDecoder().decode(cached.blob));
+        result = models;
+        message = JSON.stringify(models, null, 2);
+      } else {
+        const configuration = await snapshot.getRecord(
+          RecordType.settings,
+          await deterministicUuid(`ai-provider:${provider.id}`),
+        );
+        const endpoint = configuration
+          ? field(configuration, "endpoint")
+          : provider.defaultEndpoint;
+        const validated = await createProviderConfigurationRecord({
+          providerId: provider.id,
+          endpoint,
+          model: "",
+        });
+        const envName = args.options.get("api-key-env") ?? provider.credentialKey ?? "";
+        if (envName && !/^[A-Za-z_][A-Za-z\d_]*$/u.test(envName))
+          throw new CliError("Invalid API key environment variable name.");
+        const credentials = snapshot.encrypted
+          ? await snapshot.listRecords(RecordType.settings)
+          : [];
+        const stored = credentials.find(
+          (record) =>
+            field(record, "record_role") === "credential" &&
+            field(record, "_deleted") !== "true" &&
+            (field(record, "provider_id") === provider.id ||
+              field(record, "key") === provider.credentialKey),
+        );
+        const credential = process.env[envName] ?? (stored ? field(stored, "value") : "");
+        if (!provider.local && !credential)
+          throw new CliError("A provider API key is required for model discovery.");
+        const models = await discoverCliAiModels(
+          provider.id,
+          field(validated, "endpoint"),
+          credential,
+        );
+        if (action === "models")
+          changes = [
+            {
+              type: RecordType.settings,
+              id: cacheId,
+              revision: 0n,
+              previousOffset: 0n,
+              fields: new Map([
+                ["record_role", "ai-model-cache"],
+                ["provider_id", provider.id],
+                ["updated_at_us", timestampNow()],
+              ]),
+              blob: new TextEncoder().encode(JSON.stringify(models)),
+            },
+          ];
+        result =
+          action === "test"
+            ? { provider: provider.id, status: "connected", model_count: models.length }
+            : models;
+        message =
+          action === "test"
+            ? `Connected to ${provider.name}; ${models.length} model(s) available.`
+            : models.map((model) => model.id).join("\n") || "No models returned.";
+      }
+    } else if (action === "package") {
+      const format = args.options.get("format") ?? "json";
+      if (!["json", "markdown", "md", "parts", "zip"].includes(format))
+        throw new CliError("Package format must be json, markdown, parts, or zip.");
+      const mode = args.options.get("mode") ?? "manual";
+      if (mode !== "manual" && mode !== "local")
+        throw new CliError("Package mode must be manual or local.");
+      if (mode === "local" && format !== "json")
+        throw new CliError("Local packages require JSON format.");
+      if (format === "zip" && !args.flags.has("confirm-sensitive"))
+        throw new CliError(
+          "ZIP packages include session materials; use --confirm-sensitive to export them.",
+        );
+      const summary = await createAiPackageRecord(
+        snapshot,
+        requiredOption(args, "session").toLowerCase(),
+        args.options.get("template") ?? "auto",
+        (args.options.get("image-ids") ?? "")
+          .split(",")
+          .map((id) => id.trim())
+          .filter(Boolean),
+      );
+      const packageJob = {
+        ...summary.job,
+        fields: new Map(summary.job.fields).set("requested_mode", mode),
+      };
+      const destination = args.options.get("output");
+      if (destination) {
+        if (await sameFileIdentity(resolve(destination), path))
+          throw new CliError("Package output cannot replace its source archive.");
+        await writeBytesAtomically(
+          resolve(destination),
+          await exportAiPackage(snapshot, summary.job, format),
+        );
+      }
+      // Store the canonical JSON so it remains eligible for reviewed generation.
+      changes = [packageJob];
+      result = {
+        job_id: summary.job.id,
+        session_id: summary.sessionId,
+        template_id: summary.guideTemplateId,
+        content_hash: summary.contentHash,
+        package_bytes: summary.byteLength,
+        transcript_segments: summary.transcriptCount,
+        annotations: summary.annotationCount,
+        evidence: summary.evidenceCount,
+        assets: summary.assetCount,
+        output: destination ? resolve(destination) : "",
+      };
+      message = `AI package ${summary.job.id} prepared. SHA-256: ${summary.contentHash}.`;
+    } else if (action === "jobs") {
+      const jobs = await snapshot.listRecordMetadata(RecordType.aiJob);
+      result = jobs.map(toPlainRecord);
+      message = jobs.length
+        ? jobs.map((job) => `${job.id}  ${field(job, "status")}  ${field(job, "mode")}`).join("\n")
+        : "No AI jobs stored in this archive.";
+    } else if (action === "cancel") {
+      const job = await requireLiveRecord(
+        snapshot,
+        RecordType.aiJob,
+        requiredPosition(args, 0, "AI job ID"),
+      );
+      const fields = new Map(job.fields);
+      fields.set("status", "cancelled");
+      changes = [{ ...job, fields }];
+      result = toPlainRecord(changes[0]!);
+      message = `AI job ${job.id} cancelled.`;
+    } else if (action === "import") {
+      const sessionId = requiredOption(args, "session").toLowerCase();
+      const scope = await readGuideScope(snapshot, sessionId);
+      const input = requiredOption(args, "input");
+      const bytes = await readFile(resolve(input));
+      if (!bytes.byteLength || bytes.byteLength > 16 * 1024 * 1024)
+        throw new CliError("Response must be between 1 byte and 16 MiB.");
+      const responseText = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+      let responseTemplate = "general";
+      try {
+        const parsed: unknown = JSON.parse(responseText);
+        if (
+          typeof parsed === "object" &&
+          parsed !== null &&
+          "template_id" in parsed &&
+          typeof parsed.template_id === "string"
+        )
+          responseTemplate = parsed.template_id;
+      } catch {
+        /* Unstructured responses are preserved for review. */
+      }
+      const proposal = createAiGuideProposal(
+        responseText,
+        sessionId,
+        args.options.get("template") ?? responseTemplate,
+      );
+      if (args.options.has("title")) proposal.draft.title = args.options.get("title")!;
+      let guide: ArchiveRecord;
+      let sourceValidation = "passed";
+      try {
+        guide = makeGuideRecord(proposal.draft, scope);
+      } catch {
+        sourceValidation = "failed";
+        proposal.warnings.push(
+          "Some source links need correction; the original response was kept as editable text.",
+        );
+        guide = makeGuideRecord(
+          {
+            title: "AI response — review required",
+            sessionId,
+            templateId: proposal.draft.templateId,
+            sections: [
+              {
+                id: randomUUID(),
+                heading: "Generated response — review required",
+                blocks: [
+                  {
+                    kind: "paragraph",
+                    text: responseText,
+                    sourceIds: "",
+                    stale: false,
+                    origin: "ai-generated",
+                  },
+                ],
+              },
+            ],
+          },
+          scope,
+        );
+      }
+      if (
+        sourceValidation === "passed" &&
+        !proposal.draft.sections.some((section) =>
+          section.blocks.some((block) => block.sourceIds.trim()),
+        )
+      )
+        sourceValidation = "missing-evidence";
+      const status =
+        proposal.schemaValid && sourceValidation === "passed"
+          ? "response-imported"
+          : "response-needs-correction";
+      const job: ArchiveRecord = {
+        type: RecordType.aiJob,
+        id: randomUUID(),
+        revision: 0n,
+        previousOffset: 0n,
+        fields: new Map([
+          ["session_id", sessionId],
+          ["mode", "manual"],
+          ["status", status],
+          ["schema_valid", String(proposal.schemaValid)],
+          ["source_validation", sourceValidation],
+          ["import_warnings", proposal.warnings.join("\n")],
+          ["guide_id", guide.id],
+          ["original_filename", basename(input)],
+          ["content_hash", createHash("sha256").update(bytes).digest("hex")],
+          ["created_at_us", timestampNow()],
+        ]),
+        blob: new Uint8Array(bytes),
+      };
+      changes = guideRecordsWithEntryLinks(guide, null, scope.records).concat(job);
+      result = {
+        job_id: job.id,
+        guide_id: guide.id,
+        status,
+        schema_valid: proposal.schemaValid,
+        source_validation: sourceValidation,
+        warnings: proposal.warnings,
+      };
+      message = `Imported response as unapproved guide ${guide.id} (${status}).`;
+    } else if (action === "generate") {
+      const job = await requireLiveRecord(snapshot, RecordType.aiJob, requiredOption(args, "job"));
+      const provider = providerById(requiredOption(args, "provider"));
+      if (!provider) throw new CliError("Choose a supported AI provider.");
+      if (field(job, "requested_mode") === "local" && !provider.local)
+        throw new CliError("A local package can only be sent to a local provider.");
+      const config = await requireLiveRecord(
+        snapshot,
+        RecordType.settings,
+        await deterministicUuid(`ai-provider:${provider.id}`),
+      );
+      const model = args.options.get("model");
+      const configuration =
+        model === undefined
+          ? config
+          : { ...config, fields: new Map(config.fields).set("selected_model", model) };
+      const tokenValue = args.options.get("max-tokens");
+      const tokens = tokenValue === undefined ? undefined : Number(tokenValue);
+      const envName = args.options.get("api-key-env");
+      if (envName && !/^[A-Za-z_][A-Za-z\d_]*$/u.test(envName))
+        throw new CliError("Invalid API key environment variable name.");
+      const credentialRecords = snapshot.encrypted
+        ? await snapshot.listRecords(RecordType.settings)
+        : [];
+      const storedCredential = credentialRecords.find(
+        (record) =>
+          field(record, "record_role") === "credential" &&
+          field(record, "_deleted") !== "true" &&
+          (field(record, "provider_id") === provider.id ||
+            field(record, "key") === provider.credentialKey),
+      );
+      const credential = envName
+        ? (process.env[envName] ?? "")
+        : storedCredential
+          ? field(storedCredential, "value")
+          : "";
+      const preview = await createAiRequestPreview(
+        job,
+        configuration,
+        tokens,
+        [],
+        Boolean(credential),
+        snapshot,
+      );
+      const requestOutput = args.options.get("request-output");
+      if (requestOutput) {
+        if (await sameFileIdentity(resolve(requestOutput), path))
+          throw new CliError("Request output cannot replace its source archive.");
+        await writeTextAtomically(resolve(requestOutput), preview.requestBody);
+      }
+      result = {
+        provider: preview.providerId,
+        endpoint: preview.endpoint,
+        model: preview.model,
+        package_hash: preview.packageHash,
+        request_body_hash: preview.requestBodyHash,
+        request_bytes: preview.requestBytes,
+        local_only: preview.localOnly,
+        credential_available: preview.credentialAvailable,
+      };
+      if (!args.flags.has("confirm-outbound") && !preview.localOnly) {
+        message = `Review request to ${preview.endpoint}. Request SHA-256: ${preview.requestBodyHash}. Retry with --confirm-outbound --confirm-hash ${preview.requestBodyHash}.`;
+      } else {
+        if (
+          !preview.localOnly &&
+          (!credential || args.options.get("confirm-hash") !== preview.requestBodyHash)
+        )
+          throw new CliError("Provide a provider API key and confirm the exact request hash.");
+        const scope = await readGuideScope(snapshot, field(job, "session_id"));
+        const execution = await executeAiGeneration({
+          packageJob: job,
+          expectedTemplateId: preview.guideTemplateId ?? "general",
+          preview,
+          confirmedEndpoint: preview.endpoint,
+          confirmedBodyHash: preview.requestBodyHash,
+          credential,
+          session: scope.session,
+          sourceRecords: scope.records,
+          send: sendCliAiRequest,
+          onProgress: () => {},
+        });
+        changes = execution.guide
+          ? [execution.job, ...guideRecordsWithEntryLinks(execution.guide, null, scope.records)]
+          : [execution.job];
+        result = execution.summary;
+        message = `AI job ${execution.job.id}: ${execution.summary.status}.`;
+      }
+    } else throw new CliError(`Unknown AI action: ${action}.`);
+  } finally {
+    await closeSnapshot(snapshot);
+  }
+  if (changes.length) await mutateArchive(path, changes, generation);
+  emit(output, result, message, json);
+  return 0;
+}
+
+async function discoverCliAiModels(
+  providerId: string,
+  endpoint: string,
+  credential: string,
+): Promise<{ id: string }[]> {
+  const suffix =
+    providerId === "ollama"
+      ? "/api/tags"
+      : providerId === "anthropic"
+        ? "/v1/models?limit=1000"
+        : providerId === "cohere"
+          ? "/v2/models?page_size=1000&endpoint=chat"
+          : providerId === "google-gemini"
+            ? "/models?pageSize=1000"
+            : "/models";
+  const headers: Record<string, string> = { accept: "application/json" };
+  if (credential) {
+    const header =
+      providerId === "anthropic"
+        ? "x-api-key"
+        : providerId === "google-gemini"
+          ? "x-goog-api-key"
+          : "authorization";
+    headers[header] = header === "authorization" ? `Bearer ${credential}` : credential;
+  }
+  if (providerId === "anthropic") headers["anthropic-version"] = "2023-06-01";
+  const response = await fetch(`${endpoint}${suffix}`, {
+    headers,
+    redirect: "error",
+    signal: AbortSignal.timeout(30_000),
+  });
+  if (!response.ok)
+    throw new CliError(`Provider model discovery returned HTTP ${response.status}.`);
+  const reader = response.body?.getReader();
+  if (!reader) throw new CliError("Provider returned an empty model catalog.");
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  while (true) {
+    const chunk = await reader.read();
+    if (chunk.done) break;
+    size += chunk.value.byteLength;
+    if (size > 8 * 1024 * 1024) {
+      await reader.cancel();
+      throw new CliError("Provider model catalog exceeds 8 MiB.");
+    }
+    chunks.push(chunk.value);
+  }
+  const bytes = new Uint8Array(size);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  const data: unknown = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes));
+  if (!data || typeof data !== "object")
+    throw new CliError("Provider returned an invalid model catalog.");
+  const root = data as Record<string, unknown>;
+  const entries = root["data"] ?? root["models"];
+  if (!Array.isArray(entries)) throw new CliError("Provider returned an invalid model list.");
+  return entries.flatMap((item: unknown) => {
+    if (!item || typeof item !== "object") return [];
+    const row = item as Record<string, unknown>;
+    const id = row["id"] ?? row["name"] ?? row["model"];
+    return typeof id === "string" && id ? [{ id }] : [];
+  });
+}
+
+async function sendCliAiRequest(
+  request: AiTransportRequest,
+  onChunk: (chunk: Uint8Array) => void,
+): Promise<AiTransportResult> {
+  const headers: Record<string, string> = {
+    "content-type": "application/json",
+    accept: request.accept,
+  };
+  if (request.credential) {
+    const header =
+      request.providerId === "anthropic"
+        ? "x-api-key"
+        : request.providerId === "google-gemini"
+          ? "x-goog-api-key"
+          : "authorization";
+    headers[header] =
+      header === "authorization" ? `Bearer ${request.credential}` : request.credential;
+  }
+  if (request.providerId === "anthropic") headers["anthropic-version"] = "2023-06-01";
+  const response = await fetch(request.endpoint, {
+    method: "POST",
+    headers,
+    body: request.requestBody,
+    redirect: "error",
+    signal: AbortSignal.timeout(300_000),
+  });
+  const reader = response.body?.getReader();
+  let total = 0;
+  let complete = true;
+  if (reader) {
+    try {
+      while (true) {
+        const chunk = await reader.read();
+        if (chunk.done) break;
+        total += chunk.value.byteLength;
+        onChunk(chunk.value);
+        if (total > 16 * 1024 * 1024) {
+          complete = false;
+          await reader.cancel();
+          break;
+        }
+      }
+    } catch {
+      complete = false;
+    }
+  }
+  return {
+    status: response.status,
+    contentType: (response.headers.get("content-type") ?? "").split(";")[0]!.trim().toLowerCase(),
+    responseBytes: total,
+    complete,
+  };
 }
 
 async function readGuideScope(
