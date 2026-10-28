@@ -92,8 +92,44 @@ test("imports a WAV file into a session and plays it from a cue", async ({ page 
   expect(exported.readUInt32LE(40)).toBe(16_000);
 });
 
+test("manages recording take and track names and restores trashed audio", async ({
+  page,
+}, testInfo) => {
+  const archivePath = testInfo.outputPath("recording-take.tux");
+  await mkdir(dirname(archivePath), { recursive: true });
+  await writeFile(archivePath, await makeAudioArchive());
+
+  await page.goto("/");
+  const chooser = page.waitForEvent("filechooser");
+  await page.getByRole("button", { name: "Open", exact: true }).click();
+  await (await chooser).setFiles(archivePath);
+  await page.locator(".archive-status.is-open").waitFor();
+  await page.getByRole("button", { name: "Transcripts", exact: true }).click();
+
+  await expect(page.getByRole("region", { name: "Recording takes" })).toBeVisible();
+  await page.getByLabel("Recording take name").fill("Review take");
+  await page.getByRole("button", { name: "Save name" }).click();
+  await expect(page.getByLabel("Recording take name")).toHaveValue("Review take");
+  const trackName = page.getByLabel("Track name: Microphone");
+  await trackName.fill("Tutor mic");
+  await expect(trackName).toHaveValue("Tutor mic");
+  const saveTrackName = page.getByRole("button", { name: "Save track name" });
+  await expect(saveTrackName).toBeEnabled();
+  await saveTrackName.click();
+  await expect(page.getByLabel("Track name: Tutor mic")).toHaveValue("Tutor mic");
+
+  await page.getByRole("button", { name: "Move to Trash" }).click();
+  await expect(
+    page.getByText("Moved to Trash with its audio tracks and timeline data."),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Restore take" }).click();
+  await expect(page.getByLabel("Recording take name")).toHaveValue("Review take");
+  await expect(page.locator(".transcript-audio-copy strong")).toHaveText("Tutor mic");
+});
+
 async function makeAudioArchive(includeAudio = true): Promise<Uint8Array> {
   const sessionId = crypto.randomUUID();
+  const takeId = crypto.randomUUID();
   const trackId = crypto.randomUUID();
   const transcriptId = crypto.randomUUID();
   const pcm = new Uint8Array(8_000 * 2);
@@ -127,6 +163,7 @@ async function makeAudioArchive(includeAudio = true): Promise<Uint8Array> {
     record_role: "audio-track",
     session_id: sessionId,
     track_id: trackId,
+    recording_take_id: takeId,
     label: "Microphone",
     source: "microphone",
     state: "completed",
@@ -134,6 +171,14 @@ async function makeAudioArchive(includeAudio = true): Promise<Uint8Array> {
     sample_rate_hz: "8000",
     channel_count: "1",
     chunk_count: "1",
+  });
+  const take = record(RecordType.assetMetadata, takeId, {
+    record_role: "recording-take",
+    session_id: sessionId,
+    track_ids: trackId,
+    label: "Microphone take",
+    source: "microphone",
+    state: "completed",
   });
   const audio = record(
     RecordType.audioChunk,
@@ -165,7 +210,7 @@ async function makeAudioArchive(includeAudio = true): Promise<Uint8Array> {
     verification_state: "human-verified",
   });
   const initial = await openArchiveBytes(await createArchiveBytes("Audio test archive"));
-  const records = includeAudio ? [session, track, audio, transcript] : [session, transcript];
+  const records = includeAudio ? [session, track, take, audio, transcript] : [session, transcript];
   const snapshot = await appendRecords(initial, records);
   const buffer = await new Response(sourceStream(snapshot.source)).arrayBuffer();
   return new Uint8Array(buffer);
