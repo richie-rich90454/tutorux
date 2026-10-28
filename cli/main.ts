@@ -113,6 +113,7 @@ import {
   renameRecordingTrack,
   setRecordingTakeDeleted,
 } from "../frontend/domain/recording-takes";
+import { createSessionPackage, importSessionPackage } from "../frontend/domain/session-packages";
 
 interface CliIo {
   stdout(message: string): void;
@@ -160,6 +161,8 @@ Usage:
   tutorux --archive <file.tux> session show|verify <uuid> [--json]
   tutorux --archive <file.tux> session update <uuid> [--title <title>] [--subject <subject>] [--objectives <text>] [--student-id <uuid>] [--notes <text>]
   tutorux --archive <file.tux> session clone <uuid> [--title <title>] [--type notes-only|record-audio|import-recording]
+  tutorux --archive <file.tux> session export <uuid> --output <package.tux> [--force]
+  tutorux --archive <file.tux> session import <package.tux>|--input <package.tux> [--student-id <uuid>]
   tutorux --archive <file.tux> session archive|unarchive <uuid>
   tutorux --archive <file.tux> session start|complete|review|resume <uuid>
   tutorux --archive <file.tux> session delete <uuid> [--dry-run] [--confirm-scope --scope-token <token>]
@@ -1004,6 +1007,134 @@ async function runRecordCommand(
   if (group === "record") return runRecordingTakeCommand(action, path, args, output);
   if (group === "journal" && (action === "collection" || action === "tag")) {
     return runJournalOrganizerCommand(action, path, args, output);
+  }
+  if (group === "session" && action === "export") {
+    const sessionId = requiredPosition(args, 0, "session ID").toLowerCase();
+    const destinationPath = resolve(requiredOption(args, "output"));
+    if (!destinationPath.toLowerCase().endsWith(".tux")) {
+      throw new CliError("Session packages must use the .tux extension.");
+    }
+    const archivePath = resolve(path);
+    const sourceCanonicalPath = await realpath(archivePath);
+    let canonicalDestinationPath: string;
+    try {
+      canonicalDestinationPath = await realpath(destinationPath);
+    } catch (error) {
+      if (!isNotFound(error)) throw error;
+      const destinationParentPath = await realpath(dirname(destinationPath));
+      canonicalDestinationPath = resolve(destinationParentPath, basename(destinationPath));
+    }
+    const samePath =
+      process.platform === "win32"
+        ? sourceCanonicalPath.toLowerCase() === canonicalDestinationPath.toLowerCase()
+        : sourceCanonicalPath === canonicalDestinationPath;
+    if (samePath) throw new CliError("Session package output must be a separate file.");
+
+    const snapshot = await openForCommand(archivePath);
+    let packageSnapshot: ArchiveSnapshot | undefined;
+    try {
+      const session = await requireLiveRecord(snapshot, RecordType.session, sessionId);
+      packageSnapshot = await createSessionPackage(snapshot, session.id);
+      if (args.flags.has("force")) {
+        await writeSourceAtomically(destinationPath, packageSnapshot);
+      } else {
+        await writeSourceToNewFileAtomically(
+          destinationPath,
+          packageSnapshot,
+          undefined,
+          "Session package",
+        );
+      }
+      emit(
+        output,
+        {
+          path: canonicalDestinationPath,
+          session_id: session.id,
+          bytes: packageSnapshot.source.size.toString(),
+          created: true,
+        },
+        `Exported session package for ${session.id} to ${canonicalDestinationPath}.`,
+        args.flags.has("json"),
+      );
+      return 0;
+    } finally {
+      packageSnapshot?.lock();
+      await packageSnapshot?.source.close?.();
+      await closeSnapshot(snapshot);
+    }
+  }
+  if (group === "session" && action === "import") {
+    const positionalPath = args.positionals[0];
+    const optionPath = args.options.get("input");
+    if (positionalPath && optionPath) {
+      throw new CliError("Choose either a package path or --input, not both.");
+    }
+    const packagePath = positionalPath ?? optionPath;
+    if (!packagePath) throw new CliError("session import requires a package path.");
+    const canonicalPackagePath = resolve(packagePath);
+    if (!canonicalPackagePath.toLowerCase().endsWith(".tux")) {
+      throw new CliError("Session packages must use the .tux extension.");
+    }
+    const packageInfo = await lstat(canonicalPackagePath);
+    if (packageInfo.isSymbolicLink() || !packageInfo.isFile()) {
+      throw new CliError("The session package must be a regular, non-symlink file.");
+    }
+    const importState = await (async () => {
+      let packageSource: NodeFileArchiveSource | undefined;
+      let packageSnapshot: ArchiveSnapshot | undefined;
+      let destination: ArchiveSnapshot | undefined;
+      try {
+        packageSource = await NodeFileArchiveSource.open(canonicalPackagePath);
+        destination = await openForCommand(path);
+        if (BigInt(packageInfo.size) !== packageSource.size) {
+          throw new CliError(
+            "The session package changed while import was starting. Retry the command.",
+          );
+        }
+        packageSnapshot = await openArchiveSource(packageSource);
+        const expectedGeneration = destination.commit.generation;
+        const imported = await importSessionPackage(
+          packageSnapshot,
+          destination,
+          args.options.get("student-id"),
+        );
+        return {
+          importedRecords: imported.records,
+          importedSessionId: imported.sessionId,
+          expectedGeneration,
+        };
+      } finally {
+        packageSnapshot?.lock();
+        await packageSource?.close();
+        if (destination) await closeSnapshot(destination);
+      }
+    })();
+    const { importedRecords, importedSessionId, expectedGeneration } = importState;
+    const saved = await mutateArchive(
+      path,
+      importedRecords,
+      expectedGeneration,
+      "The destination archive changed while the session package was being prepared. Retry the import.",
+    );
+    const importedSession =
+      saved.find(
+        (record) => record.type === RecordType.session && record.id === importedSessionId,
+      ) ??
+      importedRecords.find(
+        (record) => record.type === RecordType.session && record.id === importedSessionId,
+      );
+    if (!importedSession) throw new CliError("The imported package has no session record.");
+    emit(
+      output,
+      {
+        session: toPlainRecord(importedSession),
+        session_id: importedSessionId,
+        imported_records: importedRecords.length,
+      },
+      `Imported session ${field(importedSession, "title", "Tutoring session")} (${importedSessionId}).`,
+      args.flags.has("json"),
+    );
+    return 0;
   }
   if (group === "student" && action === "create") {
     const record = makeStudentRecord({
