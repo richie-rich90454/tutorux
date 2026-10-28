@@ -45,6 +45,11 @@ import {
 } from "./domain/audio";
 import { makeWaveImportRecords } from "./domain/wav";
 import {
+  renameRecordingTake,
+  renameRecordingTrack,
+  setRecordingTakeDeleted,
+} from "./domain/recording-takes";
+import {
   reviewStudentProgressRecord,
   type StudentProgressClassification,
 } from "./domain/student-progress";
@@ -173,6 +178,7 @@ interface Workspace {
   trashedJournalOrganizers: ArchiveRecord[];
   guideTemplates: ArchiveRecord[];
   trashedGuideTemplates: ArchiveRecord[];
+  trashedRecordingTakes: ArchiveRecord[];
   notesDocuments: ArchiveRecord[];
   guides: ArchiveRecord[];
   annotations: ArchiveRecord[];
@@ -445,6 +451,7 @@ function App(): JSX.Element {
         trashedJournalOrganizers: [],
         guideTemplates: [],
         trashedGuideTemplates: [],
+        trashedRecordingTakes: [],
         notesDocuments: [],
         guides: [],
         annotations: [],
@@ -475,7 +482,7 @@ function App(): JSX.Element {
       snapshot.listRecords(RecordType.guide, true),
       snapshot.listRecords(RecordType.annotation, true),
       snapshot.listRecords(RecordType.transcriptSegment),
-      snapshot.listRecords(RecordType.assetMetadata),
+      snapshot.listRecords(RecordType.assetMetadata, true),
       snapshot.listRecords(RecordType.evidenceNode),
       snapshot.listRecords(RecordType.evidenceEdge),
       snapshot.listRecordMetadata(RecordType.aiJob),
@@ -505,7 +512,7 @@ function App(): JSX.Element {
       audioTracks: liveSessions.flatMap((session) =>
         listSessionAudioTracks(
           session,
-          liveAssets,
+          assets,
           indexedAudioTracks.get(session.id.toLowerCase()) ?? [],
         ),
       ),
@@ -532,6 +539,11 @@ function App(): JSX.Element {
           record.fields.get("_deleted") === "true" &&
           record.fields.get("record_role") === "guide-template" &&
           !record.fields.get("builtin_template_id"),
+      ),
+      trashedRecordingTakes: assets.filter(
+        (record) =>
+          record.fields.get("_deleted") === "true" &&
+          record.fields.get("record_role") === "recording-take",
       ),
       notesDocuments: alive(settings).filter(
         (record) => record.fields.get("record_role") === "journal-notes",
@@ -1588,6 +1600,44 @@ function App(): JSX.Element {
     }
   }
 
+  async function saveRecordingTakeName(take: ArchiveRecord, label: string): Promise<void> {
+    const state = workspace();
+    if (!state) return;
+    try {
+      const updated = await renameRecordingTake(state.snapshot, take.id, label);
+      await addRecords([updated], "Recording take renamed.");
+    } catch (error) {
+      announce(errorMessage(error), "error");
+    }
+  }
+
+  async function saveRecordingTrackName(track: AudioTrackDescriptor, label: string): Promise<void> {
+    const state = workspace();
+    if (!state) return;
+    try {
+      const updated = await renameRecordingTrack(state.snapshot, track.id, label);
+      await addRecords([updated], "Recording track renamed.");
+    } catch (error) {
+      announce(errorMessage(error), "error");
+    }
+  }
+
+  async function changeRecordingTakeTrash(take: ArchiveRecord, deleted: boolean): Promise<void> {
+    const state = workspace();
+    if (!state) return;
+    try {
+      const updates = await setRecordingTakeDeleted(state.snapshot, take.id, deleted);
+      await addRecords(
+        updates,
+        deleted
+          ? "Recording take and its linked audio moved to Trash."
+          : "Recording take and its linked audio restored.",
+      );
+    } catch (error) {
+      announce(errorMessage(error), "error");
+    }
+  }
+
   async function importAsset(file: File, sessionId: string): Promise<void> {
     const state = workspace();
     if (!state) {
@@ -2236,6 +2286,10 @@ function App(): JSX.Element {
                     records={filteredRecords()}
                     assets={state.assets}
                     tracks={state.audioTracks}
+                    recordingTakes={state.assets.filter(
+                      (record) => record.fields.get("record_role") === "recording-take",
+                    )}
+                    trashedRecordingTakes={state.trashedRecordingTakes}
                     selectedSessionId={selectedTranscriptSessionId()}
                     disabled={state.snapshot.locked || !state.snapshot.canMutate || busy()}
                     onSelectSession={setSelectedTranscriptSessionId}
@@ -2250,6 +2304,12 @@ function App(): JSX.Element {
                     onExportAudio={(sessionId, trackId, label) =>
                       void exportAudioTrack(sessionId, trackId, label)
                     }
+                    onRenameRecordingTake={(take, label) => void saveRecordingTakeName(take, label)}
+                    onRenameRecordingTrack={(track, label) =>
+                      void saveRecordingTrackName(track, label)
+                    }
+                    onTrashRecordingTake={(take) => void changeRecordingTakeTrash(take, true)}
+                    onRestoreRecordingTake={(take) => void changeRecordingTakeTrash(take, false)}
                     onExport={(sessionId, format) => void exportTranscript(sessionId, format)}
                     onSave={saveTranscriptCue}
                     onVerify={verifyTranscriptCue}
@@ -4566,6 +4626,8 @@ function TranscriptPage(props: {
   records: ArchiveRecord[];
   assets: ArchiveRecord[];
   tracks: AudioTrackDescriptor[];
+  recordingTakes: ArchiveRecord[];
+  trashedRecordingTakes: ArchiveRecord[];
   selectedSessionId: string;
   disabled: boolean;
   onSelectSession: (sessionId: string) => void;
@@ -4574,6 +4636,10 @@ function TranscriptPage(props: {
   onImportAudio: (file: File, sessionId: string, allowAdditionalTrack: boolean) => void;
   onRecordAudio: (file: File, sessionId: string, consentAtUs: string) => Promise<void>;
   onExportAudio: (sessionId: string, trackId: string, label: string) => void;
+  onRenameRecordingTake: (take: ArchiveRecord, label: string) => void;
+  onRenameRecordingTrack: (track: AudioTrackDescriptor, label: string) => void;
+  onTrashRecordingTake: (take: ArchiveRecord) => void;
+  onRestoreRecordingTake: (take: ArchiveRecord) => void;
   onExport: (sessionId: string, format: TranscriptExportFormat) => void;
   onSave: (
     record: ArchiveRecord,
@@ -4624,6 +4690,22 @@ function TranscriptPage(props: {
     const session = selectedSession();
     return session
       ? props.tracks.filter((track) => track.sessionId === session.id.toLowerCase())
+      : [];
+  });
+  const sessionRecordingTakes = createMemo(() => {
+    const session = selectedSession();
+    return session
+      ? props.recordingTakes.filter(
+          (take) => field(take, "session_id").toLowerCase() === session.id.toLowerCase(),
+        )
+      : [];
+  });
+  const trashedSessionRecordingTakes = createMemo(() => {
+    const session = selectedSession();
+    return session
+      ? props.trashedRecordingTakes.filter(
+          (take) => field(take, "session_id").toLowerCase() === session.id.toLowerCase(),
+        )
       : [];
   });
   const sessionAssets = createMemo(() => {
@@ -5103,6 +5185,62 @@ function TranscriptPage(props: {
         </Show>
       </section>
 
+      <Show when={sessionRecordingTakes().length > 0 || trashedSessionRecordingTakes().length > 0}>
+        <section class="transcript-takes-panel" aria-label="Recording takes">
+          <div class="transcript-takes-heading">
+            <div>
+              <span class="eyebrow">SESSION AUDIO</span>
+              <strong>Recording takes</strong>
+              <span>Rename a take, manage its tracks, or recover it from Trash.</span>
+            </div>
+            <span class="transcript-takes-count">
+              {sessionRecordingTakes().length} active · {trashedSessionRecordingTakes().length} in
+              Trash
+            </span>
+          </div>
+          <div class="transcript-takes-list">
+            <For each={sessionRecordingTakes()}>
+              {(take) => {
+                const trackIds = new Set(
+                  field(take, "track_ids")
+                    .split(",")
+                    .map((id) => id.trim().toLowerCase())
+                    .filter(Boolean),
+                );
+                return (
+                  <RecordingTakeRow
+                    take={take}
+                    tracks={sessionTracks().filter((track) => trackIds.has(track.id.toLowerCase()))}
+                    disabled={props.disabled}
+                    onRenameTake={props.onRenameRecordingTake}
+                    onRenameTrack={props.onRenameRecordingTrack}
+                    onTrash={props.onTrashRecordingTake}
+                  />
+                );
+              }}
+            </For>
+            <For each={trashedSessionRecordingTakes()}>
+              {(take) => (
+                <article class="transcript-take-card transcript-take-card-trashed">
+                  <div class="transcript-take-copy">
+                    <strong>{field(take, "label", "Recording take")}</strong>
+                    <span>Moved to Trash with its audio tracks and timeline data.</span>
+                  </div>
+                  <button
+                    class="button button-outline"
+                    type="button"
+                    disabled={props.disabled}
+                    onClick={() => props.onRestoreRecordingTake(take)}
+                  >
+                    Restore take
+                  </button>
+                </article>
+              )}
+            </For>
+          </div>
+        </section>
+      </Show>
+
       <Show when={sessionTracks().length > 0}>
         <section class="transcript-audio-panel" aria-label="Session recording playback">
           <div class="transcript-audio-copy">
@@ -5237,6 +5375,112 @@ function TranscriptPage(props: {
           </Show>
         </Show>
       </section>
+    </div>
+  );
+}
+
+function RecordingTakeRow(props: {
+  take: ArchiveRecord;
+  tracks: AudioTrackDescriptor[];
+  disabled: boolean;
+  onRenameTake: (take: ArchiveRecord, label: string) => void;
+  onRenameTrack: (track: AudioTrackDescriptor, label: string) => void;
+  onTrash: (take: ArchiveRecord) => void;
+}): JSX.Element {
+  const [label, setLabel] = createSignal(
+    untrack(() => field(props.take, "label", "Recording take")),
+  );
+
+  return (
+    <article class="transcript-take-card">
+      <div class="transcript-take-card-heading">
+        <label>
+          <span>Take name</span>
+          <input
+            value={label()}
+            maxLength={120}
+            onInput={(event) => setLabel(event.currentTarget.value)}
+            aria-label="Recording take name"
+          />
+        </label>
+        <button
+          class="button button-outline"
+          type="button"
+          disabled={props.disabled || label().trim() === field(props.take, "label")}
+          onClick={() => props.onRenameTake(props.take, label())}
+        >
+          Save name
+        </button>
+        <button
+          class="button button-outline transcript-take-trash"
+          type="button"
+          disabled={props.disabled}
+          onClick={() => props.onTrash(props.take)}
+        >
+          Move to Trash
+        </button>
+      </div>
+      <div class="transcript-take-meta">
+        <span>{field(props.take, "state", "saved")}</span>
+        <span>
+          {props.tracks.length} {props.tracks.length === 1 ? "track" : "tracks"}
+        </span>
+        <span>{field(props.take, "source", "saved audio")}</span>
+      </div>
+      <Show when={props.tracks.length > 0}>
+        <div class="transcript-take-tracks" aria-label="Tracks in this take">
+          <For each={props.tracks}>
+            {(track) => (
+              <RecordingTrackName
+                track={track}
+                disabled={props.disabled}
+                onRename={props.onRenameTrack}
+              />
+            )}
+          </For>
+        </div>
+      </Show>
+    </article>
+  );
+}
+
+function RecordingTrackName(props: {
+  track: AudioTrackDescriptor;
+  disabled: boolean;
+  onRename: (track: AudioTrackDescriptor, label: string) => void;
+}): JSX.Element {
+  const [editVersion, setEditVersion] = createSignal(0);
+  let input: HTMLInputElement | undefined;
+
+  function hasChanges(): boolean {
+    editVersion();
+    const currentInput = input;
+    return currentInput !== undefined && currentInput.value.trim() !== props.track.label;
+  }
+
+  return (
+    <div class="transcript-take-track-row">
+      <label>
+        <span>Track name</span>
+        <input
+          ref={(element) => (input = element)}
+          value={props.track.label}
+          maxLength={120}
+          onInput={(event) => {
+            input = event.currentTarget;
+            setEditVersion((version) => version + 1);
+          }}
+          aria-label={`Track name: ${props.track.label}`}
+        />
+      </label>
+      <button
+        class="button button-outline"
+        type="button"
+        disabled={props.disabled || !hasChanges()}
+        onClick={() => props.onRename(props.track, input?.value ?? props.track.label)}
+      >
+        Save track name
+      </button>
     </div>
   );
 }
