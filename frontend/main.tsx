@@ -37,6 +37,8 @@ import {
   type AiProviderConfigurationInput,
 } from "./ai/providers";
 import { MAX_ASSET_BYTES, makeAssetImport, readAssetBytes } from "./domain/assets";
+import pdfWorkerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
+import { configurePdfWorkerSource } from "./domain/document-text";
 import {
   buildAudioTrackWavStream,
   buildAudioPreview,
@@ -143,6 +145,8 @@ import "./annotation.css";
 import "./assets.css";
 import "./evidence.css";
 import "./journal.css";
+
+configurePdfWorkerSource(pdfWorkerUrl);
 
 type View =
   | "home"
