@@ -23,7 +23,7 @@ import {
 } from "./archive/archive";
 import { ArchiveFormatError, RecordType, type ArchiveRecord } from "./archive/format";
 import { DocumentEditor } from "./DocumentEditor";
-import type { ArchiveByteSource } from "./archive/source";
+import { sourceStream, type ArchiveByteSource } from "./archive/source";
 import { AiPage } from "./AiPage";
 import { createAiPackageRecord, type AiPackageSummary } from "./ai/package";
 import { createAiRequestPreview, type AiRequestPreview } from "./ai/request";
@@ -49,6 +49,10 @@ import {
   renameRecordingTrack,
   setRecordingTakeDeleted,
 } from "./domain/recording-takes";
+import {
+  createSessionPackage,
+  importSessionPackage as prepareSessionPackageImport,
+} from "./domain/session-packages";
 import {
   reviewStudentProgressRecord,
   type StudentProgressClassification,
@@ -1159,6 +1163,64 @@ function App(): JSX.Element {
       );
     } catch (error) {
       announce(errorMessage(error), "error");
+    }
+  }
+
+  async function exportSessionPackageFile(session: ArchiveRecord): Promise<void> {
+    const current = workspace();
+    if (!current || busy()) return;
+    let packageSnapshot: ArchiveSnapshot | undefined;
+    setBusy(true);
+    try {
+      packageSnapshot = await createSessionPackage(current.snapshot, session.id);
+      const filename = `${safeFileName(field(session, "title", "Session"))}-session.tux`;
+      const location = await platform.exportBinaryFile(
+        filename,
+        async () => sourceStream(packageSnapshot!.source),
+        "application/x-tutorux",
+      );
+      if (location) announce(`Exported session package to ${location}.`, "success");
+    } catch (error) {
+      announce(errorMessage(error), "error");
+    } finally {
+      packageSnapshot?.lock();
+      await packageSnapshot?.source.close?.();
+      setBusy(false);
+    }
+  }
+
+  async function importSessionPackageFile(studentId?: string): Promise<void> {
+    const current = workspace();
+    if (!current || busy()) return;
+    let opened: Awaited<ReturnType<typeof platform.openArchive>> = null;
+    let packageSnapshot: ArchiveSnapshot | undefined;
+    setBusy(true);
+    try {
+      opened = await platform.openArchive();
+      if (!opened) return;
+      packageSnapshot = await openArchiveSource(opened.source);
+      const imported = await prepareSessionPackageImport(
+        packageSnapshot,
+        current.snapshot,
+        studentId,
+      );
+      if (workspace()?.snapshot !== current.snapshot) {
+        throw new Error("The active archive changed while the session package was being read.");
+      }
+      const importedSession = imported.records.find(
+        (record) => record.type === RecordType.session && record.id === imported.sessionId,
+      );
+      if (!importedSession) throw new Error("The imported session package has no session record.");
+      await addRecords(
+        imported.records,
+        `Imported session “${field(importedSession, "title", "Tutoring session")}”. Save to write the new generation to disk.`,
+      );
+    } catch (error) {
+      announce(errorMessage(error), "error");
+    } finally {
+      packageSnapshot?.lock();
+      await (packageSnapshot?.source ?? opened?.source)?.close?.();
+      setBusy(false);
     }
   }
 
@@ -2274,6 +2336,8 @@ function App(): JSX.Element {
                     onTrash={(record) => void reviewSessionTrash(record)}
                     onTransition={(record, action) => void transitionSession(record, action)}
                     onClone={(record) => void duplicateSession(record)}
+                    onExportSessionPackage={(record) => void exportSessionPackageFile(record)}
+                    onImportSessionPackage={(studentId) => void importSessionPackageFile(studentId)}
                     onArchive={(record, archived) =>
                       void updateSessionArchiveState(record, archived)
                     }
@@ -3734,6 +3798,8 @@ function RecordPage(props: {
   onTrash?: (record: ArchiveRecord) => void;
   onTransition?: (record: ArchiveRecord, action: SessionTransitionAction) => void;
   onClone?: (record: ArchiveRecord) => void;
+  onExportSessionPackage?: (record: ArchiveRecord) => void;
+  onImportSessionPackage?: (studentId?: string) => void;
   onArchive?: (record: ArchiveRecord, archived: boolean) => void;
   onProgressReview?: (input: {
     student: ArchiveRecord;
@@ -3749,6 +3815,7 @@ function RecordPage(props: {
 }): JSX.Element {
   const [collectionFilter, setCollectionFilter] = createSignal("");
   const [tagFilter, setTagFilter] = createSignal("");
+  const [sessionPackageStudentId, setSessionPackageStudentId] = createSignal("");
   const [sessionArchiveView, setSessionArchiveView] = createSignal<"current" | "archived">(
     "current",
   );
@@ -3853,21 +3920,49 @@ function RecordPage(props: {
           <h1>{heading.title}</h1>
           <p>{heading.description}</p>
         </div>
-        <Show when={canAdd}>
-          <button
-            class="button button-primary"
-            type="button"
-            disabled={!props.state.snapshot.canMutate}
-            onClick={() => props.onAdd?.()}
-          >
-            <Icon name="plus" />
-            {props.kind === "students"
-              ? "Add student"
-              : props.kind === "sessions"
-                ? "New session"
-                : "New entry"}
-          </button>
-        </Show>
+        <div class="record-heading-actions">
+          <Show when={props.kind === "sessions" && props.onImportSessionPackage}>
+            <label class="session-package-student-picker">
+              <span>Link imported session to</span>
+              <select
+                value={sessionPackageStudentId()}
+                disabled={!props.state.snapshot.canMutate || busy()}
+                onChange={(event) => setSessionPackageStudentId(event.currentTarget.value)}
+                aria-label="Student for imported session"
+              >
+                <option value="">Automatically match or leave independent</option>
+                <For each={props.state.students}>
+                  {(student) => (
+                    <option value={student.id}>{field(student, "display_name", "Learner")}</option>
+                  )}
+                </For>
+              </select>
+            </label>
+            <button
+              class="button button-outline"
+              type="button"
+              disabled={!props.state.snapshot.canMutate || busy()}
+              onClick={() => props.onImportSessionPackage?.(sessionPackageStudentId() || undefined)}
+            >
+              Import session package
+            </button>
+          </Show>
+          <Show when={canAdd}>
+            <button
+              class="button button-primary"
+              type="button"
+              disabled={!props.state.snapshot.canMutate || busy()}
+              onClick={() => props.onAdd?.()}
+            >
+              <Icon name="plus" />
+              {props.kind === "students"
+                ? "Add student"
+                : props.kind === "sessions"
+                  ? "New session"
+                  : "New entry"}
+            </button>
+          </Show>
+        </div>
       </section>
       <Show when={props.kind === "journal"}>
         <JournalOrganizer
@@ -4010,6 +4105,9 @@ function RecordPage(props: {
                   onTrash={!props.state.snapshot.canMutate ? undefined : props.onTrash}
                   onTransition={!props.state.snapshot.canMutate ? undefined : props.onTransition}
                   onClone={!props.state.snapshot.canMutate ? undefined : props.onClone}
+                  onExportSessionPackage={
+                    !props.state.snapshot.canMutate ? undefined : props.onExportSessionPackage
+                  }
                   onArchive={!props.state.snapshot.canMutate ? undefined : props.onArchive}
                 />
               )}
@@ -4046,6 +4144,7 @@ function RecordCard(props: {
   onTrash: ((record: ArchiveRecord) => void) | undefined;
   onTransition: ((record: ArchiveRecord, action: SessionTransitionAction) => void) | undefined;
   onClone: ((record: ArchiveRecord) => void) | undefined;
+  onExportSessionPackage: ((record: ArchiveRecord) => void) | undefined;
   onArchive: ((record: ArchiveRecord, archived: boolean) => void) | undefined;
 }): JSX.Element {
   const record = props.record;
@@ -4162,6 +4261,7 @@ function RecordCard(props: {
         onTrash={props.onTrash}
         onTransition={props.onTransition}
         onClone={props.onClone}
+        onExportPackage={props.onExportSessionPackage}
         onArchive={props.onArchive}
       />
     );
@@ -4453,6 +4553,7 @@ function SessionRow(props: {
   onTrash?: ((record: ArchiveRecord) => void) | undefined;
   onTransition?: ((record: ArchiveRecord, action: SessionTransitionAction) => void) | undefined;
   onClone?: ((record: ArchiveRecord) => void) | undefined;
+  onExportPackage?: ((record: ArchiveRecord) => void) | undefined;
   onArchive?: ((record: ArchiveRecord, archived: boolean) => void) | undefined;
 }): JSX.Element {
   const student = props.students.find((item) => item.id === field(props.session, "student_id"));
@@ -4499,7 +4600,12 @@ function SessionRow(props: {
       <Show
         when={
           props.expanded &&
-          (props.onEdit || props.onTrash || props.onTransition || props.onClone || props.onArchive)
+          (props.onEdit ||
+            props.onTrash ||
+            props.onTransition ||
+            props.onClone ||
+            props.onExportPackage ||
+            props.onArchive)
         }
       >
         <div class="record-actions session-actions">
@@ -4565,6 +4671,16 @@ function SessionRow(props: {
               onClick={() => props.onClone?.(props.session)}
             >
               Duplicate
+            </button>
+          </Show>
+          <Show when={props.onExportPackage}>
+            <button
+              class="button button-outline record-action"
+              type="button"
+              disabled={props.disabled}
+              onClick={() => props.onExportPackage?.(props.session)}
+            >
+              Export session package
             </button>
           </Show>
           <Show when={props.onArchive}>
