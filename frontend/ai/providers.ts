@@ -193,7 +193,7 @@ function cleanField(
   return cleaned;
 }
 
-async function deterministicUuid(seed: string): Promise<string> {
+export async function deterministicUuid(seed: string): Promise<string> {
   const digest = new Uint8Array(
     await crypto.subtle.digest("SHA-256", new TextEncoder().encode(seed)),
   );
