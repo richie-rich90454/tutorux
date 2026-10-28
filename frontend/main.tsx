@@ -76,12 +76,16 @@ import {
 } from "./domain/templates";
 import {
   EVIDENCE_RELATIONSHIPS,
+  classifyTranscriptEvidence,
   extractSessionEvidence,
+  makeEvidenceRecord,
   makeEvidenceEdge,
   reviewEvidenceRecord,
   restoreEvidenceRecordGroup,
+  trashEvidenceEdge,
   trashEvidenceRecord,
   updateEvidenceRecord,
+  type EvidenceCreateInput,
   type EvidenceUpdateInput,
 } from "./domain/evidence";
 import { createEvidenceGraphLayout, type EvidenceGraphLayout } from "./domain/evidence-graph";
@@ -1924,6 +1928,30 @@ function App(): JSX.Element {
     }
   }
 
+  async function createEvidence(
+    sessionId: string,
+    segmentId: string,
+    input: EvidenceCreateInput,
+  ): Promise<boolean> {
+    const state = workspace();
+    if (!state) return false;
+    try {
+      const evidence = await makeEvidenceRecord(state.snapshot, sessionId, segmentId, input);
+      return await addRecords([evidence], "Tutor-authored evidence added to source review.");
+    } catch (error) {
+      announce(errorMessage(error), "error");
+      return false;
+    }
+  }
+
+  async function removeEvidenceEdge(edge: ArchiveRecord): Promise<void> {
+    try {
+      await addRecords([trashEvidenceEdge(edge)], "Evidence relationship removed.");
+    } catch (error) {
+      announce(errorMessage(error), "error");
+    }
+  }
+
   async function exportTranscript(
     sessionId: string,
     format: TranscriptExportFormat,
@@ -2539,12 +2567,16 @@ function App(): JSX.Element {
                     sessions={state.sessions}
                     records={filteredRecords()}
                     edges={state.evidenceEdges}
+                    transcripts={state.transcripts}
+                    assets={state.assets}
                     selectedSessionId={selectedEvidenceSessionId()}
                     disabled={state.snapshot.locked || !state.snapshot.canMutate || busy()}
                     onSelectSession={setSelectedEvidenceSessionId}
                     onExtract={extractEvidence}
+                    onCreate={createEvidence}
                     onReview={reviewEvidence}
                     onLink={linkEvidence}
+                    onUnlink={(edge) => void removeEvidenceEdge(edge)}
                     onUpdate={updateEvidence}
                     onTrash={(record) => void trashEvidence(record)}
                   />
@@ -3226,21 +3258,46 @@ function Overview(props: {
   );
 }
 
+function timestampForEvidence(record: ArchiveRecord): bigint {
+  try {
+    const timestamp = BigInt(field(record, "start_time_us", "0"));
+    return timestamp < 0n ? 0n : timestamp;
+  } catch {
+    return 0n;
+  }
+}
+
+function evidenceTranscriptLabel(record: ArchiveRecord): string {
+  const speaker = field(record, "speaker_label");
+  const text = field(record, "text").replace(/\s+/gu, " ").trim();
+  const preview = Array.from(text).slice(0, 96).join("");
+  return `${formatTranscriptTimestampUs(timestampForEvidence(record))}${speaker ? ` · ${speaker}` : ""} — ${preview || "Empty segment"}`;
+}
+
 function EvidencePage(props: {
   sessions: ArchiveRecord[];
   records: ArchiveRecord[];
   edges: ArchiveRecord[];
+  transcripts: ArchiveRecord[];
+  assets: ArchiveRecord[];
   selectedSessionId: string;
   disabled: boolean;
   onSelectSession: (sessionId: string) => void;
   onExtract: (sessionId: string) => void;
+  onCreate: (sessionId: string, segmentId: string, input: EvidenceCreateInput) => Promise<boolean>;
   onReview: (record: ArchiveRecord, outcome: "human-verified" | "rejected") => void;
   onLink: (fromId: string, toId: string, relationship: string) => void;
+  onUnlink: (edge: ArchiveRecord) => void;
   onUpdate: (record: ArchiveRecord, input: EvidenceUpdateInput) => Promise<boolean>;
   onTrash: (record: ArchiveRecord) => void;
 }): JSX.Element {
   const [fromId, setFromId] = createSignal("");
   const [toId, setToId] = createSignal("");
+  const [sourceSegmentId, setSourceSegmentId] = createSignal("");
+  const [createTitle, setCreateTitle] = createSignal("");
+  const [createType, setCreateType] = createSignal("tutor-observation");
+  const [createPriority, setCreatePriority] = createSignal("normal");
+  const [createContent, setCreateContent] = createSignal("");
   const [relationship, setRelationship] =
     createSignal<(typeof EVIDENCE_RELATIONSHIPS)[number]>("supports");
   const selectedSession = createMemo(
@@ -3267,6 +3324,30 @@ function EvidencePage(props: {
         return leftAt > rightAt ? -1 : leftAt < rightAt ? 1 : 0;
       });
   });
+  const sessionTranscripts = createMemo(() => {
+    const session = selectedSession();
+    if (!session) return [] as ArchiveRecord[];
+    return [...props.transcripts]
+      .filter((record) => field(record, "session_id").toLowerCase() === session.id.toLowerCase())
+      .sort((left, right) => {
+        const leftAt = timestampForEvidence(left);
+        const rightAt = timestampForEvidence(right);
+        return leftAt < rightAt ? -1 : leftAt > rightAt ? 1 : left.id.localeCompare(right.id);
+      });
+  });
+  const selectedSegment = createMemo(
+    () => sessionTranscripts().find((record) => record.id === sourceSegmentId()) ?? null,
+  );
+  const selectedSegmentAssetIds = createMemo(() =>
+    (selectedSegment()?.fields.get("linked_asset_ids") ?? "")
+      .split(",")
+      .map((id) => id.trim().toLowerCase())
+      .filter(Boolean),
+  );
+  const selectedSegmentAssets = createMemo(() => {
+    const ids = new Set(selectedSegmentAssetIds());
+    return props.assets.filter((asset) => ids.has(asset.id.toLowerCase()));
+  });
   const sessionEdges = createMemo(() => {
     const ids = new Set(sessionRecords().map((record) => record.id.toLowerCase()));
     const sessionId = selectedSession()?.id.toLowerCase() ?? "";
@@ -3278,6 +3359,43 @@ function EvidencePage(props: {
     );
   });
   const graph = createMemo(() => createEvidenceGraphLayout(sessionRecords(), sessionEdges()));
+
+  function chooseTranscriptSource(segmentId: string): void {
+    setSourceSegmentId(segmentId);
+    const segment = sessionTranscripts().find((record) => record.id === segmentId);
+    if (!segment) {
+      setCreateTitle("");
+      setCreateType("tutor-observation");
+      setCreateContent("");
+      return;
+    }
+    const text = field(segment, "text");
+    const candidate = classifyTranscriptEvidence(text)[0];
+    setCreateTitle(candidate?.title ?? "Tutor observation");
+    setCreateType(candidate?.type ?? "tutor-observation");
+    setCreateContent(text);
+  }
+
+  function submitEvidence(event: SubmitEvent): void {
+    event.preventDefault();
+    const session = selectedSession();
+    if (!session || !sourceSegmentId()) return;
+    void props
+      .onCreate(session.id, sourceSegmentId(), {
+        title: createTitle(),
+        type: createType(),
+        priority: createPriority(),
+        content: createContent(),
+      })
+      .then((saved) => {
+        if (!saved) return;
+        setSourceSegmentId("");
+        setCreateTitle("");
+        setCreateType("tutor-observation");
+        setCreatePriority("normal");
+        setCreateContent("");
+      });
+  }
 
   return (
     <div class="page-body evidence-page">
@@ -3307,7 +3425,12 @@ function EvidencePage(props: {
           <select
             value={selectedSession()?.id ?? ""}
             disabled={props.sessions.length === 0}
-            onChange={(event) => props.onSelectSession(event.currentTarget.value)}
+            onChange={(event) => {
+              props.onSelectSession(event.currentTarget.value);
+              setFromId("");
+              setToId("");
+              chooseTranscriptSource("");
+            }}
             aria-label="Evidence session"
           >
             <Show when={props.sessions.length === 0}>
@@ -3346,6 +3469,120 @@ function EvidencePage(props: {
           </span>
         </div>
       </section>
+
+      <Show when={selectedSession()}>
+        <section class="evidence-create surface-card" aria-labelledby="evidence-create-title">
+          <div class="evidence-create-heading">
+            <span class="eyebrow">TUTOR-AUTHORED SOURCE</span>
+            <h2 id="evidence-create-title">Add evidence from a transcript</h2>
+            <p>
+              Write a reviewed claim and keep its source segment, revision, and linked materials
+              attached.
+            </p>
+          </div>
+          <form class="evidence-create-form" onSubmit={submitEvidence}>
+            <label>
+              <span>Transcript segment</span>
+              <select
+                aria-label="Transcript source segment"
+                required
+                value={sourceSegmentId()}
+                disabled={props.disabled || sessionTranscripts().length === 0}
+                onChange={(event) => chooseTranscriptSource(event.currentTarget.value)}
+              >
+                <option value="">Choose a transcript segment</option>
+                <For each={sessionTranscripts()}>
+                  {(segment) => (
+                    <option value={segment.id}>{evidenceTranscriptLabel(segment)}</option>
+                  )}
+                </For>
+              </select>
+            </label>
+            <label>
+              <span>Title</span>
+              <input
+                aria-label="Evidence title"
+                required
+                maxLength={512}
+                value={createTitle()}
+                disabled={props.disabled || !sourceSegmentId()}
+                onInput={(event) => setCreateTitle(event.currentTarget.value)}
+              />
+            </label>
+            <label>
+              <span>Type</span>
+              <input
+                aria-label="Evidence type"
+                required
+                maxLength={128}
+                value={createType()}
+                disabled={props.disabled || !sourceSegmentId()}
+                onInput={(event) => setCreateType(event.currentTarget.value)}
+              />
+            </label>
+            <label>
+              <span>Priority</span>
+              <select
+                aria-label="Evidence priority"
+                value={createPriority()}
+                disabled={props.disabled || !sourceSegmentId()}
+                onChange={(event) => setCreatePriority(event.currentTarget.value)}
+              >
+                <option value="low">Low</option>
+                <option value="normal">Normal</option>
+                <option value="high">High</option>
+                <option value="critical">Critical</option>
+              </select>
+            </label>
+            <label class="evidence-create-content">
+              <span>Evidence</span>
+              <textarea
+                aria-label="Evidence content"
+                required
+                value={createContent()}
+                disabled={props.disabled || !sourceSegmentId()}
+                onInput={(event) => setCreateContent(event.currentTarget.value)}
+              />
+            </label>
+            <div class="evidence-create-footer">
+              <Show
+                when={selectedSegmentAssets().length > 0}
+                fallback={
+                  <small>
+                    {selectedSegmentAssetIds().length > 0
+                      ? "Linked material metadata is unavailable. Source IDs will still be preserved."
+                      : "The source transcript revision will be recorded with this item."}
+                  </small>
+                }
+              >
+                <small>
+                  Linked materials:{" "}
+                  {selectedSegmentAssets()
+                    .map((asset) => field(asset, "filename", "Material"))
+                    .join(", ")}
+                  {selectedSegmentAssetIds().length > selectedSegmentAssets().length
+                    ? ` · ${selectedSegmentAssetIds().length - selectedSegmentAssets().length} unavailable`
+                    : ""}
+                </small>
+              </Show>
+              <button
+                class="button button-primary"
+                type="submit"
+                disabled={
+                  props.disabled ||
+                  !selectedSession() ||
+                  !sourceSegmentId() ||
+                  !createTitle().trim() ||
+                  !createType().trim() ||
+                  !createContent().trim()
+                }
+              >
+                Create evidence
+              </button>
+            </div>
+          </form>
+        </section>
+      </Show>
 
       <Show
         when={selectedSession()}
@@ -3387,6 +3624,7 @@ function EvidencePage(props: {
               {(record) => (
                 <EvidenceCard
                   record={record}
+                  assets={props.assets}
                   disabled={props.disabled}
                   onReview={props.onReview}
                   onUpdate={props.onUpdate}
@@ -3556,6 +3794,15 @@ function EvidencePage(props: {
                             ? field(to()!, "title", field(to()!, "type", "Evidence"))
                             : "Missing evidence item"}
                         </span>
+                        <button
+                          class="button button-quiet"
+                          type="button"
+                          disabled={props.disabled || edge.fields.get("_deleted") === "true"}
+                          aria-label={`Remove relationship: ${field(edge, "relationship", "unknown")}`}
+                          onClick={() => props.onUnlink(edge)}
+                        >
+                          Remove
+                        </button>
                       </div>
                     );
                   }}
@@ -3644,6 +3891,7 @@ function EvidenceNetwork(props: { layout: EvidenceGraphLayout }): JSX.Element {
 
 function EvidenceCard(props: {
   record: ArchiveRecord;
+  assets: ArchiveRecord[];
   disabled: boolean;
   onReview: (record: ArchiveRecord, outcome: "human-verified" | "rejected") => void;
   onUpdate: (record: ArchiveRecord, input: EvidenceUpdateInput) => Promise<boolean>;
@@ -3655,12 +3903,25 @@ function EvidenceCard(props: {
   const [priority, setPriority] = createSignal("");
   const [content, setContent] = createSignal("");
   const state = () => field(props.record, "verification_state", "needs-review");
-  const sourceLabel = () =>
-    field(props.record, "source_annotation_id")
-      ? "Tutor observation"
-      : field(props.record, "source_segment_ids")
-        ? "Transcript candidate"
-        : "Imported evidence";
+  const sourceLabel = () => {
+    const origin = field(props.record, "origin");
+    if (field(props.record, "source_annotation_id")) return "Tutor observation";
+    if (field(props.record, "source_segment_ids")) {
+      return origin === "tutor-authored"
+        ? "Tutor-authored transcript evidence"
+        : "Transcript candidate";
+    }
+    return "Imported evidence";
+  };
+  const sourceAssetIds = () =>
+    field(props.record, "source_asset_ids")
+      .split(",")
+      .map((id) => id.trim().toLowerCase())
+      .filter(Boolean);
+  const sourceAssets = createMemo(() => {
+    const ids = new Set(sourceAssetIds());
+    return props.assets.filter((asset) => ids.has(asset.id.toLowerCase()));
+  });
   const beginEditing = (): void => {
     setTitle(field(props.record, "title", "Evidence from this session"));
     setType(field(props.record, "type", "learning-evidence"));
@@ -3793,6 +4054,18 @@ function EvidenceCard(props: {
           </Show>
           <Show when={field(props.record, "source_speaker_label")}>
             <span>Speaker: {field(props.record, "source_speaker_label")}</span>
+          </Show>
+          <For each={sourceAssets()}>
+            {(asset) => (
+              <span class="evidence-source-material">
+                Material: {field(asset, "filename", "Untitled material")}
+              </span>
+            )}
+          </For>
+          <Show when={sourceAssetIds().length > sourceAssets().length}>
+            <span>
+              {sourceAssetIds().length - sourceAssets().length} linked materials unavailable
+            </span>
           </Show>
         </div>
         <Show when={!editing()}>
