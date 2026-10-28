@@ -29,6 +29,8 @@ import { ArchiveSettings } from "./ArchiveSettings";
 import { JournalHistory } from "./JournalHistory";
 import { JournalRelations } from "./JournalRelations";
 import { StudentVersionHistory } from "./StudentVersionHistory";
+import { ArchiveMaintenance } from "./ArchiveMaintenance";
+import { MaterialDetails, MaterialTrash } from "./MaterialDetails";
 import { sourceStream, type ArchiveByteSource } from "./archive/source";
 import { AiPage } from "./AiPage";
 import { createAiPackageRecord, type AiPackageSummary } from "./ai/package";
@@ -899,6 +901,27 @@ function App(): JSX.Element {
       return true;
     } catch (error) {
       if (nextSnapshot && workspace()?.snapshot !== nextSnapshot) nextSnapshot.lock();
+      announce(errorMessage(error), "error");
+      return false;
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function applyArchiveMaintenance(
+    original: ArchiveSnapshot,
+    replacement: ArchiveSnapshot,
+  ): Promise<boolean> {
+    const current = workspace();
+    if (!current || current.snapshot !== original || busy()) return false;
+    setBusy(true);
+    try {
+      const updated = await readWorkspace(replacement, current.name, current.location, true);
+      if (workspace()?.snapshot !== original) return false;
+      setWorkspace(updated);
+      announce("Archive changes are ready. Save the workspace to write them to disk.", "success");
+      return true;
+    } catch (error) {
       announce(errorMessage(error), "error");
       return false;
     } finally {
@@ -2930,6 +2953,8 @@ function App(): JSX.Element {
                   <AssetPage
                     records={filteredRecords()}
                     sessions={state.sessions}
+                    snapshot={state.snapshot}
+                    onWriteRecords={(records, message) => addRecords(records, message)}
                     disabled={state.snapshot.locked || !state.snapshot.canMutate || busy()}
                     onImport={importAsset}
                     onPreview={loadAssetPreview}
@@ -2954,6 +2979,8 @@ function App(): JSX.Element {
                 <Show when={view() === "archive"}>
                   <ArchivePage
                     state={state}
+                    busy={busy()}
+                    onApplyMaintenance={applyArchiveMaintenance}
                     onSave={() => void saveCurrentArchive()}
                     onOpen={() => void openArchive()}
                     onLock={() => void lockCurrentArchive()}
@@ -4500,6 +4527,8 @@ function EvidenceCard(props: {
 function AssetPage(props: {
   records: ArchiveRecord[];
   sessions: ArchiveRecord[];
+  snapshot: ArchiveSnapshot;
+  onWriteRecords: (records: ArchiveRecord[], message: string) => Promise<boolean>;
   disabled: boolean;
   onImport: (file: File, sessionId: string) => Promise<void>;
   onPreview: (record: ArchiveRecord) => Promise<{ bytes: Uint8Array; mimeType: string } | null>;
@@ -4700,12 +4729,23 @@ function AssetPage(props: {
                         Text extraction: {field(record, "text_extraction_status")}
                       </small>
                     </Show>
+                    <MaterialDetails
+                      record={record}
+                      snapshot={props.snapshot}
+                      disabled={props.disabled}
+                      onWriteRecords={props.onWriteRecords}
+                    />
                   </article>
                 );
               }}
             </For>
           </div>
         </Show>
+        <MaterialTrash
+          snapshot={props.snapshot}
+          disabled={props.disabled}
+          onWriteRecords={props.onWriteRecords}
+        />
       </section>
       <Show when={preview()}>
         {(active) => (
@@ -7180,6 +7220,8 @@ function UnlockArchivePanel(props: {
 
 function ArchivePage(props: {
   state: Workspace;
+  busy: boolean;
+  onApplyMaintenance: (original: ArchiveSnapshot, replacement: ArchiveSnapshot) => Promise<boolean>;
   onSave: () => void;
   onOpen: () => void;
   onLock: () => void;
@@ -7325,6 +7367,11 @@ function ArchivePage(props: {
           </span>
         </div>
       </section>
+      <ArchiveMaintenance
+        snapshot={props.state.snapshot}
+        disabled={props.busy}
+        onApply={props.onApplyMaintenance}
+      />
       <section class="archive-actions-card">
         <div>
           <span class="eyebrow">PORTABLE BY DESIGN</span>
