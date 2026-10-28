@@ -7,9 +7,40 @@ import {
 } from "../archive/archive";
 import { crc32, RecordType, type ArchiveRecord } from "../archive/format";
 import type { ArchiveByteSource } from "../archive/source";
-import { buildAudioPreview, buildAudioTrackWavStream } from "./audio";
+import { buildAudioPreview, buildAudioTrackWavStream, listSessionAudioTracks } from "./audio";
 
 describe("archive audio playback", () => {
+  it("does not expose audio tracks whose metadata is in Trash", () => {
+    const sessionId = crypto.randomUUID();
+    const trackId = crypto.randomUUID();
+    const session = {
+      type: RecordType.session,
+      id: sessionId,
+      revision: 0n,
+      previousOffset: 0n,
+      fields: new Map([
+        ["recording_track_ids", trackId],
+        ["recording_track_id", trackId],
+      ]),
+      blob: new Uint8Array(),
+    };
+    const track = {
+      type: RecordType.assetMetadata,
+      id: trackId,
+      revision: 0n,
+      previousOffset: 0n,
+      fields: new Map([
+        ["record_role", "audio-track"],
+        ["session_id", sessionId],
+        ["track_id", trackId],
+        ["_deleted", "true"],
+      ]),
+      blob: new Uint8Array(),
+    };
+
+    expect(listSessionAudioTracks(session, [track], [trackId])).toEqual([]);
+  });
+
   it("plays a bounded range and renders missing timeline frames as silence", async () => {
     const sessionId = crypto.randomUUID();
     const trackId = crypto.randomUUID();
