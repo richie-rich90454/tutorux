@@ -555,6 +555,56 @@
   outline-offset: 1px;
 }
 
+.guide-regeneration-title {
+  display: grid;
+  gap: 6px;
+  margin: 4px 25px 0;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.guide-regeneration-title input {
+  width: 100%;
+  min-height: 38px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  color: var(--ink);
+  background: var(--surface);
+  font: inherit;
+  font-size: 11px;
+}
+
+.guide-generation-entry-evidence {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  margin: 10px 25px 0;
+  padding: 11px 12px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  color: var(--ink);
+  font-size: 11px;
+  line-height: 1.5;
+  cursor: pointer;
+}
+
+.guide-generation-entry-evidence input {
+  flex: 0 0 auto;
+  margin: 2px 0 0;
+  accent-color: var(--accent);
+}
+
+.guide-generation-entry-evidence span {
+  display: grid;
+  gap: 3px;
+}
+
+.guide-generation-entry-evidence small {
+  color: var(--muted);
+  font-size: 10px;
+}
+
 .guide-generation-note {
   margin: 8px 25px 0;
   padding: 10px 12px;
@@ -999,6 +1049,16 @@
   }
 
   .guide-generation-note {
+    margin-right: 16px;
+    margin-left: 16px;
+  }
+
+  .guide-generation-entry-evidence {
+    margin-right: 16px;
+    margin-left: 16px;
+  }
+
+  .guide-regeneration-title {
     margin-right: 16px;
     margin-left: 16px;
   }
