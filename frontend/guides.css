@@ -387,6 +387,7 @@
 
 .guide-record-actions {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 4px;
 }
@@ -395,6 +396,47 @@
   min-height: 31px;
   padding: 0 9px;
   font-size: 9px;
+}
+
+.guide-export-menu {
+  position: relative;
+}
+
+.guide-export-menu summary {
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+  list-style: none;
+}
+
+.guide-export-menu summary::-webkit-details-marker {
+  display: none;
+}
+
+.guide-export-menu[open] {
+  flex: 1 1 100%;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 5px;
+  padding: 5px 7px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--surface-inset);
+}
+
+.guide-export-menu-popover {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.guide-export-menu[open] .guide-export-menu-popover .button {
+  min-height: 27px;
+}
+
+.guide-print-preview {
+  display: none;
 }
 
 .guide-trash-button {
@@ -929,5 +971,204 @@
   .guide-record-card {
     gap: 10px;
     padding: 14px;
+  }
+}
+
+@page {
+  margin: 16mm;
+}
+
+@media print {
+  html.guide-printing,
+  html.guide-printing body,
+  html.guide-printing #root {
+    min-width: 0 !important;
+    min-height: 0 !important;
+    width: auto !important;
+    height: auto !important;
+    margin: 0 !important;
+    overflow: visible !important;
+    color: #18211b !important;
+    background: #fff !important;
+  }
+
+  html.guide-printing .app-frame {
+    display: block !important;
+    min-height: 0 !important;
+    overflow: visible !important;
+    background: #fff !important;
+  }
+
+  html.guide-printing .app-frame > :not(.guide-print-preview) {
+    display: none !important;
+  }
+
+  html.guide-printing .guide-print-preview {
+    display: block !important;
+    color: #18211b !important;
+    background: #fff !important;
+    font-family: "Noto Sans", "Segoe UI", sans-serif;
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+  }
+
+  .guide-print-preview .document {
+    max-width: none;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: #fff;
+    box-shadow: none;
+  }
+
+  .guide-print-preview .document-header {
+    padding-bottom: 22px;
+    border-bottom: 1px solid #dfe6df;
+  }
+
+  .guide-print-preview .brand {
+    margin: 0 0 16px;
+    color: #315b4a;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  .guide-print-preview h1 {
+    margin: 0;
+    color: #18211b;
+    font-size: 30px;
+    line-height: 1.12;
+  }
+
+  .guide-print-preview .document-meta,
+  .guide-print-preview .guide-block-kind,
+  .guide-print-preview .guide-sources,
+  .guide-print-preview .document-footer {
+    color: #637267;
+  }
+
+  .guide-print-preview .document-meta {
+    margin: 10px 0 0;
+    font-size: 11px;
+  }
+
+  .guide-print-preview .guide-section {
+    margin-top: 24px;
+  }
+
+  .guide-print-preview h2 {
+    margin: 0 0 12px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid #e6ebe6;
+    color: #28463c;
+    font-size: 19px;
+    break-after: avoid;
+  }
+
+  .guide-print-preview .guide-block {
+    margin: 0 0 15px;
+    break-inside: avoid;
+  }
+
+  .guide-print-preview .guide-block-kind {
+    margin: 0 0 5px;
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.07em;
+    text-transform: uppercase;
+  }
+
+  .guide-print-preview .guide-text,
+  .guide-print-preview li,
+  .guide-print-preview blockquote {
+    color: #35443a;
+    font-size: 11pt;
+    line-height: 1.65;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+
+  .guide-print-preview ul {
+    margin: 0;
+    padding-left: 20px;
+  }
+
+  .guide-print-preview blockquote {
+    padding-left: 14px;
+    border-left: 3px solid #9bc8aa;
+  }
+
+  .guide-print-preview pre {
+    padding: 10px 12px;
+    border-radius: 5px;
+    background: #f0f3ef;
+    font:
+      10pt/1.55 ui-monospace,
+      "Cascadia Code",
+      monospace;
+    white-space: pre-wrap;
+  }
+
+  .guide-print-preview .guide-stale {
+    margin: 0 0 7px;
+    padding: 8px 10px;
+    border-left: 3px solid #9b6e2f;
+    background: #fbf4e9;
+    color: #704d20;
+    font-size: 9pt;
+  }
+
+  .guide-print-preview .guide-sources {
+    margin: 7px 0 0;
+    font-size: 8.5pt;
+    overflow-wrap: anywhere;
+  }
+
+  .guide-print-preview .guide-table {
+    width: 100%;
+    margin: 10px 0;
+    border-collapse: collapse;
+    font-size: 10pt;
+  }
+
+  .guide-print-preview .guide-table th,
+  .guide-print-preview .guide-table td {
+    padding: 7px 9px;
+    border: 1px solid #d9e0d8;
+    text-align: left;
+    vertical-align: top;
+  }
+
+  .guide-print-preview .guide-table th {
+    color: #28463c;
+    background: #edf1eb;
+  }
+
+  .guide-print-preview .guide-figure {
+    margin: 14px 0;
+    text-align: center;
+    break-inside: avoid;
+  }
+
+  .guide-print-preview .guide-figure img {
+    max-width: 100%;
+    max-height: 245mm;
+    object-fit: contain;
+  }
+
+  .guide-print-preview .guide-figure figcaption {
+    margin-top: 6px;
+    color: #637267;
+    font-size: 9pt;
+  }
+
+  .guide-print-preview .document-footer {
+    margin-top: 30px;
+    padding-top: 12px;
+    border-top: 1px solid #dfe6df;
+    font-size: 8pt;
   }
 }
