@@ -1,0 +1,40 @@
+.archive-maintenance {
+  padding: 24px;
+  margin-top: 18px;
+}
+.archive-maintenance-heading h2 {
+  margin: 5px 0 6px;
+  font-size: 1.15rem;
+}
+.archive-maintenance-heading p,
+.archive-maintenance-note {
+  color: var(--muted);
+}
+.archive-maintenance-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 9px;
+  margin-top: 16px;
+}
+.archive-maintenance-error {
+  color: var(--danger);
+}
+.archive-maintenance-review {
+  background: var(--surface-inset);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  margin-top: 18px;
+  padding: 16px;
+}
+.archive-maintenance-review h3 {
+  font-size: 1rem;
+  margin: 0 0 6px;
+}
+.archive-maintenance-review p {
+  color: var(--muted);
+  margin: 0;
+}
+.archive-maintenance-review .archive-maintenance-error {
+  color: var(--danger);
+  margin-top: 8px;
+}
