@@ -1,0 +1,51 @@
+.journal-relations {
+  margin-top: 8px;
+}
+.journal-relations-content {
+  display: grid;
+  gap: 10px;
+  margin-top: 10px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface-subtle);
+}
+.journal-relations-content h3,
+.journal-relations-content p,
+.journal-relations-content ul {
+  margin: 0;
+}
+.journal-relations-content h3 {
+  font-size: 0.85rem;
+  color: var(--ink);
+}
+.journal-relations-content p,
+.journal-relations-content li,
+.journal-relations-content label {
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+.journal-relations-content ul {
+  padding-left: 20px;
+}
+.journal-relations-action {
+  display: flex;
+  align-items: end;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.journal-relations-action label {
+  display: grid;
+  gap: 5px;
+}
+.journal-relations-materials {
+  display: grid;
+  gap: 8px;
+  max-height: 14rem;
+  overflow: auto;
+}
+.journal-relations-materials label {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
