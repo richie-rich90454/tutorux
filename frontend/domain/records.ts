@@ -756,6 +756,35 @@ export function updateJournalRecords(
   return [updatedEntry, noteDocument];
 }
 
+/** Update only the notes document, leaving the owner's other edited fields untouched. */
+export function updateOwnerNotes(
+  owner: ArchiveRecord,
+  notesDocument: ArchiveRecord | null,
+  blocks: readonly JournalNoteBlock[],
+): ArchiveRecord[] {
+  const session = owner.type === RecordType.session;
+  const entry =
+    owner.type === RecordType.settings && owner.fields.get("record_role") === "journal-entry";
+  if ((!session && !entry) || owner.fields.get("_deleted") === "true") {
+    throw new Error("Select an active session or journal entry to save notes.");
+  }
+  const timestamp = nowUs();
+  const existingId = owner.fields.get("notes_document_id") ?? "";
+  const document = updateNotesDocument(
+    notesDocument,
+    existingId,
+    session ? (owner.fields.get("entry_id") ?? "") : owner.id,
+    session ? owner.id : "",
+    timestamp,
+    { noteBlocks: blocks },
+  );
+  if (existingId === document.id) return [document];
+  const fields = new Map(owner.fields);
+  fields.set("notes_document_id", document.id);
+  fields.set("updated_at_us", timestamp);
+  return [{ ...owner, fields }, document];
+}
+
 function encodeJournalIds(ids: readonly string[], label: string): string {
   if (ids.length > 10_000) throw new Error(`${label} links exceed the archive limit.`);
   const unique = new Set<string>();
