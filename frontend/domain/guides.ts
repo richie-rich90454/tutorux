@@ -49,6 +49,12 @@ export interface GuideDraft {
   sections: GuideSectionDraft[];
 }
 
+export interface GuideExportImage {
+  readonly assetId: string;
+  readonly mimeType: string;
+  readonly bytes: Uint8Array;
+}
+
 export interface GuideTemplate {
   id: string;
   name: string;
@@ -365,7 +371,10 @@ export function renderGuideMarkdown(record: ArchiveRecord): string {
   return `# ${draft.title}\n\n_Tutorux study guide · ${draft.templateId} template · ${field(record, "approval_state", "draft")}_\n\n${sections.join("\n\n")}${sections.length ? "\n" : ""}`;
 }
 
-export function renderGuideHtml(record: ArchiveRecord): string {
+export function renderGuideHtml(
+  record: ArchiveRecord,
+  images: ReadonlyMap<string, GuideExportImage> = new Map(),
+): string {
   const draft = guideDraftFromRecord(record);
   const approval = field(record, "approval_state", "draft");
   const sections = draft.sections
@@ -373,15 +382,16 @@ export function renderGuideHtml(record: ArchiveRecord): string {
       const blocks = section.blocks
         .map((block) => {
           const label = guideBlockLabel(block.kind, block.origin);
-          const text = escapeHtml(block.text);
-          const content =
-            block.kind === "list-item"
-              ? `<ul><li class="guide-text">${text}</li></ul>`
-              : block.kind === "quote"
-                ? `<blockquote class="guide-text">${text}</blockquote>`
-                : block.kind === "code"
-                  ? `<pre class="guide-text">${text}</pre>`
-                  : `<p class="guide-text">${text}</p>`;
+          const imageReference = parseGuideImageReference(block.text);
+          const isImage =
+            block.kind === "image" || block.kind === "figure" || block.text.startsWith("![");
+          if (isImage && !imageReference)
+            throw new Error("A guide image must point to one archive asset UUID.");
+          const content = imageReference
+            ? renderGuideImage(imageReference, images)
+            : block.kind === "table"
+              ? renderGuideTable(block.text)
+              : renderGuideTextBlock(block.kind, block.text);
           const sources = block.sourceIds
             .split(",")
             .map((id) => id.trim())
@@ -429,6 +439,12 @@ export function renderGuideHtml(record: ArchiveRecord): string {
     pre { padding: 12px 14px; border-radius: 6px; background: #f0f3ef; font: 13px/1.6 ui-monospace, "Cascadia Code", monospace; }
     .guide-stale { margin: 0 0 8px; padding: 9px 11px; border-left: 3px solid #9b6e2f; background: #fbf4e9; color: #704d20; font-size: 12px; line-height: 1.5; }
     .guide-sources { margin: 8px 0 0; color: #637267; font-size: 11px; line-height: 1.5; overflow-wrap: anywhere; }
+    .guide-table { width: 100%; margin: 12px 0; border-collapse: collapse; font-size: 13px; line-height: 1.5; }
+    .guide-table th, .guide-table td { padding: 8px 10px; border: 1px solid #d9e0d8; text-align: left; vertical-align: top; }
+    .guide-table th { background: #edf1eb; color: #28463c; }
+    .guide-figure { margin: 16px 0; text-align: center; }
+    .guide-figure img { max-width: 100%; max-height: 680px; object-fit: contain; }
+    .guide-figure figcaption { margin-top: 7px; color: #637267; font-size: 12px; }
     .document-footer { margin-top: 38px; padding-top: 14px; border-top: 1px solid #dfe6df; color: #637267; font-size: 10px; }
     @media (max-width: 620px) { body { padding: 0; } .document { padding: 32px 22px; border: 0; border-radius: 0; box-shadow: none; } }
     @media print { :root { background: #fff; } body { padding: 0; } .document { max-width: none; margin: 0; padding: 0; border: 0; border-radius: 0; box-shadow: none; } .guide-section { margin-top: 24px; } }
@@ -464,6 +480,120 @@ function escapeHtml(value: string): string {
         return "&#39;";
     }
   });
+}
+
+interface GuideImageReference {
+  assetId: string;
+  alternativeText: string;
+}
+
+export function parseGuideImageReference(text: string): GuideImageReference | null {
+  const match =
+    /^!\[((?:\\.|[^\]])*)\]\(asset:([\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12})\)$/iu.exec(
+      text,
+    );
+  if (!match) return null;
+  return {
+    assetId: match[2]!.toLowerCase(),
+    alternativeText: match[1]!.replace(/\\([\\\]])/gu, "$1"),
+  };
+}
+
+function renderGuideImage(
+  reference: GuideImageReference,
+  images: ReadonlyMap<string, GuideExportImage>,
+): string {
+  const image = images.get(reference.assetId);
+  if (!image) throw new Error(`Guide image ${reference.assetId} is missing from this archive.`);
+  if (!/^image\/(?:png|jpeg|jpg|gif|webp)$/u.test(image.mimeType))
+    throw new Error("Only PNG, JPEG, GIF, and WebP guide images can be exported.");
+  const source = `data:${image.mimeType};base64,${bytesToBase64(image.bytes)}`;
+  const caption = reference.alternativeText
+    ? `<figcaption>${escapeHtml(reference.alternativeText)}</figcaption>`
+    : "";
+  return `<figure class="guide-figure"><img src="${source}" alt="${escapeHtml(reference.alternativeText)}">${caption}</figure>`;
+}
+
+function renderGuideTextBlock(kind: string, value: string): string {
+  const text = escapeHtml(value);
+  switch (kind) {
+    case "list-item":
+      return `<ul><li class="guide-text">${text}</li></ul>`;
+    case "quote":
+      return `<blockquote class="guide-text">${text}</blockquote>`;
+    case "code":
+      return `<pre class="guide-text">${text}</pre>`;
+    case "equation":
+      return `<div class="guide-equation guide-text">${text}</div>`;
+    default:
+      return `<p class="guide-text">${text}</p>`;
+  }
+}
+
+function renderGuideTable(value: string): string {
+  const rows = parseGuideTable(value);
+  const [headers, ...body] = rows;
+  return `<table class="guide-table"><thead><tr>${headers!.map((cell) => `<th scope="col">${escapeHtml(renderInlineSources(cell))}</th>`).join("")}</tr></thead><tbody>${body
+    .map(
+      (row) =>
+        `<tr>${row.map((cell) => `<td>${escapeHtml(renderInlineSources(cell))}</td>`).join("")}</tr>`,
+    )
+    .join("")}</tbody></table>`;
+}
+
+function parseGuideTable(value: string): string[][] {
+  const lines = value
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const rows = lines.map((line) => {
+    const trimmed = line.replace(/^\|/u, "").replace(/\|$/u, "");
+    const cells: string[] = [];
+    let cell = "";
+    let escaped = false;
+    for (const character of trimmed) {
+      if (escaped) {
+        if (character !== "|" && character !== "\\") cell += "\\";
+        cell += character;
+        escaped = false;
+      } else if (character === "\\") {
+        escaped = true;
+      } else if (character === "|") {
+        cells.push(cell.trim());
+        cell = "";
+      } else {
+        cell += character;
+      }
+    }
+    if (escaped) cell += "\\";
+    cells.push(cell.trim());
+    return cells;
+  });
+  const separator = (cell: string): boolean => /^:?-{3,}:?$/u.test(cell);
+  if (
+    rows.length < 2 ||
+    rows[0]!.length === 0 ||
+    rows[0]!.length !== rows[1]!.length ||
+    !rows[1]!.every(separator) ||
+    rows.slice(2).some((row) => row.length !== rows[0]!.length)
+  ) {
+    throw new Error("A guide table needs matching columns and a Markdown separator row.");
+  }
+  return [rows[0]!, ...rows.slice(2)];
+}
+
+function bytesToBase64(bytes: Uint8Array): string {
+  let binary = "";
+  for (let offset = 0; offset < bytes.length; offset += 0x8000) {
+    binary += String.fromCharCode(
+      ...bytes.subarray(offset, Math.min(bytes.length, offset + 0x8000)),
+    );
+  }
+  return btoa(binary);
+}
+
+function renderInlineSources(value: string): string {
+  return value.replace(INLINE_SOURCE_PATTERN, "[source: $1]");
 }
 
 export function getGuideTemplate(id: string): GuideTemplate {
@@ -638,13 +768,23 @@ function cleanText(value: string, label: string, maxBytes: number, multiline = f
   return value;
 }
 
-function guideBlockLabel(kind: GuideBlockKind, origin: GuideBlockOrigin): string {
+export function guideBlockLabel(kind: GuideBlockKind, origin: GuideBlockOrigin): string {
   if (origin === "ai-generated") {
     if (kind === "recommendation") return "AI recommendation";
     if (kind === "instruction") return "AI-drafted instruction";
     if (kind === "example" || kind === "worked-example") return "AI-generated example";
-    return "AI-generated content";
+    const semantic = guideBlockLabel(kind, "tutor-authored");
+    return semantic ? `AI-generated ${semantic.toLocaleLowerCase()}` : "AI-generated content";
   }
+  if (origin === "human-edited") {
+    if (kind === "instruction") return "Tutor-edited instruction";
+    if (kind === "recommendation") return "Tutor-edited recommendation";
+    if (kind === "example" || kind === "worked-example") return "Tutor-edited example";
+    return "Tutor-edited content";
+  }
+  if (origin === "uncertain") return "Uncertain interpretation";
+  if (origin === "system-generated") return "Tutorux-generated notice";
+  if (origin === "unknown") return "Content with unverified provenance";
   if (kind === "instruction") return "Tutor instruction";
   if (kind === "recommendation") return "AI recommendation";
   if (kind === "worked-example") return "Worked example";
