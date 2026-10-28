@@ -10,6 +10,8 @@ export interface EvidenceUpdateInput {
   readonly priority: string;
 }
 
+export type EvidenceCreateInput = EvidenceUpdateInput;
+
 interface TranscriptCandidate {
   type: string;
   title: string;
@@ -252,6 +254,77 @@ export async function extractSessionEvidence(
   return records;
 }
 
+/** Create tutor-authored evidence from one current transcript revision. */
+export async function makeEvidenceRecord(
+  snapshot: ArchiveSnapshot,
+  sessionId: string,
+  segmentId: string,
+  input: EvidenceCreateInput,
+): Promise<ArchiveRecord> {
+  if (!isUuid(sessionId) || !isUuid(segmentId)) {
+    throw new Error("Choose a valid session and transcript segment.");
+  }
+  const [session, segment] = await Promise.all([
+    snapshot.getRecord(RecordType.session, sessionId),
+    snapshot.getRecord(RecordType.transcriptSegment, segmentId),
+  ]);
+  if (
+    !session ||
+    session.type !== RecordType.session ||
+    session.fields.get("_deleted") === "true"
+  ) {
+    throw new Error("Choose an active session before creating evidence.");
+  }
+  if (
+    !segment ||
+    segment.type !== RecordType.transcriptSegment ||
+    segment.fields.get("_deleted") === "true"
+  ) {
+    throw new Error("Choose an active transcript segment as the evidence source.");
+  }
+  if (segment.fields.get("session_id")?.toLowerCase() !== session.id.toLowerCase()) {
+    throw new Error("Choose a transcript segment from the selected session.");
+  }
+
+  const title = cleanEvidenceText(input.title, "Evidence title", 512);
+  const type = cleanEvidenceText(
+    input.type.trim().toLowerCase().replace(/\s+/gu, "-"),
+    "Evidence type",
+    128,
+  );
+  const content = cleanEvidenceText(input.content, "Evidence content", 16 * 1024 * 1024);
+  const priority = cleanEvidenceText(input.priority, "Evidence priority", 32);
+  const normalizedSessionId = session.id.toLowerCase();
+  const normalizedSegmentId = segment.id.toLowerCase();
+  const revision = segment.revision.toString();
+  return {
+    type: RecordType.evidenceNode,
+    id: newUuid(),
+    revision: 0n,
+    previousOffset: 0n,
+    blob: new Uint8Array(),
+    fields: new Map([
+      ["session_id", normalizedSessionId],
+      ["student_id", session.fields.get("student_id") ?? ""],
+      ["type", type],
+      ["title", title],
+      ["content", content],
+      ["priority", priority],
+      ["origin", "tutor-authored"],
+      ["source_annotation_id", ""],
+      ["source_segment_ids", normalizedSegmentId],
+      ["source_segment_revision", revision],
+      ["source_segment_revisions", `${normalizedSegmentId}=${revision}`],
+      ["source_asset_ids", segment.fields.get("linked_asset_ids") ?? ""],
+      ["source_speaker_label", segment.fields.get("speaker_label") ?? ""],
+      ["start_time_us", segment.fields.get("start_time_us") ?? "0"],
+      ["end_time_us", segment.fields.get("end_time_us") ?? "0"],
+      ["verification_state", "needs-review"],
+      ["created_at_us", nowUs()],
+    ]),
+  };
+}
+
 export async function reviewEvidenceRecord(
   snapshot: ArchiveSnapshot,
   record: ArchiveRecord,
@@ -458,6 +531,14 @@ export async function makeEvidenceEdge(
       ["created_at_us", nowUs()],
     ]),
   };
+}
+
+/** Remove one active relationship using the archive's recoverable soft-delete fields. */
+export function trashEvidenceEdge(edge: ArchiveRecord): ArchiveRecord {
+  if (edge.type !== RecordType.evidenceEdge || edge.fields.get("_deleted") === "true") {
+    throw new Error("Select an active evidence relationship to remove.");
+  }
+  return markEvidenceRecordDeleted(edge, edge.id, nowUs());
 }
 
 export const EVIDENCE_RELATIONSHIPS = relationships;
