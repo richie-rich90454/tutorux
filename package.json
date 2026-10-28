@@ -7,6 +7,9 @@
   "bin": {
     "tutorux": "cli/entry.js"
   },
+  "engines": {
+    "node": ">=22.13.0"
+  },
   "scripts": {
     "dev": "vite --host 127.0.0.1 --port 1420 --strictPort",
     "build": "npm run typecheck && vite build --mode web",
@@ -30,7 +33,9 @@
     "@tauri-apps/api": "2.12.4",
     "@tauri-apps/plugin-dialog": "2.8.3",
     "@tauri-apps/plugin-fs": "2.7.1",
+    "fflate": "0.8.3",
     "libsodium-wrappers-sumo": "0.8.4",
+    "pdfjs-dist": "6.4.299",
     "solid-js": "1.9.17",
     "tsx": "^4.23.15"
   },
