@@ -66,9 +66,11 @@ import {
   makeGuideRecord,
   renderGuideHtml,
   renderGuideMarkdown,
+  type GuideExportImage,
   type GuideDraft,
   type GuideTemplate,
 } from "./domain/guides";
+import { guideImageIds, renderGuideDocx, serializeGuideJson } from "./domain/guide-export";
 import {
   makeCustomGuideTemplateRecord,
   serializeGuideTemplate,
@@ -329,6 +331,7 @@ function App(): JSX.Element {
     archiveId: string;
     summary: AiExecutionSummary;
   } | null>(null);
+  const [guidePrintContent, setGuidePrintContent] = createSignal<HTMLElement | null>(null);
   const [systemCredentialStoreAvailable, setSystemCredentialStoreAvailable] = createSignal(false);
   createEffect(() => {
     const execution = lastAiExecution();
@@ -1516,18 +1519,96 @@ function App(): JSX.Element {
     }
   }
 
-  async function exportGuide(record: ArchiveRecord, format: "markdown" | "html"): Promise<void> {
+  async function exportGuide(
+    record: ArchiveRecord,
+    format: "markdown" | "html" | "json" | "docx" | "pdf",
+  ): Promise<void> {
+    setBusy(true);
+    let finishPrint: (() => void) | undefined;
     try {
+      const filename = safeFileName(field(record, "title", "study-guide"));
+      const images =
+        format === "html" || format === "docx" || format === "pdf"
+          ? await loadGuideExportImages(record)
+          : new Map<string, GuideExportImage>();
+      if (format === "pdf") {
+        const printable = new DOMParser()
+          .parseFromString(renderGuideHtml(record, images), "text/html")
+          .querySelector("main.document");
+        if (!printable) throw new Error("The study guide could not be prepared for printing.");
+        finishPrint = (): void => {
+          document.documentElement.classList.remove("guide-printing");
+          setGuidePrintContent(null);
+        };
+        setGuidePrintContent(printable.cloneNode(true) as HTMLElement);
+        document.documentElement.classList.add("guide-printing");
+        window.addEventListener("afterprint", finishPrint, { once: true });
+        await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+        window.print();
+        announce(
+          "The system print dialog is ready. Choose Save as PDF to export this guide.",
+          "success",
+        );
+        return;
+      }
+      if (format === "docx") {
+        const path = await platform.exportBinaryFile(
+          `${filename}.docx`,
+          renderGuideDocx(record, images),
+          "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        );
+        if (path) announce("Study guide exported as a Word document.", "success");
+        return;
+      }
+      if (format === "json") {
+        const path = await platform.exportTextFile(
+          `${filename}.json`,
+          serializeGuideJson(record),
+          "application/json;charset=utf-8",
+        );
+        if (path) announce("Study guide record exported as JSON.", "success");
+        return;
+      }
       const isHtml = format === "html";
       const path = await platform.exportTextFile(
-        `${safeFileName(field(record, "title", "study-guide"))}.${isHtml ? "html" : "md"}`,
-        isHtml ? renderGuideHtml(record) : renderGuideMarkdown(record),
+        `${filename}.${isHtml ? "html" : "md"}`,
+        isHtml ? renderGuideHtml(record, images) : renderGuideMarkdown(record),
         isHtml ? "text/html;charset=utf-8" : "text/markdown;charset=utf-8",
       );
       if (path) announce(`Study guide exported as ${isHtml ? "HTML" : "Markdown"}.`, "success");
     } catch (error) {
+      if (finishPrint) window.removeEventListener("afterprint", finishPrint);
+      document.documentElement.classList.remove("guide-printing");
+      setGuidePrintContent(null);
       if (!isCancelled(error)) announce(errorMessage(error), "error");
+    } finally {
+      setBusy(false);
     }
+  }
+
+  async function loadGuideExportImages(
+    record: ArchiveRecord,
+  ): Promise<ReadonlyMap<string, GuideExportImage>> {
+    const state = workspace();
+    const ids = guideImageIds(record);
+    if (ids.length === 0) return new Map();
+    if (!state || state.snapshot.locked)
+      throw new Error("Unlock the archive before exporting guides with images.");
+    const images = new Map<string, GuideExportImage>();
+    for (const assetId of ids) {
+      const metadata = state.assets.find((asset) => asset.id.toLowerCase() === assetId);
+      if (!metadata || field(metadata, "_deleted") === "true")
+        throw new Error(`Guide image ${assetId} is missing from this archive.`);
+      const mimeType = field(metadata, "mime_type");
+      if (!["image/png", "image/jpeg", "image/jpg", "image/gif", "image/webp"].includes(mimeType))
+        throw new Error("Only PNG, JPEG, GIF, and WebP guide images can be exported.");
+      images.set(assetId, {
+        assetId,
+        mimeType,
+        bytes: await readAssetBytes(state.snapshot, metadata),
+      });
+    }
+    return images;
   }
 
   async function saveAnnotation(
@@ -2789,6 +2870,15 @@ function App(): JSX.Element {
             </div>
           </section>
         </div>
+      </Show>
+      <Show when={guidePrintContent()} keyed>
+        {(content) => (
+          <div
+            class="guide-print-preview"
+            aria-hidden="true"
+            ref={(element) => element.replaceChildren(content)}
+          />
+        )}
       </Show>
     </div>
   );
