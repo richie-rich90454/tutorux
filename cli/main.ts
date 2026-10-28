@@ -1,5 +1,6 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { createHash, randomUUID } from "node:crypto";
+import { openAsBlob } from "node:fs";
 import { execFile } from "node:child_process";
 import { link, lstat, open, readFile, readdir, realpath, rename, rm, stat } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
@@ -134,6 +135,10 @@ import {
   setRecordingTakeDeleted,
 } from "../frontend/domain/recording-takes";
 import { createSessionPackage, importSessionPackage } from "../frontend/domain/session-packages";
+import { makeWaveImportRecords } from "../frontend/domain/wav";
+import { buildAudioTrackWavStream, listSessionAudioTracks } from "../frontend/domain/audio";
+import { summarizeWaveform } from "./recording-waveform";
+import { mixRecordingTracks } from "../frontend/domain/audio-mix";
 
 interface CliIo {
   stdout(message: string): void;
@@ -248,6 +253,10 @@ Usage:
   tutorux diagnostics run|archive|report [--full] | providers | graphics | audio | network
   tutorux benchmark startup|memory|cpu|indexing|rendering|export|full
   tutorux --archive <file.tux> record take-list --session <uuid> [--include-deleted] [--json]
+  tutorux --archive <file.tux> record import --session <uuid> --input <file.wav> [--additional-track]
+  tutorux --archive <file.tux> record export-wav --session <uuid> --output <file.wav> [--track <uuid>] [--fill-gaps] [--overwrite]
+  tutorux --archive <file.tux> record waveform --session <uuid> [--track <uuid>] [--buckets <n>]
+  tutorux --archive <file.tux> record mix --session <uuid> --take <uuid> --tracks <uuid,uuid,...> [--label <name>]
   tutorux --archive <file.tux> record take-rename --session <uuid> --take <uuid> --label <name>
   tutorux --archive <file.tux> record take-delete|take-restore --session <uuid> --take <uuid>
   tutorux --archive <file.tux> record track-rename --session <uuid> --track <uuid> --label <name>
@@ -944,6 +953,169 @@ async function runArchiveCommand(
   }
 }
 
+async function runRecordingAudioCommand(
+  action: string,
+  path: string,
+  args: ParsedArguments,
+  output: CliIo,
+): Promise<number> {
+  const sessionId = canonicalizeProgressUuid(requiredOption(args, "session"));
+  if (!sessionId) throw new CliError("--session must be a valid UUID.");
+  const snapshot = await openForCommand(path);
+  const generation = snapshot.commit.generation;
+  let changes: ArchiveRecord[] = [];
+  let result: unknown;
+  let message: string;
+  try {
+    let session = await requireLiveRecord(snapshot, RecordType.session, sessionId);
+    const assets = await snapshot.listRecordMetadata(RecordType.assetMetadata);
+    const tracks = listSessionAudioTracks(session, assets);
+    if (action === "mix") {
+      const takeId = canonicalizeProgressUuid(requiredOption(args, "take"));
+      const trackIds = requiredOption(args, "tracks")
+        .split(",")
+        .map((id) => canonicalizeProgressUuid(id.trim()));
+      if (!takeId || trackIds.some((id) => !id))
+        throw new CliError("--take and --tracks require valid UUIDs.");
+      const mixed = await mixRecordingTracks(
+        snapshot,
+        sessionId,
+        takeId,
+        trackIds as string[],
+        args.options.get("label"),
+      );
+      changes = mixed.records;
+      result = {
+        session_id: sessionId,
+        take_id: takeId,
+        track_id: mixed.trackId,
+        sample_rate_hz: mixed.sampleRateHz,
+        frame_count: mixed.frameCount,
+        duration_us: mixed.durationUs,
+        chunk_count: mixed.chunkCount,
+      };
+      message = `Created mixdown track ${mixed.trackId}.`;
+    } else if (action === "import") {
+      const input = resolve(requiredOption(args, "input"));
+      if (await sameFileIdentity(input, path))
+        throw new CliError("Audio input cannot be the archive itself.");
+      const capture = args.options.get("capture-source");
+      if (capture) {
+        if (
+          !["browser-microphone", "browser-system-audio"].includes(capture) ||
+          !args.flags.has("consent")
+        )
+          throw new CliError("Browser capture requires an accepted capture source and --consent.");
+        const timestamp = requiredOption(args, "capture-consent-at-us");
+        if (!/^[1-9]\d*$/u.test(timestamp))
+          throw new CliError(
+            "Capture consent timestamp must be a positive integer in microseconds.",
+          );
+        session = {
+          ...session,
+          fields: new Map(session.fields)
+            .set("audio_import_capture_source", capture)
+            .set("audio_import_capture_consent_at_us", timestamp)
+            .set("audio_import_capture_consent_policy", "1"),
+        };
+      } else if (args.flags.has("consent") || args.options.has("capture-consent-at-us"))
+        throw new CliError("Consent metadata requires --capture-source.");
+      const blob = await openAsBlob(input);
+      const imported = await makeWaveImportRecords(
+        session,
+        { name: basename(input), size: blob.size, slice: (start, end) => blob.slice(start, end) },
+        args.flags.has("additional-track"),
+        tracks.map((track) => track.id),
+      );
+      changes = imported.records;
+      result = {
+        session_id: sessionId,
+        track_id: imported.trackId,
+        take_id: imported.takeId,
+        sample_rate_hz: imported.sampleRateHz,
+        channel_count: imported.channelCount,
+        sample_count: imported.sampleCount.toString(),
+        chunk_count: imported.chunkCount,
+        duration_us: imported.durationUs.toString(),
+        byte_count: imported.byteCount,
+        state: "completed",
+      };
+      message = `Imported ${imported.chunkCount} audio chunks as track ${imported.trackId}.`;
+    } else {
+      const trackId = args.options.get("track")?.toLowerCase() ?? tracks[0]?.id;
+      if (!trackId || !tracks.some((track) => track.id === trackId))
+        throw new CliError("Select an available audio track for this session.");
+      if (action === "waveform") {
+        const limit = parseBoundedOption(args.options.get("buckets"), "buckets", 512, 1, 8192);
+        const buckets = await summarizeWaveform(snapshot, sessionId, trackId, limit);
+        result = buckets;
+        const levels = " .:-=+*#@";
+        message = `Waveform for track ${trackId}\nAmplitude: ${buckets.map((bucket) => levels[Math.floor((Math.max(Math.abs(bucket.minimum), Math.abs(bucket.maximum)) * (levels.length - 1)) / 32768)]).join("")}\nGaps:      ${buckets.map((bucket) => (bucket.contains_gap ? "!" : " ")).join("")}`;
+      } else {
+        const destination = resolve(requiredOption(args, "output"));
+        if (await sameFileIdentity(destination, path))
+          throw new CliError("WAV output cannot replace its source archive.");
+        const chunks = await snapshot.listAudioChunkMetadata(sessionId, trackId);
+        const hasGaps = chunks.some(
+          (chunk) => BigInt(field(chunk, "gap_before_samples") || "0") > 0n,
+        );
+        if (hasGaps && !args.flags.has("fill-gaps"))
+          throw new CliError(
+            "This recording contains gaps. Use --fill-gaps to insert silence explicitly.",
+          );
+        await writeAudioStreamAtomically(
+          destination,
+          await buildAudioTrackWavStream(snapshot, sessionId, trackId),
+          args.flags.has("overwrite"),
+        );
+        result = {
+          session_id: sessionId,
+          track_id: trackId,
+          destination,
+          chunk_count: chunks.length,
+          inserted_silence_for_gaps: hasGaps,
+        };
+        message = `Exported audio track ${trackId} to ${destination}.`;
+      }
+    }
+  } finally {
+    await closeSnapshot(snapshot);
+  }
+  if (changes.length) await mutateArchive(path, changes, generation);
+  emit(output, result, message, args.flags.has("json"));
+  return 0;
+}
+
+async function writeAudioStreamAtomically(
+  destination: string,
+  stream: ReadableStream<Uint8Array>,
+  overwrite: boolean,
+): Promise<void> {
+  const temporary = join(dirname(destination), `.tutorux-${randomUUID()}.partial`);
+  const file = await open(temporary, "wx", 0o600);
+  const reader = stream.getReader();
+  try {
+    while (true) {
+      const chunk = await reader.read();
+      if (chunk.done) break;
+      await file.writeFile(chunk.value);
+    }
+    await file.sync();
+    await file.close();
+    if (overwrite) await replaceFile(temporary, destination);
+    else {
+      await link(temporary, destination);
+      await rm(temporary, { force: true });
+    }
+  } catch (error) {
+    await file.close().catch(() => {});
+    await rm(temporary, { force: true });
+    throw error;
+  } finally {
+    reader.releaseLock();
+  }
+}
+
 async function runRecordingTakeCommand(
   action: string,
   path: string,
@@ -951,6 +1123,8 @@ async function runRecordingTakeCommand(
   output: CliIo,
 ): Promise<number> {
   const json = args.flags.has("json");
+  if (["import", "export-wav", "waveform", "mix"].includes(action))
+    return runRecordingAudioCommand(action, path, args, output);
   if (action === "take-list") {
     const sessionId = canonicalizeProgressUuid(requiredOption(args, "session"));
     if (!sessionId) throw new CliError("--session must be a valid UUID.");
