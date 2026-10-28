@@ -52,6 +52,7 @@ export interface GuideSectionDraft {
 export interface GuideDraft {
   title: string;
   sessionId: string;
+  entryId?: string;
   templateId: string;
   sections: GuideSectionDraft[];
 }
@@ -72,7 +73,8 @@ export interface GuideTemplate {
 }
 
 export interface GuideSourceScope {
-  session: ArchiveRecord;
+  session?: ArchiveRecord;
+  entry?: ArchiveRecord;
   records: readonly ArchiveRecord[];
 }
 
@@ -218,6 +220,7 @@ export function createGuideDraftFromSections(
   return {
     title: `${field(session, "title", "Tutoring Session")} — Study Guide`,
     sessionId: session.id,
+    entryId: field(session, "entry_id"),
     templateId,
     sections: headings.map((heading) => ({
       id: newUuid(),
@@ -434,6 +437,136 @@ export function generateGuideDraftFromSession(
 
   orderGeneratedGuideSections(draft, template.sections);
   return draft;
+}
+
+/** Build an entry-level guide from every live linked session and the entry's own notes. */
+export function generateGuideDraftFromEntry(
+  entry: ArchiveRecord,
+  templateId: string,
+  records: readonly ArchiveRecord[],
+  students: readonly ArchiveRecord[],
+  templates: readonly GuideTemplate[] = GUIDE_TEMPLATES,
+): GuideDraft {
+  if (
+    entry.type !== RecordType.settings ||
+    field(entry, "record_role") !== "journal-entry" ||
+    field(entry, "_deleted") === "true"
+  ) {
+    throw new Error("Choose an active journal entry before generating a study guide.");
+  }
+
+  const entryId = entry.id.toLowerCase();
+  const sessions = records
+    .filter(
+      (record) =>
+        record.type === RecordType.session &&
+        field(record, "_deleted") !== "true" &&
+        field(record, "entry_id").toLowerCase() === entryId,
+    )
+    .sort((left, right) => {
+      const leftStart = parseGuideInteger(field(left, "started_at_us"));
+      const rightStart = parseGuideInteger(field(right, "started_at_us"));
+      return leftStart < rightStart
+        ? -1
+        : leftStart > rightStart
+          ? 1
+          : left.id.localeCompare(right.id);
+    });
+  const requestedTemplate = templateId.trim() || "auto";
+  const generatedSessions: GuideDraft[] = [];
+  for (const session of sessions) {
+    generatedSessions.push(
+      generateGuideDraftFromSession(
+        session,
+        generatedSessions[0]?.templateId ?? requestedTemplate,
+        records,
+        students,
+        templates,
+      ),
+    );
+  }
+  const selectedTemplateId =
+    generatedSessions[0]?.templateId ??
+    (() => {
+      const automatic = requestedTemplate.toLocaleLowerCase() === "auto" || !requestedTemplate;
+      const inferred = inferGuideTemplateId(field(entry, "subject"));
+      const desired = automatic ? inferred : requestedTemplate.toLocaleLowerCase();
+      const found = templates.find(
+        (candidate) =>
+          candidate.id.toLocaleLowerCase() === desired ||
+          (automatic && candidate.name.toLocaleLowerCase() === desired),
+      );
+      if (!found) throw new Error("Choose a study guide template available in this archive.");
+      return found.id;
+    })();
+
+  const sections: GuideSectionDraft[] = [];
+  sessions.forEach((session, index) => {
+    const generated = generatedSessions[index]!;
+    const sessionTitle = field(session, "title", "Tutoring session");
+    for (const section of generated.sections) {
+      if (!section.blocks.length) continue;
+      sections.push({
+        ...section,
+        id: `${session.id}-${section.id}`,
+        heading: truncateGuideHeading(
+          section.heading === "Session overview"
+            ? `${sessionTitle} — Session overview`
+            : `${sessionTitle} — ${section.heading}`,
+        ),
+      });
+    }
+  });
+
+  const entryNotesId = field(entry, "notes_document_id").toLowerCase();
+  const entryNotes = records.find(
+    (record) =>
+      record.type === RecordType.settings &&
+      record.id.toLowerCase() === entryNotesId &&
+      field(record, "record_role") === "journal-notes" &&
+      field(record, "_deleted") !== "true" &&
+      field(record, "entry_id").toLowerCase() === entryId &&
+      !field(record, "session_id"),
+  );
+  if (entryNotes) {
+    const decoded = notesEditState(entryNotes, { entryId, sessionId: "" });
+    const blocks = decoded.blocks
+      .filter((block) => block.text.length > 0)
+      .map((block) => ({
+        kind: "paragraph" as const,
+        text: block.text,
+        sourceIds: entryNotes.id,
+        stale: false,
+        origin: "session-evidence" as const,
+      }));
+    if (decoded.editable && blocks.length) {
+      sections.push({ id: newUuid(), heading: "Entry notes", blocks });
+    }
+  }
+
+  if (!sections.length) {
+    sections.push({
+      id: newUuid(),
+      heading: "Entry overview",
+      blocks: [
+        {
+          kind: "paragraph",
+          text: "No session or notes material is linked to this entry yet.",
+          sourceIds: "",
+          stale: false,
+          origin: "system-generated",
+        },
+      ],
+    });
+  }
+
+  return {
+    title: `${field(entry, "title", "Journal entry")} — Study Guide`,
+    sessionId: "",
+    entryId: entry.id,
+    templateId: selectedTemplateId,
+    sections,
+  };
 }
 
 function addTutorProfileContext(draft: GuideDraft, student: ArchiveRecord): void {
@@ -658,6 +791,18 @@ function parseGuideInteger(value: string): bigint {
   }
 }
 
+function truncateGuideHeading(value: string): string {
+  let result = "";
+  let bytes = 0;
+  for (const character of value) {
+    const size = new TextEncoder().encode(character).byteLength;
+    if (bytes + size > 256) break;
+    result += character;
+    bytes += size;
+  }
+  return result.trimEnd();
+}
+
 function guideTimestamp(value: string): string {
   return formatTranscriptTimestampUs(parseGuideInteger(value));
 }
@@ -716,6 +861,7 @@ export function guideDraftFromRecord(record: ArchiveRecord): GuideDraft {
   return {
     title: field(record, "title"),
     sessionId: field(record, "session_id"),
+    entryId: field(record, "entry_id"),
     templateId: field(record, "template_id", "general"),
     sections,
   };
@@ -728,10 +874,30 @@ export function makeGuideRecord(
 ): ArchiveRecord {
   if (current && current.type !== RecordType.guide)
     throw new Error("Only a study guide can be updated here.");
-  if (scope.session.type !== RecordType.session || scope.session.fields.get("_deleted") === "true")
-    throw new Error("Choose an active session for this study guide.");
-  if (draft.sessionId !== scope.session.id)
-    throw new Error("The selected session changed. Reopen the guide editor.");
+  const session = scope.session;
+  const entry = scope.entry;
+  if (session) {
+    if (session.type !== RecordType.session || field(session, "_deleted") === "true")
+      throw new Error("Choose an active session for this study guide.");
+    if (draft.sessionId !== session.id)
+      throw new Error("The selected session changed. Reopen the guide editor.");
+    if (draft.entryId && draft.entryId.toLowerCase() !== field(session, "entry_id").toLowerCase())
+      throw new Error("The selected journal entry changed. Reopen the guide editor.");
+    if (entry && entry.id.toLowerCase() !== field(session, "entry_id").toLowerCase())
+      throw new Error("The selected session does not belong to this journal entry.");
+  } else if (
+    !entry ||
+    entry.type !== RecordType.settings ||
+    field(entry, "record_role") !== "journal-entry" ||
+    field(entry, "_deleted") === "true"
+  ) {
+    throw new Error("Choose an active journal entry or session for this study guide.");
+  } else if (
+    draft.sessionId ||
+    (draft.entryId && draft.entryId.toLowerCase() !== entry.id.toLowerCase())
+  ) {
+    throw new Error("The selected journal entry changed. Reopen the guide editor.");
+  }
 
   const title = cleanText(draft.title, "Guide title", 240).trim();
   if (!title) throw new Error("Guide title is required.");
@@ -750,8 +916,8 @@ export function makeGuideRecord(
       const origin = validOrigin(block.origin);
       const sourceIds = parseSourceIds(block.sourceIds, text, kind);
       for (const sourceId of sourceIds) {
-        if (!isSourceInScope(sourceId, scope)) {
-          throw new Error(`Source ${sourceId} is missing or does not belong to this session.`);
+        if (!isGuideSourceInScope(sourceId, scope)) {
+          throw new Error(`Source ${sourceId} is missing or does not belong to this guide.`);
         }
       }
       return { kind, text, sourceIds, stale: block.stale, origin };
@@ -763,8 +929,8 @@ export function makeGuideRecord(
   for (const key of fields.keys()) {
     if (guideFieldPattern.test(key)) fields.delete(key);
   }
-  const sessionId = scope.session.id.toLowerCase();
-  const entryId = field(scope.session, "entry_id");
+  const sessionId = session?.id.toLowerCase() ?? "";
+  const entryId = session ? field(session, "entry_id") : entry!.id;
   const staleBlockCount = sections.reduce(
     (count, section) => count + section.blocks.filter((block) => block.stale).length,
     0,
@@ -803,6 +969,47 @@ export function makeGuideRecord(
     fields,
     blob: current?.blob ?? new Uint8Array(),
   };
+}
+
+/** Keep the journal entry's guide list in the same transaction as the guide revision. */
+export function guideRecordsWithEntryLinks(
+  guide: ArchiveRecord,
+  previous: ArchiveRecord | null,
+  records: readonly ArchiveRecord[],
+): ArchiveRecord[] {
+  if (guide.type !== RecordType.guide) throw new Error("Only study guides can be linked here.");
+  const oldEntryId = previous ? field(previous, "entry_id").toLowerCase() : "";
+  const newEntryId = field(guide, "entry_id").toLowerCase();
+  const live = field(guide, "_deleted") !== "true";
+  const changes = [guide];
+  for (const entryId of new Set([oldEntryId, newEntryId].filter(Boolean))) {
+    const shouldLink = live && entryId === newEntryId;
+    const entry = records.find(
+      (record) =>
+        record.type === RecordType.settings &&
+        record.id.toLowerCase() === entryId &&
+        field(record, "record_role") === "journal-entry" &&
+        field(record, "_deleted") !== "true",
+    );
+    if (!entry) {
+      if (shouldLink) throw new Error("Restore the source journal entry before saving this guide.");
+      continue;
+    }
+    const existing = field(entry, "study_guide_ids")
+      .split(",")
+      .map((id) => id.trim())
+      .filter(Boolean);
+    const contains = existing.some((id) => id.toLowerCase() === guide.id.toLowerCase());
+    if (contains === shouldLink) continue;
+    const next = shouldLink
+      ? [...existing, guide.id.toLowerCase()]
+      : existing.filter((id) => id.toLowerCase() !== guide.id.toLowerCase());
+    const fields = new Map(entry.fields);
+    fields.set("study_guide_ids", next.join(","));
+    fields.set("updated_at_us", nowUs());
+    changes.push({ ...entry, fields });
+  }
+  return changes;
 }
 
 export function approveGuideRecord(record: ArchiveRecord): ArchiveRecord {
@@ -1193,24 +1400,36 @@ function parseSourceIds(raw: string, text: string, kind: GuideBlockKind): string
   return [...new Set(ids.map((id) => id.toLowerCase()))];
 }
 
-function isSourceInScope(sourceId: string, scope: GuideSourceScope): boolean {
-  const sessionId = scope.session.id.toLowerCase();
-  const studentId = field(scope.session, "student_id").toLowerCase();
-  if (sourceId === sessionId) return true;
+export function isGuideSourceInScope(sourceId: string, scope: GuideSourceScope): boolean {
+  const entryId = scope.entry?.id.toLowerCase() ?? "";
+  const sessions = scope.session
+    ? [scope.session]
+    : scope.records.filter(
+        (candidate) =>
+          candidate.type === RecordType.session &&
+          field(candidate, "_deleted") !== "true" &&
+          field(candidate, "entry_id").toLowerCase() === entryId,
+      );
+  const sessionIds = new Set(sessions.map((candidate) => candidate.id.toLowerCase()));
+  const studentIds = new Set(
+    sessions
+      .map((candidate) => field(candidate, "student_id").toLowerCase())
+      .filter((id) => id && id !== "anonymous"),
+  );
+  if (sessionIds.has(sourceId)) return true;
   const record = scope.records.find((item) => item.id.toLowerCase() === sourceId);
   if (!record || field(record, "_deleted") === "true") return false;
-  if (record.type === RecordType.session) return record.id.toLowerCase() === sessionId;
-  if (record.type === RecordType.student) return record.id.toLowerCase() === studentId;
+  if (record.type === RecordType.session) return sessionIds.has(record.id.toLowerCase());
+  if (record.type === RecordType.student) return studentIds.has(record.id.toLowerCase());
   if (record.type === RecordType.settings) {
-    return (
-      field(record, "record_role") === "journal-notes" &&
-      isGuideNotesSource(record, scope.session, scope.records)
-    );
+    if (field(record, "record_role") !== "journal-notes") return false;
+    if (scope.session) return isGuideNotesSource(record, scope.session, scope.records);
+    return Boolean(scope.entry && isGuideNotesSourceForEntry(record, scope.entry, scope.records));
   }
   if (record.type === RecordType.assetMetadata) {
     return (
-      field(record, "session_id").toLowerCase() === sessionId ||
-      (Boolean(studentId) && field(record, "student_id").toLowerCase() === studentId)
+      sessionIds.has(field(record, "session_id").toLowerCase()) ||
+      studentIds.has(field(record, "student_id").toLowerCase())
     );
   }
   const sessionSourceTypes: readonly number[] = [
@@ -1220,7 +1439,36 @@ function isSourceInScope(sourceId: string, scope: GuideSourceScope): boolean {
   ];
   return (
     sessionSourceTypes.includes(record.type) &&
-    field(record, "session_id").toLowerCase() === sessionId
+    sessionIds.has(field(record, "session_id").toLowerCase())
+  );
+}
+
+function isGuideNotesSourceForEntry(
+  record: ArchiveRecord,
+  entry: ArchiveRecord,
+  records: readonly ArchiveRecord[],
+): boolean {
+  if (
+    record.type !== RecordType.settings ||
+    field(record, "record_role") !== "journal-notes" ||
+    field(record, "_deleted") === "true" ||
+    field(entry, "record_role") !== "journal-entry" ||
+    field(entry, "_deleted") === "true"
+  ) {
+    return false;
+  }
+  const entryId = entry.id.toLowerCase();
+  if (field(record, "entry_id").toLowerCase() !== entryId) return false;
+  const noteId = record.id.toLowerCase();
+  const sessionId = field(record, "session_id").toLowerCase();
+  if (!sessionId) return field(entry, "notes_document_id").toLowerCase() === noteId;
+  return records.some(
+    (candidate) =>
+      candidate.type === RecordType.session &&
+      candidate.id.toLowerCase() === sessionId &&
+      field(candidate, "_deleted") !== "true" &&
+      field(candidate, "entry_id").toLowerCase() === entryId &&
+      field(candidate, "notes_document_id").toLowerCase() === noteId,
   );
 }
 
