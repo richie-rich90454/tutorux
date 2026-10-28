@@ -3472,3 +3472,28 @@ button:disabled {
     transition-duration: 0.01ms !important;
   }
 }
+
+.marker-shortcuts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 14px;
+  padding: 20px 0;
+}
+
+.marker-shortcuts input {
+  max-width: 90px;
+  text-align: center;
+  text-transform: uppercase;
+}
+
+.marker-shortcut-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.palette-empty {
+  color: var(--muted);
+  padding: 12px 20px;
+}
