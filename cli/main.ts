@@ -198,7 +198,8 @@ Usage:
   tutorux --archive <file.tux> evidence unlink <edge-id>
   tutorux --archive <file.tux> evidence edges --session <uuid>
   tutorux --archive <file.tux> guide create --session <uuid> [--template <id>] [--title <title>]
-  tutorux --archive <file.tux> guide generate --session <uuid> [--template <id|auto>] [--title <title>] [--json]
+  tutorux --archive <file.tux> guide generate --session <uuid> [--template <id|auto>] [--title <title>] [--include-entry-evidence] [--json]
+  tutorux --archive <file.tux> guide regenerate <id> [--template <id|auto>] [--title <title>] [--include-entry-evidence|--session-only] [--json]
   tutorux --archive <file.tux> guide list [--session <uuid>] [--include-deleted] [--json]
   tutorux --archive <file.tux> guide show|approve|trash|restore|history <id>
   tutorux --archive <file.tux> guide update <id> [--title <title>]
@@ -1463,6 +1464,7 @@ async function runGuideCommand(
         scope.records,
         students,
         [...GUIDE_TEMPLATES, ...customTemplates],
+        args.flags.has("include-entry-evidence"),
       );
       if (args.options.has("title")) draft.title = args.options.get("title")!;
       record = makeGuideRecord(draft, scope);
@@ -1555,6 +1557,52 @@ async function runGuideCommand(
 
   const context = await readGuideContext(path, id);
   const { current, draft, scope } = context;
+  if (action === "regenerate") {
+    const students = scope.records.filter((item) => item.type === RecordType.student);
+    const customTemplates = scope.records
+      .filter(
+        (item) =>
+          item.type === RecordType.settings &&
+          field(item, "record_role") === "guide-template" &&
+          !field(item, "builtin_template_id"),
+      )
+      .map(guideTemplateFromRecord);
+    const entryNoteIds = new Set(
+      scope.records
+        .filter(
+          (item) =>
+            item.type === RecordType.settings &&
+            field(item, "record_role") === "journal-notes" &&
+            field(item, "entry_id").toLowerCase() === field(current, "entry_id").toLowerCase() &&
+            field(item, "session_id").toLowerCase() !== draft.sessionId.toLowerCase(),
+        )
+        .map((item) => item.id.toLowerCase()),
+    );
+    const alreadyIncludesEntryNotes = draft.sections.some((section) =>
+      section.blocks.some((block) =>
+        block.sourceIds
+          .split(/[\s,;]+/u)
+          .some((sourceId) => entryNoteIds.has(sourceId.toLowerCase())),
+      ),
+    );
+    const includeEntryEvidence =
+      args.flags.has("include-entry-evidence") ||
+      (!args.flags.has("session-only") && alreadyIncludesEntryNotes);
+    const regenerated = generateGuideDraftFromSession(
+      scope.session,
+      args.options.get("template") ?? draft.templateId,
+      scope.records,
+      students,
+      [...GUIDE_TEMPLATES, ...customTemplates],
+      includeEntryEvidence,
+    );
+    if (args.options.has("title")) regenerated.title = args.options.get("title")!;
+    else regenerated.title = draft.title;
+    const updated = makeGuideRecord(regenerated, scope, current);
+    const saved = (await mutateArchive(path, [updated]))[0] ?? updated;
+    emit(output, toPlainRecord(saved), `Regenerated study guide ${saved.id}.`, json);
+    return 0;
+  }
   if (action === "approve") {
     const checked = makeGuideRecord(draft, scope, current);
     const approved = approveGuideRecord(checked);
