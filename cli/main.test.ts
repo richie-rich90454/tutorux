@@ -9,7 +9,131 @@ import {
   openArchiveBytes,
   verifyArchiveSnapshot,
 } from "../frontend/archive/archive";
-import { newUuid, RecordType } from "../frontend/archive/format";
+import { crc32, newUuid, RecordType, type ArchiveRecord } from "../frontend/archive/format";
+
+describe("CLI recording take management", () => {
+  it("lists, renames, trashes, and restores takes with their audio intact", async () => {
+    const directory = await mkdtemp(join(process.cwd(), "tmp", "tutorux-cli-recording-take-"));
+    const archivePath = join(directory, "recording.tux");
+    const sessionId = newUuid();
+    const takeId = newUuid();
+    const trackId = newUuid();
+    const chunkId = newUuid();
+    const pcm = new Uint8Array([0x34, 0x12, 0xcc, 0xed]);
+    const stdout: string[] = [];
+    const stderr: string[] = [];
+    const io = {
+      stdout: (value: string) => stdout.push(value),
+      stderr: (value: string) => stderr.push(value),
+    };
+
+    try {
+      const created = await openArchiveBytes(await createArchiveBytes("Recording take CLI"));
+      const archive = await appendRecords(created, [
+        cliRecordingRecord(RecordType.session, sessionId, [
+          ["title", "Reading practice"],
+          ["recording_track_ids", trackId],
+          ["recording_track_id", trackId],
+          ["recording_track_count", "1"],
+        ]),
+        cliRecordingRecord(RecordType.assetMetadata, trackId, [
+          ["record_role", "audio-track"],
+          ["session_id", sessionId],
+          ["track_id", trackId],
+          ["recording_take_id", takeId],
+          ["label", "Imported WAV"],
+          ["state", "completed"],
+        ]),
+        cliRecordingRecord(RecordType.assetMetadata, takeId, [
+          ["record_role", "recording-take"],
+          ["session_id", sessionId],
+          ["track_ids", trackId],
+          ["label", "Initial take"],
+          ["state", "completed"],
+        ]),
+        {
+          ...cliRecordingRecord(RecordType.audioChunk, chunkId, [
+            ["session_id", sessionId],
+            ["track_id", trackId],
+            ["sequence_number", "0"],
+            ["first_sample_index", "0"],
+            ["sample_count", "2"],
+            ["sample_rate_hz", "8000"],
+            ["channel_count", "1"],
+            ["sample_format", "pcm_s16le"],
+            ["codec", "none"],
+            ["payload_checksum", String(crc32(pcm))],
+          ]),
+          blob: pcm,
+        },
+      ]);
+      await writeFile(archivePath, await archive.source.read(0n, Number(archive.source.size)));
+
+      const run = (command: string, options: string[]) =>
+        executeCli(["--archive", archivePath, "record", command, ...options, "--json"], io);
+
+      expect(await run("take-list", ["--session", sessionId])).toBe(0);
+      expect(JSON.parse(stdout.at(-1)!)).toHaveLength(1);
+      expect(
+        await run("take-rename", ["--session", sessionId, "--take", takeId, "--label", "Review"]),
+      ).toBe(0);
+      expect(
+        await run("track-rename", ["--session", sessionId, "--track", trackId, "--label", "Tutor"]),
+      ).toBe(0);
+      expect(await run("take-delete", ["--session", sessionId, "--take", takeId])).toBe(0);
+
+      const trashed = await openArchiveBytes(new Uint8Array(await readFile(archivePath)));
+      expect((await trashed.getRecord(RecordType.assetMetadata, takeId))?.fields.get("label")).toBe(
+        "Review",
+      );
+      expect(
+        (await trashed.getRecord(RecordType.assetMetadata, trackId))?.fields.get("label"),
+      ).toBe("Tutor");
+      expect(
+        (await trashed.getRecord(RecordType.audioChunk, chunkId))?.fields.get("_deleted"),
+      ).toBe("true");
+      expect((await trashed.getRecord(RecordType.audioChunk, chunkId))?.blob).toEqual(pcm);
+      expect(
+        (await trashed.getRecord(RecordType.session, sessionId))?.fields.get("recording_track_ids"),
+      ).toBe("");
+      expect(await run("take-list", ["--session", sessionId, "--include-deleted"])).toBe(0);
+      expect(JSON.parse(stdout.at(-1)!)[0].fields).toMatchObject({
+        _deleted: "true",
+        label: "Review",
+      });
+      expect(await run("take-restore", ["--session", sessionId, "--take", takeId])).toBe(0);
+
+      const restored = await openArchiveBytes(new Uint8Array(await readFile(archivePath)));
+      expect(
+        (await restored.getRecord(RecordType.assetMetadata, takeId))?.fields.has("_deleted"),
+      ).toBe(false);
+      expect(
+        (await restored.getRecord(RecordType.audioChunk, chunkId))?.fields.has("_deleted"),
+      ).toBe(false);
+      expect(
+        (await restored.getRecord(RecordType.session, sessionId))?.fields.get("recording_track_id"),
+      ).toBe(trackId);
+      expect(stderr).toEqual([]);
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+});
+
+function cliRecordingRecord(
+  type: ArchiveRecord["type"],
+  id: string,
+  fields: readonly (readonly [string, string])[],
+): ArchiveRecord {
+  return {
+    type,
+    id,
+    revision: 0n,
+    previousOffset: 0n,
+    fields: new Map(fields),
+    blob: new Uint8Array(),
+  };
+}
 describe("CLI sanitized archive copies", () => {
   it("requires a reviewed sanitized-copy preview and publishes a private-data-filtered archive", async () => {
     const directory = await mkdtemp(join(process.cwd(), "tmp", "tutorux-cli-sanitize-"));
