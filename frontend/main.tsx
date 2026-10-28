@@ -31,6 +31,8 @@ import { JournalRelations } from "./JournalRelations";
 import { StudentVersionHistory } from "./StudentVersionHistory";
 import { ArchiveMaintenance } from "./ArchiveMaintenance";
 import { MaterialDetails, MaterialTrash } from "./MaterialDetails";
+import { EvidenceSources } from "./EvidenceSources";
+import { AudioMixer } from "./AudioMixer";
 import { sourceStream, type ArchiveByteSource } from "./archive/source";
 import { AiPage } from "./AiPage";
 import { createAiPackageRecord, type AiPackageSummary } from "./ai/package";
@@ -2822,6 +2824,11 @@ function App(): JSX.Element {
                     }
                     onTrashRecordingTake={(take) => void changeRecordingTakeTrash(take, true)}
                     onRestoreRecordingTake={(take) => void changeRecordingTakeTrash(take, false)}
+                    onSaveMix={(snapshot, records, message) =>
+                      workspace()?.snapshot === snapshot
+                        ? addRecords(records, message)
+                        : Promise.resolve(false)
+                    }
                     onExport={(sessionId, format) => void exportTranscript(sessionId, format)}
                     onSave={saveTranscriptCue}
                     onVerify={verifyTranscriptCue}
@@ -2932,6 +2939,7 @@ function App(): JSX.Element {
                 </Show>
                 <Show when={view() === "evidence"}>
                   <EvidencePage
+                    snapshot={state.snapshot}
                     sessions={state.sessions}
                     records={filteredRecords()}
                     edges={state.evidenceEdges}
@@ -3688,6 +3696,7 @@ function evidenceTranscriptLabel(record: ArchiveRecord): string {
 }
 
 function EvidencePage(props: {
+  snapshot: ArchiveSnapshot;
   sessions: ArchiveRecord[];
   records: ArchiveRecord[];
   edges: ArchiveRecord[];
@@ -4036,6 +4045,7 @@ function EvidencePage(props: {
             <For each={sessionRecords()}>
               {(record) => (
                 <EvidenceCard
+                  snapshot={props.snapshot}
                   record={record}
                   assets={props.assets}
                   disabled={props.disabled}
@@ -4303,6 +4313,7 @@ function EvidenceNetwork(props: { layout: EvidenceGraphLayout }): JSX.Element {
 }
 
 function EvidenceCard(props: {
+  snapshot: ArchiveSnapshot;
   record: ArchiveRecord;
   assets: ArchiveRecord[];
   disabled: boolean;
@@ -4373,6 +4384,7 @@ function EvidenceCard(props: {
         <span />
       </div>
       <div class="evidence-card-content">
+        <EvidenceSources record={props.record} snapshot={props.snapshot} />
         <header class="evidence-card-header">
           <div class="evidence-card-labels">
             <span class="eyebrow">{sourceLabel()}</span>
@@ -5863,6 +5875,11 @@ function TranscriptPage(props: {
   onRenameRecordingTrack: (track: AudioTrackDescriptor, label: string) => void;
   onTrashRecordingTake: (take: ArchiveRecord) => void;
   onRestoreRecordingTake: (take: ArchiveRecord) => void;
+  onSaveMix: (
+    snapshot: ArchiveSnapshot,
+    records: ArchiveRecord[],
+    message: string,
+  ) => Promise<boolean>;
   onExport: (sessionId: string, format: TranscriptExportFormat) => void;
   onSave: (
     record: ArchiveRecord,
@@ -6467,6 +6484,18 @@ function TranscriptPage(props: {
         </section>
       </Show>
 
+      <Show when={selectedSession()}>
+        {(session) => (
+          <AudioMixer
+            snapshot={props.snapshot}
+            sessionId={session().id}
+            takes={props.recordingTakes}
+            tracks={props.tracks}
+            disabled={props.disabled}
+            onSave={props.onSaveMix}
+          />
+        )}
+      </Show>
       <Show when={sessionTracks().length > 0}>
         <section class="transcript-audio-panel" aria-label="Session recording playback">
           <div class="transcript-audio-copy">
