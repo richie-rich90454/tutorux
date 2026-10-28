@@ -1,0 +1,37 @@
+.audio-waveform {
+  display: grid;
+  gap: 0.5rem;
+  min-width: min(100%, 18rem);
+}
+
+.audio-waveform-visual {
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  height: 3.5rem;
+  overflow: hidden;
+  border-radius: var(--radius);
+  background: var(--surface-inset);
+  padding: 0.35rem;
+}
+
+.audio-waveform-visual span {
+  flex: 1 1 0;
+  min-width: 1px;
+  border-radius: 1px;
+  background: var(--line-strong);
+}
+
+.audio-waveform-visual span.played {
+  background: var(--accent);
+}
+
+.audio-waveform-seek {
+  width: 100%;
+  margin: 0;
+  accent-color: var(--accent);
+}
+
+.audio-waveform audio {
+  width: 100%;
+}
