@@ -295,6 +295,24 @@ test("creates, updates, exports, and reopens a portable tutoring workspace", asy
   await page.getByRole("button", { name: "Evidence", exact: true }).click();
   await page.getByRole("button", { name: "Extract session evidence" }).click();
   await expect(page.getByRole("heading", { name: "Check the sign change" })).toBeVisible();
+  const evidenceCard = page.locator(".evidence-card").first();
+  await evidenceCard.getByRole("button", { name: "Edit evidence" }).click();
+  await evidenceCard.getByLabel("Title").fill("Reviewed sign change evidence");
+  await evidenceCard.getByLabel("Type").fill("tutor observation");
+  await evidenceCard.getByLabel("Priority").fill("high");
+  await evidenceCard.getByLabel("Evidence").fill("The tutor will revisit the sign with Mina.");
+  await evidenceCard.getByRole("button", { name: "Save changes" }).click();
+  await expect(
+    evidenceCard.getByRole("heading", { name: "Reviewed sign change evidence" }),
+  ).toBeVisible();
+  await expect(evidenceCard.getByText("Needs review", { exact: true })).toBeVisible();
+  await evidenceCard.getByRole("button", { name: "Move to Trash" }).click();
+  await expect(page.getByRole("heading", { name: "Reviewed sign change evidence" })).toHaveCount(0);
+  await page.getByRole("button", { name: "Trash", exact: true }).click();
+  await expect(page.getByText("Reviewed sign change evidence", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Restore", exact: true }).click();
+  await page.getByRole("button", { name: "Evidence", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Reviewed sign change evidence" })).toBeVisible();
   await page.getByRole("button", { name: "Students", exact: true }).click();
   const studentHistory = page.locator(".student-history");
   await studentHistory.locator("summary").click();
