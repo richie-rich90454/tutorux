@@ -112,6 +112,7 @@ import {
   restoreJournalOrganizerRecord,
   setSessionArchiveState,
   updateJournalRecords,
+  updateOwnerNotes,
   updateSessionRecords,
   updateStudentRecord,
   transitionSessionRecord,
@@ -217,6 +218,19 @@ interface SessionTrashReview {
   session: ArchiveRecord;
   snapshot: ArchiveSnapshot;
   plan: SessionTrashPlan;
+}
+
+interface NotesAutosaveVersion {
+  archiveId: string;
+  documentId: string;
+  revision: bigint | null;
+}
+
+interface NotesAutosaveResult {
+  documentId: string;
+  revision: bigint;
+  persisted: boolean;
+  diskError?: string;
 }
 
 interface ViewDefinition {
@@ -821,6 +835,88 @@ function App(): JSX.Element {
       if (nextSnapshot && workspace()?.snapshot !== nextSnapshot) nextSnapshot.lock();
       announce(errorMessage(error), "error");
       return false;
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function autosaveNotes(
+    owner: ArchiveRecord,
+    version: NotesAutosaveVersion,
+    blocks: readonly JournalNoteBlock[],
+  ): Promise<NotesAutosaveResult> {
+    const current = workspace();
+    if (!current || current.snapshot.locked || !current.snapshot.canMutate)
+      throw new Error("Unlock a writable archive before autosaving notes.");
+    if (busy()) throw new Error("Wait for the current archive operation to finish.");
+    if (current.snapshot.header.id.toLowerCase() !== version.archiveId.toLowerCase())
+      throw new Error("The active archive changed. Reopen this record to continue autosaving.");
+    const owners =
+      owner.type === RecordType.session
+        ? [...current.sessions, ...current.archivedSessions]
+        : current.entries;
+    const latestOwner = owners.find((item) => item.id.toLowerCase() === owner.id.toLowerCase());
+    if (!latestOwner) throw new Error("This record is no longer available in the archive.");
+    const documentId = field(latestOwner, "notes_document_id");
+    const document =
+      current.notesDocuments.find((item) => item.id.toLowerCase() === documentId.toLowerCase()) ??
+      null;
+    if (
+      documentId.toLowerCase() !== version.documentId.toLowerCase() ||
+      (document?.revision ?? null) !== version.revision
+    ) {
+      throw new Error("These notes changed elsewhere. Reopen the record before autosaving.");
+    }
+    const changes = updateOwnerNotes(latestOwner, document, blocks);
+    const changedDocument = changes.find(
+      (item) => item.type === RecordType.settings && field(item, "record_role") === "journal-notes",
+    );
+    if (!changedDocument) throw new Error("The notes document could not be prepared.");
+
+    setBusy(true);
+    let nextSnapshot: ArchiveSnapshot | undefined;
+    let accepted = false;
+    try {
+      nextSnapshot = await appendRecords(current.snapshot, changes);
+      const updated = await readWorkspace(nextSnapshot, current.name, current.location, true);
+      if (workspace()?.snapshot !== current.snapshot)
+        throw new Error("The active archive changed while notes were being saved.");
+      const savedDocument = updated.notesDocuments.find((item) => item.id === changedDocument.id);
+      if (!savedDocument) throw new Error("The saved notes document could not be reopened.");
+      setWorkspace(updated);
+      accepted = true;
+      current.snapshot.lock();
+
+      let persisted = false;
+      let diskError: string | undefined;
+      if (platform.kind === "desktop" && current.location) {
+        try {
+          const location = await platform.saveArchive(
+            nextSnapshot.source,
+            current.name,
+            current.location,
+          );
+          persisted = Boolean(location);
+          if (persisted && workspace()?.snapshot === nextSnapshot) {
+            setWorkspace({ ...updated, location, dirty: false });
+          }
+        } catch (error) {
+          diskError = errorMessage(error);
+          announce(
+            "Notes are saved in the workspace, but the archive file could not be updated.",
+            "error",
+          );
+        }
+      }
+      return {
+        documentId: savedDocument.id,
+        revision: savedDocument.revision,
+        persisted,
+        ...(diskError ? { diskError } : {}),
+      };
+    } catch (error) {
+      if (!accepted) nextSnapshot?.lock();
+      throw error;
     } finally {
       setBusy(false);
     }
@@ -2795,24 +2891,51 @@ function App(): JSX.Element {
                 announce(errorMessage(error), "error"),
               )
             }
-            onSaveSession={(input, record, notesDocument, updateNotes) =>
+            onAutosaveNotes={autosaveNotes}
+            onSaveSession={(input, record, notesDocument, updateNotes) => {
+              const state = workspace();
+              const latest = record
+                ? [...(state?.sessions ?? []), ...(state?.archivedSessions ?? [])].find(
+                    (item) => item.id === record.id,
+                  )
+                : null;
+              if (record && !latest) {
+                announce("This session is no longer available.", "error");
+                return;
+              }
+              const latestNotes = latest
+                ? (state?.notesDocuments.find(
+                    (item) => item.id === field(latest, "notes_document_id"),
+                  ) ?? null)
+                : notesDocument;
               void addRecords(
-                record
-                  ? updateSessionRecords(record, input, notesDocument, updateNotes)
+                latest
+                  ? updateSessionRecords(latest, input, latestNotes, updateNotes)
                   : makeSessionRecords(input, {
                       ensureJournalRoot: !(workspace()?.journals.length ?? 0),
                     } satisfies SessionCreateOptions),
                 record ? "Session details updated." : undefined,
-              ).catch((error: unknown) => announce(errorMessage(error), "error"))
-            }
-            onSaveJournal={(input, record, notesDocument, updateNotes) =>
+              ).catch((error: unknown) => announce(errorMessage(error), "error"));
+            }}
+            onSaveJournal={(input, record, notesDocument, updateNotes) => {
+              const state = workspace();
+              const latest = record ? state?.entries.find((item) => item.id === record.id) : null;
+              if (record && !latest) {
+                announce("This journal entry is no longer available.", "error");
+                return;
+              }
+              const latestNotes = latest
+                ? (state?.notesDocuments.find(
+                    (item) => item.id === field(latest, "notes_document_id"),
+                  ) ?? null)
+                : notesDocument;
               void addRecords(
-                record
-                  ? updateJournalRecords(record, input, notesDocument, updateNotes)
+                latest
+                  ? updateJournalRecords(latest, input, latestNotes, updateNotes)
                   : makeJournalRecords(input),
                 record ? "Journal entry updated." : undefined,
-              ).catch((error: unknown) => announce(errorMessage(error), "error"))
-            }
+              ).catch((error: unknown) => announce(errorMessage(error), "error"));
+            }}
           />
         )}
       </Show>
@@ -7844,6 +7967,11 @@ function FormDialog(props: {
   onClose: () => void;
   onCreateArchive: (name: string, description: string, passphrase: string) => Promise<void>;
   onChangePassphrase: (currentPassphrase: string, newPassphrase: string) => Promise<void>;
+  onAutosaveNotes: (
+    owner: ArchiveRecord,
+    version: NotesAutosaveVersion,
+    blocks: readonly JournalNoteBlock[],
+  ) => Promise<NotesAutosaveResult>;
   onSaveStudent: (input: StudentInput, current: ArchiveRecord | null) => void;
   onSaveSession: (
     input: SessionInput,
@@ -7941,6 +8069,88 @@ function FormDialog(props: {
         : [{ id: crypto.randomUUID(), kind: "paragraph", text: "" }]
       : [],
   );
+  const initialOwner = untrack(() => props.record);
+  const initialArchiveId = untrack(() => props.state?.snapshot.header.id ?? "");
+  const initialDocument = untrack(() => props.notesDocument);
+  let autosaveVersion: NotesAutosaveVersion = {
+    archiveId: initialArchiveId,
+    documentId: initialOwner ? field(initialOwner, "notes_document_id") : "",
+    revision: initialDocument?.revision ?? null,
+  };
+  const [autosaveEnabled, setAutosaveEnabled] = createSignal(false);
+  const [autosaveStatus, setAutosaveStatus] = createSignal("");
+  let autosaveTimer: number | undefined;
+  let editSequence = 0;
+  let savedSequence = -1;
+  let autosaveInFlight = false;
+  let editorDisposed = false;
+
+  function scheduleNotesAutosave(): void {
+    window.clearTimeout(autosaveTimer);
+    if (!autosaveEnabled() || !initialOwner || editorDisposed) return;
+    setAutosaveStatus("Waiting to save notes…");
+    autosaveTimer = window.setTimeout(() => void flushNotesAutosave(), 1800);
+  }
+
+  async function flushNotesAutosave(): Promise<boolean> {
+    window.clearTimeout(autosaveTimer);
+    if (!autosaveEnabled() || !initialOwner || editorDisposed) return true;
+    if (autosaveInFlight || props.busy) {
+      scheduleNotesAutosave();
+      return false;
+    }
+    const sequence = editSequence;
+    const blocks = noteBlocks().map((block) => ({ ...block }));
+    autosaveInFlight = true;
+    setAutosaveStatus("Saving notes…");
+    try {
+      const result = await props.onAutosaveNotes(initialOwner, autosaveVersion, blocks);
+      autosaveVersion = {
+        ...autosaveVersion,
+        documentId: result.documentId,
+        revision: result.revision,
+      };
+      savedSequence = sequence;
+      if (editorDisposed) return true;
+      setAutosaveStatus(
+        result.persisted
+          ? "Notes and current workspace changes saved to the archive file."
+          : result.diskError
+            ? `Notes saved in the workspace; save the archive to write them to disk. ${result.diskError}`
+            : "Notes saved in the workspace. Save the archive to write them to disk.",
+      );
+      return true;
+    } catch (error) {
+      if (!editorDisposed) {
+        setAutosaveEnabled(false);
+        setAutosaveStatus(`Autosave paused: ${errorMessage(error)}`);
+      }
+      return false;
+    } finally {
+      autosaveInFlight = false;
+      if (!editorDisposed && autosaveEnabled() && editSequence !== savedSequence) {
+        scheduleNotesAutosave();
+      }
+    }
+  }
+
+  function changeNoteBlocks(blocks: JournalNoteBlock[]): void {
+    setNoteBlocks(blocks);
+    editSequence += 1;
+    scheduleNotesAutosave();
+  }
+
+  async function closeForm(): Promise<void> {
+    while (autosaveEnabled() && editSequence !== savedSequence) {
+      if (!(await flushNotesAutosave())) return;
+    }
+    props.onClose();
+  }
+
+  onCleanup(() => {
+    editorDisposed = true;
+    window.clearTimeout(autosaveTimer);
+  });
   const journalIds = (key: "collection_ids" | "tag_ids"): string[] =>
     props.record ? field(props.record, key).split(",").filter(Boolean) : [];
   const today = new Date().toISOString().slice(0, 10);
@@ -8059,11 +8269,46 @@ function FormDialog(props: {
     }
   }
 
+  function notesAutosaveControl(): JSX.Element {
+    return (
+      <Show when={initialOwner && noteState.editable}>
+        <div class="notes-autosave">
+          <label>
+            <input
+              type="checkbox"
+              checked={autosaveEnabled()}
+              disabled={props.busy || !props.state?.snapshot.canMutate}
+              onChange={(event) => {
+                setAutosaveEnabled(event.currentTarget.checked);
+                if (event.currentTarget.checked) scheduleNotesAutosave();
+                else {
+                  window.clearTimeout(autosaveTimer);
+                  setAutosaveStatus("Autosave is off.");
+                }
+              }}
+            />
+            Autosave notes
+          </label>
+          <small>
+            {platform.kind === "desktop" && props.state?.location
+              ? "Autosave writes all current workspace changes to the open archive file."
+              : "Autosave keeps notes in the open workspace. Save the archive to write them to disk."}
+          </small>
+          <Show when={autosaveStatus()}>
+            <small role="status" aria-live="polite">
+              {autosaveStatus()}
+            </small>
+          </Show>
+        </div>
+      </Show>
+    );
+  }
+
   return (
     <div
       class="dialog-backdrop"
       onClick={(event) => {
-        if (event.target === event.currentTarget && !props.busy) props.onClose();
+        if (event.target === event.currentTarget && !props.busy) void closeForm();
       }}
     >
       <section
@@ -8072,13 +8317,13 @@ function FormDialog(props: {
         aria-modal="true"
         aria-labelledby="form-dialog-title"
         onKeyDown={(event) => {
-          if (event.key === "Escape" && !props.busy) props.onClose();
+          if (event.key === "Escape" && !props.busy) void closeForm();
         }}
       >
         <button
           class="icon-button dialog-close"
           type="button"
-          onClick={() => props.onClose()}
+          onClick={() => void closeForm()}
           disabled={props.busy}
           aria-label="Close"
         >
@@ -8373,8 +8618,9 @@ function FormDialog(props: {
                 <DocumentEditor
                   label="Session notes"
                   blocks={noteBlocks()}
-                  onChange={setNoteBlocks}
+                  onChange={changeNoteBlocks}
                 />
+                {notesAutosaveControl()}
               </Show>
             </div>
           </Show>
@@ -8412,7 +8658,12 @@ function FormDialog(props: {
                   </span>
                 }
               >
-                <DocumentEditor label="Reflection" blocks={noteBlocks()} onChange={setNoteBlocks} />
+                <DocumentEditor
+                  label="Reflection"
+                  blocks={noteBlocks()}
+                  onChange={changeNoteBlocks}
+                />
+                {notesAutosaveControl()}
               </Show>
             </div>
             <div class="journal-link-fields">
@@ -8517,7 +8768,7 @@ function FormDialog(props: {
             <button
               class="button button-outline"
               type="button"
-              onClick={() => props.onClose()}
+              onClick={() => void closeForm()}
               disabled={props.busy}
             >
               Cancel
