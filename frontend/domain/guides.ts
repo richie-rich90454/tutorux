@@ -1,4 +1,11 @@
 import { newUuid, RecordType, type ArchiveRecord } from "../archive/format";
+import { notesEditState } from "./records";
+import {
+  classificationLabel,
+  decodeStudentProgress,
+  validateProgressEvidence,
+} from "./student-progress";
+import { formatTranscriptTimestampUs } from "./transcript";
 
 export const GUIDE_BLOCK_KINDS = [
   "paragraph",
@@ -218,6 +225,437 @@ export function createGuideDraftFromSections(
       blocks: [],
     })),
   };
+}
+
+/** Build an editable guide draft from session records without inferring unverified learning outcomes. */
+export function generateGuideDraftFromSession(
+  session: ArchiveRecord,
+  templateId: string,
+  records: readonly ArchiveRecord[],
+  students: readonly ArchiveRecord[],
+  templates: readonly GuideTemplate[] = GUIDE_TEMPLATES,
+): GuideDraft {
+  if (session.type !== RecordType.session || field(session, "_deleted") === "true") {
+    throw new Error("Choose an active session before generating a study guide.");
+  }
+
+  const requestedTemplate = templateId.trim();
+  const automatic = !requestedTemplate || requestedTemplate.toLocaleLowerCase() === "auto";
+  const studentId = field(session, "student_id").toLocaleLowerCase();
+  const student =
+    studentId && studentId !== "anonymous"
+      ? students.find((record) => record.id.toLocaleLowerCase() === studentId)
+      : undefined;
+  const inferredTemplateId = inferGuideTemplateId(field(session, "subject"));
+  const preferredTemplateId = student ? field(student, "preferred_guide_template") : "";
+  const resolvedTemplateId = automatic
+    ? preferredTemplateId || inferredTemplateId
+    : requestedTemplate;
+  const normalizedTemplateId = resolvedTemplateId.toLocaleLowerCase();
+  const template =
+    templates.find(
+      (candidate) =>
+        candidate.id.toLocaleLowerCase() === normalizedTemplateId ||
+        (automatic && candidate.name.toLocaleLowerCase() === normalizedTemplateId),
+    ) ??
+    (automatic ? templates.find((candidate) => candidate.id === inferredTemplateId) : undefined);
+  if (!template) throw new Error("Choose a study guide template available in this archive.");
+
+  const draft = createGuideDraftFromSections(session, template.id, template.sections);
+  const sessionId = session.id.toLocaleLowerCase();
+  const activeRecords = records.filter((record) => field(record, "_deleted") !== "true");
+  const sessionRecords = activeRecords.filter(
+    (record) => field(record, "session_id").toLocaleLowerCase() === sessionId,
+  );
+  const overview = getOrAddGuideSection(draft, "Session overview");
+  const sessionTitle = field(session, "title", "Tutoring Session");
+  const subject = field(session, "subject");
+  overview.blocks.push({
+    kind: "paragraph",
+    text: `Session: ${sessionTitle}${subject ? `\nSubject: ${subject}` : ""}`,
+    sourceIds: session.id,
+    stale: false,
+    origin: "session-evidence",
+  });
+  const objectives = field(session, "learning_objectives");
+  if (objectives) {
+    overview.blocks.push({
+      kind: "paragraph",
+      text: `Learning objectives provided for this session:\n${objectives}`,
+      sourceIds: session.id,
+      stale: false,
+      origin: "session-evidence",
+    });
+  }
+
+  if (student) addTutorProfileContext(draft, student);
+
+  const annotations = sessionRecords
+    .filter((record) => record.type === RecordType.annotation)
+    .sort(compareGuideRecordTime);
+  for (const annotation of annotations) {
+    const type = field(annotation, "type", "general-note");
+    const heading = annotationHeading(type);
+    const section = getOrAddGuideSection(draft, heading);
+    const title = field(annotation, "title");
+    const priority = field(annotation, "priority", "normal");
+    const content = field(annotation, "content");
+    section.blocks.push({
+      kind: "list-item",
+      text: `[${priority} priority] ${title ? `**${title}**\n` : ""}${content}`,
+      sourceIds: annotation.id,
+      stale: false,
+      origin:
+        field(annotation, "origin") === "tutor-authored" ? "tutor-authored" : "session-evidence",
+    });
+  }
+
+  const transcripts = sessionRecords
+    .filter((record) => record.type === RecordType.transcriptSegment)
+    .sort(compareGuideRecordTime);
+  if (transcripts.length) {
+    const transcriptSection = getOrAddGuideSection(
+      draft,
+      "Transcript excerpts — verbatim, review required",
+    );
+    for (const segment of transcripts) {
+      transcriptSection.blocks.push({
+        kind: "quote",
+        text: `[${transcriptTimeRange(segment)}] ${field(segment, "text")}`,
+        sourceIds: segment.id,
+        stale: false,
+        origin: "session-evidence",
+      });
+    }
+  }
+
+  const currentTranscriptIds = new Set(transcripts.map((record) => record.id.toLocaleLowerCase()));
+  const verifiedEvidence = sessionRecords
+    .filter(
+      (record) =>
+        record.type === RecordType.evidenceNode &&
+        field(record, "origin") === "transcript-derived-candidate" &&
+        field(record, "verification_state") === "human-verified" &&
+        evidenceSourcesAreCurrentFromRecords(record, activeRecords, sessionId),
+    )
+    .sort(compareGuideRecordTime);
+  const evidenceSections = new Map<string, GuideSectionDraft>();
+  for (const node of verifiedEvidence) {
+    const sectionDefinition = transcriptEvidenceSection(field(node, "type"));
+    const heading = sectionDefinition?.heading ?? "Verified transcript evidence";
+    let section = evidenceSections.get(heading);
+    if (!section) {
+      section = { id: newUuid(), heading, blocks: [] };
+      evidenceSections.set(heading, section);
+      draft.sections.push(section);
+    }
+    const segmentIds = splitGuideSourceIds(field(node, "source_segment_ids"));
+    const currentSegmentIds = segmentIds.filter((id) =>
+      currentTranscriptIds.has(id.toLocaleLowerCase()),
+    );
+    if (currentSegmentIds.length !== segmentIds.length) continue;
+    const sourceIds = [node.id, ...segmentIds].join(",");
+    const speaker = field(node, "source_speaker_label");
+    const attribution = `[${guideTimestamp(field(node, "start_time_us"))}]${speaker ? ` [${speaker}]` : ""}`;
+    section.blocks.push({
+      kind: "list-item",
+      text: `${attribution} ${field(node, "content")}`,
+      sourceIds,
+      stale: false,
+      origin: "session-evidence",
+    });
+  }
+
+  if (student) addStudentProgress(draft, student, activeRecords);
+
+  for (const notes of sessionRecords.filter(
+    (record) =>
+      record.type === RecordType.settings && field(record, "record_role") === "journal-notes",
+  )) {
+    const decoded = notesEditState(notes);
+    if (!decoded.editable) continue;
+    const blocks = decoded.blocks
+      .filter((block) => block.text.length > 0)
+      .map((block) => ({
+        kind: "paragraph" as const,
+        text: block.text,
+        sourceIds: notes.id,
+        stale: false,
+        origin: "session-evidence" as const,
+      }));
+    if (blocks.length) draft.sections.push({ id: newUuid(), heading: "Session notes", blocks });
+  }
+
+  if (draft.sections.length === 1) {
+    draft.sections.push({
+      id: newUuid(),
+      heading: "Evidence status",
+      blocks: [
+        {
+          kind: "paragraph",
+          text: "No tutor-authored observations or transcript segments are linked to this session yet. This draft contains only the session details above; it does not infer lesson outcomes.",
+          sourceIds: session.id,
+          stale: false,
+          origin: "system-generated",
+        },
+      ],
+    });
+  }
+
+  orderGeneratedGuideSections(draft, template.sections);
+  return draft;
+}
+
+function addTutorProfileContext(draft: GuideDraft, student: ArchiveRecord): void {
+  const knownDifficulties = field(student, "known_difficulties");
+  const demonstratedImprovements = field(student, "demonstrated_improvements");
+  if (!knownDifficulties && !demonstratedImprovements) return;
+  let text = "Previously recorded tutor profile context (not a new finding from this session):";
+  if (knownDifficulties) text += `\nKnown difficulties: ${knownDifficulties}`;
+  if (demonstratedImprovements) {
+    text += `\nPreviously recorded improvements (verify against linked evidence before treating them as established):\n${demonstratedImprovements}`;
+  }
+  draft.sections.push({
+    id: newUuid(),
+    heading: "Tutor profile context",
+    blocks: [
+      {
+        kind: "paragraph",
+        text,
+        sourceIds: student.id,
+        stale: false,
+        origin: "tutor-authored",
+      },
+    ],
+  });
+}
+
+function addStudentProgress(
+  draft: GuideDraft,
+  student: ArchiveRecord,
+  records: readonly ArchiveRecord[],
+): void {
+  const progress = decodeStudentProgress(field(student, "progress_classifications"));
+  if (!progress.length) return;
+  const sessions = records.filter((record) => record.type === RecordType.session);
+  const evidence = records.filter((record) => record.type === RecordType.evidenceNode);
+  const section: GuideSectionDraft = {
+    id: newUuid(),
+    heading: "Progress since previous lessons",
+    blocks: [],
+  };
+  for (const item of progress) {
+    let verifiedSources: ArchiveRecord[] | undefined;
+    try {
+      verifiedSources = validateProgressEvidence(
+        student.id,
+        item.evidenceSourceIds,
+        sessions,
+        evidence,
+        item.classification,
+      );
+    } catch {
+      verifiedSources = undefined;
+    }
+    const unverified = item.classification === "unverified-improvement" || !verifiedSources;
+    const evidenceSessionCount = new Set(
+      verifiedSources?.map((record) => field(record, "session_id")) ?? [],
+    ).size;
+    let text = `${item.skill}: ${unverified ? "UNVERIFIED CLAIM — " : ""}${classificationLabel(item.classification)}`;
+    text += verifiedSources
+      ? ` (human-reviewed; ${verifiedSources.length} evidence record(s) across ${evidenceSessionCount} session(s))`
+      : " (source evidence is missing or invalid; do not treat improvement as established)";
+    if (item.note) text += `\nTutor note: ${item.note}`;
+    if (item.evidenceSourceIds.length) {
+      text += `\nEvidence record IDs: ${item.evidenceSourceIds.join(", ")}`;
+    }
+    section.blocks.push({
+      kind: "list-item",
+      text,
+      sourceIds: student.id,
+      stale: false,
+      origin: unverified ? "uncertain" : "tutor-authored",
+    });
+  }
+  if (section.blocks.length) draft.sections.push(section);
+}
+
+function getOrAddGuideSection(draft: GuideDraft, heading: string): GuideSectionDraft {
+  const existing = draft.sections.find(
+    (section) => section.heading.toLocaleLowerCase() === heading.toLocaleLowerCase(),
+  );
+  if (existing) return existing;
+  const section = { id: newUuid(), heading, blocks: [] };
+  draft.sections.push(section);
+  return section;
+}
+
+function annotationHeading(type: string): string {
+  const headings: Record<string, string> = {
+    "important-concept": "Key concepts",
+    "student-mistake": "Student misconceptions",
+    "tutor-correction": "Errors and corrections",
+    "explicit-instruction": "Tutor instructions",
+    "worked-example": "Worked examples",
+    "follow-up-priority": "Next-session priorities",
+    "student-question": "Student questions",
+    "learning-outcome": "Learning outcomes",
+    "general-note": "Tutor notes",
+    custom: "Additional tutor notes",
+  };
+  return headings[type] ?? "Tutor notes";
+}
+
+function transcriptEvidenceSection(type: string): { heading: string } | undefined {
+  const sections: Record<string, string> = {
+    "explicit-instruction-candidate": "Tutor-verified spoken instructions",
+    "important-concept-candidate": "Verified spoken concepts",
+    "explanation-candidate": "Verified spoken explanations",
+    "tutor-correction-candidate": "Verified spoken corrections",
+    "student-mistake-candidate": "Verified learner misconceptions",
+    "worked-example-candidate": "Verified spoken examples",
+    "learning-outcome-candidate": "Verified learning outcomes",
+    "follow-up-priority-candidate": "Verified follow-up priorities",
+    "student-question-candidate": "Verified questions",
+  };
+  const heading = sections[type];
+  return heading ? { heading } : undefined;
+}
+
+function evidenceSourcesAreCurrentFromRecords(
+  evidence: ArchiveRecord,
+  records: readonly ArchiveRecord[],
+  sessionId: string,
+): boolean {
+  const byId = new Map(records.map((record) => [record.id.toLocaleLowerCase(), record]));
+  const validate = (
+    type: number,
+    ids: readonly string[],
+    revisions: ReadonlyMap<string, bigint>,
+  ): boolean => {
+    for (const rawId of ids) {
+      const id = rawId.toLocaleLowerCase();
+      if (!isArchiveUuid(id)) return false;
+      const source = byId.get(id);
+      if (
+        !source ||
+        source.type !== type ||
+        field(source, "_deleted") === "true" ||
+        (field(source, "session_id") &&
+          field(source, "session_id").toLocaleLowerCase() !== sessionId)
+      ) {
+        return false;
+      }
+      const expectedRevision = revisions.get(id);
+      if (expectedRevision !== undefined && source.revision !== expectedRevision) return false;
+    }
+    return true;
+  };
+
+  const annotationId = field(evidence, "source_annotation_id");
+  if (annotationId) {
+    const revision = parseGuideRevision(field(evidence, "source_annotation_revision"));
+    if (revision === null) return false;
+    if (
+      !validate(
+        RecordType.annotation,
+        [annotationId],
+        revision === undefined
+          ? new Map()
+          : new Map([[annotationId.toLocaleLowerCase(), revision]]),
+      )
+    ) {
+      return false;
+    }
+  }
+
+  const segmentIds = splitGuideSourceIds(field(evidence, "source_segment_ids"));
+  const segmentRevisions = parseGuideRevisionMap(field(evidence, "source_segment_revisions"));
+  if (segmentRevisions === null) return false;
+  if (!validate(RecordType.transcriptSegment, segmentIds, segmentRevisions)) return false;
+  const assetIds = splitGuideSourceIds(field(evidence, "source_asset_ids"));
+  if (!validate(RecordType.assetMetadata, assetIds, new Map())) return false;
+  return Boolean(annotationId || segmentIds.length || assetIds.length);
+}
+
+function parseGuideRevision(value: string): bigint | undefined | null {
+  if (!value) return undefined;
+  if (!/^\d+$/u.test(value)) return null;
+  try {
+    const revision = BigInt(value);
+    return revision >= 0n ? revision : null;
+  } catch {
+    return null;
+  }
+}
+
+function parseGuideRevisionMap(value: string): Map<string, bigint> | null {
+  const result = new Map<string, bigint>();
+  for (const item of splitGuideSourceIds(value)) {
+    const separator = item.indexOf("=");
+    if (separator < 1 || separator === item.length - 1) return null;
+    const id = item.slice(0, separator).toLocaleLowerCase();
+    const revision = parseGuideRevision(item.slice(separator + 1));
+    if (!isArchiveUuid(id) || revision === undefined || revision === null) return null;
+    result.set(id, revision);
+  }
+  return result;
+}
+
+function isArchiveUuid(value: string): boolean {
+  return /^[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}$/iu.test(value);
+}
+
+function splitGuideSourceIds(value: string): string[] {
+  return value
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function compareGuideRecordTime(left: ArchiveRecord, right: ArchiveRecord): number {
+  const leftTime = parseGuideInteger(field(left, "start_time_us"));
+  const rightTime = parseGuideInteger(field(right, "start_time_us"));
+  return leftTime < rightTime ? -1 : leftTime > rightTime ? 1 : 0;
+}
+
+function parseGuideInteger(value: string): bigint {
+  if (!/^-?\d+$/u.test(value)) return 0n;
+  try {
+    return BigInt(value);
+  } catch {
+    return 0n;
+  }
+}
+
+function guideTimestamp(value: string): string {
+  return formatTranscriptTimestampUs(parseGuideInteger(value));
+}
+
+function transcriptTimeRange(segment: ArchiveRecord): string {
+  const start = parseGuideInteger(field(segment, "start_time_us"));
+  const end = parseGuideInteger(field(segment, "end_time_us"));
+  return end > start
+    ? `${formatTranscriptTimestampUs(start)}–${formatTranscriptTimestampUs(end)}`
+    : formatTranscriptTimestampUs(start);
+}
+
+function orderGeneratedGuideSections(
+  draft: GuideDraft,
+  preferredSections: readonly string[],
+): void {
+  const rank = (section: GuideSectionDraft): number => {
+    const heading = section.heading.toLocaleLowerCase();
+    const index = preferredSections.findIndex((preferred) => {
+      const candidate = preferred.toLocaleLowerCase();
+      return heading === candidate || heading.includes(candidate) || candidate.includes(heading);
+    });
+    return index < 0 ? preferredSections.length : index;
+  };
+  draft.sections = draft.sections
+    .map((section, index) => ({ section, index }))
+    .sort((left, right) => rank(left.section) - rank(right.section) || left.index - right.index)
+    .map(({ section }) => section);
 }
 
 export function guideDraftFromRecord(record: ArchiveRecord): GuideDraft {
