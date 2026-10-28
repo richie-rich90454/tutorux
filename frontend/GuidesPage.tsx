@@ -7,10 +7,11 @@ import {
   createGuideDraft,
   createGuideDraftFromSections,
   field,
+  generateGuideDraftFromEntry,
   generateGuideDraftFromSession,
   getGuideTemplate,
   guideDraftFromRecord,
-  isGuideNotesSource,
+  isGuideSourceInScope,
   type GuideBlockDraft,
   type GuideDraft,
   type GuideTemplate,
@@ -25,6 +26,7 @@ import "./guides.css";
 interface GuidePageProps {
   records: ArchiveRecord[];
   sessions: ArchiveRecord[];
+  entries: ArchiveRecord[];
   students: ArchiveRecord[];
   sourceRecords: ArchiveRecord[];
   customTemplates: ArchiveRecord[];
@@ -51,7 +53,8 @@ export function GuidesPage(props: GuidePageProps): JSX.Element {
     initialDraft?: GuideDraft;
   } | null>(null);
   const [generation, setGeneration] = createSignal<{
-    sessionId: string;
+    scope: "session" | "entry";
+    sourceId: string;
     templateId: string;
     includeEntryEvidence: boolean;
     record: ArchiveRecord | null;
@@ -63,6 +66,7 @@ export function GuidesPage(props: GuidePageProps): JSX.Element {
   } | null>(null);
   const [templateNotice, setTemplateNotice] = createSignal("");
   const canCreate = () => props.sessions.length > 0 && !props.disabled;
+  const canCreateEntry = () => props.entries.length > 0 && !props.disabled;
   const customTemplates = () => props.customTemplates.map(guideTemplateFromRecord);
   const allTemplates = () => [...GUIDE_TEMPLATES, ...customTemplates()];
 
@@ -70,7 +74,20 @@ export function GuidesPage(props: GuidePageProps): JSX.Element {
     setGenerationError("");
     setRegenerationTitle("");
     setGeneration({
-      sessionId: props.sessions[0]?.id ?? "",
+      scope: "session",
+      sourceId: props.sessions[0]?.id ?? "",
+      templateId: "auto",
+      includeEntryEvidence: false,
+      record: null,
+    });
+  }
+
+  function openEntryGeneration(): void {
+    setGenerationError("");
+    setRegenerationTitle("");
+    setGeneration({
+      scope: "entry",
+      sourceId: props.entries[0]?.id ?? "",
       templateId: "auto",
       includeEntryEvidence: false,
       record: null,
@@ -79,6 +96,9 @@ export function GuidesPage(props: GuidePageProps): JSX.Element {
 
   function openRegeneration(record: ArchiveRecord): void {
     const sessionId = field(record, "session_id");
+    const entryId = field(record, "entry_id");
+    const scope = sessionId ? "session" : "entry";
+    const sourceId = sessionId || entryId;
     const savedTemplateId = field(record, "template_id", "auto");
     const recordDraft = guideDraftFromRecord(record);
     const entryNoteIds = new Set(
@@ -87,7 +107,7 @@ export function GuidesPage(props: GuidePageProps): JSX.Element {
           (source) =>
             source.type === RecordType.settings &&
             field(source, "record_role") === "journal-notes" &&
-            field(source, "entry_id").toLowerCase() === field(record, "entry_id").toLowerCase() &&
+            field(source, "entry_id").toLowerCase() === entryId.toLowerCase() &&
             field(source, "session_id").toLowerCase() !== sessionId.toLowerCase(),
         )
         .map((source) => source.id.toLowerCase()),
@@ -102,7 +122,8 @@ export function GuidesPage(props: GuidePageProps): JSX.Element {
     setGenerationError("");
     setRegenerationTitle(field(record, "title"));
     setGeneration({
-      sessionId,
+      scope,
+      sourceId,
       templateId: allTemplates().some((template) => template.id === savedTemplateId)
         ? savedTemplateId
         : "auto",
@@ -115,28 +136,37 @@ export function GuidesPage(props: GuidePageProps): JSX.Element {
     event.preventDefault();
     const selection = generation();
     if (!selection) return;
-    const session = props.sessions.find((item) => item.id === selection.sessionId);
-    if (!session) {
-      setGenerationError("Choose a session that is still available in this archive.");
-      return;
-    }
     try {
-      const draft = generateGuideDraftFromSession(
-        session,
-        selection.templateId,
-        props.sourceRecords,
-        props.students,
-        allTemplates(),
-        selection.includeEntryEvidence,
-      );
+      let draft: GuideDraft;
+      if (selection.scope === "entry") {
+        const entry = props.entries.find((item) => item.id === selection.sourceId);
+        if (!entry)
+          throw new Error("Choose a journal entry that is still available in this archive.");
+        draft = generateGuideDraftFromEntry(
+          entry,
+          selection.templateId,
+          props.sourceRecords,
+          props.students,
+          allTemplates(),
+        );
+      } else {
+        const session = props.sessions.find((item) => item.id === selection.sourceId);
+        if (!session) throw new Error("Choose a session that is still available in this archive.");
+        draft = generateGuideDraftFromSession(
+          session,
+          selection.templateId,
+          props.sourceRecords,
+          props.students,
+          allTemplates(),
+          selection.includeEntryEvidence,
+        );
+      }
       if (selection.record) draft.title = regenerationTitle() || draft.title;
       setEditor({ record: selection.record, templateId: draft.templateId, initialDraft: draft });
       setGeneration(null);
     } catch (cause) {
       setGenerationError(
-        cause instanceof Error
-          ? cause.message
-          : "A guide could not be generated from this session.",
+        cause instanceof Error ? cause.message : "A guide could not be generated from this source.",
       );
     }
   }
@@ -192,7 +222,7 @@ export function GuidesPage(props: GuidePageProps): JSX.Element {
                     {selection.record ? "Regenerate a study guide" : "Generate a study guide"}
                   </h2>
                   <p>
-                    Choose a session and structure. The result opens as an editable draft for tutor
+                    Choose a source and structure. The result opens as an editable draft for tutor
                     review before it is saved.
                   </p>
                 </div>
@@ -208,25 +238,65 @@ export function GuidesPage(props: GuidePageProps): JSX.Element {
               <form onSubmit={generateSelectedGuide}>
                 <div class="guide-generation-fields">
                   <label class="form-field">
-                    <span>Session</span>
+                    <span>Source type</span>
+                    <select
+                      value={selection.scope}
+                      disabled={Boolean(selection.record)}
+                      onChange={(event) =>
+                        setGeneration((current) => {
+                          if (!current) return current;
+                          const scope = event.currentTarget.value as "session" | "entry";
+                          return {
+                            ...current,
+                            scope,
+                            sourceId:
+                              scope === "session"
+                                ? (props.sessions[0]?.id ?? "")
+                                : (props.entries[0]?.id ?? ""),
+                            includeEntryEvidence: false,
+                          };
+                        })
+                      }
+                    >
+                      <option value="session" disabled={!props.sessions.length}>
+                        Session
+                      </option>
+                      <option value="entry" disabled={!props.entries.length}>
+                        Journal entry
+                      </option>
+                    </select>
+                  </label>
+                  <label class="form-field">
+                    <span>{selection.scope === "session" ? "Session" : "Journal entry"}</span>
                     <select
                       required
-                      value={selection.sessionId}
+                      value={selection.sourceId}
                       disabled={Boolean(selection.record)}
                       onChange={(event) =>
                         setGeneration((current) =>
-                          current ? { ...current, sessionId: event.currentTarget.value } : current,
+                          current ? { ...current, sourceId: event.currentTarget.value } : current,
                         )
                       }
                     >
-                      <For each={props.sessions}>
-                        {(session) => (
-                          <option value={session.id}>
-                            {field(session, "title", "Tutoring Session")}
-                            {field(session, "subject") ? ` · ${field(session, "subject")}` : ""}
-                          </option>
-                        )}
-                      </For>
+                      <Show when={selection.scope === "session"}>
+                        <For each={props.sessions}>
+                          {(session) => (
+                            <option value={session.id}>
+                              {field(session, "title", "Tutoring Session")}
+                              {field(session, "subject") ? ` · ${field(session, "subject")}` : ""}
+                            </option>
+                          )}
+                        </For>
+                      </Show>
+                      <Show when={selection.scope === "entry"}>
+                        <For each={props.entries}>
+                          {(entry) => (
+                            <option value={entry.id}>
+                              {field(entry, "title", "Journal entry")}
+                            </option>
+                          )}
+                        </For>
+                      </Show>
                     </select>
                   </label>
                   <label class="form-field">
@@ -239,7 +309,7 @@ export function GuidesPage(props: GuidePageProps): JSX.Element {
                         )
                       }
                     >
-                      <option value="auto">Automatic · use the session subject</option>
+                      <option value="auto">Automatic · use the source subject</option>
                       <For each={allTemplates()}>
                         {(template) => <option value={template.id}>{template.name}</option>}
                       </For>
@@ -257,27 +327,31 @@ export function GuidesPage(props: GuidePageProps): JSX.Element {
                     />
                   </label>
                 </Show>
-                <label class="guide-generation-entry-evidence">
-                  <input
-                    type="checkbox"
-                    checked={selection.includeEntryEvidence}
-                    onChange={(event) =>
-                      setGeneration((current) =>
-                        current
-                          ? { ...current, includeEntryEvidence: event.currentTarget.checked }
-                          : current,
-                      )
-                    }
-                  />
-                  <span>
-                    Include notes from the linked journal entry
-                    <small>Bring in reflection notes saved with this entry and its sessions.</small>
-                  </span>
-                </label>
+                <Show when={selection.scope === "session"}>
+                  <label class="guide-generation-entry-evidence">
+                    <input
+                      type="checkbox"
+                      checked={selection.includeEntryEvidence}
+                      onChange={(event) =>
+                        setGeneration((current) =>
+                          current
+                            ? { ...current, includeEntryEvidence: event.currentTarget.checked }
+                            : current,
+                        )
+                      }
+                    />
+                    <span>
+                      Include notes from the linked journal entry
+                      <small>
+                        Bring in reflection notes saved with this entry and its sessions.
+                      </small>
+                    </span>
+                  </label>
+                </Show>
                 <p class="guide-generation-note">
-                  Tutor observations and notes are included with citations. Transcript excerpts stay
-                  marked for review; transcript-derived claims appear only after a tutor verifies
-                  them.
+                  {selection.scope === "entry"
+                    ? "Gather linked sessions and the entry’s own notes into one cited guide. Transcript excerpts stay marked for review; transcript-derived claims appear only after a tutor verifies them."
+                    : "Tutor observations and notes are included with citations. Transcript excerpts stay marked for review; transcript-derived claims appear only after a tutor verifies them."}
                   <Show when={selection.record}>
                     <br /> Saving this regenerated draft creates a new revision and keeps the
                     previous guide in history.
@@ -300,7 +374,7 @@ export function GuidesPage(props: GuidePageProps): JSX.Element {
                   <button
                     class="button button-primary"
                     type="submit"
-                    disabled={props.disabled || props.busy || !selection.sessionId}
+                    disabled={props.disabled || props.busy || !selection.sourceId}
                   >
                     Generate draft
                   </button>
@@ -326,6 +400,14 @@ export function GuidesPage(props: GuidePageProps): JSX.Element {
               onClick={openGeneration}
             >
               Generate from a session
+            </button>
+            <button
+              class="button button-outline"
+              type="button"
+              disabled={!canCreateEntry() || props.busy}
+              onClick={openEntryGeneration}
+            >
+              Generate from a journal entry
             </button>
             <button
               class="button button-quiet"
@@ -482,9 +564,10 @@ export function GuidesPage(props: GuidePageProps): JSX.Element {
             </Show>
           </section>
         </Show>
-        <Show when={!props.sessions.length}>
+        <Show when={!props.sessions.length && !props.entries.length}>
           <p class="guide-inline-note">
-            Add a session first. Each guide stays connected to the learning it came from.
+            Add a session or journal entry first. Each guide stays connected to the learning it came
+            from.
             <button
               type="button"
               class="button button-quiet"
@@ -512,8 +595,8 @@ export function GuidesPage(props: GuidePageProps): JSX.Element {
               </div>
               <h2>Your guide shelf is ready</h2>
               <p>
-                Start with a session and a structure that fits the subject. You can refine every
-                section before sharing or approving it.
+                Start with a session or journal entry. You can refine every section before sharing
+                or approving it.
               </p>
             </div>
           }
@@ -527,6 +610,8 @@ export function GuidesPage(props: GuidePageProps): JSX.Element {
               {(record) => {
                 const session = () =>
                   props.sessions.find((item) => item.id === field(record, "session_id"));
+                const entry = () =>
+                  props.entries.find((item) => item.id === field(record, "entry_id"));
                 const template = () =>
                   GUIDE_TEMPLATES.find((item) => item.id === field(record, "template_id"))?.name ??
                   "Custom";
@@ -534,7 +619,8 @@ export function GuidesPage(props: GuidePageProps): JSX.Element {
                   Math.max(0, Number.parseInt(field(record, "stale_block_count", "0"), 10) || 0);
                 const sections = () =>
                   Math.max(0, Number.parseInt(field(record, "section_count", "0"), 10) || 0);
-                const canEdit = () => Boolean(session() && !props.disabled);
+                const canEdit = () =>
+                  Boolean((field(record, "session_id") ? session() : entry()) && !props.disabled);
                 return (
                   <article class="guide-record-card">
                     <div class="guide-record-marker" aria-hidden="true">
@@ -553,7 +639,9 @@ export function GuidesPage(props: GuidePageProps): JSX.Element {
                       <p>
                         {session()
                           ? field(session()!, "title", "Tutoring session")
-                          : "Source session unavailable"}
+                          : entry()
+                            ? field(entry()!, "title", "Journal entry")
+                            : "Guide source unavailable"}
                         {session() && field(session()!, "subject")
                           ? ` · ${field(session()!, "subject")}`
                           : ""}
@@ -668,6 +756,7 @@ export function GuidesPage(props: GuidePageProps): JSX.Element {
             templateId={active.templateId}
             initialDraft={active.initialDraft}
             sessions={props.sessions}
+            entries={props.entries}
             students={props.students}
             sourceRecords={props.sourceRecords}
             customTemplates={customTemplates()}
@@ -698,6 +787,7 @@ function GuideEditor(props: {
   templateId: string;
   initialDraft?: GuideDraft | undefined;
   sessions: ArchiveRecord[];
+  entries: ArchiveRecord[];
   students: ArchiveRecord[];
   sourceRecords: ArchiveRecord[];
   customTemplates: GuideTemplate[];
@@ -716,6 +806,9 @@ function GuideEditor(props: {
   const [error, setError] = createSignal("");
   const selectedSession = createMemo(() =>
     props.sessions.find((session) => session.id === draft().sessionId),
+  );
+  const selectedEntry = createMemo(() =>
+    props.entries.find((entry) => entry.id === draft().entryId),
   );
 
   function updateSection(
@@ -816,46 +909,49 @@ function GuideEditor(props: {
                 }
               />
             </label>
-            <label class="form-field">
-              Session
-              <select
-                required
-                value={draft().sessionId}
-                onChange={(event) => {
-                  const session = props.sessions.find(
-                    (item) => item.id === event.currentTarget.value,
-                  );
-                  setDraft((current) => ({
-                    ...current,
-                    sessionId: event.currentTarget.value,
-                    title: props.record
-                      ? current.title
-                      : session
-                        ? `${field(session, "title", "Tutoring Session")} — Study Guide`
-                        : current.title,
-                  }));
-                }}
-              >
-                <option value="" disabled>
-                  Choose a session
-                </option>
-                <For each={props.sessions}>
-                  {(session) => {
-                    const student = props.students.find(
-                      (item) => item.id === field(session, "student_id"),
+            <Show when={draft().sessionId}>
+              <label class="form-field">
+                Session
+                <select
+                  required
+                  value={draft().sessionId}
+                  onChange={(event) => {
+                    const session = props.sessions.find(
+                      (item) => item.id === event.currentTarget.value,
                     );
-                    const label = [
-                      field(session, "title", "Tutoring session"),
-                      student ? field(student, "display_name") : "Independent",
-                      field(session, "subject"),
-                    ]
-                      .filter(Boolean)
-                      .join(" · ");
-                    return <option value={session.id}>{label}</option>;
+                    setDraft((current) => ({
+                      ...current,
+                      sessionId: event.currentTarget.value,
+                      entryId: session ? field(session, "entry_id") : "",
+                      title: props.record
+                        ? current.title
+                        : session
+                          ? `${field(session, "title", "Tutoring Session")} — Study Guide`
+                          : current.title,
+                    }));
                   }}
-                </For>
-              </select>
-            </label>
+                >
+                  <option value="" disabled>
+                    Choose a session
+                  </option>
+                  <For each={props.sessions}>
+                    {(session) => {
+                      const student = props.students.find(
+                        (item) => item.id === field(session, "student_id"),
+                      );
+                      const label = [
+                        field(session, "title", "Tutoring session"),
+                        student ? field(student, "display_name") : "Independent",
+                        field(session, "subject"),
+                      ]
+                        .filter(Boolean)
+                        .join(" · ");
+                      return <option value={session.id}>{label}</option>;
+                    }}
+                  </For>
+                </select>
+              </label>
+            </Show>
             <label class="form-field">
               Structure
               <select
@@ -878,21 +974,36 @@ function GuideEditor(props: {
             </label>
           </div>
 
-          <Show when={selectedSession()}>
-            {(session) => (
-              <div class="guide-session-context">
-                <span class="guide-context-mark">S</span>
-                <div>
-                  <strong>{field(session(), "title", "Tutoring session")}</strong>
-                  <small>
-                    {field(session(), "subject", "Session source")}
-                    {field(session(), "learning_objectives")
-                      ? ` · ${field(session(), "learning_objectives")}`
-                      : ""}
-                  </small>
+          <Show
+            when={draft().sessionId && selectedSession()}
+            fallback={
+              <Show when={draft().entryId}>
+                <div class="guide-session-context">
+                  <span class="guide-context-mark">J</span>
+                  <div>
+                    <strong>
+                      {selectedEntry()
+                        ? field(selectedEntry()!, "title", "Journal entry")
+                        : "Journal entry unavailable"}
+                    </strong>
+                    <small>Entry-wide guide · linked sessions and notes</small>
+                  </div>
                 </div>
+              </Show>
+            }
+          >
+            <div class="guide-session-context">
+              <span class="guide-context-mark">S</span>
+              <div>
+                <strong>{field(selectedSession()!, "title", "Tutoring session")}</strong>
+                <small>
+                  {field(selectedSession()!, "subject", "Session source")}
+                  {field(selectedSession()!, "learning_objectives")
+                    ? ` · ${field(selectedSession()!, "learning_objectives")}`
+                    : ""}
+                </small>
               </div>
-            )}
+            </div>
           </Show>
 
           <div class="guide-sections-heading">
@@ -1050,8 +1161,14 @@ function GuideEditor(props: {
                                   event.currentTarget.value = "";
                                 }}
                               >
-                                <option value="">Choose a session source…</option>
-                                <For each={sourceOptions(props.sourceRecords, selectedSession())}>
+                                <option value="">Choose a guide source…</option>
+                                <For
+                                  each={sourceOptions(
+                                    props.sourceRecords,
+                                    selectedSession(),
+                                    draft().sessionId ? undefined : selectedEntry(),
+                                  )}
+                                >
                                   {(source) => <option value={source.id}>{source.label}</option>}
                                 </For>
                               </select>
@@ -1123,7 +1240,7 @@ function GuideEditor(props: {
               <button
                 class="button button-primary"
                 type="submit"
-                disabled={props.disabled || props.busy || props.sessions.length === 0}
+                disabled={props.disabled || props.busy || (!draft().sessionId && !draft().entryId)}
               >
                 {props.busy ? "Saving…" : props.record ? "Save changes" : "Save draft"}
               </button>
@@ -1316,35 +1433,12 @@ function GuideTemplateEditor(props: {
 function sourceOptions(
   records: readonly ArchiveRecord[],
   session: ArchiveRecord | undefined,
+  entry: ArchiveRecord | undefined,
 ): { id: string; label: string }[] {
-  if (!session) return [];
-  const sessionId = session.id.toLowerCase();
-  const studentId = field(session, "student_id").toLowerCase();
-  const notesId = field(session, "notes_document_id").toLowerCase();
+  if (!session && !entry) return [];
+  const scope = session ? { session, records } : { entry: entry!, records };
   return records
-    .filter((record) => {
-      if (record.fields.get("_deleted") === "true") return false;
-      if (
-        record.id.toLowerCase() === sessionId ||
-        record.id.toLowerCase() === studentId ||
-        (record.id.toLowerCase() === notesId && isGuideNotesSource(record, session, records))
-      )
-        return true;
-      if (record.type === RecordType.assetMetadata)
-        return (
-          field(record, "session_id").toLowerCase() === sessionId ||
-          field(record, "student_id").toLowerCase() === studentId
-        );
-      const sessionSourceTypes: readonly number[] = [
-        RecordType.annotation,
-        RecordType.transcriptSegment,
-        RecordType.evidenceNode,
-      ];
-      if (sessionSourceTypes.includes(record.type))
-        return field(record, "session_id").toLowerCase() === sessionId;
-      if (record.type === RecordType.settings) return isGuideNotesSource(record, session, records);
-      return false;
-    })
+    .filter((record) => isGuideSourceInScope(record.id.toLowerCase(), scope))
     .map((record) => {
       return {
         id: record.id,
