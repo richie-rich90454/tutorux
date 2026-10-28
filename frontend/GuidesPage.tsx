@@ -7,6 +7,7 @@ import {
   createGuideDraft,
   createGuideDraftFromSections,
   field,
+  generateGuideDraftFromSession,
   getGuideTemplate,
   guideDraftFromRecord,
   type GuideBlockDraft,
@@ -46,7 +47,13 @@ export function GuidesPage(props: GuidePageProps): JSX.Element {
   const [editor, setEditor] = createSignal<{
     record: ArchiveRecord | null;
     templateId: string;
+    initialDraft?: GuideDraft;
   } | null>(null);
+  const [generation, setGeneration] = createSignal<{
+    sessionId: string;
+    templateId: string;
+  } | null>(null);
+  const [generationError, setGenerationError] = createSignal("");
   const [templateEditor, setTemplateEditor] = createSignal<{
     current: ArchiveRecord | null;
   } | null>(null);
@@ -54,6 +61,39 @@ export function GuidesPage(props: GuidePageProps): JSX.Element {
   const canCreate = () => props.sessions.length > 0 && !props.disabled;
   const customTemplates = () => props.customTemplates.map(guideTemplateFromRecord);
   const allTemplates = () => [...GUIDE_TEMPLATES, ...customTemplates()];
+
+  function openGeneration(): void {
+    setGenerationError("");
+    setGeneration({ sessionId: props.sessions[0]?.id ?? "", templateId: "auto" });
+  }
+
+  function generateSelectedGuide(event: SubmitEvent): void {
+    event.preventDefault();
+    const selection = generation();
+    if (!selection) return;
+    const session = props.sessions.find((item) => item.id === selection.sessionId);
+    if (!session) {
+      setGenerationError("Choose a session that is still available in this archive.");
+      return;
+    }
+    try {
+      const draft = generateGuideDraftFromSession(
+        session,
+        selection.templateId,
+        props.sourceRecords,
+        props.students,
+        allTemplates(),
+      );
+      setEditor({ record: null, templateId: draft.templateId, initialDraft: draft });
+      setGeneration(null);
+    } catch (cause) {
+      setGenerationError(
+        cause instanceof Error
+          ? cause.message
+          : "A guide could not be generated from this session.",
+      );
+    }
+  }
 
   async function importTemplate(event: Event): Promise<void> {
     const input = event.currentTarget as HTMLInputElement;
@@ -82,6 +122,114 @@ export function GuidesPage(props: GuidePageProps): JSX.Element {
         </div>
       </section>
 
+      <Show when={generation()} keyed>
+        {(selection) => (
+          <div
+            class="dialog-backdrop guide-editor-backdrop"
+            onClick={(event) => {
+              if (event.target === event.currentTarget && !props.busy) setGeneration(null);
+            }}
+          >
+            <section
+              class="guide-generation-dialog"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="guide-generation-title"
+              onKeyDown={(event) => {
+                if (event.key === "Escape" && !props.busy) setGeneration(null);
+              }}
+            >
+              <header class="guide-editor-header">
+                <div>
+                  <span class="eyebrow">A DRAFT GROUNDED IN YOUR ARCHIVE</span>
+                  <h2 id="guide-generation-title">Generate a study guide</h2>
+                  <p>
+                    Choose a session and structure. The result opens as an editable draft for tutor
+                    review.
+                  </p>
+                </div>
+                <button
+                  class="icon-button guide-trash-button"
+                  type="button"
+                  aria-label="Close guide generation"
+                  onClick={() => setGeneration(null)}
+                >
+                  ×
+                </button>
+              </header>
+              <form onSubmit={generateSelectedGuide}>
+                <div class="guide-generation-fields">
+                  <label class="form-field">
+                    <span>Session</span>
+                    <select
+                      required
+                      value={selection.sessionId}
+                      onChange={(event) =>
+                        setGeneration((current) =>
+                          current ? { ...current, sessionId: event.currentTarget.value } : current,
+                        )
+                      }
+                    >
+                      <For each={props.sessions}>
+                        {(session) => (
+                          <option value={session.id}>
+                            {field(session, "title", "Tutoring Session")}
+                            {field(session, "subject") ? ` · ${field(session, "subject")}` : ""}
+                          </option>
+                        )}
+                      </For>
+                    </select>
+                  </label>
+                  <label class="form-field">
+                    <span>Structure</span>
+                    <select
+                      value={selection.templateId}
+                      onChange={(event) =>
+                        setGeneration((current) =>
+                          current ? { ...current, templateId: event.currentTarget.value } : current,
+                        )
+                      }
+                    >
+                      <option value="auto">Automatic · use the session subject</option>
+                      <For each={allTemplates()}>
+                        {(template) => <option value={template.id}>{template.name}</option>}
+                      </For>
+                    </select>
+                  </label>
+                </div>
+                <p class="guide-generation-note">
+                  Tutor observations and session notes are included with citations. Transcript
+                  excerpts stay marked for review; transcript-derived claims appear only after a
+                  tutor verifies them.
+                </p>
+                <Show when={generationError()}>
+                  <p class="guide-editor-error" role="alert">
+                    {generationError()}
+                  </p>
+                </Show>
+                <footer class="guide-generation-footer">
+                  <button
+                    class="button button-quiet"
+                    type="button"
+                    disabled={props.busy}
+                    onClick={() => setGeneration(null)}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    class="button button-primary"
+                    type="submit"
+                    disabled={props.disabled || props.busy || !selection.sessionId}
+                  >
+                    Generate draft
+                  </button>
+                </footer>
+              </form>
+            </section>
+          </div>
+        )}
+      </Show>
+
       <section class="guide-template-section" aria-labelledby="guide-templates-title">
         <div class="guide-section-heading">
           <div>
@@ -90,6 +238,14 @@ export function GuidesPage(props: GuidePageProps): JSX.Element {
           </div>
           <div class="guide-template-heading-actions">
             <span>{allTemplates().length} structures</span>
+            <button
+              class="button button-primary"
+              type="button"
+              disabled={!canCreate() || props.busy}
+              onClick={openGeneration}
+            >
+              Generate from a session
+            </button>
             <button
               class="button button-quiet"
               type="button"
@@ -421,6 +577,7 @@ export function GuidesPage(props: GuidePageProps): JSX.Element {
           <GuideEditor
             record={active.record}
             templateId={active.templateId}
+            initialDraft={active.initialDraft}
             sessions={props.sessions}
             students={props.students}
             sourceRecords={props.sourceRecords}
@@ -450,6 +607,7 @@ export function GuidesPage(props: GuidePageProps): JSX.Element {
 function GuideEditor(props: {
   record: ArchiveRecord | null;
   templateId: string;
+  initialDraft?: GuideDraft | undefined;
   sessions: ArchiveRecord[];
   students: ArchiveRecord[];
   sourceRecords: ArchiveRecord[];
@@ -462,7 +620,8 @@ function GuideEditor(props: {
   // The editor is mounted with keyed Show for the selected record, so its initial draft is a snapshot.
   /* eslint-disable solid/reactivity */
   const [draft, setDraft] = createSignal<GuideDraft>(
-    initialGuideDraft(props.record, props.sessions, props.templateId, props.customTemplates),
+    props.initialDraft ??
+      initialGuideDraft(props.record, props.sessions, props.templateId, props.customTemplates),
   );
   /* eslint-enable solid/reactivity */
   const [error, setError] = createSignal("");
@@ -535,7 +694,11 @@ function GuideEditor(props: {
           <div>
             <span class="eyebrow">A GUIDE BUILT FROM YOUR WORK</span>
             <h2 id="guide-editor-title">
-              {props.record ? "Shape this study guide" : "Start a study guide"}
+              {props.record
+                ? "Shape this study guide"
+                : props.initialDraft
+                  ? "Review a generated guide"
+                  : "Start a study guide"}
             </h2>
             <p>
               Sections are a scaffold. Keep citations attached as you make the material your own.
