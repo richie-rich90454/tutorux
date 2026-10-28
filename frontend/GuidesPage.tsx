@@ -35,7 +35,7 @@ interface GuidePageProps {
   onSave: (draft: GuideDraft, current: ArchiveRecord | null) => Promise<boolean>;
   onApprove: (record: ArchiveRecord) => void;
   onTrash: (record: ArchiveRecord) => void;
-  onExport: (record: ArchiveRecord, format: "markdown" | "html") => void;
+  onExport: (record: ArchiveRecord, format: "markdown" | "html" | "json" | "docx" | "pdf") => void;
   onSaveTemplate: (input: GuideTemplateInput, current: ArchiveRecord | null) => Promise<boolean>;
   onTrashTemplate: (record: ArchiveRecord) => void;
   onRestoreTemplate: (record: ArchiveRecord) => void;
@@ -358,7 +358,7 @@ export function GuidesPage(props: GuidePageProps): JSX.Element {
                         disabled={props.busy}
                         onClick={() => props.onExport(record, "markdown")}
                       >
-                        Export
+                        Markdown
                       </button>
                       <button
                         class="button button-quiet"
@@ -368,6 +368,35 @@ export function GuidesPage(props: GuidePageProps): JSX.Element {
                       >
                         HTML
                       </button>
+                      <details class="guide-export-menu">
+                        <summary class="button button-quiet">More</summary>
+                        <div class="guide-export-menu-popover" aria-label="More guide exports">
+                          <button
+                            class="button button-quiet"
+                            type="button"
+                            disabled={props.busy}
+                            onClick={() => props.onExport(record, "json")}
+                          >
+                            JSON record
+                          </button>
+                          <button
+                            class="button button-quiet"
+                            type="button"
+                            disabled={props.busy}
+                            onClick={() => props.onExport(record, "docx")}
+                          >
+                            Word document
+                          </button>
+                          <button
+                            class="button button-quiet"
+                            type="button"
+                            disabled={props.busy}
+                            onClick={() => props.onExport(record, "pdf")}
+                          >
+                            PDF / Print
+                          </button>
+                        </div>
+                      </details>
                       <button
                         class="icon-button guide-trash-button"
                         type="button"
