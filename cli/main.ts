@@ -108,6 +108,11 @@ import {
   parseGuideTemplateImport,
   type GuideTemplateInput,
 } from "../frontend/domain/templates";
+import {
+  renameRecordingTake,
+  renameRecordingTrack,
+  setRecordingTakeDeleted,
+} from "../frontend/domain/recording-takes";
 
 interface CliIo {
   stdout(message: string): void;
@@ -201,6 +206,10 @@ Usage:
   tutorux --archive <file.tux> template delete|restore <id>
   tutorux --archive <file.tux> template import --input <file.json>
   tutorux --archive <file.tux> template export <id> --output <file.json>
+  tutorux --archive <file.tux> record take-list --session <uuid> [--include-deleted] [--json]
+  tutorux --archive <file.tux> record take-rename --session <uuid> --take <uuid> --label <name>
+  tutorux --archive <file.tux> record take-delete|take-restore --session <uuid> --take <uuid>
+  tutorux --archive <file.tux> record track-rename --session <uuid> --track <uuid> --label <name>
   tutorux --archive <file.tux> transcript import --session <uuid> --input <file> [--format auto|text|srt|vtt]
   tutorux --archive <file.tux> transcript show --session <uuid> [--json]
   tutorux --archive <file.tux> transcript export --session <uuid> --output <file> [--format text|srt|vtt|json]
@@ -880,6 +889,111 @@ async function runArchiveCommand(
   }
 }
 
+async function runRecordingTakeCommand(
+  action: string,
+  path: string,
+  args: ParsedArguments,
+  output: CliIo,
+): Promise<number> {
+  const json = args.flags.has("json");
+  if (action === "take-list") {
+    const sessionId = canonicalizeProgressUuid(requiredOption(args, "session"));
+    if (!sessionId) throw new CliError("--session must be a valid UUID.");
+    const snapshot = await openForCommand(path);
+    try {
+      await requireLiveRecord(snapshot, RecordType.session, sessionId);
+      const records = await snapshot.listRecordMetadata(
+        RecordType.assetMetadata,
+        args.flags.has("include-deleted"),
+      );
+      const takes = records.filter(
+        (record) =>
+          field(record, "record_role") === "recording-take" &&
+          field(record, "session_id").toLowerCase() === sessionId,
+      );
+      emit(
+        output,
+        takes.map(toPlainRecord),
+        takes.length
+          ? `${takes.length} recording take${takes.length === 1 ? "" : "s"}.`
+          : "No recording takes found.",
+        json,
+      );
+      return 0;
+    } finally {
+      await closeSnapshot(snapshot);
+    }
+  }
+
+  if (!["take-rename", "take-delete", "take-restore", "track-rename"].includes(action)) {
+    throw new CliError(`record ${action} is not implemented in the TypeScript CLI yet.`);
+  }
+
+  const sessionId = canonicalizeProgressUuid(requiredOption(args, "session"));
+  if (!sessionId) throw new CliError("--session must be a valid UUID.");
+  const snapshot = await openForCommand(path);
+  const expectedGeneration = snapshot.commit.generation;
+  let updates: ArchiveRecord[];
+  try {
+    await requireLiveRecord(snapshot, RecordType.session, sessionId);
+    if (action === "track-rename") {
+      const trackId = canonicalizeProgressUuid(requiredOption(args, "track"));
+      if (!trackId) throw new CliError("--track must be a valid UUID.");
+      const track = await snapshot.getRecord(RecordType.assetMetadata, trackId);
+      if (
+        !track ||
+        field(track, "record_role") !== "audio-track" ||
+        field(track, "session_id").toLowerCase() !== sessionId
+      ) {
+        throw new CliError("The selected track does not belong to this session.");
+      }
+      updates = [await renameRecordingTrack(snapshot, trackId, requiredOption(args, "label"))];
+    } else {
+      const takeId = canonicalizeProgressUuid(requiredOption(args, "take"));
+      if (!takeId) throw new CliError("--take must be a valid UUID.");
+      const take = await snapshot.getRecord(RecordType.assetMetadata, takeId);
+      if (
+        !take ||
+        field(take, "record_role") !== "recording-take" ||
+        field(take, "session_id").toLowerCase() !== sessionId
+      ) {
+        throw new CliError("The selected take does not belong to this session.");
+      }
+      updates =
+        action === "take-rename"
+          ? [await renameRecordingTake(snapshot, takeId, requiredOption(args, "label"))]
+          : await setRecordingTakeDeleted(snapshot, takeId, action === "take-delete");
+    }
+  } finally {
+    await closeSnapshot(snapshot);
+  }
+
+  const saved = await mutateArchive(
+    path,
+    updates,
+    expectedGeneration,
+    "The archive changed while this recording update was being prepared. Retry the command.",
+  );
+  const visibleRecords = saved.filter(
+    (record) =>
+      record.type === RecordType.assetMetadata &&
+      ["recording-take", "audio-track"].includes(field(record, "record_role")),
+  );
+  emit(
+    output,
+    visibleRecords.map(toPlainRecord),
+    action === "take-delete"
+      ? "Recording take and its audio moved to Trash."
+      : action === "take-restore"
+        ? "Recording take and its audio restored."
+        : action === "track-rename"
+          ? "Recording track renamed."
+          : "Recording take renamed.",
+    json,
+  );
+  return 0;
+}
+
 async function runRecordCommand(
   group: string,
   action: string,
@@ -887,6 +1001,7 @@ async function runRecordCommand(
   args: ParsedArguments,
   output: CliIo,
 ): Promise<number> {
+  if (group === "record") return runRecordingTakeCommand(action, path, args, output);
   if (group === "journal" && (action === "collection" || action === "tag")) {
     return runJournalOrganizerCommand(action, path, args, output);
   }
