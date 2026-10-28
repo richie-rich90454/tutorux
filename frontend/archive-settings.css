@@ -1,0 +1,80 @@
+.archive-settings-list {
+  border-top: 1px solid var(--line);
+  margin-top: 20px;
+}
+.archive-setting-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: start;
+  gap: 20px;
+  padding: 16px 0;
+  border-bottom: 1px solid var(--line);
+}
+.archive-setting-row > div:first-child {
+  min-width: 0;
+}
+.archive-setting-row strong {
+  overflow-wrap: anywhere;
+}
+.archive-setting-row pre {
+  color: var(--muted);
+  font: inherit;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  margin: 5px 0 0;
+}
+.archive-setting-actions,
+.archive-settings-transfer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.archive-setting-form {
+  display: grid;
+  gap: 12px;
+  padding: 20px 0;
+}
+.archive-setting-form h3 {
+  margin: 0;
+  font-size: 1rem;
+}
+.archive-setting-form .archive-setting-actions {
+  justify-content: flex-end;
+}
+.archive-settings-empty {
+  color: var(--muted);
+}
+.archive-settings-error {
+  color: var(--danger);
+}
+.archive-settings-import {
+  position: relative;
+  overflow: hidden;
+}
+.archive-settings-import input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+  width: 100%;
+}
+.archive-settings-import:focus-within {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.archive-settings-confirm {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 14px;
+}
+.archive-settings-confirm p {
+  flex: 1 1 200px;
+}
+@media (max-width: 600px) {
+  .archive-setting-row {
+    flex-direction: column;
+  }
+}
