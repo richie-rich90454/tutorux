@@ -120,6 +120,107 @@ describe("CLI recording take management", () => {
   });
 });
 
+describe("CLI session package transfer", () => {
+  it("exports a private package, preserves no-overwrite behavior, and imports to a fresh session", async () => {
+    const directory = await mkdtemp(join(process.cwd(), "tmp", "tutorux-cli-session-package-"));
+    const sourcePath = join(directory, "source.tux");
+    const packagePath = join(directory, "reading-session.tux");
+    const destinationPath = join(directory, "destination.tux");
+    const sourceStudentId = newUuid();
+    const sourceSessionId = newUuid();
+    const destinationStudentId = newUuid();
+    const stdout: string[] = [];
+    const stderr: string[] = [];
+    const io = {
+      stdout: (value: string) => stdout.push(value),
+      stderr: (value: string) => stderr.push(value),
+    };
+    const run = (archivePath: string, action: string, options: string[]) =>
+      executeCli(["--archive", archivePath, "session", action, ...options, "--json"], io);
+
+    try {
+      const sourceBase = await openArchiveBytes(await createArchiveBytes("Source workspace"));
+      const source = await appendRecords(sourceBase, [
+        cliRecordingRecord(RecordType.student, sourceStudentId, [
+          ["display_name", "Private learner"],
+        ]),
+        cliRecordingRecord(RecordType.session, sourceSessionId, [
+          ["student_id", sourceStudentId],
+          ["title", "Reading practice"],
+          ["session_type", "notes-only"],
+          ["session_state", "completed"],
+        ]),
+      ]);
+      await writeFile(sourcePath, await source.source.read(0n, Number(source.source.size)));
+
+      const destinationBase = await openArchiveBytes(
+        await createArchiveBytes("Destination workspace"),
+      );
+      const destination = await appendRecords(destinationBase, [
+        cliRecordingRecord(RecordType.student, destinationStudentId, [
+          ["display_name", "Destination learner"],
+        ]),
+      ]);
+      await writeFile(
+        destinationPath,
+        await destination.source.read(0n, Number(destination.source.size)),
+      );
+
+      expect(await run(sourcePath, "export", [sourceSessionId, "--output", packagePath])).toBe(0);
+      expect(JSON.parse(stdout.at(-1)!)).toMatchObject({
+        path: packagePath,
+        session_id: sourceSessionId,
+        created: true,
+      });
+      const packageSnapshot = await openArchiveBytes(new Uint8Array(await readFile(packagePath)));
+      const packageSession = await packageSnapshot.getRecord(RecordType.session, sourceSessionId);
+      expect(packageSession?.fields.get("student_id")).toBe("anonymous");
+      expect(await packageSnapshot.listRecords(RecordType.student, true)).toEqual([]);
+      expect(await run(sourcePath, "export", [sourceSessionId, "--output", packagePath])).toBe(2);
+      expect(stderr.at(-1)).toContain("already exists");
+      expect(
+        await run(sourcePath, "export", [sourceSessionId, "--output", sourcePath, "--force"]),
+      ).toBe(2);
+      expect(stderr.at(-1)).toContain("separate file");
+      expect(
+        await run(sourcePath, "export", [sourceSessionId, "--output", packagePath, "--force"]),
+      ).toBe(0);
+      stderr.length = 0;
+
+      expect(
+        await run(destinationPath, "import", [
+          "--input",
+          packagePath,
+          "--student-id",
+          destinationStudentId,
+        ]),
+      ).toBe(0);
+      const imported = JSON.parse(stdout.at(-1)!) as {
+        session_id: string;
+        session: { id: string; fields: Record<string, string> };
+        imported_records: number;
+      };
+      expect(imported.session_id).not.toBe(sourceSessionId);
+      expect(imported.session.id).toBe(imported.session_id);
+      expect(imported.session.fields["student_id"]).toBe(destinationStudentId);
+      expect(imported.imported_records).toBeGreaterThan(1);
+      const importedArchive = await openArchiveBytes(
+        new Uint8Array(await readFile(destinationPath)),
+      );
+      expect(await importedArchive.getRecord(RecordType.student, sourceStudentId)).toBeNull();
+      expect(
+        await importedArchive.getRecord(RecordType.student, destinationStudentId),
+      ).not.toBeNull();
+      expect(
+        await importedArchive.getRecord(RecordType.settings, imported.session.fields["entry_id"]!),
+      ).toMatchObject({ fields: expect.any(Map) });
+      expect(stderr).toEqual([]);
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+});
+
 function cliRecordingRecord(
   type: ArchiveRecord["type"],
   id: string,
