@@ -23,6 +23,8 @@ import {
 } from "./archive/archive";
 import { ArchiveFormatError, RecordType, type ArchiveRecord } from "./archive/format";
 import { DocumentEditor } from "./DocumentEditor";
+import { AnnotationPage } from "./AnnotationPage";
+import { AudioWaveform } from "./AudioWaveform";
 import { sourceStream, type ArchiveByteSource } from "./archive/source";
 import { AiPage } from "./AiPage";
 import { createAiPackageRecord, type AiPackageSummary } from "./ai/package";
@@ -30,6 +32,7 @@ import { createAiRequestPreview, type AiRequestPreview } from "./ai/request";
 import { executeAiGeneration } from "./ai/execution";
 import type { AiExecutionSummary } from "./ai/response";
 import {
+  deterministicUuid,
   createProviderConfigurationRecord,
   createProviderCredentialRecord,
   maskCredentialMetadata,
@@ -43,6 +46,7 @@ import {
   buildAudioTrackWavStream,
   buildAudioPreview,
   listSessionAudioTracks,
+  type AudioPreview,
   type AudioTrackDescriptor,
 } from "./domain/audio";
 import { makeWaveImportRecords } from "./domain/wav";
@@ -95,6 +99,7 @@ import { createEvidenceGraphLayout, type EvidenceGraphLayout } from "./domain/ev
 import {
   ANNOTATION_PRIORITIES,
   ANNOTATION_TYPES,
+  duplicateAnnotationRecord,
   makeAnnotationRecord,
   removeAnnotationRecord,
   updateAnnotationRecord,
@@ -209,6 +214,7 @@ interface Workspace {
   evidence: ArchiveRecord[];
   evidenceEdges: ArchiveRecord[];
   aiJobs: ArchiveRecord[];
+  settings: ArchiveRecord[];
   providerSettings: ArchiveRecord[];
   credentials: ArchiveRecord[];
   dirty: boolean;
@@ -304,6 +310,38 @@ const [selectedTranscriptSessionId, setSelectedTranscriptSessionId] = createSign
 const [selectedAnnotationSessionId, setSelectedAnnotationSessionId] = createSignal("");
 const [selectedEvidenceSessionId, setSelectedEvidenceSessionId] = createSignal("");
 const [guideTemplateManagerOpen, setGuideTemplateManagerOpen] = createSignal(false);
+const markerTypes: readonly AnnotationInput["type"][] = [
+  "important-concept",
+  "student-mistake",
+  "tutor-correction",
+  "explicit-instruction",
+  "worked-example",
+  "follow-up-priority",
+  "general-note",
+];
+const defaultMarkerKeys = ["1", "2", "3", "4", "5", "6", "m"];
+const markerSettingKey = "annotation.quick_marker_shortcuts";
+
+function markerKeys(state: Workspace | null): string[] {
+  const value = state?.settings
+    .find((record) => field(record, "key") === markerSettingKey)
+    ?.fields.get("value");
+  const keys = value?.split(",").map((key) => key.toLowerCase());
+  return keys && validMarkerKeys(keys, true) ? keys : [...defaultMarkerKeys];
+}
+
+function validMarkerKeys(keys: string[], allowReserved = false): boolean {
+  return (
+    keys.length === markerTypes.length &&
+    keys.every(
+      (key) =>
+        /^[\x21-\x7e]$/u.test(key) &&
+        key !== "," &&
+        (allowReserved || !["k", "o", "s", "n"].includes(key)),
+    ) &&
+    new Set(keys).size === keys.length
+  );
+}
 
 function applyThemeMode(mode: ThemeMode, persist = true): void {
   const resolved =
@@ -388,9 +426,33 @@ function App(): JSX.Element {
     };
     const handleKeys = (event: KeyboardEvent): void => {
       const command = event.metaKey || event.ctrlKey;
-      if (!command) return;
+      if (!command || event.repeat || event.altKey || event.shiftKey) return;
       if (dialog() || pendingDelete() || pendingSessionTrash() || paletteOpen()) return;
       const key = event.key.toLocaleLowerCase();
+      if (
+        view() === "annotations" &&
+        !["k", "o", "s", "n"].includes(key) &&
+        !(
+          event.target instanceof HTMLInputElement ||
+          event.target instanceof HTMLTextAreaElement ||
+          event.target instanceof HTMLSelectElement ||
+          (event.target instanceof HTMLElement && event.target.isContentEditable)
+        )
+      ) {
+        const index = markerKeys(workspace()).indexOf(key);
+        if (
+          index >= 0 &&
+          workspace()?.sessions.length &&
+          workspace()?.snapshot.canMutate &&
+          !busy()
+        ) {
+          event.preventDefault();
+          window.dispatchEvent(
+            new CustomEvent("tutorux:quick-marker", { detail: markerTypes[index]! }),
+          );
+          return;
+        }
+      }
       if (key === "k") {
         event.preventDefault();
         openPalette();
@@ -497,6 +559,7 @@ function App(): JSX.Element {
         evidence: [],
         evidenceEdges: [],
         aiJobs: [],
+        settings: [],
         providerSettings: [],
         credentials: [],
       };
@@ -602,6 +665,7 @@ function App(): JSX.Element {
       evidence: alive(evidence),
       evidenceEdges: alive(evidenceEdges),
       aiJobs,
+      settings: alive(settings).filter((record) => field(record, "record_role") === "setting"),
       providerSettings: alive(settings).filter(
         (record) => record.fields.get("record_role") === "ai-provider",
       ),
@@ -2303,6 +2367,34 @@ function App(): JSX.Element {
     }
   }
 
+  async function saveMarkerKeys(keys: string[]): Promise<boolean> {
+    const state = workspace();
+    const normalized = keys.map((key) => key.toLowerCase());
+    if (!state || !validMarkerKeys(normalized)) {
+      announce("Choose seven unique printable keys, excluding comma and K, O, S, or N.", "error");
+      return false;
+    }
+    const current = state.settings.find((record) => field(record, "key") === markerSettingKey);
+    const fields = new Map(current?.fields ?? []);
+    fields.set("record_role", "setting");
+    fields.set("key", markerSettingKey);
+    fields.set("value", normalized.join(","));
+    fields.set("updated_at_us", (BigInt(Date.now()) * 1000n).toString());
+    return addRecords(
+      [
+        {
+          type: RecordType.settings,
+          id: current?.id ?? (await deterministicUuid(`setting:${markerSettingKey}`)),
+          revision: current?.revision ?? 0n,
+          previousOffset: current?.previousOffset ?? 0n,
+          blob: current?.blob ?? new Uint8Array(),
+          fields,
+        },
+      ],
+      "Observation shortcuts updated.",
+    );
+  }
+
   function openDialog(kind: Exclude<DialogKind, null>): void {
     setDialogRecord(null);
     setDialog(kind);
@@ -2331,7 +2423,10 @@ function App(): JSX.Element {
     applyThemeMode(mode);
   }
 
+  let paletteReturnFocus: HTMLElement | null = null;
   function openPalette(): void {
+    paletteReturnFocus =
+      document.activeElement instanceof HTMLElement ? document.activeElement : null;
     setPaletteQuery("");
     setPaletteIndex(0);
     setPaletteOpen(true);
@@ -2341,6 +2436,8 @@ function App(): JSX.Element {
     setPaletteOpen(false);
     setPaletteQuery("");
     setPaletteIndex(0);
+    paletteReturnFocus?.focus();
+    paletteReturnFocus = null;
   }
 
   const actions = [
@@ -2399,6 +2496,15 @@ function App(): JSX.Element {
       },
     },
     {
+      label: "Save archive",
+      detail: "Save your current workspace",
+      icon: "archive" as const,
+      run: () => {
+        closePalette();
+        void saveCurrentArchive();
+      },
+    },
+    {
       label: "Switch appearance",
       detail: "Switch between light and dark",
       icon: "moon" as const,
@@ -2408,9 +2514,19 @@ function App(): JSX.Element {
       },
     },
   ];
+  const navigationActions = views.map((item) => ({
+    label: `Go to ${item.label}`,
+    detail: "Open workspace page",
+    icon: item.icon,
+    run: () => {
+      closePalette();
+      setQuery("");
+      setView(item.id);
+    },
+  }));
   const matchingActions = createMemo(() => {
     const needle = paletteQuery().trim().toLocaleLowerCase();
-    return actions.filter((action) =>
+    return [...actions, ...navigationActions].filter((action) =>
       `${action.label} ${action.detail}`.toLocaleLowerCase().includes(needle),
     );
   });
@@ -2722,13 +2838,20 @@ function App(): JSX.Element {
                 </Show>
                 <Show when={view() === "annotations"}>
                   <AnnotationPage
+                    icon={Icon}
                     sessions={state.sessions}
                     records={filteredRecords()}
+                    assets={state.assets}
+                    evidence={state.evidence}
+                    onWriteRecords={(records, message) => addRecords(records, message)}
                     selectedSessionId={selectedAnnotationSessionId()}
                     disabled={state.snapshot.locked || !state.snapshot.canMutate || busy()}
                     onSelectSession={setSelectedAnnotationSessionId}
                     onSave={saveAnnotation}
                     onRemove={(record) => setPendingDelete(record)}
+                    onDuplicate={(record) =>
+                      addRecords([duplicateAnnotationRecord(record)], "Observation duplicated.")
+                    }
                     onNewSession={() => openDialog("session")}
                     onHistory={getAnnotationHistory}
                     onRestore={restoreAnnotationRevision}
@@ -2841,6 +2964,7 @@ function App(): JSX.Element {
                     busy={busy()}
                     onChangePassphrase={() => openDialog("passphrase")}
                     onSaveArchive={() => void saveCurrentArchive()}
+                    onSaveMarkerKeys={saveMarkerKeys}
                   />
                 </Show>
               </>
@@ -3026,6 +3150,9 @@ function App(): JSX.Element {
                 )}
               </For>
             </div>
+            <Show when={matchingActions().length === 0}>
+              <p class="palette-empty">No actions match your search.</p>
+            </Show>
             <div class="palette-footer">
               <span>Navigate with your keyboard</span>
               <span>
@@ -5675,6 +5802,7 @@ function TranscriptPage(props: {
   const [captureElapsed, setCaptureElapsed] = createSignal(0);
   const [captureError, setCaptureError] = createSignal("");
   const [audioUrl, setAudioUrl] = createSignal<string | null>(null);
+  const [audioPreview, setAudioPreview] = createSignal<AudioPreview | null>(null);
   const [playbackError, setPlaybackError] = createSignal("");
   const selectedSession = createMemo(
     () =>
@@ -5762,6 +5890,7 @@ function TranscriptPage(props: {
     if (currentAudioUrl) URL.revokeObjectURL(currentAudioUrl);
     currentAudioUrl = null;
     setAudioUrl(null);
+    setAudioPreview(null);
     setPlaybackError("");
   }
 
@@ -5956,6 +6085,7 @@ function TranscriptPage(props: {
         new Blob([preview.wav.slice().buffer as ArrayBuffer], { type: "audio/wav" }),
       );
       currentAudioUrl = url;
+      setAudioPreview(preview);
       setAudioUrl(url);
       queueMicrotask(() => {
         void audioPlayer?.play().catch(() => {
@@ -6281,15 +6411,12 @@ function TranscriptPage(props: {
           >
             Export WAV
           </button>
-          <Show when={audioUrl()}>
-            <audio
-              ref={(element) => (audioPlayer = element)}
-              src={audioUrl()!}
-              controls
-              preload="none"
-            >
-              Audio playback is not supported by this WebView.
-            </audio>
+          <Show when={audioUrl() && audioPreview()}>
+            <AudioWaveform
+              preview={audioPreview()!}
+              url={audioUrl()!}
+              onPlayer={(element) => (audioPlayer = element)}
+            />
           </Show>
           <Show when={playbackError()}>
             <span class="transcript-audio-error" role="alert">
@@ -6925,498 +7052,6 @@ function TranscriptCueCard(props: {
   );
 }
 
-function AnnotationPage(props: {
-  sessions: ArchiveRecord[];
-  records: ArchiveRecord[];
-  selectedSessionId: string;
-  disabled: boolean;
-  onSelectSession: (sessionId: string) => void;
-  onSave: (input: AnnotationInput, current: ArchiveRecord | null) => Promise<boolean>;
-  onRemove: (record: ArchiveRecord) => void;
-  onNewSession: () => void;
-  onHistory: (record: ArchiveRecord) => Promise<ArchiveRecord[]>;
-  onRestore: (record: ArchiveRecord, historyIndex: number) => Promise<boolean>;
-}): JSX.Element {
-  const [adding, setAdding] = createSignal(false);
-  const sessionId = createMemo(() =>
-    props.sessions.some((session) => session.id === props.selectedSessionId)
-      ? props.selectedSessionId
-      : (props.sessions[0]?.id ?? ""),
-  );
-  const annotations = createMemo(() =>
-    props.records
-      .filter((record) => field(record, "session_id") === sessionId())
-      .sort((left, right) => {
-        const a = safeBigInt(field(left, "start_time_us"));
-        const b = safeBigInt(field(right, "start_time_us"));
-        return a < b ? -1 : a > b ? 1 : left.id.localeCompare(right.id);
-      }),
-  );
-  const selectedSession = createMemo(() => props.sessions.find((item) => item.id === sessionId()));
-
-  async function saveNewAnnotation(input: AnnotationInput): Promise<boolean> {
-    const saved = await props.onSave(input, null);
-    if (saved) setAdding(false);
-    return saved;
-  }
-
-  return (
-    <div class="page-body annotation-page">
-      <section class="record-heading annotation-heading">
-        <div>
-          <span class="eyebrow">NOTICE THE MOMENTS THAT MATTER</span>
-          <h1>Observations</h1>
-          <p>Mark ideas, questions, corrections, and follow-ups as they happen in a session.</p>
-        </div>
-        <div class="annotation-count" aria-label={`${annotations().length} observations`}>
-          <strong>{annotations().length.toString().padStart(2, "0")}</strong>
-          <span>IN THIS SESSION</span>
-        </div>
-      </section>
-
-      <section class="annotation-controls">
-        <label class="transcript-session-picker">
-          Session
-          <select
-            aria-label="Choose a session for observations"
-            value={sessionId()}
-            disabled={!props.sessions.length}
-            onChange={(event) => props.onSelectSession(event.currentTarget.value)}
-          >
-            <For each={props.sessions}>
-              {(session) => (
-                <option value={session.id}>
-                  {field(session, "title", "Untitled session")} ·{" "}
-                  {formatTimestamp(field(session, "started_at_us"))}
-                </option>
-              )}
-            </For>
-          </select>
-        </label>
-        <Show when={selectedSession()}>
-          {(session) => (
-            <div class="annotation-session-context">
-              <span class="annotation-session-glyph">
-                <Icon name="sessions" />
-              </span>
-              <span>
-                <strong>{field(session(), "title", "Untitled session")}</strong>
-                <small>{field(session(), "subject", "Session notes and moments")}</small>
-              </span>
-            </div>
-          )}
-        </Show>
-        <button
-          class="button button-primary"
-          type="button"
-          disabled={props.disabled || !sessionId()}
-          onClick={() => setAdding((value) => !value)}
-        >
-          <Icon name="plus" />
-          Add observation
-        </button>
-      </section>
-
-      <Show when={adding()}>
-        <section class="annotation-compose surface-card">
-          <div class="annotation-compose-heading">
-            <div>
-              <span class="eyebrow">CAPTURE A MOMENT</span>
-              <h2>New observation</h2>
-            </div>
-            <button class="button button-quiet" type="button" onClick={() => setAdding(false)}>
-              Cancel
-            </button>
-          </div>
-          <AnnotationForm
-            initial={{
-              sessionId: sessionId(),
-              start: "00:00:00",
-              end: "",
-              type: "general-note",
-              priority: "normal",
-              title: "",
-              content: "",
-            }}
-            disabled={props.disabled}
-            submitLabel="Save observation"
-            onCancel={() => setAdding(false)}
-            onSave={saveNewAnnotation}
-          />
-        </section>
-      </Show>
-
-      <Show
-        when={props.sessions.length > 0}
-        fallback={
-          <section class="surface-card annotation-empty">
-            <div class="annotation-empty-mark">
-              <Icon name="annotations" />
-            </div>
-            <h2>Start with a session</h2>
-            <p>Observations are attached to a session so you can revisit the right moment later.</p>
-            <button class="button button-primary" type="button" onClick={props.onNewSession}>
-              <Icon name="plus" /> Create a session
-            </button>
-          </section>
-        }
-      >
-        <Show
-          when={annotations().length > 0 || adding()}
-          fallback={
-            <section class="surface-card annotation-empty">
-              <div class="annotation-empty-mark">
-                <Icon name="annotations" />
-              </div>
-              <h2>A clear page for this session</h2>
-              <p>Add an observation when a useful idea, misunderstanding, or next step appears.</p>
-              <button
-                class="button button-outline"
-                type="button"
-                disabled={props.disabled}
-                onClick={() => setAdding(true)}
-              >
-                <Icon name="plus" /> Add the first observation
-              </button>
-            </section>
-          }
-        >
-          <section class="annotation-timeline" aria-label="Session observations">
-            <div class="annotation-timeline-heading">
-              <div>
-                <span class="eyebrow">SESSION TIMELINE</span>
-                <h2>What stood out</h2>
-              </div>
-              <span>
-                {selectedSession()
-                  ? formatTimestamp(field(selectedSession()!, "started_at_us"))
-                  : ""}
-              </span>
-            </div>
-            <div class="annotation-list">
-              <For each={annotations()}>
-                {(record) => (
-                  <AnnotationCard
-                    record={record}
-                    disabled={props.disabled}
-                    onSave={(input) => props.onSave(input, record)}
-                    onRemove={() => props.onRemove(record)}
-                    onHistory={props.onHistory}
-                    onRestore={props.onRestore}
-                  />
-                )}
-              </For>
-            </div>
-          </section>
-        </Show>
-      </Show>
-    </div>
-  );
-}
-
-function AnnotationCard(props: {
-  record: ArchiveRecord;
-  disabled: boolean;
-  onSave: (input: AnnotationInput) => Promise<boolean>;
-  onRemove: () => void;
-  onHistory: (record: ArchiveRecord) => Promise<ArchiveRecord[]>;
-  onRestore: (record: ArchiveRecord, historyIndex: number) => Promise<boolean>;
-}): JSX.Element {
-  const [editing, setEditing] = createSignal(false);
-  const [history, setHistory] = createSignal<ArchiveRecord[] | null>(null);
-  const [historyLoading, setHistoryLoading] = createSignal(false);
-  const priority = () => field(props.record, "priority", "normal");
-  const kind = () => annotationTypeLabel(field(props.record, "type", "general-note"));
-  const time = () => formatAnnotationRange(props.record);
-
-  async function saveEditedAnnotation(input: AnnotationInput): Promise<boolean> {
-    const saved = await props.onSave(input);
-    if (saved) {
-      setEditing(false);
-      setHistory(null);
-    }
-    return saved;
-  }
-
-  async function toggleHistory(): Promise<void> {
-    if (history() !== null) {
-      setHistory(null);
-      return;
-    }
-    setHistoryLoading(true);
-    try {
-      setHistory(await props.onHistory(props.record));
-    } finally {
-      setHistoryLoading(false);
-    }
-  }
-
-  async function restoreRevision(historyIndex: number): Promise<void> {
-    if (!(await props.onRestore(props.record, historyIndex))) return;
-    setHistory(await props.onHistory(props.record));
-  }
-
-  return (
-    <article class={`annotation-item priority-${priority()}`}>
-      <div class="annotation-timeline-rail" aria-hidden="true">
-        <span />
-      </div>
-      <div class="annotation-card surface-card">
-        <header class="annotation-card-header">
-          <div class="annotation-type-line">
-            <span class="annotation-type-icon">
-              <Icon name="annotations" />
-            </span>
-            <span class="annotation-type-label">{kind()}</span>
-            <span class={`annotation-priority priority-label-${priority()}`}>{priority()}</span>
-          </div>
-          <span class="annotation-card-time">
-            <Icon name="clock" /> {time()}
-          </span>
-        </header>
-        <Show when={!editing()}>
-          <div class="annotation-card-copy">
-            <h3>{field(props.record, "title") || kind()}</h3>
-            <p>{field(props.record, "content")}</p>
-          </div>
-          <div class="annotation-card-actions">
-            <button
-              class="button button-quiet record-action"
-              type="button"
-              disabled={props.disabled}
-              onClick={() => setEditing(true)}
-            >
-              Edit observation
-            </button>
-            <button
-              class="button button-quiet record-action"
-              type="button"
-              disabled={historyLoading()}
-              aria-expanded={history() !== null}
-              onClick={() => void toggleHistory()}
-            >
-              {historyLoading()
-                ? "Loading history…"
-                : history() === null
-                  ? "View history"
-                  : "Hide history"}
-            </button>
-            <button
-              class="button button-quiet record-action annotation-remove-action"
-              type="button"
-              disabled={props.disabled}
-              onClick={() => props.onRemove()}
-            >
-              Move to Trash
-            </button>
-          </div>
-          <Show when={history() !== null}>
-            <section class="annotation-history-panel" aria-label="Observation version history">
-              <div class="annotation-history-heading">
-                <span class="eyebrow">VERSION HISTORY</span>
-                <span>{Math.max(0, (history()?.length ?? 1) - 1)} earlier versions</span>
-              </div>
-              <Show
-                when={(history()?.length ?? 0) > 1}
-                fallback={
-                  <p class="annotation-history-empty">This observation has no earlier versions.</p>
-                }
-              >
-                <div class="annotation-history-list">
-                  <For
-                    each={(history()?.slice(1) ?? []).map((record, index) => ({
-                      record,
-                      historyIndex: index + 1,
-                    }))}
-                  >
-                    {(entry) => {
-                      const revision = entry.record;
-                      const historyIndex = entry.historyIndex;
-                      return (
-                        <article class="annotation-history-entry">
-                          <div>
-                            <strong>
-                              {field(revision, "title") ||
-                                annotationTypeLabel(field(revision, "type"))}
-                            </strong>
-                            <small>
-                              Version {historyIndex} ·{" "}
-                              {formatTimestamp(
-                                field(revision, "updated_at_us", field(revision, "created_at_us")),
-                              )}
-                              {field(revision, "_deleted") === "true" ? " · removed" : ""}
-                            </small>
-                          </div>
-                          <p>{field(revision, "content")}</p>
-                          <button
-                            class="button button-outline record-action"
-                            type="button"
-                            disabled={props.disabled}
-                            onClick={() => void restoreRevision(historyIndex)}
-                          >
-                            Restore version {historyIndex}
-                          </button>
-                        </article>
-                      );
-                    }}
-                  </For>
-                </div>
-              </Show>
-            </section>
-          </Show>
-        </Show>
-        <Show when={editing()}>
-          <AnnotationForm
-            initial={annotationInput(props.record)}
-            disabled={props.disabled}
-            submitLabel="Save changes"
-            onCancel={() => setEditing(false)}
-            onSave={saveEditedAnnotation}
-          />
-        </Show>
-      </div>
-    </article>
-  );
-}
-
-function AnnotationForm(props: {
-  initial: AnnotationInput;
-  disabled: boolean;
-  submitLabel: string;
-  onCancel: () => void;
-  onSave: (input: AnnotationInput) => Promise<boolean> | void;
-}): JSX.Element {
-  const [title, setTitle] = createSignal(props.initial.title);
-  const [content, setContent] = createSignal(props.initial.content);
-  const [start, setStart] = createSignal(props.initial.start);
-  const [end, setEnd] = createSignal(props.initial.end);
-  const [type, setType] = createSignal<AnnotationInput["type"]>(props.initial.type);
-  const [priority, setPriority] = createSignal<AnnotationInput["priority"]>(props.initial.priority);
-
-  async function submit(event: SubmitEvent): Promise<void> {
-    event.preventDefault();
-    const result = await props.onSave({
-      sessionId: props.initial.sessionId,
-      start: start(),
-      end: end(),
-      type: type(),
-      priority: priority(),
-      title: title(),
-      content: content(),
-    });
-    if (result !== false) props.onCancel();
-  }
-
-  return (
-    <form class="annotation-form" onSubmit={submit}>
-      <div class="annotation-form-grid">
-        <label class="form-field">
-          Type
-          <select
-            value={type()}
-            onChange={(event) => setType(event.currentTarget.value as AnnotationInput["type"])}
-          >
-            <For each={ANNOTATION_TYPES}>
-              {(value) => <option value={value}>{annotationTypeLabel(value)}</option>}
-            </For>
-          </select>
-        </label>
-        <label class="form-field">
-          Priority
-          <select
-            value={priority()}
-            onChange={(event) =>
-              setPriority(event.currentTarget.value as AnnotationInput["priority"])
-            }
-          >
-            <For each={ANNOTATION_PRIORITIES}>
-              {(value) => <option value={value}>{value[0]!.toUpperCase() + value.slice(1)}</option>}
-            </For>
-          </select>
-        </label>
-        <label class="form-field annotation-form-title">
-          Title <span class="optional">optional</span>
-          <input
-            value={title()}
-            onInput={(event) => setTitle(event.currentTarget.value)}
-            maxlength="512"
-          />
-        </label>
-        <label class="form-field">
-          Start time
-          <input
-            value={start()}
-            onInput={(event) => setStart(event.currentTarget.value)}
-            placeholder="HH:MM:SS"
-            inputmode="decimal"
-            required
-          />
-        </label>
-        <label class="form-field">
-          End time <span class="optional">optional</span>
-          <input
-            value={end()}
-            onInput={(event) => setEnd(event.currentTarget.value)}
-            placeholder="Same as start"
-            inputmode="decimal"
-          />
-        </label>
-      </div>
-      <label class="form-field">
-        Observation
-        <textarea
-          value={content()}
-          onInput={(event) => setContent(event.currentTarget.value)}
-          rows={4}
-          maxlength="16000000"
-          required
-          placeholder="What did you notice? Include context that will help you remember why it matters."
-        />
-      </label>
-      <div class="annotation-form-actions">
-        <button
-          class="button button-primary record-action"
-          type="submit"
-          disabled={props.disabled || !content().trim()}
-        >
-          <Icon name="check" /> {props.submitLabel}
-        </button>
-        <button
-          class="button button-quiet record-action"
-          type="button"
-          onClick={() => props.onCancel()}
-        >
-          Cancel
-        </button>
-      </div>
-    </form>
-  );
-}
-
-function annotationInput(record: ArchiveRecord): AnnotationInput {
-  return {
-    sessionId: field(record, "session_id"),
-    start: transcriptTimeInput(field(record, "start_time_us")) || "00:00:00",
-    end: transcriptTimeInput(field(record, "end_time_us")),
-    type: ANNOTATION_TYPES.includes(field(record, "type") as AnnotationInput["type"])
-      ? (field(record, "type") as AnnotationInput["type"])
-      : "custom",
-    priority: ANNOTATION_PRIORITIES.includes(
-      field(record, "priority") as AnnotationInput["priority"],
-    )
-      ? (field(record, "priority") as AnnotationInput["priority"])
-      : "normal",
-    title: field(record, "title"),
-    content: field(record, "content"),
-  };
-}
-
-function formatAnnotationRange(record: ArchiveRecord): string {
-  const start = transcriptTimeInput(field(record, "start_time_us"));
-  const end = transcriptTimeInput(field(record, "end_time_us"));
-  return end && end !== start ? `${start} – ${end}` : start || "Time not provided";
-}
-
 function annotationTypeLabel(type: string): string {
   return type
     .split("-")
@@ -7670,7 +7305,12 @@ function SettingsPage(props: {
   busy: boolean;
   onChangePassphrase: () => void;
   onSaveArchive: () => void;
+  onSaveMarkerKeys: (keys: string[]) => Promise<boolean>;
 }): JSX.Element {
+  const [keys, setKeys] = createSignal(markerKeys(props.state));
+  createEffect(() => {
+    setKeys(markerKeys(props.state));
+  });
   return (
     <div class="page-body settings-page">
       <section class="record-heading">
@@ -7709,6 +7349,55 @@ function SettingsPage(props: {
               <option value="dark">Dark</option>
             </select>
           </label>
+        </div>
+      </section>
+      <section class="settings-section">
+        <div class="settings-section-heading">
+          <h2>Observation shortcuts</h2>
+          <p>
+            On the Observations page, use Ctrl on Windows and Linux or Command on macOS with a key
+            to start an observation. These keys travel with your archive. K, O, S, and N are
+            reserved for workspace actions.
+          </p>
+        </div>
+        <div class="marker-shortcuts">
+          <For each={markerTypes}>
+            {(type, index) => (
+              <label class="form-field">
+                {annotationTypeLabel(type)}
+                <input
+                  value={keys()[index()] ?? ""}
+                  maxlength="1"
+                  disabled={
+                    props.busy || props.state.snapshot.locked || !props.state.snapshot.canMutate
+                  }
+                  onInput={(event) =>
+                    setKeys((current) =>
+                      current.map((key, i) => (i === index() ? event.currentTarget.value : key)),
+                    )
+                  }
+                />
+              </label>
+            )}
+          </For>
+        </div>
+        <div class="marker-shortcut-actions">
+          <button
+            class="button button-outline"
+            type="button"
+            disabled={props.busy || props.state.snapshot.locked || !props.state.snapshot.canMutate}
+            onClick={() => setKeys([...defaultMarkerKeys])}
+          >
+            Restore defaults
+          </button>
+          <button
+            class="button button-primary"
+            type="button"
+            disabled={props.busy || props.state.snapshot.locked || !props.state.snapshot.canMutate}
+            onClick={() => void props.onSaveMarkerKeys(keys())}
+          >
+            Save shortcuts
+          </button>
         </div>
       </section>
       <section class="settings-section">
