@@ -1,6 +1,15 @@
 import { newUuid, RecordType, type ArchiveRecord } from "../archive/format";
 import type { ArchiveSnapshot } from "../archive/archive";
 
+const encoder = new TextEncoder();
+
+export interface EvidenceUpdateInput {
+  readonly title: string;
+  readonly type: string;
+  readonly content: string;
+  readonly priority: string;
+}
+
 interface TranscriptCandidate {
   type: string;
   title: string;
@@ -262,6 +271,78 @@ export async function reviewEvidenceRecord(
   return { ...record, fields };
 }
 
+export function updateEvidenceRecord(
+  current: ArchiveRecord,
+  input: EvidenceUpdateInput,
+): ArchiveRecord {
+  if (current.type !== RecordType.evidenceNode || current.fields.get("_deleted") === "true") {
+    throw new Error("Select an active evidence item to edit.");
+  }
+  const title = cleanEvidenceText(input.title, "Evidence title", 512);
+  const type = cleanEvidenceText(
+    input.type.trim().toLowerCase().replace(/\s+/gu, "-"),
+    "Evidence type",
+    128,
+  );
+  const content = cleanEvidenceText(input.content, "Evidence content", 16 * 1024 * 1024);
+  const priority = cleanEvidenceText(input.priority, "Evidence priority", 32);
+  const fields = new Map(current.fields);
+  fields.set("title", title);
+  fields.set("type", type);
+  fields.set("content", content);
+  fields.set("priority", priority);
+  fields.set("verification_state", "needs-review");
+  fields.set("reviewed_at_us", "");
+  fields.set("updated_at_us", nowUs());
+  return { ...current, fields };
+}
+
+/** Move an evidence node and its graph edges to recoverable Trash as one archive update. */
+export async function trashEvidenceRecord(
+  snapshot: ArchiveSnapshot,
+  current: ArchiveRecord,
+): Promise<ArchiveRecord[]> {
+  if (current.type !== RecordType.evidenceNode || current.fields.get("_deleted") === "true") {
+    throw new Error("Select an active evidence item to move to Trash.");
+  }
+  const timestamp = nowUs();
+  const changes = [markEvidenceRecordDeleted(current, current.id, timestamp)];
+  for (const edge of await snapshot.listRecords(RecordType.evidenceEdge, true)) {
+    if (
+      edge.fields.get("_deleted") === "true" ||
+      (edge.fields.get("from_id")?.toLowerCase() !== current.id.toLowerCase() &&
+        edge.fields.get("to_id")?.toLowerCase() !== current.id.toLowerCase())
+    ) {
+      continue;
+    }
+    changes.push(markEvidenceRecordDeleted(edge, current.id, timestamp));
+  }
+  return changes;
+}
+
+/** Restore an evidence node with every graph edge moved with it. */
+export async function restoreEvidenceRecordGroup(
+  snapshot: ArchiveSnapshot,
+  current: ArchiveRecord,
+): Promise<ArchiveRecord[]> {
+  if (current.type !== RecordType.evidenceNode || current.fields.get("_deleted") !== "true") {
+    throw new Error("Select an evidence item from Trash to restore it.");
+  }
+  const groupId = current.id.toLowerCase();
+  const timestamp = nowUs();
+  const changes = [restoreEvidenceRecord(current, timestamp)];
+  for (const edge of await snapshot.listRecords(RecordType.evidenceEdge, true)) {
+    if (
+      edge.fields.get("_deleted") !== "true" ||
+      edge.fields.get("_trash_group_id")?.toLowerCase() !== groupId
+    ) {
+      continue;
+    }
+    changes.push(restoreEvidenceRecord(edge, timestamp));
+  }
+  return changes;
+}
+
 export async function evidenceSourcesAreCurrent(
   snapshot: ArchiveSnapshot,
   record: ArchiveRecord,
@@ -401,4 +482,35 @@ function isUuid(value: string): boolean {
 
 function nowUs(): string {
   return (BigInt(Date.now()) * 1000n).toString();
+}
+
+function cleanEvidenceText(value: string, label: string, maxBytes: number): string {
+  if (!value.trim()) throw new Error(`${label} cannot be empty.`);
+  if (encoder.encode(value).byteLength > maxBytes) {
+    throw new Error(`${label} exceeds the ${maxBytes.toLocaleString()}-byte limit.`);
+  }
+  return value;
+}
+
+function markEvidenceRecordDeleted(
+  record: ArchiveRecord,
+  groupId: string,
+  timestamp: string,
+): ArchiveRecord {
+  const fields = new Map(record.fields);
+  fields.set("_deleted", "true");
+  fields.set("_trash_group_id", groupId);
+  fields.set("deleted_at_us", timestamp);
+  fields.set("updated_at_us", timestamp);
+  return { ...record, fields };
+}
+
+function restoreEvidenceRecord(record: ArchiveRecord, timestamp: string): ArchiveRecord {
+  const fields = new Map(record.fields);
+  fields.delete("_deleted");
+  fields.delete("_trash_group_id");
+  fields.delete("deleted_at_us");
+  fields.set("restored_at_us", timestamp);
+  fields.set("updated_at_us", timestamp);
+  return { ...record, fields };
 }
