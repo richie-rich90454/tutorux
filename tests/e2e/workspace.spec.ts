@@ -1,5 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { readFile } from "node:fs/promises";
+import { strFromU8, unzipSync } from "fflate";
 import { openArchiveBytes, verifyArchiveSnapshot } from "../../frontend/archive/archive";
 
 test.beforeEach(async ({ page }) => {
@@ -536,6 +537,40 @@ test("creates and manages archive-backed study guide templates", async ({ page }
   const guideHtml = await readFile(guideHtmlPath, "utf8");
   expect(guideHtml).toContain('<main class="document">');
   expect(guideHtml).toContain("@media print");
+
+  await page.locator(".guide-record-actions").getByRole("button", { name: "More" }).click();
+  const guideJsonDownload = page.waitForEvent("download");
+  await page.locator(".guide-record-actions").getByRole("button", { name: "JSON record" }).click();
+  const guideJsonPath = testInfo.outputPath("study-guide.json");
+  await (await guideJsonDownload).saveAs(guideJsonPath);
+  const guideJson = JSON.parse(await readFile(guideJsonPath, "utf8")) as Record<string, unknown>;
+  expect(guideJson).toMatchObject({ type: "guide", title: "A question-led lesson — Study Guide" });
+
+  const guideDocxDownload = page.waitForEvent("download");
+  await page
+    .locator(".guide-record-actions")
+    .getByRole("button", { name: "Word document" })
+    .click();
+  const guideDocxPath = testInfo.outputPath("study-guide.docx");
+  await (await guideDocxDownload).saveAs(guideDocxPath);
+  const guideDocx = unzipSync(new Uint8Array(await readFile(guideDocxPath)));
+  const guideDocumentXml = strFromU8(guideDocx["word/document.xml"]!);
+  expect(guideDocumentXml).toContain("Compare quantities");
+  expect(guideDocumentXml).toContain("w:sectPr");
+
+  await page.evaluate(() => {
+    window.print = () => undefined;
+  });
+  await page.locator(".guide-record-actions").getByRole("button", { name: "PDF / Print" }).click();
+  const guidePrintPreview = page.locator(".guide-print-preview");
+  await expect(guidePrintPreview).toContainText("A question-led lesson — Study Guide");
+  await expect(page.locator("html")).toHaveClass(/guide-printing/u);
+  await page.emulateMedia({ media: "print" });
+  await expect(guidePrintPreview).toBeVisible();
+  await expect(page.getByRole("navigation")).toBeHidden();
+  await page.emulateMedia({ media: "screen" });
+  await page.evaluate(() => window.dispatchEvent(new Event("afterprint")));
+  await expect(guidePrintPreview).toHaveCount(0);
 
   await expect(page.getByRole("button", { name: "Close manager" })).toBeVisible();
   const templateRow = page
