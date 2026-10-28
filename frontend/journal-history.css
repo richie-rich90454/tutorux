@@ -1,0 +1,46 @@
+.journal-history {
+  margin-top: 12px;
+}
+.journal-history-content {
+  display: grid;
+  gap: 10px;
+  margin-top: 10px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface-subtle);
+}
+.journal-history-content h3,
+.journal-history-content p {
+  margin: 0;
+}
+.journal-history-content h3 {
+  color: var(--ink);
+  font-size: 0.85rem;
+}
+.journal-history-content p {
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+.journal-history-version {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+}
+.journal-history-version > div {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+.journal-history-version small {
+  color: var(--muted);
+}
+.journal-history-version p {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 12rem;
+  overflow: auto;
+}
