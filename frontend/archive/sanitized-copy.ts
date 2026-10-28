@@ -288,7 +288,7 @@ const NON_SECRET_TOKEN_SETTINGS = [
   "tokensusage",
 ];
 
-function sensitiveSettingKey(key: string): boolean {
+export function sensitiveSettingKey(key: string): boolean {
   const normalized = canonicalSettingKey(key);
   if (NON_SECRET_SETTING_KEYS.has(normalized)) return false;
   if (SENSITIVE_SETTING_MARKERS.some((marker) => normalized.includes(marker))) return true;
@@ -296,7 +296,7 @@ function sensitiveSettingKey(key: string): boolean {
   return !NON_SECRET_TOKEN_SETTINGS.some((suffix) => normalized.endsWith(suffix));
 }
 
-function hasSensitiveCredentialMaterial(record: ArchiveRecord): boolean {
+export function hasSensitiveCredentialMaterial(record: ArchiveRecord): boolean {
   if (record.type !== RecordType.settings) return false;
   for (const [name, value] of record.fields) {
     if (sensitiveSettingKey(name)) return true;
