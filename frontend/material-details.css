@@ -1,0 +1,48 @@
+.material-details {
+  border-top: 1px solid var(--line-soft);
+  padding-top: 8px;
+}
+.material-details-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.material-details-panel {
+  display: grid;
+  gap: 10px;
+  margin-top: 8px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface-subtle);
+}
+.material-details-panel label {
+  display: grid;
+  gap: 5px;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+.material-details-panel p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.8rem;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.material-history-version {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+}
+.material-history-version > div {
+  min-width: 0;
+}
+.material-history-version small {
+  color: var(--muted);
+}
+.material-trash {
+  margin: 12px 0;
+}
