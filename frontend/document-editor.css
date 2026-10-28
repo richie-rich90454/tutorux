@@ -31,6 +31,7 @@
 
 .document-editor-toolbar {
   justify-content: space-between;
+  flex-wrap: wrap;
   gap: 10px;
   padding: 1px 1px 7px;
   border-bottom: 1px solid var(--line-soft);
@@ -72,6 +73,109 @@
 
 .document-editor-add {
   gap: 6px;
+}
+
+.document-editor-tools {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  margin-left: auto;
+}
+
+.document-editor-tools .button {
+  min-height: 29px;
+  padding: 0 8px;
+  font-size: 9px;
+}
+
+.document-export-menu {
+  position: relative;
+}
+
+.document-export-menu summary {
+  display: flex;
+  align-items: center;
+  list-style: none;
+  cursor: pointer;
+}
+
+.document-export-menu summary::-webkit-details-marker {
+  display: none;
+}
+
+.document-export-options {
+  position: absolute;
+  z-index: 2;
+  top: 100%;
+  right: 0;
+  min-width: 145px;
+  display: grid;
+  padding: 5px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  box-shadow: 0 8px 24px rgb(20 29 23 / 14%);
+}
+
+.document-export-options button {
+  padding: 8px;
+  border: 0;
+  border-radius: 5px;
+  color: var(--ink);
+  background: transparent;
+  font: inherit;
+  font-size: 10px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.document-export-options button:hover,
+.document-export-options button:focus-visible {
+  background: var(--surface-subtle);
+}
+
+.document-editor-error {
+  margin: 0;
+  color: var(--danger);
+  font-size: 10px;
+}
+
+.note-print-preview {
+  display: none;
+}
+
+@media print {
+  html.note-printing body > :not(.note-print-preview) {
+    display: none !important;
+  }
+
+  html.note-printing .note-print-preview {
+    display: block;
+    color: #202820;
+    font: 11pt/1.6 sans-serif;
+  }
+
+  .note-print-preview h1,
+  .note-print-preview h2 {
+    line-height: 1.2;
+  }
+
+  .note-print-preview p,
+  .note-print-preview blockquote,
+  .note-print-preview pre {
+    white-space: pre-wrap;
+  }
+
+  .note-print-preview blockquote {
+    margin-left: 0;
+    padding-left: 1em;
+    border-left: 3px solid #78947b;
+  }
+
+  .note-print-preview .checklist {
+    padding-left: 0;
+    list-style: none;
+  }
 }
 
 .document-editor-add select,
@@ -275,6 +379,10 @@
 
   .document-editor-add {
     width: 100%;
+  }
+
+  .document-editor-tools {
+    margin-left: 0;
   }
 
   .document-editor-add select {
