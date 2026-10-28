@@ -305,6 +305,22 @@ test("creates, updates, exports, and reopens a portable tutoring workspace", asy
   await page.getByRole("button", { name: "Evidence", exact: true }).click();
   await page.getByRole("button", { name: "Extract session evidence" }).click();
   await expect(page.getByRole("heading", { name: "Check the sign change" })).toBeVisible();
+  await page.getByLabel("Transcript source segment").selectOption({ index: 1 });
+  await expect(page.getByLabel("Evidence content")).toHaveValue(
+    "The word <balance> is one step & clear.",
+  );
+  await expect(page.locator(".evidence-create-footer")).toContainText("lesson-notes.txt");
+  await page.getByLabel("Evidence title").fill("Tutor confirmed the balance model");
+  await page.getByLabel("Evidence type").fill("observation");
+  await page.getByLabel("Evidence priority").selectOption("high");
+  await page.getByLabel("Evidence content").fill("Mina used the balance model independently.");
+  await page.getByRole("button", { name: "Create evidence", exact: true }).click();
+  await expect(
+    page.getByRole("heading", { name: "Tutor confirmed the balance model" }),
+  ).toBeVisible();
+  await expect(
+    page.locator(".evidence-card").filter({ hasText: "Tutor-authored transcript evidence" }),
+  ).toContainText("Material: lesson-notes.txt");
   const evidenceCard = page
     .locator(".evidence-card")
     .filter({ has: page.getByRole("heading", { name: "Check the sign change" }) });
@@ -315,9 +331,16 @@ test("creates, updates, exports, and reopens a portable tutoring workspace", asy
   await page.getByLabel("To", { exact: true }).selectOption({ label: "Plan a model follow-up" });
   await page.getByRole("button", { name: "Add relationship" }).click();
   await expect(
-    page.getByRole("img", { name: "2 evidence items connected by 1 relationship" }),
+    page.getByRole("img", { name: "3 evidence items connected by 1 relationship" }),
   ).toBeVisible();
   await expect(page.locator(".evidence-contradiction-row")).toContainText("contradicts");
+  await page.getByRole("button", { name: "Remove relationship: contradicts" }).click();
+  await expect(
+    page.getByRole("img", { name: "3 evidence items connected by 0 relationships" }),
+  ).toBeVisible();
+  await expect(page.locator(".evidence-contradiction-row")).toHaveCount(0);
+  await page.getByRole("button", { name: "Add relationship" }).click();
+  await expect(page.locator(".evidence-contradiction-row")).toHaveCount(1);
   const stableEvidenceCard = page.locator(`[data-evidence-id="${evidenceId}"]`);
   await stableEvidenceCard.getByRole("button", { name: "Edit evidence" }).click();
   await stableEvidenceCard.getByLabel("Title").fill("Reviewed sign change evidence");
@@ -339,6 +362,9 @@ test("creates, updates, exports, and reopens a portable tutoring workspace", asy
   await page.getByRole("button", { name: "Evidence", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Reviewed sign change evidence" })).toBeVisible();
   await expect(page.locator(".evidence-contradiction-row")).toHaveCount(1);
+  await expect(
+    page.getByRole("img", { name: "3 evidence items connected by 1 relationship" }),
+  ).toBeVisible();
   await page.getByRole("button", { name: "Students", exact: true }).click();
   const studentHistory = page.locator(".student-history");
   await studentHistory.locator("summary").click();
