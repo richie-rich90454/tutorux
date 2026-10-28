@@ -111,8 +111,11 @@ export const platform: ArchivePlatform = {
     mimeType: string,
   ): Promise<string> {
     const extension = suggestedName.split(".").at(-1) ?? "bin";
+    const isDocx =
+      mimeType === "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
     const fileType = {
-      description: mimeType === "audio/wav" ? "WAV audio" : "Exported file",
+      description:
+        mimeType === "audio/wav" ? "WAV audio" : isDocx ? "Word document" : "Exported file",
       accept: { [mimeType]: [`.${extension}`] },
     };
     const accessWindow = window as FileAccessWindow;
