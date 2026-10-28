@@ -245,6 +245,111 @@
   color: var(--danger);
   font-size: 9px;
 }
+.transcript-takes-panel {
+  display: grid;
+  gap: 12px;
+  margin: 0 0 14px;
+  padding: 15px 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+.transcript-takes-heading,
+.transcript-take-card-heading,
+.transcript-take-track-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+}
+.transcript-takes-heading {
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--line-soft);
+}
+.transcript-takes-heading > div,
+.transcript-take-copy {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+.transcript-takes-heading strong {
+  color: var(--ink);
+  font-size: 11px;
+  font-weight: 650;
+}
+.transcript-takes-heading > div > span:last-child,
+.transcript-take-copy > span {
+  color: var(--muted);
+  font-size: 8px;
+  line-height: 1.5;
+}
+.transcript-takes-count {
+  flex: 0 0 auto;
+  color: var(--muted);
+  font-size: 8px;
+  font-variant-numeric: tabular-nums;
+}
+.transcript-takes-list {
+  display: grid;
+  gap: 8px;
+}
+.transcript-take-card {
+  display: grid;
+  gap: 9px;
+  padding: 12px;
+  border: 1px solid var(--line-soft);
+  border-radius: 8px;
+  background: var(--surface-subtle);
+}
+.transcript-take-card-trashed {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  background: color-mix(in srgb, var(--surface-subtle) 70%, var(--line-soft));
+}
+.transcript-take-card-heading > label,
+.transcript-take-track-row > label {
+  min-width: 140px;
+  flex: 1;
+  display: grid;
+  gap: 4px;
+  color: var(--muted);
+  font-size: 8px;
+}
+.transcript-take-card-heading input,
+.transcript-take-track-row input {
+  width: 100%;
+  min-height: 31px;
+  padding: 0 9px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  color: var(--ink-soft);
+  background: var(--surface);
+  font: inherit;
+  font-size: 9px;
+}
+.transcript-take-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.transcript-take-meta span {
+  padding: 4px 7px;
+  border: 1px solid var(--line-soft);
+  border-radius: 99px;
+  color: var(--muted);
+  background: var(--surface);
+  font-size: 7px;
+}
+.transcript-take-tracks {
+  display: grid;
+  gap: 6px;
+  padding-top: 8px;
+  border-top: 1px solid var(--line-soft);
+}
+.transcript-take-trash {
+  color: var(--danger);
+}
 .transcript-list {
   display: grid;
 }
@@ -578,5 +683,17 @@
   .transcript-capture-state {
     justify-content: flex-start;
     flex-wrap: wrap;
+  }
+  .transcript-take-card-heading,
+  .transcript-take-track-row {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .transcript-take-card-trashed {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .transcript-takes-heading {
+    align-items: flex-start;
+    flex-direction: column;
   }
 }
