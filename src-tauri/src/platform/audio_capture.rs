@@ -4,8 +4,9 @@ use std::{
     sync::Mutex,
     time::{SystemTime, UNIX_EPOCH},
 };
-use tauri::{ipc::Response, State, WebviewWindow};
+use tauri::{State, WebviewWindow};
 use uuid::Uuid;
+use zeroize::Zeroizing;
 
 const MAX_CAPTURE_BYTES: usize = 128 * 1024 * 1024;
 const MAX_CHUNK_BYTES: usize = 32 * 1024;
@@ -17,7 +18,7 @@ pub struct AudioCaptureState(Mutex<HashMap<Uuid, CaptureBuffer>>);
 
 struct CaptureBuffer {
     sample_rate_hz: u32,
-    samples: Vec<u8>,
+    accepted_bytes: usize,
     next_sequence: u64,
     paused: bool,
 }
@@ -29,6 +30,23 @@ pub struct CaptureStarted {
     started_at_us: String,
     consent_at_us: String,
     max_bytes: usize,
+    sample_rate_hz: u32,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CaptureFinished {
+    byte_count: usize,
+    sample_count: usize,
+}
+
+impl CaptureFinished {
+    fn from(buffer: &CaptureBuffer) -> Self {
+        Self {
+            byte_count: buffer.accepted_bytes,
+            sample_count: buffer.accepted_bytes / 2,
+        }
+    }
 }
 
 fn main_window(window: &WebviewWindow) -> Result<(), String> {
@@ -90,7 +108,7 @@ pub fn begin_audio_capture(
         id,
         CaptureBuffer {
             sample_rate_hz,
-            samples: Vec::new(),
+            accepted_bytes: 0,
             next_sequence: 0,
             paused: false,
         },
@@ -100,6 +118,7 @@ pub fn begin_audio_capture(
         started_at_us: started_at_us.to_string(),
         consent_at_us: consent_at_us.to_string(),
         max_bytes: MAX_CAPTURE_BYTES,
+        sample_rate_hz,
     })
 }
 
@@ -112,6 +131,7 @@ pub fn append_audio_capture_chunk(
     samples: Vec<u8>,
 ) -> Result<(), String> {
     main_window(&window)?;
+    let samples = Zeroizing::new(samples);
     if samples.is_empty() || samples.len() > MAX_CHUNK_BYTES || samples.len() % 2 != 0 {
         return Err(
             "A microphone chunk must contain aligned 16-bit PCM and stay below 32 KiB.".into(),
@@ -131,10 +151,10 @@ pub fn append_audio_capture_chunk(
     if sequence != capture.next_sequence {
         return Err("A microphone audio chunk arrived out of order.".into());
     }
-    if capture.samples.len().saturating_add(samples.len()) > MAX_CAPTURE_BYTES {
-        return Err("The microphone recording reached its 128 MiB memory limit.".into());
+    if capture.accepted_bytes.saturating_add(samples.len()) > MAX_CAPTURE_BYTES {
+        return Err("The microphone recording reached its 128 MiB limit.".into());
     }
-    capture.samples.extend_from_slice(&samples);
+    capture.accepted_bytes += samples.len();
     capture.next_sequence = capture
         .next_sequence
         .checked_add(1)
@@ -186,38 +206,12 @@ pub fn resume_audio_capture(
     Ok(())
 }
 
-fn make_wav(sample_rate_hz: u32, samples: &[u8]) -> Result<Vec<u8>, String> {
-    let data_len = u32::try_from(samples.len())
-        .map_err(|_| "The microphone recording is too large for a WAV file.".to_owned())?;
-    let riff_len = data_len
-        .checked_add(36)
-        .ok_or_else(|| "The microphone recording is too large for a WAV file.".to_owned())?;
-    let byte_rate = sample_rate_hz
-        .checked_mul(2)
-        .ok_or_else(|| "The microphone sample rate is invalid.".to_owned())?;
-    let mut wav = Vec::with_capacity(44 + samples.len());
-    wav.extend_from_slice(b"RIFF");
-    wav.extend_from_slice(&riff_len.to_le_bytes());
-    wav.extend_from_slice(b"WAVEfmt ");
-    wav.extend_from_slice(&16_u32.to_le_bytes());
-    wav.extend_from_slice(&1_u16.to_le_bytes());
-    wav.extend_from_slice(&1_u16.to_le_bytes());
-    wav.extend_from_slice(&sample_rate_hz.to_le_bytes());
-    wav.extend_from_slice(&byte_rate.to_le_bytes());
-    wav.extend_from_slice(&2_u16.to_le_bytes());
-    wav.extend_from_slice(&16_u16.to_le_bytes());
-    wav.extend_from_slice(b"data");
-    wav.extend_from_slice(&data_len.to_le_bytes());
-    wav.extend_from_slice(samples);
-    Ok(wav)
-}
-
 #[tauri::command]
 pub fn finish_audio_capture(
     window: WebviewWindow,
     state: State<'_, AudioCaptureState>,
     capture_id: String,
-) -> Result<Response, String> {
+) -> Result<CaptureFinished, String> {
     main_window(&window)?;
     let id = parse_capture_id(&capture_id)?;
     let capture = state
@@ -226,10 +220,13 @@ pub fn finish_audio_capture(
         .map_err(|_| "Microphone capture state is unavailable.".to_owned())?
         .remove(&id)
         .ok_or_else(|| "The microphone capture session has ended.".to_owned())?;
-    if capture.samples.is_empty() {
+    if capture.accepted_bytes == 0 {
         return Err("The microphone did not provide any audio.".into());
     }
-    make_wav(capture.sample_rate_hz, &capture.samples).map(Response::new)
+    if capture.accepted_bytes % 2 != 0 || capture.sample_rate_hz == 0 {
+        return Err("The microphone ended with incomplete PCM sample data.".into());
+    }
+    Ok(CaptureFinished::from(&capture))
 }
 
 #[tauri::command]
