@@ -1658,6 +1658,241 @@ async function rebuildArchiveSnapshot(
   };
 }
 
+export interface ArchivePrimaryIndexRepairResult {
+  snapshot: ArchiveSnapshot;
+  sourceGeneration: bigint;
+  recoveredRecords: number;
+  recoveredRevisions: number;
+}
+
+/**
+ * Recover a separate copy from a strictly contiguous, fully published v1 log
+ * when index page payloads are damaged. The caller must save to a new path.
+ * Encrypted and opaque formats are rejected because missing index state cannot
+ * be authenticated or reconstructed without making assumptions about its schema.
+ */
+export async function rebuildDamagedPrimaryIndex(
+  source: ArchiveByteSource,
+): Promise<ArchivePrimaryIndexRepairResult> {
+  if (source.size < BigInt(ARCHIVE_HEADER_SIZE) || source.size > BigInt(Number.MAX_SAFE_INTEGER)) {
+    throw new ArchiveFormatError(
+      "archive_index_repair_unavailable",
+      "The archive is truncated or too large to inspect safely.",
+    );
+  }
+  const header = decodeArchiveHeader(await source.read(0n, ARCHIVE_HEADER_SIZE));
+  if ((header.capabilities & CAPABILITY_ENCRYPTED) !== 0n) {
+    throw new ArchiveFormatError(
+      "archive_index_repair_encrypted",
+      "Rebuilding a damaged encrypted index is not supported.",
+    );
+  }
+  type Revision = { offset: bigint; frame: ArchiveRecordFrameHeader; record: ArchiveRecord };
+  const revisions: Revision[] = [];
+  const current = new Map<string, Revision>();
+  let position = BigInt(ARCHIVE_HEADER_SIZE);
+  let committedOffset = 0n;
+  let publishedEnd = 0n;
+  let generation = 0n;
+  let pendingCount = 0n;
+  while (position < source.size) {
+    if (source.size - position < BigInt(RECORD_HEADER_SIZE)) {
+      throw new ArchiveFormatError(
+        "archive_index_repair_unpublished",
+        "Archive has an incomplete frame or unpublished tail.",
+      );
+    }
+    const rawHeader = await source.read(position, RECORD_HEADER_SIZE);
+    const frameHeader = decodeRecordFrameHeader(rawHeader, Number(position));
+    const frameLength =
+      RECORD_HEADER_SIZE + frameHeader.payloadLength + ((8 - (frameHeader.payloadLength % 8)) % 8);
+    const frameEnd = position + BigInt(frameLength);
+    if (frameEnd > source.size)
+      throw new ArchiveFormatError(
+        "archive_index_repair_unpublished",
+        "A frame extends past the archive boundary.",
+      );
+    if (frameHeader.type === RecordType.indexPage) {
+      if (frameHeader.id !== ZERO_UUID || frameHeader.flags !== 0 || frameHeader.codec !== 0) {
+        throw new ArchiveFormatError(
+          "archive_index_repair_structure",
+          "An index page has unsupported framing.",
+        );
+      }
+      // Index payloads are the damaged portion; their validated frame header
+      // gives the only boundary we are willing to skip.
+      position = frameEnd;
+      continue;
+    }
+    if (frameHeader.type === RecordType.commit) {
+      const commit = await decodeCommit(source, position);
+      if (
+        commit.generation !== generation + 1n ||
+        commit.previousOffset !== committedOffset ||
+        commit.recordCount !== pendingCount
+      ) {
+        throw new ArchiveFormatError(
+          "archive_index_repair_transaction",
+          "Published transaction counts or commit links are inconsistent.",
+        );
+      }
+      const locatorEnd = await commitPublishedEndOffset(source, commit);
+      committedOffset = position;
+      publishedEnd = locatorEnd;
+      generation = commit.generation;
+      pendingCount = 0n;
+      position = locatorEnd;
+      continue;
+    }
+    if (recordTypeName(frameHeader.type) === "unknown" || frameHeader.flags !== 0) {
+      throw new ArchiveFormatError(
+        "archive_index_repair_unknown",
+        "Archive contains encrypted or unknown records whose indexes cannot be reconstructed safely.",
+      );
+    }
+    const frame = await readFrameAt(source, position);
+    const record = decodeRecordPayload(
+      frame.type,
+      frame.id,
+      frame.revision,
+      frame.previousOffset,
+      decodeStoredPayload(frame),
+    );
+    const key = primaryIndexKey(frame.type, frame.id);
+    const previous = current.get(key);
+    if (
+      (!previous && (frame.previousOffset !== 0n || frame.revision !== 1n)) ||
+      (previous &&
+        (frame.previousOffset !== previous.offset ||
+          frame.revision !== previous.frame.revision + 1n))
+    ) {
+      throw new ArchiveFormatError(
+        "archive_index_repair_lineage",
+        "Record revisions are not a complete consecutive chain.",
+      );
+    }
+    const revision = {
+      offset: position,
+      frame: frameHeader,
+      record: { ...record, blob: new Uint8Array() },
+    };
+    revisions.push(revision);
+    current.set(key, revision);
+    pendingCount += 1n;
+    position = frameEnd;
+  }
+  if (generation === 0n || pendingCount !== 0n || publishedEnd !== source.size) {
+    throw new ArchiveFormatError(
+      "archive_index_repair_unpublished",
+      "No complete published transaction chain was found.",
+    );
+  }
+  const manifest = current.get(primaryIndexKey(RecordType.settings, header.id))?.record;
+  if (
+    !manifest ||
+    manifest.fields.get("record_role") !== "archive-manifest" ||
+    manifest.fields.get("_deleted") === "true" ||
+    manifest.fields.get("created_at_us") !== header.createdAtUs.toString()
+  ) {
+    throw new ArchiveFormatError(
+      "archive_index_repair_manifest",
+      "The archive identity does not match its retained manifest.",
+    );
+  }
+
+  const headerBytes = encodeArchiveHeader(header);
+  const emptyRoot = encodeRecordFrame(
+    { type: RecordType.indexPage, id: ZERO_UUID, revision: 1n, previousOffset: 0n },
+    encodeIndexPage({ leaf: true, entries: [], separators: [], children: [] }),
+  );
+  const segments: CompactedArchiveSegment[] = [
+    { kind: "static", offset: 0n, bytes: headerBytes },
+    { kind: "static", offset: BigInt(headerBytes.length), bytes: emptyRoot },
+  ];
+  let cursor = BigInt(headerBytes.length + emptyRoot.length);
+  const relocated = new Map<bigint, bigint>();
+  for (const revision of revisions) {
+    const frame = revision.frame;
+    const previousOffset = frame.previousOffset === 0n ? 0n : relocated.get(frame.previousOffset);
+    if (previousOffset === undefined)
+      throw new ArchiveFormatError(
+        "archive_index_repair_lineage",
+        "A predecessor cannot be relocated.",
+      );
+    const frameLength =
+      RECORD_HEADER_SIZE + frame.payloadLength + ((8 - (frame.payloadLength % 8)) % 8);
+    const frameHeader = encodeRecordFrameHeader(
+      { ...frame, previousOffset },
+      frame.payloadLength,
+      frame.codec,
+      frame.flags,
+      frame.payloadChecksum,
+    );
+    relocated.set(revision.offset, cursor);
+    segments.push({
+      kind: "frame",
+      offset: cursor,
+      originalOffset: revision.offset,
+      frameLength,
+      payloadLength: frame.payloadLength,
+      header: frameHeader,
+    });
+    cursor += BigInt(frameLength);
+  }
+  const index = new Map<string, bigint>();
+  for (const [key, revision] of current) index.set(key, relocated.get(revision.offset)!);
+  for (const revision of revisions) {
+    const key = primaryIndexKey(revision.frame.type, revision.frame.id);
+    const latest = current.get(key)!;
+    if (revision !== latest && revision.frame.type !== RecordType.guide) continue;
+    const target = relocated.get(latest.offset)!;
+    for (const alias of secondaryIndexKeys(revision.record)) {
+      const existing = index.get(alias);
+      if (existing !== undefined && existing !== target) {
+        throw new ArchiveFormatError(
+          "archive_index_repair_conflict",
+          "Reconstructed secondary indexes conflict; no copy was created.",
+        );
+      }
+      index.set(alias, target);
+    }
+  }
+  const entries = [...index]
+    .map(([key, valueOffset]) => ({ key, valueOffset }))
+    .sort((left, right) => compareKeys(left.key, right.key));
+  const tree = await buildIndexTree(entries, cursor);
+  for (const frame of tree.frames) {
+    segments.push({ kind: "static", offset: cursor, bytes: frame });
+    cursor += BigInt(frame.length);
+  }
+  const commitOffset = cursor;
+  const commitPayload = encodeCommitPayload({
+    generation: 1n,
+    previousOffset: 0n,
+    rootOffset: tree.rootOffset,
+    rootHash: await sha256(tree.rootPayload),
+    transactionId: newUuid(),
+    recordCount: BigInt(revisions.length),
+  });
+  const commit = encodeRecordFrame(
+    { type: RecordType.commit, id: ZERO_UUID, revision: 1n, previousOffset: 0n },
+    commitPayload,
+  );
+  segments.push({ kind: "static", offset: cursor, bytes: commit });
+  cursor += BigInt(commit.length);
+  const locator = encodeLocator(commitOffset, 1n);
+  segments.push({ kind: "static", offset: cursor, bytes: locator });
+  cursor += BigInt(locator.length);
+  const rebuilt = await openArchiveSource(new CompactedArchiveSource(source, segments, cursor));
+  await verifyArchiveHistory(rebuilt);
+  return {
+    snapshot: rebuilt,
+    sourceGeneration: generation,
+    recoveredRecords: current.size,
+    recoveredRevisions: revisions.length,
+  };
+}
+
 export interface ArchiveIndexMigrationResult {
   snapshot: ArchiveSnapshot;
   addedEntries: number;
