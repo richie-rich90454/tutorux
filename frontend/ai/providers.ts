@@ -72,6 +72,15 @@ export const AI_PROVIDERS: readonly AiProviderDefinition[] = [
     local: true,
   },
   {
+    id: "embedded-gguf",
+    name: "Embedded GGUF (offline)",
+    description: "In-process GGUF model · no network request",
+    protocol: "Local llama.cpp runtime",
+    defaultEndpoint: "tutorux://embedded/generate",
+    credentialKey: null,
+    local: true,
+  },
+  {
     id: "openai-compatible",
     name: "OpenAI-compatible endpoint",
     description: "Custom OpenAI-compatible service",
@@ -82,8 +91,18 @@ export const AI_PROVIDERS: readonly AiProviderDefinition[] = [
   },
 ];
 
+/** `llama.cpp-embedded` is the legacy archive/CLI ID; `embedded-gguf` is its current UI ID. */
+export function isEmbeddedGgufProvider(providerId: string): boolean {
+  const normalized = providerId.trim().toLowerCase();
+  return normalized === "embedded-gguf" || normalized === "llama.cpp-embedded";
+}
+
 export function providerById(providerId: string): AiProviderDefinition | undefined {
-  return AI_PROVIDERS.find((provider) => provider.id === providerId.trim().toLowerCase());
+  const normalized = providerId.trim().toLowerCase();
+  if (isEmbeddedGgufProvider(normalized)) {
+    return AI_PROVIDERS.find((provider) => provider.id === "embedded-gguf");
+  }
+  return AI_PROVIDERS.find((provider) => provider.id === normalized);
 }
 
 export async function createProviderConfigurationRecord(
@@ -158,6 +177,12 @@ export function maskCredentialMetadata(record: ArchiveRecord): ArchiveRecord {
 
 export function validateProviderEndpoint(value: string, provider: AiProviderDefinition): string {
   const endpoint = cleanField(value, "Endpoint", 2048, false);
+  if (isEmbeddedGgufProvider(provider.id)) {
+    if (endpoint !== provider.defaultEndpoint) {
+      throw new Error("Embedded GGUF inference uses the in-process desktop runtime endpoint.");
+    }
+    return endpoint;
+  }
   let parsed: URL;
   try {
     parsed = new URL(endpoint);
