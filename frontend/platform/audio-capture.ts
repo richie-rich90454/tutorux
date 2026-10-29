@@ -1,38 +1,80 @@
 import { invoke, isTauri } from "@tauri-apps/api/core";
-import { MicrophoneRecording } from "../domain/microphone-recording";
+import {
+  MAX_MICROPHONE_ARCHIVE_CHUNK_BYTES,
+  MicrophoneRecording,
+} from "../domain/microphone-recording";
 
 const MAX_PCM_BYTES = 128 * 1024 * 1024;
 const MAX_QUEUED_BYTES = 1024 * 1024;
 
 export interface MicrophoneCaptureResult {
-  file: File;
+  file?: File;
   pauseCount: number;
   pausedDurationUs: string;
   startedAtUs: string;
   consentAtUs: string;
+  sampleRateHz?: number;
+  sampleCount?: string;
+  archiveCommitted?: true;
   warning?: string;
 }
 
 export interface ActiveMicrophoneCapture {
+  readonly durability: "archive" | "memory";
   pause(): Promise<void>;
   resume(): Promise<void>;
-  stop(): Promise<MicrophoneCaptureResult>;
+  stop(interruptedReason?: string): Promise<MicrophoneCaptureResult>;
   discard(): Promise<void>;
+}
+
+export interface CapturedPcmChunk {
+  sequence: number;
+  firstSampleIndex: string;
+  sampleRateHz: number;
+  samples: Uint8Array<ArrayBuffer>;
+}
+
+export interface MicrophoneArchiveCaptureHooks {
+  onStarted(capture: CaptureStarted): Promise<ArchiveCaptureCursor | void>;
+  onChunk(chunk: CapturedPcmChunk): Promise<void>;
+  onPaused(): Promise<void>;
+  onResumed(): Promise<void>;
+  onFinished(capture: {
+    sampleRateHz: number;
+    sampleCount: string;
+    pauseCount: number;
+    pausedDurationUs: string;
+    interruptedReason?: string;
+  }): Promise<void>;
+  onDiscard(): Promise<void>;
+}
+
+export interface ArchiveCaptureCursor {
+  sequence: number;
+  firstSampleIndex: string;
 }
 
 interface StartOptions {
   consentConfirmed: boolean;
   consentAtUs: string;
+  sampleRateHz?: number;
   deviceId?: string;
   onLimit: () => void;
   onDeviceEnded: () => void;
+  archive?: MicrophoneArchiveCaptureHooks;
 }
 
-interface CaptureStarted {
+export interface CaptureStarted {
   captureId: string;
   startedAtUs: string;
   consentAtUs: string;
   maxBytes: number;
+  sampleRateHz: number;
+}
+
+interface CaptureFinished {
+  byteCount: number;
+  sampleCount: number;
 }
 
 /** Start a consented microphone recording through the desktop host or browser adapter. */
@@ -42,7 +84,12 @@ export async function startMicrophoneCapture(
   if (!options.consentConfirmed) {
     throw new Error("Confirm that everyone being recorded has agreed before starting capture.");
   }
-  if (isTauri()) return TauriMicrophoneCapture.start(options);
+  if (isTauri()) {
+    if (!options.archive) {
+      throw new Error("Desktop microphone capture requires an unlocked archive recovery target.");
+    }
+    return TauriMicrophoneCapture.start(options);
+  }
 
   const recording = await MicrophoneRecording.start(
     options.onLimit,
@@ -51,6 +98,7 @@ export async function startMicrophoneCapture(
   );
   const startedAtUs = (BigInt(Date.now()) * 1000n).toString();
   return {
+    durability: "memory",
     pause: () => recording.pause(),
     resume: () => recording.resume(),
     async stop() {
@@ -66,12 +114,22 @@ export async function startMicrophoneCapture(
 }
 
 class TauriMicrophoneCapture implements ActiveMicrophoneCapture {
+  readonly durability = "archive" as const;
   private sequence = 0;
   private acceptedBytes = 0;
   private queuedBytes = 0;
   private uploadChain: Promise<void> = Promise.resolve();
+  private uploadError = "";
   private warning = "";
   private uploadFailed = false;
+  private archiveBuffers: Uint8Array<ArrayBuffer>[] = [];
+  private archiveBufferedBytes = 0;
+  private archiveQueuedBytes = 0;
+  private archiveChain: Promise<void> = Promise.resolve();
+  private archiveError = "";
+  private archiveSequence = 0;
+  private archiveSampleIndex = 0n;
+  private archiveCommittedSamples = 0n;
   private finished = false;
   private paused = false;
   private pauseStartedMs = 0;
@@ -90,7 +148,11 @@ class TauriMicrophoneCapture implements ActiveMicrophoneCapture {
     private readonly silentOutput: GainNode,
     private readonly onLimit: () => void,
     private readonly onDeviceEnded: () => void,
+    private readonly archive: MicrophoneArchiveCaptureHooks,
+    initialArchiveCursor: ArchiveCaptureCursor,
   ) {
+    this.archiveSequence = initialArchiveCursor.sequence;
+    this.archiveSampleIndex = BigInt(initialArchiveCursor.firstSampleIndex);
     processor.onaudioprocess = (event) => {
       if (this.finished || this.paused || this.warning) return;
       const samples = event.inputBuffer.getChannelData(0);
@@ -110,7 +172,7 @@ class TauriMicrophoneCapture implements ActiveMicrophoneCapture {
       }
 
       if (this.queuedBytes + bytes.length > MAX_QUEUED_BYTES) {
-        this.warning = "Audio transfer fell behind; the captured portion is being saved.";
+        this.warning = "Audio transfer fell behind; the committed portion is being preserved.";
         this.onLimit();
         return;
       }
@@ -128,15 +190,27 @@ class TauriMicrophoneCapture implements ActiveMicrophoneCapture {
         })
         .catch((error: unknown) => {
           this.uploadFailed = true;
-          this.warning = `The desktop audio transfer stopped: ${errorMessage(error)}`;
+          this.uploadError = `The desktop audio transfer stopped: ${errorMessage(error)}`;
+          this.warning = this.uploadError;
           this.onLimit();
         })
         .finally(() => {
           this.queuedBytes -= bytes.length;
         });
 
+      this.archiveBuffers.push(bytes);
+      this.archiveBufferedBytes += bytes.length;
+      if (this.archiveBufferedBytes >= MAX_MICROPHONE_ARCHIVE_CHUNK_BYTES) {
+        if (this.archiveQueuedBytes + this.archiveBufferedBytes > MAX_QUEUED_BYTES) {
+          this.warning = "Archive writing fell behind; stopping and preserving committed audio.";
+          this.onLimit();
+        } else {
+          this.queueArchiveChunk();
+        }
+      }
+
       if (count < samples.length || this.acceptedBytes + this.queuedBytes >= this.maxBytes) {
-        this.warning = "The microphone recording reached its memory limit.";
+        this.warning = "The microphone recording reached its 128 MiB archive limit.";
         this.onLimit();
       }
     };
@@ -164,7 +238,9 @@ class TauriMicrophoneCapture implements ActiveMicrophoneCapture {
     let context: AudioContext | undefined;
     let captureId: string | undefined;
     try {
-      context = new AudioContext();
+      context = options.sampleRateHz
+        ? new AudioContext({ sampleRate: options.sampleRateHz })
+        : new AudioContext();
       await context.resume();
       const started = await invoke<CaptureStarted>("begin_audio_capture", {
         consentConfirmed: options.consentConfirmed,
@@ -172,6 +248,16 @@ class TauriMicrophoneCapture implements ActiveMicrophoneCapture {
         sampleRateHz: context.sampleRate,
       });
       captureId = started.captureId;
+      const archiveCursor = (await options.archive!.onStarted(started)) ?? {
+        sequence: 0,
+        firstSampleIndex: "0",
+      };
+      if (!Number.isSafeInteger(archiveCursor.sequence) || archiveCursor.sequence < 0) {
+        throw new Error("The microphone archive recovery sequence is invalid.");
+      }
+      if (!/^\d+$/u.test(archiveCursor.firstSampleIndex)) {
+        throw new Error("The microphone archive recovery sample position is invalid.");
+      }
       const capture = new TauriMicrophoneCapture(
         started.captureId,
         started.startedAtUs,
@@ -184,6 +270,8 @@ class TauriMicrophoneCapture implements ActiveMicrophoneCapture {
         context.createGain(),
         options.onLimit,
         options.onDeviceEnded,
+        options.archive!,
+        archiveCursor,
       );
       return capture;
     } catch (error) {
@@ -205,9 +293,13 @@ class TauriMicrophoneCapture implements ActiveMicrophoneCapture {
     try {
       await this.context.suspend();
       await this.uploadChain;
+      await this.flushArchiveChunk();
+      await this.archiveChain;
       await invoke("pause_audio_capture", { captureId: this.captureId });
+      await this.archive.onPaused();
     } catch (error) {
       if (!this.finished) {
+        await invoke("resume_audio_capture", { captureId: this.captureId }).catch(() => undefined);
         await this.context.resume().catch(() => undefined);
         this.paused = false;
         this.pauseCount--;
@@ -219,36 +311,75 @@ class TauriMicrophoneCapture implements ActiveMicrophoneCapture {
 
   async resume(): Promise<void> {
     if (this.finished || !this.paused) throw new Error("Recording cannot be resumed now.");
-    await this.context.resume();
-    if (this.finished) return;
     try {
+      await this.archiveChain;
       await invoke("resume_audio_capture", { captureId: this.captureId });
+      await this.context.resume();
+      await this.archive.onResumed();
     } catch (error) {
+      await invoke("pause_audio_capture", { captureId: this.captureId }).catch(() => undefined);
       await this.context.suspend().catch(() => undefined);
+      await this.archive.onPaused().catch(() => undefined);
       throw error instanceof Error ? error : new Error(errorMessage(error));
     }
+    if (this.finished) return;
     this.pausedMs += performance.now() - this.pauseStartedMs;
     for (const track of this.stream.getAudioTracks()) track.enabled = true;
     this.paused = false;
   }
 
-  async stop(): Promise<MicrophoneCaptureResult> {
+  async stop(interruptedReason = ""): Promise<MicrophoneCaptureResult> {
     if (this.finished) throw new Error("This recording has already stopped.");
     this.finished = true;
     if (this.paused) this.pausedMs += performance.now() - this.pauseStartedMs;
     await this.closeInput();
     await this.uploadChain;
-    const wav = await invoke<ArrayBuffer>("finish_audio_capture", { captureId: this.captureId });
-    if (wav.byteLength <= 44) throw new Error("The microphone did not provide any audio.");
-    const file = new File([wav], `Microphone ${new Date().toISOString().replace(/[:.]/g, "-")}.wav`, {
-      type: "audio/wav",
+    await this.archiveChain;
+    if (!this.archiveError) {
+      try {
+        await this.flushArchiveChunk();
+        await this.archiveChain;
+      } catch (error) {
+        this.archiveError = `Could not commit microphone audio to the archive: ${errorMessage(error)}`;
+      }
+    } else {
+      this.clearArchiveBuffers();
+    }
+    if (this.uploadError) this.warning ||= this.uploadError;
+    const committedSampleCount = this.archiveCommittedSamples;
+    if (committedSampleCount === 0n) {
+      await invoke("discard_audio_capture", { captureId: this.captureId }).catch(() => undefined);
+      await this.archive.onDiscard();
+      throw new Error("The microphone did not provide any audio.");
+    }
+    let hostFinishWarning = "";
+    try {
+      const finished = await invoke<CaptureFinished>("finish_audio_capture", {
+        captureId: this.captureId,
+      });
+      if (BigInt(finished.sampleCount) !== committedSampleCount)
+        hostFinishWarning = "The capture host confirmed a different sample count than the archive.";
+    } catch (error) {
+      hostFinishWarning = `The capture host ended early: ${errorMessage(error)}`;
+    }
+    if (hostFinishWarning) this.warning ||= hostFinishWarning;
+    const pausedDurationUs = String(Math.round(this.pausedMs * 1000));
+    const finalReason = interruptedReason || this.archiveError || this.warning;
+    await this.archive.onFinished({
+      sampleRateHz: this.context.sampleRate,
+      sampleCount: committedSampleCount.toString(),
+      pauseCount: this.pauseCount,
+      pausedDurationUs,
+      ...(finalReason ? { interruptedReason: finalReason } : {}),
     });
     return {
-      file,
       pauseCount: this.pauseCount,
-      pausedDurationUs: String(Math.round(this.pausedMs * 1000)),
+      pausedDurationUs,
       startedAtUs: this.startedAtUs,
       consentAtUs: this.consentAtUs,
+      sampleRateHz: this.context.sampleRate,
+      sampleCount: committedSampleCount.toString(),
+      archiveCommitted: true,
       ...(this.warning ? { warning: this.warning } : {}),
     };
   }
@@ -258,7 +389,10 @@ class TauriMicrophoneCapture implements ActiveMicrophoneCapture {
     this.finished = true;
     await this.closeInput();
     await this.uploadChain;
+    await this.archiveChain;
     await invoke("discard_audio_capture", { captureId: this.captureId }).catch(() => undefined);
+    this.clearArchiveBuffers();
+    await this.archive.onDiscard();
   }
 
   private async closeInput(): Promise<void> {
@@ -269,6 +403,67 @@ class TauriMicrophoneCapture implements ActiveMicrophoneCapture {
     for (const track of this.stream.getTracks()) track.stop();
     await this.context.close().catch(() => undefined);
   }
+
+  private queueArchiveChunk(): void {
+    if (!this.archiveBufferedBytes) return;
+    const samples = joinBuffers(this.archiveBuffers, this.archiveBufferedBytes);
+    this.archiveBuffers = [];
+    this.archiveBufferedBytes = 0;
+    this.archiveQueuedBytes += samples.byteLength;
+    const firstSampleIndex = this.archiveSampleIndex.toString();
+    this.archiveSampleIndex += BigInt(samples.byteLength / 2);
+    const sequence = this.archiveSequence++;
+    this.archiveChain = this.archiveChain
+      .then(async () => {
+        if (this.archiveError) return;
+        await this.archive.onChunk({
+          sequence,
+          firstSampleIndex,
+          sampleRateHz: this.context.sampleRate,
+          samples,
+        });
+        this.archiveCommittedSamples += BigInt(samples.byteLength / 2);
+      })
+      .catch((error: unknown) => {
+        this.archiveError = `Could not commit microphone audio to the archive: ${errorMessage(error)}`;
+        this.warning = this.archiveError;
+        this.onLimit();
+      })
+      .finally(() => {
+        this.archiveQueuedBytes -= samples.byteLength;
+        samples.fill(0);
+      });
+  }
+
+  private async flushArchiveChunk(): Promise<void> {
+    if (this.archiveError) throw new Error(this.archiveError);
+    if (!this.archiveBufferedBytes) return;
+    if (this.archiveQueuedBytes + this.archiveBufferedBytes > MAX_QUEUED_BYTES) {
+      await this.archiveChain;
+    }
+    if (this.archiveError) throw new Error(this.archiveError);
+    this.queueArchiveChunk();
+  }
+
+  private clearArchiveBuffers(): void {
+    for (const buffer of this.archiveBuffers) buffer.fill(0);
+    this.archiveBuffers = [];
+    this.archiveBufferedBytes = 0;
+  }
+}
+
+function joinBuffers(
+  buffers: readonly Uint8Array<ArrayBuffer>[],
+  totalBytes: number,
+): Uint8Array<ArrayBuffer> {
+  const joined = new Uint8Array(totalBytes);
+  let offset = 0;
+  for (const buffer of buffers) {
+    joined.set(buffer, offset);
+    offset += buffer.byteLength;
+    buffer.fill(0);
+  }
+  return joined;
 }
 
 function microphoneErrorMessage(error: unknown): string {
