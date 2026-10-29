@@ -54,9 +54,29 @@ export function AudioWaveform(props: AudioWaveformProps) {
         type="range"
         min="0"
         max={duration() || 0}
-        step="0.01"
+        step="1"
         value={Math.min(position(), duration())}
         aria-label="Seek through audio preview"
+        aria-keyshortcuts="ArrowLeft ArrowDown ArrowRight ArrowUp Shift+ArrowLeft Shift+ArrowDown Shift+ArrowRight Shift+ArrowUp"
+        title="Use arrow keys to seek; Shift + arrow keys moves 10 seconds."
+        onKeyDown={(event) => {
+          if (!event.shiftKey) return;
+          const direction =
+            event.key === "ArrowLeft" || event.key === "ArrowDown"
+              ? -1
+              : event.key === "ArrowRight" || event.key === "ArrowUp"
+                ? 1
+                : 0;
+          if (direction === 0) return;
+          event.preventDefault();
+          const time = Math.max(
+            0,
+            Math.min(duration(), Number(event.currentTarget.value) + direction * 10),
+          );
+          event.currentTarget.value = String(time);
+          if (player) player.currentTime = time;
+          setPosition(time);
+        }}
         onInput={(event) => {
           const time = Number(event.currentTarget.value);
           if (player) player.currentTime = time;
