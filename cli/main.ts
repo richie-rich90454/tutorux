@@ -151,6 +151,11 @@ import { makeWaveImportRecords } from "../frontend/domain/wav";
 import { buildAudioTrackWavStream, listSessionAudioTracks } from "../frontend/domain/audio";
 import { summarizeWaveform } from "./recording-waveform";
 import { mixRecordingTracks } from "../frontend/domain/audio-mix";
+import {
+  buildWaveformIndex,
+  readWaveformIndex,
+  waveformIndexIsCurrent,
+} from "../frontend/domain/waveform-index";
 import { transcribeTrack } from "./whisper";
 
 interface CliIo {
@@ -272,11 +277,15 @@ Usage:
   tutorux --archive <file.tux> record import --session <uuid> --input <file.wav> [--additional-track]
   tutorux --archive <file.tux> record export-wav --session <uuid> --output <file.wav> [--track <uuid>] [--fill-gaps] [--overwrite]
   tutorux --archive <file.tux> record waveform --session <uuid> [--track <uuid>] [--buckets <n>]
+  tutorux --archive <file.tux> record waveform-index-build --session <uuid> [--track <uuid>]
+  tutorux --archive <file.tux> record waveform-index-show --session <uuid> [--track <uuid>] [--level <n>] [--json]
   tutorux --archive <file.tux> record mix --session <uuid> --take <uuid> --tracks <uuid,uuid,...> [--label <name>]
   tutorux --archive <file.tux> record take-rename --session <uuid> --take <uuid> --label <name>
   tutorux --archive <file.tux> record take-delete|take-restore --session <uuid> --take <uuid>
   tutorux --archive <file.tux> record track-rename --session <uuid> --track <uuid> --label <name>
   tutorux --archive <file.tux> transcript import --session <uuid> --input <file> [--format auto|text|srt|vtt]
+  tutorux --archive <file.tux> transcript plan --session <uuid> [--track <uuid>] [--threads <n>] [--model-memory-mb <n>] [--available-memory-mb <n>]
+  tutorux --archive <file.tux> annotation plan --session <uuid> [--track <uuid>] [--threads <n>] [--model-memory-mb <n>] [--available-memory-mb <n>]
   tutorux --archive <file.tux> transcript transcribe|refine --session <uuid> --track <uuid> --whisper <executable> --model <model> --consent-local-audio [--language auto|code] [--start time] [--end time] [--json]
   tutorux --archive <file.tux> transcript show --session <uuid> [--json]
   tutorux --archive <file.tux> transcript export --session <uuid> --output <file> [--format text|srt|vtt|json]
@@ -1146,7 +1155,54 @@ async function runRecordingAudioCommand(
       const trackId = args.options.get("track")?.toLowerCase() ?? tracks[0]?.id;
       if (!trackId || !tracks.some((track) => track.id === trackId))
         throw new CliError("Select an available audio track for this session.");
-      if (action === "waveform") {
+      if (action === "waveform-index-build") {
+        const index = await buildWaveformIndex(snapshot, sessionId, trackId);
+        changes = [index];
+        result = {
+          id: index.id,
+          session_id: sessionId,
+          track_id: trackId,
+          level_count: field(index, "level_count"),
+          base_bucket_count: field(index, "base_bucket_count"),
+          timeline_frame_count: field(index, "timeline_frame_count"),
+          source_fingerprint: field(index, "source_fingerprint"),
+        };
+        message = `Built waveform index for track ${trackId} with ${field(index, "level_count")} levels.`;
+      } else if (action === "waveform-index-show") {
+        const index = (await snapshot.listRecords(RecordType.waveformIndex)).find(
+          (record) =>
+            field(record, "record_role") === "waveform-pyramid" &&
+            field(record, "session_id").toLowerCase() === sessionId &&
+            field(record, "track_id").toLowerCase() === trackId,
+        );
+        if (!index) throw new CliError("This track has no saved waveform index. Build one first.");
+        const levels = readWaveformIndex(index);
+        const level = parseBoundedOption(
+          args.options.get("level"),
+          "level",
+          0,
+          0,
+          levels.length - 1,
+        );
+        const current = await waveformIndexIsCurrent(snapshot, index);
+        const buckets = levels[level]!.map((bucket) => ({
+          start_frame: bucket.startFrame.toString(),
+          end_frame: bucket.endFrame.toString(),
+          minimum: bucket.minimum,
+          maximum: bucket.maximum,
+          contains_gap: bucket.containsGap,
+        }));
+        result = {
+          id: index.id,
+          session_id: sessionId,
+          track_id: trackId,
+          level,
+          level_count: levels.length,
+          current,
+          buckets,
+        };
+        message = `Waveform index for track ${trackId}: level ${level + 1} of ${levels.length}, ${buckets.length} buckets${current ? "" : " (source changed; rebuild recommended)"}.`;
+      } else if (action === "waveform") {
         const limit = parseBoundedOption(args.options.get("buckets"), "buckets", 512, 1, 8192);
         const buckets = await summarizeWaveform(snapshot, sessionId, trackId, limit);
         result = buckets;
@@ -1224,7 +1280,16 @@ async function runRecordingTakeCommand(
   output: CliIo,
 ): Promise<number> {
   const json = args.flags.has("json");
-  if (["import", "export-wav", "waveform", "mix"].includes(action))
+  if (
+    [
+      "import",
+      "export-wav",
+      "waveform",
+      "waveform-index-build",
+      "waveform-index-show",
+      "mix",
+    ].includes(action)
+  )
     return runRecordingAudioCommand(action, path, args, output);
   if (action === "take-list") {
     const sessionId = canonicalizeProgressUuid(requiredOption(args, "session"));
@@ -4601,6 +4666,135 @@ async function preserveUnavailableJournalLinks(
   }
 }
 
+async function runTranscriptionPlan(
+  path: string,
+  args: ParsedArguments,
+  output: CliIo,
+  detailed: boolean,
+): Promise<number> {
+  const sessionId = canonicalizeProgressUuid(requiredOption(args, "session"));
+  if (!sessionId) throw new CliError("--session must be a valid UUID.");
+  const trackValue = args.options.get("track");
+  const trackId = trackValue ? canonicalizeProgressUuid(trackValue) : undefined;
+  if (trackValue && !trackId) throw new CliError("--track must be a valid UUID.");
+  const threads = parseBoundedOption(
+    args.options.get("threads"),
+    "threads",
+    0,
+    detailed ? 1 : 0,
+    64,
+  );
+  const modelMemory = parseBoundedOption(
+    args.options.get("model-memory-mb"),
+    "model-memory-mb",
+    detailed ? 0 : 512,
+    detailed ? 1 : 0,
+    1_048_576,
+  );
+  const availableMemory = parseBoundedOption(
+    args.options.get("available-memory-mb"),
+    "available-memory-mb",
+    0,
+    detailed ? 1 : 0,
+    1_048_576,
+  );
+  const hardware = Math.max(1, availableParallelism());
+  const snapshot = await openForCommand(path);
+  try {
+    const session = await requireLiveRecord(snapshot, RecordType.session, sessionId);
+    if (!detailed) {
+      const effectiveThreads = threads || Math.min(8, hardware);
+      const estimatedMemory = modelMemory + 128 + effectiveThreads * 16;
+      const feasible = availableMemory === 0 || estimatedMemory <= availableMemory;
+      const result = {
+        session_id: sessionId,
+        track_id: trackId ?? "",
+        duration_us: field(session, "audio_duration_us") || "0",
+        threads: effectiveThreads,
+        model_memory_mb: modelMemory,
+        estimated_memory_mb: estimatedMemory,
+        available_memory_mb: availableMemory,
+        available_known: availableMemory !== 0,
+        feasible,
+      };
+      emit(
+        output,
+        result,
+        `Transcription plan: ${effectiveThreads} thread(s), ${estimatedMemory} MB estimated working memory${availableMemory ? `, ${feasible ? "within" : "above"} the available ${availableMemory} MB` : "; available memory not supplied"}.`,
+        args.flags.has("json"),
+      );
+      return 0;
+    }
+    let workers = Math.min(Math.max(1, hardware - 1), threads || hardware);
+    if (!modelMemory || !availableMemory) workers = 1;
+    else {
+      const memoryWorkers = Math.floor(availableMemory / modelMemory);
+      if (!memoryWorkers)
+        throw new CliError("The transcription model exceeds the available memory budget.");
+      workers = Math.min(workers, memoryWorkers);
+    }
+    const assets = await snapshot.listRecordMetadata(RecordType.assetMetadata);
+    const tracks = listSessionAudioTracks(session, assets).filter(
+      (track) => !trackId || track.id.toLowerCase() === trackId,
+    );
+    const work: {
+      work_id: string;
+      track_id: string;
+      start_time_us: string;
+      end_time_us: string;
+      priority: number;
+      provisional: boolean;
+    }[] = [];
+    let count = 0;
+    let estimated = 0n;
+    for (const track of tracks) {
+      const chunks = await snapshot.listAudioChunkMetadata(sessionId, track.id);
+      let duration = 0n;
+      for (const chunk of chunks) {
+        const raw = field(chunk, "timeline_end_us") || "0";
+        if (!/^\d+$/u.test(raw)) throw new CliError("Audio timeline metadata is invalid.");
+        const end = BigInt(raw);
+        if (end > duration) duration = end;
+      }
+      if (!duration) continue;
+      count += 1;
+      const elapsed = (duration + BigInt(workers) - 1n) / BigInt(workers);
+      if (elapsed > estimated) estimated = elapsed;
+      if ((duration + 29_999_999n) / 30_000_000n > BigInt(100_000 - work.length))
+        throw new CliError("Transcription plan exceeds the 100,000 work item limit.");
+      for (let start = 0n; start < duration; start += 30_000_000n) {
+        const end = start + 30_000_000n < duration ? start + 30_000_000n : duration;
+        work.push({
+          work_id: `${sessionId}:${track.id}:${start}`,
+          track_id: track.id,
+          start_time_us: start.toString(),
+          end_time_us: end.toString(),
+          priority: 2,
+          provisional: true,
+        });
+      }
+    }
+    if (!count) throw new CliError("The session has no audio chunks for the selected track.");
+    const result = {
+      session_id: sessionId,
+      track_count: count,
+      chunk_count: work.length,
+      worker_count: workers,
+      estimated_work_duration_us: estimated.toString(),
+      work,
+    };
+    emit(
+      output,
+      result,
+      `Transcription plan: ${count} track(s), ${work.length} bounded work item(s), ${workers} worker(s), estimated ${estimated} µs elapsed.\n${work.map((item) => `  ${item.track_id} [${item.start_time_us}, ${item.end_time_us})`).join("\n")}`,
+      args.flags.has("json"),
+    );
+    return 0;
+  } finally {
+    await closeSnapshot(snapshot);
+  }
+}
+
 async function runTranscriptCommand(
   action: string,
   path: string,
@@ -4609,6 +4803,8 @@ async function runTranscriptCommand(
 ): Promise<number> {
   const json = args.flags.has("json");
   const sessionId = args.options.get("session") ?? "";
+
+  if (action === "plan") return runTranscriptionPlan(path, args, output, false);
 
   if (action === "transcribe" || action === "refine") {
     if (!args.flags.has("consent-local-audio")) {
@@ -4919,6 +5115,7 @@ async function runAnnotationCommand(
   args: ParsedArguments,
   output: CliIo,
 ): Promise<number> {
+  if (action === "plan") return runTranscriptionPlan(path, args, output, true);
   const json = args.flags.has("json");
   if (action === "add") {
     const sessionId = requiredOption(args, "session");
