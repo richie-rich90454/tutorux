@@ -29,6 +29,7 @@ export function WhisperTranscription(props: Props) {
   const [busy, setBusy] = createSignal(false);
   const [fullTrack, setFullTrack] = createSignal(false);
   const [refine, setRefine] = createSignal(false);
+  const [diarizeSpeakerTurns, setDiarizeSpeakerTurns] = createSignal(false);
   const [message, setMessage] = createSignal("");
   const [error, setError] = createSignal("");
   let runId: string | undefined;
@@ -65,6 +66,7 @@ export function WhisperTranscription(props: Props) {
       const selectedModel = model();
       const replacement = refine();
       const wholeTrack = fullTrack();
+      const detectSpeakerTurns = diarizeSpeakerTurns();
       const existing = props.records;
       const provenanceRunId = newUuid();
       let endUs = 0n;
@@ -101,6 +103,7 @@ export function WhisperTranscription(props: Props) {
       }
       const changes = new Map<string, ArchiveRecord>();
       let skipped = 0;
+      let speakerTurnBoundaries = 0;
       let cursor = 0n;
       let windows = 0;
       do {
@@ -114,6 +117,7 @@ export function WhisperTranscription(props: Props) {
           model: selectedModel,
           wav: Array.from(whisperAudio(current)),
           language: selectedLanguage,
+          diarizeSpeakerTurns: detectSpeakerTurns,
         });
         if (cancelled) throw new Error("Transcription cancelled.");
         if (
@@ -136,8 +140,17 @@ export function WhisperTranscription(props: Props) {
           existing,
           replaceProvisional: replacement,
           runId: provenanceRunId,
+          diarizeSpeakerTurns: detectSpeakerTurns,
         });
-        for (const record of result.records) changes.set(record.id, record);
+        for (const record of result.records) {
+          changes.set(record.id, record);
+          if (
+            record.fields.get("_deleted") !== "true" &&
+            record.fields.get("speaker_turn_next") === "true"
+          ) {
+            speakerTurnBoundaries++;
+          }
+        }
         if (changes.size > 100_000)
           throw new Error("The transcription produced too many cues for one operation.");
         skipped += result.skipped;
@@ -157,7 +170,7 @@ export function WhisperTranscription(props: Props) {
       }
       if (await props.onSave(records, `Saved local transcription.`, snapshot)) {
         setMessage(
-          `Saved transcription${skipped ? `; skipped ${skipped} protected or out-of-range cues` : ""}. Review provisional cues before reuse.`,
+          `Saved transcription${skipped ? `; skipped ${skipped} protected or out-of-range cues` : ""}.${detectSpeakerTurns ? ` Tiny diarization marked ${speakerTurnBoundaries} speaker-turn boundaries; assign speaker identities manually.` : ""} Review provisional cues before reuse.`,
         );
       }
     } catch (reason) {
@@ -197,6 +210,19 @@ export function WhisperTranscription(props: Props) {
             />{" "}
             Replace provisional Whisper cues
           </label>
+          <label>
+            <input
+              type="checkbox"
+              checked={diarizeSpeakerTurns()}
+              disabled={busy()}
+              onChange={(event) => setDiarizeSpeakerTurns(event.currentTarget.checked)}
+            />{" "}
+            Detect speaker-turn boundaries
+          </label>
+          <p class="transcript-whisper-diarization-note">
+            Experimental tiny diarization requires a TDRZ-compatible Whisper model. It marks
+            speaker-turn boundaries only; assign tutor and student identities manually after review.
+          </p>
           <button
             class="button button-outline"
             type="button"
