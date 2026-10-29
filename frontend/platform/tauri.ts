@@ -90,6 +90,7 @@ export const platform: ArchivePlatform = {
       "prepare_archive_save",
       {
         targetPath: path,
+        archiveToken: source instanceof TauriArchiveSource ? source.token : null,
       },
     );
     try {
@@ -152,7 +153,7 @@ export const platform: ArchivePlatform = {
     if (!path) return null;
     const { token, temporaryPath } = await invoke<{ token: string; temporaryPath: string }>(
       "prepare_archive_save",
-      { targetPath: path },
+      { targetPath: path, archiveToken: null },
     );
     try {
       const payload = typeof contents === "function" ? await contents() : contents;
