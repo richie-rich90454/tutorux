@@ -6255,17 +6255,16 @@ function TranscriptPage(props: {
   }
 
   async function playFromCue(record: ArchiveRecord): Promise<void> {
+    await playAudioAt(field(record, "start_time_us", "0"));
+  }
+
+  async function playAudioAt(startTimeUs: string): Promise<void> {
     const session = selectedSession();
     const track = selectedTrack();
     if (!session || !track) return;
     setPlaybackError("");
     try {
-      const preview = await buildAudioPreview(
-        props.snapshot,
-        session.id,
-        track.id,
-        field(record, "start_time_us", "0"),
-      );
+      const preview = await buildAudioPreview(props.snapshot, session.id, track.id, startTimeUs);
       clearAudio();
       const url = URL.createObjectURL(
         new Blob([preview.wav.slice().buffer as ArrayBuffer], { type: "audio/wav" }),
@@ -6587,7 +6586,7 @@ function TranscriptPage(props: {
           <div class="transcript-audio-copy">
             <span class="eyebrow">SESSION RECORDING</span>
             <strong>{selectedTrack()?.label ?? "Recording"}</strong>
-            <span>Load up to 30 seconds from a transcript cue.</span>
+            <span>Load up to 30 seconds from the beginning or a transcript cue.</span>
           </div>
           <Show when={sessionTracks().length > 1}>
             <label class="transcript-audio-picker">
@@ -6606,6 +6605,14 @@ function TranscriptPage(props: {
               </select>
             </label>
           </Show>
+          <button
+            class="button button-outline"
+            type="button"
+            disabled={!selectedTrack()}
+            onClick={() => void playAudioAt("0")}
+          >
+            Play from start
+          </button>
           <button
             class="button button-outline transcript-audio-export"
             type="button"
