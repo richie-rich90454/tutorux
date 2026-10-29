@@ -36,6 +36,7 @@ import { AudioMixer } from "./AudioMixer";
 import { WhisperTranscription } from "./WhisperTranscription";
 import { SessionVersionHistory, restoreSessionDetails } from "./SessionVersionHistory";
 import { MicrophoneTrackRecorder } from "./MicrophoneTrackRecorder";
+import { SynchronizedRecorder } from "./SynchronizedRecorder";
 import { FullTrackWaveform } from "./FullTrackWaveform";
 import { sourceStream, type ArchiveByteSource } from "./archive/source";
 import { AiPage } from "./AiPage";
@@ -6638,6 +6639,13 @@ function TranscriptPage(props: {
         {(session) => (
           <>
             <MicrophoneTrackRecorder
+              snapshot={props.snapshot}
+              session={session()}
+              trackIds={sessionTracks().map((track) => track.id)}
+              disabled={props.disabled}
+              onSave={(records, message, snapshot) => props.onSaveMix(snapshot, records, message)}
+            />
+            <SynchronizedRecorder
               snapshot={props.snapshot}
               session={session()}
               trackIds={sessionTracks().map((track) => track.id)}
