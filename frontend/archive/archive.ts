@@ -2189,6 +2189,54 @@ export async function recoverChecksumDamagedArchiveHeader(
     );
   }
   view.setUint32(60, checksum, true);
+  return verifyRecoveredArchiveHeader(source, corrected, passphrase);
+}
+
+/**
+ * Recover a damaged magic value only when the stored header checksum matches
+ * the header after restoring the specified v1 magic. The source is unchanged.
+ */
+export async function recoverMagicDamagedArchiveHeader(
+  source: ArchiveByteSource,
+  passphrase?: string,
+): Promise<ArchiveSnapshot> {
+  if (source.size < BigInt(ARCHIVE_HEADER_SIZE)) {
+    throw new ArchiveFormatError(
+      "archive_header_recovery_unavailable",
+      "A complete archive header is required for magic repair.",
+    );
+  }
+  const original = await source.read(0n, ARCHIVE_HEADER_SIZE);
+  if (original.byteLength !== ARCHIVE_HEADER_SIZE) {
+    throw new ArchiveFormatError(
+      "archive_header_recovery_unavailable",
+      "The archive header could not be read completely.",
+    );
+  }
+  const expectedMagic = new TextEncoder().encode("TUTORUX\0");
+  if (expectedMagic.every((byte, index) => original[index] === byte)) {
+    throw new ArchiveFormatError(
+      "archive_header_recovery_unavailable",
+      "The archive magic is intact; magic repair is not applicable.",
+    );
+  }
+  const corrected = original.slice();
+  corrected.set(expectedMagic, 0);
+  const view = new DataView(corrected.buffer, corrected.byteOffset, corrected.byteLength);
+  if (view.getUint32(60, true) !== crc32(corrected.subarray(0, 60))) {
+    throw new ArchiveFormatError(
+      "archive_header_recovery_unavailable",
+      "The stored checksum does not confirm the reconstructed archive magic.",
+    );
+  }
+  return verifyRecoveredArchiveHeader(source, corrected, passphrase);
+}
+
+async function verifyRecoveredArchiveHeader(
+  source: ArchiveByteSource,
+  corrected: Uint8Array,
+  passphrase?: string,
+): Promise<ArchiveSnapshot> {
   const header = decodeArchiveHeader(corrected);
   const repairedSource = new CompositeArchiveSource(
     new MemoryArchiveSource(corrected),
