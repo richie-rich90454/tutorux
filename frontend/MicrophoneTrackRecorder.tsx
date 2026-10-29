@@ -1,4 +1,4 @@
-import { createSignal, onCleanup, Show, untrack } from "solid-js";
+import { createSignal, onCleanup, For, Show, untrack } from "solid-js";
 import type { ArchiveSnapshot } from "./archive/archive";
 import type { ArchiveRecord } from "./archive/format";
 import { makeMicrophoneRecordingRecords } from "./domain/microphone-recording";
@@ -29,6 +29,8 @@ interface PendingCapture {
 
 /** Capture a microphone take and save it as ordinary archive PCM tracks. */
 export function MicrophoneTrackRecorder(props: Props) {
+  const [devices, setDevices] = createSignal<MediaDeviceInfo[]>([]);
+  const [deviceId, setDeviceId] = createSignal("");
   const [consent, setConsent] = createSignal(false);
   const [state, setState] = createSignal<
     "idle" | "requesting" | "recording" | "pausing" | "paused" | "resuming" | "stopping" | "saving"
@@ -41,6 +43,18 @@ export function MicrophoneTrackRecorder(props: Props) {
   let sessionId = "";
   let archiveId = "";
   let disposed = false;
+  const refreshDevices = async () => {
+    try {
+      setDevices(
+        (await navigator.mediaDevices.enumerateDevices()).filter(
+          (device) => device.kind === "audioinput",
+        ),
+      );
+      setError("");
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    }
+  };
   onCleanup(() => {
     disposed = true;
     void recorder?.discard();
@@ -143,6 +157,7 @@ export function MicrophoneTrackRecorder(props: Props) {
       const active = await startMicrophoneCapture({
         consentConfirmed: consent(),
         consentAtUs,
+        deviceId: deviceId(),
         onLimit: () => void untrack(() => stop("Recording stopped at the memory limit.")),
         onDeviceEnded: () =>
           void untrack(() => stop("Microphone disconnected; saving captured audio.")),
@@ -159,6 +174,7 @@ export function MicrophoneTrackRecorder(props: Props) {
       }
       recorder = active;
       setState("recording");
+      void refreshDevices();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
     } finally {
@@ -171,6 +187,31 @@ export function MicrophoneTrackRecorder(props: Props) {
       <div class="transcript-capture-copy">
         <strong>Record a microphone track</strong>
         <p>Save a recording as a session take for playback, mixing, and transcription.</p>
+        <label>
+          Microphone{" "}
+          <select
+            value={deviceId()}
+            disabled={state() !== "idle"}
+            onChange={(event) => setDeviceId(event.currentTarget.value)}
+          >
+            <option value="">System default</option>
+            <For each={devices()}>
+              {(device, index) => (
+                <option value={device.deviceId}>
+                  {device.label || `Microphone ${index() + 1}`}
+                </option>
+              )}
+            </For>
+          </select>
+        </label>
+        <button
+          class="button button-outline"
+          type="button"
+          disabled={state() !== "idle"}
+          onClick={() => void refreshDevices()}
+        >
+          Refresh microphones
+        </button>
         <label class="transcript-capture-consent">
           <input
             type="checkbox"
