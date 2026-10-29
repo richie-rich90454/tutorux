@@ -114,6 +114,7 @@ import {
   formatTranscriptExport,
   formatTranscriptTimestampUs,
   makeTranscriptRecords,
+  mergeTranscriptRecords,
   parseTranscriptSource,
   parseTranscriptTimestamp,
   resolveTranscriptFormat,
@@ -121,6 +122,7 @@ import {
   setTranscriptTimestamp,
   setTranscriptVerification,
   sortTranscriptRecords,
+  splitTranscriptRecord,
   type TranscriptExportFormat,
 } from "../frontend/domain/transcript";
 import {
@@ -264,6 +266,8 @@ Usage:
   tutorux --archive <file.tux> transcript show --session <uuid> [--json]
   tutorux --archive <file.tux> transcript export --session <uuid> --output <file> [--format text|srt|vtt|json]
   tutorux --archive <file.tux> transcript correct <segment-id> --text <replacement>
+  tutorux --archive <file.tux> transcript split <segment-id> --before <text> --after <text> [--at <time>]
+  tutorux --archive <file.tux> transcript merge <segment-id> <segment-id>... [--separator <text>]
   tutorux --archive <file.tux> transcript history <segment-id> [--limit <1..10000>]
   tutorux --archive <file.tux> transcript restore <segment-id> --revision <history-index>
   tutorux --archive <file.tux> transcript timestamp <segment-id> --start <time> --end <time>
@@ -500,12 +504,15 @@ async function runArchiveCommand(
     const archivePath = resolve(path);
     const openedInfo = await stat(archivePath);
     const source = await NodeFileArchiveSource.open(archivePath);
+    let snapshot: ArchiveSnapshot | undefined;
+    let recovered: ArchiveSnapshot | undefined;
     try {
       if (BigInt(openedInfo.size) !== source.size) {
         throw new CliError("The archive changed while recovery was starting. Retry the command.");
       }
-      const snapshot = await openArchiveSource(source);
+      snapshot = await unlockSnapshotForCli(await openArchiveSource(source), true);
       const recovery = await recoverUnpublishedCommit(snapshot);
+      recovered = recovery.snapshot;
       const applied = args.flags.has("apply");
       if (applied) {
         const currentInfo = await stat(archivePath);
@@ -537,6 +544,8 @@ async function runArchiveCommand(
       );
       return 0;
     } finally {
+      recovered?.lock();
+      snapshot?.lock();
       await source.close();
     }
   }
@@ -544,12 +553,15 @@ async function runArchiveCommand(
     const archivePath = resolve(path);
     const openedInfo = await stat(archivePath);
     const source = await NodeFileArchiveSource.open(archivePath);
+    let snapshot: ArchiveSnapshot | undefined;
+    let compacted: ArchiveSnapshot | undefined;
     try {
       if (BigInt(openedInfo.size) !== source.size) {
         throw new CliError("The archive changed while compaction was starting. Retry the command.");
       }
-      const snapshot = await openArchiveSource(source);
+      snapshot = await unlockSnapshotForCli(await openArchiveSource(source), true);
       const compaction = await compactArchiveSnapshot(snapshot);
+      compacted = compaction.snapshot;
       const applied = args.flags.has("apply");
       if (applied) {
         const currentInfo = await stat(archivePath);
@@ -583,6 +595,8 @@ async function runArchiveCommand(
       );
       return 0;
     } finally {
+      compacted?.lock();
+      snapshot?.lock();
       await source.close();
     }
   }
@@ -621,12 +635,15 @@ async function runArchiveCommand(
 
     const openedInfo = await stat(archivePath);
     const source = await NodeFileArchiveSource.open(archivePath);
+    let snapshot: ArchiveSnapshot | undefined;
+    let repaired: ArchiveSnapshot | undefined;
     try {
       if (BigInt(openedInfo.size) !== source.size) {
         throw new CliError("The archive changed while repair was starting. Retry the command.");
       }
-      const snapshot = await openArchiveSource(source);
+      snapshot = await unlockSnapshotForCli(await openArchiveSource(source), true);
       const repair = await repairArchiveSnapshot(snapshot);
+      repaired = repair.snapshot;
       const validateBeforePublish = async (): Promise<void> => {
         const currentInfo = await stat(archivePath);
         if (
@@ -658,6 +675,8 @@ async function runArchiveCommand(
       );
       return 0;
     } finally {
+      repaired?.lock();
+      snapshot?.lock();
       await source.close();
     }
   }
@@ -4520,6 +4539,47 @@ async function runTranscriptCommand(
       );
       output.stdout(lines.length ? lines.join("\n") : "No transcript segments found.");
     }
+    return 0;
+  }
+
+  if (action === "split" || action === "merge") {
+    const ids =
+      action === "split" ? [requiredPosition(args, 0, "transcript segment ID")] : args.positionals;
+    if (action === "merge" && ids.length < 2) {
+      throw new CliError("Provide at least two transcript segment IDs to merge.");
+    }
+    const snapshot = await openForCommand(path);
+    let changes: ArchiveRecord[];
+    let generation: bigint;
+    try {
+      generation = snapshot.commit.generation;
+      const records: ArchiveRecord[] = [];
+      for (const id of ids) {
+        records.push(await requireLiveRecord(snapshot, RecordType.transcriptSegment, id));
+      }
+      if (action === "split") {
+        const before = args.options.get("before");
+        const after = args.options.get("after");
+        if (before === undefined || after === undefined) {
+          throw new CliError("--before and --after are required.");
+        }
+        changes = splitTranscriptRecord(records[0]!, before, after, args.options.get("at"));
+      } else {
+        changes = mergeTranscriptRecords(records, args.options.get("separator") ?? " ");
+      }
+    } finally {
+      await closeSnapshot(snapshot);
+    }
+    const saved = await mutateArchive(path, changes, generation);
+    const result = action === "split" ? (saved[1] ?? changes[1]!) : (saved[0] ?? changes[0]!);
+    emit(
+      output,
+      toFlatTranscriptRecord(result),
+      action === "split"
+        ? `Transcript segment split into ${changes[0]!.id} and ${changes[1]!.id}.`
+        : `Merged ${ids.length} transcript segments.`,
+      json,
+    );
     return 0;
   }
 
