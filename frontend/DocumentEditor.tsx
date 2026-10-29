@@ -14,6 +14,7 @@ import {
   type JournalNoteBlock,
   type JournalNoteBlockKind,
 } from "./domain/records";
+import { formatMarkdownSelection, type InlineMarkdownFormat } from "./domain/markdown-shortcuts";
 import {
   DOCX_MIME,
   renderNoteDocx,
@@ -43,6 +44,18 @@ const blockHints: Record<JournalNoteBlockKind, string> = {
   quote: "Capture the words worth remembering…",
   code: "Add a worked example or short notation…",
 };
+
+const inlineFormatting: readonly {
+  format: InlineMarkdownFormat;
+  label: string;
+  key?: string;
+}[] = [
+  { format: "bold", label: "Bold", key: "B" },
+  { format: "italic", label: "Italic", key: "I" },
+  { format: "strike", label: "Strike" },
+  { format: "code", label: "Code" },
+  { format: "link", label: "Link", key: "K" },
+];
 
 function sameBlock(a: JournalNoteBlock, b: JournalNoteBlock): boolean {
   const aKeys = Object.keys(a);
@@ -334,8 +347,10 @@ export function DocumentEditor(props: {
   const [query, setQuery] = createSignal("");
   const [replacement, setReplacement] = createSignal("");
   const [matchIndex, setMatchIndex] = createSignal(-1);
+  const [focusedBlockIndex, setFocusedBlockIndex] = createSignal<number | null>(null);
   let findInput: HTMLInputElement | undefined;
   let editorElement: HTMLElement | undefined;
+  let focusedTextArea: HTMLTextAreaElement | undefined;
   const editorId = (index: number): string =>
     `document-block-kind-${props.label.replace(/\W+/gu, "-").toLowerCase()}-${index}`;
   const matches = createMemo(() => {
@@ -459,6 +474,53 @@ export function DocumentEditor(props: {
     if (blocks) publish(blocks);
   }
 
+  function canFormatInline(): boolean {
+    const focusedIndex = focusedBlockIndex();
+    return focusedIndex === null
+      ? props.blocks.some((block) => block.kind !== "code")
+      : props.blocks[focusedIndex]?.kind !== "code";
+  }
+
+  function applyInlineFormat(
+    format: InlineMarkdownFormat,
+    selectedInput?: HTMLTextAreaElement,
+  ): void {
+    const fallbackIndex = props.blocks.findIndex((block) => block.kind !== "code");
+    const input =
+      selectedInput ??
+      (focusedTextArea?.isConnected
+        ? focusedTextArea
+        : fallbackIndex < 0
+          ? undefined
+          : editorElement?.querySelector<HTMLTextAreaElement>(
+              `textarea[data-note-block="${fallbackIndex}"]`,
+            ));
+    if (!input) return;
+    const index = Number(input.dataset["noteBlock"]);
+    const block = props.blocks[index];
+    if (!block || block.kind === "code") return;
+
+    const selectionAnchor =
+      input.selectionDirection === "backward" ? input.selectionEnd : input.selectionStart;
+    const selectionFocus =
+      input.selectionDirection === "backward" ? input.selectionStart : input.selectionEnd;
+    const formatted = formatMarkdownSelection(input.value, selectionAnchor, selectionFocus, format);
+    history.breakGroup();
+    const blocks = history.editText(index, formatted.text);
+    if (!blocks) return;
+    publish(blocks);
+    history.breakGroup();
+    queueMicrotask(() => {
+      if (!input.isConnected) return;
+      input.focus({ preventScroll: true });
+      input.setSelectionRange(
+        formatted.selectionStart,
+        formatted.selectionEnd,
+        formatted.selectionDirection,
+      );
+    });
+  }
+
   async function exportDocument(format: "markdown" | "html" | "docx" | "pdf"): Promise<void> {
     setExportError("");
     setExporting(true);
@@ -543,6 +605,23 @@ export function DocumentEditor(props: {
           event.stopPropagation();
           openFind();
           return;
+        }
+        if (key === "b" || key === "i" || key === "k") {
+          const input =
+            event.target instanceof HTMLTextAreaElement &&
+            event.target.matches("textarea[data-note-block]")
+              ? event.target
+              : event.target instanceof HTMLElement &&
+                  event.target.closest(".document-editor-formatting")
+                ? focusedTextArea
+                : undefined;
+          const format = key === "b" ? "bold" : key === "i" ? "italic" : "link";
+          if (input && props.blocks[Number(input.dataset["noteBlock"])]?.kind !== "code") {
+            event.preventDefault();
+            event.stopPropagation();
+            applyInlineFormat(format, input);
+            return;
+          }
         }
         if (key !== "z" && key !== "y") return;
         event.preventDefault();
@@ -648,6 +727,36 @@ export function DocumentEditor(props: {
           >
             Add block
           </button>
+        </div>
+      </div>
+
+      <div class="document-editor-formatting" role="group" aria-label="Format selected note text">
+        <span>Format selection</span>
+        <div>
+          <For each={inlineFormatting}>
+            {(item) => {
+              const shortcut = item.key
+                ? navigator.platform.includes("Mac")
+                  ? `⌘ ${item.key}`
+                  : `Ctrl+${item.key}`
+                : undefined;
+              return (
+                <button
+                  type="button"
+                  disabled={!canFormatInline()}
+                  aria-keyshortcuts={item.key ? `Control+${item.key} Meta+${item.key}` : undefined}
+                  title={shortcut ? `${item.label} (${shortcut})` : item.label}
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={() => applyInlineFormat(item.format)}
+                >
+                  <span>{item.label}</span>
+                  <Show when={shortcut}>
+                    <kbd>{shortcut}</kbd>
+                  </Show>
+                </button>
+              );
+            }}
+          </For>
         </div>
       </div>
 
@@ -786,6 +895,10 @@ export function DocumentEditor(props: {
                   placeholder={blockHints[block().kind]}
                   rows={Math.min(8, Math.max(3, block().text.split("\n").length))}
                   spellcheck="true"
+                  onFocus={(event) => {
+                    focusedTextArea = event.currentTarget;
+                    setFocusedBlockIndex(index);
+                  }}
                   onInput={(event) => editText(index, event.currentTarget.value)}
                   onBlur={() => {
                     history.breakGroup();
