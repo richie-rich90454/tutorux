@@ -43,11 +43,14 @@ interface RgbaImage {
   pixels: Uint8Array;
 }
 
+export type GuidePdfWebpDecoder = (bytes: Uint8Array) => Promise<RgbaImage>;
+
 /** Render a saved guide to a self-contained PDF using the portable CID font set. */
-export function renderGuidePdf(
+export async function renderGuidePdf(
   record: ArchiveRecord,
   imageAssets: ReadonlyMap<string, GuideExportImage>,
-): Uint8Array {
+  decodeWebp?: GuidePdfWebpDecoder,
+): Promise<Uint8Array> {
   if (record.type !== RecordType.guide) throw new Error("Only a study guide can be exported.");
   const guide = guideDraftFromRecord(record);
   if (!guide.title.trim()) throw new Error("A guide needs a title before PDF export.");
@@ -211,12 +214,12 @@ export function renderGuidePdf(
     }
   };
 
-  const getImage = (assetId: string): number => {
+  const getImage = async (assetId: string): Promise<number> => {
     const cached = imageIndexes.get(assetId);
     if (cached !== undefined) return cached;
     const asset = imageAssets.get(assetId);
     if (!asset) throw new Error(`Guide image ${assetId} is missing from this archive.`);
-    const image = prepareImage(asset, `Im${images.length + 1}`);
+    const image = await prepareImage(asset, `Im${images.length + 1}`, decodeWebp);
     const streamBytes = image.bytes.byteLength + (image.alphaBytes?.byteLength ?? 0);
     if (streamBytes > MAX_IMAGE_STREAM_BYTES - totalImageStreamBytes)
       throw new Error("The combined guide image streams exceed the 128 MiB PDF export limit.");
@@ -227,17 +230,17 @@ export function renderGuidePdf(
     return index;
   };
 
-  const drawBlock = (
+  const drawBlock = async (
     block: ReturnType<typeof guideDraftFromRecord>["sections"][number]["blocks"][number],
     followingSpace: number,
-  ): void => {
+  ): Promise<void> => {
     const label = guideBlockLabel(block.kind, block.origin);
     const isImage =
       block.kind === "image" || block.kind === "figure" || block.text.startsWith("![");
     if (isImage) {
       const reference = parseGuideImageReference(block.text);
       if (!reference) throw new Error("A guide image must point to one archive asset UUID.");
-      const imageIndex = getImage(reference.assetId);
+      const imageIndex = await getImage(reference.assetId);
       const image = images[imageIndex]!;
       const scale = Math.min(1, CONTENT_WIDTH / image.width, 360 / image.height);
       const imageWidth = image.width * scale;
@@ -338,7 +341,7 @@ export function renderGuidePdf(
     drawSectionHeading(section.heading);
     for (let index = 0; index < section.blocks.length; index += 1) {
       const followingSpace = index + 1 < section.blocks.length ? 48 : 0;
-      drawBlock(section.blocks[index]!, followingSpace);
+      await drawBlock(section.blocks[index]!, followingSpace);
     }
   }
   finishPage(current);
@@ -523,7 +526,11 @@ function parseTable(value: string): string[][] {
   return [rows[0]!, ...rows.slice(2)];
 }
 
-function prepareImage(asset: GuideExportImage, resourceName: string): PdfImage {
+async function prepareImage(
+  asset: GuideExportImage,
+  resourceName: string,
+  decodeWebp?: GuidePdfWebpDecoder,
+): Promise<PdfImage> {
   if (!asset.bytes.byteLength || asset.bytes.byteLength > MAX_IMAGE_BYTES)
     throw new Error("The guide image is empty or exceeds 64 MiB.");
   if (asset.mimeType === "image/jpeg" || asset.mimeType === "image/jpg") {
@@ -542,9 +549,11 @@ function prepareImage(asset: GuideExportImage, resourceName: string): PdfImage {
   if (asset.mimeType === "image/png") decoded = decodePng(asset.bytes);
   else if (asset.mimeType === "image/gif") decoded = decodeGif(asset.bytes);
   else if (asset.mimeType === "image/webp") {
-    throw new Error("Portable PDF export cannot decode WebP guide images.");
+    if (!decodeWebp)
+      throw new Error("Portable PDF export requires the portable WebP decoder for guide images.");
+    decoded = await decodeWebp(asset.bytes);
   } else {
-    throw new Error("Portable PDF export supports PNG, JPEG, and GIF guide images.");
+    throw new Error("Portable PDF export supports PNG, JPEG, GIF, and WebP guide images.");
   }
   validateDimensions(decoded.width, decoded.height, true);
   const { rgb, alpha } = splitRgba(decoded.pixels);
