@@ -3,6 +3,8 @@ import { listen } from "@tauri-apps/api/event";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { writeFile } from "@tauri-apps/plugin-fs";
 import { sourceStream, type ArchiveByteSource } from "../archive/source";
+import { sendEmbeddedAiRequest } from "./embedded-ai";
+import { isEmbeddedGgufProvider } from "../ai/providers";
 import type {
   AiTransportRequest,
   AiTransportResult,
@@ -15,7 +17,10 @@ class TauriArchiveSource implements ArchiveByteSource {
   constructor(
     readonly token: string,
     readonly size: bigint,
-  ) {}
+  ) {
+    archiveTokens.set(this, token);
+    archiveSizes.set(token, size);
+  }
 
   async read(offset: bigint, length: number): Promise<Uint8Array> {
     if (
@@ -44,7 +49,62 @@ class TauriArchiveSource implements ArchiveByteSource {
 
   async close(): Promise<void> {
     await invoke("close_archive", { archiveToken: this.token });
+    archiveSizes.delete(this.token);
   }
+}
+
+const archiveTokens = new WeakMap<object, string>();
+const archiveSizes = new Map<string, bigint>();
+
+export function hasDesktopArchiveCapability(source: ArchiveByteSource): boolean {
+  return findArchiveToken(source) !== undefined;
+}
+
+/** Durably publish one already-verified archive generation to its opened desktop file. */
+export async function persistMicrophoneArchiveGeneration(
+  source: ArchiveByteSource,
+  generationBytes: Uint8Array,
+  generation: bigint,
+): Promise<void> {
+  const archiveToken = findArchiveToken(source);
+  if (!archiveToken) {
+    throw new Error("The microphone archive no longer has an authorized desktop file handle.");
+  }
+  const expectedSize = archiveSizes.get(archiveToken);
+  if (expectedSize === undefined) {
+    throw new Error("The microphone archive capability has expired. Reopen the archive to continue.");
+  }
+  if (generationBytes.byteLength < 32 || generationBytes.byteLength > 8 * 1024 * 1024) {
+    throw new Error("A microphone archive checkpoint has an unsupported generation size.");
+  }
+  const published = await invoke<{ size: string }>("append_audio_archive_generation", {
+    archiveToken,
+    expectedSize: expectedSize.toString(),
+    generation: generation.toString(),
+    bytes: Array.from(generationBytes),
+  });
+  const nextSize = BigInt(published.size);
+  if (nextSize !== expectedSize + BigInt(generationBytes.byteLength)) {
+    throw new Error("The desktop archive writer published an unexpected checkpoint size.");
+  }
+  archiveSizes.set(archiveToken, nextSize);
+}
+
+function findArchiveToken(source: ArchiveByteSource): string | undefined {
+  const pending = [source as object];
+  const visited = new Set<object>();
+  while (pending.length > 0) {
+    const current = pending.pop()!;
+    if (visited.has(current)) continue;
+    visited.add(current);
+    const token = archiveTokens.get(current);
+    if (token) return token;
+    const composite = current as { base?: unknown; appended?: unknown };
+    if (composite.base && typeof composite.base === "object") pending.push(composite.base);
+    if (composite.appended && typeof composite.appended === "object")
+      pending.push(composite.appended);
+  }
+  return undefined;
 }
 
 async function authorizeArchivePath(path: string): Promise<OpenedArchive> {
@@ -90,12 +150,14 @@ export const platform: ArchivePlatform = {
       "prepare_archive_save",
       {
         targetPath: path,
-        archiveToken: source instanceof TauriArchiveSource ? source.token : null,
+        archiveToken: findArchiveToken(source) ?? null,
       },
     );
     try {
       await writeFile(temporaryPath, sourceStream(source), { create: true });
       await invoke("publish_archive_save", { token });
+      const archiveToken = findArchiveToken(source);
+      if (archiveToken) archiveSizes.set(archiveToken, source.size);
       return path;
     } catch (error) {
       await invoke("cancel_archive_save", { token }).catch(() => undefined);
@@ -170,6 +232,9 @@ export const platform: ArchivePlatform = {
     request: AiTransportRequest,
     onChunk: (chunk: Uint8Array) => void,
   ): Promise<AiTransportResult> {
+    if (isEmbeddedGgufProvider(request.providerId)) {
+      return sendEmbeddedAiRequest(request, onChunk);
+    }
     const channel = new Channel<{ kind: "chunk"; base64: string }>();
     channel.onmessage = (event) => onChunk(decodeBase64(event.base64));
     return invoke<AiTransportResult>("send_ai_request", { request, onChunk: channel });
