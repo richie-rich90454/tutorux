@@ -695,10 +695,11 @@ export async function verifyArchiveSnapshot(
 export interface ArchiveRecoveryResult {
   snapshot: ArchiveSnapshot;
   recoveredGeneration: bigint;
+  recoveredGenerations: number;
   discardedTrailingBytes: bigint;
 }
 
-/** Recover one complete unpublished generation without changing the supplied source. */
+/** Recover a consecutive chain of fully verified unpublished generations without changing the source. */
 export async function recoverUnpublishedCommit(
   snapshot: ArchiveSnapshot,
 ): Promise<ArchiveRecoveryResult> {
@@ -715,70 +716,98 @@ export async function recoverUnpublishedCommit(
     );
   }
 
-  const candidate = await scanForUnpublishedCommit(snapshot);
-  if (!candidate) {
-    throw new ArchiveFormatError(
-      "archive_recovery_not_available",
-      "No complete unpublished generation follows the latest published generation.",
-    );
-  }
-
-  const transactionRecords = new Set<bigint>();
+  let previous = snapshot;
+  let recovered: CommitCandidate | null = null;
+  let recoveredEnd = snapshot.publishedEndOffset;
+  let recoveredGenerations = 0;
   const knownTypes = new Set(
     Object.values(RecordType).map((type) => recordTypeName(type).toUpperCase()),
   );
   knownTypes.add("UNKNOWN");
-  for (const [key, offset] of candidate.indexEntries) {
-    const separator = key.indexOf(":");
-    if (separator < 1 || key.indexOf(":", separator + 1) !== -1) continue;
-    const typeName = key.slice(0, separator);
-    const id = key.slice(separator + 1);
-    if (
-      knownTypes.has(typeName) &&
-      validArchiveUuid(id) &&
-      offset >= snapshot.publishedEndOffset &&
-      offset < candidate.commit.offset
-    ) {
-      transactionRecords.add(offset);
-    }
-  }
-  if (BigInt(transactionRecords.size) !== candidate.commit.recordCount) {
-    throw new ArchiveFormatError(
-      "archive_recovery_validation_failed",
-      "The unpublished generation record count does not match its current primary index.",
-    );
-  }
-
-  const candidateSnapshot = await snapshot.openGeneration(
-    snapshot.source,
-    candidate.commit,
-    candidate.indexEntries,
-    snapshot.source.size,
-  );
   try {
-    await candidateSnapshot.getManifest();
-    await verifyArchiveSnapshot(candidateSnapshot);
-  } finally {
-    candidateSnapshot.lock();
-  }
+    // Limit work on a crafted archive without discarding a valid continuation.
+    while (recoveredGenerations < 1024) {
+      const candidate = await scanForUnpublishedCommit(previous);
+      if (!candidate) break;
+      const transactionRecords = new Set<bigint>();
+      for (const [key, offset] of candidate.indexEntries) {
+        const separator = key.indexOf(":");
+        if (separator < 1 || key.indexOf(":", separator + 1) !== -1) continue;
+        const typeName = key.slice(0, separator);
+        const id = key.slice(separator + 1);
+        if (
+          knownTypes.has(typeName) &&
+          validArchiveUuid(id) &&
+          offset >= previous.publishedEndOffset &&
+          offset < candidate.commit.offset
+        ) {
+          transactionRecords.add(offset);
+        }
+      }
+      if (BigInt(transactionRecords.size) !== candidate.commit.recordCount) {
+        if (recovered) break;
+        throw new ArchiveFormatError(
+          "archive_recovery_validation_failed",
+          "The unpublished generation record count does not match its current primary index.",
+        );
+      }
 
-  const commitFrame = await readFrameAt(snapshot.source, candidate.commit.offset);
-  const committedPrefix = new PrefixArchiveSource(snapshot.source, BigInt(commitFrame.endOffset));
-  const recoveredSource = new CompositeArchiveSource(
-    committedPrefix,
-    new MemoryArchiveSource(encodeLocator(candidate.commit.offset, candidate.commit.generation)),
-  );
-  const recoveredSnapshot = await snapshot.openGeneration(
-    recoveredSource,
-    candidate.commit,
-    candidate.indexEntries,
-    recoveredSource.size,
-  );
-  return {
-    snapshot: recoveredSnapshot,
-    recoveredGeneration: candidate.commit.generation,
-    discardedTrailingBytes: snapshot.source.size - BigInt(commitFrame.endOffset),
-  };
+      const commitFrame = await readFrameAt(snapshot.source, candidate.commit.offset);
+      const candidateEnd = BigInt(commitFrame.endOffset);
+      let next: ArchiveSnapshot | undefined;
+      try {
+        next = await snapshot.openGeneration(
+          snapshot.source,
+          candidate.commit,
+          candidate.indexEntries,
+          candidateEnd,
+        );
+        await next.getManifest();
+        await verifyArchiveSnapshot(next);
+      } catch (error) {
+        next?.lock();
+        if (recovered) break;
+        throw error;
+      }
+      if (previous !== snapshot) previous.lock();
+      previous = next;
+      recovered = candidate;
+      recoveredEnd = candidateEnd;
+      recoveredGenerations += 1;
+    }
+    if (!recovered) {
+      throw new ArchiveFormatError(
+        "archive_recovery_not_available",
+        "No complete unpublished generation follows the latest published generation.",
+      );
+    }
+    // Never silently discard a valid continuation when the safety bound is reached.
+    if (recoveredGenerations === 1024 && (await scanForUnpublishedCommit(previous))) {
+      throw new ArchiveFormatError(
+        "archive_recovery_generation_limit",
+        "The unpublished generation chain exceeds the recovery limit.",
+      );
+    }
+    const committedPrefix = new PrefixArchiveSource(snapshot.source, recoveredEnd);
+    const recoveredSource = new CompositeArchiveSource(
+      committedPrefix,
+      new MemoryArchiveSource(encodeLocator(recovered.commit.offset, recovered.commit.generation)),
+    );
+    const recoveredSnapshot = await snapshot.openGeneration(
+      recoveredSource,
+      recovered.commit,
+      recovered.indexEntries,
+      recoveredSource.size,
+    );
+    return {
+      snapshot: recoveredSnapshot,
+      recoveredGeneration: recovered.commit.generation,
+      recoveredGenerations,
+      discardedTrailingBytes: snapshot.source.size - recoveredEnd,
+    };
+  } finally {
+    if (previous !== snapshot) previous.lock();
+  }
 }
 
 export interface ArchiveCompactionResult {
