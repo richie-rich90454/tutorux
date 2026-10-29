@@ -157,8 +157,10 @@ export function ArchiveMaintenance(props: ArchiveMaintenanceProps): JSX.Element 
                 <>
                   <h3>Recover generation {entry().result.recoveredGeneration.toString()}</h3>
                   <p>
-                    This publishes one complete unpublished generation and discards{" "}
-                    {bytes(entry().result.discardedTrailingBytes)} of trailing data.
+                    This publishes {entry().result.recoveredGenerations.toLocaleString()} verified
+                    unpublished{" "}
+                    {entry().result.recoveredGenerations === 1 ? "generation" : "generations"} and
+                    discards {bytes(entry().result.discardedTrailingBytes)} of trailing data.
                   </p>
                 </>
               )}
