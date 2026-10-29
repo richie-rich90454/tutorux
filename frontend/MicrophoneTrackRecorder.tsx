@@ -1,7 +1,8 @@
 import { createSignal, onCleanup, Show, untrack } from "solid-js";
 import type { ArchiveSnapshot } from "./archive/archive";
 import type { ArchiveRecord } from "./archive/format";
-import { makeMicrophoneRecordingRecords, MicrophoneRecording } from "./domain/microphone-recording";
+import { makeMicrophoneRecordingRecords } from "./domain/microphone-recording";
+import { startMicrophoneCapture, type ActiveMicrophoneCapture } from "./platform/audio-capture";
 
 interface Props {
   snapshot: ArchiveSnapshot;
@@ -23,6 +24,7 @@ interface PendingCapture {
   consentAtUs: string;
   pauseCount: number;
   pausedDurationUs: string;
+  warning?: string;
 }
 
 /** Capture a microphone take and save it as ordinary archive PCM tracks. */
@@ -34,8 +36,7 @@ export function MicrophoneTrackRecorder(props: Props) {
   const [pending, setPending] = createSignal<PendingCapture>();
   const [error, setError] = createSignal("");
   const [status, setStatus] = createSignal("");
-  let recorder: MicrophoneRecording | undefined;
-  let startedAtUs = "";
+  let recorder: ActiveMicrophoneCapture | undefined;
   let consentAtUs = "";
   let sessionId = "";
   let archiveId = "";
@@ -74,7 +75,11 @@ export function MicrophoneTrackRecorder(props: Props) {
         );
       if (await props.onSave(result.records, "Microphone take saved to the session.", snapshot)) {
         setPending(undefined);
-        setStatus("Microphone take saved. It is ready for playback and transcription.");
+        setStatus(
+          capture.warning
+            ? `${capture.warning} The captured portion was saved and is ready for playback and transcription.`
+            : "Microphone take saved. It is ready for playback and transcription.",
+        );
       } else setError("The recording could not be saved. It remains available to retry.");
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason));
@@ -91,7 +96,12 @@ export function MicrophoneTrackRecorder(props: Props) {
     try {
       const result = await active.stop();
       if (disposed) return;
-      const capture = { ...result, archiveId, sessionId, startedAtUs, consentAtUs };
+      const capture = {
+        ...result,
+        archiveId,
+        sessionId,
+        ...(!result.warning && reason ? { warning: reason } : {}),
+      };
       setPending(capture);
       setStatus(reason);
       await save(capture);
@@ -130,10 +140,13 @@ export function MicrophoneTrackRecorder(props: Props) {
     archiveId = props.snapshot.header.id;
     consentAtUs = (BigInt(Date.now()) * 1000n).toString();
     try {
-      const active = await MicrophoneRecording.start(
-        () => void untrack(() => stop("Recording stopped at the memory limit.")),
-        () => void untrack(() => stop("Microphone disconnected; saving captured audio.")),
-      );
+      const active = await startMicrophoneCapture({
+        consentConfirmed: consent(),
+        consentAtUs,
+        onLimit: () => void untrack(() => stop("Recording stopped at the memory limit.")),
+        onDeviceEnded: () =>
+          void untrack(() => stop("Microphone disconnected; saving captured audio.")),
+      });
       if (
         disposed ||
         props.session.id !== sessionId ||
@@ -145,7 +158,6 @@ export function MicrophoneTrackRecorder(props: Props) {
         return;
       }
       recorder = active;
-      startedAtUs = (BigInt(Date.now()) * 1000n).toString();
       setState("recording");
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
