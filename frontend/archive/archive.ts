@@ -1548,6 +1548,113 @@ async function rebuildArchiveSnapshot(
   };
 }
 
+export interface ArchiveIndexMigrationResult {
+  snapshot: ArchiveSnapshot;
+  addedEntries: number;
+  conflictingEntries: number;
+}
+
+/**
+ * Backfill missing secondary indexes for understood records. Existing aliases,
+ * including forward-compatible and historical aliases, are preserved.
+ */
+export async function backfillArchiveSecondaryIndexes(
+  snapshot: ArchiveSnapshot,
+): Promise<ArchiveIndexMigrationResult> {
+  if (snapshot.locked) {
+    throw new ArchiveFormatError(
+      "archive_locked",
+      "Unlock this archive before rebuilding indexes.",
+    );
+  }
+  if (snapshot.source.size !== snapshot.publishedEndOffset) {
+    throw new ArchiveFormatError(
+      "archive_recovery_required",
+      "Review or recover trailing data before rebuilding indexes.",
+    );
+  }
+  await snapshot.getManifest();
+  await verifyArchiveSnapshot(snapshot);
+  const index = new Map(snapshot.allIndexEntries());
+  let addedEntries = 0;
+  let conflictingEntries = 0;
+  for (const [key, offset] of snapshot.allIndexEntries()) {
+    const separator = key.indexOf(":");
+    if (
+      separator < 1 ||
+      key.indexOf(":", separator + 1) !== -1 ||
+      !validArchiveUuid(key.slice(separator + 1))
+    )
+      continue;
+    const frame = await readFrameAt(snapshot.source, offset);
+    if (recordTypeName(frame.type) === "unknown" || key !== primaryIndexKey(frame.type, frame.id))
+      continue;
+    const record = await snapshot.getRecord(frame.type, frame.id);
+    if (!record)
+      throw new ArchiveFormatError(
+        "record_index_mismatch",
+        "Archive primary index points to a missing record.",
+      );
+    for (const alias of secondaryIndexKeys(record)) {
+      const existing = index.get(alias);
+      if (existing === undefined) {
+        index.set(alias, offset);
+        addedEntries += 1;
+      } else if (existing !== offset) {
+        // A historical alias or a duplicate may be intentional. Do not guess
+        // which record owns it or change behavior for a newer schema.
+        conflictingEntries += 1;
+      }
+    }
+  }
+  if (addedEntries === 0) return { snapshot, addedEntries, conflictingEntries };
+
+  const entries = [...index.entries()]
+    .map(([key, valueOffset]) => ({ key, valueOffset }))
+    .sort((left, right) => compareKeys(left.key, right.key));
+  const tree = await buildIndexTree(
+    entries,
+    snapshot.source.size,
+    snapshot.encrypted
+      ? (payload) => snapshot.authenticateEncryptedPayload("TUTORUX-INDEX-PAGE-V1", payload)
+      : undefined,
+  );
+  const generation = snapshot.commit.generation + 1n;
+  const commitBody = encodeCommitPayload({
+    generation,
+    previousOffset: snapshot.commit.offset,
+    rootOffset: tree.rootOffset,
+    rootHash: await sha256(tree.rootPayload),
+    transactionId: newUuid(),
+    recordCount: 0n,
+  });
+  const commitPayload = snapshot.encrypted
+    ? concatBytes([
+        commitBody,
+        await snapshot.authenticateEncryptedPayload("TUTORUX-COMMIT-V1", commitBody),
+      ])
+    : commitBody;
+  const commit = encodeRecordFrame(
+    {
+      type: RecordType.commit,
+      id: ZERO_UUID,
+      revision: generation,
+      previousOffset: snapshot.commit.offset,
+    },
+    commitPayload,
+  );
+  const tail = concatBytes([...tree.frames, commit, encodeLocator(tree.endOffset, generation)]);
+  const source = new CompositeArchiveSource(snapshot.source, new MemoryArchiveSource(tail));
+  const migrated = await snapshot.openNextGeneration(source);
+  try {
+    await verifyArchiveSnapshot(migrated);
+    return { snapshot: migrated, addedEntries, conflictingEntries };
+  } catch (error) {
+    migrated.lock();
+    throw error;
+  }
+}
+
 /** Append a new immutable generation while preserving the original archive bytes. */
 export async function appendRecords(
   snapshot: ArchiveSnapshot,
