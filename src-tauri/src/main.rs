@@ -1,5 +1,6 @@
 mod ai_transport;
 mod credentials;
+mod platform;
 mod transcription;
 
 use serde::Serialize;
@@ -413,6 +414,7 @@ fn install_native_menu(app: &mut tauri::App) -> Result<(), Box<dyn std::error::E
 fn main() {
     tauri::Builder::default()
         .manage(DesktopState::default())
+        .manage(platform::audio_capture::AudioCaptureState::default())
         .plugin(tauri_plugin_single_instance::init(
             |app, arguments, current_directory| {
                 if let Some(path) = archive_launch_path(
@@ -483,7 +485,13 @@ fn main() {
             transcription::begin_whisper_run,
             transcription::cancel_whisper_run,
             transcription::end_whisper_run,
-            transcription::transcribe_whisper
+            transcription::transcribe_whisper,
+            platform::audio_capture::begin_audio_capture,
+            platform::audio_capture::append_audio_capture_chunk,
+            platform::audio_capture::pause_audio_capture,
+            platform::audio_capture::resume_audio_capture,
+            platform::audio_capture::finish_audio_capture,
+            platform::audio_capture::discard_audio_capture
         ])
         .run(tauri::generate_context!())
         .expect("Tutorux desktop host failed to start");
