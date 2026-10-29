@@ -9,6 +9,7 @@ import { availableParallelism, freemem, platform as osPlatform, release, totalme
 import { ArchiveFormatError, RecordType, type ArchiveRecord } from "../frontend/archive/format";
 import {
   appendRecords,
+  backfillArchiveSecondaryIndexes,
   compactArchiveSnapshot,
   createArchiveBytes,
   createEncryptedArchiveBytes,
@@ -180,6 +181,7 @@ Usage:
   tutorux archive verify <file.tux> [--passphrase-env <name>] [--json]
   tutorux archive recover <file.tux> [--apply] [--json]
   tutorux archive compact <file.tux> [--prune-unreferenced-assets] [--apply] [--json]
+  tutorux archive backfill-indexes <file.tux> [--apply] [--json]
   tutorux archive repair <file.tux> --output <copy.tux> --confirm-sensitive [--json]
   tutorux archive sanitize <file.tux> --output <copy.tux> [selection options] [--new-passphrase-env <name>]
     preview first; confirm with --confirm-sensitive --expected-generation N --expected-selection SHA256 --expected-output FILE --expected-encrypted-output yes|no
@@ -559,6 +561,60 @@ async function runArchiveCommand(
       return 0;
     } finally {
       recovered?.lock();
+      snapshot?.lock();
+      await source.close();
+    }
+  }
+  if (action === "backfill-indexes") {
+    const archivePath = resolve(path);
+    const openedInfo = await stat(archivePath);
+    const source = await NodeFileArchiveSource.open(archivePath);
+    let snapshot: ArchiveSnapshot | undefined;
+    let migrated: ArchiveSnapshot | undefined;
+    try {
+      if (BigInt(openedInfo.size) !== source.size) {
+        throw new CliError(
+          "The archive changed while index migration was starting. Retry the command.",
+        );
+      }
+      snapshot = await unlockSnapshotForCli(await openArchiveSource(source), true);
+      const migration = await backfillArchiveSecondaryIndexes(snapshot);
+      migrated = migration.snapshot;
+      const applied = args.flags.has("apply");
+      if (applied && migration.addedEntries > 0) {
+        const currentInfo = await stat(archivePath);
+        if (
+          currentInfo.size !== openedInfo.size ||
+          currentInfo.mtimeMs !== openedInfo.mtimeMs ||
+          currentInfo.dev !== openedInfo.dev ||
+          currentInfo.ino !== openedInfo.ino
+        ) {
+          throw new CliError(
+            "The archive changed during index migration review. Retry the command.",
+          );
+        }
+        await writeSourceAtomically(archivePath, migrated);
+      }
+      const result = {
+        path: archivePath,
+        previousGeneration: snapshot.commit.generation.toString(),
+        resultingGeneration: migrated.commit.generation.toString(),
+        addedEntries: migration.addedEntries,
+        conflictingEntries: migration.conflictingEntries,
+        applied,
+      };
+      const summary = `${migration.addedEntries} missing secondary index entries; ${migration.conflictingEntries} existing conflicting aliases preserved.`;
+      emit(
+        output,
+        result,
+        applied
+          ? `Index migration complete: ${summary}`
+          : `Index migration preview: ${summary} Add --apply to publish changes.`,
+        args.flags.has("json"),
+      );
+      return 0;
+    } finally {
+      if (migrated && migrated !== snapshot) migrated.lock();
       snapshot?.lock();
       await source.close();
     }
