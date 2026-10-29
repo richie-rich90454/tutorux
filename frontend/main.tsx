@@ -364,6 +364,15 @@ function validMarkerKeys(keys: string[], allowReserved = false): boolean {
   );
 }
 
+function isEditableTarget(target: EventTarget | null): boolean {
+  return (
+    target instanceof HTMLInputElement ||
+    target instanceof HTMLTextAreaElement ||
+    target instanceof HTMLSelectElement ||
+    (target instanceof HTMLElement && target.isContentEditable)
+  );
+}
+
 function applyThemeMode(mode: ThemeMode, persist = true): void {
   const resolved =
     mode === "system"
@@ -439,6 +448,9 @@ function App(): JSX.Element {
   let removeNativeCommandListener: (() => void) | undefined;
   let nativeCommandListenerDisposed = false;
   let launchArchiveQueue: Promise<void> = Promise.resolve();
+  let pageSearchInput: HTMLInputElement | undefined;
+  let mainContentElement: HTMLElement | undefined;
+  let navigationFocusFrame = 0;
   let browserAutosaveBinding:
     { archiveId: string; capability: BrowserArchiveAutosave; authorized: boolean } | undefined;
 
@@ -467,18 +479,29 @@ function App(): JSX.Element {
     };
     const handleKeys = (event: KeyboardEvent): void => {
       const command = event.metaKey || event.ctrlKey;
-      if (!command || event.repeat || event.altKey || event.shiftKey) return;
-      if (dialog() || pendingDelete() || pendingSessionTrash() || paletteOpen()) return;
       const key = event.key.toLocaleLowerCase();
+      if (event.repeat || event.altKey || event.shiftKey || event.isComposing) return;
+      if (dialog() || pendingDelete() || pendingSessionTrash()) return;
+      if (command && key === "k") {
+        event.preventDefault();
+        if (paletteOpen()) closePalette();
+        else openPalette();
+        return;
+      }
+      if (!command || paletteOpen()) return;
+      if (key === "f" && pageSearchInput?.isConnected) {
+        const target = event.target;
+        const alreadyInPageSearch = target === pageSearchInput;
+        if (!alreadyInPageSearch && isEditableTarget(target)) return;
+        event.preventDefault();
+        pageSearchInput.focus();
+        pageSearchInput.select();
+        return;
+      }
       if (
         view() === "annotations" &&
         !["k", "o", "s", "n"].includes(key) &&
-        !(
-          event.target instanceof HTMLInputElement ||
-          event.target instanceof HTMLTextAreaElement ||
-          event.target instanceof HTMLSelectElement ||
-          (event.target instanceof HTMLElement && event.target.isContentEditable)
-        )
+        !isEditableTarget(event.target)
       ) {
         const index = markerKeys(workspace()).indexOf(key);
         if (
@@ -494,10 +517,7 @@ function App(): JSX.Element {
           return;
         }
       }
-      if (key === "k") {
-        event.preventDefault();
-        openPalette();
-      } else if (key === "o") {
+      if (key === "o") {
         event.preventDefault();
         void openArchive();
       } else if (key === "s") {
@@ -522,7 +542,7 @@ function App(): JSX.Element {
               openPalette();
               break;
             case "preferences":
-              setView("settings");
+              navigateToView("settings");
               break;
             case "toggle-appearance":
               toggleTheme();
@@ -549,6 +569,7 @@ function App(): JSX.Element {
       window.removeEventListener("keydown", handleKeys);
       mediaQuery.removeEventListener("change", updateSystemTheme);
       window.clearTimeout(noticeTimer);
+      window.cancelAnimationFrame(navigationFocusFrame);
       nativeCommandListenerDisposed = true;
       removeNativeCommandListener?.();
       workspace()?.snapshot.lock();
@@ -2664,8 +2685,18 @@ function App(): JSX.Element {
     applyThemeMode(mode);
   }
 
+  function navigateToView(nextView: View): void {
+    setView(nextView);
+    setQuery("");
+    window.cancelAnimationFrame(navigationFocusFrame);
+    navigationFocusFrame = window.requestAnimationFrame(() => {
+      mainContentElement?.focus({ preventScroll: true });
+    });
+  }
+
   let paletteReturnFocus: HTMLElement | null = null;
   function openPalette(): void {
+    if (paletteOpen()) return;
     paletteReturnFocus =
       document.activeElement instanceof HTMLElement ? document.activeElement : null;
     setPaletteQuery("");
@@ -2673,12 +2704,16 @@ function App(): JSX.Element {
     setPaletteOpen(true);
   }
 
-  function closePalette(): void {
+  function closePalette(restoreFocus = true): void {
     setPaletteOpen(false);
     setPaletteQuery("");
     setPaletteIndex(0);
-    paletteReturnFocus?.focus();
+    const returnFocus = paletteReturnFocus;
     paletteReturnFocus = null;
+    if (restoreFocus) {
+      if (returnFocus?.isConnected) returnFocus.focus({ preventScroll: true });
+      else mainContentElement?.focus({ preventScroll: true });
+    }
   }
 
   const actions = [
@@ -2732,8 +2767,8 @@ function App(): JSX.Element {
       detail: "Review a private, source-linked handoff",
       icon: "spark" as const,
       run: () => {
-        closePalette();
-        setView("ai");
+        closePalette(false);
+        navigateToView("ai");
       },
     },
     {
@@ -2760,9 +2795,8 @@ function App(): JSX.Element {
     detail: "Open workspace page",
     icon: item.icon,
     run: () => {
-      closePalette();
-      setQuery("");
-      setView(item.id);
+      closePalette(false);
+      navigateToView(item.id);
     },
   }));
   const matchingActions = createMemo(() => {
@@ -2773,17 +2807,48 @@ function App(): JSX.Element {
   });
   function handlePaletteKeys(event: KeyboardEvent): void {
     const matches = matchingActions();
+    const palette = event.currentTarget;
+    const actionButtons =
+      palette instanceof HTMLElement
+        ? [...palette.querySelectorAll<HTMLButtonElement>(".palette-action")]
+        : [];
+    const focusedAction =
+      document.activeElement instanceof HTMLButtonElement
+        ? actionButtons.indexOf(document.activeElement)
+        : -1;
     if (event.key === "Escape") {
+      event.preventDefault();
       closePalette();
     } else if (event.key === "ArrowDown" && matches.length > 0) {
       event.preventDefault();
-      setPaletteIndex((paletteIndex() + 1) % matches.length);
+      const nextIndex = (Math.max(focusedAction, paletteIndex()) + 1) % matches.length;
+      setPaletteIndex(nextIndex);
+      if (focusedAction >= 0) actionButtons[nextIndex]?.focus();
     } else if (event.key === "ArrowUp" && matches.length > 0) {
       event.preventDefault();
-      setPaletteIndex((paletteIndex() + matches.length - 1) % matches.length);
+      const nextIndex =
+        (Math.max(focusedAction, paletteIndex()) + matches.length - 1) % matches.length;
+      setPaletteIndex(nextIndex);
+      if (focusedAction >= 0) actionButtons[nextIndex]?.focus();
     } else if (event.key === "Enter") {
+      if (focusedAction >= 0) return;
       event.preventDefault();
       matches[paletteIndex()]?.run();
+    } else if (event.key === "Tab") {
+      if (!(palette instanceof HTMLElement)) return;
+      const focusable = [...palette.querySelectorAll<HTMLElement>(
+        'input:not([disabled]), button:not([disabled]), [href], [tabindex]:not([tabindex="-1"])',
+      )].filter((element) => element.getClientRects().length > 0);
+      if (focusable.length === 0) return;
+      const first = focusable[0]!;
+      const last = focusable.at(-1)!;
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
     }
   }
 
@@ -2864,7 +2929,7 @@ function App(): JSX.Element {
               type="button"
               title="Workspace actions"
               aria-label="Workspace actions"
-              onClick={() => setView("archive")}
+              onClick={() => navigateToView("archive")}
             >
               <Icon name="more" />
             </button>
@@ -2899,7 +2964,7 @@ function App(): JSX.Element {
                 class="icon-button"
                 type="button"
                 aria-label="Preferences"
-                onClick={() => setView("settings")}
+                onClick={() => navigateToView("settings")}
               >
                 <Icon name="more" />
               </button>
@@ -2907,7 +2972,12 @@ function App(): JSX.Element {
           </div>
         </aside>
 
-        <main class="main-content" id="main-content">
+        <main
+          class="main-content"
+          id="main-content"
+          tabindex="-1"
+          ref={(element) => (mainContentElement = element)}
+        >
           <div class="page-toolbar">
             <div class="breadcrumbs">
               <span>Workspace</span>
@@ -2929,11 +2999,16 @@ function App(): JSX.Element {
                 <label class="inline-search">
                   <Icon name="search" />
                   <input
+                    ref={(element) => (pageSearchInput = element)}
                     value={query()}
                     onInput={(event) => setQuery(event.currentTarget.value)}
                     placeholder={`Search ${activeView().label.toLocaleLowerCase()}…`}
                     aria-label={`Search ${activeView().label}`}
+                    aria-keyshortcuts="Control+F Meta+F"
                   />
+                  <kbd class="inline-search-shortcut">
+                    {navigator.platform.includes("Mac") ? "⌘F" : "Ctrl F"}
+                  </kbd>
                 </label>
               </Show>
               <button
@@ -2973,7 +3048,7 @@ function App(): JSX.Element {
                 <Show when={view() === "home"}>
                   <Overview
                     state={state}
-                    onNavigate={setView}
+                    onNavigate={navigateToView}
                     onCreate={openDialog}
                     onOpen={() => void openArchive()}
                   />
@@ -3155,7 +3230,7 @@ function App(): JSX.Element {
                     onToggleTemplateManager={() => setGuideTemplateManagerOpen((open) => !open)}
                     disabled={!state.snapshot.canMutate}
                     busy={busy()}
-                    onOpenSessions={() => setView("sessions")}
+                    onOpenSessions={() => navigateToView("sessions")}
                     onSave={saveGuide}
                     onRestoreVersion={restoreGuideVersion}
                     onApprove={(record) => void approveGuide(record)}
@@ -3382,6 +3457,7 @@ function App(): JSX.Element {
             role="dialog"
             aria-modal="true"
             aria-labelledby="palette-title"
+            onKeyDown={handlePaletteKeys}
           >
             <div class="palette-search">
               <Icon name="search" />
@@ -3394,7 +3470,6 @@ function App(): JSX.Element {
                   setPaletteQuery(event.currentTarget.value);
                   setPaletteIndex(0);
                 }}
-                onKeyDown={handlePaletteKeys}
               />
               <kbd>esc</kbd>
             </div>
@@ -3407,6 +3482,7 @@ function App(): JSX.Element {
                     class={`palette-action ${paletteIndex() === index() ? "is-active" : ""}`}
                     data-active={paletteIndex() === index()}
                     onMouseEnter={() => setPaletteIndex(index())}
+                    onFocus={() => setPaletteIndex(index())}
                     onClick={() => action.run()}
                   >
                     <span class="palette-action-icon">
@@ -3457,8 +3533,7 @@ function App(): JSX.Element {
               aria-label={item.label}
               aria-current={view() === item.id ? "page" : undefined}
               onClick={() => {
-                setView(item.id);
-                setQuery("");
+                navigateToView(item.id);
               }}
             >
               <Icon name={item.icon} />
