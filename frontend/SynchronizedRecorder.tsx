@@ -23,6 +23,8 @@ interface Pending {
   archiveId: string;
   startedAtUs: string;
   consentAtUs: string;
+  pauseCount: number;
+  pausedDurationUs: string;
 }
 
 /** Capture two aligned sources into a single session take. */
@@ -30,13 +32,15 @@ export function SynchronizedRecorder(props: Props) {
   const [devices, setDevices] = createSignal<MediaDeviceInfo[]>([]);
   const [deviceId, setDeviceId] = createSignal("");
   const [consent, setConsent] = createSignal(false);
-  const [state, setState] = createSignal<"idle" | "requesting" | "recording" | "saving">("idle");
+  const [state, setState] = createSignal<
+    "idle" | "requesting" | "recording" | "pausing" | "paused" | "resuming" | "saving"
+  >("idle");
   const [pending, setPending] = createSignal<Pending>();
   const [error, setError] = createSignal("");
   const [status, setStatus] = createSignal("");
   let active: SynchronizedRecording | undefined;
   let disposed = false;
-  let capture: Omit<Pending, "files">;
+  let capture: Omit<Pending, "files" | "pauseCount" | "pausedDurationUs">;
   onCleanup(() => {
     disposed = true;
     void active?.discard();
@@ -72,6 +76,8 @@ export function SynchronizedRecorder(props: Props) {
         knownTrackIds: props.trackIds,
         startedAtUs: item.startedAtUs,
         consentAtUs: item.consentAtUs,
+        pauseCount: item.pauseCount,
+        pausedDurationUs: item.pausedDurationUs,
       });
       if (props.snapshot !== snapshot || props.session !== session)
         throw new Error(
@@ -89,14 +95,14 @@ export function SynchronizedRecorder(props: Props) {
     }
   };
   const stop = async (message = "") => {
-    if (!active || state() !== "recording") return;
+    if (!active || !["recording", "pausing", "paused", "resuming"].includes(state())) return;
     const recorder = active;
     active = undefined;
     setState("saving");
     try {
-      const files = await recorder.stop();
+      const result = await recorder.stop();
       if (disposed) return;
-      const item = { ...capture, files };
+      const item = { ...capture, ...result };
       setPending(item);
       setStatus(message);
       await save(item);
@@ -104,6 +110,24 @@ export function SynchronizedRecorder(props: Props) {
       if (!disposed) {
         setError(cause instanceof Error ? cause.message : String(cause));
         setState("idle");
+      }
+    }
+  };
+  const togglePause = async () => {
+    const recorder = active;
+    const previous = state();
+    if (!recorder || (previous !== "recording" && previous !== "paused")) return;
+    setError("");
+    setState(previous === "recording" ? "pausing" : "resuming");
+    try {
+      if (previous === "recording") await recorder.pause();
+      else await recorder.resume();
+      if (!disposed && active === recorder)
+        setState(previous === "recording" ? "paused" : "recording");
+    } catch (cause) {
+      if (!disposed && active === recorder) {
+        setState(previous);
+        setError(cause instanceof Error ? cause.message : String(cause));
       }
     }
   };
@@ -198,10 +222,19 @@ export function SynchronizedRecorder(props: Props) {
             Start synchronized recording
           </button>
         </Show>
-        <Show when={state() === "recording"}>
+        <Show when={state() === "recording" || state() === "paused"}>
+          <button class="button button-outline" type="button" onClick={() => void togglePause()}>
+            {state() === "paused" ? "Resume recording" : "Pause recording"}
+          </button>
           <button class="button button-outline" type="button" onClick={() => void stop()}>
             Stop and save
           </button>
+        </Show>
+        <Show when={state() === "paused"}>
+          <span role="status">Recording paused; both audio sources are muted.</span>
+        </Show>
+        <Show when={state() === "pausing" || state() === "resuming"}>
+          <span role="status">Changing recording state…</span>
         </Show>
         <Show when={state() === "requesting"}>
           <span role="status">Waiting for source permissions…</span>
