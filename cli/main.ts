@@ -328,7 +328,7 @@ Usage:
   tutorux --archive <file.tux> transcript import --session <uuid> --input <file> [--format auto|text|srt|vtt]
   tutorux --archive <file.tux> transcript plan --session <uuid> [--track <uuid>] [--threads <n>] [--model-memory-mb <n>] [--available-memory-mb <n>]
   tutorux --archive <file.tux> annotation plan --session <uuid> [--track <uuid>] [--threads <n>] [--model-memory-mb <n>] [--available-memory-mb <n>]
-  tutorux --archive <file.tux> transcript transcribe|refine --session <uuid> --track <uuid> --whisper <executable> --model <model> --consent-local-audio [--language auto|code] [--start time] [--end time] [--json]
+  tutorux --archive <file.tux> transcript transcribe|refine --session <uuid> --track <uuid> --whisper <executable> --model <model> --consent-local-audio [--language auto|code] [--start time] [--end time] [--diarize] [--json]
   tutorux --archive <file.tux> transcript show --session <uuid> [--json]
   tutorux --archive <file.tux> transcript export --session <uuid> --output <file> [--format text|srt|vtt|json]
   tutorux --archive <file.tux> transcript correct <segment-id> --text <replacement>
@@ -5690,6 +5690,7 @@ async function runTranscriptCommand(
         startUs,
         ...(endUs === undefined ? {} : { endUs }),
         refine: action === "refine",
+        diarizeSpeakerTurns: args.flags.has("diarize"),
         progress: (message) => {
           if (!json) output.stderr(message);
         },
@@ -5717,9 +5718,10 @@ async function runTranscriptCommand(
           generated: result.generated,
           superseded: result.superseded,
           skipped: result.skipped,
+          speaker_turn_boundaries: result.speakerTurnBoundaries,
           windows: result.windows,
         },
-        `Generated ${result.generated} provisional cue(s), replaced ${result.superseded}, skipped ${result.skipped}. Review generated cues before reuse.`,
+        `Generated ${result.generated} provisional cue(s), replaced ${result.superseded}, skipped ${result.skipped}.${args.flags.has("diarize") ? ` Tiny diarization marked ${result.speakerTurnBoundaries} speaker-turn boundaries; assign speaker identities manually.` : ""} Review generated cues before reuse.`,
         json,
       );
       return 0;
