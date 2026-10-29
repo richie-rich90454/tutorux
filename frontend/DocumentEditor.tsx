@@ -1,4 +1,13 @@
-import { For, Index, Show, createMemo, createSignal, type JSX } from "solid-js";
+import {
+  For,
+  Index,
+  Show,
+  createEffect,
+  createMemo,
+  createSignal,
+  untrack,
+  type JSX,
+} from "solid-js";
 import {
   JOURNAL_NOTE_BLOCK_KINDS,
   MAX_JOURNAL_NOTE_BLOCKS,
@@ -35,14 +44,290 @@ const blockHints: Record<JournalNoteBlockKind, string> = {
   code: "Add a worked example or short notation…",
 };
 
+function sameBlock(a: JournalNoteBlock, b: JournalNoteBlock): boolean {
+  const aKeys = Object.keys(a);
+  const bKeys = Object.keys(b);
+  return (
+    aKeys.length === bKeys.length &&
+    aKeys.every(
+      (key) =>
+        bKeys.includes(key) &&
+        (a as JournalNoteBlock & Record<string, unknown>)[key] ===
+          (b as JournalNoteBlock & Record<string, unknown>)[key],
+    )
+  );
+}
+
+interface DocumentPatch {
+  index: number;
+  before: JournalNoteBlock[];
+  after: JournalNoteBlock[];
+  textBlockId: string | undefined;
+  time: number;
+}
+
+/** A single document history stores only affected blocks, not full document snapshots. */
+class DocumentHistory {
+  private blocks: JournalNoteBlock[];
+  private table: PieceTable;
+  private undoEntries: DocumentPatch[] = [];
+  private redoEntries: DocumentPatch[] = [];
+  private grouping = false;
+
+  constructor(blocks: readonly JournalNoteBlock[]) {
+    this.blocks = [...blocks];
+    this.table = new PieceTable(this.documentText(this.blocks), false);
+  }
+  get canUndo(): boolean {
+    return this.undoEntries.length > 0;
+  }
+  get canRedo(): boolean {
+    return this.redoEntries.length > 0;
+  }
+  breakGroup(): void {
+    this.grouping = false;
+  }
+  reset(blocks: readonly JournalNoteBlock[]): void {
+    this.blocks = [...blocks];
+    this.table = new PieceTable(this.documentText(this.blocks), false);
+    this.undoEntries = [];
+    this.redoEntries = [];
+    this.grouping = false;
+  }
+  matches(blocks: readonly JournalNoteBlock[]): boolean {
+    return (
+      blocks.length === this.blocks.length &&
+      blocks.every((block, index) => {
+        const current = this.blocks[index]!;
+        return sameBlock(block, current);
+      })
+    );
+  }
+  editText(index: number, value: string): JournalNoteBlock[] | null {
+    const block = this.blocks[index];
+    if (!block || block.text === value) return null;
+    const next = [...this.blocks];
+    next[index] = { ...block, text: value };
+    return this.change(next, block.id);
+  }
+
+  replaceTextRange(
+    index: number,
+    range: { start: number; end: number },
+    replacement: string,
+  ): JournalNoteBlock[] | null {
+    const block = this.blocks[index];
+    if (!block) return null;
+    if (block.text.slice(range.start, range.end) === replacement) return null;
+    const start = this.blockOffset(index);
+    this.table.replace(
+      { start: start + range.start, end: start + range.end },
+      replacement,
+      "document-replace",
+    );
+    const next = [...this.blocks];
+    next[index] = {
+      ...block,
+      text: block.text.slice(0, range.start) + replacement + block.text.slice(range.end),
+    };
+    return this.change(next, undefined, true);
+  }
+
+  findAll(query: string): { block: number; start: number; end: number }[] {
+    if (!query) return [];
+    const offsets = this.blockOffsets();
+    const blockRanges = this.blocks.map((block, index) => ({
+      block: index,
+      start: offsets[index]!,
+      end: offsets[index]! + block.text.length,
+    }));
+    let documentMatches: { start: number; end: number }[];
+    try {
+      documentMatches = this.table.findAll(query);
+    } catch {
+      return [];
+    }
+    const matches: { block: number; start: number; end: number }[] = [];
+    const lastEndByBlock = new Map<number, number>();
+    let blockIndex = 0;
+    for (const match of documentMatches) {
+      while (blockIndex < blockRanges.length && blockRanges[blockIndex]!.end <= match.start)
+        blockIndex += 1;
+      const range = blockRanges[blockIndex];
+      if (!range || match.start < range.start || match.end > range.end) continue;
+      if (match.start < (lastEndByBlock.get(range.block) ?? range.start)) continue;
+      matches.push({
+        block: range.block,
+        start: match.start - range.start,
+        end: match.end - range.start,
+      });
+      lastEndByBlock.set(range.block, match.end);
+    }
+    return matches;
+  }
+
+  replaceAll(query: string, replacement: string): JournalNoteBlock[] | null {
+    if (!query || query === replacement) return null;
+    const matches = this.findAll(query);
+    if (!matches.length) return null;
+    const offsets = this.blockOffsets();
+    const absoluteMatches = matches.map((match) => {
+      const start = offsets[match.block]!;
+      return {
+        range: { start: start + match.start, end: start + match.end },
+        text: replacement,
+      };
+    });
+    this.table.replaceRanges(absoluteMatches, "document-replace-all");
+    const matchesByBlock = new Map<number, typeof matches>();
+    matches.forEach((match) => {
+      const blockMatches = matchesByBlock.get(match.block) ?? [];
+      blockMatches.push(match);
+      matchesByBlock.set(match.block, blockMatches);
+    });
+    const next = this.blocks.map((block, index) => {
+      const blockMatches = matchesByBlock.get(index);
+      if (!blockMatches) return block;
+      let text = block.text;
+      for (const match of [...blockMatches].reverse()) {
+        text = text.slice(0, match.start) + replacement + text.slice(match.end);
+      }
+      return { ...block, text };
+    });
+    return this.change(next, undefined, true);
+  }
+
+  change(
+    next: JournalNoteBlock[],
+    textBlockId?: string,
+    tableAlreadyUpdated = false,
+  ): JournalNoteBlock[] {
+    let start = 0;
+    while (
+      start < this.blocks.length &&
+      start < next.length &&
+      sameBlock(this.blocks[start]!, next[start]!)
+    )
+      start += 1;
+    let oldEnd = this.blocks.length;
+    let newEnd = next.length;
+    while (
+      oldEnd > start &&
+      newEnd > start &&
+      sameBlock(this.blocks[oldEnd - 1]!, next[newEnd - 1]!)
+    ) {
+      oldEnd -= 1;
+      newEnd -= 1;
+    }
+    if (start === oldEnd && start === newEnd) return this.blocks;
+    if (!tableAlreadyUpdated) {
+      const nextText = this.documentText(next);
+      if (this.table.text() !== nextText) this.table.applyTextSnapshot(nextText);
+    }
+    const time = Date.now();
+    const patch: DocumentPatch = {
+      index: start,
+      before: this.blocks.slice(start, oldEnd),
+      after: next.slice(start, newEnd),
+      textBlockId,
+      time,
+    };
+    const previous = this.undoEntries.at(-1);
+    if (
+      textBlockId &&
+      this.grouping &&
+      previous?.textBlockId === textBlockId &&
+      previous.index === start &&
+      time - previous.time < 800 &&
+      patch.before.length === 1 &&
+      patch.after.length === 1
+    ) {
+      previous.after = patch.after;
+      previous.time = time;
+    } else {
+      this.undoEntries.push(patch);
+      if (this.undoEntries.length > 100) this.undoEntries.shift();
+    }
+    this.grouping = Boolean(textBlockId);
+    this.redoEntries = [];
+    this.blocks = next;
+    return next;
+  }
+  private replay(patch: DocumentPatch, undo: boolean): JournalNoteBlock[] {
+    const from = undo ? patch.after : patch.before;
+    const to = undo ? patch.before : patch.after;
+    const next = [...this.blocks];
+    next.splice(patch.index, from.length, ...to);
+    this.table.applyTextSnapshot(this.documentText(next));
+    this.blocks = next;
+    this.grouping = false;
+    return next;
+  }
+  private blockOffset(index: number): number {
+    let offset = 0;
+    for (let current = 0; current < index; current += 1)
+      offset += this.blocks[current]!.text.length;
+    return offset;
+  }
+  private blockOffsets(): number[] {
+    const offsets: number[] = [];
+    let offset = 0;
+    for (const block of this.blocks) {
+      offsets.push(offset);
+      offset += block.text.length;
+    }
+    return offsets;
+  }
+  private documentText(blocks: readonly JournalNoteBlock[]): string {
+    return blocks.map((block) => block.text).join("");
+  }
+  undo(): JournalNoteBlock[] | null {
+    const patch = this.undoEntries.pop();
+    if (!patch) return null;
+    const result = this.replay(patch, true);
+    this.redoEntries.push(patch);
+    return result;
+  }
+  redo(): JournalNoteBlock[] | null {
+    const patch = this.redoEntries.pop();
+    if (!patch) return null;
+    const result = this.replay(patch, false);
+    this.undoEntries.push(patch);
+    return result;
+  }
+}
+
 export function DocumentEditor(props: {
   label: string;
   blocks: readonly JournalNoteBlock[];
   onChange(blocks: JournalNoteBlock[]): void;
 }): JSX.Element {
   const [nextKind, setNextKind] = createSignal<JournalNoteBlockKind>("paragraph");
-  const [undoStack, setUndoStack] = createSignal<JournalNoteBlock[][]>([]);
-  const [redoStack, setRedoStack] = createSignal<JournalNoteBlock[][]>([]);
+  const initialBlocks = untrack(() => props.blocks);
+  const history = new DocumentHistory(initialBlocks);
+  const [historyVersion, setHistoryVersion] = createSignal(0);
+  let lastEmitted: readonly JournalNoteBlock[] = initialBlocks;
+  createEffect(() => {
+    const blocks = props.blocks;
+    if (blocks !== lastEmitted && !history.matches(blocks)) {
+      history.reset(blocks);
+      setHistoryVersion((version) => version + 1);
+    }
+    lastEmitted = blocks;
+  });
+  const canUndo = () => {
+    historyVersion();
+    return history.canUndo;
+  };
+  const canRedo = () => {
+    historyVersion();
+    return history.canRedo;
+  };
+  function publish(blocks: JournalNoteBlock[]): void {
+    lastEmitted = blocks;
+    setHistoryVersion((version) => version + 1);
+    props.onChange(blocks);
+  }
   const [exporting, setExporting] = createSignal(false);
   const [exportError, setExportError] = createSignal("");
   const [finding, setFinding] = createSignal(false);
@@ -51,22 +336,12 @@ export function DocumentEditor(props: {
   const [matchIndex, setMatchIndex] = createSignal(-1);
   let findInput: HTMLInputElement | undefined;
   let editorElement: HTMLElement | undefined;
-  let lastTextEdit: { id: string; time: number } | undefined;
-  const textBuffers = new Map<string, PieceTable>();
   const editorId = (index: number): string =>
     `document-block-kind-${props.label.replace(/\W+/gu, "-").toLowerCase()}-${index}`;
   const matches = createMemo(() => {
+    historyVersion();
     const needle = query();
-    if (!needle) return [];
-    const result: { block: number; start: number; end: number }[] = [];
-    props.blocks.forEach((block, index) => {
-      let start = 0;
-      while ((start = block.text.indexOf(needle, start)) !== -1) {
-        result.push({ block: index, start, end: start + needle.length });
-        start += needle.length;
-      }
-    });
-    return result;
+    return history.findAll(needle);
   });
   function openFind(): void {
     setFinding(true);
@@ -88,51 +363,36 @@ export function DocumentEditor(props: {
   function replaceMatch(): void {
     const match = matches()[Math.max(0, Math.min(matchIndex(), matches().length - 1))];
     if (!match) return;
-    const block = props.blocks[match.block]!;
-    update(match.block, {
-      text: block.text.slice(0, match.start) + replacement() + block.text.slice(match.end),
-    });
-    queueMicrotask(() => selectMatch(matchIndex()));
+    const blocks = history.replaceTextRange(
+      match.block,
+      { start: match.start, end: match.end },
+      replacement(),
+    );
+    if (blocks) publish(blocks);
+    const selected = matchIndex();
+    queueMicrotask(() => selectMatch(selected));
   }
   function replaceAll(): void {
     const needle = query();
     if (!needle || !matches().length) return;
-    changeBlocks(
-      props.blocks.map((block) => ({
-        ...block,
-        text: block.text.split(needle).join(replacement()),
-      })),
-    );
+    const blocks = history.replaceAll(needle, replacement());
+    if (blocks) publish(blocks);
     setMatchIndex(-1);
   }
 
-  function changeBlocks(blocks: JournalNoteBlock[], textBlockId?: string): void {
-    const now = Date.now();
-    const grouped =
-      textBlockId && lastTextEdit?.id === textBlockId && now - lastTextEdit.time < 800;
-    if (!grouped) setUndoStack((stack) => [...stack.slice(-99), [...props.blocks]]);
-    setRedoStack([]);
-    lastTextEdit = textBlockId ? { id: textBlockId, time: now } : undefined;
-    props.onChange(blocks);
+  function changeBlocks(blocks: JournalNoteBlock[]): void {
+    publish(history.change(blocks));
   }
 
-  function update(index: number, change: Partial<JournalNoteBlock>, textEdit = false): void {
+  function update(index: number, change: Partial<JournalNoteBlock>): void {
     changeBlocks(
       props.blocks.map((block, current) => (current === index ? { ...block, ...change } : block)),
-      textEdit ? props.blocks[index]?.id : undefined,
     );
   }
 
   function editText(index: number, text: string): void {
-    const block = props.blocks[index];
-    if (!block || block.text === text) return;
-    let table = textBuffers.get(block.id);
-    if (!table || table.text() !== block.text) {
-      table = new PieceTable(block.text);
-      textBuffers.set(block.id, table);
-    }
-    table.applyTextSnapshot(text, undefined, "user", lastTextEdit?.id === block.id);
-    update(index, { text: table.text() }, true);
+    const blocks = history.editText(index, text);
+    if (blocks) publish(blocks);
   }
 
   function addBlock(): void {
@@ -148,8 +408,6 @@ export function DocumentEditor(props: {
   }
 
   function removeBlock(index: number): void {
-    const removed = props.blocks[index];
-    if (removed) textBuffers.delete(removed.id);
     changeBlocks(props.blocks.filter((_, current) => current !== index));
   }
 
@@ -188,28 +446,17 @@ export function DocumentEditor(props: {
     const separator = current.text && next.text ? "\n" : "";
     const blocks = [...props.blocks];
     blocks.splice(index, 2, { ...current, text: current.text + separator + next.text });
-    textBuffers.delete(next.id);
     changeBlocks(blocks);
   }
 
   function undo(): void {
-    const stack = undoStack();
-    const previous = stack.at(-1);
-    if (!previous) return;
-    setUndoStack(stack.slice(0, -1));
-    setRedoStack((current) => [...current.slice(-99), [...props.blocks]]);
-    lastTextEdit = undefined;
-    props.onChange([...previous]);
+    const blocks = history.undo();
+    if (blocks) publish(blocks);
   }
 
   function redo(): void {
-    const stack = redoStack();
-    const next = stack.at(-1);
-    if (!next) return;
-    setRedoStack(stack.slice(0, -1));
-    setUndoStack((current) => [...current.slice(-99), [...props.blocks]]);
-    lastTextEdit = undefined;
-    props.onChange([...next]);
+    const blocks = history.redo();
+    if (blocks) publish(blocks);
   }
 
   async function exportDocument(format: "markdown" | "html" | "docx" | "pdf"): Promise<void> {
@@ -329,7 +576,7 @@ export function DocumentEditor(props: {
             class="button button-quiet"
             type="button"
             onClick={undo}
-            disabled={!undoStack().length}
+            disabled={!canUndo()}
             title="Undo (Ctrl or Command + Z)"
           >
             Undo
@@ -338,7 +585,7 @@ export function DocumentEditor(props: {
             class="button button-quiet"
             type="button"
             onClick={redo}
-            disabled={!redoStack().length}
+            disabled={!canRedo()}
             title="Redo (Ctrl or Command + Shift + Z)"
           >
             Redo
@@ -541,7 +788,7 @@ export function DocumentEditor(props: {
                   spellcheck="true"
                   onInput={(event) => editText(index, event.currentTarget.value)}
                   onBlur={() => {
-                    lastTextEdit = undefined;
+                    history.breakGroup();
                   }}
                 />
               </article>
