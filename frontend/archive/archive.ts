@@ -701,6 +701,8 @@ export async function verifyArchiveSnapshot(
 export interface ArchiveHistoryVerificationResult extends ArchiveVerificationResult {
   historicalRevisions: number;
   verifiedCommits: number;
+  /** Sum of indexed primary records across generations; a record may occur more than once. */
+  verifiedGenerationRecords: number;
 }
 
 /** Verify the complete committed chain and every indexed record revision. */
@@ -750,6 +752,7 @@ export async function verifyArchiveHistory(
   }
   let commit = snapshot.commit;
   let verifiedCommits = 0;
+  let verifiedGenerationRecords = 0;
   const commits = new Set<bigint>();
   while (true) {
     if (commits.size >= 1_000_000 || commits.has(commit.offset)) {
@@ -774,6 +777,8 @@ export async function verifyArchiveHistory(
     );
     try {
       await view.getManifest();
+      const verified = await verifyArchiveSnapshot(view);
+      verifiedGenerationRecords += verified.currentRecords;
     } finally {
       view.lock();
     }
@@ -799,7 +804,7 @@ export async function verifyArchiveHistory(
       );
     commit = previous;
   }
-  return { ...current, historicalRevisions, verifiedCommits };
+  return { ...current, historicalRevisions, verifiedCommits, verifiedGenerationRecords };
 }
 
 export interface ArchiveRecoveryResult {
