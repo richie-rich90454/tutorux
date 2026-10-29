@@ -45,6 +45,7 @@ import { NodeFileArchiveSource } from "../frontend/archive/node-source";
 import { MAX_ASSET_BYTES, makeAssetImport, readAssetBytes } from "../frontend/domain/assets";
 import {
   evidenceSourcesAreCurrent,
+  EVIDENCE_RELATIONSHIPS,
   extractSessionEvidence,
   makeEvidenceEdge,
   reviewEvidenceRecord,
@@ -169,7 +170,7 @@ Usage:
   tutorux archive info <file.tux> [--json]
   tutorux archive verify <file.tux> [--passphrase-env <name>] [--json]
   tutorux archive recover <file.tux> [--apply] [--json]
-  tutorux archive compact <file.tux> [--apply] [--json]
+  tutorux archive compact <file.tux> [--prune-unreferenced-assets] [--apply] [--json]
   tutorux archive repair <file.tux> --output <copy.tux> --confirm-sensitive [--json]
   tutorux archive sanitize <file.tux> --output <copy.tux> [selection options] [--new-passphrase-env <name>]
     preview first; confirm with --confirm-sensitive --expected-generation N --expected-selection SHA256 --expected-output FILE --expected-encrypted-output yes|no
@@ -222,11 +223,13 @@ Usage:
   tutorux --archive <file.tux> evidence link --from <id> --to <id> --relationship <type>
   tutorux --archive <file.tux> evidence unlink <edge-id>
   tutorux --archive <file.tux> evidence edges --session <uuid>
+  tutorux --archive <file.tux> evidence graph --session <uuid> [--json]
   tutorux --archive <file.tux> guide create --session <uuid> [--template <id>] [--title <title>]
   tutorux --archive <file.tux> guide generate (--session <uuid>|--entry-id <uuid>) [--template <id|auto>] [--title <title>] [--include-entry-evidence] [--json]
   tutorux --archive <file.tux> guide regenerate <id> [--template <id|auto>] [--title <title>] [--include-entry-evidence|--session-only] [--json]
   tutorux --archive <file.tux> guide list [--session <uuid>] [--entry-id <uuid>] [--include-deleted] [--json]
   tutorux --archive <file.tux> guide show|approve|trash|restore|history <id>
+  tutorux --archive <file.tux> guide compare <id> [--json]
   tutorux --archive <file.tux> guide update <id> [--title <title>]
   tutorux --archive <file.tux> guide add-section <id> --heading <heading> [--text <text>]
   tutorux --archive <file.tux> guide remove-section <id> --section-index <index>
@@ -560,7 +563,9 @@ async function runArchiveCommand(
         throw new CliError("The archive changed while compaction was starting. Retry the command.");
       }
       snapshot = await unlockSnapshotForCli(await openArchiveSource(source), true);
-      const compaction = await compactArchiveSnapshot(snapshot);
+      const compaction = await compactArchiveSnapshot(snapshot, {
+        pruneUnreferencedAssets: args.flags.has("prune-unreferenced-assets"),
+      });
       compacted = compaction.snapshot;
       const applied = args.flags.has("apply");
       if (applied) {
@@ -583,14 +588,15 @@ async function runArchiveCommand(
         compactedBytes: compaction.compactedBytes.toString(),
         bytesSaved: (compaction.originalBytes - compaction.compactedBytes).toString(),
         recordsPreserved: compaction.preservedRecords,
+        prunedAssetRecords: compaction.prunedAssetRecords,
         applied,
       };
       emit(
         output,
         result,
         applied
-          ? `Compacted ${basename(path)} from ${result.originalBytes} to ${result.compactedBytes} bytes.`
-          : `Compaction would reduce ${basename(path)} from ${result.originalBytes} to ${result.compactedBytes} bytes. Add --apply to replace it.`,
+          ? `Compacted ${basename(path)} from ${result.originalBytes} to ${result.compactedBytes} bytes; pruned ${result.prunedAssetRecords} unreferenced asset records.`
+          : `Compaction would reduce ${basename(path)} from ${result.originalBytes} to ${result.compactedBytes} bytes and prune ${result.prunedAssetRecords} unreferenced asset records. Add --apply to replace it.`,
         args.flags.has("json"),
       );
       return 0;
@@ -1759,6 +1765,34 @@ async function runGuideCommand(
   }
 
   const id = requiredPosition(args, 0, "study guide ID");
+
+  if (action === "compare") {
+    const snapshot = await openForCommand(path);
+    try {
+      const history = await snapshot.getRecordHistory(RecordType.guide, id, 2);
+      const current = history[0];
+      const previous = history[1];
+      if (!current || !previous)
+        throw new CliError("The guide needs a previous revision to compare.");
+      const result = {
+        current_title: field(current, "title"),
+        previous_title: field(previous, "title"),
+        current_revision: "0",
+        previous_revision: "1",
+        current_markdown: renderGuideMarkdown(current),
+        previous_markdown: renderGuideMarkdown(previous),
+      };
+      emit(
+        output,
+        result,
+        `Revision 0: ${result.current_title}\nRevision 1: ${result.previous_title}\n\n${result.previous_markdown}`,
+        json,
+      );
+      return 0;
+    } finally {
+      await closeSnapshot(snapshot);
+    }
+  }
 
   if (action === "show" || action === "export") {
     const snapshot = await openForCommand(path);
@@ -3961,6 +3995,78 @@ async function runEvidenceCommand(
             ? "No evidence needs review."
             : "No evidence found."
           : `${rows.length} evidence item${rows.length === 1 ? "" : "s"}.`,
+        json,
+      );
+      return 0;
+    } finally {
+      await closeSnapshot(snapshot);
+    }
+  }
+
+  if (action === "graph") {
+    const sessionId = requiredOption(args, "session").toLowerCase();
+    const snapshot = await openForCommand(path);
+    try {
+      await requireLiveRecord(snapshot, RecordType.session, sessionId);
+      const nodes = (await snapshot.listRecords(RecordType.evidenceNode)).filter(
+        (node) => field(node, "session_id").toLowerCase() === sessionId,
+      );
+      const nodeIds = new Set(nodes.map((node) => node.id.toLowerCase()));
+      for (const node of nodes) {
+        if (!field(node, "content")) {
+          throw new CliError(`Evidence ${node.id} needs a statement.`);
+        }
+      }
+      const edges = await snapshot.listRecords(RecordType.evidenceEdge);
+      const contradictions = new Map<
+        string,
+        { first_evidence_id: string; second_evidence_id: string }
+      >();
+      let edgeCount = 0;
+      for (const edge of edges) {
+        const from = field(edge, "from_id").toLowerCase();
+        const to = field(edge, "to_id").toLowerCase();
+        const fromHere = nodeIds.has(from);
+        const toHere = nodeIds.has(to);
+        if (!fromHere && !toHere) continue;
+        if (!fromHere || !toHere) {
+          throw new CliError(
+            "An evidence relationship connects a session node to a missing or cross-session node.",
+          );
+        }
+        const relationship = field(edge, "relationship");
+        if (from === to || !(EVIDENCE_RELATIONSHIPS as readonly string[]).includes(relationship)) {
+          throw new CliError(`Evidence relationship ${edge.id} has invalid endpoints or type.`);
+        }
+        edgeCount += 1;
+        if (relationship === "contradicts") {
+          const [first, second] = [from, to].sort();
+          contradictions.set(`${first}:${second}`, {
+            first_evidence_id: first!,
+            second_evidence_id: second!,
+          });
+        }
+      }
+      const pairs = [...contradictions.values()].sort(
+        (a, b) =>
+          a.first_evidence_id.localeCompare(b.first_evidence_id) ||
+          a.second_evidence_id.localeCompare(b.second_evidence_id),
+      );
+      const report = {
+        session_id: sessionId,
+        node_count: nodes.length,
+        edge_count: edgeCount,
+        contradiction_count: pairs.length,
+        contradictions: pairs,
+        valid: true,
+      };
+      const details = pairs
+        .map((pair) => `  ${pair.first_evidence_id} contradicts ${pair.second_evidence_id}`)
+        .join("\n");
+      emit(
+        output,
+        report,
+        `Evidence graph: ${nodes.length} node(s), ${edgeCount} relationship(s), ${pairs.length} explicit contradiction(s).${details ? `\n${details}` : ""}`,
         json,
       );
       return 0;
