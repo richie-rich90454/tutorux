@@ -1651,6 +1651,27 @@ function App(): JSX.Element {
     }
   }
 
+  async function restoreGuideVersion(
+    selected: ArchiveRecord,
+    reviewed: ArchiveRecord,
+  ): Promise<boolean> {
+    const state = workspace();
+    const current = state?.guides.find((guide) => guide.id === reviewed.id);
+    if (!state || !current || current.revision !== reviewed.revision) {
+      announce("The guide changed. Review its history again before restoring.", "error");
+      return false;
+    }
+    try {
+      const draft = guideDraftFromRecord(selected);
+      draft.sessionId = field(current, "session_id");
+      draft.entryId = field(current, "entry_id");
+      return await saveGuide(draft, current);
+    } catch (error) {
+      announce(errorMessage(error), "error");
+      return false;
+    }
+  }
+
   async function approveGuide(record: ArchiveRecord): Promise<void> {
     const state = workspace();
     if (!state) return;
@@ -2921,6 +2942,7 @@ function App(): JSX.Element {
                 </Show>
                 <Show when={view() === "guides"}>
                   <GuidesPage
+                    snapshot={state.snapshot}
                     records={filteredRecords()}
                     sessions={[...state.sessions, ...state.archivedSessions]}
                     entries={state.entries}
@@ -2934,6 +2956,7 @@ function App(): JSX.Element {
                     busy={busy()}
                     onOpenSessions={() => setView("sessions")}
                     onSave={saveGuide}
+                    onRestoreVersion={restoreGuideVersion}
                     onApprove={(record) => void approveGuide(record)}
                     onTrash={(record) => void trashGuide(record)}
                     onExport={(record, format) => void exportGuide(record, format)}
