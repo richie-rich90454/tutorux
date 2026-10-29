@@ -1,6 +1,7 @@
 import { createMemo, createSignal, For, Show, type JSX } from "solid-js";
 import { RecordType, type ArchiveRecord } from "./archive/format";
-import { guideDraftFromRecord } from "./domain/guides";
+import type { ArchiveSnapshot } from "./archive/archive";
+import { guideDraftFromRecord, makeGuideRecord } from "./domain/guides";
 import "./journal-relations.css";
 
 const field = (record: ArchiveRecord, key: string) => record.fields.get(key) ?? "";
@@ -96,6 +97,7 @@ export function moveJournalSession(
 
 export function JournalRelations(props: {
   entry: ArchiveRecord;
+  snapshot: ArchiveSnapshot;
   entries: ArchiveRecord[];
   sessions: ArchiveRecord[];
   guides: ArchiveRecord[];
@@ -131,19 +133,25 @@ export function JournalRelations(props: {
       const guide = availableGuides().find((item) => same(item.id, guideId()));
       if (!guide) throw new Error("Choose a study guide to move.");
       const draft = guideDraftFromRecord(guide);
-      if (
-        draft.sections.some((section) =>
-          section.blocks.some(
-            (block) =>
-              block.sourceIds.trim() ||
-              block.text.includes("[[source:") ||
-              block.text.includes("(asset:"),
-          ),
-        )
-      )
-        throw new Error(
-          "This guide cites sources. Edit the guide to review its sources before moving it.",
-        );
+      const sourceTypes = [
+        RecordType.student,
+        RecordType.session,
+        RecordType.transcriptSegment,
+        RecordType.annotation,
+        RecordType.assetMetadata,
+        RecordType.evidenceNode,
+        RecordType.settings,
+      ];
+      const sourceRecords = (
+        await Promise.all(sourceTypes.map((type) => props.snapshot.listRecords(type)))
+      ).flat();
+      // Validate every explicit, inline, and image citation against the destination.
+      // Preserve the original guide fields and content when changing its owner.
+      makeGuideRecord(
+        { ...draft, entryId: props.entry.id },
+        { entry: props.entry, records: sourceRecords },
+        guide,
+      );
       const old = props.entries.find((item) => same(item.id, field(guide, "entry_id")));
       const records = [
         update(props.entry, {
@@ -284,6 +292,7 @@ export function JournalRelations(props: {
                 Move guide
               </button>
             </div>
+            <p>All cited sources must belong to this entry to move a guide here.</p>
           </Show>
           <h3>Materials</h3>
           <Show when={props.assets.length} fallback={<p>No materials available.</p>}>
@@ -297,7 +306,8 @@ export function JournalRelations(props: {
                       disabled={props.disabled || pending()}
                       onChange={(event) => void toggleAsset(asset, event.currentTarget.checked)}
                     />{" "}
-                    {field(asset, "display_name") ||
+                    {field(asset, "filename") ||
+                      field(asset, "display_name") ||
                       field(asset, "file_name") ||
                       "Untitled material"}
                   </label>
