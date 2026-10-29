@@ -10,8 +10,23 @@ import {
 import { createAiMultipartHandoff } from "./ai/multipart";
 import type { AiRequestPreview } from "./ai/request";
 import { AI_RESPONSE_PREVIEW_CHARACTER_LIMIT, type AiExecutionSummary } from "./ai/response";
-import { AI_PROVIDERS, type AiProviderConfigurationInput } from "./ai/providers";
+import {
+  AI_PROVIDERS,
+  isEmbeddedGgufProvider,
+  providerById,
+  type AiProviderConfigurationInput,
+} from "./ai/providers";
 import type { AiCredentialStorage, BinaryExportSource } from "./platform/types";
+import {
+  cancelEmbeddedAiGeneration,
+  embeddedModelRuntimeAvailable,
+  loadEmbeddedModel,
+  readEmbeddedModelStatus,
+  selectAndInspectEmbeddedModel,
+  unloadEmbeddedModel,
+  type EmbeddedModelInfo,
+  type EmbeddedModelStatus,
+} from "./platform/embedded-ai";
 import { GUIDE_TEMPLATES, type GuideTemplate } from "./domain/guides";
 import { guideTemplateFromRecord } from "./domain/templates";
 import "./ai.css";
@@ -93,9 +108,16 @@ export function AiPage(props: AiPageProps): JSX.Element {
   const [credentialStorage, setCredentialStorage] =
     createSignal<AiCredentialStorage>("encrypted-archive");
   const [systemCredentialSaved, setSystemCredentialSaved] = createSignal(false);
+  const [embeddedModel, setEmbeddedModel] = createSignal<EmbeddedModelInfo | null>(null);
+  const [embeddedStatus, setEmbeddedStatus] = createSignal<EmbeddedModelStatus | null>(null);
+  const [embeddedContextTokens, setEmbeddedContextTokens] = createSignal("4096");
+  const [embeddedCpuThreads, setEmbeddedCpuThreads] = createSignal("4");
+  const [embeddedBusy, setEmbeddedBusy] = createSignal(false);
+  const [embeddedMessage, setEmbeddedMessage] = createSignal("");
+  const embeddedAvailable = embeddedModelRuntimeAvailable();
   let credentialStorageTouched = false;
   const currentProvider = createMemo(
-    () => AI_PROVIDERS.find((provider) => provider.id === providerId()) ?? AI_PROVIDERS[0]!,
+    () => providerById(providerId()) ?? AI_PROVIDERS[0]!,
   );
   const savedCredential = createMemo(() =>
     props.credentials.find(
@@ -113,7 +135,12 @@ export function AiPage(props: AiPageProps): JSX.Element {
       : props.encrypted,
   );
   const savedProvider = createMemo(() =>
-    props.providerSettings.find((record) => record.fields.get("provider_id") === providerId()),
+    props.providerSettings.find((record) => {
+      const savedProviderId = record.fields.get("provider_id") ?? "";
+      return isEmbeddedGgufProvider(providerId())
+        ? isEmbeddedGgufProvider(savedProviderId)
+        : savedProviderId === providerId();
+    }),
   );
   const providerState = createMemo(
     () => {
@@ -171,6 +198,30 @@ export function AiPage(props: AiPageProps): JSX.Element {
     setRequestPreviewMessage("");
     setSendConfirmed(false);
     setSendProgressBytes(0);
+  });
+  createEffect(() => {
+    if (!embeddedAvailable) return;
+    let active = true;
+    void readEmbeddedModelStatus()
+      .then((status) => {
+        if (active) setEmbeddedStatus(status);
+      })
+      .catch(() => {
+        if (active) {
+          setEmbeddedStatus({
+            loaded: false,
+            modelId: null,
+            name: null,
+            pathName: null,
+            contextTokens: null,
+            cpuThreads: null,
+            memoryEstimateBytes: null,
+          });
+        }
+      });
+    onCleanup(() => {
+      active = false;
+    });
   });
   const templates = createMemo<GuideTemplate[]>(() => [
     ...GUIDE_TEMPLATES,
@@ -347,6 +398,96 @@ export function AiPage(props: AiPageProps): JSX.Element {
     }
   }
 
+  async function chooseEmbeddedModel(): Promise<void> {
+    setEmbeddedMessage("");
+    setEmbeddedBusy(true);
+    try {
+      const selected = await selectAndInspectEmbeddedModel();
+      if (!selected) return;
+      setEmbeddedModel(selected);
+      setEmbeddedContextTokens(String(selected.contextTokens));
+      setEmbeddedCpuThreads(String(Math.min(8, selected.maximumCpuThreads)));
+      setEmbeddedMessage("GGUF metadata checked. The model has not been loaded and nothing was downloaded.");
+    } catch (cause) {
+      setEmbeddedMessage(
+        cause instanceof Error ? cause.message : "The selected GGUF model could not be inspected.",
+      );
+    } finally {
+      setEmbeddedBusy(false);
+    }
+  }
+
+  async function loadSelectedEmbeddedModel(): Promise<void> {
+    const selected = embeddedModel();
+    if (!selected) return;
+    const contextTokens = Number(embeddedContextTokens());
+    const cpuThreads = Number(embeddedCpuThreads());
+    if (!Number.isSafeInteger(contextTokens) || !Number.isSafeInteger(cpuThreads)) {
+      setEmbeddedMessage("Enter whole numbers for context length and CPU threads.");
+      return;
+    }
+    setEmbeddedBusy(true);
+    setEmbeddedMessage("Loading the selected model into the local runtime…");
+    try {
+      const status = await loadEmbeddedModel(selected.authorizationToken, contextTokens, cpuThreads);
+      setEmbeddedStatus(status);
+      setEmbeddedMessage(
+        `${status.name ?? selected.name} is loaded in this app. Prompts stay on this device.`,
+      );
+    } catch (cause) {
+      setEmbeddedMessage(
+        cause instanceof Error ? cause.message : "The GGUF model could not be loaded.",
+      );
+    } finally {
+      setEmbeddedBusy(false);
+    }
+  }
+
+  async function useEmbeddedModel(): Promise<void> {
+    const status = embeddedStatus();
+    if (!status?.loaded || !status.modelId) return;
+    setEmbeddedMessage("");
+    try {
+      const saved = await props.onSaveProvider({
+        providerId: "embedded-gguf",
+        endpoint: "tutorux://embedded/generate",
+        model: status.modelId,
+      });
+      if (saved) {
+        setProviderId("embedded-gguf");
+        setProviderEndpoint("tutorux://embedded/generate");
+        setProviderModel(status.modelId);
+        setEmbeddedMessage("Saved this offline model as the AI provider for the reviewed generation flow.");
+      }
+    } catch (cause) {
+      setEmbeddedMessage(
+        cause instanceof Error ? cause.message : "The local model could not be saved as the AI provider.",
+      );
+    }
+  }
+
+  async function unloadSelectedEmbeddedModel(): Promise<void> {
+    setEmbeddedBusy(true);
+    setEmbeddedMessage("");
+    try {
+      setEmbeddedStatus(await unloadEmbeddedModel());
+      setEmbeddedMessage("The local model was unloaded from memory.");
+    } catch (cause) {
+      setEmbeddedMessage(cause instanceof Error ? cause.message : "The local model could not be unloaded.");
+    } finally {
+      setEmbeddedBusy(false);
+    }
+  }
+
+  async function cancelLocalGeneration(): Promise<void> {
+    setEmbeddedMessage("Cancellation requested. The runtime stops after its current model step.");
+    await cancelEmbeddedAiGeneration().catch((cause: unknown) => {
+      setEmbeddedMessage(
+        cause instanceof Error ? cause.message : "Local generation could not be cancelled.",
+      );
+    });
+  }
+
   function chooseCredentialStorage(storage: AiCredentialStorage): void {
     credentialStorageTouched = true;
     setCredentialStorage(storage);
@@ -433,7 +574,13 @@ export function AiPage(props: AiPageProps): JSX.Element {
         </div>
         <div class="ai-state-pill">
           <span />
-          {props.execution ? "Response saved" : props.busy ? "Sending request" : "No request sent"}
+          {props.execution
+            ? "Response saved"
+        : props.busy && isEmbeddedGgufProvider(currentProvider().id)
+              ? "Generating offline"
+              : props.busy
+                ? "Sending request"
+                : "No request sent"}
         </div>
       </section>
 
@@ -477,7 +624,7 @@ export function AiPage(props: AiPageProps): JSX.Element {
                 setProviderId(event.currentTarget.value);
               }}
             >
-              <For each={AI_PROVIDERS}>
+              <For each={AI_PROVIDERS.filter((provider) => embeddedAvailable || !isEmbeddedGgufProvider(provider.id))}>
                 {(provider) => <option value={provider.id}>{provider.name}</option>}
               </For>
             </select>
@@ -489,8 +636,8 @@ export function AiPage(props: AiPageProps): JSX.Element {
               type="text"
               value={providerModel()}
               maxlength={256}
-              placeholder="Enter the model ID provided by the service"
-              disabled={props.disabled || props.busy}
+              placeholder={isEmbeddedGgufProvider(currentProvider().id) ? "Load a model below" : "Enter the model ID provided by the service"}
+              disabled={props.disabled || props.busy || isEmbeddedGgufProvider(currentProvider().id)}
               onInput={(event) => {
                 setProviderModel(event.currentTarget.value);
                 setRequestPreview(null);
@@ -508,7 +655,7 @@ export function AiPage(props: AiPageProps): JSX.Element {
               value={providerEndpoint()}
               maxlength={2048}
               placeholder={currentProvider().defaultEndpoint || "https://provider.example/v1"}
-              disabled={props.disabled || props.busy}
+              disabled={props.disabled || props.busy || isEmbeddedGgufProvider(currentProvider().id)}
               onInput={(event) => {
                 setProviderEndpoint(event.currentTarget.value);
                 setRequestPreview(null);
@@ -521,7 +668,13 @@ export function AiPage(props: AiPageProps): JSX.Element {
         </div>
         <div class="ai-provider-protocol">
           <span>{currentProvider().protocol}</span>
-          <span>{currentProvider().local ? "Loopback only" : "HTTPS only"}</span>
+          <span>
+            {isEmbeddedGgufProvider(currentProvider().id)
+              ? "On-device only"
+              : currentProvider().local
+                ? "Loopback only"
+                : "HTTPS only"}
+          </span>
         </div>
         <Show when={!currentProvider().local}>
           <div class="ai-credential-box">
@@ -626,9 +779,9 @@ export function AiPage(props: AiPageProps): JSX.Element {
         </Show>
         <div class="ai-provider-footer">
           <p>
-            {currentProvider().description}. Endpoint and model settings are archive records; API
-            keys use the selected secure store. System-stored keys are available to Tutorux on this
-            device; encrypted-archive keys move with the archive.
+            {isEmbeddedGgufProvider(currentProvider().id)
+              ? "The model file remains at its selected location. Tutorux stores a local model reference in this archive; model prompts are evaluated inside the desktop process and are never sent to a service."
+              : `${currentProvider().description}. Endpoint and model settings are archive records; API keys use the selected secure store. System-stored keys are available to Tutorux on this device; encrypted-archive keys move with the archive.`}
           </p>
           <button
             class="button button-primary"
@@ -643,6 +796,120 @@ export function AiPage(props: AiPageProps): JSX.Element {
           <p class="ai-message" role="status">
             {providerMessage()}
           </p>
+        </Show>
+        <Show when={embeddedAvailable}>
+          <section class="ai-embedded-model" aria-labelledby="ai-embedded-model-title">
+            <div class="ai-panel-heading">
+              <div>
+                <span class="eyebrow">ON THIS DEVICE · NO DOWNLOADS</span>
+                <h3 id="ai-embedded-model-title">In-process GGUF model</h3>
+              </div>
+              <span class="ai-provider-status">
+                {embeddedStatus()?.loaded ? "Loaded" : "Not loaded"}
+              </span>
+            </div>
+            <p>
+              Choose a GGUF file you already have. Tutorux validates the file and keeps inference
+              inside the app. Model memory uses a conservative estimate with a 64 GiB ceiling.
+            </p>
+            <div class="ai-embedded-model-controls">
+              <button
+                class="button button-outline"
+                type="button"
+                disabled={props.disabled || props.busy || embeddedBusy()}
+                onClick={() => void chooseEmbeddedModel()}
+              >
+                {embeddedModel() ? "Choose another GGUF file" : "Choose GGUF model"}
+              </button>
+              <Show when={embeddedModel()}>
+                {(model) => (
+                  <div class="ai-embedded-model-details">
+                    <strong>{model().name}</strong>
+                    <span>
+                      {model().architecture} · {formatBytes(model().fileSizeBytes)} ·{" "}
+                      {model().tensorCount.toLocaleString()} tensors
+                    </span>
+                    <span>
+                      Estimated memory at 4,096 context tokens: {formatBytes(model().estimatedMemoryBytes)}
+                    </span>
+                  </div>
+                )}
+              </Show>
+            </div>
+            <Show when={embeddedModel()}>
+              <div class="ai-form-grid ai-embedded-limits">
+                <label class="ai-field">
+                  <span>Context tokens (32–32,768)</span>
+                  <input
+                    type="number"
+                    min="32"
+                    max="32768"
+                    step="256"
+                    value={embeddedContextTokens()}
+                    disabled={props.disabled || props.busy || embeddedBusy()}
+                    onInput={(event) => setEmbeddedContextTokens(event.currentTarget.value)}
+                  />
+                </label>
+                <label class="ai-field">
+                  <span>CPU threads (1–16)</span>
+                  <input
+                    type="number"
+                    min="1"
+                    max="16"
+                    step="1"
+                    value={embeddedCpuThreads()}
+                    disabled={props.disabled || props.busy || embeddedBusy()}
+                    onInput={(event) => setEmbeddedCpuThreads(event.currentTarget.value)}
+                  />
+                </label>
+                <button
+                  class="button button-primary"
+                  type="button"
+                  disabled={props.disabled || props.busy || embeddedBusy()}
+                  onClick={() => void loadSelectedEmbeddedModel()}
+                >
+                  Load model locally
+                </button>
+              </div>
+            </Show>
+            <Show when={embeddedStatus()?.loaded}>
+              <div class="ai-embedded-model-active">
+                <span>
+                  {embeddedStatus()?.name} · {embeddedStatus()?.contextTokens?.toLocaleString()} context ·{" "}
+                  {embeddedStatus()?.cpuThreads} CPU threads ·{" "}
+                  {formatBytes(embeddedStatus()?.memoryEstimateBytes ?? 0)} estimated
+                </span>
+                <button
+                  class="button button-outline"
+                  type="button"
+                  disabled={props.disabled || props.busy || embeddedBusy()}
+                  onClick={() => void useEmbeddedModel()}
+                >
+                  Use in reviewed AI requests
+                </button>
+                <button
+                  class="button button-quiet"
+                  type="button"
+                  disabled={props.busy || embeddedBusy()}
+                  onClick={() => void unloadSelectedEmbeddedModel()}
+                >
+                  Unload model
+                </button>
+              </div>
+            </Show>
+            <Show when={props.busy && isEmbeddedGgufProvider(currentProvider().id)}>
+              <button
+                class="button button-quiet ai-embedded-cancel"
+                type="button"
+                onClick={() => void cancelLocalGeneration()}
+              >
+                Cancel local generation
+              </button>
+            </Show>
+            <Show when={embeddedMessage()}>
+              <p class="ai-message" role="status">{embeddedMessage()}</p>
+            </Show>
+          </section>
         </Show>
       </section>
 
