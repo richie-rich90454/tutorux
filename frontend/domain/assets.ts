@@ -1,6 +1,7 @@
 import { ArchiveFormatError, RecordType, newUuid, type ArchiveRecord } from "../archive/format";
 import type { ArchiveSnapshot } from "../archive/archive";
 import { extractDocumentText } from "./document-text";
+import sodium from "libsodium-wrappers-sumo";
 
 export const MAX_ASSET_BYTES = 256 * 1024 * 1024;
 const ASSET_CHUNK_BYTES = 8 * 1024 * 1024;
@@ -135,60 +136,157 @@ export async function makeAssetImport(
   return { records, metadata, deduplicated, chunkCount };
 }
 
+/** Stream one verified material. Publish the destination only after the stream closes successfully. */
+export function streamAssetBytes(
+  snapshot: ArchiveSnapshot,
+  metadata: ArchiveRecord,
+): ReadableStream<Uint8Array> {
+  const iterator = iterateVerifiedAssetChunks(snapshot, metadata);
+  return new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      try {
+        const next = await iterator.next();
+        if (next.done) controller.close();
+        else controller.enqueue(next.value);
+      } catch (error) {
+        controller.error(error);
+      }
+    },
+    async cancel() {
+      await iterator.return(undefined);
+    },
+  });
+}
+
+/** Materialize one verified asset for callers that need random access. */
 export async function readAssetBytes(
   snapshot: ArchiveSnapshot,
   metadata: ArchiveRecord,
 ): Promise<Uint8Array> {
+  const expectedSize = parseCount(metadata.fields.get("byte_size"), "Asset byte size");
+  const result = new Uint8Array(expectedSize);
+  let offset = 0;
+  for await (const chunk of iterateVerifiedAssetChunks(snapshot, metadata)) {
+    if (chunk.byteLength > expectedSize - offset) {
+      throw new ArchiveFormatError(
+        "asset_content_integrity_failed",
+        "Material content exceeds its declared size.",
+      );
+    }
+    result.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return result;
+}
+
+/** Incrementally checks each chunk and validates SHA-256 before successful completion. */
+export async function* iterateVerifiedAssetChunks(
+  snapshot: ArchiveSnapshot,
+  metadata: ArchiveRecord,
+): AsyncGenerator<Uint8Array> {
   if (metadata.type !== RecordType.assetMetadata) throw new Error("Select a material to export.");
   const blobId = metadata.fields.get("blob_id");
   const expectedHash = metadata.fields.get("content_hash");
   const expectedSize = parseCount(metadata.fields.get("byte_size"), "Asset byte size");
-  if (
-    !blobId ||
-    !/^[\da-f-]{36}$/iu.test(blobId) ||
-    !expectedHash ||
-    !/^[\da-f]{64}$/iu.test(expectedHash)
-  ) {
+  if (!blobId || !isUuid(blobId) || !expectedHash || !/^[\da-f]{64}$/iu.test(expectedHash)) {
     throw new ArchiveFormatError("asset_metadata_invalid", "Material content metadata is invalid.");
   }
   const blob = await snapshot.getRecord(RecordType.assetBlob, blobId);
-  if (!blob || blob.fields.get("_deleted") === "true") {
+  if (!blob || blob.fields.get("_deleted") === "true")
     throw new ArchiveFormatError(
       "asset_blob_missing",
       "Material content is missing from this archive.",
     );
-  }
-  if (
-    blob.fields.get("record_role") === "asset-blob-manifest" &&
-    blob.fields.get("content_hash")?.toLowerCase() !== expectedHash.toLowerCase()
-  ) {
+  const isManifest = blob.fields.get("record_role") === "asset-blob-manifest";
+  if (isManifest && blob.fields.get("content_hash")?.toLowerCase() !== expectedHash.toLowerCase()) {
     throw new ArchiveFormatError(
       "asset_manifest_hash_mismatch",
       "Material manifest hash does not match its metadata.",
     );
   }
+  const ids = isManifest ? (blob.fields.get("chunk_ids") ?? "") : "";
+  const chunkIds = ids ? ids.split(",") : [];
+  const chunkCount = isManifest
+    ? parseCount(blob.fields.get("chunk_count"), "Asset chunk count")
+    : 1;
+  const manifestSize = isManifest
+    ? parseCount(blob.fields.get("byte_size"), "Asset byte size")
+    : blob.blob.byteLength;
+  if (
+    manifestSize !== expectedSize ||
+    (isManifest &&
+      (chunkCount !== chunkIds.length ||
+        chunkCount > Math.ceil(MAX_ASSET_BYTES / ASSET_CHUNK_BYTES)))
+  ) {
+    throw new ArchiveFormatError(
+      "asset_manifest_invalid",
+      "Material chunk manifest is inconsistent.",
+    );
+  }
   const metadataChunkCount = metadata.fields.get("blob_count");
-  const expectedChunkCount =
-    blob.fields.get("record_role") === "asset-blob-manifest"
-      ? parseCount(blob.fields.get("chunk_count"), "Asset chunk count")
-      : 1;
   if (
     metadataChunkCount !== undefined &&
-    parseCount(metadataChunkCount, "Asset chunk count") !== expectedChunkCount
+    parseCount(metadataChunkCount, "Asset chunk count") !== chunkCount
   ) {
     throw new ArchiveFormatError(
       "asset_manifest_invalid",
       "Material chunk count does not match its metadata.",
     );
   }
-  const content = await readBlobRecord(snapshot, blob);
-  if (content.byteLength !== expectedSize || !(await matchesHash(content, expectedHash))) {
-    throw new ArchiveFormatError(
-      "asset_content_integrity_failed",
-      "Material byte count or SHA-256 does not match its metadata.",
-    );
+  await sodium.ready;
+  const digest = sodium.crypto_hash_sha256_init();
+  let total = 0;
+  let completed = false;
+  try {
+    for (let index = 0; index < chunkCount; index += 1) {
+      let bytes: Uint8Array;
+      if (!isManifest) bytes = blob.blob;
+      else {
+        const id = chunkIds[index]!;
+        if (!isUuid(id))
+          throw new ArchiveFormatError("asset_chunk_id_invalid", "Material chunk ID is invalid.");
+        const chunk = await snapshot.getRecord(RecordType.assetBlob, id);
+        if (
+          !chunk ||
+          chunk.fields.get("_deleted") === "true" ||
+          chunk.fields.get("record_role") !== "asset-blob-chunk" ||
+          chunk.fields.get("manifest_id")?.toLowerCase() !== blob.id.toLowerCase() ||
+          chunk.fields.get("chunk_index") !== index + "" ||
+          chunk.blob.byteLength !== parseCount(chunk.fields.get("byte_size"), "Material chunk size")
+        ) {
+          throw new ArchiveFormatError(
+            "asset_chunk_missing",
+            "A material chunk is missing or out of sequence.",
+          );
+        }
+        bytes = chunk.blob;
+        if (bytes.byteLength !== Math.min(ASSET_CHUNK_BYTES, expectedSize - total)) {
+          throw new ArchiveFormatError(
+            "asset_chunk_size_invalid",
+            "Material chunks do not match the expected 8 MiB layout.",
+          );
+        }
+      }
+      total += bytes.byteLength;
+      if (total > expectedSize)
+        throw new ArchiveFormatError(
+          "asset_size_invalid",
+          "Material size does not match its manifest.",
+        );
+      sodium.crypto_hash_sha256_update(digest, bytes);
+      yield bytes;
+    }
+    const actual = hex(sodium.crypto_hash_sha256_final(digest));
+    completed = true;
+    if (total !== expectedSize || actual !== expectedHash.toLowerCase()) {
+      throw new ArchiveFormatError(
+        "asset_content_integrity_failed",
+        "Material byte count or SHA-256 does not match its metadata.",
+      );
+    }
+  } finally {
+    if (!completed) sodium.crypto_hash_sha256_final(digest);
   }
-  return content;
 }
 
 async function currentBlob(
@@ -272,7 +370,7 @@ async function sha256(bytes: Uint8Array): Promise<Uint8Array> {
   return new Uint8Array(await crypto.subtle.digest("SHA-256", input));
 }
 
-function detectMimeType(filename: string, bytes: Uint8Array): string {
+export function detectMimeType(filename: string, bytes: Uint8Array): string {
   const starts = (...signature: number[]): boolean =>
     signature.every((value, index) => bytes[index] === value);
   const ascii = (offset: number, value: string): boolean =>
@@ -320,7 +418,7 @@ function detectMimeType(filename: string, bytes: Uint8Array): string {
   return "application/octet-stream";
 }
 
-function cleanFilename(value: string): string {
+export function cleanFilename(value: string): string {
   const name = value.trim();
   let hasControlCharacter = false;
   for (const character of name) {
