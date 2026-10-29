@@ -1,5 +1,6 @@
 mod ai_transport;
 mod credentials;
+mod embedded_ai;
 mod platform;
 mod transcription;
 
@@ -19,10 +20,13 @@ use tauri::{
 };
 use tauri_plugin_fs::FsExt;
 use uuid::Uuid;
+use zeroize::Zeroizing;
 
 const MAX_RANGE_BYTES: usize = 4 * 1024 * 1024;
 const MAX_EXPORT_BYTES: usize = 256 * 1024 * 1024;
 const HASH_BUFFER_BYTES: usize = 8 * 1024 * 1024;
+const MAX_AUDIO_GENERATION_BYTES: usize = 8 * 1024 * 1024;
+const ARCHIVE_LOCATOR_BYTES: usize = 32;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct ArchiveIdentity {
@@ -35,6 +39,7 @@ struct AuthorizedArchive {
     path: PathBuf,
     location: PathBuf,
     identity: ArchiveIdentity,
+    hasher: Sha256,
 }
 
 #[derive(Default)]
@@ -50,6 +55,7 @@ struct PendingSave {
     target_location: PathBuf,
     target_identity: Option<ArchiveIdentity>,
     temporary: PathBuf,
+    source_archive_token: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -67,6 +73,18 @@ struct SavePreparation {
     temporary_path: String,
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ArchiveAppendResult {
+    size: String,
+}
+
+#[derive(Clone, Copy)]
+struct ArchiveLocator {
+    commit_offset: u64,
+    generation: u64,
+}
+
 #[tauri::command]
 fn authorize_archive_path(
     path: String,
@@ -80,7 +98,7 @@ fn authorize_archive_path(
     if !metadata.is_file() {
         return Err("The selected archive is not a regular file.".to_owned());
     }
-    let identity = archive_identity(&selected)?;
+    let (identity, hasher) = archive_identity_and_hasher(&selected)?;
     let token = Uuid::new_v4().to_string();
     let name = selected
         .file_name()
@@ -97,6 +115,7 @@ fn authorize_archive_path(
                 path: selected,
                 location,
                 identity: identity.clone(),
+                hasher,
             },
         );
     Ok(ArchiveSelection {
@@ -114,6 +133,114 @@ fn close_archive(archive_token: String, state: State<'_, DesktopState>) -> Resul
         .map_err(|_| "Archive access state is unavailable.".to_owned())?
         .remove(&archive_token);
     Ok(())
+}
+
+#[tauri::command]
+fn append_audio_archive_generation(
+    window: tauri::WebviewWindow,
+    archive_token: String,
+    expected_size: String,
+    generation: String,
+    bytes: Vec<u8>,
+    state: State<'_, DesktopState>,
+) -> Result<ArchiveAppendResult, String> {
+    if window.label() != "main" {
+        return Err(
+            "Microphone checkpoints are only available from the main application window."
+                .to_owned(),
+        );
+    }
+    let expected_size = expected_size
+        .parse::<u64>()
+        .map_err(|_| "The microphone archive size is invalid.".to_owned())?;
+    let generation = generation
+        .parse::<u64>()
+        .map_err(|_| "The microphone archive generation is invalid.".to_owned())?;
+    if bytes.len() < ARCHIVE_LOCATOR_BYTES || bytes.len() > MAX_AUDIO_GENERATION_BYTES {
+        return Err("A microphone archive checkpoint has an unsupported generation size.".into());
+    }
+    let bytes = Zeroizing::new(bytes);
+
+    let mut archives = state
+        .opened_archives
+        .lock()
+        .map_err(|_| "Archive access state is unavailable.".to_owned())?;
+    let archive = archives.get_mut(&archive_token).ok_or_else(|| {
+        "Archive access has expired. Reopen the file before recording.".to_owned()
+    })?;
+    match resolve_existing_file(&archive.location)? {
+        Some(path) if same_path(&path, &archive.path) => {}
+        Some(_) => return Err(archive_location_changed_message()),
+        None => return Err(archive_changed_message()),
+    }
+
+    let mut file = OpenOptions::new()
+        .read(true)
+        .append(true)
+        .open(&archive.path)
+        .map_err(|error| format!("Could not open the authorized archive for recording: {error}"))?;
+    if !same_open_file(&archive.path, &file)? {
+        return Err(archive_changed_message());
+    }
+    let (current_identity, mut hasher) = archive_identity_from_file(&mut file)?;
+    if current_identity != archive.identity || current_identity.size != expected_size {
+        return Err(archive_changed_message());
+    }
+    let mut previous_locator = [0_u8; ARCHIVE_LOCATOR_BYTES];
+    file.seek(SeekFrom::End(-(ARCHIVE_LOCATOR_BYTES as i64)))
+        .map_err(|_| {
+            "The authorized file does not end at a published archive generation.".to_owned()
+        })?;
+    file.read_exact(&mut previous_locator)
+        .map_err(|error| format!("Could not inspect the published archive generation: {error}"))?;
+    let previous = decode_archive_locator(&previous_locator)?;
+    if previous.generation.checked_add(1) != Some(generation) {
+        return Err("The microphone checkpoint is based on a stale archive generation.".into());
+    }
+    validate_audio_archive_generation(&bytes, expected_size, generation, previous)?;
+    let expected_new_size = expected_size
+        .checked_add(bytes.len() as u64)
+        .ok_or_else(|| "The archive size exceeds the supported range.".to_owned())?;
+
+    let locator_offset = bytes.len() - ARCHIVE_LOCATOR_BYTES;
+    file.seek(SeekFrom::End(0))
+        .map_err(|error| format!("Could not seek to the archive end: {error}"))?;
+    file.write_all(&bytes[..locator_offset])
+        .map_err(|error| format!("Could not append the microphone checkpoint: {error}"))?;
+    file.sync_all()
+        .map_err(|error| format!("Could not flush microphone checkpoint data: {error}"))?;
+    file.write_all(&bytes[locator_offset..])
+        .map_err(|error| format!("Could not publish the microphone checkpoint: {error}"))?;
+    file.sync_all().map_err(|error| {
+        format!("Could not flush the microphone checkpoint publication: {error}")
+    })?;
+    verify_audio_archive_append(&mut file, expected_size, &bytes)?;
+
+    if file
+        .metadata()
+        .map_err(|error| format!("Could not inspect the updated archive: {error}"))?
+        .len()
+        != expected_new_size
+    {
+        return Err("The microphone checkpoint ended at an unexpected archive size.".into());
+    }
+    if !same_open_file(&archive.path, &file)? {
+        return Err(archive_changed_message());
+    }
+    match resolve_existing_file(&archive.location)? {
+        Some(path) if same_path(&path, &archive.path) => {}
+        Some(_) => return Err(archive_location_changed_message()),
+        None => return Err(archive_changed_message()),
+    }
+    hasher.update(&*bytes);
+    archive.identity = ArchiveIdentity {
+        size: expected_new_size,
+        sha256: format!("{:x}", hasher.clone().finalize()),
+    };
+    archive.hasher = hasher;
+    Ok(ArchiveAppendResult {
+        size: expected_new_size.to_string(),
+    })
 }
 
 #[tauri::command]
@@ -162,6 +289,7 @@ fn prepare_archive_save(
     app: AppHandle,
     state: State<'_, DesktopState>,
 ) -> Result<SavePreparation, String> {
+    let source_archive_token = archive_token.clone();
     let target_location = normalized_location_path(Path::new(&target_path))?;
     let target = match resolve_existing_file(&target_location)? {
         Some(path) => path,
@@ -216,6 +344,7 @@ fn prepare_archive_save(
                 target_location,
                 target_identity,
                 temporary: temporary.clone(),
+                source_archive_token,
             },
         );
     Ok(SavePreparation {
@@ -306,6 +435,19 @@ fn publish_archive_save(
         let _ = fs::remove_file(&backup);
         let _ = fs::remove_dir(&backup_directory);
     }
+    if let Some(archive_token) = &pending.source_archive_token {
+        let (identity, hasher) = archive_identity_and_hasher(&pending.target)?;
+        let mut opened_archives = state
+            .opened_archives
+            .lock()
+            .map_err(|_| "Archive access state is unavailable.".to_owned())?;
+        if let Some(archive) = opened_archives.get_mut(archive_token) {
+            archive.path = pending.target.clone();
+            archive.location = pending.target_location.clone();
+            archive.identity = identity;
+            archive.hasher = hasher;
+        }
+    }
     pending_saves.remove(&token);
     let _ = app.fs_scope().forbid_file(&pending.temporary);
     Ok(())
@@ -342,14 +484,24 @@ fn resolve_existing_file(path: &Path) -> Result<Option<PathBuf>, String> {
 }
 
 fn archive_identity(path: &Path) -> Result<ArchiveIdentity, String> {
+    archive_identity_and_hasher(path).map(|(identity, _)| identity)
+}
+
+fn archive_identity_and_hasher(path: &Path) -> Result<(ArchiveIdentity, Sha256), String> {
     let mut file =
         File::open(path).map_err(|error| format!("Could not inspect archive: {error}"))?;
+    archive_identity_from_file(&mut file)
+}
+
+fn archive_identity_from_file(file: &mut File) -> Result<(ArchiveIdentity, Sha256), String> {
     let before = file
         .metadata()
         .map_err(|error| format!("Could not inspect archive: {error}"))?;
     if !before.is_file() {
         return Err("The archive is not a regular file.".to_owned());
     }
+    file.seek(SeekFrom::Start(0))
+        .map_err(|error| format!("Could not inspect archive: {error}"))?;
     let mut hasher = Sha256::new();
     let mut buffer = vec![0; HASH_BUFFER_BYTES];
     let mut size = 0_u64;
@@ -374,10 +526,185 @@ fn archive_identity(path: &Path) -> Result<ArchiveIdentity, String> {
                 .to_owned(),
         );
     }
-    Ok(ArchiveIdentity {
-        size,
-        sha256: format!("{:x}", hasher.finalize()),
+    let digest = hasher.clone();
+    Ok((
+        ArchiveIdentity {
+            size,
+            sha256: format!("{:x}", hasher.finalize()),
+        },
+        digest,
+    ))
+}
+
+fn decode_archive_locator(bytes: &[u8]) -> Result<ArchiveLocator, String> {
+    if bytes.len() != ARCHIVE_LOCATOR_BYTES
+        || &bytes[..8] != b"TUXLOC1\0"
+        || u32::from_le_bytes(
+            bytes[24..28]
+                .try_into()
+                .map_err(|_| "Archive locator is invalid.")?,
+        ) != archive_crc32(&bytes[..24])
+        || bytes[28..32] != [0; 4]
+    {
+        return Err("The microphone checkpoint requires a valid published archive locator.".into());
+    }
+    Ok(ArchiveLocator {
+        commit_offset: u64::from_le_bytes(
+            bytes[8..16]
+                .try_into()
+                .map_err(|_| "Archive locator is invalid.")?,
+        ),
+        generation: u64::from_le_bytes(
+            bytes[16..24]
+                .try_into()
+                .map_err(|_| "Archive locator is invalid.")?,
+        ),
     })
+}
+
+fn validate_audio_archive_generation(
+    bytes: &[u8],
+    previous_size: u64,
+    generation: u64,
+    previous: ArchiveLocator,
+) -> Result<(), String> {
+    if bytes.len() < ARCHIVE_LOCATOR_BYTES + 64 + 92 {
+        return Err("The microphone checkpoint is missing its commit record.".into());
+    }
+    let locator_offset = bytes.len() - ARCHIVE_LOCATOR_BYTES;
+    let locator = decode_archive_locator(&bytes[locator_offset..])?;
+    if locator.generation != generation {
+        return Err("The microphone checkpoint generation locator does not match.".into());
+    }
+    let relative_commit_offset = locator
+        .commit_offset
+        .checked_sub(previous_size)
+        .and_then(|offset| usize::try_from(offset).ok())
+        .ok_or_else(|| {
+            "The microphone checkpoint points outside its appended generation.".to_owned()
+        })?;
+    if relative_commit_offset % 8 != 0 || relative_commit_offset + 64 > locator_offset {
+        return Err("The microphone checkpoint commit offset is invalid.".into());
+    }
+    let header = &bytes[relative_commit_offset..relative_commit_offset + 64];
+    let payload_len = u64::from_le_bytes(
+        header[12..20]
+            .try_into()
+            .map_err(|_| "The microphone checkpoint commit header is invalid.")?,
+    );
+    let payload_len = usize::try_from(payload_len)
+        .map_err(|_| "The microphone checkpoint commit payload is too large.".to_owned())?;
+    let payload_end = relative_commit_offset
+        .checked_add(64)
+        .and_then(|offset| offset.checked_add(payload_len))
+        .ok_or_else(|| "The microphone checkpoint commit size is invalid.".to_owned())?;
+    let padding_len = (8 - payload_len % 8) % 8;
+    let frame_end = payload_end
+        .checked_add(padding_len)
+        .ok_or_else(|| "The microphone checkpoint commit size is invalid.".to_owned())?;
+    if &header[..4] != b"TXRC"
+        || u16::from_le_bytes(
+            header[4..6]
+                .try_into()
+                .map_err(|_| "Invalid commit header.")?,
+        ) != 251
+        || u16::from_le_bytes(
+            header[6..8]
+                .try_into()
+                .map_err(|_| "Invalid commit header.")?,
+        ) != 1
+        || u32::from_le_bytes(
+            header[8..12]
+                .try_into()
+                .map_err(|_| "Invalid commit header.")?,
+        ) != 64
+        || header[20..36] != [0; 16]
+        || u64::from_le_bytes(
+            header[36..44]
+                .try_into()
+                .map_err(|_| "Invalid commit header.")?,
+        ) != generation
+        || u64::from_le_bytes(
+            header[44..52]
+                .try_into()
+                .map_err(|_| "Invalid commit header.")?,
+        ) != previous.commit_offset
+        || header[52] > 1
+        || header[53] & !1 != 0
+        || header[54..56] != [0; 2]
+        || u32::from_le_bytes(
+            header[60..64]
+                .try_into()
+                .map_err(|_| "Invalid commit header.")?,
+        ) != archive_crc32(&header[..60])
+        || payload_len < 92
+        || frame_end != locator_offset
+    {
+        return Err("The microphone checkpoint commit record is malformed.".into());
+    }
+    let payload = &bytes[relative_commit_offset + 64..payload_end];
+    if u32::from_le_bytes(
+        header[56..60]
+            .try_into()
+            .map_err(|_| "Invalid commit checksum.")?,
+    ) != archive_crc32(payload)
+        || payload.len() < 92
+        || &payload[..4] != b"TXCM"
+        || u16::from_le_bytes(
+            payload[4..6]
+                .try_into()
+                .map_err(|_| "Invalid commit payload.")?,
+        ) != 1
+        || payload[6..8] != [0; 2]
+        || u64::from_le_bytes(
+            payload[8..16]
+                .try_into()
+                .map_err(|_| "Invalid commit payload.")?,
+        ) != generation
+        || u64::from_le_bytes(
+            payload[16..24]
+                .try_into()
+                .map_err(|_| "Invalid commit payload.")?,
+        ) != previous.commit_offset
+        || bytes[payload_end..frame_end].iter().any(|byte| *byte != 0)
+    {
+        return Err("The microphone checkpoint commit payload is invalid.".into());
+    }
+    Ok(())
+}
+
+fn archive_crc32(bytes: &[u8]) -> u32 {
+    let mut crc = u32::MAX;
+    for byte in bytes {
+        crc ^= u32::from(*byte);
+        for _ in 0..8 {
+            crc = (crc >> 1) ^ (0xedb8_8320 & (0_u32.wrapping_sub(crc & 1)));
+        }
+    }
+    !crc
+}
+
+fn verify_audio_archive_append(
+    file: &mut File,
+    offset: u64,
+    expected: &[u8],
+) -> Result<(), String> {
+    file.seek(SeekFrom::Start(offset))
+        .map_err(|error| format!("Could not verify the microphone checkpoint: {error}"))?;
+    let mut buffer = Zeroizing::new(vec![0_u8; 64 * 1024]);
+    let mut copied = 0;
+    while copied < expected.len() {
+        let count = (expected.len() - copied).min(buffer.len());
+        file.read_exact(&mut buffer[..count])
+            .map_err(|error| format!("Could not verify the microphone checkpoint: {error}"))?;
+        if buffer[..count] != expected[copied..copied + count] {
+            return Err(
+                "The microphone checkpoint did not match the bytes written to the archive.".into(),
+            );
+        }
+        copied += count;
+    }
+    Ok(())
 }
 
 fn same_path(left: &Path, right: &Path) -> bool {
@@ -389,6 +716,28 @@ fn same_path(left: &Path, right: &Path) -> bool {
     #[cfg(not(any(windows, target_os = "macos")))]
     {
         left == right
+    }
+}
+
+fn same_open_file(path: &Path, file: &File) -> Result<bool, String> {
+    let opened = file
+        .metadata()
+        .map_err(|error| format!("Could not inspect the authorized archive: {error}"))?;
+    let named = fs::metadata(path)
+        .map_err(|error| format!("Could not inspect the authorized archive: {error}"))?;
+    if !opened.is_file() || !named.is_file() {
+        return Ok(false);
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        Ok(opened.dev() == named.dev() && opened.ino() == named.ino())
+    }
+    #[cfg(windows)]
+    {
+        Ok(opened.len() == named.len()
+            && opened.created().ok() == named.created().ok()
+            && opened.modified().ok() == named.modified().ok())
     }
 }
 
@@ -615,6 +964,7 @@ fn install_native_menu(app: &mut tauri::App) -> Result<(), Box<dyn std::error::E
 fn main() {
     tauri::Builder::default()
         .manage(DesktopState::default())
+        .manage(embedded_ai::EmbeddedAiState::default())
         .manage(platform::audio_capture::AudioCaptureState::default())
         .plugin(tauri_plugin_single_instance::init(
             |app, arguments, current_directory| {
@@ -674,6 +1024,12 @@ fn main() {
             credentials::has_ai_credential,
             credentials::save_ai_credential,
             credentials::remove_ai_credential,
+            embedded_ai::authorize_embedded_model,
+            embedded_ai::load_embedded_model,
+            embedded_ai::unload_embedded_model,
+            embedded_ai::embedded_model_status,
+            embedded_ai::generate_embedded_text,
+            embedded_ai::cancel_embedded_generation,
             authorize_archive_path,
             close_archive,
             read_archive_range,
@@ -687,6 +1043,7 @@ fn main() {
             transcription::cancel_whisper_run,
             transcription::end_whisper_run,
             transcription::transcribe_whisper,
+            append_audio_archive_generation,
             platform::audio_capture::begin_audio_capture,
             platform::audio_capture::append_audio_capture_chunk,
             platform::audio_capture::pause_audio_capture,
