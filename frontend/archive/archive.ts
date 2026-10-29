@@ -27,6 +27,7 @@ import {
 } from "./format";
 import { CompositeArchiveSource, MemoryArchiveSource, type ArchiveByteSource } from "./source";
 import type { ArchiveDataKey } from "./crypto";
+import type { ArchiveStaging } from "./staging";
 
 const LOCATOR_SIZE = 32;
 const RECOVERY_WINDOW = 64 * 1024 * 1024;
@@ -2001,6 +2002,145 @@ export async function backfillArchiveSecondaryIndexes(
     return { snapshot: migrated, addedEntries, conflictingEntries };
   } catch (error) {
     migrated.lock();
+    throw error;
+  }
+}
+
+/** Stage and verify an asset transaction before exposing the resulting snapshot. */
+export async function appendStagedAssetRecords(
+  snapshot: ArchiveSnapshot,
+  records: AsyncIterable<ArchiveRecord>,
+  staging: ArchiveStaging,
+): Promise<ArchiveSnapshot> {
+  if (snapshot.locked)
+    throw new ArchiveFormatError(
+      "archive_locked",
+      "Unlock the archive before importing materials.",
+    );
+  if (snapshot.source.size !== snapshot.publishedEndOffset)
+    throw new ArchiveFormatError(
+      "archive_recovery_required",
+      "Review or recover trailing data before importing materials.",
+    );
+  const manifest = await snapshot.getRecord(RecordType.settings, snapshot.header.id);
+  if (!isSupportedManifest(manifest))
+    throw new ArchiveFormatError(
+      "archive_manifest_missing",
+      "Archive manifest is missing or invalid.",
+    );
+  const index = new Map(snapshot.allIndexEntries());
+  const written = new Set<string>();
+  let cursor = snapshot.source.size;
+  let recordCount = 0n;
+  let metadataCount = 0;
+  let stageSource: ArchiveByteSource | undefined;
+  let next: ArchiveSnapshot | undefined;
+  try {
+    for await (const input of records) {
+      if (input.type !== RecordType.assetBlob && input.type !== RecordType.assetMetadata) {
+        throw new ArchiveFormatError(
+          "asset_import_record_invalid",
+          "The material import contains an unsupported record type.",
+        );
+      }
+      const key = primaryIndexKey(input.type, input.id);
+      if (index.has(key) || written.has(key))
+        throw new ArchiveFormatError(
+          "record_duplicate",
+          "The material import would overwrite an existing record.",
+        );
+      if (input.type === RecordType.assetMetadata) metadataCount += 1;
+      const record = { ...input, id: input.id.toLowerCase(), revision: 1n, previousOffset: 0n };
+      const frame = await snapshot.encodeRecordFrameForAppend(record);
+      await staging.append(frame);
+      index.set(key, cursor);
+      written.add(key);
+      for (const alias of secondaryIndexKeys(record)) {
+        if (index.has(alias))
+          throw new ArchiveFormatError(
+            "asset_blob_index_invalid",
+            "A material content index already exists.",
+          );
+        index.set(alias, cursor);
+      }
+      cursor += BigInt(frame.length);
+      recordCount += 1n;
+    }
+    if (metadataCount !== 1)
+      throw new ArchiveFormatError(
+        "asset_import_record_invalid",
+        "A material import must contain exactly one material record.",
+      );
+    const fields = new Map(manifest.fields);
+    fields.set("updated_at_us", (BigInt(Date.now()) * 1000n).toString());
+    const manifestKey = primaryIndexKey(RecordType.settings, snapshot.header.id);
+    const previousOffset = index.get(manifestKey);
+    if (previousOffset === undefined)
+      throw new ArchiveFormatError("archive_manifest_missing", "Archive manifest is missing.");
+    const manifestFrame = await snapshot.encodeRecordFrameForAppend({
+      ...manifest,
+      fields,
+      revision: manifest.revision + 1n,
+      previousOffset,
+    });
+    await staging.append(manifestFrame);
+    index.set(manifestKey, cursor);
+    cursor += BigInt(manifestFrame.length);
+    recordCount += 1n;
+    const entries = [...index]
+      .map(([key, valueOffset]) => ({ key, valueOffset }))
+      .sort((left, right) => compareKeys(left.key, right.key));
+    const tree = await buildIndexTree(
+      entries,
+      cursor,
+      snapshot.encrypted
+        ? (payload) => snapshot.authenticateEncryptedPayload("TUTORUX-INDEX-PAGE-V1", payload)
+        : undefined,
+    );
+    for (const frame of tree.frames) await staging.append(frame);
+    const generation = snapshot.commit.generation + 1n;
+    const commitBody = encodeCommitPayload({
+      generation,
+      previousOffset: snapshot.commit.offset,
+      rootOffset: tree.rootOffset,
+      rootHash: await sha256(tree.rootPayload),
+      transactionId: newUuid(),
+      recordCount,
+    });
+    const payload = snapshot.encrypted
+      ? concatBytes([
+          commitBody,
+          await snapshot.authenticateEncryptedPayload("TUTORUX-COMMIT-V1", commitBody),
+        ])
+      : commitBody;
+    const commit = encodeRecordFrame(
+      {
+        type: RecordType.commit,
+        id: ZERO_UUID,
+        revision: generation,
+        previousOffset: snapshot.commit.offset,
+      },
+      payload,
+    );
+    await staging.append(commit);
+    await staging.append(encodeLocator(tree.endOffset, generation));
+    stageSource = await staging.seal();
+    const source = new CompositeArchiveSource(snapshot.source, stageSource);
+    next = await snapshot.openNextGeneration(source);
+    await verifyArchiveSnapshot(next);
+    for (const key of written) {
+      const oldOffset = index.get(key);
+      if (oldOffset === undefined || next.allIndexEntries().get(key) !== oldOffset)
+        throw new ArchiveFormatError(
+          "archive_write_verification_failed",
+          "A staged material index could not be verified.",
+        );
+    }
+    return next;
+  } catch (error) {
+    next?.lock();
+    await stageSource?.close?.().catch(() => undefined);
+    await staging.abort().catch(() => undefined);
     throw error;
   }
 }
