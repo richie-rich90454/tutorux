@@ -21,13 +21,15 @@ interface PendingCapture {
   sessionId: string;
   startedAtUs: string;
   consentAtUs: string;
+  pauseCount: number;
+  pausedDurationUs: string;
 }
 
 /** Capture a microphone take and save it as ordinary archive PCM tracks. */
 export function MicrophoneTrackRecorder(props: Props) {
   const [consent, setConsent] = createSignal(false);
   const [state, setState] = createSignal<
-    "idle" | "requesting" | "recording" | "stopping" | "saving"
+    "idle" | "requesting" | "recording" | "pausing" | "paused" | "resuming" | "stopping" | "saving"
   >("idle");
   const [pending, setPending] = createSignal<PendingCapture>();
   const [error, setError] = createSignal("");
@@ -63,6 +65,8 @@ export function MicrophoneTrackRecorder(props: Props) {
         knownTrackIds: props.trackIds,
         startedAtUs: capture.startedAtUs,
         consentAtUs: capture.consentAtUs,
+        pauseCount: capture.pauseCount,
+        pausedDurationUs: capture.pausedDurationUs,
       });
       if (props.snapshot !== snapshot || props.session !== session)
         throw new Error(
@@ -80,14 +84,14 @@ export function MicrophoneTrackRecorder(props: Props) {
   };
 
   const stop = async (reason = "") => {
-    if (!recorder || state() !== "recording") return;
+    if (!recorder || !["recording", "pausing", "paused", "resuming"].includes(state())) return;
     const active = recorder;
     recorder = undefined;
     setState("stopping");
     try {
-      const file = await active.stop();
+      const result = await active.stop();
       if (disposed) return;
-      const capture = { file, archiveId, sessionId, startedAtUs, consentAtUs };
+      const capture = { ...result, archiveId, sessionId, startedAtUs, consentAtUs };
       setPending(capture);
       setStatus(reason);
       await save(capture);
@@ -95,6 +99,25 @@ export function MicrophoneTrackRecorder(props: Props) {
       if (!disposed) setError(cause instanceof Error ? cause.message : String(cause));
     } finally {
       if (!disposed && state() === "stopping") setState("idle");
+    }
+  };
+
+  const togglePause = async () => {
+    const active = recorder;
+    const previous = state();
+    if (!active || (previous !== "recording" && previous !== "paused")) return;
+    setError("");
+    setState(previous === "recording" ? "pausing" : "resuming");
+    try {
+      if (previous === "recording") await active.pause();
+      else await active.resume();
+      if (!disposed && recorder === active)
+        setState(previous === "recording" ? "paused" : "recording");
+    } catch (cause) {
+      if (!disposed && recorder === active) {
+        setState(previous);
+        setError(cause instanceof Error ? cause.message : String(cause));
+      }
     }
   };
 
@@ -157,10 +180,19 @@ export function MicrophoneTrackRecorder(props: Props) {
             Start recording
           </button>
         </Show>
-        <Show when={state() === "recording"}>
+        <Show when={state() === "recording" || state() === "paused"}>
+          <button class="button button-outline" type="button" onClick={() => void togglePause()}>
+            {state() === "paused" ? "Resume recording" : "Pause recording"}
+          </button>
           <button class="button button-outline" type="button" onClick={() => void stop()}>
             Stop and save
           </button>
+        </Show>
+        <Show when={state() === "paused"}>
+          <span role="status">Recording paused; microphone muted.</span>
+        </Show>
+        <Show when={state() === "pausing" || state() === "resuming"}>
+          <span role="status">Changing recording state…</span>
         </Show>
         <Show when={state() === "requesting"}>
           <span role="status">Waiting for microphone permission…</span>
