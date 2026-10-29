@@ -1,16 +1,19 @@
 import { Show, createSignal, onCleanup, type JSX } from "solid-js";
 import {
   compactArchiveSnapshot,
+  backfillArchiveSecondaryIndexes,
   recoverUnpublishedCommit,
   type ArchiveSnapshot,
   type ArchiveCompactionResult,
   type ArchiveRecoveryResult,
+  type ArchiveIndexMigrationResult,
 } from "./archive/archive";
 import "./archive-maintenance.css";
 
 type Review =
   | { kind: "recover"; source: ArchiveSnapshot; result: ArchiveRecoveryResult }
-  | { kind: "compact"; source: ArchiveSnapshot; result: ArchiveCompactionResult };
+  | { kind: "compact"; source: ArchiveSnapshot; result: ArchiveCompactionResult }
+  | { kind: "indexes"; source: ArchiveSnapshot; result: ArchiveIndexMigrationResult };
 
 interface ArchiveMaintenanceProps {
   snapshot: ArchiveSnapshot;
@@ -19,7 +22,7 @@ interface ArchiveMaintenanceProps {
   onApply: (
     original: ArchiveSnapshot,
     replacement: ArchiveSnapshot,
-    kind: "recover" | "compact",
+    kind: "recover" | "compact" | "indexes",
   ) => Promise<boolean>;
 }
 
@@ -35,7 +38,7 @@ function bytes(value: bigint): string {
   return `${size.toFixed(size >= 100 ? 0 : size >= 10 ? 1 : 2)} ${units[unit]}`;
 }
 
-/** Review recovery and compaction before changing the workspace. */
+/** Review archive maintenance before changing the workspace. */
 export function ArchiveMaintenance(props: ArchiveMaintenanceProps): JSX.Element {
   const [review, setReview] = createSignal<Review | null>(null);
   const [working, setWorking] = createSignal(false);
@@ -47,7 +50,7 @@ export function ArchiveMaintenance(props: ArchiveMaintenanceProps): JSX.Element 
   function discardReview(): void {
     const current = review();
     setReview(null);
-    current?.result.snapshot.lock();
+    if (current && current.result.snapshot !== current.source) current.result.snapshot.lock();
   }
   onCleanup(discardReview);
 
@@ -60,12 +63,13 @@ export function ArchiveMaintenance(props: ArchiveMaintenanceProps): JSX.Element 
     try {
       if (kind === "recover")
         setReview({ kind, source, result: await recoverUnpublishedCommit(source) });
-      else
+      else if (kind === "compact")
         setReview({
           kind,
           source,
           result: await compactArchiveSnapshot(source, { pruneUnreferencedAssets: pruneAssets() }),
         });
+      else setReview({ kind, source, result: await backfillArchiveSecondaryIndexes(source) });
       if (props.snapshot !== source) {
         discardReview();
         throw new Error(
@@ -80,7 +84,7 @@ export function ArchiveMaintenance(props: ArchiveMaintenanceProps): JSX.Element 
   }
   async function apply(): Promise<void> {
     const current = review();
-    if (!current || unavailable()) return;
+    if (!current || unavailable() || current.result.snapshot === current.source) return;
     if (props.snapshot !== current.source) {
       discardReview();
       setError("The archive changed after this preview. Review it again.");
@@ -137,6 +141,14 @@ export function ArchiveMaintenance(props: ArchiveMaintenanceProps): JSX.Element 
         >
           Review compaction
         </button>
+        <button
+          class="button button-outline"
+          type="button"
+          disabled={unavailable()}
+          onClick={() => void prepare("indexes")}
+        >
+          Review index updates
+        </button>
       </div>
       <Show when={working()}>
         <p role="status">Reading and checking archive data…</p>
@@ -182,6 +194,23 @@ export function ArchiveMaintenance(props: ArchiveMaintenanceProps): JSX.Element 
                 </>
               )}
             </Show>
+            <Show when={item.kind === "indexes" && item}>
+              {(entry) => (
+                <>
+                  <h3>Update archive indexes</h3>
+                  <p>
+                    {entry().result.addedEntries.toLocaleString()} missing index entries can be
+                    added. Existing entries and record history are preserved.
+                  </p>
+                  <Show when={entry().result.conflictingEntries > 0}>
+                    <p>
+                      {entry().result.conflictingEntries.toLocaleString()} existing entries point to
+                      different revisions or records and will be left unchanged.
+                    </p>
+                  </Show>
+                </>
+              )}
+            </Show>
             <Show when={props.snapshot !== item.source}>
               <p class="archive-maintenance-error">The workspace changed. Prepare a new preview.</p>
             </Show>
@@ -197,10 +226,18 @@ export function ArchiveMaintenance(props: ArchiveMaintenanceProps): JSX.Element 
               <button
                 class="button button-primary"
                 type="button"
-                disabled={unavailable() || props.snapshot !== item.source}
+                disabled={
+                  unavailable() ||
+                  props.snapshot !== item.source ||
+                  item.result.snapshot === item.source
+                }
                 onClick={() => void apply()}
               >
-                {item.kind === "recover" ? "Apply recovery" : "Apply compaction"}
+                {item.kind === "recover"
+                  ? "Apply recovery"
+                  : item.kind === "compact"
+                    ? "Apply compaction"
+                    : "Apply index updates"}
               </button>
             </div>
           </div>
