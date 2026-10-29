@@ -46,8 +46,9 @@ import { executeAiGeneration } from "../frontend/ai/execution";
 import type { AiTransportRequest, AiTransportResult } from "../frontend/platform/types";
 import { packAiContext } from "./ai-context";
 import { exportAiPackage } from "./ai-export";
+import { appendCliAssetFile, exportCliAssetAtomically } from "./assets-stream";
 import { NodeFileArchiveSource } from "../frontend/archive/node-source";
-import { MAX_ASSET_BYTES, makeAssetImport, readAssetBytes } from "../frontend/domain/assets";
+import { iterateVerifiedAssetChunks, readAssetBytes } from "../frontend/domain/assets";
 import {
   evidenceSourcesAreCurrent,
   EVIDENCE_RELATIONSHIPS,
@@ -165,6 +166,9 @@ import {
   waveformIndexIsCurrent,
 } from "../frontend/domain/waveform-index";
 import { transcribeTrack } from "./whisper";
+import { prepareWavImportRecovery } from "../frontend/domain/wav-recovery";
+import { prepareNativeCaptureRecovery } from "../frontend/domain/native-recording-recovery";
+import { moveJournalSessionForCli } from "./journal-move";
 
 interface CliIo {
   stdout(message: string): void;
@@ -178,6 +182,7 @@ interface ParsedArguments {
 }
 
 const ASSET_IMPORT_BATCH_BYTES = 64 * 1024 * 1024;
+const ASSET_IMPORT_BATCH_FILES = 128;
 const archiveAccessContext = new AsyncLocalStorage<{ passphrase: string | undefined }>();
 
 const io: CliIo = {
@@ -213,12 +218,13 @@ Usage:
   tutorux --archive <file.tux> session create --title <title> --subject <subject> [--student <uuid>] [--entry-id <uuid>]
   tutorux --archive <file.tux> session list [--student-id <uuid>] [--entry-id <uuid>] [--from <YYYY-MM-DD>] [--to <YYYY-MM-DD>] [--archived|--unarchived] [--include-deleted] [--json]
   tutorux --archive <file.tux> session show|verify <uuid> [--json]
-  tutorux --archive <file.tux> session update <uuid> [--title <title>] [--subject <subject>] [--objectives <text>] [--student-id <uuid>] [--notes <text>]
+  tutorux --archive <file.tux> session update <uuid> [--title <title>] [--subject <subject>] [--objectives <text>] [--student-id <uuid>] [--entry-id <uuid>] [--notes <text>]
   tutorux --archive <file.tux> session clone <uuid> [--title <title>] [--type notes-only|record-audio|import-recording]
   tutorux --archive <file.tux> session export <uuid> --output <package.tux> [--force]
   tutorux --archive <file.tux> session import <package.tux>|--input <package.tux> [--student-id <uuid>]
   tutorux --archive <file.tux> session archive|unarchive <uuid>
   tutorux --archive <file.tux> session start|complete|review|resume <uuid>
+  tutorux --archive <file.tux> session recover --session <uuid> [--json]
   tutorux --archive <file.tux> session delete <uuid> [--dry-run] [--confirm-scope --scope-token <token>]
   tutorux --archive <file.tux> session restore <uuid>
   tutorux --archive <file.tux> journal create --title <title> --date <YYYY-MM-DD> [--collection-ids <uuid,...>] [--tag-ids <uuid,...>]
@@ -294,6 +300,7 @@ Usage:
   tutorux diagnostics run|archive|report [--full] | providers | graphics | audio | network
   tutorux benchmark startup|memory|cpu|indexing|rendering|export|full
   tutorux --archive <file.tux> record take-list --session <uuid> [--include-deleted] [--json]
+  tutorux --archive <file.tux> record recover --session <uuid> [--json]
   tutorux --archive <file.tux> record import --session <uuid> --input <file.wav> [--additional-track]
   tutorux --archive <file.tux> record export-wav --session <uuid> --output <file.wav> [--track <uuid>] [--fill-gaps] [--overwrite]
   tutorux --archive <file.tux> record waveform --session <uuid> [--track <uuid>] [--buckets <n>]
@@ -1500,6 +1507,81 @@ async function runRecordingTakeCommand(
   return 0;
 }
 
+async function runSessionAudioRecovery(
+  path: string,
+  args: ParsedArguments,
+  output: CliIo,
+): Promise<number> {
+  const id = canonicalizeProgressUuid(requiredOption(args, "session"));
+  if (!id) throw new CliError("--session must be a valid UUID.");
+  const snapshot = await openForCommand(path);
+  let generation: bigint;
+  let prepared: Awaited<ReturnType<typeof prepareWavImportRecovery>> | undefined;
+  let native: Awaited<ReturnType<typeof prepareNativeCaptureRecovery>> | undefined;
+  let trackId: string;
+  try {
+    generation = snapshot.commit.generation;
+    const session = await requireLiveRecord(snapshot, RecordType.session, id);
+    trackId = field(session, "audio_import_track_id");
+    if (field(session, "recording_track_id") || field(session, "recording_track_ids")) {
+      native = await prepareNativeCaptureRecovery(snapshot, session);
+    } else {
+      prepared = await prepareWavImportRecovery(snapshot, session);
+    }
+  } finally {
+    await closeSnapshot(snapshot);
+  }
+  if (native) {
+    if (native.records.length)
+      await mutateArchive(
+        path,
+        native.records,
+        generation,
+        "The archive changed while recovery was being prepared. Retry the command.",
+      );
+    emit(
+      output,
+      {
+        session_id: id,
+        state: native.completed ? "completed" : BigInt(native.chunkCount) > 0n ? "partial" : "failed",
+        duration_us: native.durationUs,
+        sample_count: native.sampleCount,
+        chunk_count: native.chunkCount,
+        byte_count: native.byteCount,
+        tracks: native.tracks,
+      },
+      native.message,
+      args.flags.has("json"),
+    );
+    return native.completed ? 0 : 2;
+  }
+  if (!prepared) throw new CliError("No WAV import recovery is available for this session.");
+  if (prepared.records.length)
+    await mutateArchive(
+      path,
+      prepared.records,
+      generation,
+      "The archive changed while recovery was being prepared. Retry the command.",
+    );
+  emit(
+    output,
+    {
+      session_id: id,
+      track_id: trackId,
+      state: prepared.state,
+      sample_count: String(prepared.sampleCount),
+      chunk_count: String(prepared.chunkCount),
+      duration_us: String(prepared.durationUs),
+      byte_count: String(prepared.byteCount),
+      completed: prepared.completed,
+      message: prepared.message,
+    },
+    prepared.message,
+    args.flags.has("json"),
+  );
+  return prepared.completed ? 0 : 2;
+}
+
 async function runRecordCommand(
   group: string,
   action: string,
@@ -1507,6 +1589,9 @@ async function runRecordCommand(
   args: ParsedArguments,
   output: CliIo,
 ): Promise<number> {
+  if ((group === "session" || group === "record") && action === "recover") {
+    return runSessionAudioRecovery(path, args, output);
+  }
   if (group === "ai") return runAiCommand(action, path, args, output);
   if (group === "model") return runModelCommand(action, path, args, output);
   if (group === "record") return runRecordingTakeCommand(action, path, args, output);
@@ -3227,21 +3312,138 @@ async function runAiCommand(
   return 0;
 }
 
+const CLI_AI_MODEL_MAX_PAGES = 50;
+const CLI_AI_MODEL_MAX_COUNT = 50_000;
+const CLI_AI_MODEL_MAX_PAGE_BYTES = 8 * 1024 * 1024;
+const CLI_AI_MODEL_MAX_CATALOG_BYTES = 8 * 1024 * 1024;
+const CLI_AI_MODEL_MAX_ID_BYTES = 1024;
+const CLI_AI_MODEL_MAX_CURSOR_BYTES = 8 * 1024;
+
+interface CliAiModelPage {
+  models: { id: string }[];
+  nextCursor: string | undefined;
+}
+
+function buildCliAiModelPageUrl(
+  providerId: string,
+  endpoint: string,
+  cursor: string | undefined,
+): string {
+  const parameters = new URLSearchParams();
+  let path: string;
+  if (providerId === "ollama") {
+    path = "/api/tags";
+  } else if (providerId === "anthropic") {
+    path = "/v1/models";
+    parameters.set("limit", "1000");
+    if (cursor) parameters.set("after_id", cursor);
+  } else if (providerId === "cohere") {
+    path = "/v1/models";
+    parameters.set("page_size", "1000");
+    parameters.set("endpoint", "chat");
+    if (cursor) parameters.set("page_token", cursor);
+  } else if (providerId === "google-gemini") {
+    path = "/models";
+    parameters.set("pageSize", "1000");
+    if (cursor) parameters.set("pageToken", cursor);
+  } else {
+    path = "/models";
+    if (cursor) parameters.set("after", cursor);
+  }
+  const query = parameters.toString();
+  return `${endpoint}${path}${query ? `?${query}` : ""}`;
+}
+
+function parseCliAiModelPage(providerId: string, data: unknown): CliAiModelPage {
+  if (!data || typeof data !== "object")
+    throw new CliError("Provider returned an invalid model catalog.");
+  const root = data as Record<string, unknown>;
+  const entries = root["data"] ?? root["models"];
+  if (!Array.isArray(entries)) throw new CliError("Provider returned an invalid model list.");
+  const models = entries.flatMap((item: unknown) => {
+    if (!item || typeof item !== "object") return [];
+    const row = item as Record<string, unknown>;
+    const id = row["id"] ?? row["name"] ?? row["model"];
+    if (typeof id !== "string" || !id) return [];
+    if (new TextEncoder().encode(id).byteLength > CLI_AI_MODEL_MAX_ID_BYTES)
+      throw new CliError("Provider model catalog contains an invalid model ID.");
+    return [{ id }];
+  });
+
+  let nextCursor: string | undefined;
+  if (providerId === "anthropic") {
+    if (root["has_more"] !== undefined && typeof root["has_more"] !== "boolean")
+      throw new CliError("Provider model catalog has invalid pagination metadata.");
+    if (root["has_more"] === true) {
+      const cursor = root["last_id"];
+      if (typeof cursor !== "string" || !cursor)
+        throw new CliError("Provider model pagination cursor is invalid.");
+      nextCursor = cursor;
+    }
+  } else if (providerId === "cohere") {
+    const cursor = root["next_page_token"];
+    if (cursor !== undefined && cursor !== null && typeof cursor !== "string")
+      throw new CliError("Provider model catalog has invalid pagination metadata.");
+    if (typeof cursor === "string" && cursor) nextCursor = cursor;
+  } else if (providerId === "google-gemini") {
+    const cursor = root["nextPageToken"];
+    if (cursor !== undefined && cursor !== null && typeof cursor !== "string")
+      throw new CliError("Provider model catalog has invalid pagination metadata.");
+    if (typeof cursor === "string" && cursor) nextCursor = cursor;
+  } else if (providerId !== "ollama") {
+    if (root["has_more"] !== undefined && typeof root["has_more"] !== "boolean")
+      throw new CliError("Provider model catalog has invalid pagination metadata.");
+    if (root["has_more"] === true) {
+      const rootCursor = root["last_id"];
+      const cursor =
+        typeof rootCursor === "string" && rootCursor
+          ? rootCursor
+          : (models.at(-1)?.id ?? "");
+      if (!cursor) throw new CliError("Provider model pagination cursor is invalid.");
+      nextCursor = cursor;
+    }
+  }
+  if (
+    nextCursor &&
+    new TextEncoder().encode(nextCursor).byteLength > CLI_AI_MODEL_MAX_CURSOR_BYTES
+  )
+    throw new CliError("Provider model pagination cursor is invalid.");
+
+  return { models, nextCursor };
+}
+
+async function readCliAiModelPage(response: Response): Promise<{ data: unknown; bytes: number }> {
+  const reader = response.body?.getReader();
+  if (!reader) throw new CliError("Provider returned an empty model catalog.");
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  while (true) {
+    const chunk = await reader.read();
+    if (chunk.done) break;
+    size += chunk.value.byteLength;
+    if (size > CLI_AI_MODEL_MAX_PAGE_BYTES) {
+      await reader.cancel();
+      throw new CliError("Provider model catalog page exceeds 8 MiB.");
+    }
+    chunks.push(chunk.value);
+  }
+  const bytes = new Uint8Array(size);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return {
+    data: JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes)) as unknown,
+    bytes: size,
+  };
+}
+
 async function discoverCliAiModels(
   providerId: string,
   endpoint: string,
   credential: string,
 ): Promise<{ id: string }[]> {
-  const suffix =
-    providerId === "ollama"
-      ? "/api/tags"
-      : providerId === "anthropic"
-        ? "/v1/models?limit=1000"
-        : providerId === "cohere"
-          ? "/v2/models?page_size=1000&endpoint=chat"
-          : providerId === "google-gemini"
-            ? "/models?pageSize=1000"
-            : "/models";
   const headers: Record<string, string> = { accept: "application/json" };
   if (credential) {
     const header =
@@ -3253,45 +3455,39 @@ async function discoverCliAiModels(
     headers[header] = header === "authorization" ? `Bearer ${credential}` : credential;
   }
   if (providerId === "anthropic") headers["anthropic-version"] = "2023-06-01";
-  const response = await fetch(`${endpoint}${suffix}`, {
-    headers,
-    redirect: "error",
-    signal: AbortSignal.timeout(30_000),
-  });
-  if (!response.ok)
-    throw new CliError(`Provider model discovery returned HTTP ${response.status}.`);
-  const reader = response.body?.getReader();
-  if (!reader) throw new CliError("Provider returned an empty model catalog.");
-  const chunks: Uint8Array[] = [];
-  let size = 0;
-  while (true) {
-    const chunk = await reader.read();
-    if (chunk.done) break;
-    size += chunk.value.byteLength;
-    if (size > 8 * 1024 * 1024) {
-      await reader.cancel();
-      throw new CliError("Provider model catalog exceeds 8 MiB.");
+  const signal = AbortSignal.timeout(30_000);
+  const models: { id: string }[] = [];
+  const seenIds = new Set<string>();
+  const seenCursors = new Set<string>();
+  let cursor: string | undefined;
+  let totalBytes = 0;
+  for (let pageNumber = 0; pageNumber < CLI_AI_MODEL_MAX_PAGES; pageNumber += 1) {
+    const response = await fetch(buildCliAiModelPageUrl(providerId, endpoint, cursor), {
+      headers,
+      redirect: "error",
+      signal,
+    });
+    if (!response.ok)
+      throw new CliError(`Provider model discovery returned HTTP ${response.status}.`);
+    const pageResponse = await readCliAiModelPage(response);
+    totalBytes += pageResponse.bytes;
+    if (totalBytes > CLI_AI_MODEL_MAX_CATALOG_BYTES)
+      throw new CliError("Provider model catalog exceeds 8 MiB across all pages.");
+    const page = parseCliAiModelPage(providerId, pageResponse.data);
+    for (const model of page.models) {
+      if (seenIds.has(model.id)) continue;
+      seenIds.add(model.id);
+      models.push(model);
+      if (models.length > CLI_AI_MODEL_MAX_COUNT)
+        throw new CliError("Provider model catalog exceeds 50,000 models.");
     }
-    chunks.push(chunk.value);
+    if (!page.nextCursor) return models;
+    if (seenCursors.has(page.nextCursor))
+      throw new CliError("Provider model pagination cursor is invalid.");
+    seenCursors.add(page.nextCursor);
+    cursor = page.nextCursor;
   }
-  const bytes = new Uint8Array(size);
-  let offset = 0;
-  for (const chunk of chunks) {
-    bytes.set(chunk, offset);
-    offset += chunk.byteLength;
-  }
-  const data: unknown = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes));
-  if (!data || typeof data !== "object")
-    throw new CliError("Provider returned an invalid model catalog.");
-  const root = data as Record<string, unknown>;
-  const entries = root["data"] ?? root["models"];
-  if (!Array.isArray(entries)) throw new CliError("Provider returned an invalid model list.");
-  return entries.flatMap((item: unknown) => {
-    if (!item || typeof item !== "object") return [];
-    const row = item as Record<string, unknown>;
-    const id = row["id"] ?? row["name"] ?? row["model"];
-    return typeof id === "string" && id ? [{ id }] : [];
-  });
+  throw new CliError("Provider model catalog exceeded 50 pages.");
 }
 
 async function sendCliAiRequest(
@@ -3970,95 +4166,83 @@ async function runAssetCommand(
       readonly deduplicated: boolean;
       readonly chunkCount: number;
     }> = [];
-    let snapshot: ArchiveSnapshot | null = null;
+    let snapshot: ArchiveSnapshot | undefined;
+    let staged: ArchiveSnapshot | undefined;
     let pendingBytes = 0;
-    let pendingRecords: ArchiveRecord[] = [];
-    let pendingResultIndices: number[] = [];
-    let pendingBlobs = new Map<string, { readonly id: string; readonly chunkCount: string }>();
+    let pendingFiles = 0;
     const flushBatch = async (): Promise<void> => {
-      if (snapshot) {
-        await closeSnapshot(snapshot);
-        snapshot = null;
-      }
-      if (pendingRecords.length === 0) return;
-      const saved = await mutateArchive(path, pendingRecords);
-      const savedMetadata = new Map<string, ArchiveRecord>();
-      for (const record of saved) {
-        if (record.type === RecordType.assetMetadata) savedMetadata.set(record.id, record);
-      }
-      for (const index of pendingResultIndices) {
-        const pending = importedAssets[index]!;
-        const metadata = savedMetadata.get(pending.metadata.id);
-        if (metadata) importedAssets[index] = { ...pending, metadata };
-      }
+      const base = snapshot;
+      const current = staged;
+      if (!base || !current || current === base) return;
+      await writeSourceAtomically(resolve(path), current);
+      base.lock();
+      current.lock();
+      await current.source.close?.();
+      snapshot = undefined;
+      staged = undefined;
+      snapshot = await openForCommand(path);
+      staged = snapshot;
       pendingBytes = 0;
-      pendingRecords = [];
-      pendingResultIndices = [];
-      pendingBlobs = new Map();
+      pendingFiles = 0;
     };
 
     try {
+      snapshot = await openForCommand(path);
+      staged = snapshot;
+      if (sessionId) await requireLiveRecord(snapshot, RecordType.session, sessionId);
       for (const inputPath of inputPaths) {
-        const fileInfo = await lstat(inputPath);
-        if (!fileInfo.isFile() || fileInfo.isSymbolicLink()) {
-          throw new CliError("Material input must be a regular, non-symlink file.");
-        }
-        if (fileInfo.size > MAX_ASSET_BYTES) {
-          throw new CliError("Material exceeds the configured 256 MiB import limit.");
-        }
-        const bytes = await readFile(inputPath);
-        if (!snapshot) {
-          snapshot = await openForCommand(path);
-          if (sessionId) await requireLiveRecord(snapshot, RecordType.session, sessionId);
-        }
-        const importSnapshot = snapshot;
-        if (!importSnapshot) throw new Error("The archive snapshot could not be opened.");
-        const imported = await makeAssetImport(
-          importSnapshot,
-          { name: basename(inputPath), size: bytes.byteLength, readBytes: async () => bytes },
+        const current = staged;
+        if (!current) throw new Error("The archive snapshot could not be opened.");
+        const imported = await appendCliAssetFile(
+          current,
+          path,
+          inputPath,
           sessionId,
+          captureSource
+            ? (record) => {
+                const metadataFields = new Map(record.fields);
+                const mimeType = field(record, "mime_type");
+                const browserWebmAudio =
+                  mimeType === "video/webm" && inputPath.toLowerCase().endsWith(".webm");
+                if (!mimeType.startsWith("audio/") && !browserWebmAudio) {
+                  throw new CliError(
+                    "A browser microphone capture must contain a recognized audio file.",
+                  );
+                }
+                if (browserWebmAudio) metadataFields.set("mime_type", "audio/webm");
+                metadataFields.set("capture_source", captureSource);
+                metadataFields.set("capture_consent_at_us", captureConsentAtUs ?? timestampNow());
+                metadataFields.set("capture_consent_policy", "1");
+                return { ...record, fields: metadataFields };
+              }
+            : undefined,
         );
-        const metadataFields = new Map(imported.metadata.fields);
-        if (captureSource) {
-          const mimeType = field(imported.metadata, "mime_type");
-          const browserWebmAudio =
-            mimeType === "video/webm" && inputPath.toLowerCase().endsWith(".webm");
-          if (!mimeType.startsWith("audio/") && !browserWebmAudio) {
-            throw new CliError(
-              "A browser microphone capture must contain a recognized audio file.",
-            );
-          }
-          if (browserWebmAudio) metadataFields.set("mime_type", "audio/webm");
-          metadataFields.set("capture_source", captureSource);
-          metadataFields.set("capture_consent_at_us", captureConsentAtUs ?? timestampNow());
-          metadataFields.set("capture_consent_policy", "1");
-        }
-        const contentHash = field(imported.metadata, "content_hash").toLowerCase();
-        const existingBatchBlob = pendingBlobs.get(contentHash);
-        let deduplicated = imported.deduplicated;
-        if (existingBatchBlob) {
-          metadataFields.set("blob_id", existingBatchBlob.id);
-          metadataFields.set("blob_count", existingBatchBlob.chunkCount);
-          deduplicated = true;
-        } else {
-          pendingRecords.push(
-            ...imported.records.filter((record) => record.type !== RecordType.assetMetadata),
-          );
-          pendingBlobs.set(contentHash, {
-            id: field(imported.metadata, "blob_id"),
-            chunkCount: field(imported.metadata, "blob_count"),
-          });
-          if (!imported.deduplicated) pendingBytes += bytes.byteLength;
-        }
-        const metadata = { ...imported.metadata, fields: metadataFields };
-        pendingRecords.push(metadata);
-        pendingResultIndices.push(importedAssets.length);
-        importedAssets.push({ metadata, deduplicated, chunkCount: imported.chunkCount });
-        if (pendingBytes >= ASSET_IMPORT_BATCH_BYTES) await flushBatch();
+        const next = imported.snapshot;
+        staged = next;
+        current.lock();
+        const saved = await next.getRecord(RecordType.assetMetadata, imported.metadata.id);
+        importedAssets.push({
+          metadata: saved ?? imported.metadata,
+          deduplicated: imported.deduplicated,
+          chunkCount: imported.chunkCount,
+        });
+        if (!imported.deduplicated)
+          pendingBytes += Number(field(imported.metadata, "byte_size"));
+        pendingFiles += 1;
+        if (pendingBytes >= ASSET_IMPORT_BATCH_BYTES || pendingFiles >= ASSET_IMPORT_BATCH_FILES)
+          await flushBatch();
       }
       await flushBatch();
     } finally {
-      if (snapshot) await closeSnapshot(snapshot);
+      const base = snapshot;
+      const current = staged;
+      if (base && current && base !== current) {
+        base.lock();
+        current.lock();
+        await current.source.close?.();
+      } else if (base) {
+        await closeSnapshot(base);
+      }
     }
     if (singleImport) {
       const imported = importedAssets[0]!;
@@ -4258,7 +4442,10 @@ async function runAssetCommand(
       }
       let valid = true;
       try {
-        await readAssetBytes(snapshot, asset);
+        const chunks = iterateVerifiedAssetChunks(snapshot, asset);
+        while (!(await chunks.next()).done) {
+          // Consume every verified chunk so the final digest check runs.
+        }
       } catch (error) {
         if (
           !(error instanceof ArchiveFormatError) ||
@@ -4289,25 +4476,22 @@ async function runAssetCommand(
     if (await sameFileIdentity(destination, archivePath))
       throw new CliError("Material output cannot replace its source archive.");
     const snapshot = await openForCommand(path);
-    let record: ArchiveRecord | null;
-    let bytes: Uint8Array;
     try {
-      record = await snapshot.getRecord(RecordType.assetMetadata, id);
+      const record = await snapshot.getRecord(RecordType.assetMetadata, id);
       if (!record || record.fields.get("_deleted") === "true") {
         throw new CliError(`Material ${id} was not found in this archive.`);
       }
-      bytes = await readAssetBytes(snapshot, record);
+      const byteCount = await exportCliAssetAtomically(snapshot, record, destination);
+      emit(
+        output,
+        { id: record.id, output: destination, bytes: byteCount },
+        `Exported ${field(record, "filename") || id} to ${destination}.`,
+        json,
+      );
+      return 0;
     } finally {
       await closeSnapshot(snapshot);
     }
-    await writeBytesAtomically(destination, bytes);
-    emit(
-      output,
-      { id: record.id, output: destination, bytes: bytes.byteLength },
-      `Exported ${field(record, "filename") || id} to ${destination}.`,
-      json,
-    );
-    return 0;
   }
   if (action === "link" || action === "unlink") {
     const assetId = requiredPosition(args, 0, "material ID");
@@ -6514,7 +6698,14 @@ async function runExtendedRecordCommand(
 
   if (group === "session" && action === "update") {
     const sessionId = requiredPosition(args, 0, "session ID");
-    const metadataOptions = ["title", "subject", "objectives", "learning-objectives", "student-id"];
+    const metadataOptions = [
+      "title",
+      "subject",
+      "objectives",
+      "learning-objectives",
+      "student-id",
+      "entry-id",
+    ];
     const updateNotes = args.options.has("notes");
     if (!updateNotes && !metadataOptions.some((option) => args.options.has(option))) {
       throw new CliError("Provide a session field to update.");
@@ -6549,6 +6740,49 @@ async function runExtendedRecordCommand(
         notesDocument,
         updateNotes,
       );
+      const destinationId = args.options.get("entry-id");
+      if (destinationId !== undefined) {
+        const canonical = canonicalizeProgressUuid(destinationId);
+        if (!canonical) throw new CliError("--entry-id must be a valid UUID.");
+        const destination = await requireLiveRecord(snapshot, RecordType.settings, canonical);
+        if (field(destination, "record_role") !== "journal-entry")
+          throw new CliError("Destination journal entry was not found.");
+        if (field(current, "entry_id").toLowerCase() !== canonical) {
+          const sources = await readGuideSourceRecords(snapshot);
+          const replacements = new Map(
+            records.map((record) => [`${record.type}:${record.id.toLowerCase()}`, record]),
+          );
+          const projectedSources = sources.map(
+            (record) => replacements.get(`${record.type}:${record.id.toLowerCase()}`) ?? record,
+          );
+          for (const record of records)
+            if (
+              !projectedSources.some(
+                (existing) =>
+                  existing.type === record.type &&
+                  existing.id.toLowerCase() === record.id.toLowerCase(),
+              )
+            )
+              projectedSources.push(record);
+          const guides = await snapshot.listRecords(RecordType.guide);
+          const moved = moveJournalSessionForCli(
+            destination,
+            records[0]!,
+            projectedSources,
+            guides,
+          );
+          const movedKeys = new Set(
+            moved.map((record) => `${record.type}:${record.id.toLowerCase()}`),
+          );
+          records = [
+            ...moved.filter((record) => record.type === RecordType.session),
+            ...moved.filter((record) => record.type !== RecordType.session),
+            ...records.filter(
+              (record) => !movedKeys.has(`${record.type}:${record.id.toLowerCase()}`),
+            ),
+          ];
+        }
+      }
     } finally {
       await closeSnapshot(snapshot);
     }
