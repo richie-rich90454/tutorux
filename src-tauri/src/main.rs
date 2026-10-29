@@ -480,6 +480,9 @@ fn main() {
             take_pending_open_archive,
             write_export_file,
             ai_transport::send_ai_request,
+            transcription::begin_whisper_run,
+            transcription::cancel_whisper_run,
+            transcription::end_whisper_run,
             transcription::transcribe_whisper
         ])
         .run(tauri::generate_context!())
