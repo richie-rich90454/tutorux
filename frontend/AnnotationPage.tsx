@@ -44,13 +44,35 @@ export function AnnotationPage(props: {
   onRestore: (record: ArchiveRecord, historyIndex: number) => Promise<boolean>;
 }): JSX.Element {
   const [adding, setAdding] = createSignal(false);
-  const [newType, setNewType] = createSignal<AnnotationInput["type"]>("general-note");
+  const [markerNote, setMarkerNote] = createSignal("");
   const quickMarker = (event: Event) => {
     const value = (event as CustomEvent<string>).detail;
-    if (ANNOTATION_TYPES.includes(value as AnnotationInput["type"])) {
-      setNewType(value as AnnotationInput["type"]);
-      setAdding(true);
+    if (!ANNOTATION_TYPES.includes(value as AnnotationInput["type"]) || props.disabled) return;
+    const session = selectedSession();
+    if (!session) return;
+    const type = value as AnnotationInput["type"];
+    let elapsed = safeBigInt(field(session, "recording_duration_us"));
+    const started = safeBigInt(field(session, "recording_started_at_us"));
+    if (field(session, "recording_state") === "recording" && started > 0n) {
+      const now = BigInt(Date.now()) * 1000n;
+      elapsed = now > started ? now - started : 0n;
     }
+    void props
+      .onSave(
+        {
+          sessionId: session.id,
+          start: formatTranscriptTimestampUs(elapsed),
+          end: "",
+          type,
+          priority: "normal",
+          title: annotationTypeLabel(type),
+          content: markerNote(),
+        },
+        null,
+      )
+      .then((saved) => {
+        if (saved) setMarkerNote("");
+      });
   };
   window.addEventListener("tutorux:quick-marker", quickMarker);
   onCleanup(() => window.removeEventListener("tutorux:quick-marker", quickMarker));
@@ -113,6 +135,16 @@ export function AnnotationPage(props: {
           </div>
         </section>
 
+        <label class="annotation-quick-note">
+          <span>Quick marker note</span>
+          <input
+            value={markerNote()}
+            disabled={props.disabled || !sessionId()}
+            onInput={(event) => setMarkerNote(event.currentTarget.value)}
+            placeholder="Optional note for the next keyboard marker"
+          />
+        </label>
+
         <section class="annotation-controls">
           <label class="transcript-session-picker">
             Session
@@ -172,7 +204,7 @@ export function AnnotationPage(props: {
                 sessionId: sessionId(),
                 start: "00:00:00",
                 end: "",
-                type: newType(),
+                type: "general-note",
                 priority: "normal",
                 title: "",
                 content: "",
