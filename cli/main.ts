@@ -3324,15 +3324,32 @@ async function runAiCommand(
           send: async (request, onChunk) => {
             if (request.providerId !== "embedded-gguf" && request.providerId !== "llama.cpp-embedded")
               return sendCliAiRequest(request, onChunk);
-            const signal = AbortSignal.timeout(300_000);
-            const references = await snapshot.listRecords(RecordType.settings);
-            const selection = await resolveCliEmbeddedModelReference(
-              references,
-              path,
-              request.model,
-              signal,
+            const controller = new AbortController();
+            const timeout = setTimeout(
+              () => controller.abort(new Error("Local model generation exceeded five minutes.")),
+              300_000,
             );
-            return sendCliEmbeddedAiRequest(request, selection, onChunk, signal);
+            const cancel = () =>
+              controller.abort(new Error("Local model generation was cancelled by Ctrl+C."));
+            process.once("SIGINT", cancel);
+            try {
+              const references = await snapshot.listRecords(RecordType.settings);
+              const selection = await resolveCliEmbeddedModelReference(
+                references,
+                path,
+                request.model,
+                controller.signal,
+              );
+              return await sendCliEmbeddedAiRequest(
+                request,
+                selection,
+                onChunk,
+                controller.signal,
+              );
+            } finally {
+              clearTimeout(timeout);
+              process.off("SIGINT", cancel);
+            }
           },
           onProgress: () => {},
         });
