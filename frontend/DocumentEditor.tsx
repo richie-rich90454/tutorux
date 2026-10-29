@@ -12,6 +12,7 @@ import {
   renderNoteMarkdown,
 } from "./domain/document-export";
 import { platform } from "@platform";
+import { PieceTable } from "./domain/piece-table";
 import "./document-editor.css";
 
 const blockLabels: Record<JournalNoteBlockKind, string> = {
@@ -51,6 +52,7 @@ export function DocumentEditor(props: {
   let findInput: HTMLInputElement | undefined;
   let editorElement: HTMLElement | undefined;
   let lastTextEdit: { id: string; time: number } | undefined;
+  const textBuffers = new Map<string, PieceTable>();
   const editorId = (index: number): string =>
     `document-block-kind-${props.label.replace(/\W+/gu, "-").toLowerCase()}-${index}`;
   const matches = createMemo(() => {
@@ -121,6 +123,18 @@ export function DocumentEditor(props: {
     );
   }
 
+  function editText(index: number, text: string): void {
+    const block = props.blocks[index];
+    if (!block || block.text === text) return;
+    let table = textBuffers.get(block.id);
+    if (!table || table.text() !== block.text) {
+      table = new PieceTable(block.text);
+      textBuffers.set(block.id, table);
+    }
+    table.applyTextSnapshot(text, undefined, "user", lastTextEdit?.id === block.id);
+    update(index, { text: table.text() }, true);
+  }
+
   function addBlock(): void {
     changeBlocks([...props.blocks, { id: crypto.randomUUID(), kind: nextKind(), text: "" }]);
   }
@@ -134,6 +148,8 @@ export function DocumentEditor(props: {
   }
 
   function removeBlock(index: number): void {
+    const removed = props.blocks[index];
+    if (removed) textBuffers.delete(removed.id);
     changeBlocks(props.blocks.filter((_, current) => current !== index));
   }
 
@@ -465,7 +481,7 @@ export function DocumentEditor(props: {
                   placeholder={blockHints[block().kind]}
                   rows={Math.min(8, Math.max(3, block().text.split("\n").length))}
                   spellcheck="true"
-                  onInput={(event) => update(index, { text: event.currentTarget.value }, true)}
+                  onInput={(event) => editText(index, event.currentTarget.value)}
                   onBlur={() => {
                     lastTextEdit = undefined;
                   }}
