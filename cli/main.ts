@@ -79,6 +79,7 @@ import {
   renderGuideDocx,
   serializeGuideJson,
 } from "../frontend/domain/guide-export";
+import { renderGuidePdf } from "../frontend/domain/guide-pdf";
 import {
   duplicateAnnotationRecord,
   makeAnnotationRecord,
@@ -276,7 +277,7 @@ Usage:
   tutorux --archive <file.tux> guide move-block <id> --section-index <index> --from <index> --to <index>
   tutorux --archive <file.tux> guide remove-section <id> --section-index <index>
   tutorux --archive <file.tux> guide add-block|update-block|remove-block <id> --section-index <index> [--block-index <index>]
-  tutorux --archive <file.tux> guide export <id> --output <file> [--format markdown|html|json|docx] [--revision <index>]
+  tutorux --archive <file.tux> guide export <id> --output <file> [--format markdown|html|json|docx|pdf] [--revision <index>]
   tutorux --archive <file.tux> template list|show [<id>]
   tutorux --archive <file.tux> template create --name <name> --sections <heading;heading;...>
   tutorux --archive <file.tux> template update <id> [--name <name>] [--sections <headings>]
@@ -2179,9 +2180,12 @@ async function runGuideCommand(
     let record: ArchiveRecord;
     const images = new Map<string, GuideExportImage>();
     const format = (args.options.get("format") ?? "markdown").toLowerCase();
-    if (action === "export" && !["markdown", "md", "html", "json", "docx"].includes(format)) {
+    if (
+      action === "export" &&
+      !["markdown", "md", "html", "json", "docx", "pdf"].includes(format)
+    ) {
       await closeSnapshot(snapshot);
-      throw new CliError("Guide export format must be markdown, html, json, or docx.");
+      throw new CliError("Guide export format must be markdown, html, json, docx, or pdf.");
     }
     try {
       const index = parseBoundedOption(args.options.get("revision"), "revision", 0, 0, 10000);
@@ -2191,7 +2195,7 @@ async function runGuideCommand(
         if (!history[index]) throw new CliError(`Guide history index ${index} was not found.`);
         record = history[index]!;
       }
-      if (action === "export" && (format === "html" || format === "docx")) {
+      if (action === "export" && (format === "html" || format === "docx" || format === "pdf")) {
         for (const assetId of guideImageIds(record)) {
           const metadata = await requireLiveRecord(snapshot, RecordType.assetMetadata, assetId);
           const mimeType = field(metadata, "mime_type");
@@ -2221,6 +2225,8 @@ async function runGuideCommand(
     if (await sameFileIdentity(destination, path))
       throw new CliError("Guide output cannot replace its source archive.");
     if (format === "docx") await writeBytesAtomically(destination, renderGuideDocx(record, images));
+    else if (format === "pdf")
+      await writeBytesAtomically(destination, renderGuidePdf(record, images));
     else {
       const contents =
         format === "html"
