@@ -1,5 +1,6 @@
 mod ai_transport;
 mod credentials;
+mod transcription;
 
 use serde::Serialize;
 use std::{
@@ -478,7 +479,8 @@ fn main() {
             cancel_archive_save,
             take_pending_open_archive,
             write_export_file,
-            ai_transport::send_ai_request
+            ai_transport::send_ai_request,
+            transcription::transcribe_whisper
         ])
         .run(tauri::generate_context!())
         .expect("Tutorux desktop host failed to start");
