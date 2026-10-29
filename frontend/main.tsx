@@ -34,6 +34,8 @@ import { MaterialDetails, MaterialTrash } from "./MaterialDetails";
 import { EvidenceSources } from "./EvidenceSources";
 import { AudioMixer } from "./AudioMixer";
 import { WhisperTranscription } from "./WhisperTranscription";
+import { SessionVersionHistory, restoreSessionDetails } from "./SessionVersionHistory";
+import { MicrophoneTrackRecorder } from "./MicrophoneTrackRecorder";
 import { sourceStream, type ArchiveByteSource } from "./archive/source";
 import { AiPage } from "./AiPage";
 import { createAiPackageRecord, type AiPackageSummary } from "./ai/package";
@@ -1672,6 +1674,29 @@ function App(): JSX.Element {
     }
   }
 
+  async function restoreSessionVersion(
+    current: ArchiveRecord,
+    previous: ArchiveRecord,
+  ): Promise<boolean> {
+    const state = workspace();
+    const latest = [...(state?.sessions ?? []), ...(state?.archivedSessions ?? [])].find(
+      (item) => item.id === current.id,
+    );
+    if (!latest || latest.revision !== current.revision) {
+      announce("The session changed. Review its history again before restoring.", "error");
+      return false;
+    }
+    try {
+      return await addRecords(
+        [restoreSessionDetails(latest, previous)],
+        "Session details restored.",
+      );
+    } catch (error) {
+      announce(errorMessage(error), "error");
+      return false;
+    }
+  }
+
   async function approveGuide(record: ArchiveRecord): Promise<void> {
     const state = workspace();
     if (!state) return;
@@ -2803,6 +2828,7 @@ function App(): JSX.Element {
                     kind="sessions"
                     records={filteredRecords()}
                     state={state}
+                    onRestoreSessionVersion={restoreSessionVersion}
                     onAdd={() => openDialog("session")}
                     onEdit={(record) => editRecord("session", record)}
                     onTrash={(record) => void reviewSessionTrash(record)}
@@ -4897,6 +4923,7 @@ function RecordPage(props: {
   onSaveOrganizer?: (record: ArchiveRecord, message: string) => Promise<boolean>;
   onArchiveOrganizer?: (record: ArchiveRecord) => void;
   onRestoreOrganizer?: (record: ArchiveRecord) => void;
+  onRestoreSessionVersion?: (current: ArchiveRecord, previous: ArchiveRecord) => Promise<boolean>;
   onWriteRecords?: (records: ArchiveRecord[], message: string) => Promise<boolean>;
 }): JSX.Element {
   const [collectionFilter, setCollectionFilter] = createSignal("");
@@ -5188,6 +5215,7 @@ function RecordPage(props: {
                   workspace={props.state}
                   notesDocuments={props.state.notesDocuments}
                   onWriteRecords={props.onWriteRecords}
+                  onRestoreSessionVersion={props.onRestoreSessionVersion}
                   disabled={!props.state.snapshot.canMutate}
                   busy={busy()}
                   onProgressReview={props.onProgressReview}
@@ -5222,6 +5250,8 @@ function RecordCard(props: {
   workspace: Workspace;
   notesDocuments: ArchiveRecord[];
   onWriteRecords: ((records: ArchiveRecord[], message: string) => Promise<boolean>) | undefined;
+  onRestoreSessionVersion:
+    ((current: ArchiveRecord, previous: ArchiveRecord) => Promise<boolean>) | undefined;
   disabled: boolean;
   busy: boolean;
   onProgressReview:
@@ -5360,6 +5390,8 @@ function RecordCard(props: {
         session={record}
         students={props.students}
         expanded
+        snapshot={props.snapshot}
+        onRestoreVersion={props.onRestoreSessionVersion}
         disabled={props.disabled || props.busy}
         onEdit={props.onEdit}
         onTrash={props.onTrash}
@@ -5696,6 +5728,9 @@ function SessionRow(props: {
   session: ArchiveRecord;
   students: ArchiveRecord[];
   expanded?: boolean;
+  snapshot?: ArchiveSnapshot;
+  onRestoreVersion?:
+    ((current: ArchiveRecord, previous: ArchiveRecord) => Promise<boolean>) | undefined;
   disabled?: boolean;
   onEdit?: ((record: ArchiveRecord) => void) | undefined;
   onTrash?: ((record: ArchiveRecord) => void) | undefined;
@@ -5744,6 +5779,14 @@ function SessionRow(props: {
             </span>
           </Show>
         </div>
+        <Show when={props.snapshot && props.onRestoreVersion}>
+          <SessionVersionHistory
+            session={props.session}
+            snapshot={props.snapshot!}
+            disabled={Boolean(props.disabled)}
+            onRestore={props.onRestoreVersion!}
+          />
+        </Show>
       </div>
       <Show
         when={
@@ -6520,14 +6563,23 @@ function TranscriptPage(props: {
 
       <Show when={selectedSession()}>
         {(session) => (
-          <AudioMixer
-            snapshot={props.snapshot}
-            sessionId={session().id}
-            takes={props.recordingTakes}
-            tracks={props.tracks}
-            disabled={props.disabled}
-            onSave={props.onSaveMix}
-          />
+          <>
+            <MicrophoneTrackRecorder
+              snapshot={props.snapshot}
+              session={session()}
+              trackIds={sessionTracks().map((track) => track.id)}
+              disabled={props.disabled}
+              onSave={(records, message, snapshot) => props.onSaveMix(snapshot, records, message)}
+            />
+            <AudioMixer
+              snapshot={props.snapshot}
+              sessionId={session().id}
+              takes={props.recordingTakes}
+              tracks={props.tracks}
+              disabled={props.disabled}
+              onSave={props.onSaveMix}
+            />
+          </>
         )}
       </Show>
       <Show when={sessionTracks().length > 0}>
