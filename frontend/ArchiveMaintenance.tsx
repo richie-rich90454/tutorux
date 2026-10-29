@@ -39,6 +39,7 @@ function bytes(value: bigint): string {
 export function ArchiveMaintenance(props: ArchiveMaintenanceProps): JSX.Element {
   const [review, setReview] = createSignal<Review | null>(null);
   const [working, setWorking] = createSignal(false);
+  const [pruneAssets, setPruneAssets] = createSignal(false);
   const [error, setError] = createSignal("");
   const [status, setStatus] = createSignal("");
   const unavailable = () => props.disabled || props.snapshot.locked || working();
@@ -59,7 +60,12 @@ export function ArchiveMaintenance(props: ArchiveMaintenanceProps): JSX.Element 
     try {
       if (kind === "recover")
         setReview({ kind, source, result: await recoverUnpublishedCommit(source) });
-      else setReview({ kind, source, result: await compactArchiveSnapshot(source) });
+      else
+        setReview({
+          kind,
+          source,
+          result: await compactArchiveSnapshot(source, { pruneUnreferencedAssets: pruneAssets() }),
+        });
       if (props.snapshot !== source) {
         discardReview();
         throw new Error(
@@ -102,6 +108,18 @@ export function ArchiveMaintenance(props: ArchiveMaintenanceProps): JSX.Element 
         <h2>Review and maintain</h2>
         <p>Inspect a proposed change before applying it to the workspace.</p>
       </div>
+      <label class="archive-maintenance-note">
+        <input
+          type="checkbox"
+          checked={pruneAssets()}
+          disabled={unavailable()}
+          onChange={(event) => {
+            setPruneAssets(event.currentTarget.checked);
+            discardReview();
+          }}
+        />
+        Remove unreferenced material content during compaction
+      </label>
       <div class="archive-maintenance-actions">
         <button
           class="button button-outline"
@@ -153,6 +171,12 @@ export function ArchiveMaintenance(props: ArchiveMaintenanceProps): JSX.Element 
                     {bytes(entry().result.originalBytes)} to {bytes(entry().result.compactedBytes)}{" "}
                     · {entry().result.preservedRecords.toLocaleString()} record revisions preserved.
                   </p>
+                  <Show when={entry().result.prunedAssetRecords > 0}>
+                    <p>
+                      {entry().result.prunedAssetRecords.toLocaleString()} unreferenced material
+                      records will be removed.
+                    </p>
+                  </Show>
                 </>
               )}
             </Show>
