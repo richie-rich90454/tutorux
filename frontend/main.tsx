@@ -5544,6 +5544,7 @@ function RecordCard(props: {
             {(writeRecords) => (
               <JournalRelations
                 entry={record}
+                snapshot={props.snapshot}
                 entries={props.workspace.entries}
                 sessions={[...props.workspace.sessions, ...props.workspace.archivedSessions]}
                 guides={props.workspace.guides}
