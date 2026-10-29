@@ -1,4 +1,5 @@
 import { BrowserFileArchiveSource, sourceStream, type ArchiveByteSource } from "../archive/source";
+import { isEmbeddedGgufProvider } from "../ai/providers";
 import type {
   ArchivePlatform,
   AiTransportRequest,
@@ -239,6 +240,9 @@ export const platform: ArchivePlatform = {
     request: AiTransportRequest,
     onChunk: (chunk: Uint8Array) => void,
   ): Promise<AiTransportResult> {
+    if (isEmbeddedGgufProvider(request.providerId)) {
+      throw new Error("In-process GGUF inference is available in the Tutorux desktop app.");
+    }
     const headers = new Headers({
       "Content-Type": "application/json",
       Accept: request.accept,
