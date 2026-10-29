@@ -36,6 +36,7 @@ import { AudioMixer } from "./AudioMixer";
 import { WhisperTranscription } from "./WhisperTranscription";
 import { SessionVersionHistory, restoreSessionDetails } from "./SessionVersionHistory";
 import { MicrophoneTrackRecorder } from "./MicrophoneTrackRecorder";
+import { FullTrackWaveform } from "./FullTrackWaveform";
 import { sourceStream, type ArchiveByteSource } from "./archive/source";
 import { AiPage } from "./AiPage";
 import { createAiPackageRecord, type AiPackageSummary } from "./ai/package";
@@ -6630,6 +6631,16 @@ function TranscriptPage(props: {
               preview={audioPreview()!}
               url={audioUrl()!}
               onPlayer={(element) => (audioPlayer = element)}
+            />
+          </Show>
+          <Show when={selectedSession() && selectedTrack()}>
+            <FullTrackWaveform
+              snapshot={props.snapshot}
+              sessionId={selectedSession()!.id}
+              trackId={selectedTrack()!.id}
+              disabled={props.disabled}
+              onSave={(record, snapshot) => props.onSaveMix(snapshot, [record], "Waveform saved.")}
+              onSelectTime={(timeUs) => void playAudioAt(timeUs.toString())}
             />
           </Show>
           <Show when={audioPreview() && selectedSession() && selectedTrack()}>
