@@ -14,6 +14,7 @@ import {
   createArchiveBytes,
   createEncryptedArchiveBytes,
   openArchiveSource,
+  rebuildDamagedPrimaryIndex,
   repairArchiveSnapshot,
   recoverChecksumDamagedArchiveHeader,
   recoverMagicDamagedArchiveHeader,
@@ -195,6 +196,8 @@ Usage:
   tutorux archive compact <file.tux> [--prune-unreferenced-assets] [--apply] [--json]
   tutorux archive backfill-indexes <file.tux> [--apply] [--json]
   tutorux archive repair <file.tux> --output <copy.tux> --confirm-sensitive [--json]
+  tutorux archive rebuild-index <file.tux> --output <new-copy.tux> --confirm-sensitive [--json]
+    rebuilds only fully published unencrypted v1 logs with intact record headers and known record types
   tutorux archive sanitize <file.tux> --output <copy.tux> [selection options] [--new-passphrase-env <name>]
     preview first; confirm with --confirm-sensitive --expected-generation N --expected-selection SHA256 --expected-output FILE --expected-encrypted-output yes|no
     --include-students UUID,... --exclude-students UUID,... --include-sessions UUID,... --exclude-sessions UUID,...
@@ -252,12 +255,16 @@ Usage:
   tutorux --archive <file.tux> guide create --session <uuid> [--template <id>] [--title <title>]
   tutorux --archive <file.tux> guide generate (--session <uuid>|--entry-id <uuid>) [--template <id|auto>] [--title <title>] [--include-entry-evidence] [--json]
   tutorux --archive <file.tux> guide regenerate <id> [--template <id|auto>] [--title <title>] [--include-entry-evidence|--session-only] [--json]
+    [--section-index <index>] regenerates only the matching section
   tutorux --archive <file.tux> guide list [--session <uuid>] [--entry-id <uuid>] [--include-deleted] [--json]
   tutorux --archive <file.tux> guide show|approve|trash|restore|history <id>
   tutorux --archive <file.tux> guide compare <id> [--json]
   tutorux --archive <file.tux> guide validate <id> [--revision <index>] [--json]
   tutorux --archive <file.tux> guide update <id> [--title <title>]
   tutorux --archive <file.tux> guide add-section <id> --heading <heading> [--text <text>]
+  tutorux --archive <file.tux> guide edit <id> [--title <title>] [--section-index <index> --heading <heading>|--block-index <index> --text <text>|--kind <kind>|--sources <ids>|--clear-sources|--mark-reviewed]
+  tutorux --archive <file.tux> guide move-section <id> --from <index> --to <index>
+  tutorux --archive <file.tux> guide move-block <id> --section-index <index> --from <index> --to <index>
   tutorux --archive <file.tux> guide remove-section <id> --section-index <index>
   tutorux --archive <file.tux> guide add-block|update-block|remove-block <id> --section-index <index> [--block-index <index>]
   tutorux --archive <file.tux> guide export <id> --output <file> [--format markdown|html|json|docx] [--revision <index>]
@@ -689,6 +696,87 @@ async function runArchiveCommand(
     } finally {
       compacted?.lock();
       snapshot?.lock();
+      await source.close();
+    }
+  }
+  if (action === "rebuild-index") {
+    if (!args.flags.has("confirm-sensitive")) {
+      throw new CliError(
+        "An index-rebuilt copy contains private archive records. Review the destination and retry with --confirm-sensitive.",
+      );
+    }
+    const archivePath = resolve(path);
+    const requestedDestination = resolve(requiredOption(args, "output"));
+    if (!requestedDestination.toLowerCase().endsWith(".tux")) {
+      throw new CliError("Index-rebuilt archive copies must use the .tux extension.");
+    }
+    const [sourceCanonicalPath, destinationParentPath] = await Promise.all([
+      realpath(archivePath),
+      realpath(dirname(requestedDestination)),
+    ]);
+    const destinationPath = resolve(destinationParentPath, basename(requestedDestination));
+    const samePath =
+      process.platform === "win32"
+        ? sourceCanonicalPath.toLowerCase() === destinationPath.toLowerCase()
+        : sourceCanonicalPath === destinationPath;
+    if (samePath) throw new CliError("Index rebuild output must be a separate archive copy.");
+    if (!(await stat(destinationParentPath)).isDirectory()) {
+      throw new CliError("The index rebuild destination directory is unavailable.");
+    }
+    try {
+      await lstat(destinationPath);
+      throw new CliError(`Index rebuild output already exists: ${destinationPath}`);
+    } catch (error) {
+      if (error instanceof CliError) throw error;
+      if (!isNotFound(error)) throw error;
+    }
+    const openedInfo = await stat(sourceCanonicalPath);
+    const source = await NodeFileArchiveSource.open(sourceCanonicalPath);
+    let rebuilt: ArchiveSnapshot | undefined;
+    try {
+      if (BigInt(openedInfo.size) !== source.size) {
+        throw new CliError(
+          "The archive changed while index rebuild was starting. Retry the command.",
+        );
+      }
+      const result = await rebuildDamagedPrimaryIndex(source);
+      rebuilt = result.snapshot;
+      const validateBeforePublish = async (): Promise<void> => {
+        const currentInfo = await stat(sourceCanonicalPath);
+        if (
+          currentInfo.size !== openedInfo.size ||
+          currentInfo.mtimeMs !== openedInfo.mtimeMs ||
+          currentInfo.dev !== openedInfo.dev ||
+          currentInfo.ino !== openedInfo.ino
+        ) {
+          throw new CliError("The archive changed during index rebuild. Retry the command.");
+        }
+      };
+      await writeSourceToNewFileAtomically(
+        destinationPath,
+        rebuilt,
+        validateBeforePublish,
+        "Index rebuild",
+      );
+      emit(
+        output,
+        {
+          path: sourceCanonicalPath,
+          output: destinationPath,
+          status: "rebuilt-index-copy",
+          original_preserved: true,
+          source_generation: result.sourceGeneration.toString(),
+          recovered_records: result.recoveredRecords,
+          recovered_revisions: result.recoveredRevisions,
+          limitations:
+            "Only complete published unencrypted v1 logs with known record types and intact record headers are supported; secondary aliases are reconstructed from understood schemas.",
+        },
+        `Index-rebuilt copy created at ${destinationPath}; the original was preserved. Recovered ${result.recoveredRecords} records and ${result.recoveredRevisions} revisions through generation ${result.sourceGeneration}. Recovery requires a complete published unencrypted v1 log with known record types and intact record headers; secondary indexes are rebuilt from understood schemas.`,
+        args.flags.has("json"),
+      );
+      return 0;
+    } finally {
+      rebuilt?.lock();
       await source.close();
     }
   }
@@ -2157,12 +2245,30 @@ async function runGuideCommand(
           students,
           templates,
         );
-    if (args.options.has("title")) regenerated.title = args.options.get("title")!;
-    else regenerated.title = draft.title;
-    const updated = makeGuideRecord(regenerated, scope, current);
+    let replacement = regenerated;
+    if (args.options.has("section-index")) {
+      const index = guideIndex(
+        args.options.get("section-index"),
+        "section-index",
+        draft.sections.length,
+      );
+      const selected = draft.sections[index]!;
+      const matching = regenerated.sections.find(
+        (section) =>
+          section.heading.trim().toLocaleLowerCase() ===
+          selected.heading.trim().toLocaleLowerCase(),
+      );
+      if (!matching) throw new CliError("No current evidence maps to the selected guide section.");
+      draft.sections[index] = { ...selected, blocks: matching.blocks };
+      replacement = draft;
+    }
+    replacement.title = args.options.get("title") ?? draft.title;
+    const previous = field(current, "approval_state") === "approved" ? null : current;
+    const updated = makeGuideRecord(replacement, scope, previous);
     const saved =
-      (await mutateArchive(path, guideRecordsWithEntryLinks(updated, current, scope.records)))[0] ??
-      updated;
+      (
+        await mutateArchive(path, guideRecordsWithEntryLinks(updated, previous, scope.records))
+      )[0] ?? updated;
     emit(output, toPlainRecord(saved), `Regenerated study guide ${saved.id}.`, json);
     return 0;
   }
@@ -2187,7 +2293,7 @@ async function runGuideCommand(
     return 0;
   }
 
-  if (action === "update") {
+  if (action === "update" || action === "edit") {
     let changed = false;
     if (args.options.has("title")) {
       draft.title = args.options.get("title")!;
@@ -2202,9 +2308,25 @@ async function runGuideCommand(
       draft.sections[index]!.heading = args.options.get("heading")!;
       changed = true;
     }
+    const editingBlock =
+      ["text", "kind", "sources"].some((option) => args.options.has(option)) ||
+      args.flags.has("clear-sources") ||
+      args.flags.has("mark-reviewed");
+    if (editingBlock) {
+      const section =
+        draft.sections[
+          guideIndex(args.options.get("section-index"), "section-index", draft.sections.length)
+        ]!;
+      const block =
+        section.blocks[
+          guideIndex(args.options.get("block-index"), "block-index", section.blocks.length)
+        ]!;
+      updateGuideBlock(block, args);
+      changed = true;
+    }
     if (!changed)
-      throw new CliError("Provide --title or --heading with --section-index to update a guide.");
-  } else if (action === "add-section") {
+      throw new CliError("Provide a title, heading, or block change to update a guide.");
+  } else if (action === "add-section" || action === "section") {
     const heading = requiredOption(args, "heading");
     const blocks = args.options.has("text")
       ? [
@@ -2223,19 +2345,39 @@ async function runGuideCommand(
       draft.sections.length,
     );
     draft.sections.splice(index, 1);
+  } else if (action === "move-section") {
+    const from = guideIndex(args.options.get("from"), "from", draft.sections.length);
+    const to = guideIndex(args.options.get("to"), "to", draft.sections.length);
+    const [section] = draft.sections.splice(from, 1);
+    draft.sections.splice(to, 0, section!);
   } else if (action === "add-block") {
     const sectionIndex = guideIndex(
       args.options.get("section-index"),
       "section-index",
       draft.sections.length,
     );
-    draft.sections[sectionIndex]!.blocks.push(
+    const blocks = draft.sections[sectionIndex]!.blocks;
+    const index = args.options.has("block-index")
+      ? parseBoundedOption(args.options.get("block-index"), "block-index", 0, 0, blocks.length)
+      : blocks.length;
+    blocks.splice(
+      index,
+      0,
       guideBlock(
         args.options.get("kind") ?? "paragraph",
         requiredOption(args, "text"),
         args.options.get("sources") ?? "",
       ),
     );
+  } else if (action === "move-block") {
+    const section =
+      draft.sections[
+        guideIndex(args.options.get("section-index"), "section-index", draft.sections.length)
+      ]!;
+    const from = guideIndex(args.options.get("from"), "from", section.blocks.length);
+    const to = guideIndex(args.options.get("to"), "to", section.blocks.length);
+    const [block] = section.blocks.splice(from, 1);
+    section.blocks.splice(to, 0, block!);
   } else if (action === "remove-block") {
     const sectionIndex = guideIndex(
       args.options.get("section-index"),
@@ -2262,26 +2404,13 @@ async function runGuideCommand(
       section.blocks.length,
     );
     const block = section.blocks[blockIndex]!;
-    if (args.options.has("text")) {
-      block.text = args.options.get("text")!;
-      block.stale = false;
-      block.origin = "human-edited";
-    }
-    if (args.options.has("kind")) {
-      block.kind = validateGuideKind(args.options.get("kind")!);
-      block.stale = false;
-      if (block.origin === "ai-generated") block.origin = "human-edited";
-    }
-    if (args.options.has("sources")) {
-      block.sourceIds = args.options.get("sources")!;
-      block.stale = false;
-    }
-    if (args.flags.has("mark-reviewed")) block.stale = false;
+    updateGuideBlock(block, args);
     if (
       !args.options.has("text") &&
       !args.options.has("kind") &&
       !args.options.has("sources") &&
-      !args.flags.has("mark-reviewed")
+      !args.flags.has("mark-reviewed") &&
+      !args.flags.has("clear-sources")
     ) {
       throw new CliError("Provide --text, --kind, --sources, or --mark-reviewed.");
     }
@@ -2295,6 +2424,29 @@ async function runGuideCommand(
     updated;
   emit(output, toPlainRecord(saved), `Study guide ${saved.id} updated.`, json);
   return 0;
+}
+
+function updateGuideBlock(
+  block: GuideDraft["sections"][number]["blocks"][number],
+  args: ParsedArguments,
+): void {
+  if (args.flags.has("clear-sources") && args.options.has("sources"))
+    throw new CliError("Choose --sources or --clear-sources, not both.");
+  if (args.options.has("text")) {
+    block.text = args.options.get("text")!;
+    block.stale = false;
+    block.origin = "human-edited";
+  }
+  if (args.options.has("kind")) {
+    block.kind = validateGuideKind(args.options.get("kind")!);
+    block.stale = false;
+    if (block.origin === "ai-generated") block.origin = "human-edited";
+  }
+  if (args.options.has("sources") || args.flags.has("clear-sources")) {
+    block.sourceIds = args.options.get("sources") ?? "";
+    block.stale = false;
+  }
+  if (args.flags.has("mark-reviewed")) block.stale = false;
 }
 
 function guideBlock(
