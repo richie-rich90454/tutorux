@@ -2855,6 +2855,9 @@ function App(): JSX.Element {
 
   return (
     <div class="app-frame">
+      <a class="skip-link" href="#main-content">
+        Skip to main content
+      </a>
       <header class="topbar">
         <div class="brand-lockup">
           <img src={brandLogo} class="brand-mark" alt="" />
