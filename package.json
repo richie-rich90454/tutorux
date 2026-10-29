@@ -35,6 +35,7 @@
     "@tauri-apps/plugin-fs": "2.7.1",
     "fflate": "0.8.3",
     "libsodium-wrappers-sumo": "0.8.4",
+    "node-llama-cpp": "3.22.2",
     "pdfjs-dist": "6.4.299",
     "sharp": "0.35.5",
     "solid-js": "1.9.17",
