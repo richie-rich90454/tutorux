@@ -153,6 +153,45 @@ export function DocumentEditor(props: {
     changeBlocks(props.blocks.filter((_, current) => current !== index));
   }
 
+  function splitBlock(index: number): void {
+    const block = props.blocks[index];
+    if (!block || props.blocks.length >= MAX_JOURNAL_NOTE_BLOCKS) return;
+    const input = editorElement?.querySelector<HTMLTextAreaElement>(
+      `textarea[data-note-block="${index}"]`,
+    );
+    const position = input?.selectionStart ?? block.text.length;
+    const blocks = [...props.blocks];
+    blocks.splice(
+      index,
+      1,
+      { ...block, text: block.text.slice(0, position) },
+      {
+        id: crypto.randomUUID(),
+        kind: block.kind,
+        text: block.text.slice(position),
+      },
+    );
+    changeBlocks(blocks);
+    queueMicrotask(() => {
+      const next = editorElement?.querySelector<HTMLTextAreaElement>(
+        `textarea[data-note-block="${index + 1}"]`,
+      );
+      next?.focus();
+      next?.setSelectionRange(0, 0);
+    });
+  }
+
+  function mergeNextBlock(index: number): void {
+    const current = props.blocks[index];
+    const next = props.blocks[index + 1];
+    if (!current || !next || current.kind !== next.kind) return;
+    const separator = current.text && next.text ? "\n" : "";
+    const blocks = [...props.blocks];
+    blocks.splice(index, 2, { ...current, text: current.text + separator + next.text });
+    textBuffers.delete(next.id);
+    changeBlocks(blocks);
+  }
+
   function undo(): void {
     const stack = undoStack();
     const previous = stack.at(-1);
@@ -448,6 +487,25 @@ export function DocumentEditor(props: {
                     </For>
                   </select>
                   <div class="document-block-actions">
+                    <button
+                      type="button"
+                      aria-label={`Split block ${index + 1} at cursor`}
+                      disabled={props.blocks.length >= MAX_JOURNAL_NOTE_BLOCKS}
+                      onClick={() => splitBlock(index)}
+                    >
+                      Split
+                    </button>
+                    <button
+                      type="button"
+                      aria-label={`Merge block ${index + 1} with next`}
+                      disabled={
+                        index >= props.blocks.length - 1 ||
+                        block().kind !== props.blocks[index + 1]?.kind
+                      }
+                      onClick={() => mergeNextBlock(index)}
+                    >
+                      Merge
+                    </button>
                     <button
                       type="button"
                       aria-label={`Move block ${index + 1} up`}
