@@ -97,6 +97,7 @@ fn transcribe(
     model: String,
     wav: Vec<u8>,
     language: String,
+    diarize_speaker_turns: bool,
     cancelled: Arc<AtomicBool>,
 ) -> Result<WhisperOutput, String> {
     if cancelled.load(Ordering::Acquire) {
@@ -151,7 +152,11 @@ fn transcribe(
         .arg("-oj")
         .arg("-of")
         .arg(&output)
-        .arg("-np")
+        .arg("-np");
+    if diarize_speaker_turns {
+        command.arg("-tdrz");
+    }
+    command
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null());
@@ -199,6 +204,7 @@ pub async fn transcribe_whisper(
     model: String,
     wav: Vec<u8>,
     language: String,
+    diarize_speaker_turns: bool,
 ) -> Result<WhisperOutput, String> {
     main_window(&window)?;
     let id = Uuid::parse_str(&run_id).map_err(|_| "Invalid transcription job.".to_owned())?;
@@ -209,7 +215,14 @@ pub async fn transcribe_whisper(
         .cloned()
         .ok_or_else(|| "Transcription job has ended.".to_owned())?;
     tauri::async_runtime::spawn_blocking(move || {
-        transcribe(executable, model, wav, language, cancelled)
+        transcribe(
+            executable,
+            model,
+            wav,
+            language,
+            diarize_speaker_turns,
+            cancelled,
+        )
     })
     .await
     .map_err(|_| "The transcription task could not finish.".to_owned())?
