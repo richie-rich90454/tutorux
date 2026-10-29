@@ -786,6 +786,7 @@ export interface ArchiveCompactionResult {
   originalBytes: bigint;
   compactedBytes: bigint;
   preservedRecords: number;
+  prunedAssetRecords: number;
 }
 
 export interface ArchiveRepairResult extends ArchiveCompactionResult {
@@ -868,8 +869,9 @@ export async function repairArchiveSnapshot(
 /** Rewrite a verified archive generation while preserving every indexed revision and payload. */
 export async function compactArchiveSnapshot(
   snapshot: ArchiveSnapshot,
+  options: { pruneUnreferencedAssets?: boolean } = {},
 ): Promise<ArchiveCompactionResult> {
-  return rebuildArchiveSnapshot(snapshot, false);
+  return rebuildArchiveSnapshot(snapshot, false, options.pruneUnreferencedAssets ?? false);
 }
 
 async function rekeyEncryptedArchiveSnapshot(
@@ -1198,6 +1200,7 @@ async function rekeyEncryptedArchiveSnapshot(
 async function rebuildArchiveSnapshot(
   snapshot: ArchiveSnapshot,
   allowUnpublishedTail: boolean,
+  pruneUnreferencedAssets = false,
 ): Promise<ArchiveCompactionResult> {
   if (snapshot.locked) {
     throw new ArchiveFormatError("archive_locked", "Unlock this archive before compacting it.");
@@ -1296,6 +1299,92 @@ async function rebuildArchiveSnapshot(
     chains.push({ key: entry.key, frames: chain.reverse() });
   }
 
+  // Unknown record schemas can hold asset references that this version cannot inspect.
+  // Refuse pruning in that case; ordinary compaction remains available.
+  const removedOffsets = new Set<bigint>();
+  let prunedAssetRecords = 0;
+  if (pruneUnreferencedAssets) {
+    if (chains.some((chain) => recordTypeName(chain.frames[0]!.frame.type) === "unknown")) {
+      throw new ArchiveFormatError(
+        "archive_pruning_unknown_records",
+        "This archive contains records from a newer version. Keep all material data when compacting it.",
+      );
+    }
+    const blobChains = new Map(
+      chains
+        .filter((chain) => chain.frames[0]!.frame.type === RecordType.assetBlob)
+        .map((chain) => [chain.frames[0]!.frame.id.toLowerCase(), chain]),
+    );
+    const pending: string[] = [];
+    const addReference = (value: string, context: string): void => {
+      const id = value.toLowerCase();
+      if (!validArchiveUuid(id)) {
+        throw new ArchiveFormatError(
+          "archive_pruning_reference_invalid",
+          `${context} contains an invalid material content reference.`,
+        );
+      }
+      pending.push(id);
+    };
+    const readRevision = async (offset: bigint): Promise<ArchiveRecord> => {
+      const frame = await readFrameAt(snapshot.source, offset);
+      return decodeRecordPayload(
+        frame.type,
+        frame.id,
+        frame.revision,
+        frame.previousOffset,
+        await snapshot.decodeFramePayload(frame),
+      );
+    };
+    for (const chain of chains) {
+      if (chain.frames[0]!.frame.type !== RecordType.assetMetadata) continue;
+      const latest = await readRevision(chain.frames.at(-1)!.offset);
+      const role = latest.fields.get("record_role");
+      if (role === "audio-track" || role === "recording-take") continue;
+      for (const revision of chain.frames) {
+        const record = await readRevision(revision.offset);
+        addReference(record.fields.get("blob_id") ?? "", "Material metadata");
+      }
+    }
+    const retainedBlobs = new Set<string>();
+    for (let index = 0; index < pending.length; index += 1) {
+      const id = pending[index]!;
+      if (retainedBlobs.has(id)) continue;
+      const chain = blobChains.get(id);
+      if (!chain)
+        throw new ArchiveFormatError(
+          "archive_pruning_blob_missing",
+          "Material metadata refers to missing content.",
+        );
+      const latest = await readRevision(chain.frames.at(-1)!.offset);
+      if (latest.fields.get("_deleted") === "true") {
+        throw new ArchiveFormatError(
+          "archive_pruning_blob_missing",
+          "Material metadata refers to deleted content.",
+        );
+      }
+      retainedBlobs.add(id);
+      for (const revision of chain.frames) {
+        const blob = await readRevision(revision.offset);
+        if (blob.fields.get("record_role") !== "asset-blob-manifest") continue;
+        const ids = blob.fields.get("chunk_ids") ?? "";
+        if (ids) for (const chunkId of ids.split(",")) addReference(chunkId, "Material manifest");
+      }
+    }
+    for (let index = chains.length - 1; index >= 0; index -= 1) {
+      const chain = chains[index]!;
+      const first = chain.frames[0]!.frame;
+      if (first.type !== RecordType.assetBlob || retainedBlobs.has(first.id.toLowerCase()))
+        continue;
+      for (const revision of chain.frames) {
+        removedOffsets.add(revision.offset);
+        retainedOffsets.delete(revision.offset);
+      }
+      chains.splice(index, 1);
+      prunedAssetRecords += 1;
+    }
+  }
+
   const header = encodeArchiveHeader(snapshot.header);
   const emptyRootBody = encodeIndexPage({ leaf: true, entries: [], separators: [], children: [] });
   const emptyRootPayload = snapshot.encrypted
@@ -1354,6 +1443,7 @@ async function rebuildArchiveSnapshot(
 
   const relocatedIndex = new Map<string, bigint>();
   for (const [key, oldOffset] of indexed) {
+    if (removedOffsets.has(oldOffset)) continue;
     const newOffset = relocatedOffsets.get(oldOffset);
     if (newOffset === undefined) {
       throw new ArchiveFormatError(
@@ -1425,6 +1515,7 @@ async function rebuildArchiveSnapshot(
     originalBytes: snapshot.source.size,
     compactedBytes: compacted.source.size,
     preservedRecords: retainedOffsets.size,
+    prunedAssetRecords,
   };
 }
 
