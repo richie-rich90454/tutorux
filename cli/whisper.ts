@@ -18,6 +18,7 @@ interface WhisperOptions {
   startUs: bigint;
   endUs?: bigint;
   refine: boolean;
+  diarizeSpeakerTurns?: boolean;
   progress: (message: string) => void;
 }
 
@@ -27,6 +28,7 @@ export async function transcribeTrack(options: WhisperOptions): Promise<{
   generated: number;
   superseded: number;
   skipped: number;
+  speakerTurnBoundaries: number;
   windows: number;
 }> {
   const executable = resolve(options.executable);
@@ -86,7 +88,19 @@ export async function transcribeTrack(options: WhisperOptions): Promise<{
       await new Promise<void>((accept, reject) => {
         const child = spawn(
           executable,
-          ["-m", model, "-f", audioPath, "-l", options.language, "-oj", "-of", outputBase, "-np"],
+          [
+            "-m",
+            model,
+            "-f",
+            audioPath,
+            "-l",
+            options.language,
+            "-oj",
+            "-of",
+            outputBase,
+            "-np",
+            ...(options.diarizeSpeakerTurns ? ["-tdrz"] : []),
+          ],
           { stdio: "ignore", windowsHide: true, signal: controller.signal },
         );
         let failedToStart = false;
@@ -120,6 +134,9 @@ export async function transcribeTrack(options: WhisperOptions): Promise<{
         existing,
         replaceProvisional: options.refine,
         runId,
+        ...(options.diarizeSpeakerTurns === undefined
+          ? {}
+          : { diarizeSpeakerTurns: options.diarizeSpeakerTurns }),
       });
       for (const record of result.records) changes.set(record.id, record);
       if (changes.size > 100_000)
@@ -135,6 +152,11 @@ export async function transcribeTrack(options: WhisperOptions): Promise<{
       generated: records.length - superseded,
       superseded,
       skipped,
+      speakerTurnBoundaries: records.filter(
+        (record) =>
+          record.fields.get("_deleted") !== "true" &&
+          record.fields.get("speaker_turn_next") === "true",
+      ).length,
       windows,
     };
   } finally {
