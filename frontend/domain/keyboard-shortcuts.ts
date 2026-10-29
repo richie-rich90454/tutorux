@@ -38,8 +38,8 @@ export function resolveKeyboardShortcut(
     return null;
   }
 
-  // Tauri's native menu is the only desktop owner of these accelerators.
-  if (desktopNativeMenuOwns && ["k", "o", "s", ",", "q"].includes(key)) return null;
+  // The webview resolves K so the note editor can own its contextual link shortcut.
+  if (desktopNativeMenuOwns && ["o", "s", ",", "q"].includes(key)) return null;
 
   if (key === "k") return { type: "quick-actions" };
   if (context.modalOpen) return null;
