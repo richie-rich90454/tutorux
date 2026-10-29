@@ -601,6 +601,12 @@ export class ArchiveSnapshot {
     return decodeStoredPayload(frame);
   }
 
+  /** Verify a retained revision, including opaque payload and manifest authentication. */
+  async verifyRevisionFrame(frame: ArchiveRecordFrame): Promise<void> {
+    if (recordTypeName(frame.type) === "unknown") await this.decodeFramePayload(frame);
+    else await this.decodeFrameRecord(frame);
+  }
+
   private async decodeFrameRecord(frame: ArchiveRecordFrame): Promise<ArchiveRecord> {
     const payload = await this.decodeFramePayload(frame);
     const record = decodeRecordPayload(
@@ -690,6 +696,110 @@ export async function verifyArchiveSnapshot(
     deletedRecords,
     indexEntries: snapshot.indexEntryCount(),
   };
+}
+
+export interface ArchiveHistoryVerificationResult extends ArchiveVerificationResult {
+  historicalRevisions: number;
+  verifiedCommits: number;
+}
+
+/** Verify the complete committed chain and every indexed record revision. */
+export async function verifyArchiveHistory(
+  snapshot: ArchiveSnapshot,
+): Promise<ArchiveHistoryVerificationResult> {
+  const current = await verifyArchiveSnapshot(snapshot);
+  const visitedFrames = new Set<bigint>();
+  let historicalRevisions = 0;
+  for (const [key, latestOffset] of snapshot.allIndexEntries()) {
+    const separator = key.indexOf(":");
+    if (
+      separator < 1 ||
+      key.indexOf(":", separator + 1) !== -1 ||
+      !validArchiveUuid(key.slice(separator + 1))
+    )
+      continue;
+    const latest = await readFrameAt(snapshot.source, latestOffset);
+    if (key !== primaryIndexKey(latest.type, latest.id)) continue;
+    let offset = latestOffset;
+    let newer: ArchiveRecordFrame | undefined;
+    while (offset !== 0n) {
+      if (visitedFrames.has(offset))
+        throw new ArchiveFormatError(
+          "revision_cycle",
+          "Archive revision history contains a cycle or shared record frame.",
+        );
+      visitedFrames.add(offset);
+      const frame = await readFrameAt(snapshot.source, offset);
+      if (
+        BigInt(frame.endOffset) > snapshot.commit.offset ||
+        frame.type !== latest.type ||
+        frame.id !== latest.id ||
+        (newer && frame.revision >= newer.revision) ||
+        (frame.previousOffset !== 0n && frame.previousOffset >= offset)
+      ) {
+        throw new ArchiveFormatError(
+          "revision_lineage_invalid",
+          "Archive revision history contains an invalid or out-of-order link.",
+        );
+      }
+      await snapshot.verifyRevisionFrame(frame);
+      if (newer) historicalRevisions += 1;
+      newer = frame;
+      offset = frame.previousOffset;
+    }
+  }
+  let commit = snapshot.commit;
+  let verifiedCommits = 0;
+  const commits = new Set<bigint>();
+  while (true) {
+    if (commits.size >= 1_000_000 || commits.has(commit.offset)) {
+      throw new ArchiveFormatError(
+        "archive_commit_chain_invalid",
+        "Archive commit history contains a cycle or exceeds the verification limit.",
+      );
+    }
+    commits.add(commit.offset);
+    const consistent = await findConsistentCommit(snapshot.source, snapshot.header, commit);
+    if (!consistent || consistent.commit.offset !== commit.offset) {
+      throw new ArchiveFormatError(
+        "archive_commit_chain_invalid",
+        "A historical commit or index tree is invalid.",
+      );
+    }
+    const view = await snapshot.openGeneration(
+      snapshot.source,
+      commit,
+      consistent.indexEntries,
+      snapshot.source.size,
+    );
+    try {
+      await view.getManifest();
+    } finally {
+      view.lock();
+    }
+    verifiedCommits += 1;
+    if (commit.previousOffset === 0n) {
+      if (commit.generation !== 1n)
+        throw new ArchiveFormatError(
+          "archive_commit_chain_invalid",
+          "The initial commit generation is invalid.",
+        );
+      break;
+    }
+    if (commit.previousOffset >= commit.offset)
+      throw new ArchiveFormatError(
+        "archive_commit_chain_invalid",
+        "A commit points forward in the archive.",
+      );
+    const previous = await decodeCommit(snapshot.source, commit.previousOffset);
+    if (previous.generation + 1n !== commit.generation)
+      throw new ArchiveFormatError(
+        "archive_commit_chain_invalid",
+        "Archive commit generations are not consecutive.",
+      );
+    commit = previous;
+  }
+  return { ...current, historicalRevisions, verifiedCommits };
 }
 
 export interface ArchiveRecoveryResult {
