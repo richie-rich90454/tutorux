@@ -12,6 +12,7 @@ import {
 import { render } from "solid-js/web";
 import {
   appendRecords,
+  appendStagedAssetRecords,
   createArchiveBytes,
   createEncryptedArchiveBytes,
   openArchiveBytes,
@@ -53,7 +54,13 @@ import {
   providerById,
   type AiProviderConfigurationInput,
 } from "./ai/providers";
-import { MAX_ASSET_BYTES, makeAssetImport, readAssetBytes } from "./domain/assets";
+import { MAX_ASSET_BYTES, readAssetBytes, streamAssetBytes } from "./domain/assets";
+import {
+  browserAssetReadSource,
+  prepareStreamingAssetImport,
+  type StreamingAssetImport,
+} from "./domain/assets-stream";
+import { createArchiveStaging } from "./archive/staging";
 import pdfWorkerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
 import { configurePdfWorkerSource } from "./domain/document-text";
 import {
@@ -64,6 +71,8 @@ import {
   type AudioTrackDescriptor,
 } from "./domain/audio";
 import { makeWaveImportRecords } from "./domain/wav";
+import { prepareWavImportRecovery } from "./domain/wav-recovery";
+import { prepareNativeCaptureRecovery } from "./domain/native-recording-recovery";
 import {
   renameRecordingTake,
   renameRecordingTrack,
@@ -2100,6 +2109,52 @@ function App(): JSX.Element {
     }
   }
 
+  async function recoverWavImport(sessionId: string): Promise<void> {
+    const state = workspace();
+    const session = state?.sessions.find(
+      (record) => record.id.toLowerCase() === sessionId.toLowerCase(),
+    );
+    if (!state || !session || state.snapshot.locked || !state.snapshot.canMutate || busy()) {
+      announce(
+        "Open a writable archive and choose an available session before recovering audio.",
+        "error",
+      );
+      return;
+    }
+    const snapshot = state.snapshot;
+    try {
+      const recovery = await prepareWavImportRecovery(snapshot, session);
+      if (busy() || workspace()?.snapshot !== snapshot)
+        throw new Error("The archive changed while audio recovery was being prepared.");
+      await addRecords(recovery.records, recovery.message);
+    } catch (error) {
+      announce(errorMessage(error), "error");
+    }
+  }
+
+  async function recoverNativeAudio(sessionId: string): Promise<void> {
+    const state = workspace();
+    const session = state?.sessions.find(
+      (record) => record.id.toLowerCase() === sessionId.toLowerCase(),
+    );
+    if (!state || !session || state.snapshot.locked || !state.snapshot.canMutate || busy()) {
+      announce(
+        "Open a writable archive and choose an available session before recovering audio.",
+        "error",
+      );
+      return;
+    }
+    const snapshot = state.snapshot;
+    try {
+      const recovery = await prepareNativeCaptureRecovery(snapshot, session);
+      if (busy() || workspace()?.snapshot !== snapshot)
+        throw new Error("The archive changed while audio recovery was being prepared.");
+      await addRecords(recovery.records, recovery.message);
+    } catch (error) {
+      announce(errorMessage(error), "error");
+    }
+  }
+
   async function exportAudioTrack(
     sessionId: string,
     trackId: string,
@@ -2166,23 +2221,59 @@ function App(): JSX.Element {
     }
   }
 
+  async function installStreamedMaterial(
+    state: Workspace,
+    imported: StreamingAssetImport,
+    message: string,
+    metadataFields?: Map<string, string>,
+  ): Promise<void> {
+    const staging = await createArchiveStaging();
+    async function* records(): AsyncGenerator<ArchiveRecord> {
+      for await (const record of imported.records()) {
+        yield metadataFields && record.type === RecordType.assetMetadata
+          ? { ...record, fields: metadataFields }
+          : record;
+      }
+    }
+    let next: ArchiveSnapshot | undefined;
+    let installed = false;
+    try {
+      next = await appendStagedAssetRecords(state.snapshot, records(), staging);
+      const updated = await readWorkspace(next, state.name, state.location, true);
+      if (workspace()?.snapshot !== state.snapshot)
+        throw new Error("The active archive changed during material import.");
+      setWorkspace(updated);
+      installed = true;
+      state.snapshot.lock();
+      announce(message, "success");
+    } finally {
+      if (!installed && next) {
+        next.lock();
+        await staging.abort().catch(() => undefined);
+      }
+    }
+  }
+
   async function importAsset(file: File, sessionId: string): Promise<void> {
     const state = workspace();
-    if (!state) {
-      announce("Open an archive before importing materials.", "error");
-      return;
-    }
-    if (state.snapshot.locked) {
-      announce("Unlock this archive before importing materials.", "error");
+    if (!state || state.snapshot.locked || busy()) {
+      announce("Open and unlock an archive before importing materials.", "error");
       return;
     }
     setBusy(true);
     try {
-      const imported = await makeAssetImport(state.snapshot, file, sessionId);
-      const message = imported.deduplicated
-        ? "Material added. Its verified content is already stored in this archive."
-        : "Material and its verified content were added to the archive.";
-      await addRecords(imported.records, message);
+      const imported = await prepareStreamingAssetImport(
+        state.snapshot,
+        browserAssetReadSource(file),
+        sessionId,
+      );
+      await installStreamedMaterial(
+        state,
+        imported,
+        imported.deduplicated
+          ? "Material added. Its verified content is already stored in this archive."
+          : "Material and its verified content were added to the archive.",
+      );
     } catch (error) {
       announce(errorMessage(error), "error");
     } finally {
@@ -2196,7 +2287,7 @@ function App(): JSX.Element {
     consentAtUs: string,
   ): Promise<void> {
     const state = workspace();
-    if (!state || state.snapshot.locked) {
+    if (!state || state.snapshot.locked || busy()) {
       announce("Open and unlock an archive before saving a recording.", "error");
       return;
     }
@@ -2210,24 +2301,26 @@ function App(): JSX.Element {
     }
     setBusy(true);
     try {
-      const imported = await makeAssetImport(state.snapshot, file, sessionId);
+      const imported = await prepareStreamingAssetImport(
+        state.snapshot,
+        browserAssetReadSource(file),
+        sessionId,
+      );
       const fields = new Map(imported.metadata.fields);
       const mimeType = field(imported.metadata, "mime_type");
-      if (mimeType === "video/webm" && file.name.toLowerCase().endsWith(".webm")) {
+      if (mimeType === "video/webm" && file.name.toLowerCase().endsWith(".webm"))
         fields.set("mime_type", "audio/webm");
-      }
-      if (!mimeType.startsWith("audio/") && mimeType !== "video/webm") {
+      if (!mimeType.startsWith("audio/") && mimeType !== "video/webm")
         throw new Error("The recording format is not recognized as audio.");
-      }
       fields.set("capture_source", "browser-microphone");
       fields.set("capture_consent_at_us", consentAtUs);
       fields.set("capture_consent_policy", "1");
-      const records = imported.records.map((record) =>
-        record.type === RecordType.assetMetadata && record.id === imported.metadata.id
-          ? { ...record, fields }
-          : record,
+      await installStreamedMaterial(
+        state,
+        imported,
+        `Saved ${file.name} as a session audio material.`,
+        fields,
       );
-      await addRecords(records, `Saved ${file.name} as a session audio material.`);
     } catch (error) {
       announce(errorMessage(error), "error");
     } finally {
@@ -2243,11 +2336,10 @@ function App(): JSX.Element {
     }
     setBusy(true);
     try {
-      const bytes = await readAssetBytes(state.snapshot, record);
       const name = safeFileName(field(record, "filename") || `material-${record.id}`);
       const location = await platform.exportBinaryFile(
         name,
-        bytes,
+        () => Promise.resolve(streamAssetBytes(state.snapshot, record)),
         field(record, "mime_type", "application/octet-stream"),
       );
       if (location) announce(`Exported ${name}.`, "success");
@@ -2935,6 +3027,8 @@ function App(): JSX.Element {
                     onImportAudio={(file, sessionId, allowAdditionalTrack) =>
                       void importWave(file, sessionId, allowAdditionalTrack)
                     }
+                    onRecoverAudio={(sessionId) => void recoverWavImport(sessionId)}
+                    onRecoverNativeAudio={(sessionId) => void recoverNativeAudio(sessionId)}
                     onRecordAudio={(file, sessionId, consentAtUs) =>
                       importCapturedAudio(file, sessionId, consentAtUs)
                     }
@@ -6018,6 +6112,8 @@ function TranscriptPage(props: {
   onNewSession: () => void;
   onImport: (file: File, sessionId: string) => void;
   onImportAudio: (file: File, sessionId: string, allowAdditionalTrack: boolean) => void;
+  onRecoverAudio: (sessionId: string) => void;
+  onRecoverNativeAudio: (sessionId: string) => void;
   onRecordAudio: (file: File, sessionId: string, consentAtUs: string) => Promise<void>;
   onExportAudio: (sessionId: string, trackId: string, label: string) => void;
   onRenameRecordingTake: (take: ArchiveRecord, label: string) => void;
@@ -6132,6 +6228,22 @@ function TranscriptPage(props: {
       ["recording_track_id", "recording_track_ids", "audio_import_track_id"].some((key) =>
         Boolean(session?.fields.get(key)?.trim()),
       )
+    );
+  });
+  const recoverableWavImport = createMemo(() => {
+    const session = selectedSession();
+    if (!session || !field(session, "audio_import_track_id")) return false;
+    return ["importing", "finalizing", "interrupted", "completed"].includes(
+      field(session, "audio_import_state"),
+    );
+  });
+  const recoverableNativeCapture = createMemo(() => {
+    const session = selectedSession();
+    return Boolean(
+      session &&
+        ["recording_track_id", "recording_track_ids"].some((key) =>
+          field(session, key).trim(),
+        ),
     );
   });
   let fileInput: HTMLInputElement | undefined;
@@ -6475,6 +6587,34 @@ function TranscriptPage(props: {
           >
             {sessionHasAudio() ? "Add WAV track" : "Import WAV"}
           </button>
+          <Show when={recoverableWavImport()}>
+            <button
+              class="button button-outline"
+              type="button"
+              disabled={props.disabled || !selectedSession()}
+              onClick={() => {
+                const session = selectedSession();
+                if (session) props.onRecoverAudio(session.id);
+              }}
+            >
+              {selectedSession()?.fields.get("audio_import_state") === "completed"
+                ? "Verify WAV import"
+                : "Recover WAV import"}
+            </button>
+          </Show>
+          <Show when={recoverableNativeCapture()}>
+            <button
+              class="button button-outline"
+              type="button"
+              disabled={props.disabled || captureRecorder?.state === "recording"}
+              onClick={() => {
+                const session = selectedSession();
+                if (session) props.onRecoverNativeAudio(session.id);
+              }}
+            >
+              Recover saved recording
+            </button>
+          </Show>
           <label class="transcript-export-picker">
             <span class="visually-hidden">Export format</span>
             <select
