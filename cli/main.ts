@@ -142,6 +142,7 @@ import { makeWaveImportRecords } from "../frontend/domain/wav";
 import { buildAudioTrackWavStream, listSessionAudioTracks } from "../frontend/domain/audio";
 import { summarizeWaveform } from "./recording-waveform";
 import { mixRecordingTracks } from "../frontend/domain/audio-mix";
+import { transcribeTrack } from "./whisper";
 
 interface CliIo {
   stdout(message: string): void;
@@ -266,6 +267,7 @@ Usage:
   tutorux --archive <file.tux> record take-delete|take-restore --session <uuid> --take <uuid>
   tutorux --archive <file.tux> record track-rename --session <uuid> --track <uuid> --label <name>
   tutorux --archive <file.tux> transcript import --session <uuid> --input <file> [--format auto|text|srt|vtt]
+  tutorux --archive <file.tux> transcript transcribe|refine --session <uuid> --track <uuid> --whisper <executable> --model <model> --consent-local-audio [--language auto|code] [--start time] [--end time] [--json]
   tutorux --archive <file.tux> transcript show --session <uuid> [--json]
   tutorux --archive <file.tux> transcript export --session <uuid> --output <file> [--format text|srt|vtt|json]
   tutorux --archive <file.tux> transcript correct <segment-id> --text <replacement>
@@ -533,6 +535,7 @@ async function runArchiveCommand(
         path: archivePath,
         previousGeneration: snapshot.commit.generation.toString(),
         recoveredGeneration: recovery.recoveredGeneration.toString(),
+        recoveredGenerations: recovery.recoveredGenerations,
         discardedTrailingBytes: recovery.discardedTrailingBytes.toString(),
         recoverable: true,
         applied,
@@ -541,8 +544,8 @@ async function runArchiveCommand(
         output,
         result,
         applied
-          ? `Recovered ${basename(path)} to generation ${result.recoveredGeneration}; discarded ${result.discardedTrailingBytes} trailing bytes.`
-          : `Generation ${result.recoveredGeneration} is recoverable. Add --apply to publish it.`,
+          ? `Recovered ${result.recoveredGenerations} generation(s) in ${basename(path)} through generation ${result.recoveredGeneration}; discarded ${result.discardedTrailingBytes} trailing bytes.`
+          : `${result.recoveredGenerations} generation(s) through ${result.recoveredGeneration} are recoverable. Add --apply to publish them.`,
         args.flags.has("json"),
       );
       return 0;
@@ -4498,6 +4501,75 @@ async function runTranscriptCommand(
 ): Promise<number> {
   const json = args.flags.has("json");
   const sessionId = args.options.get("session") ?? "";
+
+  if (action === "transcribe" || action === "refine") {
+    if (!args.flags.has("consent-local-audio")) {
+      throw new CliError(
+        "Use --consent-local-audio to authorize processing this recording with the selected local executable.",
+      );
+    }
+    const selectedSession = requiredOption(args, "session");
+    const trackId = requiredOption(args, "track");
+    const executable = requiredOption(args, "whisper");
+    const model = requiredOption(args, "model");
+    const language = args.options.get("language") ?? "auto";
+    const startUs = args.options.has("start")
+      ? parseTranscriptTimestamp(requiredOption(args, "start"))
+      : 0n;
+    const endUs = args.options.has("end")
+      ? parseTranscriptTimestamp(requiredOption(args, "end"))
+      : undefined;
+    const snapshot = await openForCommand(path);
+    try {
+      const session = await requireLiveRecord(snapshot, RecordType.session, selectedSession);
+      const generation = snapshot.commit.generation;
+      const result = await transcribeTrack({
+        snapshot,
+        sessionId: selectedSession,
+        trackId,
+        executable,
+        model,
+        language,
+        startUs,
+        ...(endUs === undefined ? {} : { endUs }),
+        refine: action === "refine",
+        progress: (message) => {
+          if (!json) output.stderr(message);
+        },
+      });
+      if (result.changes.length) {
+        const fields = new Map(session.fields);
+        fields.set("processing_state", "review-required");
+        fields.set(
+          "processing_detail",
+          "Local transcription is provisional and ready for tutor review.",
+        );
+        fields.set("processing_updated_at_us", timestampNow());
+        await mutateArchive(
+          path,
+          [...result.changes, { ...session, fields }],
+          generation,
+          "The archive changed during transcription. Review it and try again.",
+        );
+      }
+      emit(
+        output,
+        {
+          session_id: selectedSession,
+          track_id: trackId,
+          generated: result.generated,
+          superseded: result.superseded,
+          skipped: result.skipped,
+          windows: result.windows,
+        },
+        `Generated ${result.generated} provisional cue(s), replaced ${result.superseded}, skipped ${result.skipped}. Review generated cues before reuse.`,
+        json,
+      );
+      return 0;
+    } finally {
+      await closeSnapshot(snapshot);
+    }
+  }
 
   if (action === "import") {
     if (!sessionId) throw new CliError("--session is required.");
