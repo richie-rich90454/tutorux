@@ -1,9 +1,18 @@
 import type { ArchiveByteSource } from "../archive/source";
 
+/** Session-only capability tied to the file chosen by the user. */
+export interface BrowserArchiveAutosave {
+  /** Must be called from a user gesture; never prompts during an automatic save. */
+  requestPermission(): Promise<boolean>;
+  /** Refuses changed or unauthorized files; returns a fresh source after saving. */
+  save(source: ArchiveByteSource): Promise<ArchiveByteSource>;
+}
+
 export interface OpenedArchive {
   readonly source: ArchiveByteSource;
   readonly name: string;
   readonly location: string | null;
+  readonly autosave?: BrowserArchiveAutosave;
 }
 
 export type BinaryExportPayload = Uint8Array | ReadableStream<Uint8Array>;
