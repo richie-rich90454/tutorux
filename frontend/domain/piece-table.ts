@@ -12,6 +12,10 @@ export interface TextOperation {
   insertedText: string;
   removedText: string;
 }
+export interface TextReplacement {
+  range: TextRange;
+  text: string;
+}
 export interface DocumentEditTransaction {
   documentId: string;
   expectedRevision: bigint;
@@ -62,7 +66,10 @@ export class PieceTable {
   private redoStack: HistoryEntry[] = [];
   private coalescingAllowed = true;
 
-  constructor(initialText = "") {
+  constructor(
+    initialText = "",
+    private readonly historyEnabled = true,
+  ) {
     validText(initialText);
     this.buffers = [initialText];
     this.pieces = initialText ? [{ buffer: 0, start: 0, length: initialText.length }] : [];
@@ -244,7 +251,7 @@ export class PieceTable {
       }
       if (coalesced) previous.after = entry.after;
     }
-    if (!coalesced) this.undoStack.push(entry);
+    if (this.historyEnabled && !coalesced) this.undoStack.push(entry);
     this.redoStack = [];
     this.currentSelection = { ...entry.after };
     this.coalescingAllowed = true;
@@ -278,6 +285,63 @@ export class PieceTable {
       ],
       selectionBefore: this.selection,
       selectionAfter: { anchor: cursor, focus: cursor },
+      origin,
+      coalesceWithPrevious: false,
+    });
+  }
+
+  /** Apply non-overlapping document ranges as one reversible transaction. */
+  replaceRanges(replacements: readonly TextReplacement[], origin = "user"): EditResult {
+    if (!replacements.length) return this.result(this.paragraphAt(this.currentSelection.focus), 0);
+    const text = this.text();
+    const ordered = replacements
+      .map(({ range, text: insertedText }) => {
+        validText(insertedText);
+        if (
+          range.start > range.end ||
+          !this.boundary(range.start, text) ||
+          !this.boundary(range.end, text)
+        ) {
+          throw new Error(
+            "Edit range must be within the document and on Unicode code point boundaries.",
+          );
+        }
+        return {
+          offset: range.start,
+          removedText: text.slice(range.start, range.end),
+          insertedText,
+          end: range.end,
+        };
+      })
+      .sort((a, b) => a.offset - b.offset || a.end - b.end);
+    for (let index = 1; index < ordered.length; index += 1) {
+      if (ordered[index]!.offset < ordered[index - 1]!.end)
+        throw new Error("Edit ranges must not overlap.");
+    }
+    const before = this.selection;
+    const mapOffset = (offset: number): number => {
+      let delta = 0;
+      for (const replacement of ordered) {
+        if (offset < replacement.offset) break;
+        if (offset <= replacement.end)
+          return replacement.offset + delta + replacement.insertedText.length;
+        delta += replacement.insertedText.length - (replacement.end - replacement.offset);
+      }
+      return offset + delta;
+    };
+    return this.apply({
+      documentId: "",
+      expectedRevision: 0n,
+      operations: ordered.reverse().map(({ offset, removedText, insertedText }) => ({
+        offset,
+        removedText,
+        insertedText,
+      })),
+      selectionBefore: before,
+      selectionAfter: {
+        anchor: mapOffset(before.anchor),
+        focus: mapOffset(before.focus),
+      },
       origin,
       coalesceWithPrevious: false,
     });
@@ -367,13 +431,11 @@ export class PieceTable {
 
   private replay(entry: HistoryEntry, inverse: boolean): EditResult {
     const operations = inverse
-      ? [...entry.operations]
-          .reverse()
-          .map((op) => ({
-            offset: op.offset,
-            insertedText: op.removedText,
-            removedText: op.insertedText,
-          }))
+      ? [...entry.operations].reverse().map((op) => ({
+          offset: op.offset,
+          insertedText: op.removedText,
+          removedText: op.insertedText,
+        }))
       : entry.operations;
     let start = this.length;
     let end = 0;
