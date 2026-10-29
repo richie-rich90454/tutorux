@@ -1,5 +1,7 @@
 import { For, Show, createMemo, createSignal, type JSX } from "solid-js";
 import { RecordType, type ArchiveRecord } from "./archive/format";
+import type { ArchiveSnapshot } from "./archive/archive";
+import { GuideVersionHistory } from "./GuideVersionHistory";
 import {
   GUIDE_BLOCK_KINDS,
   GUIDE_BLOCK_ORIGINS,
@@ -24,6 +26,7 @@ import {
 import "./guides.css";
 
 interface GuidePageProps {
+  snapshot: ArchiveSnapshot;
   records: ArchiveRecord[];
   sessions: ArchiveRecord[];
   entries: ArchiveRecord[];
@@ -37,6 +40,7 @@ interface GuidePageProps {
   busy: boolean;
   onOpenSessions: () => void;
   onSave: (draft: GuideDraft, current: ArchiveRecord | null) => Promise<boolean>;
+  onRestoreVersion: (selected: ArchiveRecord, current: ArchiveRecord) => Promise<boolean>;
   onApprove: (record: ArchiveRecord) => void;
   onTrash: (record: ArchiveRecord) => void;
   onExport: (record: ArchiveRecord, format: "markdown" | "html" | "json" | "docx" | "pdf") => void;
@@ -655,6 +659,12 @@ export function GuidesPage(props: GuidePageProps): JSX.Element {
                           </span>
                         </Show>
                       </div>
+                      <GuideVersionHistory
+                        guide={record}
+                        snapshot={props.snapshot}
+                        disabled={props.disabled || props.busy}
+                        onRestore={props.onRestoreVersion}
+                      />
                     </div>
                     <div class="guide-record-actions">
                       <button
