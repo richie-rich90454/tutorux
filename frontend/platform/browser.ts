@@ -6,6 +6,7 @@ import type {
   BinaryExportPayload,
   BinaryExportSource,
   OpenedArchive,
+  BrowserArchiveAutosave,
 } from "./types";
 
 interface FilePickerType {
@@ -21,6 +22,8 @@ const archiveFilter: FilePickerType[] = [
 interface BrowserArchiveHandle {
   readonly name: string;
   getFile(): Promise<File>;
+  queryPermission?(options: { mode: "readwrite" }): Promise<PermissionState>;
+  requestPermission?(options: { mode: "readwrite" }): Promise<PermissionState>;
   createWritable(): Promise<{
     write(data: ReadableStream<Uint8Array>): Promise<void>;
     close(): Promise<void>;
@@ -38,6 +41,81 @@ type FileAccessWindow = Window & {
   }) => Promise<BrowserArchiveHandle>;
 };
 
+/** Compare the complete selected file, not only its easily reused timestamp or size. */
+async function sameArchiveFile(baseline: File, current: File): Promise<boolean> {
+  if (baseline.size !== current.size || baseline.lastModified !== current.lastModified)
+    return false;
+  const chunkSize = 1024 * 1024;
+  for (let offset = 0; offset < current.size; offset += chunkSize) {
+    const end = Math.min(offset + chunkSize, current.size);
+    const [before, after] = await Promise.all([
+      baseline.slice(offset, end).arrayBuffer(),
+      current.slice(offset, end).arrayBuffer(),
+    ]);
+    const left = new Uint8Array(before);
+    const right = new Uint8Array(after);
+    if (left.length !== right.length || left.some((byte, index) => byte !== right[index]))
+      return false;
+  }
+  return true;
+}
+
+function makeArchiveAutosave(
+  handle: BrowserArchiveHandle,
+  initialFile: File,
+): BrowserArchiveAutosave {
+  let baseline = initialFile;
+  let saving = false;
+  return {
+    async requestPermission(): Promise<boolean> {
+      if (!handle.requestPermission || !handle.queryPermission) return false;
+      return (await handle.requestPermission({ mode: "readwrite" })) === "granted";
+    },
+    async save(source: ArchiveByteSource): Promise<ArchiveByteSource> {
+      if (saving) throw new Error("An automatic archive save is already in progress.");
+      saving = true;
+      try {
+        if (
+          !handle.queryPermission ||
+          (await handle.queryPermission({ mode: "readwrite" })) !== "granted"
+        ) {
+          throw new Error(
+            "Archive write permission is not available. Enable autosave again to grant access.",
+          );
+        }
+        let current: File;
+        try {
+          current = await handle.getFile();
+          if (!(await sameArchiveFile(baseline, current))) {
+            throw new Error(
+              "The archive changed outside Tutorux. Reopen it before saving automatically.",
+            );
+          }
+        } catch (cause) {
+          if (cause instanceof Error && cause.message.startsWith("The archive changed"))
+            throw cause;
+          throw new Error(
+            "The original archive could not be checked. Reopen it before saving automatically.",
+            { cause },
+          );
+        }
+        const writable = await handle.createWritable();
+        try {
+          await writable.write(sourceStream(source));
+          await writable.close();
+        } catch (error) {
+          await writable.abort(error).catch(() => undefined);
+          throw error;
+        }
+        baseline = await handle.getFile();
+        return new BrowserFileArchiveSource(baseline);
+      } finally {
+        saving = false;
+      }
+    },
+  };
+}
+
 export const platform: ArchivePlatform = {
   kind: "browser",
 
@@ -50,7 +128,14 @@ export const platform: ArchivePlatform = {
       });
       if (!handle) return null;
       const file = await handle.getFile();
-      return { source: new BrowserFileArchiveSource(file), name: file.name, location: null };
+      return {
+        source: new BrowserFileArchiveSource(file),
+        name: file.name,
+        location: null,
+        ...(handle.requestPermission && handle.queryPermission
+          ? { autosave: makeArchiveAutosave(handle, file) }
+          : {}),
+      };
     }
 
     const file = await chooseFile();
