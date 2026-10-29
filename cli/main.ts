@@ -59,6 +59,10 @@ import { executeAiGeneration } from "../frontend/ai/execution";
 import type { AiTransportRequest, AiTransportResult } from "../frontend/platform/types";
 import { packAiContext } from "./ai-context";
 import { exportAiPackage } from "./ai-export";
+import {
+  resolveCliEmbeddedModelReference,
+  sendCliEmbeddedAiRequest,
+} from "./embedded-ai";
 import { appendCliAssetFile, exportCliAssetAtomically } from "./assets-stream";
 import { NodeFileArchiveSource } from "../frontend/archive/node-source";
 import { iterateVerifiedAssetChunks, readAssetBytes } from "../frontend/domain/assets";
@@ -3317,7 +3321,19 @@ async function runAiCommand(
           credential,
           session: scope.session,
           sourceRecords: scope.records,
-          send: sendCliAiRequest,
+          send: async (request, onChunk) => {
+            if (request.providerId !== "embedded-gguf" && request.providerId !== "llama.cpp-embedded")
+              return sendCliAiRequest(request, onChunk);
+            const signal = AbortSignal.timeout(300_000);
+            const references = await snapshot.listRecords(RecordType.settings);
+            const selection = await resolveCliEmbeddedModelReference(
+              references,
+              path,
+              request.model,
+              signal,
+            );
+            return sendCliEmbeddedAiRequest(request, selection, onChunk, signal);
+          },
           onProgress: () => {},
         });
         changes = execution.guide
