@@ -33,6 +33,7 @@ import { ArchiveMaintenance } from "./ArchiveMaintenance";
 import { MaterialDetails, MaterialTrash } from "./MaterialDetails";
 import { EvidenceSources } from "./EvidenceSources";
 import { AudioMixer } from "./AudioMixer";
+import { WhisperTranscription } from "./WhisperTranscription";
 import { sourceStream, type ArchiveByteSource } from "./archive/source";
 import { AiPage } from "./AiPage";
 import { createAiPackageRecord, type AiPackageSummary } from "./ai/package";
@@ -2825,6 +2826,11 @@ function App(): JSX.Element {
                     onTrashRecordingTake={(take) => void changeRecordingTakeTrash(take, true)}
                     onRestoreRecordingTake={(take) => void changeRecordingTakeTrash(take, false)}
                     onSaveMix={(snapshot, records, message) =>
+                      workspace()?.snapshot === snapshot
+                        ? addRecords(records, message)
+                        : Promise.resolve(false)
+                    }
+                    onSaveWhisper={(records, message, snapshot) =>
                       workspace()?.snapshot === snapshot
                         ? addRecords(records, message)
                         : Promise.resolve(false)
@@ -5880,6 +5886,11 @@ function TranscriptPage(props: {
     records: ArchiveRecord[],
     message: string,
   ) => Promise<boolean>;
+  onSaveWhisper: (
+    records: ArchiveRecord[],
+    message: string,
+    snapshot: ArchiveSnapshot,
+  ) => Promise<boolean>;
   onExport: (sessionId: string, format: TranscriptExportFormat) => void;
   onSave: (
     record: ArchiveRecord,
@@ -6537,6 +6548,17 @@ function TranscriptPage(props: {
               preview={audioPreview()!}
               url={audioUrl()!}
               onPlayer={(element) => (audioPlayer = element)}
+            />
+          </Show>
+          <Show when={audioPreview() && selectedSession() && selectedTrack()}>
+            <WhisperTranscription
+              snapshot={props.snapshot}
+              preview={audioPreview()!}
+              sessionId={selectedSession()!.id}
+              trackId={selectedTrack()!.id}
+              records={sessionRecords()}
+              disabled={props.disabled}
+              onSave={props.onSaveWhisper}
             />
           </Show>
           <Show when={playbackError()}>
