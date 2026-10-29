@@ -62,11 +62,18 @@ import {
   generateGuideDraftFromSession,
   GUIDE_BLOCK_KINDS,
   makeGuideRecord,
+  renderGuideHtml,
   renderGuideMarkdown,
   type GuideBlockKind,
   type GuideDraft,
   type GuideSourceScope,
+  type GuideExportImage,
 } from "../frontend/domain/guides";
+import {
+  guideImageIds,
+  renderGuideDocx,
+  serializeGuideJson,
+} from "../frontend/domain/guide-export";
 import {
   duplicateAnnotationRecord,
   makeAnnotationRecord,
@@ -236,7 +243,7 @@ Usage:
   tutorux --archive <file.tux> guide add-section <id> --heading <heading> [--text <text>]
   tutorux --archive <file.tux> guide remove-section <id> --section-index <index>
   tutorux --archive <file.tux> guide add-block|update-block|remove-block <id> --section-index <index> [--block-index <index>]
-  tutorux --archive <file.tux> guide export <id> --output <file.md>
+  tutorux --archive <file.tux> guide export <id> --output <file> [--format markdown|html|json|docx] [--revision <index>]
   tutorux --archive <file.tux> template list|show [<id>]
   tutorux --archive <file.tux> template create --name <name> --sections <heading;heading;...>
   tutorux --archive <file.tux> template update <id> [--name <name>] [--sections <headings>]
@@ -1810,16 +1817,42 @@ async function runGuideCommand(
   if (action === "show" || action === "export") {
     const snapshot = await openForCommand(path);
     let record: ArchiveRecord;
-    let markdown: string;
+    const images = new Map<string, GuideExportImage>();
+    const format = (args.options.get("format") ?? "markdown").toLowerCase();
+    if (action === "export" && !["markdown", "md", "html", "json", "docx"].includes(format)) {
+      await closeSnapshot(snapshot);
+      throw new CliError("Guide export format must be markdown, html, json, or docx.");
+    }
     try {
-      record = await requireLiveRecord(snapshot, RecordType.guide, id);
-      markdown = renderGuideMarkdown(record);
+      const index = parseBoundedOption(args.options.get("revision"), "revision", 0, 0, 10000);
+      if (index === 0) record = await requireLiveRecord(snapshot, RecordType.guide, id);
+      else {
+        const history = await snapshot.getRecordHistory(RecordType.guide, id, index + 1);
+        if (!history[index]) throw new CliError(`Guide history index ${index} was not found.`);
+        record = history[index]!;
+      }
+      if (action === "export" && (format === "html" || format === "docx")) {
+        for (const assetId of guideImageIds(record)) {
+          const metadata = await requireLiveRecord(snapshot, RecordType.assetMetadata, assetId);
+          const mimeType = field(metadata, "mime_type");
+          if (
+            !["image/png", "image/jpeg", "image/jpg", "image/gif", "image/webp"].includes(mimeType)
+          ) {
+            throw new CliError(`Guide image ${assetId} has an unsupported image format.`);
+          }
+          images.set(assetId, {
+            assetId,
+            mimeType,
+            bytes: await readAssetBytes(snapshot, metadata),
+          });
+        }
+      }
     } finally {
       await closeSnapshot(snapshot);
     }
     if (action === "show") {
       if (json) emit(output, toPlainRecord(record), "", true);
-      else output.stdout(markdown);
+      else output.stdout(renderGuideMarkdown(record));
       return 0;
     }
     const outputPath = args.options.get("output");
@@ -1827,10 +1860,19 @@ async function runGuideCommand(
     const destination = resolve(outputPath);
     if (await sameFileIdentity(destination, path))
       throw new CliError("Guide output cannot replace its source archive.");
-    await writeTextAtomically(destination, markdown);
+    if (format === "docx") await writeBytesAtomically(destination, renderGuideDocx(record, images));
+    else {
+      const contents =
+        format === "html"
+          ? renderGuideHtml(record, images)
+          : format === "json"
+            ? serializeGuideJson(record)
+            : renderGuideMarkdown(record);
+      await writeTextAtomically(destination, contents);
+    }
     emit(
       output,
-      { id: record.id, output: destination },
+      { id: record.id, output: destination, format },
       `Exported study guide to ${destination}.`,
       json,
     );
