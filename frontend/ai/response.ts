@@ -1,5 +1,6 @@
 import { newUuid } from "../archive/format";
 import { GUIDE_BLOCK_KINDS, type GuideDraft } from "../domain/guides";
+import { isEmbeddedGgufProvider } from "./providers";
 
 const MAX_RESPONSE_TEXT_BYTES = 16 * 1024 * 1024;
 const MAX_GUIDE_SECTIONS = 500;
@@ -247,7 +248,11 @@ function extractStreamDelta(
   eventType: string | undefined,
   fullResponse = false,
 ): string {
-  if (providerId === "openai" || providerId === "openai-compatible") {
+  if (
+    providerId === "openai" ||
+    providerId === "openai-compatible" ||
+    isEmbeddedGgufProvider(providerId)
+  ) {
     const choices = Array.isArray(event["choices"]) ? event["choices"] : [];
     const choice = choices[0];
     if (!isObject(choice)) return "";
