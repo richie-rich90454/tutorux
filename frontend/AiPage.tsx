@@ -7,10 +7,11 @@ import {
   MAX_AI_IMAGE_ATTACHMENT_COUNT,
   type AiPackageSummary,
 } from "./ai/package";
+import { createAiMultipartHandoff } from "./ai/multipart";
 import type { AiRequestPreview } from "./ai/request";
 import { AI_RESPONSE_PREVIEW_CHARACTER_LIMIT, type AiExecutionSummary } from "./ai/response";
 import { AI_PROVIDERS, type AiProviderConfigurationInput } from "./ai/providers";
-import type { AiCredentialStorage } from "./platform/types";
+import type { AiCredentialStorage, BinaryExportSource } from "./platform/types";
 import { GUIDE_TEMPLATES, type GuideTemplate } from "./domain/guides";
 import { guideTemplateFromRecord } from "./domain/templates";
 import "./ai.css";
@@ -40,6 +41,16 @@ interface AiPageProps {
   ) => Promise<AiRequestPreview>;
   onSave: (summary: AiPackageSummary) => Promise<boolean>;
   onLoad: (jobId: string) => Promise<ArchiveRecord | null>;
+  onExportTextFile: (
+    suggestedName: string,
+    contents: string,
+    mimeType: string,
+  ) => Promise<string | null>;
+  onExportBinaryFile: (
+    suggestedName: string,
+    contents: BinaryExportSource,
+    mimeType: string,
+  ) => Promise<string | null>;
   onSend: (
     packageJob: ArchiveRecord,
     expectedTemplateId: string,
@@ -235,17 +246,36 @@ export function AiPage(props: AiPageProps): JSX.Element {
       if (!job) throw new Error("That AI record is no longer available in the active archive.");
       const isPackage = job.fields.get("mode") === "manual";
       const text = isPackage ? aiPackageText(job) : undefined;
-      const blob = text
-        ? new Blob([text], { type: "application/json;charset=utf-8" })
-        : new Blob([job.blob.slice().buffer], { type: "application/octet-stream" });
-      const url = URL.createObjectURL(blob);
-      const anchor = document.createElement("a");
-      anchor.href = url;
-      anchor.download = `Tutorux-AI-${job.fields.get("session_id") ?? job.id}.${isPackage ? "json" : "txt"}`;
-      anchor.click();
-      window.setTimeout(() => URL.revokeObjectURL(url), 1_000);
+      const filename = `Tutorux-AI-${job.fields.get("session_id") ?? job.id}.${isPackage ? "json" : "txt"}`;
+      const location = text
+        ? await props.onExportTextFile(filename, text, "application/json")
+        : await props.onExportBinaryFile(
+            filename,
+            job.blob.slice(),
+            "application/octet-stream",
+          );
+      if (location) setMessage(`Exported AI ${isPackage ? "package" : "response"} to ${location}.`);
     } catch (cause) {
       setMessage(cause instanceof Error ? cause.message : "The package could not be exported.");
+    }
+  }
+
+  async function downloadMultipart(jobId: string): Promise<void> {
+    try {
+      const job = await props.onLoad(jobId);
+      if (!job || job.fields.get("mode") !== "manual") {
+        throw new Error("That AI package is no longer available in the active archive.");
+      }
+      const handoff = createAiMultipartHandoff(aiPackageText(job));
+      const filename = `Tutorux-AI-${job.fields.get("session_id") ?? job.id}.multipart.md`;
+      const location = await props.onExportTextFile(filename, handoff.markdown, "text/markdown");
+      if (location) {
+        setMessage(
+          `Exported an ordered handoff with ${handoff.transcriptPartCount} transcript parts and ${handoff.promptCount} prompts (${formatBytes(handoff.outputBytes)}) to ${location}.`,
+        );
+      }
+    } catch (cause) {
+      setMessage(cause instanceof Error ? cause.message : "The multipart handoff could not be exported.");
     }
   }
 
@@ -1110,14 +1140,24 @@ export function AiPage(props: AiPageProps): JSX.Element {
                       {formatBytes(jobSize(job))}
                     </span>
                   </div>
-                  <button
-                    class="button button-outline ai-export-button"
-                    type="button"
-                    disabled={props.disabled || props.busy}
-                    onClick={() => void download(job.id)}
-                  >
-                    Export JSON
-                  </button>
+                  <div class="ai-job-actions">
+                    <button
+                      class="button button-outline ai-export-button"
+                      type="button"
+                      disabled={props.disabled || props.busy}
+                      onClick={() => void download(job.id)}
+                    >
+                      Export JSON
+                    </button>
+                    <button
+                      class="button button-outline ai-export-button"
+                      type="button"
+                      disabled={props.disabled || props.busy}
+                      onClick={() => void downloadMultipart(job.id)}
+                    >
+                      Export multipart handoff
+                    </button>
+                  </div>
                 </div>
               )}
             </For>
