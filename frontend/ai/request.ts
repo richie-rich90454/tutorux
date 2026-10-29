@@ -7,7 +7,7 @@ import {
   parseAiImageAttachmentManifest,
   type AiImageAttachmentManifest,
 } from "./package";
-import { providerById, validateProviderEndpoint } from "./providers";
+import { isEmbeddedGgufProvider, providerById, validateProviderEndpoint } from "./providers";
 
 export const MAX_AI_REQUEST_BODY_BYTES = 16 * 1024 * 1024;
 export const DEFAULT_AI_OUTPUT_TOKENS = 4096;
@@ -178,7 +178,11 @@ function buildRequestBody(
   imageAttachments: readonly LoadedAiImageAttachment[],
 ): string {
   let body: unknown;
-  if (providerId === "openai" || providerId === "openai-compatible") {
+  if (
+    providerId === "openai" ||
+    providerId === "openai-compatible" ||
+    isEmbeddedGgufProvider(providerId)
+  ) {
     body = {
       model,
       stream: true,
@@ -392,6 +396,9 @@ function generationEndpoint(providerId: string, configuredEndpoint: string, mode
       return `${base}/agent`;
     case "ollama":
       return `${base.endsWith("/v1") ? base.slice(0, -3) : base}/api/chat`;
+    case "embedded-gguf":
+    case "llama.cpp-embedded":
+      return base;
     case "google-gemini": {
       const modelPath = model.startsWith("models/") ? model.slice("models/".length) : model;
       return `${base}/models/${encodeModelId(modelPath)}:streamGenerateContent?alt=sse`;
@@ -436,6 +443,8 @@ function authHeaderName(providerId: string): string | null {
     case "google-gemini":
       return "x-goog-api-key";
     case "ollama":
+    case "embedded-gguf":
+    case "llama.cpp-embedded":
       return null;
     default:
       return "Authorization";
@@ -450,6 +459,9 @@ function authenticationDescription(providerId: string, credentialAvailable: bool
       return "x-goog-api-key header; saved value hidden";
     case "ollama":
       return "No credential; loopback service";
+    case "embedded-gguf":
+    case "llama.cpp-embedded":
+      return "No credential; inference stays inside the desktop process";
     default:
       return credentialAvailable
         ? "Authorization: Bearer saved API key; value hidden"
