@@ -19,6 +19,7 @@ import {
   recoverMagicDamagedArchiveHeader,
   recoverUnpublishedCommit,
   verifyArchiveSnapshot,
+  verifyArchiveHistory,
   type ArchiveSnapshot,
 } from "../frontend/archive/archive";
 import {
@@ -189,7 +190,7 @@ Usage:
   tutorux archive init <file.tux> --name <name> [--description <text>] [--new-passphrase-env <name>]
   tutorux --passphrase-env <current-name> archive change-passphrase <file.tux> --new-passphrase-env <new-name>
   tutorux archive info <file.tux> [--json]
-  tutorux archive verify <file.tux> [--passphrase-env <name>] [--json]
+  tutorux archive verify <file.tux> [--history] [--passphrase-env <name>] [--json]
   tutorux archive recover <file.tux> [--apply] [--json]
   tutorux archive compact <file.tux> [--prune-unreferenced-assets] [--apply] [--json]
   tutorux archive backfill-indexes <file.tux> [--apply] [--json]
@@ -254,6 +255,7 @@ Usage:
   tutorux --archive <file.tux> guide list [--session <uuid>] [--entry-id <uuid>] [--include-deleted] [--json]
   tutorux --archive <file.tux> guide show|approve|trash|restore|history <id>
   tutorux --archive <file.tux> guide compare <id> [--json]
+  tutorux --archive <file.tux> guide validate <id> [--revision <index>] [--json]
   tutorux --archive <file.tux> guide update <id> [--title <title>]
   tutorux --archive <file.tux> guide add-section <id> --heading <heading> [--text <text>]
   tutorux --archive <file.tux> guide remove-section <id> --section-index <index>
@@ -1040,7 +1042,12 @@ async function runArchiveCommand(
   let snapshot: ArchiveSnapshot | undefined;
   try {
     snapshot = await unlockSnapshotForCli(await openArchiveSource(source), action === "verify");
-    const verification = snapshot.locked ? null : await verifyArchiveSnapshot(snapshot);
+    const history =
+      !snapshot.locked && action === "verify" && args.flags.has("history")
+        ? await verifyArchiveHistory(snapshot)
+        : null;
+    const verification =
+      history ?? (snapshot.locked ? null : await verifyArchiveSnapshot(snapshot));
     const result = {
       path: resolve(path),
       name: (await snapshot.getManifest()).displayName,
@@ -1053,8 +1060,12 @@ async function runArchiveCommand(
       encrypted: snapshot.encrypted,
       locked: snapshot.locked,
       verified: verification !== null,
+      historicalRevisionsVerified: history?.historicalRevisions ?? null,
+      commitsVerified: history?.verifiedCommits ?? null,
       verificationScope: verification
-        ? "all-current-primary-records-and-index"
+        ? history
+          ? "reachable-revisions-and-committed-generations"
+          : "all-current-primary-records-and-index"
         : "header-and-index",
     };
     emit(
@@ -1413,6 +1424,14 @@ async function runRecordCommand(
   }
   if (group === "journal" && action === "search") return runJournalSearch(path, args, output);
   if (group === "journal" && action === "document") return runJournalDocument(path, args, output);
+  if (group === "journal" && action === "entry") {
+    const entryAction = args.positionals[0];
+    if (!entryAction) throw new CliError("Choose a journal entry action.");
+    const forwarded = { ...args, positionals: args.positionals.slice(1) };
+    if (entryAction === "search" || (entryAction === "list" && args.options.has("query")))
+      return runJournalSearch(path, forwarded, output);
+    return runRecordCommand("journal", entryAction, path, forwarded, output);
+  }
   if (group === "session" && action === "export") {
     const sessionId = requiredPosition(args, 0, "session ID").toLowerCase();
     const destinationPath = resolve(requiredOption(args, "output"));
@@ -1917,6 +1936,39 @@ async function runGuideCommand(
   }
 
   const id = requiredPosition(args, 0, "study guide ID");
+
+  if (action === "validate") {
+    const snapshot = await openForCommand(path);
+    try {
+      const index = parseBoundedOption(args.options.get("revision"), "revision", 0, 0, 10_000);
+      const history = await snapshot.getRecordHistory(RecordType.guide, id, index + 1);
+      const record = history[index];
+      if (!record || field(record, "_deleted") === "true")
+        throw new CliError("Study guide revision was not found.");
+      let error = "";
+      try {
+        const draft = guideDraftFromRecord(record);
+        const scope = draft.sessionId
+          ? await readGuideScope(snapshot, draft.sessionId)
+          : await readGuideEntryScope(snapshot, draft.entryId ?? "");
+        makeGuideRecord(draft, scope, record);
+      } catch (cause) {
+        error = cause instanceof Error ? cause.message : "Guide validation failed.";
+      }
+      const report = { guide_id: id, revision: index, valid: !error, error };
+      emit(
+        output,
+        report,
+        error
+          ? `Guide validation failed: ${error}`
+          : "Guide structure and source references are valid.",
+        json,
+      );
+      return error ? 2 : 0;
+    } finally {
+      await closeSnapshot(snapshot);
+    }
+  }
 
   if (action === "compare") {
     const snapshot = await openForCommand(path);
