@@ -2531,6 +2531,35 @@ button:disabled {
   color: var(--muted);
   font-size: 8px;
 }
+.shortcut-matrix {
+  margin: 0;
+}
+.shortcut-matrix-row {
+  min-height: 38px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 8px 15px;
+  border-bottom: 1px solid var(--line-soft);
+}
+.shortcut-matrix-row:last-child {
+  border-bottom: 0;
+}
+.shortcut-matrix-row dt {
+  min-width: 0;
+  color: var(--ink-soft);
+  font-size: 9px;
+}
+.shortcut-matrix-row dd {
+  max-width: 62%;
+  margin: 0;
+  color: var(--muted);
+  font-size: 8px;
+  text-align: right;
+  overflow-wrap: anywhere;
+  font-variant-numeric: tabular-nums;
+}
 .preference-row {
   min-height: 61px;
   display: flex;
