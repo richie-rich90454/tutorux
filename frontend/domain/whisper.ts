@@ -69,6 +69,8 @@ export function makeWhisperRecords(options: {
   language: string;
   preview: AudioPreview;
   existing: readonly ArchiveRecord[];
+  replaceProvisional?: boolean;
+  runId?: string;
 }): { records: ArchiveRecord[]; skipped: number } {
   const parsed: unknown = JSON.parse(options.json);
   if (
@@ -95,6 +97,7 @@ export function makeWhisperRecords(options: {
   };
   const existing = options.existing.filter(overlaps);
   if (
+    !options.replaceProvisional &&
     existing.some(
       (record) =>
         record.fields.get("origin") === "local-whisper" &&
@@ -111,10 +114,25 @@ export function makeWhisperRecords(options: {
       record.fields.has("human_edited_at_us") ||
       ["human-corrected", "human-verified"].includes(record.fields.get("verification_state") ?? ""),
   );
-  const runId = newUuid();
+  const runId = options.runId ?? newUuid();
   const createdAt = (BigInt(Date.now()) * 1000n).toString();
   let skipped = 0;
   const records: ArchiveRecord[] = [];
+  if (options.replaceProvisional) {
+    for (const record of existing) {
+      if (
+        record.fields.get("origin") === "local-whisper" &&
+        record.fields.get("verification_state") === "provisional" &&
+        !record.fields.has("human_edited_at_us")
+      ) {
+        const fields = new Map(record.fields);
+        fields.set("_deleted", "true");
+        fields.set("superseded_by_run", runId);
+        fields.set("updated_at_us", createdAt);
+        records.push({ ...record, fields });
+      }
+    }
+  }
   for (const value of parsed.transcription as unknown[]) {
     if (!value || typeof value !== "object")
       throw new Error("Whisper returned an invalid segment.");
@@ -123,7 +141,6 @@ export function makeWhisperRecords(options: {
     const to = segment.offsets?.to;
     if (
       typeof segment.text !== "string" ||
-      !segment.text.trim() ||
       !Number.isSafeInteger(from) ||
       !Number.isSafeInteger(to) ||
       from! < 0 ||
@@ -132,6 +149,7 @@ export function makeWhisperRecords(options: {
     ) {
       throw new Error("Whisper returned an invalid segment.");
     }
+    if (!segment.text.trim()) continue;
     const a = start + BigInt(from!) * 1000n;
     const b = start + BigInt(to!) * 1000n;
     if (a >= end || b > end) {
