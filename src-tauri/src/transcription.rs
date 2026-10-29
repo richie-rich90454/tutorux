@@ -1,13 +1,73 @@
 use serde::Serialize;
 use std::{
+    collections::HashMap,
     fs,
     path::{Path, PathBuf},
     process::{Command, Stdio},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc, Mutex, OnceLock,
+    },
+    thread,
+    time::Duration,
 };
 use uuid::Uuid;
 
 const MAX_AUDIO_BYTES: usize = 32 * 1024 * 1024;
 const MAX_OUTPUT_BYTES: u64 = 8 * 1024 * 1024;
+static RUNS: OnceLock<Mutex<HashMap<Uuid, Arc<AtomicBool>>>> = OnceLock::new();
+
+fn runs() -> &'static Mutex<HashMap<Uuid, Arc<AtomicBool>>> {
+    RUNS.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn main_window(window: &tauri::WebviewWindow) -> Result<(), String> {
+    if window.label() != "main" {
+        return Err("Transcription is only available from the main application window.".into());
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub fn begin_whisper_run(window: tauri::WebviewWindow) -> Result<String, String> {
+    main_window(&window)?;
+    let mut state = runs()
+        .lock()
+        .map_err(|_| "Transcription state is unavailable.".to_owned())?;
+    if state.len() >= 4 {
+        return Err("Too many transcription jobs are active.".into());
+    }
+    let id = Uuid::new_v4();
+    state.insert(id, Arc::new(AtomicBool::new(false)));
+    Ok(id.to_string())
+}
+
+#[tauri::command]
+pub fn cancel_whisper_run(window: tauri::WebviewWindow, run_id: String) -> Result<(), String> {
+    main_window(&window)?;
+    let id = Uuid::parse_str(&run_id).map_err(|_| "Invalid transcription job.".to_owned())?;
+    let state = runs()
+        .lock()
+        .map_err(|_| "Transcription state is unavailable.".to_owned())?;
+    if let Some(cancelled) = state.get(&id) {
+        cancelled.store(true, Ordering::Release);
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub fn end_whisper_run(window: tauri::WebviewWindow, run_id: String) -> Result<(), String> {
+    main_window(&window)?;
+    let id = Uuid::parse_str(&run_id).map_err(|_| "Invalid transcription job.".to_owned())?;
+    if let Some(cancelled) = runs()
+        .lock()
+        .map_err(|_| "Transcription state is unavailable.".to_owned())?
+        .remove(&id)
+    {
+        cancelled.store(true, Ordering::Release);
+    }
+    Ok(())
+}
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -37,7 +97,11 @@ fn transcribe(
     model: String,
     wav: Vec<u8>,
     language: String,
+    cancelled: Arc<AtomicBool>,
 ) -> Result<WhisperOutput, String> {
+    if cancelled.load(Ordering::Acquire) {
+        return Err("Transcription cancelled.".into());
+    }
     if wav.len() < 44
         || wav.len() > MAX_AUDIO_BYTES
         || &wav[..4] != b"RIFF"
@@ -96,9 +160,23 @@ fn transcribe(
         use std::os::windows::process::CommandExt;
         command.creation_flags(0x08000000);
     }
-    let status = command
-        .status()
+    let mut child = command
+        .spawn()
         .map_err(|_| "Could not start the selected Whisper executable.".to_owned())?;
+    let status = loop {
+        if cancelled.load(Ordering::Acquire) {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err("Transcription cancelled.".into());
+        }
+        match child
+            .try_wait()
+            .map_err(|_| "Could not monitor transcription.".to_owned())?
+        {
+            Some(status) => break status,
+            None => thread::sleep(Duration::from_millis(150)),
+        }
+    };
     if !status.success() {
         return Err("Whisper could not transcribe this audio. Check that the executable and model are compatible.".into());
     }
@@ -116,15 +194,23 @@ fn transcribe(
 #[tauri::command]
 pub async fn transcribe_whisper(
     window: tauri::WebviewWindow,
+    run_id: String,
     executable: String,
     model: String,
     wav: Vec<u8>,
     language: String,
 ) -> Result<WhisperOutput, String> {
-    if window.label() != "main" {
-        return Err("Transcription is only available from the main application window.".into());
-    }
-    tauri::async_runtime::spawn_blocking(move || transcribe(executable, model, wav, language))
-        .await
-        .map_err(|_| "The transcription task could not finish.".to_owned())?
+    main_window(&window)?;
+    let id = Uuid::parse_str(&run_id).map_err(|_| "Invalid transcription job.".to_owned())?;
+    let cancelled = runs()
+        .lock()
+        .map_err(|_| "Transcription state is unavailable.".to_owned())?
+        .get(&id)
+        .cloned()
+        .ok_or_else(|| "Transcription job has ended.".to_owned())?;
+    tauri::async_runtime::spawn_blocking(move || {
+        transcribe(executable, model, wav, language, cancelled)
+    })
+    .await
+    .map_err(|_| "The transcription task could not finish.".to_owned())?
 }
