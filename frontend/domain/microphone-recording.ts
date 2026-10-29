@@ -10,6 +10,8 @@ export async function makeMicrophoneRecordingRecords(options: {
   knownTrackIds: readonly string[];
   startedAtUs: string;
   consentAtUs: string;
+  pauseCount: number;
+  pausedDurationUs: string;
 }): Promise<WaveImportResult> {
   const result = await makeWaveImportRecords(
     options.session,
@@ -33,6 +35,8 @@ export async function makeMicrophoneRecordingRecords(options: {
       fields.set("capture_source_backend", "web-audio");
       fields.set("capture_consent_at_us", options.consentAtUs);
       fields.set("capture_consent_policy", "1");
+      fields.set("capture_pause_count", String(options.pauseCount));
+      fields.set("capture_paused_duration_us", options.pausedDurationUs);
       fields.delete("source_filename");
       if (record.id === result.takeId) {
         fields.set("started_at_us", options.startedAtUs);
@@ -73,6 +77,10 @@ export class MicrophoneRecording {
   private buffers: Uint8Array<ArrayBuffer>[] = [];
   private totalBytes = 0;
   private finished = false;
+  private paused = false;
+  private pauseStartedMs = 0;
+  private pausedMs = 0;
+  private pauseCount = 0;
 
   private constructor(
     private readonly context: AudioContext,
@@ -83,7 +91,7 @@ export class MicrophoneRecording {
     private readonly onLimit: () => void,
   ) {
     processor.onaudioprocess = (event) => {
-      if (this.finished) return;
+      if (this.finished || this.paused) return;
       const samples = event.inputBuffer.getChannelData(0);
       const count = Math.min(samples.length, Math.floor((MAX_PCM_BYTES - this.totalBytes) / 2));
       if (count > 0) {
@@ -130,9 +138,37 @@ export class MicrophoneRecording {
     }
   }
 
-  async stop(): Promise<File> {
+  async pause(): Promise<void> {
+    if (this.finished || this.paused) throw new Error("Recording cannot be paused now.");
+    this.paused = true;
+    this.pauseStartedMs = performance.now();
+    this.pauseCount++;
+    for (const track of this.stream.getAudioTracks()) track.enabled = false;
+    try {
+      await this.context.suspend();
+    } catch (error) {
+      if (!this.finished) {
+        this.paused = false;
+        this.pauseCount--;
+        for (const track of this.stream.getAudioTracks()) track.enabled = true;
+      }
+      throw error;
+    }
+  }
+
+  async resume(): Promise<void> {
+    if (this.finished || !this.paused) throw new Error("Recording cannot be resumed now.");
+    await this.context.resume();
+    if (this.finished) return;
+    this.pausedMs += performance.now() - this.pauseStartedMs;
+    for (const track of this.stream.getAudioTracks()) track.enabled = true;
+    this.paused = false;
+  }
+
+  async stop(): Promise<{ file: File; pauseCount: number; pausedDurationUs: string }> {
     if (this.finished) throw new Error("This recording has already stopped.");
     this.finished = true;
+    if (this.paused) this.pausedMs += performance.now() - this.pauseStartedMs;
     this.processor.onaudioprocess = null;
     this.input.disconnect();
     this.processor.disconnect();
@@ -163,7 +199,11 @@ export class MicrophoneRecording {
       { type: "audio/wav" },
     );
     this.buffers = [];
-    return file;
+    return {
+      file,
+      pauseCount: this.pauseCount,
+      pausedDurationUs: String(Math.round(this.pausedMs * 1000)),
+    };
   }
 
   async discard(): Promise<void> {
