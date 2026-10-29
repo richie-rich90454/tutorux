@@ -242,6 +242,9 @@ Usage:
     [--capture-source browser-microphone --consent [--capture-consent-at-us <us>]]
   tutorux --archive <file.tux> asset list [--session <uuid>] [--include-deleted] [--json]
   tutorux --archive <file.tux> asset show|preview|verify|remove|restore <id> [--json]
+  tutorux --archive <file.tux> asset update <id> [--filename <name>] [--description <text>]
+  tutorux --archive <file.tux> asset history <id> [--limit <1..10000>] [--json]
+  tutorux --archive <file.tux> asset restore <id> --revision <history-index>
   tutorux --archive <file.tux> asset extract|export <id> --output <file>
   tutorux --archive <file.tux> asset link|unlink <id> --to annotation|transcript --target-id <uuid>
   tutorux --archive <file.tux> evidence extract --session <uuid>
@@ -4121,6 +4124,92 @@ async function runAssetCommand(
     return 0;
   }
 
+  if (action === "restore" && args.flags.has("revision"))
+    throw new CliError("--revision requires a history index.");
+  if (
+    action === "update" ||
+    action === "history" ||
+    (action === "restore" && args.options.has("revision"))
+  ) {
+    const id = requiredPosition(args, 0, "material ID").toLowerCase();
+    const snapshot = await openForCommand(path);
+    const generation = snapshot.commit.generation;
+    let changed: ArchiveRecord | undefined;
+    let historyRows: ArchiveRecord[] = [];
+    let restoredIndex: number | undefined;
+    try {
+      const current = await requireLiveRecord(snapshot, RecordType.assetMetadata, id);
+      if (
+        [
+          "audio-track",
+          "recording-take",
+          "waveform-pyramid",
+          "sparse-timestamp-seek-index",
+          "asset-blob-manifest",
+          "asset-blob-chunk",
+        ].includes(field(current, "record_role"))
+      )
+        throw new CliError("Choose a material, rather than an internal recording or asset record.");
+      if (action === "history") {
+        historyRows = await snapshot.getRecordHistory(
+          RecordType.assetMetadata,
+          id,
+          parseBoundedOption(args.options.get("limit"), "limit", 100, 1, 10_000),
+        );
+      } else if (action === "update") {
+        if (!args.options.has("filename") && !args.options.has("description"))
+          throw new CliError("Provide --filename or --description to update material details.");
+        changed = editMaterialMetadata(
+          current,
+          args.options.get("filename") ?? field(current, "filename"),
+          args.options.get("description") ?? field(current, "description"),
+        );
+      } else {
+        restoredIndex = parseBoundedOption(args.options.get("revision"), "revision", 0, 0, 10_000);
+        const revision = (
+          await snapshot.getRecordHistory(RecordType.assetMetadata, id, restoredIndex + 1)
+        )[restoredIndex];
+        if (!revision || field(revision, "_deleted") === "true")
+          throw new CliError("That material revision is unavailable or deleted.");
+        changed = editMaterialMetadata(
+          current,
+          field(revision, "filename"),
+          field(revision, "description"),
+        );
+      }
+    } finally {
+      await closeSnapshot(snapshot);
+    }
+    if (action === "history") {
+      const rows = historyRows.map((record, index) => ({
+        history_index: index,
+        ...toPlainRecord(record),
+      }));
+      emit(
+        output,
+        rows,
+        historyRows
+          .map(
+            (record, index) =>
+              `${index}  revision ${record.revision}  ${field(record, "filename")}`,
+          )
+          .join("\n") || "No material history.",
+        json,
+      );
+      return 0;
+    }
+    const saved = (await mutateArchive(path, [changed!], generation))[0] ?? changed!;
+    emit(
+      output,
+      toPlainRecord(saved),
+      restoredIndex === undefined
+        ? "Material details updated."
+        : `Material details restored from history index ${restoredIndex}.`,
+      json,
+    );
+    return 0;
+  }
+
   if (action === "remove") {
     const id = requiredPosition(args, 0, "material ID");
     const current = await getLiveRecordAtPath(path, RecordType.assetMetadata, id);
@@ -4268,6 +4357,29 @@ async function runAssetCommand(
     return 0;
   }
   throw new CliError(`asset ${action} is not implemented in the TypeScript CLI yet.`);
+}
+
+function editMaterialMetadata(
+  record: ArchiveRecord,
+  filename: string,
+  description: string,
+): ArchiveRecord {
+  const name = filename.trim();
+  const invalidControls = (value: string, multiline: boolean) =>
+    [...value].some((character) => {
+      const code = character.codePointAt(0)!;
+      return code === 127 || (code < 32 && !(multiline && (code === 9 || code === 10)));
+    });
+  const encoder = new TextEncoder();
+  if (!name || encoder.encode(name).length > 1024 || invalidControls(name, false))
+    throw new CliError("Use a file name of up to 1024 bytes without control characters.");
+  if (encoder.encode(description).length > 16_384 || invalidControls(description, true))
+    throw new CliError("The description is too long or contains unsupported characters.");
+  const fields = new Map(record.fields)
+    .set("filename", name)
+    .set("description", description)
+    .set("updated_at_us", timestampNow());
+  return { ...record, fields };
 }
 
 async function runEvidenceCommand(
