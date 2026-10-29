@@ -6,6 +6,8 @@ import {
 
 const MAX_PCM_BYTES = 128 * 1024 * 1024;
 const MAX_QUEUED_BYTES = 1024 * 1024;
+const LIVE_CHUNK_BYTES = 32 * 1024;
+const MAX_LIVE_QUEUED_BYTES = 512 * 1024;
 
 export interface MicrophoneCaptureResult {
   file?: File;
@@ -37,6 +39,9 @@ export interface CapturedPcmChunk {
 export interface MicrophoneArchiveCaptureHooks {
   onStarted(capture: CaptureStarted): Promise<ArchiveCaptureCursor | void>;
   onChunk(chunk: CapturedPcmChunk): Promise<void>;
+  isLiveEnabled?(): boolean;
+  onLiveChunk?(chunk: CapturedPcmChunk): Promise<void>;
+  onLiveFailure?(message: string): void;
   onPaused(): Promise<void>;
   onResumed(): Promise<void>;
   onFinished(capture: {
@@ -135,6 +140,14 @@ class TauriMicrophoneCapture implements ActiveMicrophoneCapture {
   private pauseStartedMs = 0;
   private pausedMs = 0;
   private pauseCount = 0;
+  private liveBuffers: Uint8Array<ArrayBuffer>[] = [];
+  private liveBufferedBytes = 0;
+  private liveBufferedFirstSampleIndex = 0n;
+  private liveQueuedBytes = 0;
+  private liveSequence = 0;
+  private liveSampleIndex = 0n;
+  private liveChain: Promise<void> = Promise.resolve();
+  private liveDisabled = false;
 
   private constructor(
     private readonly captureId: string,
@@ -153,6 +166,7 @@ class TauriMicrophoneCapture implements ActiveMicrophoneCapture {
   ) {
     this.archiveSequence = initialArchiveCursor.sequence;
     this.archiveSampleIndex = BigInt(initialArchiveCursor.firstSampleIndex);
+    this.liveSampleIndex = BigInt(initialArchiveCursor.firstSampleIndex);
     processor.onaudioprocess = (event) => {
       if (this.finished || this.paused || this.warning) return;
       const samples = event.inputBuffer.getChannelData(0);
@@ -169,6 +183,27 @@ class TauriMicrophoneCapture implements ActiveMicrophoneCapture {
       for (let index = 0; index < count; index++) {
         const sample = Math.max(-1, Math.min(1, samples[index] ?? 0));
         view.setInt16(index * 2, Math.round(sample < 0 ? sample * 32768 : sample * 32767), true);
+      }
+
+      if (
+        this.archive.onLiveChunk &&
+        !this.liveDisabled &&
+        this.archive.isLiveEnabled?.() === false
+      ) {
+        this.clearLiveBuffers();
+      } else if (this.archive.onLiveChunk && !this.liveDisabled) {
+        const liveBytes = bytes.slice();
+        if (this.liveBufferedBytes === 0) this.liveBufferedFirstSampleIndex = this.liveSampleIndex;
+        this.liveBuffers.push(liveBytes);
+        this.liveBufferedBytes += liveBytes.byteLength;
+        this.liveSampleIndex += BigInt(count);
+        if (this.liveQueuedBytes + this.liveBufferedBytes > MAX_LIVE_QUEUED_BYTES) {
+          this.failLive(
+            "Live transcription fell behind the microphone. Transcription stopped; recording continues and remains saved.",
+          );
+        } else if (this.liveBufferedBytes >= LIVE_CHUNK_BYTES) {
+          this.queueLiveChunk();
+        }
       }
 
       if (this.queuedBytes + bytes.length > MAX_QUEUED_BYTES) {
@@ -295,6 +330,8 @@ class TauriMicrophoneCapture implements ActiveMicrophoneCapture {
       await this.uploadChain;
       await this.flushArchiveChunk();
       await this.archiveChain;
+      this.flushLiveChunk();
+      await this.liveChain;
       await invoke("pause_audio_capture", { captureId: this.captureId });
       await this.archive.onPaused();
     } catch (error) {
@@ -345,6 +382,8 @@ class TauriMicrophoneCapture implements ActiveMicrophoneCapture {
     } else {
       this.clearArchiveBuffers();
     }
+    this.flushLiveChunk();
+    await this.liveChain;
     if (this.uploadError) this.warning ||= this.uploadError;
     const committedSampleCount = this.archiveCommittedSamples;
     if (committedSampleCount === 0n) {
@@ -390,6 +429,8 @@ class TauriMicrophoneCapture implements ActiveMicrophoneCapture {
     await this.closeInput();
     await this.uploadChain;
     await this.archiveChain;
+    this.clearLiveBuffers();
+    await this.liveChain;
     await invoke("discard_audio_capture", { captureId: this.captureId }).catch(() => undefined);
     this.clearArchiveBuffers();
     await this.archive.onDiscard();
@@ -449,6 +490,56 @@ class TauriMicrophoneCapture implements ActiveMicrophoneCapture {
     for (const buffer of this.archiveBuffers) buffer.fill(0);
     this.archiveBuffers = [];
     this.archiveBufferedBytes = 0;
+  }
+
+  private queueLiveChunk(): void {
+    if (this.liveDisabled || !this.archive.onLiveChunk || !this.liveBufferedBytes) return;
+    const samples = joinBuffers(this.liveBuffers, this.liveBufferedBytes);
+    this.liveBuffers = [];
+    this.liveBufferedBytes = 0;
+    const sequence = this.liveSequence++;
+    const firstSampleIndex = this.liveBufferedFirstSampleIndex.toString();
+    this.liveQueuedBytes += samples.byteLength;
+    this.liveChain = this.liveChain
+      .then(async () => {
+        if (this.liveDisabled) return;
+        await this.archive.onLiveChunk!({
+          sequence,
+          firstSampleIndex,
+          sampleRateHz: this.context.sampleRate,
+          samples,
+        });
+      })
+      .catch((error: unknown) => {
+        this.failLive(
+          `Live transcription stopped: ${errorMessage(error)}. The recording continues and remains saved.`,
+        );
+      })
+      .finally(() => {
+        this.liveQueuedBytes -= samples.byteLength;
+        samples.fill(0);
+      });
+  }
+
+  private flushLiveChunk(): void {
+    if (this.liveDisabled) {
+      this.clearLiveBuffers();
+      return;
+    }
+    this.queueLiveChunk();
+  }
+
+  private failLive(message: string): void {
+    if (this.liveDisabled) return;
+    this.liveDisabled = true;
+    this.clearLiveBuffers();
+    this.archive.onLiveFailure?.(message);
+  }
+
+  private clearLiveBuffers(): void {
+    for (const buffer of this.liveBuffers) buffer.fill(0);
+    this.liveBuffers = [];
+    this.liveBufferedBytes = 0;
   }
 }
 
