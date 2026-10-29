@@ -13,6 +13,57 @@ export interface WaveformBucket {
 const MAX_BUCKETS = 8192;
 const MAGIC = new TextEncoder().encode("TUXWFP2\0");
 
+function sampleWidth(format: string): number {
+  switch (format) {
+    case "pcm_u8":
+      return 1;
+    case "pcm_s16le":
+      return 2;
+    case "pcm_s24le":
+      return 3;
+    case "pcm_s32le":
+    case "pcm_f32le":
+      return 4;
+    default:
+      throw new Error("The recording sample format cannot be indexed.");
+  }
+}
+
+/** Convert source samples with the same scaling as audio preview playback. */
+function sampleToPcm16(view: DataView, offset: number, format: string): number {
+  let value: number;
+  switch (format) {
+    case "pcm_u8":
+      value = (view.getUint8(offset) - 128) / 128;
+      break;
+    case "pcm_s16le":
+      value = view.getInt16(offset, true) / 32768;
+      break;
+    case "pcm_s24le": {
+      let sample =
+        view.getUint8(offset) |
+        (view.getUint8(offset + 1) << 8) |
+        (view.getUint8(offset + 2) << 16);
+      if (sample & 0x800000) sample |= 0xff000000;
+      value = sample / 8_388_608;
+      break;
+    }
+    case "pcm_s32le":
+      value = view.getInt32(offset, true) / 2_147_483_648;
+      break;
+    case "pcm_f32le": {
+      const sample = view.getFloat32(offset, true);
+      value = Number.isFinite(sample) ? Math.max(-1, Math.min(1, sample)) : 0;
+      break;
+    }
+    default:
+      throw new Error("The recording sample format cannot be indexed.");
+  }
+  if (value <= -1) return -32768;
+  if (value >= 1) return 32767;
+  return Math.max(-32768, Math.min(32767, Math.round(value * 32768)));
+}
+
 function integer(record: ArchiveRecord, name: string, optional = false): bigint {
   const value = record.fields.get(name) ?? (optional ? "0" : "");
   if (!/^\d+$/u.test(value)) throw new Error(`Invalid waveform source metadata: ${name}.`);
@@ -32,10 +83,9 @@ export async function buildWaveformIndex(
   check();
   const metadata = await snapshot.listAudioChunkMetadata(sessionId, trackId);
   if (!metadata.length) throw new Error("The selected track has no audio chunks.");
-  if (metadata.some((record) => record.fields.get("sample_format") !== "pcm_s16le")) {
-    throw new Error("Legacy waveform indexes require signed 16-bit PCM tracks.");
-  }
   const first = metadata[0]!;
+  const format = first.fields.get("sample_format") ?? "";
+  const bytesPerSample = sampleWidth(format);
   const rate = integer(first, "sample_rate_hz");
   const channels = integer(first, "channel_count");
   let storedFrames = 0n;
@@ -53,7 +103,8 @@ export async function buildWaveformIndex(
       start !== timelineFrames + gap ||
       !count ||
       integer(record, "sample_rate_hz") !== rate ||
-      integer(record, "channel_count") !== channels
+      integer(record, "channel_count") !== channels ||
+      record.fields.get("sample_format") !== format
     ) {
       throw new Error("The audio track has inconsistent timeline metadata.");
     }
@@ -95,14 +146,14 @@ export async function buildWaveformIndex(
         continue;
       }
       const view = new DataView(value.buffer, value.byteOffset, value.byteLength);
-      const stride = Number(channels) * 2;
+      const stride = Number(channels) * bytesPerSample;
       if (value.length % stride) throw new Error("The audio stream contains an incomplete frame.");
       for (let offset = 0; offset < value.length; offset += stride, frame++) {
         while (bucketIndex + 1 < count && frame >= Number(base[bucketIndex]!.endFrame))
           bucketIndex++;
         const bucket = base[bucketIndex]!;
         for (let channel = 0; channel < Number(channels); channel++) {
-          const sample = view.getInt16(offset + channel * 2, true);
+          const sample = sampleToPcm16(view, offset + channel * bytesPerSample, format);
           bucket.minimum = Math.min(bucket.minimum, sample);
           bucket.maximum = Math.max(bucket.maximum, sample);
         }
@@ -182,6 +233,7 @@ export async function buildWaveformIndex(
       ["track_id", trackId.toLowerCase()],
       ["sample_rate_hz", rate.toString()],
       ["channel_count", channels.toString()],
+      ["source_sample_format", format],
       ["stored_frame_count", storedFrames.toString()],
       ["timeline_frame_count", timelineFrames.toString()],
       ["chunk_count", String(metadata.length)],
@@ -207,6 +259,9 @@ export async function waveformIndexIsCurrent(
   const trackId = record.fields.get("track_id") ?? "";
   const chunks = await snapshot.listAudioChunkMetadata(sessionId, trackId);
   if (!chunks.length || String(chunks.length) !== record.fields.get("chunk_count")) return false;
+  const format = record.fields.get("source_sample_format") ?? "pcm_s16le";
+  if (!["pcm_u8", "pcm_s16le", "pcm_s24le", "pcm_s32le", "pcm_f32le"].includes(format))
+    return false;
   let expected = 0n;
   let stored = 0n;
   let signature = "";
@@ -217,7 +272,7 @@ export async function waveformIndexIsCurrent(
     const count = integer(chunk, "sample_count");
     const gap = integer(chunk, "gap_before_samples", true);
     if (
-      chunk.fields.get("sample_format") !== "pcm_s16le" ||
+      chunk.fields.get("sample_format") !== format ||
       sequence !== BigInt(index) ||
       !count ||
       start !== expected + gap ||
