@@ -870,6 +870,14 @@
   border-bottom: 1px solid var(--line-soft);
 }
 
+.ai-job-actions {
+  display: flex;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
 .ai-job-icon {
   width: 34px;
   height: 34px;
@@ -1015,6 +1023,12 @@
 
   .ai-job-row {
     align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .ai-job-actions {
+    width: 100%;
+    justify-content: flex-start;
   }
 
   .ai-export-button {
