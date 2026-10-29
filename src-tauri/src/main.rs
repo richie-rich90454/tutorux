@@ -1,6 +1,7 @@
 mod ai_transport;
 mod credentials;
 mod embedded_ai;
+mod live_transcription;
 mod platform;
 mod transcription;
 
@@ -1043,6 +1044,13 @@ fn main() {
             transcription::cancel_whisper_run,
             transcription::end_whisper_run,
             transcription::transcribe_whisper,
+            live_transcription::begin_live_whisper,
+            live_transcription::enqueue_live_whisper_audio,
+            live_transcription::poll_live_whisper,
+            live_transcription::acknowledge_live_whisper_cues,
+            live_transcription::cancel_live_whisper,
+            live_transcription::finish_live_whisper,
+            live_transcription::end_live_whisper,
             append_audio_archive_generation,
             platform::audio_capture::begin_audio_capture,
             platform::audio_capture::append_audio_capture_chunk,
