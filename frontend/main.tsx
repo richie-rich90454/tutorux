@@ -3085,6 +3085,12 @@ function App(): JSX.Element {
                     onCreateRequestPreview={createAiProviderPreview}
                     onSave={saveAiPackage}
                     onLoad={loadAiPackage}
+                    onExportTextFile={(name, contents, mimeType) =>
+                      platform.exportTextFile(name, contents, mimeType)
+                    }
+                    onExportBinaryFile={(name, contents, mimeType) =>
+                      platform.exportBinaryFile(name, contents, mimeType)
+                    }
                     onSend={sendAiProviderRequest}
                     onSaveProvider={saveAiProvider}
                     onSaveCredential={saveAiCredential}
