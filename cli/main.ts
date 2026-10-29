@@ -214,6 +214,7 @@ Usage:
   tutorux --archive <file.tux> journal create --title <title> --date <YYYY-MM-DD> [--collection-ids <uuid,...>] [--tag-ids <uuid,...>]
   tutorux --archive <file.tux> journal update <entry-id> [--title <title>] [--date <YYYY-MM-DD>] [--notes <text>] [--collection-ids <uuid,...>] [--tag-ids <uuid,...>]
   tutorux --archive <file.tux> journal list [--json]
+  tutorux --archive <file.tux> journal search --query <text> [--collection-id <uuid>] [--tag-id <uuid>] [--from <date>] [--to <date>] [--has-sessions true|false] [--json]
   tutorux --archive <file.tux> journal collection|tag list|create|show|update|delete|restore
   tutorux --archive <file.tux> annotation add --session <uuid> --type <type> --at <time> --text <text> [--end <time>] [--priority low|normal|high|critical]
   tutorux --archive <file.tux> annotation list [--session <uuid>] [--json]
@@ -1402,6 +1403,7 @@ async function runRecordCommand(
   if (group === "journal" && (action === "collection" || action === "tag")) {
     return runJournalOrganizerCommand(action, path, args, output);
   }
+  if (group === "journal" && action === "search") return runJournalSearch(path, args, output);
   if (group === "session" && action === "export") {
     const sessionId = requiredPosition(args, 0, "session ID").toLowerCase();
     const destinationPath = resolve(requiredOption(args, "output"));
@@ -4429,6 +4431,152 @@ async function runEvidenceCommand(
   }
 
   throw new CliError(`evidence ${action} is not implemented in the TypeScript CLI yet.`);
+}
+
+async function runJournalSearch(
+  path: string,
+  args: ParsedArguments,
+  output: CliIo,
+): Promise<number> {
+  const query = requiredOption(args, "query");
+  if (!query.trim()) throw new CliError("Provide non-empty --query text.");
+  const foldedQuery = query.toLocaleLowerCase();
+  const filterId = (name: string): string | undefined => {
+    const value = args.options.get(name);
+    if (!value) return undefined;
+    const id = canonicalizeProgressUuid(value);
+    if (!id) throw new CliError(`--${name} must be a valid UUID.`);
+    return id;
+  };
+  const collectionId = filterId("collection-id");
+  const tagId = filterId("tag-id");
+  const from = args.options.get("from");
+  const to = args.options.get("to");
+  for (const [name, date] of [
+    ["from", from],
+    ["to", to],
+  ] as const) {
+    if (
+      date &&
+      (!/^\d{4}-\d{2}-\d{2}$/u.test(date) ||
+        !Number.isFinite(Date.parse(`${date}T00:00:00Z`)) ||
+        new Date(`${date}T00:00:00Z`).toISOString().slice(0, 10) !== date)
+    ) {
+      throw new CliError(`--${name} must be a valid YYYY-MM-DD date.`);
+    }
+  }
+  if (from && to && from > to) throw new CliError("--from must not be later than --to.");
+  const hasSessions = args.options.get("has-sessions");
+  if (hasSessions !== undefined && hasSessions !== "true" && hasSessions !== "false")
+    throw new CliError("--has-sessions must be true or false.");
+  const snapshot = await openForCommand(path);
+  try {
+    const [settings, sessions, transcripts, guides] = await Promise.all([
+      snapshot.listRecords(RecordType.settings),
+      snapshot.listRecords(RecordType.session),
+      snapshot.listRecords(RecordType.transcriptSegment),
+      snapshot.listRecords(RecordType.guide),
+    ]);
+    const entries = settings.filter((record) => field(record, "record_role") === "journal-entry");
+    const notes = settings.filter((record) => field(record, "record_role") === "journal-notes");
+    const rows: { record: ArchiveRecord; source: string; excerpt: string; sessionIds: string[] }[] =
+      [];
+    for (const entry of entries) {
+      const id = entry.id.toLowerCase();
+      const linkedSessions = sessions.filter(
+        (session) => field(session, "entry_id").toLowerCase() === id,
+      );
+      const sessionIds = linkedSessions.map((session) => session.id.toLowerCase());
+      const idSet = new Set(sessionIds);
+      const ids = (key: string) =>
+        field(entry, key)
+          .split(",")
+          .map((value) => value.trim().toLowerCase());
+      if (
+        (collectionId && !ids("collection_ids").includes(collectionId)) ||
+        (tagId && !ids("tag_ids").includes(tagId))
+      )
+        continue;
+      const date = field(entry, "entry_date");
+      if (
+        (from && date < from) ||
+        (to && date > to) ||
+        (hasSessions === "true" && !sessionIds.length) ||
+        (hasSessions === "false" && sessionIds.length)
+      )
+        continue;
+      const candidates: { source: string; text: string }[] = [
+        { source: "title", text: field(entry, "title") },
+      ];
+      for (const note of notes) {
+        if (
+          field(note, "entry_id").toLowerCase() !== id &&
+          !idSet.has(field(note, "session_id").toLowerCase())
+        )
+          continue;
+        for (const [key, text] of note.fields)
+          if (/^block\.\d+\.text$/u.test(key)) candidates.push({ source: "notes", text });
+      }
+      for (const cue of transcripts)
+        if (idSet.has(field(cue, "session_id").toLowerCase()))
+          candidates.push({ source: "transcript", text: field(cue, "text") });
+      for (const guide of guides) {
+        if (
+          field(guide, "entry_id").toLowerCase() !== id &&
+          !idSet.has(field(guide, "session_id").toLowerCase())
+        )
+          continue;
+        const draft = guideDraftFromRecord(guide);
+        candidates.push({ source: "guide", text: draft.title });
+        for (const section of draft.sections) {
+          candidates.push({ source: "guide", text: section.heading });
+          for (const block of section.blocks)
+            candidates.push({ source: "guide", text: block.text });
+        }
+      }
+      const match = candidates.find((candidate) =>
+        candidate.text.toLocaleLowerCase().includes(foldedQuery),
+      );
+      if (!match) continue;
+      const offset = match.text.toLocaleLowerCase().indexOf(foldedQuery);
+      const characters = Array.from(match.text);
+      const start = Array.from(match.text.slice(0, offset)).length;
+      rows.push({
+        record: entry,
+        source: match.source,
+        excerpt: characters.slice(Math.max(0, start - 48), Math.max(0, start - 48) + 180).join(""),
+        sessionIds,
+      });
+    }
+    rows.sort((a, b) => {
+      const left = parseIntegerField(field(a.record, "created_at_us"));
+      const right = parseIntegerField(field(b.record, "created_at_us"));
+      return left === right ? a.record.id.localeCompare(b.record.id) : left > right ? -1 : 1;
+    });
+    const result = rows.map((row) => ({
+      ...toPlainRecord(row.record),
+      session_ids: row.sessionIds.join(","),
+      session_count: String(row.sessionIds.length),
+      match_source: row.source,
+      excerpt: row.excerpt,
+    }));
+    emit(
+      output,
+      result,
+      rows.length
+        ? rows
+            .map(
+              (row) =>
+                `${row.record.id}  ${field(row.record, "title")}  ${field(row.record, "entry_date")}  ${row.sessionIds.length} session(s)  [${row.source}] ${row.excerpt}`,
+            )
+            .join("\n")
+        : "No journal entries matched the search.",
+      args.flags.has("json"),
+    );
+    return 0;
+  } finally {
+    await closeSnapshot(snapshot);
+  }
 }
 
 async function runJournalOrganizerCommand(
