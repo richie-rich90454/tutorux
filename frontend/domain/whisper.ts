@@ -4,6 +4,7 @@ import type { AudioPreview } from "./audio";
 interface WhisperSegment {
   text: string;
   offsets: { from: number; to: number };
+  speaker_turn_next?: boolean;
 }
 
 /** Produce the 16 kHz mono PCM WAV required by whisper.cpp. */
@@ -71,6 +72,7 @@ export function makeWhisperRecords(options: {
   existing: readonly ArchiveRecord[];
   replaceProvisional?: boolean;
   runId?: string;
+  diarizeSpeakerTurns?: boolean;
 }): { records: ArchiveRecord[]; skipped: number } {
   const parsed: unknown = JSON.parse(options.json);
   if (
@@ -149,6 +151,11 @@ export function makeWhisperRecords(options: {
     ) {
       throw new Error("Whisper returned an invalid segment.");
     }
+    if (options.diarizeSpeakerTurns && typeof segment.speaker_turn_next !== "boolean") {
+      throw new Error(
+        "Whisper did not return speaker-turn boundaries. Use a compatible whisper.cpp executable and TDRZ model, or turn off tiny diarization.",
+      );
+    }
     if (!segment.text.trim()) continue;
     const a = start + BigInt(from!) * 1000n;
     const b = start + BigInt(to!) * 1000n;
@@ -166,28 +173,37 @@ export function makeWhisperRecords(options: {
       skipped++;
       continue;
     }
+    const fields = new Map<string, string>([
+      ["session_id", options.sessionId],
+      ["start_time_us", a.toString()],
+      ["end_time_us", b.toString()],
+      ["text", segment.text],
+      ["verification_state", "provisional"],
+      ["timestamp_state", "timestamped"],
+      ["origin", "local-whisper"],
+      ["source_audio_track_id", options.trackId],
+      ["source_model", options.modelName],
+      ["source_backend_version", "whisper.cpp CLI"],
+      ["source_run_id", runId],
+      ["source_window_start_us", start.toString()],
+      ["language", options.language],
+      ["created_at_us", createdAt],
+    ]);
+    if (options.diarizeSpeakerTurns) {
+      fields.set("speaker_turn_next", String(segment.speaker_turn_next));
+      fields.set("speaker_identity_state", "unassigned");
+      fields.set("diarization_enabled", "true");
+      fields.set("diarization_scope", "experimental-speaker-turn-boundaries-only");
+      fields.set("diarization_method", "whisper.cpp-tinydiarize");
+      fields.set("diarization_model_requirement", "TDRZ-compatible Whisper model required");
+    }
     records.push({
       type: RecordType.transcriptSegment,
       id: newUuid(),
       revision: 0n,
       previousOffset: 0n,
       blob: new Uint8Array(),
-      fields: new Map([
-        ["session_id", options.sessionId],
-        ["start_time_us", a.toString()],
-        ["end_time_us", b.toString()],
-        ["text", segment.text],
-        ["verification_state", "provisional"],
-        ["timestamp_state", "timestamped"],
-        ["origin", "local-whisper"],
-        ["source_audio_track_id", options.trackId],
-        ["source_model", options.modelName],
-        ["source_backend_version", "whisper.cpp CLI"],
-        ["source_run_id", runId],
-        ["source_window_start_us", start.toString()],
-        ["language", options.language],
-        ["created_at_us", createdAt],
-      ]),
+      fields,
     });
   }
   return { records, skipped };
