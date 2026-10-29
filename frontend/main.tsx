@@ -7459,6 +7459,7 @@ function ArchivePage(props: {
   const [historyVerification, setHistoryVerification] = createSignal<{
     historicalRevisions: number;
     verifiedCommits: number;
+    verifiedGenerationRecords: number;
   } | null>(null);
   const [verifying, setVerifying] = createSignal(false);
   const [trackedGeneration, setTrackedGeneration] = createSignal("");
@@ -7591,8 +7592,10 @@ function ArchivePage(props: {
           <Show when={historyVerification()}>
             {(result) => (
               <p>
-                {result().historicalRevisions.toLocaleString()} historical revisions across{" "}
-                {result().verifiedCommits.toLocaleString()} committed generations checked.
+                {result().historicalRevisions.toLocaleString()} historical revisions and{" "}
+                {result().verifiedGenerationRecords.toLocaleString()} indexed records across{" "}
+                {result().verifiedCommits.toLocaleString()} committed generations checked. Records
+                present in multiple generations are counted once per generation.
               </p>
             )}
           </Show>
