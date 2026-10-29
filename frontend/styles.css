@@ -131,6 +131,27 @@ button:disabled {
   min-height: 100vh;
   background: var(--canvas);
 }
+.skip-link {
+  position: fixed;
+  z-index: 100;
+  top: 12px;
+  left: 12px;
+  padding: 10px 14px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow: var(--shadow-menu);
+  transform: translateY(calc(-100% - 18px));
+}
+.skip-link:focus-visible {
+  outline: 3px solid var(--accent-mid);
+  outline-offset: 3px;
+  transform: translateY(0);
+}
+.skip-link:hover {
+  border-color: var(--accent);
+}
 .topbar {
   position: relative;
   z-index: 5;
