@@ -1,4 +1,4 @@
-import { For, Index, Show, createSignal, type JSX } from "solid-js";
+import { For, Index, Show, createMemo, createSignal, type JSX } from "solid-js";
 import {
   JOURNAL_NOTE_BLOCK_KINDS,
   MAX_JOURNAL_NOTE_BLOCKS,
@@ -44,10 +44,65 @@ export function DocumentEditor(props: {
   const [redoStack, setRedoStack] = createSignal<JournalNoteBlock[][]>([]);
   const [exporting, setExporting] = createSignal(false);
   const [exportError, setExportError] = createSignal("");
+  const [finding, setFinding] = createSignal(false);
+  const [query, setQuery] = createSignal("");
+  const [replacement, setReplacement] = createSignal("");
+  const [matchIndex, setMatchIndex] = createSignal(-1);
+  let findInput: HTMLInputElement | undefined;
   let editorElement: HTMLElement | undefined;
   let lastTextEdit: { id: string; time: number } | undefined;
   const editorId = (index: number): string =>
     `document-block-kind-${props.label.replace(/\W+/gu, "-").toLowerCase()}-${index}`;
+  const matches = createMemo(() => {
+    const needle = query();
+    if (!needle) return [];
+    const result: { block: number; start: number; end: number }[] = [];
+    props.blocks.forEach((block, index) => {
+      let start = 0;
+      while ((start = block.text.indexOf(needle, start)) !== -1) {
+        result.push({ block: index, start, end: start + needle.length });
+        start += needle.length;
+      }
+    });
+    return result;
+  });
+  function openFind(): void {
+    setFinding(true);
+    queueMicrotask(() => findInput?.focus());
+  }
+  function selectMatch(index: number): void {
+    const list = matches();
+    if (!list.length) return;
+    const selected = ((index % list.length) + list.length) % list.length;
+    setMatchIndex(selected);
+    const match = list[selected]!;
+    const input = editorElement?.querySelector<HTMLTextAreaElement>(
+      `textarea[data-note-block="${match.block}"]`,
+    );
+    input?.focus();
+    input?.setSelectionRange(match.start, match.end);
+    input?.scrollIntoView({ block: "nearest" });
+  }
+  function replaceMatch(): void {
+    const match = matches()[Math.max(0, Math.min(matchIndex(), matches().length - 1))];
+    if (!match) return;
+    const block = props.blocks[match.block]!;
+    update(match.block, {
+      text: block.text.slice(0, match.start) + replacement() + block.text.slice(match.end),
+    });
+    queueMicrotask(() => selectMatch(matchIndex()));
+  }
+  function replaceAll(): void {
+    const needle = query();
+    if (!needle || !matches().length) return;
+    changeBlocks(
+      props.blocks.map((block) => ({
+        ...block,
+        text: block.text.split(needle).join(replacement()),
+      })),
+    );
+    setMatchIndex(-1);
+  }
 
   function changeBlocks(blocks: JournalNoteBlock[], textBlockId?: string): void {
     const now = Date.now();
@@ -181,6 +236,12 @@ export function DocumentEditor(props: {
       onKeyDown={(event) => {
         if (event.isComposing || !(event.ctrlKey || event.metaKey) || event.altKey) return;
         const key = event.key.toLowerCase();
+        if (key === "f") {
+          event.preventDefault();
+          event.stopPropagation();
+          openFind();
+          return;
+        }
         if (key !== "z" && key !== "y") return;
         event.preventDefault();
         event.stopPropagation();
@@ -201,6 +262,14 @@ export function DocumentEditor(props: {
           </div>
         </div>
         <div class="document-editor-tools">
+          <button
+            class="button button-quiet"
+            type="button"
+            onClick={openFind}
+            title="Find in notes (Ctrl or Command + F)"
+          >
+            Find
+          </button>
           <button
             class="button button-quiet"
             type="button"
@@ -280,6 +349,59 @@ export function DocumentEditor(props: {
         </div>
       </div>
 
+      <Show when={finding()}>
+        <div class="document-find" role="search" aria-label="Find and replace in notes">
+          <label>
+            Find
+            <input
+              ref={(element) => (findInput = element)}
+              value={query()}
+              onInput={(event) => {
+                setQuery(event.currentTarget.value);
+                setMatchIndex(-1);
+              }}
+            />
+          </label>
+          <label>
+            Replace with
+            <input
+              value={replacement()}
+              onInput={(event) => setReplacement(event.currentTarget.value)}
+            />
+          </label>
+          <span aria-live="polite">
+            {matches().length} {matches().length === 1 ? "match" : "matches"}
+          </span>
+          <button
+            type="button"
+            disabled={!matches().length}
+            onClick={() => selectMatch(matchIndex() - 1)}
+          >
+            Previous
+          </button>
+          <button
+            type="button"
+            disabled={!matches().length}
+            onClick={() => selectMatch(matchIndex() + 1)}
+          >
+            Next
+          </button>
+          <button type="button" disabled={!matches().length} onClick={replaceMatch}>
+            Replace
+          </button>
+          <button type="button" disabled={!matches().length} onClick={replaceAll}>
+            Replace all
+          </button>
+          <button
+            type="button"
+            onClick={() => setFinding(false)}
+            aria-label="Close find and replace"
+          >
+            Close
+          </button>
+        </div>
+      </Show>
+
       <div class="document-editor-pages">
         <Show
           when={props.blocks.length > 0}
@@ -337,6 +459,7 @@ export function DocumentEditor(props: {
                   </div>
                 </div>
                 <textarea
+                  data-note-block={index}
                   aria-label={index === 0 ? props.label : `${props.label} block ${index + 1}`}
                   value={block().text}
                   placeholder={blockHints[block().kind]}
