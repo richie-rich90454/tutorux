@@ -112,11 +112,17 @@ export class MicrophoneRecording {
     silentOutput.connect(context.destination);
   }
 
-  static async start(onLimit: () => void, onDeviceEnded: () => void): Promise<MicrophoneRecording> {
+  static async start(
+    onLimit: () => void,
+    onDeviceEnded: () => void,
+    deviceId?: string,
+  ): Promise<MicrophoneRecording> {
     if (!navigator.mediaDevices?.getUserMedia || typeof AudioContext === "undefined") {
       throw new Error("Microphone recording is unavailable in this window.");
     }
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    const stream = await navigator.mediaDevices.getUserMedia({
+      audio: deviceId ? { deviceId: { exact: deviceId } } : true,
+    });
     let context: AudioContext | undefined;
     try {
       context = new AudioContext();
