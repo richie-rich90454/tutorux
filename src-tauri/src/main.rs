@@ -887,13 +887,8 @@ fn install_native_menu(app: &mut tauri::App) -> Result<(), Box<dyn std::error::E
         true,
         Some("CmdOrCtrl+S"),
     )?;
-    let quick_actions = MenuItem::with_id(
-        handle,
-        "app.quick-actions",
-        "Quick Actions…",
-        true,
-        Some("CmdOrCtrl+K"),
-    )?;
+    let quick_actions =
+        MenuItem::with_id(handle, "app.quick-actions", "Quick Actions…", true, None)?;
     let preferences = MenuItem::with_id(
         handle,
         "app.preferences",
