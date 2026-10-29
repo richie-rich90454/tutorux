@@ -14,6 +14,7 @@ import {
   createEncryptedArchiveBytes,
   openArchiveSource,
   repairArchiveSnapshot,
+  recoverChecksumDamagedArchiveHeader,
   recoverUnpublishedCommit,
   verifyArchiveSnapshot,
   type ArchiveSnapshot,
@@ -650,7 +651,16 @@ async function runArchiveCommand(
       if (BigInt(openedInfo.size) !== source.size) {
         throw new CliError("The archive changed while repair was starting. Retry the command.");
       }
-      snapshot = await unlockSnapshotForCli(await openArchiveSource(source), true);
+      try {
+        snapshot = await unlockSnapshotForCli(await openArchiveSource(source), true);
+      } catch (error) {
+        if (!(error instanceof ArchiveFormatError) || error.code !== "archive_header_checksum")
+          throw error;
+        snapshot = await recoverChecksumDamagedArchiveHeader(
+          source,
+          archiveAccessContext.getStore()?.passphrase,
+        );
+      }
       const repair = await repairArchiveSnapshot(snapshot);
       repaired = repair.snapshot;
       const validateBeforePublish = async (): Promise<void> => {
