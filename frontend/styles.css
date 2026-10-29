@@ -599,6 +599,10 @@ button:disabled {
   min-height: calc(100vh - 68px);
   background: var(--canvas);
 }
+.main-content:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--accent) 42%, transparent);
+  outline-offset: -3px;
+}
 .page-toolbar {
   min-height: 52px;
   display: flex;
@@ -657,6 +661,17 @@ button:disabled {
 }
 .inline-search input::placeholder {
   color: var(--faint);
+}
+.inline-search-shortcut {
+  flex: none;
+  padding: 2px 4px;
+  border: 1px solid var(--line-soft);
+  border-radius: 3px;
+  color: var(--faint);
+  background: var(--surface-subtle);
+  font-size: 7px;
+  line-height: 1;
+  white-space: nowrap;
 }
 .toolbar-more {
   width: 30px;
