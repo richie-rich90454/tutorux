@@ -162,7 +162,7 @@ import {
   type TranscriptExportFormat,
 } from "./domain/transcript";
 import { platform } from "@platform";
-import type { AiCredentialStorage } from "./platform/types";
+import type { AiCredentialStorage, BrowserArchiveAutosave } from "./platform/types";
 import { GuidesPage } from "./GuidesPage";
 import { StudentProgressPanel } from "./StudentProgressPanel";
 import { JournalOrganizer } from "./JournalOrganizer";
@@ -410,6 +410,8 @@ function App(): JSX.Element {
   let removeNativeCommandListener: (() => void) | undefined;
   let nativeCommandListenerDisposed = false;
   let launchArchiveQueue: Promise<void> = Promise.resolve();
+  let browserAutosaveBinding:
+    { archiveId: string; capability: BrowserArchiveAutosave; authorized: boolean } | undefined;
 
   onMount(() => {
     if (platform.kind === "desktop") {
@@ -693,6 +695,7 @@ function App(): JSX.Element {
     source: ArchiveByteSource,
     name: string,
     location: string | null,
+    browserAutosave?: BrowserArchiveAutosave,
   ): Promise<void> {
     setLoading(true);
     let accepted = false;
@@ -701,6 +704,13 @@ function App(): JSX.Element {
       const next = await readWorkspace(snapshot, name, location);
       const previous = workspace();
       setWorkspace(next);
+      browserAutosaveBinding = browserAutosave
+        ? {
+            archiveId: snapshot.header.id.toLowerCase(),
+            capability: browserAutosave,
+            authorized: false,
+          }
+        : undefined;
       if (previous && previous.snapshot !== snapshot) previous.snapshot.lock();
       setPendingSessionTrash(null);
       accepted = true;
@@ -806,7 +816,7 @@ function App(): JSX.Element {
     try {
       const selected = await platform.openArchive();
       if (!selected) return;
-      await acceptArchive(selected.source, selected.name, selected.location);
+      await acceptArchive(selected.source, selected.name, selected.location, selected.autosave);
     } catch (error) {
       if (isCancelled(error)) return;
       announce(errorMessage(error), "error");
@@ -833,6 +843,7 @@ function App(): JSX.Element {
       const next = await readWorkspace(snapshot, suggestedName, savedLocation);
       const previous = workspace();
       setWorkspace(next);
+      browserAutosaveBinding = undefined;
       accepted = true;
       if (previous && previous.snapshot !== snapshot) previous.snapshot.lock();
       if (previous && previous.snapshot.source !== snapshot.source) {
@@ -860,6 +871,7 @@ function App(): JSX.Element {
     try {
       const path = await platform.saveArchive(state.snapshot.source, state.name, state.location);
       if (!path) return;
+      if (platform.kind === "browser") browserAutosaveBinding = undefined;
       setWorkspace({ ...state, location: platform.kind === "desktop" ? path : null, dirty: false });
       announce("Your archive is saved.", "success");
     } catch (error) {
@@ -935,6 +947,19 @@ function App(): JSX.Element {
     }
   }
 
+  async function enableNotesAutosave(): Promise<boolean> {
+    const state = workspace();
+    const binding = browserAutosaveBinding;
+    if (!state || !binding || binding.archiveId !== state.snapshot.header.id.toLowerCase())
+      return true;
+    // This call is made directly from the checkbox event, before yielding.
+    const permission = await binding.capability.requestPermission();
+    if (browserAutosaveBinding !== binding || workspace()?.snapshot !== state.snapshot)
+      return false;
+    binding.authorized = permission;
+    return permission;
+  }
+
   async function autosaveNotes(
     owner: ArchiveRecord,
     version: NotesAutosaveVersion,
@@ -1001,6 +1026,35 @@ function App(): JSX.Element {
             "Notes are saved in the workspace, but the archive file could not be updated.",
             "error",
           );
+        }
+      } else if (platform.kind === "browser") {
+        const binding = browserAutosaveBinding;
+        if (binding?.authorized && binding.archiveId === current.snapshot.header.id.toLowerCase()) {
+          let rebased: ArchiveSnapshot | undefined;
+          try {
+            const source = await binding.capability.save(nextSnapshot.source);
+            rebased = await nextSnapshot.openNextGeneration(source);
+            if (
+              browserAutosaveBinding !== binding ||
+              workspace()?.snapshot !== nextSnapshot ||
+              rebased.header.id !== nextSnapshot.header.id ||
+              rebased.commit.generation !== nextSnapshot.commit.generation ||
+              rebased.commit.offset !== nextSnapshot.commit.offset
+            ) {
+              throw new Error("The active archive changed while the saved file was reopening.");
+            }
+            setWorkspace({ ...updated, snapshot: rebased, dirty: false });
+            nextSnapshot.lock();
+            persisted = true;
+          } catch (error) {
+            rebased?.lock();
+            binding.authorized = false;
+            diskError = errorMessage(error);
+            announce(
+              "Notes are saved in the workspace, but the archive file could not be updated.",
+              "error",
+            );
+          }
         }
       }
       return {
@@ -3112,6 +3166,7 @@ function App(): JSX.Element {
               )
             }
             onAutosaveNotes={autosaveNotes}
+            onEnableNotesAutosave={enableNotesAutosave}
             onSaveSession={(input, record, notesDocument, updateNotes) => {
               const state = workspace();
               const latest = record
@@ -7905,6 +7960,7 @@ function FormDialog(props: {
   onClose: () => void;
   onCreateArchive: (name: string, description: string, passphrase: string) => Promise<void>;
   onChangePassphrase: (currentPassphrase: string, newPassphrase: string) => Promise<void>;
+  onEnableNotesAutosave: () => Promise<boolean>;
   onAutosaveNotes: (
     owner: ArchiveRecord,
     version: NotesAutosaveVersion,
@@ -8016,6 +8072,7 @@ function FormDialog(props: {
     revision: initialDocument?.revision ?? null,
   };
   const [autosaveEnabled, setAutosaveEnabled] = createSignal(false);
+  const [autosavePermissionPending, setAutosavePermissionPending] = createSignal(false);
   const [autosaveStatus, setAutosaveStatus] = createSignal("");
   let autosaveTimer: number | undefined;
   let editSequence = 0;
@@ -8215,14 +8272,35 @@ function FormDialog(props: {
             <input
               type="checkbox"
               checked={autosaveEnabled()}
-              disabled={props.busy || !props.state?.snapshot.canMutate}
+              disabled={
+                props.busy || autosavePermissionPending() || !props.state?.snapshot.canMutate
+              }
               onChange={(event) => {
-                setAutosaveEnabled(event.currentTarget.checked);
-                if (event.currentTarget.checked) scheduleNotesAutosave();
-                else {
+                if (!event.currentTarget.checked) {
+                  setAutosaveEnabled(false);
                   window.clearTimeout(autosaveTimer);
                   setAutosaveStatus("Autosave is off.");
+                  return;
                 }
+                // Keep the control unchecked until permission has actually been granted.
+                event.currentTarget.checked = false;
+                setAutosavePermissionPending(true);
+                // Invoke immediately in the user gesture so the browser may prompt.
+                void props
+                  .onEnableNotesAutosave()
+                  .then((allowed) => {
+                    if (editorDisposed) return;
+                    setAutosaveEnabled(allowed);
+                    if (allowed) scheduleNotesAutosave();
+                    else setAutosaveStatus("Autosave could not get permission for this archive.");
+                  })
+                  .catch((error: unknown) => {
+                    if (!editorDisposed)
+                      setAutosaveStatus(`Autosave could not start: ${errorMessage(error)}`);
+                  })
+                  .finally(() => {
+                    if (!editorDisposed) setAutosavePermissionPending(false);
+                  });
               }}
             />
             Autosave notes
@@ -8230,7 +8308,7 @@ function FormDialog(props: {
           <small>
             {platform.kind === "desktop" && props.state?.location
               ? "Autosave writes all current workspace changes to the open archive file."
-              : "Autosave keeps notes in the open workspace. Save the archive to write them to disk."}
+              : "When available, grant file access to save workspace changes to the open archive. Otherwise save the archive manually."}
           </small>
           <Show when={autosaveStatus()}>
             <small role="status" aria-live="polite">
