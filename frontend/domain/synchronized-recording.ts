@@ -8,6 +8,10 @@ export class SynchronizedRecording {
   private readonly buffers: Uint8Array<ArrayBuffer>[][] = [[], []];
   private bytes = 0;
   private finished = false;
+  private paused = false;
+  private pauseStartedMs = 0;
+  private pausedMs = 0;
+  private pauseCount = 0;
 
   private constructor(
     private readonly context: AudioContext,
@@ -17,7 +21,7 @@ export class SynchronizedRecording {
     private readonly onLimit: () => void,
   ) {
     processor.onaudioprocess = (event) => {
-      if (this.finished) return;
+      if (this.finished || this.paused) return;
       const length = Math.min(
         event.inputBuffer.length,
         Math.floor((MAX_BYTES_PER_TRACK - this.bytes) / 2),
@@ -94,9 +98,40 @@ export class SynchronizedRecording {
     }
   }
 
-  async stop(): Promise<[File, File]> {
+  async pause(): Promise<void> {
+    if (this.finished || this.paused) throw new Error("Recording cannot be paused now.");
+    this.paused = true;
+    this.pauseStartedMs = performance.now();
+    this.pauseCount++;
+    for (const stream of this.streams)
+      for (const track of stream.getAudioTracks()) track.enabled = false;
+    try {
+      await this.context.suspend();
+    } catch (error) {
+      if (!this.finished) {
+        this.paused = false;
+        this.pauseCount--;
+        for (const stream of this.streams)
+          for (const track of stream.getAudioTracks()) track.enabled = true;
+      }
+      throw error;
+    }
+  }
+
+  async resume(): Promise<void> {
+    if (this.finished || !this.paused) throw new Error("Recording cannot be resumed now.");
+    await this.context.resume();
+    if (this.finished) return;
+    this.pausedMs += performance.now() - this.pauseStartedMs;
+    for (const stream of this.streams)
+      for (const track of stream.getAudioTracks()) track.enabled = true;
+    this.paused = false;
+  }
+
+  async stop(): Promise<{ files: [File, File]; pauseCount: number; pausedDurationUs: string }> {
     if (this.finished) throw new Error("This capture has already stopped.");
     this.finished = true;
+    if (this.paused) this.pausedMs += performance.now() - this.pauseStartedMs;
     this.processor.onaudioprocess = null;
     this.processor.disconnect();
     for (const node of this.nodes) node.disconnect();
@@ -120,10 +155,15 @@ export class SynchronizedRecording {
     view.setUint16(34, 16, true);
     text(36, "data");
     view.setUint32(40, this.bytes, true);
-    return [
+    const files: [File, File] = [
       new File([header, ...this.buffers[0]!], "Microphone.wav", { type: "audio/wav" }),
       new File([header, ...this.buffers[1]!], "Shared audio.wav", { type: "audio/wav" }),
     ];
+    return {
+      files,
+      pauseCount: this.pauseCount,
+      pausedDurationUs: String(Math.round(this.pausedMs * 1000)),
+    };
   }
 
   async discard(): Promise<void> {
@@ -146,12 +186,14 @@ export async function makeSynchronizedRecordingRecords(options: {
   knownTrackIds: readonly string[];
   startedAtUs: string;
   consentAtUs: string;
+  pauseCount: number;
+  pausedDurationUs: string;
 }): Promise<ArchiveRecord[]> {
   const common = {
     startedAtUs: options.startedAtUs,
     consentAtUs: options.consentAtUs,
-    pauseCount: 0,
-    pausedDurationUs: "0",
+    pauseCount: options.pauseCount,
+    pausedDurationUs: options.pausedDurationUs,
   };
   const microphone = await makeMicrophoneRecordingRecords({
     ...common,
