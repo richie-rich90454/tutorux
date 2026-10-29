@@ -23,6 +23,7 @@ export interface ActiveMicrophoneCapture {
 interface StartOptions {
   consentConfirmed: boolean;
   consentAtUs: string;
+  deviceId?: string;
   onLimit: () => void;
   onDeviceEnded: () => void;
 }
@@ -43,7 +44,11 @@ export async function startMicrophoneCapture(
   }
   if (isTauri()) return TauriMicrophoneCapture.start(options);
 
-  const recording = await MicrophoneRecording.start(options.onLimit, options.onDeviceEnded);
+  const recording = await MicrophoneRecording.start(
+    options.onLimit,
+    options.onDeviceEnded,
+    options.deviceId,
+  );
   const startedAtUs = (BigInt(Date.now()) * 1000n).toString();
   return {
     pause: () => recording.pause(),
@@ -150,7 +155,9 @@ class TauriMicrophoneCapture implements ActiveMicrophoneCapture {
     }
 
     const stream = await navigator.mediaDevices
-      .getUserMedia({ audio: true })
+      .getUserMedia({
+        audio: options.deviceId ? { deviceId: { exact: options.deviceId } } : true,
+      })
       .catch((error: unknown) => {
         throw new Error(microphoneErrorMessage(error));
       });
