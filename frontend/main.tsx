@@ -17,6 +17,7 @@ import {
   openArchiveBytes,
   openArchiveSource,
   verifyArchiveSnapshot,
+  verifyArchiveHistory,
   type ArchiveVerificationResult,
   type ArchiveManifest,
   type ArchiveSnapshot,
@@ -7454,6 +7455,10 @@ function ArchivePage(props: {
   const size = props.state.snapshot.source.size;
   const [verification, setVerification] = createSignal<ArchiveVerificationResult | null>(null);
   const [verificationError, setVerificationError] = createSignal("");
+  const [historyVerification, setHistoryVerification] = createSignal<{
+    historicalRevisions: number;
+    verifiedCommits: number;
+  } | null>(null);
   const [verifying, setVerifying] = createSignal(false);
   const [trackedGeneration, setTrackedGeneration] = createSignal("");
   createEffect(() => {
@@ -7461,14 +7466,22 @@ function ArchivePage(props: {
     if (trackedGeneration() === generation) return;
     setTrackedGeneration(generation);
     setVerification(null);
+    setHistoryVerification(null);
     setVerificationError("");
   });
-  const verify = async (): Promise<void> => {
+  const verify = async (history = false): Promise<void> => {
     const snapshot = props.state.snapshot;
     setVerifying(true);
     setVerificationError("");
     try {
-      setVerification(await verifyArchiveSnapshot(snapshot));
+      if (history) {
+        const result = await verifyArchiveHistory(snapshot);
+        setHistoryVerification(result);
+        setVerification(result);
+      } else {
+        setVerification(await verifyArchiveSnapshot(snapshot));
+        setHistoryVerification(null);
+      }
     } catch (error) {
       setVerificationError(error instanceof Error ? error.message : "Archive verification failed.");
     } finally {
@@ -7574,6 +7587,14 @@ function ArchivePage(props: {
               {verificationError()}
             </p>
           </Show>
+          <Show when={historyVerification()}>
+            {(result) => (
+              <p>
+                {result().historicalRevisions.toLocaleString()} historical revisions across{" "}
+                {result().verifiedCommits.toLocaleString()} committed generations checked.
+              </p>
+            )}
+          </Show>
         </div>
         <div class="archive-integrity-actions">
           <button
@@ -7583,6 +7604,14 @@ function ArchivePage(props: {
             onClick={() => void verify()}
           >
             {verifying() ? "Checking records…" : "Verify archive"}
+          </button>
+          <button
+            class="button button-outline"
+            type="button"
+            disabled={props.state.snapshot.locked || verifying()}
+            onClick={() => void verify(true)}
+          >
+            Verify history
           </button>
           <span class="integrity-status" role="status">
             <i />
