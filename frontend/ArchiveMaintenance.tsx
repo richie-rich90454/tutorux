@@ -1,4 +1,4 @@
-import { Show, createSignal, type JSX } from "solid-js";
+import { Show, createSignal, onCleanup, type JSX } from "solid-js";
 import {
   compactArchiveSnapshot,
   recoverUnpublishedCommit,
@@ -41,21 +41,27 @@ export function ArchiveMaintenance(props: ArchiveMaintenanceProps): JSX.Element 
   const [working, setWorking] = createSignal(false);
   const [error, setError] = createSignal("");
   const [status, setStatus] = createSignal("");
-  const unavailable = () =>
-    props.disabled || props.snapshot.locked || props.snapshot.encrypted || working();
+  const unavailable = () => props.disabled || props.snapshot.locked || working();
+
+  function discardReview(): void {
+    const current = review();
+    setReview(null);
+    current?.result.snapshot.lock();
+  }
+  onCleanup(discardReview);
 
   async function prepare(kind: Review["kind"]): Promise<void> {
     const source = props.snapshot;
     setWorking(true);
     setError("");
     setStatus("");
-    setReview(null);
+    discardReview();
     try {
       if (kind === "recover")
         setReview({ kind, source, result: await recoverUnpublishedCommit(source) });
       else setReview({ kind, source, result: await compactArchiveSnapshot(source) });
       if (props.snapshot !== source) {
-        setReview(null);
+        discardReview();
         throw new Error(
           "The archive changed while the preview was being prepared. Review it again.",
         );
@@ -70,7 +76,7 @@ export function ArchiveMaintenance(props: ArchiveMaintenanceProps): JSX.Element 
     const current = review();
     if (!current || unavailable()) return;
     if (props.snapshot !== current.source) {
-      setReview(null);
+      discardReview();
       setError("The archive changed after this preview. Review it again.");
       return;
     }
@@ -96,11 +102,6 @@ export function ArchiveMaintenance(props: ArchiveMaintenanceProps): JSX.Element 
         <h2>Review and maintain</h2>
         <p>Inspect a proposed change before applying it to the workspace.</p>
       </div>
-      <Show when={props.snapshot.encrypted}>
-        <p class="archive-maintenance-note">
-          These maintenance operations are currently available for unencrypted archives.
-        </p>
-      </Show>
       <div class="archive-maintenance-actions">
         <button
           class="button button-outline"
@@ -163,7 +164,7 @@ export function ArchiveMaintenance(props: ArchiveMaintenanceProps): JSX.Element 
                 class="button button-quiet"
                 type="button"
                 disabled={working()}
-                onClick={() => setReview(null)}
+                onClick={discardReview}
               >
                 Cancel
               </button>
