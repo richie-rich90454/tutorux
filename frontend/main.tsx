@@ -384,8 +384,26 @@ const filteredRecords = createMemo(() => {
   const needle = query().trim().toLocaleLowerCase();
   const records = currentRecords();
   if (!needle) return records;
-  return records.filter((record) =>
-    [...record.fields.values()].some((value) => value.toLocaleLowerCase().includes(needle)),
+  const matches = (record: ArchiveRecord) =>
+    [...record.fields.values()].some((value) => value.toLocaleLowerCase().includes(needle));
+  const state = workspace();
+  if (view() !== "journal" || !state) return records.filter(matches);
+  const matchingEntries = new Set<string>();
+  const sessionEntries = new Map(
+    [...state.sessions, ...state.archivedSessions].map((session) => [
+      session.id.toLowerCase(),
+      field(session, "entry_id").toLowerCase(),
+    ]),
+  );
+  for (const record of [...state.notesDocuments, ...state.guides, ...state.transcripts]) {
+    if (!matches(record)) continue;
+    const entry =
+      field(record, "entry_id").toLowerCase() ||
+      sessionEntries.get(field(record, "session_id").toLowerCase());
+    if (entry) matchingEntries.add(entry);
+  }
+  return records.filter(
+    (record) => matches(record) || matchingEntries.has(record.id.toLowerCase()),
   );
 });
 
