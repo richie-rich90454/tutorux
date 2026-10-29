@@ -24,6 +24,19 @@ function withId(value: string, id: string, present: boolean): string {
   return list.join(",");
 }
 
+async function loadGuideScope(snapshot: ArchiveSnapshot): Promise<ArchiveRecord[]> {
+  const types = [
+    RecordType.student,
+    RecordType.session,
+    RecordType.transcriptSegment,
+    RecordType.annotation,
+    RecordType.assetMetadata,
+    RecordType.evidenceNode,
+    RecordType.settings,
+  ];
+  return (await Promise.all(types.map((type) => snapshot.listRecords(type)))).flat();
+}
+
 /** Move a session and its dependent notes and guides in one archive transaction. */
 export function moveJournalSession(
   entry: ArchiveRecord,
@@ -31,6 +44,7 @@ export function moveJournalSession(
   entries: readonly ArchiveRecord[],
   notes: readonly ArchiveRecord[],
   guides: readonly ArchiveRecord[],
+  sourceRecords: readonly ArchiveRecord[],
 ): ArchiveRecord[] {
   if (
     field(entry, "record_role") !== "journal-entry" ||
@@ -40,20 +54,6 @@ export function moveJournalSession(
   )
     throw new Error("Choose an active entry and session.");
   const oldId = field(session, "entry_id");
-  if (
-    oldId &&
-    !same(oldId, entry.id) &&
-    guides.some(
-      (guide) =>
-        field(guide, "_deleted") !== "true" &&
-        !field(guide, "session_id") &&
-        same(field(guide, "entry_id"), oldId),
-    )
-  ) {
-    throw new Error(
-      "This session's current journal entry has an entry-wide study guide. Review or move that guide before moving the session, so its sources remain valid.",
-    );
-  }
   const old = entries.find((item) => same(item.id, oldId));
   const relatedGuides = guides.filter(
     (guide) => same(field(guide, "session_id"), session.id) && field(guide, "_deleted") !== "true",
@@ -92,6 +92,59 @@ export function moveJournalSession(
   changes.push(
     ...relatedGuides.map((guide) => update(guide, { entry_id: entry.id.toLowerCase() })),
   );
+
+  // Validate against the projected transaction, so moved notes and sessions have
+  // their destination ownership while all other source records remain current.
+  const replacements = new Map(
+    changes.map((record) => [`${record.type}:${record.id.toLowerCase()}`, record]),
+  );
+  const projected = sourceRecords.map(
+    (record) => replacements.get(`${record.type}:${record.id.toLowerCase()}`) ?? record,
+  );
+  for (const record of changes) {
+    if (
+      !projected.some((existing) => existing.type === record.type && same(existing.id, record.id))
+    )
+      projected.push(record);
+  }
+  const destination = changes.find(
+    (record) => record.type === RecordType.settings && same(record.id, entry.id),
+  )!;
+  const movedSession = changes.find(
+    (record) => record.type === RecordType.session && same(record.id, session.id),
+  )!;
+  const remainingEntry =
+    old && changes.find((record) => record.type === RecordType.settings && same(record.id, old.id));
+  const entryGuides = guides.filter(
+    (guide) =>
+      field(guide, "_deleted") !== "true" &&
+      !field(guide, "session_id") &&
+      oldId &&
+      same(field(guide, "entry_id"), oldId),
+  );
+  if (entryGuides.length && !remainingEntry)
+    throw new Error(
+      "The session's current journal entry is unavailable, so its guides cannot be checked.",
+    );
+  for (const guide of [...entryGuides, ...relatedGuides]) {
+    const isSessionGuide = same(field(guide, "session_id"), session.id);
+    try {
+      const draft = guideDraftFromRecord(guide);
+      makeGuideRecord(
+        { ...draft, entryId: isSessionGuide ? destination.id : remainingEntry!.id },
+        isSessionGuide
+          ? { entry: destination, session: movedSession, records: projected }
+          : { entry: remainingEntry!, records: projected },
+        guide,
+      );
+    } catch (cause) {
+      const reason = cause instanceof Error ? cause.message : String(cause);
+      throw new Error(
+        `Cannot move the session because guide “${field(guide, "title") || guide.id}” would have invalid sources or content: ${reason}`,
+        { cause },
+      );
+    }
+  }
   return changes;
 }
 
@@ -133,18 +186,7 @@ export function JournalRelations(props: {
       const guide = availableGuides().find((item) => same(item.id, guideId()));
       if (!guide) throw new Error("Choose a study guide to move.");
       const draft = guideDraftFromRecord(guide);
-      const sourceTypes = [
-        RecordType.student,
-        RecordType.session,
-        RecordType.transcriptSegment,
-        RecordType.annotation,
-        RecordType.assetMetadata,
-        RecordType.evidenceNode,
-        RecordType.settings,
-      ];
-      const sourceRecords = (
-        await Promise.all(sourceTypes.map((type) => props.snapshot.listRecords(type)))
-      ).flat();
+      const sourceRecords = await loadGuideScope(props.snapshot);
       // Validate every explicit, inline, and image citation against the destination.
       // Preserve the original guide fields and content when changing its owner.
       makeGuideRecord(
@@ -190,6 +232,7 @@ export function JournalRelations(props: {
         props.entries,
         props.notesDocuments,
         props.guides,
+        await loadGuideScope(props.snapshot),
       );
       if (await write(records, "Session and related records moved to journal entry."))
         setSessionId("");
