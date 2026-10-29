@@ -174,6 +174,7 @@ import {
 } from "./domain/transcript";
 import { platform } from "@platform";
 import type { AiCredentialStorage, BrowserArchiveAutosave } from "./platform/types";
+import { keyboardShortcutRows, resolveKeyboardShortcut } from "./domain/keyboard-shortcuts";
 import { GuidesPage } from "./GuidesPage";
 import { StudentProgressPanel } from "./StudentProgressPanel";
 import { JournalOrganizer } from "./JournalOrganizer";
@@ -478,54 +479,51 @@ function App(): JSX.Element {
       announce(detail.message, detail.tone ?? "info");
     };
     const handleKeys = (event: KeyboardEvent): void => {
-      const command = event.metaKey || event.ctrlKey;
-      const key = event.key.toLocaleLowerCase();
-      if (event.repeat || event.altKey || event.shiftKey || event.isComposing) return;
-      if (dialog() || pendingDelete() || pendingSessionTrash()) return;
-      if (command && key === "k") {
-        event.preventDefault();
-        if (paletteOpen()) closePalette();
-        else openPalette();
-        return;
-      }
-      if (!command || paletteOpen()) return;
-      if (key === "f" && pageSearchInput?.isConnected) {
-        const target = event.target;
-        const alreadyInPageSearch = target === pageSearchInput;
-        if (!alreadyInPageSearch && isEditableTarget(target)) return;
-        event.preventDefault();
-        pageSearchInput.focus();
-        pageSearchInput.select();
-        return;
-      }
-      if (
-        view() === "annotations" &&
-        !["k", "o", "s", "n"].includes(key) &&
-        !isEditableTarget(event.target)
-      ) {
-        const index = markerKeys(workspace()).indexOf(key);
-        if (
-          index >= 0 &&
-          workspace()?.sessions.length &&
-          workspace()?.snapshot.canMutate &&
-          !busy()
-        ) {
-          event.preventDefault();
+      const active = workspace();
+      const action = resolveKeyboardShortcut(event, {
+        platform: platform.kind,
+        pageSearchAvailable: Boolean(pageSearchInput?.isConnected),
+        pageSearchFocused: event.target === pageSearchInput,
+        page: view(),
+        editableTarget: isEditableTarget(event.target),
+        modalOpen: Boolean(dialog() || pendingDelete() || pendingSessionTrash()),
+        paletteOpen: paletteOpen(),
+        markerKeys: markerKeys(active),
+        markerEnabled: Boolean(active?.sessions.length && active.snapshot.canMutate && !busy()),
+      });
+      if (!action) return;
+      event.preventDefault();
+      switch (action.type) {
+        case "quick-actions":
+          if (paletteOpen()) closePalette();
+          else openPalette();
+          break;
+        case "open-archive":
+          void openArchive();
+          break;
+        case "save-archive":
+          void saveCurrentArchive();
+          break;
+        case "new-session":
+          openDialog("session");
+          break;
+        case "find":
+          pageSearchInput?.focus();
+          pageSearchInput?.select();
+          break;
+        case "preferences":
+          navigateToView("settings");
+          break;
+        case "toggle-appearance":
+          toggleTheme();
+          break;
+        case "quick-marker":
           window.dispatchEvent(
-            new CustomEvent("tutorux:quick-marker", { detail: markerTypes[index]! }),
+            new CustomEvent("tutorux:quick-marker", {
+              detail: markerTypes[action.index]!,
+            }),
           );
-          return;
-        }
-      }
-      if (key === "o") {
-        event.preventDefault();
-        void openArchive();
-      } else if (key === "s") {
-        event.preventDefault();
-        void saveCurrentArchive();
-      } else if (key === "n") {
-        event.preventDefault();
-        openDialog("session");
+          break;
       }
     };
     if (platform.kind === "desktop" && platform.onNativeCommand) {
@@ -539,7 +537,8 @@ function App(): JSX.Element {
               void saveCurrentArchive();
               break;
             case "quick-actions":
-              openPalette();
+              if (paletteOpen()) closePalette();
+              else openPalette();
               break;
             case "preferences":
               navigateToView("settings");
@@ -2836,9 +2835,11 @@ function App(): JSX.Element {
       matches[paletteIndex()]?.run();
     } else if (event.key === "Tab") {
       if (!(palette instanceof HTMLElement)) return;
-      const focusable = [...palette.querySelectorAll<HTMLElement>(
-        'input:not([disabled]), button:not([disabled]), [href], [tabindex]:not([tabindex="-1"])',
-      )].filter((element) => element.getClientRects().length > 0);
+      const focusable = [
+        ...palette.querySelectorAll<HTMLElement>(
+          'input:not([disabled]), button:not([disabled]), [href], [tabindex]:not([tabindex="-1"])',
+        ),
+      ].filter((element) => element.getClientRects().length > 0);
       if (focusable.length === 0) return;
       const first = focusable[0]!;
       const last = focusable.at(-1)!;
@@ -2881,6 +2882,7 @@ function App(): JSX.Element {
             type="button"
             onClick={openPalette}
             aria-label="Open quick actions"
+            aria-keyshortcuts="Control+K Meta+K"
           >
             <Icon name="search" /> <span>Search Tutorux</span>
             <kbd>{navigator.platform.includes("Mac") ? "⌘" : "Ctrl"} K</kbd>
@@ -2891,6 +2893,7 @@ function App(): JSX.Element {
             onClick={toggleTheme}
             aria-label={`Switch to ${theme() === "light" ? "dark" : "light"} appearance`}
             title="Appearance"
+            aria-keyshortcuts="Control+Shift+L Meta+Shift+L"
           >
             <Icon name={theme() === "light" ? "moon" : "sun"} />
           </button>
@@ -2898,6 +2901,7 @@ function App(): JSX.Element {
             class="button button-outline topbar-open"
             type="button"
             onClick={() => void openArchive()}
+            aria-keyshortcuts="Control+O Meta+O"
           >
             <Icon name="folder" />
             Open
@@ -2907,6 +2911,7 @@ function App(): JSX.Element {
             type="button"
             disabled={!workspace() || busy()}
             onClick={() => void saveCurrentArchive()}
+            aria-keyshortcuts="Control+S Meta+S"
           >
             <Icon name="check" />
             {busy() ? "Saving…" : workspace()?.dirty ? "Save archive" : "Save"}
@@ -3501,9 +3506,11 @@ function App(): JSX.Element {
               <p class="palette-empty">No actions match your search.</p>
             </Show>
             <div class="palette-footer">
-              <span>Navigate with your keyboard</span>
               <span>
-                <kbd>↵</kbd> select <kbd>esc</kbd> close
+                <kbd>↑</kbd> <kbd>↓</kbd> move <kbd>Tab</kbd> cycle focus
+              </span>
+              <span>
+                <kbd>↵</kbd> select <kbd>Esc</kbd> close
               </span>
             </div>
           </section>
@@ -6322,9 +6329,7 @@ function TranscriptPage(props: {
     const session = selectedSession();
     return Boolean(
       session &&
-        ["recording_track_id", "recording_track_ids"].some((key) =>
-          field(session, key).trim(),
-        ),
+      ["recording_track_id", "recording_track_ids"].some((key) => field(session, key).trim()),
     );
   });
   let fileInput: HTMLInputElement | undefined;
@@ -7898,6 +7903,31 @@ function SettingsPage(props: {
           <h1>Preferences</h1>
           <p>A few small choices for a workspace that feels right to use.</p>
         </div>
+      </section>
+      <section class="settings-section" aria-labelledby="keyboard-shortcuts-title">
+        <div class="settings-section-heading">
+          <h2 id="keyboard-shortcuts-title">Keyboard shortcuts</h2>
+          <p>
+            Core commands work throughout Tutorux; observation and note-editing shortcuts are
+            available in their matching workspace pages.
+          </p>
+        </div>
+        <dl class="shortcut-matrix">
+          <For
+            each={keyboardShortcutRows(
+              navigator.platform.includes("Mac"),
+              platform.kind === "desktop",
+              keys(),
+            )}
+          >
+            {(shortcut) => (
+              <div class="shortcut-matrix-row">
+                <dt>{shortcut.action}</dt>
+                <dd>{shortcut.keys}</dd>
+              </div>
+            )}
+          </For>
+        </dl>
       </section>
       <section class="settings-section">
         <div class="settings-section-heading">
