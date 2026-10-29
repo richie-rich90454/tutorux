@@ -5,7 +5,20 @@ import { execFile } from "node:child_process";
 import { link, lstat, open, readFile, readdir, realpath, rename, rm, stat } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { availableParallelism, freemem, platform as osPlatform, release, totalmem } from "node:os";
+import { availableParallelism } from "node:os";
+import {
+  buildArchiveDiagnosticReport,
+  enumerateAudioDiagnostics,
+} from "./diagnostics";
+import {
+  CLI_BENCHMARK_ACTIONS,
+  createBenchmarkReport,
+  measureArchiveIndex,
+  measureAudioEnumeration,
+  measureGuideExport,
+  measureRendering,
+  type CliBenchmarkAction,
+} from "./benchmark";
 import { ArchiveFormatError, RecordType, type ArchiveRecord } from "../frontend/archive/format";
 import {
   appendRecords,
@@ -80,6 +93,7 @@ import {
   serializeGuideJson,
 } from "../frontend/domain/guide-export";
 import { renderGuidePdf } from "../frontend/domain/guide-pdf";
+import { decodeGuideWebp } from "./guide-pdf-images";
 import {
   duplicateAnnotationRecord,
   makeAnnotationRecord,
@@ -333,7 +347,11 @@ Global options:
   --help            Show this help
   --version         Show the application version`;
 
-export async function executeCli(argv: readonly string[], output: CliIo = io): Promise<number> {
+export async function executeCli(
+  argv: readonly string[],
+  output: CliIo = io,
+  signal?: AbortSignal,
+): Promise<number> {
   if (argv.includes("--help") || argv.includes("-h") || argv[0] === "help") {
     output.stdout(HELP);
     return 0;
@@ -384,8 +402,9 @@ export async function executeCli(argv: readonly string[], output: CliIo = io): P
           return 0;
         }
         if (group === "diagnostics")
-          return runDiagnosticsCommand(action, archivePath, parsed, output);
-        if (group === "benchmark") return runBenchmarkCommand(action, archivePath, parsed, output);
+          return runDiagnosticsCommand(action, archivePath, parsed, output, signal);
+        if (group === "benchmark")
+          return runBenchmarkCommand(action, archivePath, parsed, output, signal);
         if (!archivePath) throw new CliError("Record commands require --archive <path>.");
         return await runRecordCommand(group, action, archivePath, parsed, output);
       } finally {
@@ -2226,7 +2245,7 @@ async function runGuideCommand(
       throw new CliError("Guide output cannot replace its source archive.");
     if (format === "docx") await writeBytesAtomically(destination, renderGuideDocx(record, images));
     else if (format === "pdf")
-      await writeBytesAtomically(destination, renderGuidePdf(record, images));
+      await writeBytesAtomically(destination, await renderGuidePdf(record, images, decodeGuideWebp));
     else {
       const contents =
         format === "html"
@@ -2776,6 +2795,7 @@ async function runDiagnosticsCommand(
   path: string | undefined,
   args: ParsedArguments,
   output: CliIo,
+  signal?: AbortSignal,
 ): Promise<number> {
   if (action === "providers") {
     emit(
@@ -2799,31 +2819,49 @@ async function runDiagnosticsCommand(
     if (!path) throw new CliError("Network diagnostics require --archive.");
     return runAiCommand("test", path, args, output);
   }
-  if (action === "audio" || action === "graphics") {
+  if (action === "audio") {
+    const audio = await enumerateAudioDiagnostics(signal);
+    if (!audio.available) {
+      const report = { status: "unavailable-in-cli", reason: audio.reason };
+      emit(output, report, report.reason ?? "Audio endpoint enumeration is unavailable.", args.flags.has("json"));
+      return 0;
+    }
+    emit(
+      output,
+      audio.rows,
+      `Audio diagnostics inspected ${audio.rows.length} endpoint(s); no stream was started.\n${JSON.stringify(audio.rows, null, 2)}`,
+      args.flags.has("json"),
+    );
+    return 0;
+  }
+  if (action === "graphics") {
     const report = {
-      status: "unavailable-in-cli",
-      reason:
-        action === "audio"
-          ? "Device enumeration requires the desktop application."
-          : "Rendering requires the desktop application.",
+      backend: "Tauri",
+      compiled: true,
+      status: "native-gui-enabled",
+      reason: "No frame was rendered by this CLI process.",
+      rendering_measured: false,
+      rendering_reason: "run-the-benchmark-in-the-active-desktop-window",
     };
-    emit(output, report, report.reason, args.flags.has("json"));
+    emit(
+      output,
+      report,
+      "Graphics diagnostics: native-gui-enabled; no frame was rendered by this CLI process.",
+      args.flags.has("json"),
+    );
     return 0;
   }
   if (!["run", "archive", "report"].includes(action))
     throw new CliError(`Unknown diagnostics action: ${action}.`);
   if (!path) throw new CliError("Archive diagnostics require --archive.");
   const snapshot = await openForCommand(path);
-  let report: object;
+  let report: Record<string, unknown>;
   try {
-    const verification = args.flags.has("full") ? await verifyArchiveSnapshot(snapshot) : null;
-    report = {
-      archive_valid: true,
-      archive_generation: snapshot.commit.generation.toString(),
-      archive_id: snapshot.header.id,
-      encrypted: snapshot.encrypted,
-      full_verification: verification,
-    };
+    report = await buildArchiveDiagnosticReport(snapshot, {
+      full: args.flags.has("full"),
+      includeSystem: action !== "archive",
+      ...(signal === undefined ? {} : { signal }),
+    });
   } finally {
     await closeSnapshot(snapshot);
   }
@@ -2831,15 +2869,24 @@ async function runDiagnosticsCommand(
     const destination = resolve(requiredOption(args, "output"));
     if (await sameFileIdentity(destination, path))
       throw new CliError("Diagnostic output cannot replace its source archive.");
-    await writeTextAtomically(destination, `${JSON.stringify(report, null, 2)}\n`);
+    const contents = `${JSON.stringify(report, null, 2)}\n`;
+    await writeTextAtomically(destination, contents);
     emit(
       output,
-      { output: destination, status: "exported" },
+      { output: destination, status: "exported", bytes: new TextEncoder().encode(contents).byteLength },
       `Diagnostic report exported to ${destination}.`,
       args.flags.has("json"),
     );
-  } else emit(output, report, JSON.stringify(report, null, 2), args.flags.has("json"));
-  return 0;
+    return 0;
+  }
+  const valid = report["archive_valid"] === true;
+  emit(
+    output,
+    report,
+    `Archive diagnostics: ${valid}; generation ${String(report["archive_generation"])}; ${String(report["records_checked"])} record(s) checked.\n${JSON.stringify(report, null, 2)}`,
+    args.flags.has("json"),
+  );
+  return valid ? 0 : 2;
 }
 
 async function runBenchmarkCommand(
@@ -2847,66 +2894,36 @@ async function runBenchmarkCommand(
   path: string | undefined,
   args: ParsedArguments,
   output: CliIo,
+  signal?: AbortSignal,
 ): Promise<number> {
-  if (
-    !["startup", "memory", "cpu", "audio", "indexing", "rendering", "export", "full"].includes(
-      action,
-    )
-  )
+  if (!(CLI_BENCHMARK_ACTIONS as readonly string[]).includes(action))
     throw new CliError(`Unknown benchmark: ${action}.`);
   const start = performance.now();
-  const report: Record<string, unknown> = {
-    benchmark: action,
-    platform: osPlatform(),
-    os_release: release(),
-    cpu_count: availableParallelism(),
-    total_memory_bytes: totalmem(),
-    available_memory_bytes: freemem(),
-    resident_memory_bytes: process.memoryUsage().rss,
-    process_uptime_seconds: process.uptime(),
-    measurement_scope: "current-process",
-  };
-  if (["indexing", "export", "full"].includes(action)) {
+  const benchmark = action as CliBenchmarkAction;
+  const report = createBenchmarkReport(benchmark);
+  const needsArchive = benchmark === "indexing" || benchmark === "export" || benchmark === "full";
+  if (needsArchive) {
     if (!path) throw new CliError(`benchmark ${action} requires --archive.`);
     const snapshot = await openForCommand(path);
     try {
-      if (action === "indexing" || action === "full") {
-        const begin = performance.now();
-        const lists = await Promise.all(
-          [
-            RecordType.student,
-            RecordType.session,
-            RecordType.transcriptSegment,
-            RecordType.annotation,
-            RecordType.assetMetadata,
-            RecordType.evidenceNode,
-            RecordType.guide,
-          ].map((type) => snapshot.listRecordMetadata(type)),
-        );
-        report["index_records"] = lists.reduce((sum, rows) => sum + rows.length, 0);
-        report["index_elapsed_us"] = Math.round((performance.now() - begin) * 1000);
-        report["archive_generation"] = snapshot.commit.generation.toString();
+      if (benchmark === "indexing" || benchmark === "full") {
+        await measureArchiveIndex(report, snapshot, signal === undefined ? {} : { signal });
       }
-      if (action === "export") {
+      if (benchmark === "export") {
         const guide = await requireLiveRecord(
           snapshot,
           RecordType.guide,
           requiredOption(args, "guide"),
         );
-        const begin = performance.now();
-        const markdown = renderGuideMarkdown(guide);
-        report["export_format"] = "markdown-render";
-        report["export_bytes"] = new TextEncoder().encode(markdown).length;
-        report["export_elapsed_us"] = Math.round((performance.now() - begin) * 1000);
+        measureGuideExport(report, guide);
       }
     } finally {
       await closeSnapshot(snapshot);
     }
   }
-  if (action === "audio" || action === "full")
-    report["audio_reason"] = "Device enumeration requires the desktop application.";
-  if (action === "rendering")
-    report["rendering_reason"] = "Rendering requires the desktop application.";
+  if (benchmark === "audio" || benchmark === "full")
+    await measureAudioEnumeration(report, signal === undefined ? {} : { signal });
+  if (benchmark === "rendering") measureRendering(report);
   report["command_elapsed_us"] = Math.round((performance.now() - start) * 1000);
   emit(output, report, JSON.stringify(report, null, 2), args.flags.has("json"));
   return 0;
