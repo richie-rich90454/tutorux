@@ -1,7 +1,286 @@
-import { RecordType, type ArchiveRecord } from "../archive/format";
+import { crc32, newUuid, RecordType, type ArchiveRecord } from "../archive/format";
 import { makeWaveImportRecords, type WaveImportResult } from "./wav";
 
 const MAX_PCM_BYTES = 128 * 1024 * 1024;
+export const MAX_MICROPHONE_ARCHIVE_CHUNK_BYTES = 1024 * 1024;
+
+export interface MicrophoneCaptureIdentity {
+  trackId: string;
+  takeId: string;
+  startedAtUs: string;
+  consentAtUs: string;
+  sampleRateHz: number;
+}
+
+export interface MicrophoneCaptureChunk {
+  sequence: number;
+  firstSampleIndex: string;
+  samples: Uint8Array<ArrayBuffer>;
+}
+
+/** Allocate stable archive IDs and create discoverable in-progress capture metadata. */
+export function makeMicrophoneCaptureStartRecords(
+  session: ArchiveRecord,
+  identity: MicrophoneCaptureIdentity,
+  knownTrackIds: readonly string[],
+): ArchiveRecord[] {
+  assertCaptureSession(session, identity.sampleRateHz);
+  assertUuid(identity.trackId, "track");
+  assertUuid(identity.takeId, "take");
+  const timestamp = identity.startedAtUs;
+  const linkedTrackIds = mergedTrackIds(session, knownTrackIds);
+  if (!linkedTrackIds.includes(identity.trackId.toLowerCase()))
+    linkedTrackIds.push(identity.trackId.toLowerCase());
+
+  const track = makeRecord(
+    RecordType.assetMetadata,
+    identity.trackId,
+    new Map([
+      ["record_role", "audio-track"],
+      ["session_id", session.id.toLowerCase()],
+      ["track_id", identity.trackId.toLowerCase()],
+      ["recording_take_id", identity.takeId.toLowerCase()],
+      ["label", "Microphone recording"],
+      ["source", "microphone"],
+      ["capture_source_backend", "web-audio"],
+      ["capture_consent_at_us", identity.consentAtUs],
+      ["capture_consent_policy", "1"],
+      ["state", "recording"],
+      ["sample_format", "pcm_s16le"],
+      ["sample_rate_hz", String(identity.sampleRateHz)],
+      ["channel_count", "1"],
+      ["channel_mask", "0"],
+      ["sample_count", "0"],
+      ["timeline_sample_count", "0"],
+      ["duration_us", "0"],
+      ["chunk_count", "0"],
+      ["byte_count", "0"],
+      ["started_at_us", timestamp],
+      ["updated_at_us", timestamp],
+    ]),
+  );
+  const take = makeRecord(
+    RecordType.assetMetadata,
+    identity.takeId,
+    new Map([
+      ["record_role", "recording-take"],
+      ["session_id", session.id.toLowerCase()],
+      ["label", "Microphone recording"],
+      ["source", "microphone"],
+      ["capture_source_backend", "web-audio"],
+      ["capture_consent_at_us", identity.consentAtUs],
+      ["capture_consent_policy", "1"],
+      ["state", "recording"],
+      ["track_ids", identity.trackId.toLowerCase()],
+      ["started_at_us", timestamp],
+      ["ended_at_us", ""],
+      ["duration_us", "0"],
+      ["created_at_us", timestamp],
+      ["updated_at_us", timestamp],
+    ]),
+  );
+  const fields = new Map(session.fields);
+  fields.set("recording_track_ids", linkedTrackIds.join(","));
+  fields.set("recording_track_count", String(linkedTrackIds.length));
+  if (!fields.get("recording_track_id")) fields.set("recording_track_id", identity.trackId);
+  fields.set("recording_source", "microphone");
+  fields.set("recording_source_backend", "web-audio");
+  fields.set("recording_sample_format", "pcm_s16le");
+  fields.set("recording_sample_rate_hz", String(identity.sampleRateHz));
+  fields.set("recording_channel_count", "1");
+  fields.set("recording_channel_mask", "0");
+  fields.set("recording_started_at_us", timestamp);
+  fields.set("recording_consent_at_us", identity.consentAtUs);
+  fields.set("recording_consent_policy", "1");
+  if (!fields.has("recording_audio_chunks")) fields.set("recording_audio_chunks", "0");
+  if (!fields.has("recording_samples")) fields.set("recording_samples", "0");
+  if (!fields.has("recording_timeline_samples")) fields.set("recording_timeline_samples", "0");
+  if (!fields.has("recording_bytes")) fields.set("recording_bytes", "0");
+  fields.set("recording_state", "recording");
+  fields.set("recording_error", "");
+  fields.set("updated_at_us", timestamp);
+  return [track, take, { ...session, fields }];
+}
+
+/** Append one aligned, checksummed PCM block and keep recovery metadata current. */
+export function makeMicrophoneCaptureChunkRecords(options: {
+  session: ArchiveRecord;
+  track: ArchiveRecord;
+  chunk: MicrophoneCaptureChunk;
+  sampleRateHz: number;
+}): ArchiveRecord[] {
+  const { session, track, chunk, sampleRateHz } = options;
+  assertCaptureSession(session, sampleRateHz, true);
+  if (
+    track.type !== RecordType.assetMetadata ||
+    track.fields.get("record_role") !== "audio-track" ||
+    track.fields.get("session_id")?.toLowerCase() !== session.id.toLowerCase() ||
+    track.fields.get("source") !== "microphone" ||
+    track.fields.get("state") !== "recording"
+  ) {
+    throw new Error("The microphone recovery track is no longer active.");
+  }
+  if (
+    !Number.isSafeInteger(chunk.sequence) ||
+    chunk.sequence < 0 ||
+    chunk.samples.byteLength === 0 ||
+    chunk.samples.byteLength > MAX_MICROPHONE_ARCHIVE_CHUNK_BYTES ||
+    chunk.samples.byteLength % 2 !== 0
+  ) {
+    throw new Error("A microphone archive chunk must contain aligned PCM below 1 MiB.");
+  }
+
+  const expectedSequence = parseCounter(track.fields.get("chunk_count"));
+  const sampleCount = parseCounter(track.fields.get("sample_count"));
+  const timelineSamples = parseCounter(track.fields.get("timeline_sample_count"));
+  const byteCount = parseCounter(track.fields.get("byte_count"));
+  if (
+    expectedSequence !== BigInt(chunk.sequence) ||
+    sampleCount === undefined ||
+    timelineSamples === undefined ||
+    byteCount === undefined ||
+    BigInt(chunk.firstSampleIndex) !== timelineSamples
+  ) {
+    throw new Error("Microphone recovery chunks must be committed once in sequence.");
+  }
+  const frames = BigInt(chunk.samples.byteLength / 2);
+  const nextSamples = sampleCount + frames;
+  const nextTimeline = timelineSamples + frames;
+  const nextBytes = byteCount + BigInt(chunk.samples.byteLength);
+  const nextSequence = BigInt(chunk.sequence + 1);
+  const startedAtUs = track.fields.get("started_at_us") ?? "";
+  const timestamp = nowUs();
+  const trackFields = new Map(track.fields);
+  trackFields.set("chunk_count", nextSequence.toString());
+  trackFields.set("sample_count", nextSamples.toString());
+  trackFields.set("timeline_sample_count", nextTimeline.toString());
+  trackFields.set("byte_count", nextBytes.toString());
+  trackFields.set("duration_us", samplesToMicroseconds(nextTimeline, sampleRateHz).toString());
+  trackFields.set("updated_at_us", timestamp);
+
+  const chunkRecord = makeRecord(
+    RecordType.audioChunk,
+    newUuid(),
+    new Map([
+      ["session_id", session.id.toLowerCase()],
+      ["track_id", track.id.toLowerCase()],
+      ["sequence_number", String(chunk.sequence)],
+      ["first_sample_index", chunk.firstSampleIndex],
+      ["sample_count", frames.toString()],
+      ["gap_before_samples", "0"],
+      ["timeline_start_us", samplesToMicroseconds(timelineSamples, sampleRateHz).toString()],
+      ["timeline_end_us", samplesToMicroseconds(nextTimeline, sampleRateHz).toString()],
+      ["sample_format", "pcm_s16le"],
+      ["sample_rate_hz", String(sampleRateHz)],
+      ["channel_count", "1"],
+      ["channel_mask", "0"],
+      ["codec", "none"],
+      ["source", "microphone"],
+      ["contains_device_discontinuity", "false"],
+      ["payload_checksum", String(crc32(chunk.samples))],
+    ]),
+    chunk.samples,
+  );
+  const sessionFields = new Map(session.fields);
+  sessionFields.set(
+    "recording_audio_chunks",
+    ((parseCounter(session.fields.get("recording_audio_chunks")) ?? 0n) + 1n).toString(),
+  );
+  sessionFields.set(
+    "recording_samples",
+    ((parseCounter(session.fields.get("recording_samples")) ?? 0n) + frames).toString(),
+  );
+  const priorTimeline = parseCounter(session.fields.get("recording_timeline_samples")) ?? 0n;
+  sessionFields.set(
+    "recording_timeline_samples",
+    (priorTimeline > nextTimeline ? priorTimeline : nextTimeline).toString(),
+  );
+  sessionFields.set(
+    "recording_bytes",
+    ((parseCounter(session.fields.get("recording_bytes")) ?? 0n) + BigInt(chunk.samples.byteLength)).toString(),
+  );
+  sessionFields.set("recording_started_at_us", startedAtUs);
+  sessionFields.set("recording_state", "recording");
+  sessionFields.set("recording_error", "");
+  sessionFields.set("updated_at_us", timestamp);
+  return [chunkRecord, { ...track, fields: trackFields }, { ...session, fields: sessionFields }];
+}
+
+/** Mark a take complete after the last archive chunk has been committed. */
+export function makeMicrophoneCaptureFinishRecords(options: {
+  session: ArchiveRecord;
+  track: ArchiveRecord;
+  take: ArchiveRecord;
+  pauseCount: number;
+  pausedDurationUs: string;
+  interruptedReason?: string;
+}): ArchiveRecord[] {
+  const { session, track, take } = options;
+  const interrupted = Boolean(options.interruptedReason);
+  const timestamp = nowUs();
+  const trackFields = new Map(track.fields);
+  trackFields.set("state", interrupted ? "interrupted" : "completed");
+  trackFields.set(
+    "capture_pause_count",
+    addCounter(track.fields.get("capture_pause_count"), options.pauseCount),
+  );
+  trackFields.set(
+    "capture_paused_duration_us",
+    addCounter(track.fields.get("capture_paused_duration_us"), options.pausedDurationUs),
+  );
+  trackFields.set("ended_at_us", timestamp);
+  trackFields.set("recovery_error", options.interruptedReason ?? "");
+  trackFields.set("updated_at_us", timestamp);
+  const takeFields = new Map(take.fields);
+  takeFields.set("state", interrupted ? "partial" : "completed");
+  takeFields.set(
+    "capture_pause_count",
+    addCounter(take.fields.get("capture_pause_count"), options.pauseCount),
+  );
+  takeFields.set(
+    "capture_paused_duration_us",
+    addCounter(take.fields.get("capture_paused_duration_us"), options.pausedDurationUs),
+  );
+  takeFields.set("ended_at_us", timestamp);
+  takeFields.set("duration_us", trackFields.get("duration_us") ?? "0");
+  takeFields.set("updated_at_us", timestamp);
+  const sessionFields = new Map(session.fields);
+  sessionFields.set("recording_state", interrupted ? "interrupted" : "completed");
+  sessionFields.set("recording_ended_at_us", timestamp);
+  sessionFields.set("recording_error", options.interruptedReason ?? "");
+  sessionFields.set("recording_capture_pause_count", String(options.pauseCount));
+  sessionFields.set("recording_capture_paused_duration_us", options.pausedDurationUs);
+  sessionFields.set("updated_at_us", timestamp);
+  return [
+    { ...track, fields: trackFields },
+    { ...take, fields: takeFields },
+    { ...session, fields: sessionFields },
+  ];
+}
+
+/** Keep the persisted take status aligned with a muted or resumed capture. */
+export function makeMicrophoneCaptureStateRecords(
+  session: ArchiveRecord,
+  track: ArchiveRecord,
+  take: ArchiveRecord,
+  state: "recording" | "paused",
+): ArchiveRecord[] {
+  const timestamp = nowUs();
+  const sessionFields = new Map(session.fields);
+  sessionFields.set("recording_state", state);
+  sessionFields.set("updated_at_us", timestamp);
+  const trackFields = new Map(track.fields);
+  trackFields.set("state", state);
+  trackFields.set("updated_at_us", timestamp);
+  const takeFields = new Map(take.fields);
+  takeFields.set("state", state);
+  takeFields.set("updated_at_us", timestamp);
+  return [
+    { ...track, fields: trackFields },
+    { ...take, fields: takeFields },
+    { ...session, fields: sessionFields },
+  ];
+}
 
 /** Convert a consented microphone recording into the archive's normal take and PCM chunks. */
 export async function makeMicrophoneRecordingRecords(options: {
@@ -70,6 +349,81 @@ export async function makeMicrophoneRecordingRecords(options: {
     return record;
   });
   return { ...result, records };
+}
+
+function assertCaptureSession(
+  session: ArchiveRecord,
+  sampleRateHz: number,
+  allowInProgress = false,
+): void {
+  if (session.type !== RecordType.session || session.fields.get("_deleted") === "true")
+    throw new Error("Choose an active tutoring session before recording audio.");
+  if (!Number.isSafeInteger(sampleRateHz) || sampleRateHz < 8_000 || sampleRateHz > 192_000)
+    throw new Error("The microphone returned an unsupported sample rate.");
+  if (
+    !allowInProgress &&
+    ["initializing", "recording", "paused", "finalizing"].includes(
+      session.fields.get("recording_state") ?? "",
+    )
+  )
+    throw new Error("Stop or recover the active recording before starting another take.");
+}
+
+function mergedTrackIds(session: ArchiveRecord, knownTrackIds: readonly string[]): string[] {
+  const ids = new Set<string>();
+  for (const value of [session.fields.get("recording_track_ids"), session.fields.get("recording_track_id")]) {
+    for (const id of (value ?? "").split(",")) {
+      const normalized = id.trim().toLowerCase();
+      if (/^[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}$/u.test(normalized)) ids.add(normalized);
+    }
+  }
+  for (const value of knownTrackIds) {
+    const normalized = value.toLowerCase();
+    if (/^[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}$/u.test(normalized)) ids.add(normalized);
+  }
+  return [...ids];
+}
+
+function assertUuid(value: string, label: string): void {
+  if (!/^[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}$/iu.test(value))
+    throw new Error(`The microphone ${label} ID is invalid.`);
+}
+
+function makeRecord(
+  type: number,
+  id: string,
+  fields: ReadonlyMap<string, string>,
+  blob = new Uint8Array(),
+): ArchiveRecord {
+  return { type, id: id.toLowerCase(), revision: 0n, previousOffset: 0n, fields, blob };
+}
+
+function parseCounter(value: string | undefined): bigint | undefined {
+  if (value === undefined || !/^\d+$/u.test(value)) return undefined;
+  try {
+    const result = BigInt(value);
+    return result <= 18_446_744_073_709_551_615n ? result : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function addCounter(previous: string | undefined, next: number | string): string {
+  const left = previous === undefined || previous === "" ? 0n : parseCounter(previous);
+  const right = parseCounter(String(next));
+  if (left === undefined || right === undefined || left + right > 18_446_744_073_709_551_615n) {
+    throw new Error("Microphone capture totals exceed the supported archive range.");
+  }
+  return (left + right).toString();
+}
+
+function samplesToMicroseconds(samples: bigint, sampleRateHz: number): bigint {
+  const rate = BigInt(sampleRateHz);
+  return (samples / rate) * 1_000_000n + ((samples % rate) * 1_000_000n) / rate;
+}
+
+function nowUs(): string {
+  return (BigInt(Date.now()) * 1_000n).toString();
 }
 
 /** Capture microphone PCM through Web Audio with a bounded in-memory buffer. */
