@@ -2051,6 +2051,95 @@ export async function createEncryptedArchiveBytes(
   }
 }
 
+/**
+ * Reconstruct only the header checksum in a read-only view. The source remains
+ * untouched; callers must save a separate copy after reviewing the result.
+ */
+export async function recoverChecksumDamagedArchiveHeader(
+  source: ArchiveByteSource,
+  passphrase?: string,
+): Promise<ArchiveSnapshot> {
+  if (source.size < BigInt(ARCHIVE_HEADER_SIZE)) {
+    throw new ArchiveFormatError(
+      "archive_header_recovery_unavailable",
+      "A complete archive header is required for checksum repair.",
+    );
+  }
+  const original = await source.read(0n, ARCHIVE_HEADER_SIZE);
+  if (original.byteLength !== ARCHIVE_HEADER_SIZE) {
+    throw new ArchiveFormatError(
+      "archive_header_recovery_unavailable",
+      "The archive header could not be read completely.",
+    );
+  }
+  const corrected = original.slice();
+  const checksum = crc32(corrected.subarray(0, 60));
+  const view = new DataView(corrected.buffer, corrected.byteOffset, corrected.byteLength);
+  if (view.getUint32(60, true) === checksum) {
+    throw new ArchiveFormatError(
+      "archive_header_recovery_unavailable",
+      "The header checksum is valid; checksum repair is not applicable.",
+    );
+  }
+  view.setUint32(60, checksum, true);
+  const header = decodeArchiveHeader(corrected);
+  const repairedSource = new CompositeArchiveSource(
+    new MemoryArchiveSource(corrected),
+    new ArchiveSuffixSource(source, BigInt(ARCHIVE_HEADER_SIZE)),
+  );
+  let opened = await openArchiveSource(repairedSource);
+  try {
+    if (opened.encrypted) {
+      if (passphrase === undefined) {
+        throw new ArchiveFormatError(
+          "archive_locked",
+          "Provide the passphrase to verify a repaired encrypted header.",
+        );
+      }
+      opened = await opened.unlock(passphrase);
+    }
+    await verifyArchiveSnapshot(opened);
+    const manifest = await opened.getRecord(RecordType.settings, header.id);
+    if (
+      !manifest ||
+      manifest.fields.get("_deleted") === "true" ||
+      manifest.fields.get("record_role") !== "archive-manifest" ||
+      manifest.fields.get("created_at_us") !== header.createdAtUs.toString()
+    ) {
+      throw new ArchiveFormatError(
+        "archive_header_recovery_unverified",
+        "The header identity and creation time do not match the verified archive manifest.",
+      );
+    }
+    return opened;
+  } catch (error) {
+    opened.lock();
+    throw error;
+  }
+}
+
+/** A borrowed suffix view that does not take ownership of the source. */
+class ArchiveSuffixSource implements ArchiveByteSource {
+  readonly size: bigint;
+  constructor(
+    private readonly source: ArchiveByteSource,
+    private readonly start: bigint,
+  ) {
+    this.size = source.size - start;
+  }
+  async read(offset: bigint, length: number): Promise<Uint8Array> {
+    if (
+      offset < 0n ||
+      !Number.isSafeInteger(length) ||
+      length < 0 ||
+      offset + BigInt(length) > this.size
+    ) {
+      throw new RangeError("Archive read is outside the source bounds.");
+    }
+    return this.source.read(this.start + offset, length);
+  }
+}
+
 export async function openArchiveBytes(bytes: Uint8Array): Promise<ArchiveSnapshot> {
   return openArchiveSource(new MemoryArchiveSource(bytes));
 }
