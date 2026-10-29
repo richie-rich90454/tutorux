@@ -217,6 +217,64 @@ export class ArchiveSnapshot {
     );
   }
 
+  /** Keep the unlocked key private while opening a verified view of another generation. */
+  async openGeneration(
+    source: ArchiveByteSource,
+    commit: CommitInfo,
+    index: ReadonlyMap<string, bigint>,
+    publishedEndOffset: bigint,
+  ): Promise<ArchiveSnapshot> {
+    const next = new ArchiveSnapshot(
+      source,
+      this.header,
+      commit,
+      index,
+      publishedEndOffset,
+      this.#dataKey?.clone(),
+    );
+    try {
+      await next.verifyEncryptionAuthentication();
+      return next;
+    } catch (error) {
+      next.lock();
+      throw error;
+    }
+  }
+
+  /** Relocate a protected revision, whose previous offset is part of its authenticated data. */
+  async relocateProtectedFrame(
+    frame: ArchiveRecordFrame,
+    previousOffset: bigint,
+  ): Promise<Uint8Array> {
+    const key = this.#dataKey;
+    if (!key || !this.encrypted || (frame.flags & 1) === 0) {
+      throw new ArchiveFormatError(
+        "archive_locked",
+        "Unlock this archive before relocating encrypted records.",
+      );
+    }
+    const context = {
+      archiveId: this.header.id,
+      type: frame.type,
+      recordId: frame.id,
+      revision: frame.revision,
+      previousOffset: frame.previousOffset,
+      codec: frame.codec,
+    };
+    const plaintext = await key.decryptRecordPayload(frame.storedPayload, context);
+    try {
+      const payload = await key.encryptRecordPayload(plaintext, { ...context, previousOffset });
+      return encodeRecordFrame(
+        { type: frame.type, id: frame.id, revision: frame.revision, previousOffset },
+        payload,
+        frame.codec,
+        frame.flags,
+      );
+    } finally {
+      plaintext.fill(0);
+    }
+  }
+
   async openNextGeneration(source: ArchiveByteSource): Promise<ArchiveSnapshot> {
     const opened = await openArchiveSource(source);
     const dataKey = this.#dataKey?.clone();
@@ -644,12 +702,6 @@ export interface ArchiveRecoveryResult {
 export async function recoverUnpublishedCommit(
   snapshot: ArchiveSnapshot,
 ): Promise<ArchiveRecoveryResult> {
-  if (snapshot.encrypted) {
-    throw new ArchiveFormatError(
-      "archive_encrypted_workflow_unsupported",
-      "Encrypted archive recovery is not supported yet.",
-    );
-  }
   if (snapshot.locked) {
     throw new ArchiveFormatError(
       "archive_locked",
@@ -697,14 +749,18 @@ export async function recoverUnpublishedCommit(
     );
   }
 
-  const candidateSnapshot = new ArchiveSnapshot(
+  const candidateSnapshot = await snapshot.openGeneration(
     snapshot.source,
-    snapshot.header,
     candidate.commit,
     candidate.indexEntries,
+    snapshot.source.size,
   );
-  await candidateSnapshot.getManifest();
-  await verifyArchiveSnapshot(candidateSnapshot);
+  try {
+    await candidateSnapshot.getManifest();
+    await verifyArchiveSnapshot(candidateSnapshot);
+  } finally {
+    candidateSnapshot.lock();
+  }
 
   const commitFrame = await readFrameAt(snapshot.source, candidate.commit.offset);
   const committedPrefix = new PrefixArchiveSource(snapshot.source, BigInt(commitFrame.endOffset));
@@ -712,9 +768,8 @@ export async function recoverUnpublishedCommit(
     committedPrefix,
     new MemoryArchiveSource(encodeLocator(candidate.commit.offset, candidate.commit.generation)),
   );
-  const recoveredSnapshot = new ArchiveSnapshot(
+  const recoveredSnapshot = await snapshot.openGeneration(
     recoveredSource,
-    snapshot.header,
     candidate.commit,
     candidate.indexEntries,
     recoveredSource.size,
@@ -742,12 +797,6 @@ export interface ArchiveRepairResult extends ArchiveCompactionResult {
 export async function repairArchiveSnapshot(
   snapshot: ArchiveSnapshot,
 ): Promise<ArchiveRepairResult> {
-  if (snapshot.encrypted) {
-    throw new ArchiveFormatError(
-      "archive_encrypted_workflow_unsupported",
-      "Encrypted archive repair is not supported yet.",
-    );
-  }
   if (snapshot.locked) {
     throw new ArchiveFormatError("archive_locked", "Unlock this archive before repairing a copy.");
   }
@@ -770,19 +819,22 @@ export async function repairArchiveSnapshot(
           snapshot.source,
           candidate.commit,
         );
-        const selected = new ArchiveSnapshot(
+        const selected = await snapshot.openGeneration(
           snapshot.source,
-          snapshot.header,
           candidate.commit,
           candidate.indexEntries,
           publishedEndOffset,
         );
-        const compacted = await rebuildArchiveSnapshot(selected, true);
-        return {
-          ...compacted,
-          selectedGeneration: candidate.commit.generation,
-          discardedTrailingBytes: snapshot.source.size - publishedEndOffset,
-        };
+        try {
+          const compacted = await rebuildArchiveSnapshot(selected, true);
+          return {
+            ...compacted,
+            selectedGeneration: candidate.commit.generation,
+            discardedTrailingBytes: snapshot.source.size - publishedEndOffset,
+          };
+        } finally {
+          selected.lock();
+        }
       } catch (error) {
         lastError = error;
         selectedCommit = candidate.commit;
@@ -1147,12 +1199,6 @@ async function rebuildArchiveSnapshot(
   snapshot: ArchiveSnapshot,
   allowUnpublishedTail: boolean,
 ): Promise<ArchiveCompactionResult> {
-  if (snapshot.encrypted) {
-    throw new ArchiveFormatError(
-      "archive_encrypted_workflow_unsupported",
-      "Encrypted archive compaction is not supported yet.",
-    );
-  }
   if (snapshot.locked) {
     throw new ArchiveFormatError("archive_locked", "Unlock this archive before compacting it.");
   }
@@ -1199,13 +1245,7 @@ async function rebuildArchiveSnapshot(
       let frame = existing;
       if (!frame) {
         const readFrame = await readFrameAt(snapshot.source, offset);
-        if (readFrame.flags & 1) {
-          throw new ArchiveFormatError(
-            "archive_locked",
-            "Unlock this archive before compacting encrypted records.",
-          );
-        }
-        const payload = decodeStoredPayload(readFrame);
+        const payload = await snapshot.decodeFramePayload(readFrame);
         if (recordTypeName(readFrame.type) !== "unknown") {
           decodeRecordPayload(
             readFrame.type,
@@ -1226,12 +1266,6 @@ async function rebuildArchiveSnapshot(
           payloadChecksum: readFrame.payloadChecksum,
           endOffset: readFrame.endOffset,
         };
-      }
-      if (frame.flags & 1) {
-        throw new ArchiveFormatError(
-          "archive_locked",
-          "Unlock this archive before compacting encrypted records.",
-        );
       }
       if (
         newer &&
@@ -1263,9 +1297,16 @@ async function rebuildArchiveSnapshot(
   }
 
   const header = encodeArchiveHeader(snapshot.header);
+  const emptyRootBody = encodeIndexPage({ leaf: true, entries: [], separators: [], children: [] });
+  const emptyRootPayload = snapshot.encrypted
+    ? concatBytes([
+        emptyRootBody,
+        await snapshot.authenticateEncryptedPayload("TUTORUX-INDEX-PAGE-V1", emptyRootBody),
+      ])
+    : emptyRootBody;
   const emptyRoot = encodeRecordFrame(
     { type: RecordType.indexPage, id: ZERO_UUID, revision: 1n, previousOffset: 0n },
-    encodeIndexPage({ leaf: true, entries: [], separators: [], children: [] }),
+    emptyRootPayload,
   );
   const outputSegments: CompactedArchiveSegment[] = [
     { kind: "static", offset: 0n, bytes: header },
@@ -1286,14 +1327,26 @@ async function rebuildArchiveSnapshot(
       const frameLength =
         RECORD_HEADER_SIZE + frame.payloadLength + ((8 - (frame.payloadLength % 8)) % 8);
       relocatedOffsets.set(offset, cursor);
-      outputSegments.push({
-        kind: "frame",
-        offset: cursor,
-        originalOffset: offset,
-        frameLength,
-        payloadLength: frame.payloadLength,
-        header: frameHeader,
-      });
+      if ((frame.flags & 1) !== 0) {
+        const original = await readFrameAt(snapshot.source, offset);
+        const relocated = await snapshot.relocateProtectedFrame(original, previousOffset);
+        if (relocated.byteLength !== frameLength) {
+          throw new ArchiveFormatError(
+            "archive_compaction_frame_size_changed",
+            "Relocated encrypted record has an unexpected size.",
+          );
+        }
+        outputSegments.push({ kind: "static", offset: cursor, bytes: relocated });
+      } else {
+        outputSegments.push({
+          kind: "frame",
+          offset: cursor,
+          originalOffset: offset,
+          frameLength,
+          payloadLength: frame.payloadLength,
+          header: frameHeader,
+        });
+      }
       previousOffset = cursor;
       cursor += BigInt(frameLength);
     }
@@ -1314,7 +1367,13 @@ async function rebuildArchiveSnapshot(
   const orderedEntries = [...relocatedIndex.entries()]
     .map(([key, valueOffset]) => ({ key, valueOffset }))
     .sort((left, right) => compareKeys(left.key, right.key));
-  const tree = await buildIndexTree(orderedEntries, cursor);
+  const tree = await buildIndexTree(
+    orderedEntries,
+    cursor,
+    snapshot.encrypted
+      ? (payload) => snapshot.authenticateEncryptedPayload("TUTORUX-INDEX-PAGE-V1", payload)
+      : undefined,
+  );
   for (const frame of tree.frames) {
     outputSegments.push({ kind: "static", offset: cursor, bytes: frame });
     cursor += BigInt(frame.byteLength);
@@ -1322,7 +1381,7 @@ async function rebuildArchiveSnapshot(
   const transactionId = newUuid();
   const commitOffset = tree.endOffset;
   const rootHash = await sha256(tree.rootPayload);
-  const commitPayload = encodeCommitPayload({
+  const commitBody = encodeCommitPayload({
     generation: 1n,
     previousOffset: 0n,
     rootOffset: tree.rootOffset,
@@ -1330,6 +1389,12 @@ async function rebuildArchiveSnapshot(
     transactionId,
     recordCount: BigInt(retainedOffsets.size),
   });
+  const commitPayload = snapshot.encrypted
+    ? concatBytes([
+        commitBody,
+        await snapshot.authenticateEncryptedPayload("TUTORUX-COMMIT-V1", commitBody),
+      ])
+    : commitBody;
   const commitFrame = encodeRecordFrame(
     { type: RecordType.commit, id: ZERO_UUID, revision: 1n, previousOffset: 0n },
     commitPayload,
@@ -1341,9 +1406,20 @@ async function rebuildArchiveSnapshot(
   cursor += BigInt(locator.byteLength);
 
   const compactedSource = new CompactedArchiveSource(snapshot.source, outputSegments, cursor);
-  const compacted = await openArchiveSource(compactedSource);
-  await compacted.getManifest();
-  await verifyArchiveSnapshot(compacted);
+  const opened = await openArchiveSource(compactedSource);
+  const compacted = await snapshot.openGeneration(
+    compactedSource,
+    opened.commit,
+    opened.allIndexEntries(),
+    opened.publishedEndOffset,
+  );
+  try {
+    await compacted.getManifest();
+    await verifyArchiveSnapshot(compacted);
+  } catch (error) {
+    compacted.lock();
+    throw error;
+  }
   return {
     snapshot: compacted,
     originalBytes: snapshot.source.size,
