@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { appendRecords, createArchiveBytes, openArchiveBytes } from "../archive/archive";
 import { newUuid, RecordType, type ArchiveRecord } from "../archive/format";
 import { makeAssetImport } from "../domain/assets";
-import { createAiPackageRecord } from "./package";
+import { aiPackageText, createAiPackageRecord } from "./package";
 import {
   createProviderConfigurationRecord,
   createProviderCredentialRecord,
@@ -329,7 +329,220 @@ describe("AI request preview", () => {
       "provider request exceeds the 16 MiB send limit",
     );
   });
+  it("attaches PDF, audio, and video materials from the package manifest per protocol", async () => {
+    const sessionId = newUuid();
+    const initial = await openArchiveBytes(await createArchiveBytes("AI multimodal fixture"));
+    const withSession = await appendRecords(initial, [
+      makeRecord(RecordType.session, sessionId, { subject: "Science", student_id: "anonymous" }),
+    ]);
+    const pdfBytes = encoder.encode("%PDF-1.4\n%%EOF");
+    const wavBytes = new Uint8Array([
+      0x52, 0x49, 0x46, 0x46, 0x24, 0x00, 0x00, 0x00, 0x57, 0x41, 0x56, 0x45, 0x66, 0x6d, 0x74,
+      0x20, 0x10, 0x00, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x44, 0xac, 0x00, 0x00, 0x88, 0x58,
+      0x01, 0x00, 0x02, 0x00, 0x10, 0x00, 0x64, 0x61, 0x74, 0x61, 0x00, 0x00, 0x00, 0x00,
+    ]);
+    const webmBytes = new Uint8Array([0x1a, 0x45, 0xdf, 0xa3, 0x01, 0x02, 0x03, 0x04]);
+    const snapshot = await appendRecords(withSession, [
+      ...(await materialRecords(sessionId, "handout.pdf", "application/pdf", pdfBytes, "Worksheet text")),
+      ...(await materialRecords(sessionId, "lecture.wav", "audio/wav", wavBytes)),
+      ...(await materialRecords(sessionId, "clip.webm", "video/webm", webmBytes)),
+    ]);
+    const summary = await createAiPackageRecord(snapshot, sessionId);
+    const packageValue = JSON.parse(aiPackageText(summary.job)) as {
+      assets_manifest: { mime_type: string }[];
+    };
+    expect(packageValue.assets_manifest).toHaveLength(3);
+
+    const expectedKinds = ["audio", "document", "video"];
+    const gemini = await makeProvider(
+      "google-gemini",
+      "https://generativelanguage.googleapis.com/v1beta",
+      "gemini-2.5-flash",
+    );
+    const geminiPreview = await createAiRequestPreview(
+      summary.job,
+      gemini,
+      undefined,
+      [],
+      false,
+      snapshot,
+    );
+    const geminiBody = JSON.parse(geminiPreview.requestBody) as {
+      contents: { parts: { inlineData?: { mimeType: string } }[] }[];
+    };
+    expect(geminiPreview.attachedAssets).toHaveLength(3);
+    expect(
+      geminiBody.contents[0]?.parts
+        .flatMap((part) => (part.inlineData ? [part.inlineData.mimeType] : []))
+        .sort(),
+    ).toEqual(["application/pdf", "audio/wav", "video/webm"]);
+    expect(geminiPreview.attachedAssets?.map((asset) => asset.kind).sort()).toEqual(expectedKinds);
+
+    const anthropic = await makeProvider(
+      "anthropic",
+      "https://api.anthropic.com",
+      "claude-sonnet-4",
+    );
+    const anthropicPreview = await createAiRequestPreview(
+      summary.job,
+      anthropic,
+      undefined,
+      [],
+      false,
+      snapshot,
+    );
+    const anthropicBody = JSON.parse(anthropicPreview.requestBody) as {
+      messages: {
+        content: { type: string; text?: string; source?: { media_type: string } }[];
+      }[];
+    };
+    expect(
+      anthropicBody.messages[0]?.content.some(
+        (part) => part.type === "document" && part.source?.media_type === "application/pdf",
+      ),
+    ).toBe(true);
+    expect(anthropicBody.messages[0]?.content[0]?.text).toContain("Audio lecture.wav");
+
+    const responses = await makeProvider(
+      "opencode-zen",
+      "https://opencode.ai/inference/v1",
+      "gpt-5",
+    );
+    const responsesPreview = await createAiRequestPreview(
+      summary.job,
+      responses,
+      undefined,
+      [],
+      false,
+      snapshot,
+    );
+    const responsesBody = JSON.parse(responsesPreview.requestBody) as {
+      input: { content: { type: string; filename?: string }[] }[];
+    };
+    expect(
+      responsesBody.input[0]?.content.some(
+        (part) => part.type === "input_file" && part.filename === "handout.pdf",
+      ),
+    ).toBe(true);
+  });
+
+  it("builds provider-native structured-output fields from a supported model capability", async () => {
+    const packageJob = await makePackageJob({ manifest: { format: "tutorux-ai-package-v1" } });
+    const cases = [
+      {
+        providerId: "openai",
+        endpoint: "https://api.openai.com/v1",
+        model: "gpt-4.1",
+        check: (body: Record<string, unknown>) => {
+          expect(body["response_format"]).toEqual({ type: "json_object" });
+        },
+      },
+      {
+        providerId: "ollama",
+        endpoint: "http://127.0.0.1:11434",
+        model: "llama3.2",
+        check: (body: Record<string, unknown>) => {
+          expect(body["format"]).toBe("json");
+        },
+      },
+      {
+        providerId: "google-gemini",
+        endpoint: "https://generativelanguage.googleapis.com/v1beta",
+        model: "gemini-2.5-flash",
+        check: (body: Record<string, unknown>) => {
+          expect(body["generationConfig"]).toMatchObject({
+            responseMimeType: "application/json",
+          });
+        },
+      },
+      {
+        providerId: "opencode-zen",
+        endpoint: "https://opencode.ai/inference/v1",
+        model: "gpt-5",
+        check: (body: Record<string, unknown>) => {
+          expect(body["text"]).toEqual({ format: { type: "json_object" } });
+        },
+      },
+    ];
+
+    for (const testCase of cases) {
+      const provider = await makeProvider(testCase.providerId, testCase.endpoint, testCase.model);
+      const preview = await createAiRequestPreview(
+        packageJob,
+        provider,
+        undefined,
+        [],
+        false,
+        undefined,
+        undefined,
+        true,
+      );
+      testCase.check(JSON.parse(preview.requestBody) as Record<string, unknown>);
+      expect(preview.structuredOutput).toBe(true);
+    }
+
+    const anthropic = await makeProvider(
+      "anthropic",
+      "https://api.anthropic.com",
+      "claude-sonnet-4",
+    );
+    const preview = await createAiRequestPreview(
+      packageJob,
+      anthropic,
+      undefined,
+      [],
+      false,
+      undefined,
+      undefined,
+      true,
+    );
+    const body = JSON.parse(preview.requestBody) as Record<string, unknown>;
+    expect(body["response_format"]).toBeUndefined();
+    expect(body["text"]).toBeUndefined();
+    expect(preview.structuredOutput).toBe(false);
+  });
 });
+
+async function materialRecords(
+  sessionId: string,
+  filename: string,
+  mimeType: string,
+  bytes: Uint8Array,
+  extractedText = "",
+): Promise<ArchiveRecord[]> {
+  const blobId = newUuid();
+  const chunkId = newUuid();
+  const contentHash = await hash(bytes);
+  return [
+    {
+      ...makeRecord(RecordType.assetBlob, chunkId, {
+        record_role: "asset-blob-chunk",
+        manifest_id: blobId,
+        chunk_index: "0",
+        byte_size: String(bytes.byteLength),
+      }),
+      blob: bytes.slice(),
+    },
+    makeRecord(RecordType.assetBlob, blobId, {
+      record_role: "asset-blob-manifest",
+      content_hash: contentHash,
+      byte_size: String(bytes.byteLength),
+      chunk_count: "1",
+      chunk_ids: chunkId,
+    }),
+    makeRecord(RecordType.assetMetadata, newUuid(), {
+      record_role: "material",
+      session_id: sessionId,
+      filename,
+      mime_type: mimeType,
+      byte_size: String(bytes.byteLength),
+      content_hash: contentHash,
+      blob_id: blobId,
+      blob_count: "1",
+      ...(extractedText ? { extracted_text: extractedText } : {}),
+    }),
+  ];
+}
 
 async function makeProvider(
   providerId: string,
