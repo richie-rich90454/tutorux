@@ -64,8 +64,10 @@ export async function measureArchiveIndex(
     indexedRecords += records.length;
   }
   throwIfAborted(options.signal);
-  report["index_records"] = indexedRecords;
-  report["index_elapsed_us"] = Math.max(0, Math.round((performance.now() - startedAt) * 1000));
+  report["index_records"] = String(indexedRecords);
+  report["index_elapsed_us"] = String(
+    Math.max(0, Math.round((performance.now() - startedAt) * 1000)),
+  );
   report["archive_generation"] = snapshot.commit.generation.toString();
 }
 
