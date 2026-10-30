@@ -85,8 +85,16 @@ export async function executeAiGeneration(input: AiExecutionInput): Promise<AiEx
     : [
         ["outbound_consent_hash", preview.requestBodyHash],
         ["outbound_confirmed_at_us", nowUs],
-        ["outbound_consent_method", "explicit-body-sha256"],
+        [
+          "outbound_consent_method",
+          preview.providerId === "replicate"
+            ? "explicit-replicate-prediction-lifecycle"
+            : "explicit-body-sha256",
+        ],
       ];
+  const replicateSchemaFields: [string, string][] = preview.replicateInputSchema
+    ? [["replicate_model_schema_version", preview.replicateInputSchema.version]]
+    : [];
   const createJob = (
     status: string,
     guideId: string | null,
@@ -125,6 +133,7 @@ export async function executeAiGeneration(input: AiExecutionInput): Promise<AiEx
       ["warnings", warnings.join("\n")],
       ["created_at_us", nowUs],
       ...consentFields,
+      ...replicateSchemaFields,
     ]),
     blob: responseBytes,
   });
@@ -159,16 +168,31 @@ export async function executeAiGeneration(input: AiExecutionInput): Promise<AiEx
     };
   };
 
+  if (transport.cancelled) {
+    return failure(
+      "cancelled",
+      transport.errorMessage ??
+        "The Replicate prediction was cancelled. Its bounded raw response was saved for export.",
+    );
+  }
   if (responseTooLarge || !transport.complete || transport.responseBytes !== receivedBytes) {
     return failure(
       "response-partial",
-      "The response stream was interrupted or exceeded the 16 MiB limit. The received raw bytes were saved for export.",
+      transport.errorMessage ??
+        "The response stream was interrupted or exceeded the 16 MiB limit. The received raw bytes were saved for export.",
     );
   }
   if (transport.status < 200 || transport.status >= 300) {
     return failure(
       "provider-error",
-      `The provider returned HTTP ${transport.status}. Its raw response was saved for export.`,
+      transport.errorMessage ??
+        (preview.providerId === "replicate" && [401, 403].includes(transport.status)
+          ? "Replicate rejected the API token or model access. Its raw response was saved for export."
+          : preview.providerId === "replicate" && transport.status === 429
+            ? "Replicate rate limited the prediction. Its raw response was saved for export."
+            : preview.providerId === "replicate" && transport.status === 408
+              ? "Replicate prediction exceeded the five-minute wait limit. Its latest raw response was saved for export."
+              : `The provider returned HTTP ${transport.status}. Its raw response was saved for export.`),
     );
   }
   const contentType = transport.contentType.trim().toLowerCase();
@@ -181,7 +205,7 @@ export async function executeAiGeneration(input: AiExecutionInput): Promise<AiEx
 
   let responseText: string;
   try {
-    responseText = extractAiResponseText(preview.providerId, responseBytes);
+    responseText = extractAiResponseText(preview.providerId, responseBytes, preview.model);
   } catch (cause) {
     return failure(
       "response-needs-correction",
