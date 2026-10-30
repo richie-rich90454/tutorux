@@ -12,7 +12,7 @@ export default defineConfig({
     ...devices["Desktop Chrome"],
   },
   webServer: {
-    command: "npm run build && npm run preview",
+    command: "pnpm run build && pnpm run preview",
     url: "http://127.0.0.1:1420",
     reuseExistingServer: !process.env["CI"],
     timeout: 30_000,
