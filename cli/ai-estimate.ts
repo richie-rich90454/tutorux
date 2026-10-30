@@ -103,11 +103,19 @@ export async function inspectOllamaContextLength(
   return parseOllamaShowContextLength(metadata);
 }
 
+function hasControlCharacter(value: string): boolean {
+  for (const character of value) {
+    const code = character.codePointAt(0) ?? 0;
+    if (code <= 0x1f || code === 0x7f) return true;
+  }
+  return false;
+}
+
 function validateOllamaModelId(modelId: string): void {
   if (
     !modelId ||
     new TextEncoder().encode(modelId).byteLength > OLLAMA_MAX_MODEL_ID_BYTES ||
-    /[\u0000-\u001f\u007f]/u.test(modelId)
+    hasControlCharacter(modelId)
   ) {
     throw new Error("A valid Ollama model name is required.");
   }
