@@ -40,7 +40,7 @@ export async function runAiAction(
       return aiEstimateAction(snapshot, args);
     case "models":
     case "test":
-      return aiModelsAction(action, snapshot, args);
+      return aiModelsAction(action, path, snapshot, args);
     case "package":
       return aiPackageAction(path, snapshot, args);
     case "jobs":
