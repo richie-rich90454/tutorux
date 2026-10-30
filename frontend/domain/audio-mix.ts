@@ -1,6 +1,7 @@
 import { crc32, newUuid, RecordType, type ArchiveRecord } from "../archive/format";
 import type { ArchiveSnapshot } from "../archive/archive";
 import { buildAudioTrackWavStream } from "./audio";
+import { buildWaveformIndexFromChunks } from "./waveform-index";
 
 const BLOCK_FRAMES = 2048;
 const MAX_MIX_BYTES = 256 * 1024 * 1024;
@@ -220,6 +221,11 @@ export async function mixRecordingTracks(
       ]),
       blob: new Uint8Array(),
     };
+    const waveform = await buildWaveformIndexFromChunks(
+      records.filter((record) => record.type === RecordType.audioChunk),
+      sessionId,
+      trackId,
+    );
     const sessionTracks = [
       ...new Set(
         ["recording_track_ids", "recording_track_id", "audio_import_track_id"].flatMap((key) =>
@@ -237,7 +243,12 @@ export async function mixRecordingTracks(
     const takeFields = new Map(take.fields)
       .set("track_ids", [...linked, trackId].join(","))
       .set("updated_at_us", now);
-    records.push(track, { ...take, fields: takeFields }, { ...session, fields: sessionFields });
+    records.push(
+      waveform,
+      track,
+      { ...take, fields: takeFields },
+      { ...session, fields: sessionFields },
+    );
     return {
       records,
       trackId,
