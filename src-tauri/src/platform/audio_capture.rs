@@ -11,7 +11,7 @@ use zeroize::Zeroizing;
 const MAX_CAPTURE_BYTES: usize = 128 * 1024 * 1024;
 const MAX_CHUNK_BYTES: usize = 32 * 1024;
 const MIN_SAMPLE_RATE_HZ: u32 = 8_000;
-const MAX_SAMPLE_RATE_HZ: u32 = 192_000;
+const MAX_SAMPLE_RATE_HZ: u32 = 384_000;
 
 #[derive(Default)]
 pub struct AudioCaptureState(Mutex<HashMap<Uuid, CaptureBuffer>>);
