@@ -40,9 +40,10 @@
     "shortDescription": "A private workspace for tutoring",
     "longDescription": "A local-first tutoring workspace for student profiles, sessions, notes and study material.",
     "icon": [
-      "../web/assets/tutorux-32.png",
-      "../web/assets/tutorux-180.png",
-      "../web/assets/tutorux-512.png",
+      "../resources/macos/Tutorux.iconset/icon_32x32.png",
+      "../resources/macos/Tutorux.iconset/icon_128x128.png",
+      "../resources/macos/Tutorux.iconset/icon_256x256.png",
+      "../resources/macos/Tutorux.iconset/icon_512x512.png",
       "../resources/tutorux.ico",
       "../resources/macos/tutorux.icns"
     ],
