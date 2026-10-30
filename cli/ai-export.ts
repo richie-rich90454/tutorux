@@ -16,11 +16,9 @@ export async function exportAiPackage(
     return encoder.encode(
       `# Tutorux AI Interchange Package\n\nAttach selected materials separately.\n\n\`\`\`json\n${text}\n\`\`\`\n`,
     );
-  if (format === "parts")
-    return encoder.encode(createAiMultipartHandoff(text).markdown);
+  if (format === "parts") return encoder.encode(createAiMultipartHandoff(text).markdown);
   const value: unknown = JSON.parse(text);
   if (!value || typeof value !== "object") throw new Error("Invalid AI package.");
-  const root = value as Record<string, unknown>;
   if (format !== "zip") throw new Error("Unsupported package format.");
   const files: Record<string, Uint8Array> = { "package.json": job.blob };
   const sessionId = job.fields.get("session_id");
