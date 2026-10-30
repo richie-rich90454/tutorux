@@ -33,6 +33,10 @@ export type SessionInput = {
 export interface SessionCreateOptions {
   linkedEntry?: ArchiveRecord;
   ensureJournalRoot?: boolean;
+  sessionType?: string;
+  transcriptionLanguage?: string;
+  guideTemplateId?: string;
+  recordingSource?: string;
 }
 
 export type SessionTransitionAction = "start" | "complete" | "review" | "resume";
@@ -377,6 +381,44 @@ export function makeSessionRecords(
   const timestamp = nowUs();
   const sessionId = crypto.randomUUID();
   const linkedEntry = options.linkedEntry;
+  const sessionType = options.sessionType ?? "notes-only";
+  const transcriptionLanguage = options.transcriptionLanguage ?? "auto";
+  const guideTemplateId = options.guideTemplateId ?? "";
+  const recordingSource =
+    options.recordingSource ??
+    (sessionType === "record-audio"
+      ? "microphone"
+      : sessionType === "import-recording"
+        ? "imported-file"
+        : "none");
+  if (!isSessionType(sessionType)) {
+    throw new Error("Session type must be notes-only, record-audio, or import-recording.");
+  }
+  if (
+    transcriptionLanguage !== "auto" &&
+    (transcriptionLanguage.length < 2 ||
+      transcriptionLanguage.length > 32 ||
+      !/^[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*$/u.test(transcriptionLanguage))
+  ) {
+    throw new Error("Use auto or a language code such as en or zh-Hant.");
+  }
+  const allowedRecordingSources: ReadonlySet<string> = new Set([
+    "none",
+    "microphone",
+    "system-audio",
+    "both",
+    "application",
+    "imported-file",
+  ]);
+  if (!allowedRecordingSources.has(recordingSource)) {
+    throw new Error("Choose none, microphone, system-audio, both, application, or imported-file.");
+  }
+  if (
+    new TextEncoder().encode(guideTemplateId).byteLength > 128 ||
+    /[\u0000-\u001f\u007f]/u.test(guideTemplateId)
+  ) {
+    throw new Error("The guide template ID is too long or contains control characters.");
+  }
   if (
     linkedEntry &&
     (linkedEntry.type !== RecordType.settings ||
@@ -396,11 +438,11 @@ export function makeSessionRecords(
       subject: cleanText(input.subject, "Subject", 200),
       title,
       learning_objectives: cleanText(input.objectives, "Learning objectives", 4_000),
-      session_type: "notes-only",
+      session_type: sessionType,
       session_state: "active",
-      transcription_language: "auto",
-      guide_template_id: "",
-      recording_source: "none",
+      transcription_language: transcriptionLanguage,
+      guide_template_id: guideTemplateId,
+      recording_source: recordingSource,
       started_at_us: timestamp,
       ended_at_us: "0",
       reviewed_at_us: "0",
