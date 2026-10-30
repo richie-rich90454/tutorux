@@ -221,9 +221,9 @@ describe("CLI session package transfer", () => {
       expect(
         await importedArchive.getRecord(RecordType.student, destinationStudentId),
       ).not.toBeNull();
-      expect(
-        await importedArchive.getRecord(RecordType.settings, imported.entry_id),
-      ).toMatchObject({ fields: expect.any(Map) });
+      expect(await importedArchive.getRecord(RecordType.settings, imported.entry_id)).toMatchObject(
+        { fields: expect.any(Map) },
+      );
       expect(stderr).toEqual([]);
     } finally {
       await rm(directory, { recursive: true, force: true });
