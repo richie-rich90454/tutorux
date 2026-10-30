@@ -1,5 +1,8 @@
 mod ai_transport;
+mod archive_lock;
 mod credentials;
+mod console;
+mod diagnostics;
 mod embedded_ai;
 mod live_transcription;
 mod platform;
@@ -7,6 +10,7 @@ mod transcription;
 
 use serde::Serialize;
 use sha2::{Digest, Sha256};
+use tutorux_archive_lock::LockMode;
 use std::{
     collections::{HashMap, VecDeque},
     fs::{self, File, OpenOptions},
@@ -14,6 +18,7 @@ use std::{
     path::{Path, PathBuf},
     sync::Mutex,
 };
+use crate::archive_lock::{ArchiveLockRegistry, SharedArchiveLock};
 use tauri::{
     ipc::Response,
     menu::{Menu, MenuItem, PredefinedMenuItem, Submenu},
@@ -41,11 +46,13 @@ struct AuthorizedArchive {
     location: PathBuf,
     identity: ArchiveIdentity,
     hasher: Sha256,
+    lock: SharedArchiveLock,
 }
 
 #[derive(Default)]
 struct DesktopState {
     opened_archives: Mutex<HashMap<String, AuthorizedArchive>>,
+    archive_locks: ArchiveLockRegistry,
     pending_saves: Mutex<HashMap<String, PendingSave>>,
     pending_open: Mutex<VecDeque<PathBuf>>,
 }
@@ -57,6 +64,7 @@ struct PendingSave {
     target_identity: Option<ArchiveIdentity>,
     temporary: PathBuf,
     source_archive_token: Option<String>,
+    create_only: bool,
 }
 
 #[derive(Serialize)]
@@ -99,7 +107,10 @@ fn authorize_archive_path(
     if !metadata.is_file() {
         return Err("The selected archive is not a regular file.".to_owned());
     }
+    let archive_lock = state.archive_locks.for_path(&selected, LockMode::Shared)?;
+    let _archive_read_lock = state.archive_locks.shared_guard(&archive_lock)?;
     let (identity, hasher) = archive_identity_and_hasher(&selected)?;
+    drop(_archive_read_lock);
     let token = Uuid::new_v4().to_string();
     let name = selected
         .file_name()
@@ -117,6 +128,7 @@ fn authorize_archive_path(
                 location,
                 identity: identity.clone(),
                 hasher,
+                lock: archive_lock,
             },
         );
     Ok(ArchiveSelection {
@@ -162,6 +174,14 @@ fn append_audio_archive_generation(
     }
     let bytes = Zeroizing::new(bytes);
 
+    let archive_lock = state
+        .opened_archives
+        .lock()
+        .map_err(|_| "Archive access state is unavailable.".to_owned())?
+        .get(&archive_token)
+        .map(|archive| archive.lock.clone())
+        .ok_or_else(|| "Archive access has expired. Reopen the file before recording.".to_owned())?;
+    let _archive_write_lock = state.archive_locks.exclusive_guard(&archive_lock)?;
     let mut archives = state
         .opened_archives
         .lock()
@@ -257,13 +277,14 @@ fn read_archive_range(
     let offset = offset
         .parse::<u64>()
         .map_err(|_| "Archive offset is invalid.".to_owned())?;
-    let path = state
+    let (path, archive_lock) = state
         .opened_archives
         .lock()
         .map_err(|_| "Archive access state is unavailable.".to_owned())?
         .get(&archive_token)
-        .map(|archive| archive.path.clone())
+        .map(|archive| (archive.path.clone(), archive.lock.clone()))
         .ok_or_else(|| "Archive access has expired. Reopen the file to continue.".to_owned())?;
+    let _archive_read_lock = state.archive_locks.shared_guard(&archive_lock)?;
     let mut file = File::open(path).map_err(|error| format!("Could not read archive: {error}"))?;
     let size = file
         .metadata()
@@ -287,6 +308,7 @@ fn read_archive_range(
 fn prepare_archive_save(
     target_path: String,
     archive_token: Option<String>,
+    create_only: bool,
     app: AppHandle,
     state: State<'_, DesktopState>,
 ) -> Result<SavePreparation, String> {
@@ -296,11 +318,20 @@ fn prepare_archive_save(
         Some(path) => path,
         None => target_location.clone(),
     };
+    if create_only && target.exists() {
+        return Err(
+            "An archive already exists at this location. Choose a new filename to create a separate copy."
+                .to_owned(),
+        );
+    }
+    let target_lock = state.archive_locks.for_path(&target, LockMode::Shared)?;
+    let _target_read_lock = state.archive_locks.shared_guard(&target_lock)?;
     let target_identity = if target.exists() {
         Some(archive_identity(&target)?)
     } else {
         None
     };
+    drop(_target_read_lock);
 
     if let Some(archive_token) = archive_token {
         let archive = state
@@ -346,6 +377,7 @@ fn prepare_archive_save(
                 target_identity,
                 temporary: temporary.clone(),
                 source_archive_token,
+                create_only,
             },
         );
     Ok(SavePreparation {
@@ -368,11 +400,21 @@ fn publish_archive_save(
         .get(&token)
         .cloned()
         .ok_or_else(|| "Archive save has expired. Start the save again.".to_owned())?;
+    let target_lock = state
+        .archive_locks
+        .for_path(&pending.target, LockMode::Exclusive)?;
+    let mut archive_write_lock = state.archive_locks.exclusive_guard(&target_lock)?;
     File::open(&pending.temporary)
         .and_then(|file| file.sync_all())
         .map_err(|error| format!("The temporary archive could not be finalized: {error}"))?;
 
     match resolve_existing_file(&pending.target_location)? {
+        Some(_) if pending.create_only => {
+            return Err(
+                "An archive appeared at this location. Choose a new filename; the existing archive was not changed."
+                    .to_owned(),
+            );
+        }
         Some(path) if same_path(&path, &pending.target) => {}
         Some(_) => return Err(archive_location_changed_message()),
         None if pending.target_identity.is_some() => return Err(archive_changed_message()),
@@ -385,6 +427,8 @@ fn publish_archive_save(
             return Err(archive_changed_message());
         }
     }
+
+    archive_write_lock.prepare_replacement_file(&pending.temporary)?;
 
     let backup_directory = pending
         .target
@@ -431,6 +475,8 @@ fn publish_archive_save(
         ));
     }
 
+    archive_write_lock.adopt_replacement_file()?;
+
     let _ = fs::remove_file(&pending.temporary);
     if pending.target_identity.is_some() {
         let _ = fs::remove_file(&backup);
@@ -443,10 +489,12 @@ fn publish_archive_save(
             .lock()
             .map_err(|_| "Archive access state is unavailable.".to_owned())?;
         if let Some(archive) = opened_archives.get_mut(archive_token) {
+            archive_write_lock.retain_shared()?;
             archive.path = pending.target.clone();
             archive.location = pending.target_location.clone();
             archive.identity = identity;
             archive.hasher = hasher;
+            archive.lock = target_lock.clone();
         }
     }
     pending_saves.remove(&token);
@@ -960,8 +1008,10 @@ fn install_native_menu(app: &mut tauri::App) -> Result<(), Box<dyn std::error::E
 fn main() {
     tauri::Builder::default()
         .manage(DesktopState::default())
+        .manage(console::ConsoleState::default())
         .manage(embedded_ai::EmbeddedAiState::default())
         .manage(platform::audio_capture::AudioCaptureState::default())
+        .manage(platform::synchronized_audio::SynchronizedAudioCaptureState::default())
         .plugin(tauri_plugin_single_instance::init(
             |app, arguments, current_directory| {
                 if let Some(path) = archive_launch_path(
@@ -1016,6 +1066,10 @@ fn main() {
             _ => {}
         })
         .invoke_handler(tauri::generate_handler![
+            diagnostics::get_desktop_diagnostics,
+            console::command_console_availability,
+            console::run_command_console,
+            console::cancel_command_console,
             credentials::ai_credential_store_available,
             credentials::has_ai_credential,
             credentials::save_ai_credential,
@@ -1052,7 +1106,16 @@ fn main() {
             platform::audio_capture::pause_audio_capture,
             platform::audio_capture::resume_audio_capture,
             platform::audio_capture::finish_audio_capture,
-            platform::audio_capture::discard_audio_capture
+            platform::audio_capture::discard_audio_capture,
+            platform::synchronized_audio::list_synchronized_audio_devices,
+            platform::microphone_preflight::preflight_microphone,
+            platform::synchronized_audio::begin_synchronized_audio_capture,
+            platform::synchronized_audio::activate_synchronized_audio_capture,
+            platform::synchronized_audio::pause_synchronized_audio_capture,
+            platform::synchronized_audio::resume_synchronized_audio_capture,
+            platform::synchronized_audio::stop_synchronized_audio_source,
+            platform::synchronized_audio::finish_synchronized_audio_capture,
+            platform::synchronized_audio::discard_synchronized_audio_capture
         ])
         .run(tauri::generate_context!())
         .expect("Tutorux desktop host failed to start");
