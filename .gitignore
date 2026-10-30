@@ -7,6 +7,9 @@
 /test-results/
 /playwright-report/
 /src-tauri/target/
+/native-audio-helper/target/
+/src-tauri/binaries/tutorux-audio-helper-*
+/src-tauri/binaries/console-runtime-cache/
 /src-tauri/gen/
 /cmake-build-*/
 /.cache/
