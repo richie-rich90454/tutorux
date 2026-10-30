@@ -8,11 +8,11 @@ const helperDirectory = resolve(root, "native-audio-helper");
 const cargoManifest = resolve(helperDirectory, "Cargo.toml");
 const cargoTargetDirectory = resolve(helperDirectory, "target");
 const targetTriple =
-  process.env["TAURI_ENV_TARGET_TRIPLE"]?.trim() ||
-  execFileSync("rustc", ["--print", "host-tuple"], {
-    cwd: root,
-    encoding: "utf8",
-  }).trim();
+    process.env["TAURI_ENV_TARGET_TRIPLE"]?.trim() ||
+    execFileSync("rustc", ["--print", "host-tuple"], {
+        cwd: root,
+        encoding: "utf8",
+    }).trim();
 if (!targetTriple) throw new Error("Could not determine the Rust target triple.");
 
 const debug = process.env["TAURI_ENV_DEBUG"] === "true";
@@ -21,24 +21,24 @@ const windowsTarget = targetTriple.includes("windows");
 const extension = windowsTarget ? ".exe" : "";
 const helperName = "tutorux-audio-helper";
 const buildArguments = [
-  "build",
-  "--manifest-path",
-  cargoManifest,
-  "--bin",
-  helperName,
-  "--target",
-  targetTriple,
-  ...(debug ? [] : ["--release"]),
+    "build",
+    "--manifest-path",
+    cargoManifest,
+    "--bin",
+    helperName,
+    "--target",
+    targetTriple,
+    ...(debug ? [] : ["--release"]),
 ];
 const build = spawnSync("cargo", buildArguments, {
-  cwd: root,
-  env: { ...process.env, CARGO_TARGET_DIR: cargoTargetDirectory },
-  stdio: "inherit",
-  windowsHide: true,
+    cwd: root,
+    env: { ...process.env, CARGO_TARGET_DIR: cargoTargetDirectory },
+    stdio: "inherit",
+    windowsHide: true,
 });
 if (build.error) throw build.error;
 if (build.status !== 0) {
-  throw new Error("Building the native application-audio helper failed.");
+    throw new Error("Building the native application-audio helper failed.");
 }
 
 const targetDirectory = resolve(cargoTargetDirectory, targetTriple, profile);
