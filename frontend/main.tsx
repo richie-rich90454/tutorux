@@ -17,22 +17,29 @@ import {
   createEncryptedArchiveBytes,
   openArchiveBytes,
   openArchiveSource,
+  planTrashPurge,
+  purgeTrashedArchiveSnapshot,
   verifyArchiveSnapshot,
   verifyArchiveHistory,
   type ArchiveVerificationResult,
   type ArchiveManifest,
   type ArchiveSnapshot,
+  type ArchiveTrashPurgePlan,
 } from "./archive/archive";
 import { ArchiveFormatError, RecordType, type ArchiveRecord } from "./archive/format";
 import { DocumentEditor } from "./DocumentEditor";
+import { DiagnosticsReport } from "./DiagnosticsReport";
 import { AnnotationPage } from "./AnnotationPage";
 import { AudioWaveform } from "./AudioWaveform";
 import { ArchiveSettings } from "./ArchiveSettings";
+import { ArchiveSettingsCopy } from "./ArchiveSettingsCopy";
 import { JournalHistory } from "./JournalHistory";
 import { JournalRelations } from "./JournalRelations";
 import { StudentVersionHistory } from "./StudentVersionHistory";
 import { ArchiveMaintenance } from "./ArchiveMaintenance";
-import { MaterialDetails, MaterialTrash } from "./MaterialDetails";
+import { SanitizedCopy } from "./SanitizedCopy";
+import { MaterialDetails, MaterialImportControls, MaterialTrash } from "./MaterialDetails";
+import { MaterialAudioPreview } from "./MaterialAudioPreview";
 import { EvidenceSources } from "./EvidenceSources";
 import { AudioMixer } from "./AudioMixer";
 import { WhisperTranscription } from "./WhisperTranscription";
@@ -44,6 +51,10 @@ import { sourceStream, type ArchiveByteSource } from "./archive/source";
 import { AiPage } from "./AiPage";
 import { createAiPackageRecord, type AiPackageSummary } from "./ai/package";
 import { createAiRequestPreview, type AiRequestPreview } from "./ai/request";
+import {
+  parseReplicateModelInputSchema,
+  type ReplicateModelInputSchema,
+} from "./ai/replicate-schema";
 import { executeAiGeneration } from "./ai/execution";
 import type { AiExecutionSummary } from "./ai/response";
 import {
@@ -54,17 +65,28 @@ import {
   providerById,
   type AiProviderConfigurationInput,
 } from "./ai/providers";
-import { MAX_ASSET_BYTES, readAssetBytes, streamAssetBytes } from "./domain/assets";
+import {
+  filterAssetsBySession,
+  MAX_ASSET_BYTES,
+  readAssetBytes,
+  streamAssetBytes,
+} from "./domain/assets";
 import {
   browserAssetReadSource,
+  prepareStreamingAssetBatchImport,
   prepareStreamingAssetImport,
-  type StreamingAssetImport,
+  type AssetBatchProgress,
 } from "./domain/assets-stream";
+import {
+  buildPcmWavAssetWaveform,
+  MAX_MATERIAL_AUDIO_PREVIEW_BYTES,
+  type PcmWavAssetWaveform,
+} from "./domain/asset-waveform";
 import { createArchiveStaging } from "./archive/staging";
 import pdfWorkerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
 import { configurePdfWorkerSource } from "./domain/document-text";
 import {
-  buildAudioTrackWavStream,
+  buildAudioTrackWavExport,
   buildAudioPreview,
   listSessionAudioTracks,
   type AudioPreview,
@@ -76,6 +98,7 @@ import { prepareNativeCaptureRecovery } from "./domain/native-recording-recovery
 import {
   renameRecordingTake,
   renameRecordingTrack,
+  setRecordingTrackDeleted,
   setRecordingTakeDeleted,
 } from "./domain/recording-takes";
 import {
@@ -156,6 +179,7 @@ import {
   type SessionTrashCounts,
   type SessionTrashPlan,
 } from "./domain/session-trash";
+import { restoreJournalEntryGroup } from "./domain/journal-trash";
 import {
   correctTranscriptRecord,
   formatTranscriptExport,
@@ -174,6 +198,7 @@ import {
 } from "./domain/transcript";
 import { platform } from "@platform";
 import type { AiCredentialStorage, BrowserArchiveAutosave } from "./platform/types";
+import { CommandConsole } from "./CommandConsole";
 import { keyboardShortcutRows, resolveKeyboardShortcut } from "./domain/keyboard-shortcuts";
 import { GuidesPage } from "./GuidesPage";
 import { StudentProgressPanel } from "./StudentProgressPanel";
@@ -220,7 +245,9 @@ interface Workspace {
   archivedSessions: ArchiveRecord[];
   trashedSessions: ArchiveRecord[];
   audioTracks: AudioTrackDescriptor[];
+  trashedRecordingTracks: ArchiveRecord[];
   entries: ArchiveRecord[];
+  trashedJournalEntries: ArchiveRecord[];
   journals: ArchiveRecord[];
   collections: ArchiveRecord[];
   tags: ArchiveRecord[];
@@ -246,6 +273,11 @@ interface SessionTrashReview {
   session: ArchiveRecord;
   snapshot: ArchiveSnapshot;
   plan: SessionTrashPlan;
+}
+
+interface TrashPurgeReview {
+  snapshot: ArchiveSnapshot;
+  plan: ArchiveTrashPurgePlan;
 }
 
 interface NotesAutosaveVersion {
@@ -319,11 +351,13 @@ const [dialog, setDialog] = createSignal<DialogKind>(null);
 const [dialogRecord, setDialogRecord] = createSignal<ArchiveRecord | null>(null);
 const [pendingDelete, setPendingDelete] = createSignal<ArchiveRecord | null>(null);
 const [pendingSessionTrash, setPendingSessionTrash] = createSignal<SessionTrashReview | null>(null);
+const [pendingTrashPurge, setPendingTrashPurge] = createSignal<TrashPurgeReview | null>(null);
 const [theme, setTheme] = createSignal<"light" | "dark">("light");
 const [themeMode, setThemeMode] = createSignal<ThemeMode>("system");
 const [loading, setLoading] = createSignal(false);
 const [query, setQuery] = createSignal("");
 const [paletteOpen, setPaletteOpen] = createSignal(false);
+const [commandConsoleOpen, setCommandConsoleOpen] = createSignal(false);
 const [paletteQuery, setPaletteQuery] = createSignal("");
 const [paletteIndex, setPaletteIndex] = createSignal(0);
 const [notice, setNotice] = createSignal<{ message: string; tone: Tone } | null>(null);
@@ -365,6 +399,131 @@ function validMarkerKeys(keys: string[], allowReserved = false): boolean {
   );
 }
 
+interface ManagedDialogProps {
+  children: JSX.Element;
+  class: string;
+  role: "dialog" | "alertdialog";
+  labelledBy?: string;
+  describedBy?: string;
+  label?: string;
+  onEscape?: () => void;
+  canEscape?: () => boolean;
+  onKeyDown?: (event: KeyboardEvent) => void;
+  restoreFocus?: () => boolean;
+}
+
+function ManagedDialog(props: ManagedDialogProps): JSX.Element {
+  const returnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+  let dialogElement!: HTMLElement;
+
+  const focusableElements = (): HTMLElement[] =>
+    [
+      ...dialogElement.querySelectorAll<HTMLElement>(
+        'a[href], area[href], button:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), summary, audio[controls], video[controls], [contenteditable="true"], [tabindex]:not([tabindex="-1"])',
+      ),
+    ].filter(
+      (element) =>
+        !element.hasAttribute("hidden") &&
+        element.getAttribute("aria-hidden") !== "true" &&
+        element.getClientRects().length > 0,
+    );
+
+  onMount(() => {
+    const initialFocus =
+      dialogElement.querySelector<HTMLElement>("[data-dialog-initial-focus]") ??
+      (props.role === "dialog"
+        ? dialogElement.querySelector<HTMLElement>(
+            'input:not([type="hidden"]):not([disabled]), textarea:not([disabled]), select:not([disabled]), [contenteditable="true"]',
+          )
+        : null) ??
+      focusableElements()[0] ??
+      dialogElement;
+    initialFocus.focus({ preventScroll: true });
+
+    const onKeyDown = (event: KeyboardEvent): void => {
+      if (
+        !dialogElement.isConnected ||
+        [...document.querySelectorAll<HTMLElement>('[aria-modal="true"]')].at(-1) !== dialogElement
+      ) {
+        return;
+      }
+
+      if (event.key === "Escape" && props.onEscape) {
+        event.preventDefault();
+        event.stopPropagation();
+        if (props.canEscape?.() ?? true) props.onEscape();
+        return;
+      }
+
+      if (event.key !== "Tab") return;
+      const focusable = focusableElements();
+      if (focusable.length === 0) {
+        event.preventDefault();
+        dialogElement.focus({ preventScroll: true });
+        return;
+      }
+
+      const first = focusable[0]!;
+      const last = focusable.at(-1)!;
+      const active = document.activeElement;
+      if (
+        event.shiftKey &&
+        (active === first || active === dialogElement || !dialogElement.contains(active))
+      ) {
+        event.preventDefault();
+        last.focus();
+      } else if (
+        !event.shiftKey &&
+        (active === last || active === dialogElement || !dialogElement.contains(active))
+      ) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+
+    document.addEventListener("keydown", onKeyDown, true);
+    onCleanup(() => {
+      document.removeEventListener("keydown", onKeyDown, true);
+      if (props.restoreFocus?.() === false) return;
+      queueMicrotask(() => {
+        const activeDialog = [...document.querySelectorAll<HTMLElement>('[aria-modal="true"]')].at(
+          -1,
+        );
+        const returnTarget =
+          returnFocus?.isConnected && !returnFocus.matches(":disabled, [aria-disabled='true']")
+            ? returnFocus
+            : null;
+        const target = activeDialog
+          ? returnTarget && activeDialog.contains(returnTarget)
+            ? returnTarget
+            : (activeDialog.querySelector<HTMLElement>(
+                'a[href], button:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+              ) ?? activeDialog)
+          : (returnTarget ?? document.querySelector<HTMLElement>("#main-content"));
+        target?.focus({ preventScroll: true });
+      });
+    });
+  });
+
+  return (
+    <section
+      ref={(element) => {
+        dialogElement = element;
+      }}
+      class={`${props.class} modal-focus-scope`}
+      role={props.role}
+      aria-modal="true"
+      aria-labelledby={props.labelledBy}
+      aria-describedby={props.describedBy}
+      aria-label={props.label}
+      tabindex="-1"
+      onKeyDown={(event) => props.onKeyDown?.(event)}
+    >
+      {props.children}
+    </section>
+  );
+}
+
 function isEditableTarget(target: EventTarget | null): boolean {
   return (
     target instanceof HTMLInputElement ||
@@ -372,6 +531,26 @@ function isEditableTarget(target: EventTarget | null): boolean {
     target instanceof HTMLSelectElement ||
     (target instanceof HTMLElement && target.isContentEditable)
   );
+}
+
+function validThemeMode(value: string | undefined | null): value is ThemeMode {
+  return value === "light" || value === "dark" || value === "system";
+}
+
+function archiveThemeMode(state: Workspace | null): ThemeMode | null {
+  const value = state?.settings
+    .find((record) => field(record, "key") === "ui.theme")
+    ?.fields.get("value");
+  return validThemeMode(value) ? value : null;
+}
+
+function localThemeFallback(): ThemeMode {
+  const saved = localStorage.getItem("tutorux.theme");
+  return validThemeMode(saved) ? saved : "system";
+}
+
+function applyWorkspaceTheme(state: Workspace | null): void {
+  applyThemeMode(archiveThemeMode(state) ?? localThemeFallback(), false);
 }
 
 function applyThemeMode(mode: ThemeMode, persist = true): void {
@@ -384,7 +563,7 @@ function applyThemeMode(mode: ThemeMode, persist = true): void {
   setThemeMode(mode);
   setTheme(resolved);
   document.documentElement.dataset["theme"] = resolved;
-  if (persist) localStorage.setItem("tutorux.theme", mode);
+  if (persist && !archiveThemeMode(workspace())) localStorage.setItem("tutorux.theme", mode);
 }
 
 const activeView = createMemo(() => views.find((item) => item.id === view()) ?? views[0]!);
@@ -463,12 +642,7 @@ function App(): JSX.Element {
         .catch(() => setSystemCredentialStoreAvailable(false));
     }
     const mediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
-    const savedTheme = localStorage.getItem("tutorux.theme");
-    const initialMode: ThemeMode =
-      savedTheme === "light" || savedTheme === "dark" || savedTheme === "system"
-        ? savedTheme
-        : "system";
-    applyThemeMode(initialMode, false);
+    applyThemeMode(localThemeFallback(), false);
     const updateSystemTheme = (): void => {
       if (themeMode() === "system") applyThemeMode("system", false);
     };
@@ -604,7 +778,9 @@ function App(): JSX.Element {
         archivedSessions: [],
         trashedSessions: [],
         audioTracks: [],
+        trashedRecordingTracks: [],
         entries: [],
+        trashedJournalEntries: [],
         journals: [],
         collections: [],
         tags: [],
@@ -687,8 +863,19 @@ function App(): JSX.Element {
           indexedAudioTracks.get(session.id.toLowerCase()) ?? [],
         ),
       ),
+      trashedRecordingTracks: assets.filter(
+        (record) =>
+          record.fields.get("_deleted") === "true" &&
+          record.fields.get("record_role") === "audio-track" &&
+          record.fields.get("_trash_group_id")?.toLowerCase() === record.id.toLowerCase(),
+      ),
       entries: alive(settings).filter(
         (record) => record.fields.get("record_role") === "journal-entry",
+      ),
+      trashedJournalEntries: settings.filter(
+        (record) =>
+          record.fields.get("record_role") === "journal-entry" &&
+          record.fields.get("_deleted") === "true",
       ),
       journals: alive(settings).filter((record) => record.fields.get("record_role") === "journal"),
       collections: alive(settings).filter(
@@ -753,6 +940,7 @@ function App(): JSX.Element {
       const next = await readWorkspace(snapshot, name, location);
       const previous = workspace();
       setWorkspace(next);
+      applyWorkspaceTheme(next);
       browserAutosaveBinding = browserAutosave
         ? {
             archiveId: snapshot.header.id.toLowerCase(),
@@ -762,6 +950,7 @@ function App(): JSX.Element {
         : undefined;
       if (previous && previous.snapshot !== snapshot) previous.snapshot.lock();
       setPendingSessionTrash(null);
+      setPendingTrashPurge(null);
       accepted = true;
       setView("home");
       setQuery("");
@@ -805,6 +994,7 @@ function App(): JSX.Element {
         return;
       }
       setWorkspace(next);
+      applyWorkspaceTheme(next);
       setView("home");
       announce(
         "Archive unlocked; commit, index pages, and manifest authentication passed.",
@@ -833,6 +1023,7 @@ function App(): JSX.Element {
       trashedSessions: [],
       audioTracks: [],
       entries: [],
+      trashedJournalEntries: [],
       journals: [],
       collections: [],
       tags: [],
@@ -853,6 +1044,7 @@ function App(): JSX.Element {
     setDialogRecord(null);
     setPendingDelete(null);
     setPendingSessionTrash(null);
+    setPendingTrashPurge(null);
     setSelectedTranscriptSessionId("");
     setSelectedAnnotationSessionId("");
     setSelectedEvidenceSessionId("");
@@ -869,6 +1061,74 @@ function App(): JSX.Element {
     } catch (error) {
       if (isCancelled(error)) return;
       announce(errorMessage(error), "error");
+    }
+  }
+
+  async function refreshArchiveAfterCommand(
+    source: ArchiveByteSource,
+    location: string | null,
+  ): Promise<void> {
+    const current = workspace();
+    if (
+      !current ||
+      current.snapshot.source !== source ||
+      current.location !== location ||
+      platform.kind !== "desktop" ||
+      !location ||
+      !platform.reopenArchiveAtPath
+    ) {
+      return;
+    }
+
+    let refreshedSource: ArchiveByteSource | undefined;
+    let refreshedSnapshot: ArchiveSnapshot | undefined;
+    try {
+      const reopened = await platform.reopenArchiveAtPath(location);
+      refreshedSource = reopened.source;
+      refreshedSnapshot = await openArchiveSource(reopened.source);
+      const next = await readWorkspace(refreshedSnapshot, reopened.name, reopened.location);
+      if (workspace() !== current) {
+        refreshedSnapshot.lock();
+        await refreshedSource.close?.().catch(() => undefined);
+        return;
+      }
+
+      setWorkspace(next);
+      applyWorkspaceTheme(next);
+      browserAutosaveBinding = undefined;
+      current.snapshot.lock();
+      setPendingSessionTrash(null);
+      setPendingTrashPurge(null);
+      setDialog(null);
+      setDialogRecord(null);
+      setPendingDelete(null);
+      setView("home");
+      await current.snapshot.source.close?.().catch(() => undefined);
+      announce(
+        refreshedSnapshot.locked
+          ? "The archive was refreshed. Unlock it again to continue."
+          : "The archive was refreshed with the command's changes.",
+        "success",
+      );
+    } catch (error) {
+      refreshedSnapshot?.lock();
+      await refreshedSource?.close?.().catch(() => undefined);
+      if (workspace() !== current) return;
+      current.snapshot.lock();
+      setWorkspace(null);
+      applyWorkspaceTheme(null);
+      browserAutosaveBinding = undefined;
+      setPendingSessionTrash(null);
+      setPendingTrashPurge(null);
+      setDialog(null);
+      setDialogRecord(null);
+      setPendingDelete(null);
+      setView("home");
+      await current.snapshot.source.close?.().catch(() => undefined);
+      announce(
+        `The command changed this archive, but Tutorux could not reopen it. Reopen the archive before continuing. ${errorMessage(error)}`,
+        "error",
+      );
     }
   }
 
@@ -892,6 +1152,7 @@ function App(): JSX.Element {
       const next = await readWorkspace(snapshot, suggestedName, savedLocation);
       const previous = workspace();
       setWorkspace(next);
+      applyWorkspaceTheme(next);
       browserAutosaveBinding = undefined;
       accepted = true;
       if (previous && previous.snapshot !== snapshot) previous.snapshot.lock();
@@ -930,6 +1191,72 @@ function App(): JSX.Element {
     }
   }
 
+  function markArchiveSnapshotPersisted(snapshot: ArchiveSnapshot): void {
+    const current = workspace();
+    if (
+      !current ||
+      current.snapshot !== snapshot ||
+      current.snapshot.header.id.toLowerCase() !== snapshot.header.id.toLowerCase() ||
+      current.snapshot.commit.generation !== snapshot.commit.generation ||
+      current.snapshot.commit.offset !== snapshot.commit.offset
+    ) {
+      return;
+    }
+
+    // Audio checkpoints publish the full current archive generation. Only clear the
+    // workspace indicator while that exact snapshot is still active; any later edit
+    // receives a new snapshot and remains dirty.
+    if (current.dirty) setWorkspace({ ...current, dirty: false });
+  }
+
+  async function renameArchiveDisplayName(displayName: string): Promise<boolean> {
+    const current = workspace();
+    if (!current) {
+      announce("Create or open an archive before renaming it.", "error");
+      return false;
+    }
+    if (!current.snapshot.canMutate) {
+      announce(
+        current.snapshot.locked
+          ? "Unlock this archive before editing it."
+          : "This archive cannot be edited in its current state.",
+        "error",
+      );
+      return false;
+    }
+    const name = displayName.trim();
+    if (!name) {
+      announce("Archive name must not be empty.", "error");
+      return false;
+    }
+    if (name.length > 200) {
+      announce("Archive names must be 200 characters or fewer.", "error");
+      return false;
+    }
+
+    try {
+      const manifest = await current.snapshot.getRecord(
+        RecordType.settings,
+        current.snapshot.header.id,
+      );
+      if (manifest?.fields.get("record_role") !== "archive-manifest") {
+        throw new Error("The archive manifest is missing or invalid.");
+      }
+      if (workspace()?.snapshot !== current.snapshot) {
+        throw new Error("The active archive changed while its name was being updated.");
+      }
+      const fields = new Map(manifest.fields);
+      fields.set("display_name", name);
+      return await addRecords(
+        [{ ...manifest, fields }],
+        "Archive name updated in the workspace. Save the workspace to write it to disk.",
+      );
+    } catch (error) {
+      announce(errorMessage(error), "error");
+      return false;
+    }
+  }
+
   async function addRecords(
     records: readonly ArchiveRecord[],
     successMessage = "Added to your archive. Save to write the new generation to disk.",
@@ -958,6 +1285,7 @@ function App(): JSX.Element {
         return false;
       }
       setWorkspace(updated);
+      applyWorkspaceTheme(updated);
       if (nextSnapshot !== current.snapshot) current.snapshot.lock();
       setView(view());
       announce(successMessage, "success");
@@ -965,6 +1293,7 @@ function App(): JSX.Element {
       setDialogRecord(null);
       setPendingDelete(null);
       setPendingSessionTrash(null);
+      setPendingTrashPurge(null);
       return true;
     } catch (error) {
       if (nextSnapshot && workspace()?.snapshot !== nextSnapshot) nextSnapshot.lock();
@@ -986,6 +1315,7 @@ function App(): JSX.Element {
       const updated = await readWorkspace(replacement, current.name, current.location, true);
       if (workspace()?.snapshot !== original) return false;
       setWorkspace(updated);
+      applyWorkspaceTheme(updated);
       announce("Archive changes are ready. Save the workspace to write them to disk.", "success");
       return true;
     } catch (error) {
@@ -1152,6 +1482,7 @@ function App(): JSX.Element {
     packageJob: ArchiveRecord,
     providerId: string,
     credentialStorage: AiCredentialStorage,
+    replicateInputSchema?: ReplicateModelInputSchema,
   ): Promise<AiRequestPreview> {
     const current = workspace();
     if (!current || current.snapshot.locked) {
@@ -1179,7 +1510,112 @@ function App(): JSX.Element {
       useSystemCredentialStore ? [] : current.credentials,
       hasSystemCredential,
       current.snapshot,
+      replicateInputSchema,
     );
+  }
+
+  async function inspectReplicateModelForAiProvider(
+    providerId: string,
+    model: string,
+    credentialStorage: AiCredentialStorage,
+  ): Promise<ReplicateModelInputSchema> {
+    let current = workspace();
+    if (!current || current.snapshot.locked) {
+      throw new Error("Unlock the archive before inspecting a Replicate model.");
+    }
+    const inspectionSnapshot = current.snapshot;
+    if (providerId !== "replicate") {
+      throw new Error("Model-schema inspection is available only for Replicate.");
+    }
+    const providerMetadata = current.providerSettings.find(
+      (record) => record.fields.get("provider_id") === providerId,
+    );
+    if (!providerMetadata) throw new Error("Save Replicate settings before inspecting a model.");
+    const providerConfiguration = await current.snapshot.getRecord(
+      RecordType.settings,
+      providerMetadata.id,
+    );
+    if (!providerConfiguration || providerConfiguration.fields.get("selected_model") !== model) {
+      throw new Error("The saved Replicate model changed. Save it again before previewing.");
+    }
+
+    let credential = "";
+    if (credentialStorage === "system-keychain") {
+      if (
+        platform.kind !== "desktop" ||
+        !systemCredentialStoreAvailable() ||
+        !(await platform.hasAiCredential(providerId))
+      ) {
+        throw new Error("Save the Replicate API token in the system credential store first.");
+      }
+    } else if (credentialStorage === "encrypted-archive") {
+      if (!current.snapshot.encrypted) {
+        throw new Error("Save the Replicate API token in an encrypted archive first.");
+      }
+      const metadata = current.credentials.find(
+        (record) =>
+          record.fields.get("provider_id") === providerId ||
+          record.fields.get("key") === providerById(providerId)?.credentialKey,
+      );
+      if (!metadata) throw new Error("Save the Replicate API token before inspecting the model.");
+      const savedCredential = await current.snapshot.getRecord(RecordType.settings, metadata.id);
+      if (
+        !savedCredential ||
+        savedCredential.fields.get("record_role") !== "credential" ||
+        savedCredential.fields.get("_deleted") === "true" ||
+        savedCredential.fields.get("provider_id") !== providerId
+      ) {
+        throw new Error("The saved Replicate API token could not be verified in this archive.");
+      }
+      credential = savedCredential.fields.get("value") ?? "";
+      if (!credential) throw new Error("The saved Replicate API token is empty.");
+    } else {
+      throw new Error("Choose a secure Replicate credential store before model inspection.");
+    }
+
+    try {
+      const chunks: Uint8Array[] = [];
+      let receivedBytes = 0;
+      const result = await platform.inspectReplicateModel(
+        { model, credentialStorage, credential },
+        (chunk) => {
+          receivedBytes += chunk.byteLength;
+          if (receivedBytes > 8 * 1024 * 1024) {
+            throw new Error("The Replicate model schema exceeded the 8 MiB limit.");
+          }
+          chunks.push(chunk.slice());
+        },
+      );
+      current = workspace();
+      if (!current || current.snapshot !== inspectionSnapshot) {
+        // The active archive may change during a network request; schema results are bound to it.
+        throw new Error("The active archive changed during model inspection. Review again.");
+      }
+      if (result.errorMessage) throw new Error(result.errorMessage);
+      if (result.status === 401 || result.status === 403) {
+        throw new Error("Replicate rejected the API token or model access.");
+      }
+      if (result.status === 429) throw new Error("Replicate is rate limiting model inspection.");
+      if (result.status < 200 || result.status >= 300) {
+        throw new Error(`Replicate model inspection returned HTTP ${result.status}.`);
+      }
+      if (
+        !result.complete ||
+        result.responseBytes !== receivedBytes ||
+        result.contentType.trim().toLowerCase() !== "application/json"
+      ) {
+        throw new Error("Replicate returned an incomplete or non-JSON model schema.");
+      }
+      const bytes = new Uint8Array(receivedBytes);
+      let offset = 0;
+      for (const chunk of chunks) {
+        bytes.set(chunk, offset);
+        offset += chunk.byteLength;
+      }
+      return parseReplicateModelInputSchema(bytes, model);
+    } finally {
+      credential = "";
+    }
   }
 
   async function saveAiPackage(summary: AiPackageSummary): Promise<boolean> {
@@ -1241,6 +1677,14 @@ function App(): JSX.Element {
       useSystemCredentialStore &&
       platform.kind === "desktop" &&
       (await platform.hasAiCredential(preview.providerId));
+    const freshReplicateSchema =
+      preview.providerId === "replicate"
+        ? await inspectReplicateModelForAiProvider(
+            preview.providerId,
+            preview.model,
+            credentialStorage,
+          )
+        : undefined;
     const freshPreview = await createAiRequestPreview(
       savedPackage,
       providerConfiguration,
@@ -1248,12 +1692,14 @@ function App(): JSX.Element {
       useSystemCredentialStore ? [] : current.credentials,
       hasSystemCredential,
       current.snapshot,
+      freshReplicateSchema,
     );
     if (
       freshPreview.providerId !== preview.providerId ||
       freshPreview.endpoint !== preview.endpoint ||
       freshPreview.guideTemplateId !== expectedTemplateId ||
       freshPreview.model !== preview.model ||
+      freshPreview.replicateInputSchema?.version !== preview.replicateInputSchema?.version ||
       freshPreview.requestBodyHash !== preview.requestBodyHash ||
       freshPreview.requestBody !== preview.requestBody ||
       freshPreview.packageHash !== preview.packageHash ||
@@ -1448,6 +1894,36 @@ function App(): JSX.Element {
     }
   }
 
+  async function enableCurrentEncryption(newPassphrase: string): Promise<void> {
+    const current = workspace();
+    if (!current || current.snapshot.encrypted) {
+      throw new Error("Open a plaintext archive before enabling encryption.");
+    }
+    if (!current.snapshot.canMutate) {
+      throw new Error("This archive cannot be encrypted in its current state.");
+    }
+    if (busy()) throw new Error("Wait for the current archive operation to finish.");
+
+    setBusy(true);
+    let nextSnapshot: ArchiveSnapshot | undefined;
+    let accepted = false;
+    try {
+      nextSnapshot = await current.snapshot.enableEncryption(newPassphrase);
+      const updated = await readWorkspace(nextSnapshot, current.name, current.location, true);
+      if (workspace()?.snapshot !== current.snapshot) {
+        throw new Error("The active archive changed while encryption was being enabled.");
+      }
+      setWorkspace(updated);
+      current.snapshot.lock();
+      accepted = true;
+      await current.snapshot.source.close?.().catch(() => undefined);
+      announce("Encryption enabled. Save the workspace to replace the archive file.", "success");
+    } finally {
+      if (!accepted) nextSnapshot?.lock();
+      setBusy(false);
+    }
+  }
+
   async function transitionSession(
     session: ArchiveRecord,
     action: SessionTransitionAction,
@@ -1615,6 +2091,17 @@ function App(): JSX.Element {
     await addRecords([restoreRecordFromTrash(record)], "Student restored from Trash.");
   }
 
+  async function restoreJournalEntry(record: ArchiveRecord): Promise<void> {
+    const state = workspace();
+    if (!state) return;
+    try {
+      const records = await restoreJournalEntryGroup(state.snapshot, record.id);
+      await addRecords(records, "Journal entry and its notes restored from Trash.");
+    } catch (error) {
+      announce(errorMessage(error), "error");
+    }
+  }
+
   async function restoreTrashedAnnotation(record: ArchiveRecord): Promise<void> {
     await addRecords([restoreRecordFromTrash(record)], "Observation restored from Trash.");
   }
@@ -1707,6 +2194,67 @@ function App(): JSX.Element {
       changes,
       "Session group and journal links restored. Save to keep the change on disk.",
     );
+  }
+
+  async function beginTrashPurge(): Promise<void> {
+    const state = workspace();
+    if (!state || busy()) return;
+    let plan: ArchiveTrashPurgePlan;
+    setBusy(true);
+    try {
+      plan = await planTrashPurge(state.snapshot);
+    } catch (error) {
+      announce(errorMessage(error), "error");
+      return;
+    } finally {
+      setBusy(false);
+    }
+    if (workspace()?.snapshot !== state.snapshot) {
+      announce("The active archive changed. Review Trash again before purging.", "error");
+      return;
+    }
+    setPendingTrashPurge({ snapshot: state.snapshot, plan });
+  }
+
+  async function confirmTrashPurge(): Promise<void> {
+    const review = pendingTrashPurge();
+    const state = workspace();
+    if (!review || !state || busy()) return;
+    if (state.snapshot !== review.snapshot) {
+      setPendingTrashPurge(null);
+      announce("The active archive changed. Review Trash again before purging.", "error");
+      return;
+    }
+    if (review.plan.blockers.length > 0 || review.plan.opaqueRecords > 0) return;
+
+    setBusy(true);
+    let replacement: ArchiveSnapshot | undefined;
+    try {
+      const purge = await purgeTrashedArchiveSnapshot(review.snapshot);
+      replacement = purge.snapshot;
+      const updated = await readWorkspace(replacement, state.name, state.location, true);
+      if (workspace()?.snapshot !== review.snapshot) {
+        replacement.lock();
+        replacement = undefined;
+        setPendingTrashPurge(null);
+        announce("The active archive changed. Reopen Trash and review the purge again.", "error");
+        return;
+      }
+      setWorkspace(updated);
+      if (replacement !== state.snapshot) state.snapshot.lock();
+      applyWorkspaceTheme(updated);
+      setPendingTrashPurge(null);
+      announce(
+        "Trashed records and their revisions are permanently removed from this workspace. Material content is preserved. Save the archive to publish the purge.",
+        "success",
+      );
+      replacement = undefined;
+    } catch (error) {
+      announce(errorMessage(error), "error");
+    } finally {
+      replacement?.lock();
+      setBusy(false);
+    }
   }
 
   function guideSourceRecords(state: Workspace): ArchiveRecord[] {
@@ -2179,6 +2727,7 @@ function App(): JSX.Element {
     sessionId: string,
     trackId: string,
     trackLabel: string,
+    fillGapsWithSilence: boolean,
   ): Promise<void> {
     const state = workspace();
     if (!state) return;
@@ -2192,10 +2741,24 @@ function App(): JSX.Element {
       const name = `${safeFileName(label)}.wav`;
       const location = await platform.exportBinaryFile(
         name,
-        () => buildAudioTrackWavStream(state.snapshot, sessionId, trackId),
+        async () => {
+          const audioExport = await buildAudioTrackWavExport(state.snapshot, sessionId, trackId, {
+            fillGapsWithSilence,
+          });
+          if (platform.kind === "browser" && audioExport.rf64) {
+            throw new Error(
+              "RF64 WAV exports over 4 GiB require Tutorux for desktop. Browser downloads cannot safely save files this large.",
+            );
+          }
+          return audioExport.stream;
+        },
         "audio/wav",
       );
-      if (location) announce(`Exported audio track to ${location}.`, "success");
+      if (location)
+        announce(
+          `Exported audio track${fillGapsWithSilence ? " with timeline silence" : ""} to ${location}.`,
+          "success",
+        );
     } catch (error) {
       announce(errorMessage(error), "error");
     } finally {
@@ -2225,6 +2788,20 @@ function App(): JSX.Element {
     }
   }
 
+  async function changeRecordingTrackTrash(track: { id: string }, deleted: boolean): Promise<void> {
+    const state = workspace();
+    if (!state) return;
+    try {
+      const updates = await setRecordingTrackDeleted(state.snapshot, track.id, deleted);
+      await addRecords(
+        updates,
+        deleted ? "Recording track and its timeline data moved to Trash." : "Recording track restored.",
+      );
+    } catch (error) {
+      announce(errorMessage(error), "error");
+    }
+  }
+
   async function changeRecordingTakeTrash(take: ArchiveRecord, deleted: boolean): Promise<void> {
     const state = workspace();
     if (!state) return;
@@ -2243,7 +2820,7 @@ function App(): JSX.Element {
 
   async function installStreamedMaterial(
     state: Workspace,
-    imported: StreamingAssetImport,
+    imported: { records: () => AsyncGenerator<ArchiveRecord> },
     message: string,
     metadataFields?: Map<string, string>,
   ): Promise<void> {
@@ -2267,35 +2844,49 @@ function App(): JSX.Element {
       state.snapshot.lock();
       announce(message, "success");
     } finally {
-      if (!installed && next) {
-        next.lock();
+      if (!installed) {
+        next?.lock();
         await staging.abort().catch(() => undefined);
       }
     }
   }
 
-  async function importAsset(file: File, sessionId: string): Promise<void> {
+  async function importAssets(
+    files: readonly File[],
+    sessionId: string,
+    onProgress: AssetBatchProgress,
+  ): Promise<boolean> {
     const state = workspace();
     if (!state || state.snapshot.locked || busy()) {
       announce("Open and unlock an archive before importing materials.", "error");
-      return;
+      return false;
+    }
+    if (
+      sessionId &&
+      ![...state.sessions, ...state.archivedSessions].some(
+        (session) => session.id.toLowerCase() === sessionId.toLowerCase(),
+      )
+    ) {
+      announce("The selected session is no longer available. Choose another session.", "error");
+      return false;
     }
     setBusy(true);
     try {
-      const imported = await prepareStreamingAssetImport(
+      const imported = await prepareStreamingAssetBatchImport(
         state.snapshot,
-        browserAssetReadSource(file),
+        files.map(browserAssetReadSource),
         sessionId,
+        onProgress,
       );
       await installStreamedMaterial(
         state,
         imported,
-        imported.deduplicated
-          ? "Material added. Its verified content is already stored in this archive."
-          : "Material and its verified content were added to the archive.",
+        `Added ${imported.items.length.toLocaleString()} ${imported.items.length === 1 ? "material" : "materials"} to the archive.${imported.deduplicatedCount ? ` ${imported.deduplicatedCount.toLocaleString()} ${imported.deduplicatedCount === 1 ? "material reuses" : "materials reuse"} verified content already stored here.` : ""} Save to write the changes to disk.`,
       );
+      return true;
     } catch (error) {
       announce(errorMessage(error), "error");
+      return false;
     } finally {
       setBusy(false);
     }
@@ -2375,11 +2966,25 @@ function App(): JSX.Element {
   ): Promise<{ bytes: Uint8Array; mimeType: string } | null> {
     const state = workspace();
     if (!state || state.snapshot.locked) return null;
+    const mimeType = field(record, "mime_type", "application/octet-stream");
+    const byteSize = Number(field(record, "byte_size"));
+    if (
+      mimeType.startsWith("audio/") &&
+      (!Number.isSafeInteger(byteSize) ||
+        byteSize < 0 ||
+        byteSize > MAX_MATERIAL_AUDIO_PREVIEW_BYTES)
+    ) {
+      announce(
+        "Audio previews are limited to 24 MiB. Export the original file to use another player.",
+        "error",
+      );
+      return null;
+    }
     setBusy(true);
     try {
       return {
         bytes: await readAssetBytes(state.snapshot, record),
-        mimeType: field(record, "mime_type", "application/octet-stream"),
+        mimeType,
       };
     } catch (error) {
       announce(errorMessage(error), "error");
@@ -2423,7 +3028,9 @@ function App(): JSX.Element {
         [updated],
         outcome === "human-verified"
           ? "Evidence source checked and approved."
-          : "Evidence candidate rejected.",
+          : field(record, "verification_state") === "human-verified"
+            ? "Evidence approval withdrawn."
+            : "Evidence candidate rejected.",
       );
     } catch (error) {
       announce(errorMessage(error), "error");
@@ -2677,11 +3284,77 @@ function App(): JSX.Element {
 
   function toggleTheme(): void {
     const next = theme() === "light" ? "dark" : "light";
-    applyThemeMode(next);
+    void saveThemeMode(next);
   }
 
   function chooseThemeMode(mode: ThemeMode): void {
-    applyThemeMode(mode);
+    void saveThemeMode(mode);
+  }
+
+  async function saveThemeMode(mode: ThemeMode): Promise<void> {
+    if (!validThemeMode(mode)) return;
+    if (busy()) {
+      announce("Wait for the current archive operation to finish before changing appearance.", "info");
+      return;
+    }
+    const current = workspace();
+    const hadArchiveTheme = archiveThemeMode(current) !== null;
+    applyThemeMode(mode, false);
+    if (!current) {
+      localStorage.setItem("tutorux.theme", mode);
+      return;
+    }
+    if (!current.snapshot.canMutate) {
+      if (!hadArchiveTheme) localStorage.setItem("tutorux.theme", mode);
+      announce(
+        current.snapshot.locked
+          ? "Appearance changed on this device. Unlock the archive to save it with the archive."
+          : "Appearance changed for this session. This archive is read-only, so its saved preference could not be changed.",
+        "info",
+      );
+      return;
+    }
+
+    try {
+      const existing = current.settings.find((record) => field(record, "key") === "ui.theme");
+      const stableId = await deterministicUuid("setting:ui.theme");
+      const latest = existing ?? (await current.snapshot.getRecord(RecordType.settings, stableId));
+      if (workspace()?.snapshot !== current.snapshot) {
+        throw new Error("The active archive changed while its appearance preference was being saved.");
+      }
+      if (busy()) {
+        announce("Wait for the current archive operation to finish before saving appearance.", "info");
+        return;
+      }
+      const fields = new Map(latest?.fields ?? []);
+      fields.delete("_deleted");
+      fields.delete("deleted_at_us");
+      fields.set("record_role", "setting");
+      fields.set("key", "ui.theme");
+      fields.set("value", mode);
+      fields.set("updated_at_us", (BigInt(Date.now()) * 1000n).toString());
+      const saved = await addRecords(
+        [
+          {
+            type: RecordType.settings,
+            id: latest?.id ?? stableId,
+            revision: latest?.revision ?? 0n,
+            previousOffset: latest?.previousOffset ?? 0n,
+            blob: latest?.blob ?? new Uint8Array(),
+            fields,
+          },
+        ],
+        "Appearance preference saved with this archive.",
+      );
+      if (!saved && !hadArchiveTheme && workspace()?.snapshot === current.snapshot) {
+        localStorage.setItem("tutorux.theme", mode);
+      }
+    } catch (error) {
+      if (!hadArchiveTheme && workspace()?.snapshot === current.snapshot) {
+        localStorage.setItem("tutorux.theme", mode);
+      }
+      announce(errorMessage(error), "error");
+    }
   }
 
   function navigateToView(nextView: View): void {
@@ -2716,6 +3389,19 @@ function App(): JSX.Element {
   }
 
   const actions = [
+    ...(platform.kind === "desktop"
+      ? [
+          {
+            label: "Open command console",
+            detail: "Run a Tutorux CLI command in this archive",
+            icon: "more" as const,
+            run: () => {
+              closePalette();
+              setCommandConsoleOpen(true);
+            },
+          },
+        ]
+      : []),
     {
       label: "Create a new archive",
       detail: "Start a portable workspace",
@@ -2815,10 +3501,7 @@ function App(): JSX.Element {
       document.activeElement instanceof HTMLButtonElement
         ? actionButtons.indexOf(document.activeElement)
         : -1;
-    if (event.key === "Escape") {
-      event.preventDefault();
-      closePalette();
-    } else if (event.key === "ArrowDown" && matches.length > 0) {
+    if (event.key === "ArrowDown" && matches.length > 0) {
       event.preventDefault();
       const nextIndex = (Math.max(focusedAction, paletteIndex()) + 1) % matches.length;
       setPaletteIndex(nextIndex);
@@ -2833,23 +3516,6 @@ function App(): JSX.Element {
       if (focusedAction >= 0) return;
       event.preventDefault();
       matches[paletteIndex()]?.run();
-    } else if (event.key === "Tab") {
-      if (!(palette instanceof HTMLElement)) return;
-      const focusable = [
-        ...palette.querySelectorAll<HTMLElement>(
-          'input:not([disabled]), button:not([disabled]), [href], [tabindex]:not([tabindex="-1"])',
-        ),
-      ].filter((element) => element.getClientRects().length > 0);
-      if (focusable.length === 0) return;
-      const first = focusable[0]!;
-      const last = focusable.at(-1)!;
-      if (event.shiftKey && document.activeElement === first) {
-        event.preventDefault();
-        last.focus();
-      } else if (!event.shiftKey && document.activeElement === last) {
-        event.preventDefault();
-        first.focus();
-      }
     }
   }
 
@@ -3102,6 +3768,7 @@ function App(): JSX.Element {
                       (record) => record.fields.get("record_role") === "recording-take",
                     )}
                     trashedRecordingTakes={state.trashedRecordingTakes}
+                    trashedRecordingTracks={state.trashedRecordingTracks}
                     selectedSessionId={selectedTranscriptSessionId()}
                     disabled={state.snapshot.locked || !state.snapshot.canMutate || busy()}
                     onSelectSession={setSelectedTranscriptSessionId}
@@ -3115,12 +3782,16 @@ function App(): JSX.Element {
                     onRecordAudio={(file, sessionId, consentAtUs) =>
                       importCapturedAudio(file, sessionId, consentAtUs)
                     }
-                    onExportAudio={(sessionId, trackId, label) =>
-                      void exportAudioTrack(sessionId, trackId, label)
+                    onExportAudio={(sessionId, trackId, label, fillGapsWithSilence) =>
+                      void exportAudioTrack(sessionId, trackId, label, fillGapsWithSilence)
                     }
                     onRenameRecordingTake={(take, label) => void saveRecordingTakeName(take, label)}
                     onRenameRecordingTrack={(track, label) =>
                       void saveRecordingTrackName(track, label)
+                    }
+                    onTrashRecordingTrack={(track) => void changeRecordingTrackTrash(track, true)}
+                    onRestoreRecordingTrack={(track) =>
+                      void changeRecordingTrackTrash(track, false)
                     }
                     onTrashRecordingTake={(take) => void changeRecordingTakeTrash(take, true)}
                     onRestoreRecordingTake={(take) => void changeRecordingTakeTrash(take, false)}
@@ -3129,6 +3800,7 @@ function App(): JSX.Element {
                         ? addRecords(records, message)
                         : Promise.resolve(false)
                     }
+                    onCheckpointPersisted={markArchiveSnapshotPersisted}
                     onSaveWhisper={(records, message, snapshot) =>
                       workspace()?.snapshot === snapshot
                         ? addRecords(records, message)
@@ -3166,6 +3838,7 @@ function App(): JSX.Element {
                     onClearExecution={() => setLastAiExecution(null)}
                     onPrepare={prepareAiPackage}
                     onCreateRequestPreview={createAiProviderPreview}
+                    onInspectReplicateModel={inspectReplicateModelForAiProvider}
                     onSave={saveAiPackage}
                     onLoad={loadAiPackage}
                     onExportTextFile={(name, contents, mimeType) =>
@@ -3277,7 +3950,7 @@ function App(): JSX.Element {
                     snapshot={state.snapshot}
                     onWriteRecords={(records, message) => addRecords(records, message)}
                     disabled={state.snapshot.locked || !state.snapshot.canMutate || busy()}
-                    onImport={importAsset}
+                    onImport={importAssets}
                     onPreview={loadAssetPreview}
                     onExport={(record) => void exportAsset(record)}
                   />
@@ -3285,15 +3958,21 @@ function App(): JSX.Element {
                 <Show when={view() === "trash"}>
                   <TrashPage
                     records={state.trashedStudents}
+                    journalEntries={state.trashedJournalEntries}
                     annotations={state.trashedAnnotations}
                     guides={state.trashedGuides}
                     evidence={state.trashedEvidence}
                     sessions={state.trashedSessions}
                     onRestore={(record) => void restoreStudent(record)}
+                    onRestoreJournalEntry={(record) => void restoreJournalEntry(record)}
                     onRestoreAnnotation={(record) => void restoreTrashedAnnotation(record)}
                     onRestoreGuide={(record) => void restoreGuide(record)}
                     onRestoreEvidence={(record) => void restoreEvidence(record)}
                     onRestoreSession={(record) => void restoreSessionGroup(record)}
+                    pendingPurge={pendingTrashPurge()}
+                    onBeginPurge={() => void beginTrashPurge()}
+                    onCancelPurge={() => setPendingTrashPurge(null)}
+                    onConfirmPurge={() => void confirmTrashPurge()}
                     disabled={state.snapshot.locked || !state.snapshot.canMutate || busy()}
                   />
                 </Show>
@@ -3315,9 +3994,11 @@ function App(): JSX.Element {
                     state={state}
                     busy={busy()}
                     onChangePassphrase={() => openDialog("passphrase")}
+                    onEnableEncryption={enableCurrentEncryption}
                     onSaveArchive={() => void saveCurrentArchive()}
                     onSaveMarkerKeys={saveMarkerKeys}
                     onSaveSettings={(records, message) => addRecords(records, message)}
+                    onRenameArchive={renameArchiveDisplayName}
                   />
                 </Show>
               </>
@@ -3460,19 +4141,20 @@ function App(): JSX.Element {
             if (event.target === event.currentTarget) closePalette();
           }}
         >
-          <section
+          <ManagedDialog
             class="command-palette"
             role="dialog"
-            aria-modal="true"
-            aria-labelledby="palette-title"
+            labelledBy="palette-title"
             onKeyDown={handlePaletteKeys}
+            onEscape={() => closePalette()}
+            restoreFocus={() => false}
           >
             <div class="palette-search">
               <Icon name="search" />
               <input
-                autofocus
                 placeholder="What would you like to do?"
                 aria-label="Find a quick action"
+                data-dialog-initial-focus
                 value={paletteQuery()}
                 onInput={(event) => {
                   setPaletteQuery(event.currentTarget.value);
@@ -3516,8 +4198,25 @@ function App(): JSX.Element {
                 <kbd>↵</kbd> select <kbd>Esc</kbd> close
               </span>
             </div>
-          </section>
+          </ManagedDialog>
         </div>
+      </Show>
+      <Show when={commandConsoleOpen()}>
+        <CommandConsole
+          archive={
+            workspace()
+              ? {
+                  source: workspace()!.snapshot.source,
+                  name: workspace()!.name,
+                  location: workspace()!.location,
+                  dirty: workspace()!.dirty,
+                  locked: workspace()!.snapshot.locked,
+                }
+              : null
+          }
+          onArchiveChanged={refreshArchiveAfterCommand}
+          onClose={() => setCommandConsoleOpen(false)}
+        />
       </Show>
       <Show when={guidePrintContent()} keyed>
         {(content) => (
@@ -4031,6 +4730,7 @@ function EvidencePage(props: {
 }): JSX.Element {
   const [fromId, setFromId] = createSignal("");
   const [toId, setToId] = createSignal("");
+  const [evidenceFilter, setEvidenceFilter] = createSignal<"all" | "review" | "verified">("all");
   const [sourceSegmentId, setSourceSegmentId] = createSignal("");
   const [createTitle, setCreateTitle] = createSignal("");
   const [createType, setCreateType] = createSignal("tutor-observation");
@@ -4061,6 +4761,31 @@ function EvidencePage(props: {
         const rightAt = createdAt(right);
         return leftAt > rightAt ? -1 : leftAt < rightAt ? 1 : 0;
       });
+  });
+  const evidenceFilters = [
+    { id: "all", label: "All evidence" },
+    { id: "review", label: "Review queue" },
+    { id: "verified", label: "Verified" },
+  ] as const;
+  const evidenceFilterCount = (filter: (typeof evidenceFilters)[number]["id"]): number => {
+    if (filter === "all") return sessionRecords().length;
+    if (filter === "verified")
+      return sessionRecords().filter(
+        (record) => field(record, "verification_state") === "human-verified",
+      ).length;
+    return sessionRecords().filter(
+      (record) => field(record, "verification_state", "needs-review") !== "human-verified",
+    ).length;
+  };
+  const visibleEvidenceRecords = createMemo(() => {
+    const filter = evidenceFilter();
+    return sessionRecords().filter((record) => {
+      const state = field(record, "verification_state", "needs-review");
+      return (
+        filter === "all" ||
+        (filter === "verified" ? state === "human-verified" : state !== "human-verified")
+      );
+    });
   });
   const sessionTranscripts = createMemo(() => {
     const session = selectedSession();
@@ -4357,20 +5082,67 @@ function EvidencePage(props: {
             </section>
           }
         >
+          <section class="evidence-review-toolbar surface-card">
+            <div class="evidence-review-toolbar-copy">
+              <strong>Review session evidence</strong>
+              <small>Rejected items stay in the review queue so you can reconsider them.</small>
+            </div>
+            <div
+              class="evidence-review-filter-list"
+              role="group"
+              aria-label="Filter evidence by review status"
+            >
+              <For each={evidenceFilters}>
+                {(filter) => (
+                  <button
+                    class="button button-quiet evidence-review-filter"
+                    type="button"
+                    aria-pressed={evidenceFilter() === filter.id}
+                    onClick={() => setEvidenceFilter(filter.id)}
+                  >
+                    <span>{filter.label}</span>
+                    <span class="evidence-review-filter-count">
+                      {evidenceFilterCount(filter.id)}
+                    </span>
+                  </button>
+                )}
+              </For>
+            </div>
+          </section>
           <section class="evidence-list" aria-label="Session evidence">
-            <For each={sessionRecords()}>
-              {(record) => (
-                <EvidenceCard
-                  snapshot={props.snapshot}
-                  record={record}
-                  assets={props.assets}
-                  disabled={props.disabled}
-                  onReview={props.onReview}
-                  onUpdate={props.onUpdate}
-                  onTrash={props.onTrash}
-                />
-              )}
-            </For>
+            <Show
+              when={visibleEvidenceRecords().length > 0}
+              fallback={
+                <div class="evidence-filter-empty surface-card" role="status">
+                  <span>
+                    {evidenceFilter() === "review"
+                      ? "Everything in this session has been verified."
+                      : "There are no verified items in this session yet."}
+                  </span>
+                  <button
+                    class="button button-quiet"
+                    type="button"
+                    onClick={() => setEvidenceFilter("all")}
+                  >
+                    Show all evidence
+                  </button>
+                </div>
+              }
+            >
+              <For each={visibleEvidenceRecords()}>
+                {(record) => (
+                  <EvidenceCard
+                    snapshot={props.snapshot}
+                    record={record}
+                    assets={props.assets}
+                    disabled={props.disabled}
+                    onReview={props.onReview}
+                    onUpdate={props.onUpdate}
+                    onTrash={props.onTrash}
+                  />
+                )}
+              </For>
+            </Show>
           </section>
 
           <section class="evidence-graph surface-card">
@@ -4827,7 +5599,7 @@ function EvidenceCard(props: {
             >
               Move to Trash
             </button>
-            <Show when={state() === "needs-review"}>
+            <Show when={state() !== "human-verified"}>
               <button
                 class="button button-primary"
                 type="button"
@@ -4836,15 +5608,15 @@ function EvidenceCard(props: {
               >
                 Approve source
               </button>
-              <button
-                class="button button-quiet"
-                type="button"
-                disabled={props.disabled}
-                onClick={() => props.onReview(props.record, "rejected")}
-              >
-                Reject candidate
-              </button>
             </Show>
+            <button
+              class="button button-quiet"
+              type="button"
+              disabled={props.disabled}
+              onClick={() => props.onReview(props.record, "rejected")}
+            >
+              {state() === "human-verified" ? "Revoke approval" : "Reject candidate"}
+            </button>
           </div>
         </Show>
       </div>
@@ -4858,35 +5630,38 @@ function AssetPage(props: {
   snapshot: ArchiveSnapshot;
   onWriteRecords: (records: ArchiveRecord[], message: string) => Promise<boolean>;
   disabled: boolean;
-  onImport: (file: File, sessionId: string) => Promise<void>;
+  onImport: (
+    files: readonly File[],
+    sessionId: string,
+    onProgress: AssetBatchProgress,
+  ) => Promise<boolean>;
   onPreview: (record: ArchiveRecord) => Promise<{ bytes: Uint8Array; mimeType: string } | null>;
   onExport: (record: ArchiveRecord) => void;
 }): JSX.Element {
   const [sessionId, setSessionId] = createSignal("");
-  const [importing, setImporting] = createSignal(false);
+  const [librarySessionFilter, setLibrarySessionFilter] = createSignal("all");
+  const visibleRecords = createMemo(() =>
+    filterAssetsBySession(
+      props.records,
+      librarySessionFilter() === "all" ? null : librarySessionFilter(),
+    ),
+  );
   const [preview, setPreview] = createSignal<{
     record: ArchiveRecord;
     url: string;
     mimeType: string;
     text: string | null;
+    waveform: PcmWavAssetWaveform | null;
   } | null>(null);
-  let fileInput: HTMLInputElement | undefined;
+  const [fileDropActive, setFileDropActive] = createSignal(false);
+  const [dropStatus, setDropStatus] = createSignal("");
+  let dragDepth = 0;
   let previewTrigger: HTMLButtonElement | undefined;
 
   onCleanup(() => {
     const active = preview();
     if (active) URL.revokeObjectURL(active.url);
   });
-
-  function receiveFile(event: Event): void {
-    const input = event.currentTarget as HTMLInputElement;
-    const file = input.files?.[0];
-    if (file) {
-      setImporting(true);
-      void props.onImport(file, sessionId()).finally(() => setImporting(false));
-    }
-    input.value = "";
-  }
 
   async function openPreview(record: ArchiveRecord): Promise<void> {
     const loaded = await props.onPreview(record);
@@ -4905,7 +5680,10 @@ function AssetPage(props: {
         text = null;
       }
     }
-    setPreview({ record, url, mimeType: loaded.mimeType, text });
+    const waveform = loaded.mimeType.startsWith("audio/")
+      ? buildPcmWavAssetWaveform(loaded.bytes)
+      : null;
+    setPreview({ record, url, mimeType: loaded.mimeType, text, waveform });
   }
 
   function closePreview(): void {
@@ -4915,8 +5693,89 @@ function AssetPage(props: {
     previewTrigger?.focus();
   }
 
+  function containsFiles(event: DragEvent): boolean {
+    return Array.from(event.dataTransfer?.types ?? []).includes("Files");
+  }
+
+  function dragEnter(event: DragEvent): void {
+    if (!containsFiles(event)) return;
+    event.preventDefault();
+    if (props.disabled) return;
+    dragDepth += 1;
+    setFileDropActive(true);
+  }
+
+  function dragLeave(event: DragEvent): void {
+    if (!containsFiles(event)) return;
+    dragDepth = Math.max(0, dragDepth - 1);
+    if (dragDepth === 0) setFileDropActive(false);
+  }
+
+  function dragOver(event: DragEvent): void {
+    if (!containsFiles(event)) return;
+    event.preventDefault();
+    if (!props.disabled && event.dataTransfer) event.dataTransfer.dropEffect = "copy";
+  }
+
+  function dropFiles(event: DragEvent): void {
+    if (!containsFiles(event)) return;
+    event.preventDefault();
+    dragDepth = 0;
+    setFileDropActive(false);
+    const files = Array.from(event.dataTransfer?.files ?? []);
+    if (files.length === 0) {
+      setDropStatus("The drop did not contain any readable files.");
+      return;
+    }
+    if (props.disabled) {
+      setDropStatus("Finish the current archive operation before importing dropped files.");
+      return;
+    }
+
+    setDropStatus(`Preparing ${files.length.toLocaleString()} dropped materials…`);
+    void props
+      .onImport(files, sessionId(), (phase, completed, total) => {
+        if (phase === "staging" && completed === total) {
+          setDropStatus("Verifying and finalizing the dropped materials…");
+        } else {
+          setDropStatus(
+            `${phase === "checking" ? "Checking" : "Writing"} dropped material ${completed.toLocaleString()} of ${total.toLocaleString()}…`,
+          );
+        }
+      })
+      .then((imported) => {
+        setDropStatus(
+          imported
+            ? `${files.length.toLocaleString()} dropped ${files.length === 1 ? "material is" : "materials are"} ready in the archive. Save to write them to disk.`
+            : "Dropped file import was not completed. Review the archive message and try again.",
+        );
+      })
+      .catch((error: unknown) => setDropStatus(errorMessage(error)));
+  }
+
   return (
-    <div class="page-body material-page">
+    <div
+      class="page-body material-page"
+      onDragEnter={dragEnter}
+      onDragLeave={dragLeave}
+      onDragOver={dragOver}
+      onDrop={dropFiles}
+    >
+      <Show when={fileDropActive()}>
+        <div class="material-file-drop-overlay" aria-hidden="true">
+          <strong>Drop files to add them to Materials</strong>
+          <span>
+            {sessionId()
+              ? "Files will be linked to the selected session."
+              : "Files will be added to the general library."}
+          </span>
+        </div>
+      </Show>
+      <Show when={dropStatus()}>
+        <p class="material-drop-status" role="status" aria-live="polite">
+          {dropStatus()}
+        </p>
+      </Show>
       <section class="record-heading material-heading">
         <div>
           <span class="eyebrow">MATERIALS FOR THE WORK</span>
@@ -4926,27 +5785,10 @@ function AssetPage(props: {
             to 256 MiB per file.
           </p>
         </div>
-        <input
-          ref={(element) => (fileInput = element)}
-          class="visually-hidden"
-          type="file"
-          onChange={receiveFile}
-          aria-label="Choose a material to import"
+        <MaterialImportControls
+          disabled={props.disabled}
+          onImport={(files, onProgress) => props.onImport(files, sessionId(), onProgress)}
         />
-        <button
-          class="button button-primary"
-          type="button"
-          disabled={props.disabled || importing()}
-          onClick={() => fileInput?.click()}
-        >
-          <Show
-            when={!importing()}
-            fallback={<span class="button-loading-dot" aria-hidden="true" />}
-          >
-            <Icon name="plus" />
-          </Show>
-          {importing() ? "Adding material…" : "Add material"}
-        </button>
       </section>
 
       <section class="material-library surface-card">
@@ -4954,9 +5796,25 @@ function AssetPage(props: {
           <div>
             <span class="eyebrow">FILE LIBRARY</span>
             <strong>
-              {props.records.length} {props.records.length === 1 ? "item" : "items"}
+              {visibleRecords().length} {visibleRecords().length === 1 ? "item" : "items"}
             </strong>
           </div>
+          <label class="material-session-picker">
+            <span>Show materials for</span>
+            <select
+              value={librarySessionFilter()}
+              onChange={(event) => setLibrarySessionFilter(event.currentTarget.value)}
+              aria-label="Show materials for"
+            >
+              <option value="all">All materials</option>
+              <option value="">General library</option>
+              <For each={props.sessions}>
+                {(session) => (
+                  <option value={session.id}>{field(session, "title", "Untitled session")}</option>
+                )}
+              </For>
+            </select>
+          </label>
           <label class="material-session-picker">
             <span>Link new material to</span>
             <select
@@ -4975,32 +5833,38 @@ function AssetPage(props: {
           </label>
         </div>
         <Show
-          when={props.records.length > 0}
+          when={visibleRecords().length > 0}
           fallback={
             <div class="material-empty">
               <span class="material-empty-mark">
                 <Icon name="assets" />
               </span>
               <div>
-                <h2>A thoughtful library starts with one file</h2>
+                <h2>
+                  {props.records.length === 0
+                    ? "A thoughtful library starts with one file"
+                    : "No materials in this view"}
+                </h2>
                 <p>
-                  Import a worksheet, reference image, recording, or document. Tutorux keeps its
-                  content inside this archive.
+                  {props.records.length === 0
+                    ? "Import a worksheet, reference image, recording, or document. Tutorux keeps its content inside this archive."
+                    : "Choose another session or switch to All materials to see files from the rest of your library."}
                 </p>
+                <Show when={props.records.length > 0}>
+                  <button
+                    class="button button-outline"
+                    type="button"
+                    onClick={() => setLibrarySessionFilter("all")}
+                  >
+                    Show all materials
+                  </button>
+                </Show>
               </div>
-              <button
-                class="button button-outline"
-                type="button"
-                disabled={props.disabled || importing()}
-                onClick={() => fileInput?.click()}
-              >
-                Add the first material
-              </button>
             </div>
           }
         >
           <div class="material-grid">
-            <For each={props.records}>
+            <For each={visibleRecords()}>
               {(record) => {
                 const session = () =>
                   props.sessions.find((item) => item.id === field(record, "session_id"));
@@ -5083,17 +5947,12 @@ function AssetPage(props: {
               if (event.target === event.currentTarget) closePreview();
             }}
           >
-            <section
+            <ManagedDialog
               class="material-preview-dialog"
               role="dialog"
-              aria-modal="true"
-              aria-label={`Preview ${field(active().record, "filename", "material")}`}
-              onKeyDown={(event) => {
-                if (event.key === "Escape") {
-                  event.preventDefault();
-                  closePreview();
-                }
-              }}
+              label={`Preview ${field(active().record, "filename", "material")}`}
+              onEscape={closePreview}
+              restoreFocus={() => false}
             >
               <header class="material-preview-header">
                 <div>
@@ -5104,7 +5963,6 @@ function AssetPage(props: {
                   class="icon-button"
                   type="button"
                   aria-label="Close preview"
-                  ref={(element) => element.focus()}
                   onClick={closePreview}
                 >
                   <Icon name="close" />
@@ -5120,7 +5978,11 @@ function AssetPage(props: {
                         alt={field(active().record, "filename", "Material preview")}
                       />
                     ) : active().mimeType.startsWith("audio/") ? (
-                      <audio controls src={active().url} />
+                      active().waveform ? (
+                        <MaterialAudioPreview waveform={active().waveform!} url={active().url} />
+                      ) : (
+                        <audio controls src={active().url} />
+                      )
                     ) : active().mimeType.startsWith("video/") ? (
                       <video controls src={active().url} />
                     ) : active().mimeType.startsWith("text/") ||
@@ -5153,7 +6015,7 @@ function AssetPage(props: {
                   Export original
                 </button>
               </footer>
-            </section>
+            </ManagedDialog>
           </div>
         )}
       </Show>
@@ -5732,7 +6594,9 @@ function RecordCard(props: {
                 snapshot={props.snapshot}
                 entries={props.workspace.entries}
                 sessions={[...props.workspace.sessions, ...props.workspace.archivedSessions]}
+                students={props.students}
                 guides={props.workspace.guides}
+                guideTemplates={props.guideTemplates}
                 assets={props.workspace.assets}
                 notesDocuments={props.workspace.notesDocuments}
                 disabled={props.disabled || props.busy}
@@ -5826,16 +6690,22 @@ type RecordPagePropsKind = "students" | "sessions" | "journal" | "guides" | "evi
 
 function TrashPage(props: {
   records: ArchiveRecord[];
+  journalEntries: ArchiveRecord[];
   annotations: ArchiveRecord[];
   guides: ArchiveRecord[];
   evidence: ArchiveRecord[];
   sessions: ArchiveRecord[];
   disabled: boolean;
   onRestore: (record: ArchiveRecord) => void;
+  onRestoreJournalEntry: (record: ArchiveRecord) => void;
   onRestoreAnnotation: (record: ArchiveRecord) => void;
   onRestoreGuide: (record: ArchiveRecord) => void;
   onRestoreEvidence: (record: ArchiveRecord) => void;
   onRestoreSession: (record: ArchiveRecord) => void;
+  pendingPurge: TrashPurgeReview | null;
+  onBeginPurge: () => void;
+  onCancelPurge: () => void;
+  onConfirmPurge: () => void;
 }): JSX.Element {
   const trashed = () => {
     const removedAt = (record: ArchiveRecord): bigint => {
@@ -5845,6 +6715,7 @@ function TrashPage(props: {
     return [
       ...props.sessions,
       ...props.records,
+      ...props.journalEntries,
       ...props.annotations,
       ...props.guides,
       ...props.evidence,
@@ -5862,7 +6733,8 @@ function TrashPage(props: {
           <span class="eyebrow">RECOVERABLE ARCHIVE ITEMS</span>
           <h1>Trash</h1>
           <p>
-            Restore a session with its linked learning record, or bring back an individual item.
+            Restore a session or journal entry with its linked records, or bring back an individual
+            item.
           </p>
         </div>
       </section>
@@ -5875,14 +6747,88 @@ function TrashPage(props: {
             <Icon name="shield" />
             Recoverable
           </span>
+          <button
+            class="button button-danger trash-purge-start"
+            type="button"
+            disabled={props.disabled}
+            onClick={props.onBeginPurge}
+          >
+            Permanently purge Trash
+          </button>
         </div>
+        <Show when={props.pendingPurge}>
+          {(review) => (
+            <section class="trash-purge-review" aria-label="Permanent Trash purge review">
+              <div>
+                <span class="eyebrow">PERMANENT ACTION</span>
+                <h2>Review permanent purge</h2>
+                <p>
+                  This removes {review().plan.deletedRecords.toLocaleString()} trashed archive
+                  records and their saved revisions from the workspace. Material content is
+                  preserved. It cannot be undone after you save the archive.
+                </p>
+              </div>
+              <Show when={review().plan.blockers.length > 0}>
+                <div class="trash-purge-blockers" role="alert">
+                  <strong>Active links block this purge.</strong>
+                  <p>Restore these items or remove the active links before purging Trash.</p>
+                  <ul>
+                    <For each={review().plan.blockers}>
+                      {(blocker) => (
+                        <li>
+                          <strong>{blocker.label}</strong>
+                          <span>
+                            {blocker.recordType} {blocker.recordId} is linked from{" "}
+                            {blocker.references
+                              .map((reference) => `${reference.label} (${reference.fields.join(", ")})`)
+                              .join("; ")}.
+                          </span>
+                        </li>
+                      )}
+                    </For>
+                  </ul>
+                </div>
+              </Show>
+              <Show when={review().plan.opaqueRecords > 0}>
+                <p class="trash-purge-blockers" role="alert">
+                  {review().plan.opaqueRecords} record(s) from a newer archive version cannot be
+                  checked for active links. Open the archive in a compatible version before
+                  purging Trash.
+                </p>
+              </Show>
+              <div class="trash-purge-actions">
+                <button
+                  class="button button-outline"
+                  type="button"
+                  disabled={props.disabled}
+                  onClick={props.onCancelPurge}
+                >
+                  Cancel
+                </button>
+                <button
+                  class="button button-danger"
+                  type="button"
+                  disabled={
+                    props.disabled ||
+                    review().plan.deletedRecords === 0 ||
+                    review().plan.blockers.length > 0 ||
+                    review().plan.opaqueRecords > 0
+                  }
+                  onClick={props.onConfirmPurge}
+                >
+                  Permanently purge {review().plan.deletedRecords.toLocaleString()} records
+                </button>
+              </div>
+            </section>
+          )}
+        </Show>
         <Show
           when={total() > 0}
           fallback={
             <EmptyState
               icon="trash"
               title="Trash is empty"
-              text="Sessions, students, observations, study guides, and evidence you move here can be restored at any time."
+              text="Sessions, journal entries, students, observations, study guides, and evidence you move here can be restored at any time."
               action="Back to students"
               onAction={() => undefined}
               disabled
@@ -5891,93 +6837,113 @@ function TrashPage(props: {
         >
           <div class="record-list">
             <For each={trashed()}>
-              {(record) => (
-                <article class="library-record-card trash-record">
-                  <span class="library-icon">
-                    <Icon
-                      name={
-                        record.type === RecordType.session
-                          ? "sessions"
-                          : record.type === RecordType.annotation
-                            ? "annotations"
-                            : record.type === RecordType.guide
-                              ? "guides"
-                              : record.type === RecordType.evidenceNode
-                                ? "evidence"
-                                : "students"
-                      }
-                    />
-                  </span>
-                  <div>
-                    <span class="eyebrow">
-                      {record.type === RecordType.session
-                        ? "SESSION GROUP"
-                        : record.type === RecordType.annotation
-                          ? "SESSION OBSERVATION"
-                          : record.type === RecordType.guide
-                            ? "STUDY GUIDE"
-                            : record.type === RecordType.evidenceNode
-                              ? "EVIDENCE ITEM"
-                              : "STUDENT PROFILE"}
+              {(record) => {
+                const journalEntry =
+                  record.type === RecordType.settings &&
+                  field(record, "record_role") === "journal-entry";
+                return (
+                  <article class="library-record-card trash-record">
+                    <span class="library-icon">
+                      <Icon
+                        name={
+                          journalEntry
+                            ? "journal"
+                            : record.type === RecordType.session
+                              ? "sessions"
+                              : record.type === RecordType.annotation
+                                ? "annotations"
+                                : record.type === RecordType.guide
+                                  ? "guides"
+                                  : record.type === RecordType.evidenceNode
+                                    ? "evidence"
+                                    : "students"
+                        }
+                      />
                     </span>
-                    <h2>
-                      {record.type === RecordType.session
-                        ? field(record, "title", "Untitled session")
-                        : record.type === RecordType.annotation
-                          ? field(
-                              record,
-                              "title",
-                              annotationTypeLabel(field(record, "type", "observation")),
-                            )
-                          : record.type === RecordType.guide
-                            ? field(record, "title", "Untitled guide")
-                            : record.type === RecordType.evidenceNode
-                              ? field(record, "title", "Evidence item")
-                              : field(record, "display_name", "Unnamed student")}
-                    </h2>
-                    <p>
-                      {record.type === RecordType.session
-                        ? [field(record, "subject"), field(record, "session_state")]
-                            .filter(Boolean)
-                            .join(" · ") || "Tutoring session"
-                        : record.type === RecordType.annotation
-                          ? field(record, "content", "Observation")
-                          : record.type === RecordType.guide
-                            ? `${field(record, "approval_state", "draft")} · ${field(record, "template_id", "general")}`
-                            : record.type === RecordType.evidenceNode
-                              ? field(record, "content", "Evidence")
-                              : field(record, "grade", "Learner")}
-                      {field(record, "deleted_at_us")
-                        ? ` · Deleted ${formatTimestamp(field(record, "deleted_at_us"))}`
-                        : " · Deletion date unavailable"}
-                    </p>
-                    <Show when={record.type === RecordType.session}>
-                      <span class="session-trash-detail">
-                        Notes, recordings, transcripts, observations, materials, guides, and
-                        evidence restore together; journal links reconnect automatically.
+                    <div>
+                      <span class="eyebrow">
+                        {journalEntry
+                          ? "JOURNAL ENTRY GROUP"
+                          : record.type === RecordType.session
+                            ? "SESSION GROUP"
+                            : record.type === RecordType.annotation
+                              ? "SESSION OBSERVATION"
+                              : record.type === RecordType.guide
+                                ? "STUDY GUIDE"
+                                : record.type === RecordType.evidenceNode
+                                  ? "EVIDENCE ITEM"
+                                  : "STUDENT PROFILE"}
                       </span>
-                    </Show>
-                  </div>
-                  <button
-                    class="button button-outline record-action"
-                    type="button"
-                    disabled={props.disabled}
-                    onClick={() =>
-                      record.type === RecordType.session
-                        ? props.onRestoreSession(record)
-                        : record.type === RecordType.annotation
-                          ? props.onRestoreAnnotation(record)
-                          : record.type === RecordType.guide
-                            ? props.onRestoreGuide(record)
-                            : record.type === RecordType.evidenceNode
-                              ? props.onRestoreEvidence(record)
-                              : props.onRestore(record)
-                    }
-                  >
-                    Restore
-                  </button>
-                </article>
-              )}
+                      <h2>
+                        {journalEntry
+                          ? field(record, "title", "Untitled entry")
+                          : record.type === RecordType.session
+                            ? field(record, "title", "Untitled session")
+                            : record.type === RecordType.annotation
+                              ? field(
+                                  record,
+                                  "title",
+                                  annotationTypeLabel(field(record, "type", "observation")),
+                                )
+                              : record.type === RecordType.guide
+                                ? field(record, "title", "Untitled guide")
+                                : record.type === RecordType.evidenceNode
+                                  ? field(record, "title", "Evidence item")
+                                  : field(record, "display_name", "Unnamed student")}
+                      </h2>
+                      <p>
+                        {journalEntry
+                          ? "Journal reflection"
+                          : record.type === RecordType.session
+                            ? [field(record, "subject"), field(record, "session_state")]
+                                .filter(Boolean)
+                                .join(" · ") || "Tutoring session"
+                            : record.type === RecordType.annotation
+                              ? field(record, "content", "Observation")
+                              : record.type === RecordType.guide
+                                ? `${field(record, "approval_state", "draft")} · ${field(record, "template_id", "general")}`
+                                : record.type === RecordType.evidenceNode
+                                  ? field(record, "content", "Evidence")
+                                  : field(record, "grade", "Learner")}
+                        {field(record, "deleted_at_us")
+                          ? ` · Deleted ${formatTimestamp(field(record, "deleted_at_us"))}`
+                          : " · Deletion date unavailable"}
+                      </p>
+                      <Show when={record.type === RecordType.session}>
+                        <span class="session-trash-detail">
+                          Notes, recordings, transcripts, observations, materials, guides, and
+                          evidence restore together; journal links reconnect automatically.
+                        </span>
+                      </Show>
+                      <Show when={journalEntry}>
+                        <span class="session-trash-detail">
+                          The entry and its linked notes restore together.
+                        </span>
+                      </Show>
+                    </div>
+                    <button
+                      class="button button-outline record-action"
+                      type="button"
+                      disabled={props.disabled}
+                      onClick={() =>
+                        journalEntry
+                          ? props.onRestoreJournalEntry(record)
+                          : record.type === RecordType.session
+                            ? props.onRestoreSession(record)
+                            : record.type === RecordType.annotation
+                              ? props.onRestoreAnnotation(record)
+                              : record.type === RecordType.guide
+                                ? props.onRestoreGuide(record)
+                                : record.type === RecordType.evidenceNode
+                                  ? props.onRestoreEvidence(record)
+                                  : props.onRestore(record)
+                      }
+                    >
+                      Restore
+                    </button>
+                  </article>
+                );
+              }}
             </For>
           </div>
         </Show>
@@ -6197,6 +7163,7 @@ function TranscriptPage(props: {
   tracks: AudioTrackDescriptor[];
   recordingTakes: ArchiveRecord[];
   trashedRecordingTakes: ArchiveRecord[];
+  trashedRecordingTracks: ArchiveRecord[];
   selectedSessionId: string;
   disabled: boolean;
   onSelectSession: (sessionId: string) => void;
@@ -6206,9 +7173,16 @@ function TranscriptPage(props: {
   onRecoverAudio: (sessionId: string) => void;
   onRecoverNativeAudio: (sessionId: string) => void;
   onRecordAudio: (file: File, sessionId: string, consentAtUs: string) => Promise<void>;
-  onExportAudio: (sessionId: string, trackId: string, label: string) => void;
+  onExportAudio: (
+    sessionId: string,
+    trackId: string,
+    label: string,
+    fillGapsWithSilence: boolean,
+  ) => void;
   onRenameRecordingTake: (take: ArchiveRecord, label: string) => void;
   onRenameRecordingTrack: (track: AudioTrackDescriptor, label: string) => void;
+  onTrashRecordingTrack: (track: AudioTrackDescriptor) => void;
+  onRestoreRecordingTrack: (track: ArchiveRecord) => void;
   onTrashRecordingTake: (take: ArchiveRecord) => void;
   onRestoreRecordingTake: (take: ArchiveRecord) => void;
   onSaveMix: (
@@ -6216,6 +7190,7 @@ function TranscriptPage(props: {
     records: ArchiveRecord[],
     message: string,
   ) => Promise<boolean>;
+  onCheckpointPersisted: (snapshot: ArchiveSnapshot) => void;
   onSaveWhisper: (
     records: ArchiveRecord[],
     message: string,
@@ -6304,6 +7279,16 @@ function TranscriptPage(props: {
         (!assetSessionId || assetSessionId === session.id.toLowerCase())
       );
     });
+  const trashedSessionRecordingTracks = createMemo(() => {
+    const session = selectedSession();
+    if (!session) return [];
+    const activeTakeIds = new Set(sessionRecordingTakes().map((take) => take.id.toLowerCase()));
+    return props.trashedRecordingTracks.filter(
+      (track) =>
+        field(track, "session_id").toLowerCase() === session.id.toLowerCase() &&
+        activeTakeIds.has(field(track, "recording_take_id").toLowerCase()),
+    );
+  });
   });
   const selectedCues = createMemo(() => {
     const selected = new Set(selectedCueIds());
@@ -6810,17 +7795,25 @@ function TranscriptPage(props: {
         </Show>
       </section>
 
-      <Show when={sessionRecordingTakes().length > 0 || trashedSessionRecordingTakes().length > 0}>
+      <Show
+        when={
+          sessionRecordingTakes().length > 0 ||
+          trashedSessionRecordingTakes().length > 0 ||
+          trashedSessionRecordingTracks().length > 0
+        }
+      >
         <section class="transcript-takes-panel" aria-label="Recording takes">
           <div class="transcript-takes-heading">
             <div>
               <span class="eyebrow">SESSION AUDIO</span>
               <strong>Recording takes</strong>
-              <span>Rename a take, manage its tracks, or recover it from Trash.</span>
+              <span>
+                Rename takes and tracks, then move individual items to Trash or restore them here.
+              </span>
             </div>
             <span class="transcript-takes-count">
-              {sessionRecordingTakes().length} active · {trashedSessionRecordingTakes().length} in
-              Trash
+              {sessionRecordingTakes().length} active takes · {trashedSessionRecordingTakes().length}{" "}
+              takes and {trashedSessionRecordingTracks().length} tracks in Trash
             </span>
           </div>
           <div class="transcript-takes-list">
@@ -6836,9 +7829,15 @@ function TranscriptPage(props: {
                   <RecordingTakeRow
                     take={take}
                     tracks={sessionTracks().filter((track) => trackIds.has(track.id.toLowerCase()))}
+                    trashedTracks={trashedSessionRecordingTracks().filter(
+                      (track) =>
+                        field(track, "recording_take_id").toLowerCase() === take.id.toLowerCase(),
+                    )}
                     disabled={props.disabled}
                     onRenameTake={props.onRenameRecordingTake}
                     onRenameTrack={props.onRenameRecordingTrack}
+                    onTrashTrack={props.onTrashRecordingTrack}
+                    onRestoreTrack={props.onRestoreRecordingTrack}
                     onTrash={props.onTrashRecordingTake}
                   />
                 );
@@ -6882,6 +7881,7 @@ function TranscriptPage(props: {
               trackIds={sessionTracks().map((track) => track.id)}
               disabled={props.disabled}
               onSave={(records, message, snapshot) => props.onSaveMix(snapshot, records, message)}
+              onCheckpointPersisted={props.onCheckpointPersisted}
             />
             <AudioMixer
               snapshot={props.snapshot}
@@ -6926,18 +7926,38 @@ function TranscriptPage(props: {
           >
             Play from start
           </button>
-          <button
-            class="button button-outline transcript-audio-export"
-            type="button"
-            disabled={props.disabled || !selectedTrack()}
-            onClick={() => {
-              const session = selectedSession();
-              const track = selectedTrack();
-              if (session && track) props.onExportAudio(session.id, track.id, track.label);
-            }}
-          >
-            Export WAV
-          </button>
+          <div class="transcript-audio-export-actions">
+            <button
+              class="button button-outline transcript-audio-export"
+              type="button"
+              disabled={props.disabled || !selectedTrack()}
+              onClick={() => {
+                const session = selectedSession();
+                const track = selectedTrack();
+                if (session && track) props.onExportAudio(session.id, track.id, track.label, false);
+              }}
+            >
+              Export WAV
+            </button>
+            <button
+              class="button button-outline transcript-audio-export"
+              type="button"
+              disabled={props.disabled || !selectedTrack()}
+              onClick={() => {
+                const session = selectedSession();
+                const track = selectedTrack();
+                if (session && track) props.onExportAudio(session.id, track.id, track.label, true);
+              }}
+            >
+              Export with gap silence
+            </button>
+          </div>
+          <p class="transcript-audio-export-note">
+            Export WAV requires a continuous track. If audio is missing from the timeline, choose
+            “Export with gap silence” to preserve timing by inserting silence. Tracks over 4 GiB use
+            RF64, which currently requires Tutorux for desktop because browser downloads cannot
+            safely save files this large.
+          </p>
           <Show when={audioUrl() && audioPreview()}>
             <AudioWaveform
               preview={audioPreview()!}
@@ -7061,9 +8081,12 @@ function TranscriptPage(props: {
 function RecordingTakeRow(props: {
   take: ArchiveRecord;
   tracks: AudioTrackDescriptor[];
+  trashedTracks: ArchiveRecord[];
   disabled: boolean;
   onRenameTake: (take: ArchiveRecord, label: string) => void;
   onRenameTrack: (track: AudioTrackDescriptor, label: string) => void;
+  onTrashTrack: (track: AudioTrackDescriptor) => void;
+  onRestoreTrack: (track: ArchiveRecord) => void;
   onTrash: (take: ArchiveRecord) => void;
 }): JSX.Element {
   const [label, setLabel] = createSignal(
@@ -7114,7 +8137,29 @@ function RecordingTakeRow(props: {
                 track={track}
                 disabled={props.disabled}
                 onRename={props.onRenameTrack}
+                onTrash={props.onTrashTrack}
               />
+            )}
+          </For>
+        </div>
+      </Show>
+      <Show when={props.trashedTracks.length > 0}>
+        <div class="transcript-take-tracks transcript-take-trashed-tracks" aria-label="Tracks in Trash">
+          <strong>Tracks in Trash</strong>
+          <For each={props.trashedTracks}>
+            {(track) => (
+              <div class="transcript-take-trashed-track-row">
+                <span>{field(track, "label", "Recording track")}</span>
+                <button
+                  class="button button-outline"
+                  type="button"
+                  disabled={props.disabled}
+                  aria-label={`Restore track: ${field(track, "label", "Recording track")}`}
+                  onClick={() => props.onRestoreTrack(track)}
+                >
+                  Restore track
+                </button>
+              </div>
             )}
           </For>
         </div>
@@ -7127,6 +8172,7 @@ function RecordingTrackName(props: {
   track: AudioTrackDescriptor;
   disabled: boolean;
   onRename: (track: AudioTrackDescriptor, label: string) => void;
+  onTrash: (track: AudioTrackDescriptor) => void;
 }): JSX.Element {
   const [editVersion, setEditVersion] = createSignal(0);
   let input: HTMLInputElement | undefined;
@@ -7159,6 +8205,15 @@ function RecordingTrackName(props: {
         onClick={() => props.onRename(props.track, input?.value ?? props.track.label)}
       >
         Save track name
+      </button>
+      <button
+        class="button button-outline transcript-take-trash"
+        type="button"
+        disabled={props.disabled}
+        aria-label={`Move track to Trash: ${props.track.label}`}
+        onClick={() => props.onTrash(props.track)}
+      >
+        Move to Trash
       </button>
     </div>
   );
@@ -7859,6 +8914,7 @@ function ArchivePage(props: {
         disabled={props.busy}
         onApply={props.onApplyMaintenance}
       />
+      <SanitizedCopy snapshot={props.state.snapshot} disabled={props.busy} />
       <section class="archive-actions-card">
         <div>
           <span class="eyebrow">PORTABLE BY DESIGN</span>
@@ -7890,9 +8946,11 @@ function SettingsPage(props: {
   state: Workspace;
   busy: boolean;
   onChangePassphrase: () => void;
+  onEnableEncryption: (passphrase: string) => Promise<void>;
   onSaveArchive: () => void;
   onSaveMarkerKeys: (keys: string[]) => Promise<boolean>;
   onSaveSettings: (records: ArchiveRecord[], message: string) => Promise<boolean>;
+  onRenameArchive: (displayName: string) => Promise<boolean>;
 }): JSX.Element {
   const [keys, setKeys] = createSignal(markerKeys(props.state));
   createEffect(() => {
@@ -8085,10 +9143,22 @@ function SettingsPage(props: {
         </Show>
       </section>
       <ArchiveSettings
+        displayName={props.state.manifest.displayName}
+        encrypted={props.state.snapshot.encrypted}
         records={props.state.settings}
         disabled={props.busy || props.state.snapshot.locked || !props.state.snapshot.canMutate}
         onSave={props.onSaveSettings}
+        onRename={props.onRenameArchive}
+        onEnableEncryption={props.onEnableEncryption}
       />
+      <ArchiveSettingsCopy
+        archiveId={props.state.snapshot.header.id}
+        archiveGeneration={props.state.snapshot.commit.generation.toString()}
+        settings={props.state.settings}
+        disabled={props.busy || props.state.snapshot.locked || !props.state.snapshot.canMutate}
+        onSave={props.onSaveSettings}
+      />
+      <DiagnosticsReport snapshot={props.state.snapshot} disabled={props.busy} />
       <section class="settings-note">
         <Icon name="book" />
         <div>
@@ -8107,9 +9177,6 @@ function ConfirmSessionTrashDialog(props: {
   onCancel: () => void;
   onConfirm: () => void;
 }): JSX.Element {
-  let cancelButton: HTMLButtonElement | undefined;
-  let confirmButton: HTMLButtonElement | undefined;
-  onMount(() => cancelButton?.focus());
   const details = () => [
     { label: "Session record", value: 1 },
     { label: "Recording chunks", value: props.counts.audioChunks },
@@ -8130,24 +9197,13 @@ function ConfirmSessionTrashDialog(props: {
         if (event.target === event.currentTarget && !props.busy) props.onCancel();
       }}
     >
-      <section
+      <ManagedDialog
         class="form-dialog confirm-dialog session-trash-dialog"
         role="alertdialog"
-        aria-modal="true"
-        aria-labelledby="session-trash-title"
-        aria-describedby="session-trash-description session-trash-side-effects"
-        onKeyDown={(event) => {
-          if (event.key === "Escape" && !props.busy) props.onCancel();
-          if (event.key === "Tab" && cancelButton && confirmButton) {
-            if (event.shiftKey && document.activeElement === cancelButton) {
-              event.preventDefault();
-              confirmButton.focus();
-            } else if (!event.shiftKey && document.activeElement === confirmButton) {
-              event.preventDefault();
-              cancelButton.focus();
-            }
-          }
-        }}
+        labelledBy="session-trash-title"
+        describedBy="session-trash-description session-trash-side-effects"
+        onEscape={() => props.onCancel()}
+        canEscape={() => !props.busy}
       >
         <span class="dialog-icon">
           <Icon name="trash" />
@@ -8179,9 +9235,6 @@ function ConfirmSessionTrashDialog(props: {
         </p>
         <div class="dialog-actions">
           <button
-            ref={(element) => {
-              cancelButton = element;
-            }}
             class="button button-outline"
             type="button"
             disabled={props.busy}
@@ -8190,9 +9243,6 @@ function ConfirmSessionTrashDialog(props: {
             Keep session
           </button>
           <button
-            ref={(element) => {
-              confirmButton = element;
-            }}
             class="button button-danger"
             type="button"
             disabled={props.busy}
@@ -8201,7 +9251,7 @@ function ConfirmSessionTrashDialog(props: {
             {props.busy ? "Moving…" : "Move session group to Trash"}
           </button>
         </div>
-      </section>
+      </ManagedDialog>
     </div>
   );
 }
@@ -8220,15 +9270,13 @@ function ConfirmDeleteDialog(props: {
         if (event.target === event.currentTarget && !props.busy) props.onCancel();
       }}
     >
-      <section
+      <ManagedDialog
         class="form-dialog confirm-dialog"
         role="alertdialog"
-        aria-modal="true"
-        aria-labelledby="trash-dialog-title"
-        aria-describedby="trash-dialog-description"
-        onKeyDown={(event) => {
-          if (event.key === "Escape" && !props.busy) props.onCancel();
-        }}
+        labelledBy="trash-dialog-title"
+        describedBy="trash-dialog-description"
+        onEscape={() => props.onCancel()}
+        canEscape={() => !props.busy}
       >
         <span class="dialog-icon">
           <Icon name="trash" />
@@ -8259,7 +9307,7 @@ function ConfirmDeleteDialog(props: {
             {props.busy ? "Moving…" : "Move to Trash"}
           </button>
         </div>
-      </section>
+      </ManagedDialog>
     </div>
   );
 }
@@ -8640,14 +9688,12 @@ function FormDialog(props: {
         if (event.target === event.currentTarget && !props.busy) void closeForm();
       }}
     >
-      <section
+      <ManagedDialog
         class="form-dialog"
         role="dialog"
-        aria-modal="true"
-        aria-labelledby="form-dialog-title"
-        onKeyDown={(event) => {
-          if (event.key === "Escape" && !props.busy) void closeForm();
-        }}
+        labelledBy="form-dialog-title"
+        onEscape={() => void closeForm()}
+        canEscape={() => !props.busy}
       >
         <button
           class="icon-button dialog-close"
@@ -9119,7 +10165,7 @@ function FormDialog(props: {
           <Icon name="shield" />
           Stored locally in your archive
         </span>
-      </section>
+      </ManagedDialog>
     </div>
   );
 }
