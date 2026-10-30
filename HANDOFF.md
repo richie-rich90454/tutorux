@@ -1,124 +1,82 @@
-# Tutorux Tauri Migration — Handoff
+# Tutorux Tauri migration — Handoff
 
 ## Current state
 
-The migration is feature-complete for the confirmed gaps in the previous handoff, and the TypeScript CLI has been modularized. All changed files are committed one per commit; the working tree is clean; the last code commit is `d0ebd04`.
+The rewrite is feature-complete. The SolidJS, TypeScript, Tauri, and Rust implementation is the only application in the repository. The retired C++/Slint sources, CMake build, legacy CI workflows, and obsolete documentation have been removed.
 
 - Branch: `tauri-rewrite`
-- Legacy parity baseline: `7c78774`
-- Workspace: `C:\Users\rjian\Desktop\tutorux`
-- Required npm pin: TypeScript `6.0.3`
-- `cli/main.ts` is now a 300-line entry point. Command implementations live in `cli/commands/`, with every module under 500 lines.
+- Package manager: pnpm 12 (`pnpm-lock.yaml`)
+- Formatter: oxfmt 0.75 (`.oxfmtrc.json`)
+- Required TypeScript pin: `6.0.3`
+- CLI entry point: `cli/main.ts`; command modules live in `cli/commands/`
+- Desktop host: `src-tauri/src/`
+- Native audio helper: `native-audio-helper/src/`
 
-Run the live Git state before committing:
+## Completed parity work
 
-```powershell
-git status --short --untracked-files=all
-git log -5 --oneline
+### Archive
+
+- Full semantic verification: dangling references, asset manifests and hashes, guide sources, credential placement, overlapping frames, secondary indexes, and revision lineage.
+- Credential policy enforced by the writer; encrypted-only credential records.
+- Immutable audio-chunk identity and `audio_chunk_index_version` propagation.
+- Recovery inspection, missing-locator recovery, tail discard, forward locator scans, and discarded-region repair accounting.
+- Compaction rebuilds secondary indexes and preserves opaque/forward-compatible records; applies by default with `--preview`.
+- `archive info` metadata and header-only inspection, `archive open` alias, default archive names, and passphrase fallback.
+
+### CLI
+
+- Legacy flat record JSON, session package fields, benchmark scalar types, annotation split output, and document JSON.
+- Journal reference-safe group deletion, notes restoration, `--clear-date`, entry defaults, and document `--text` replacement.
+- Transcript streaming imports, default track/model resolution, and legacy result fields.
+- Asset export overwrite, WAV/waveform JSON reports, native-rate capture metadata, durability policies, incremental Whisper commits, thread defaults, detected language, and live Whisper reuse.
+- AI catalog TTL/capabilities, embedded model tests, GGUF inspection, legacy provider JSON, structured output, partial cancellation, error metadata, and imported responses.
+- Template overrides, restore-defaults, and text/Markdown imports.
+
+### UI and domain
+
+- Note-block and evidence-edge Trash/restore, legacy session-group recovery, undated journal entries, journal root creation, and journal sort/date/session filters.
+- Global quick markers, observation playback from timestamps, and guide section regeneration.
+- Unknown guide block preservation, empty-section pruning, session template precedence, custom template names, secondary notes, approved-draft regeneration, image insertion, and export validation.
+- Built-in template overrides and legacy section catalogs.
+- Native-rate synchronized capture with channel/format metadata, gap and discontinuity markers, compressed desktop import, FFmpeg fallback, continuous cue playback, and waveform cache reuse.
+- Multimodal AI attachments, Ollama model listing/reachability checks, and external response import.
+
+## Dependency and build state
+
+- `native-audio-helper` and `src-tauri` share the vendored `flexaudio-mic` patch so Linux resolves one ALSA sys crate.
+- `src-tauri` pins `libc = "0.2.186"` because `flexaudio-os-macos` requires that exact version.
+- `src-tauri/Cargo.toml` adds `windows-sys` for native process and memory diagnostics.
+- The local Windows `cargo check`/desktop build still stops in `llama-cpp-sys-2` when its CMake build uses the Visual Studio 18 2026 generator from the MSYS2 CMake installation. This is a host toolchain mismatch, not a source error. CI must verify the desktop package on all three operating systems.
+- macOS/Linux capture permissions, ScreenCaptureKit, PipeWire, real device matrices, DPI, screen-reader review, and installer signing remain release qualification work.
+
+## Verification
+
+Run with pnpm:
+
+```sh
+pnpm run typecheck
+pnpm run lint
+pnpm run format:check
+pnpm run test
+pnpm run test:e2e
+pnpm run build
+pnpm run build:audio-helper
+pnpm run desktop:build
 ```
 
-## Completed this turn
-
-### 1. CLI native endpoint diagnostics probe
-
-- `native-audio-helper/src/native_input.rs` now includes `sampleFormat`, `sampleRateHz`, and `channelCount` in `inputs` output, read from the endpoint's default stream configuration without opening a stream.
-- `cli/diagnostics.ts` now prefers the native helper for `diagnostics audio`, reports `probe_state: "ready"` with format/rate/channels, and falls back to host enumeration with an explicit per-endpoint `unsupported` reason when the helper is unavailable or its build predates these fields.
-- Per-application endpoint names and process IDs are not added to diagnostics output. The support report still contains only audio counts and status.
-- Verification: `npm run cli -- diagnostics audio --json` reports both microphone and system-audio endpoints as `ready` on this Windows host.
-
-### 2. Legacy transcript cue Trash
-
-- Confirmed the legacy desktop exposes a `remove-segment` callback but the C++ dispatcher implements no transcript remove or recoverable cue-deletion action.
-- The Solid page intentionally does not expose a dead control. This is recorded in the transcript row of `docs/migration/feature-inventory.md`.
-
-### 3. Broader archive header reconstruction
-
-- The selected legacy baseline reconstructs only a checksum-damaged header whose remaining fields are intact.
-- The TypeScript archive engine already implements that path and adds checksum-confirmed magic repair.
-- Broader header reconstruction is not an outstanding legacy behavior; the inventory now states this explicitly. Archive verification and overwrite protections were not weakened.
-
-### 4. CLI modularization
-
-`cli/main.ts` now contains only the help text, IO setup, `executeCli`, and the process entry point. Modules under `cli/commands/`:
-
-| Module | Responsibility |
-|---|---|
-| `shared.ts` | CLI types, errors, argument parsing, output, option helpers, lock context |
-| `record-helpers.ts` | Record lookup, validation, and formatting helpers |
-| `archive-io.ts` | Archive opening, mutation, atomic publication, staging |
-| `archive-candidate.ts` | Read-only archive discovery and candidate inspection |
-| `archive.ts` | Archive dispatcher |
-| `archive-crypto.ts` | Init, encryption, passphrase rotation, backup |
-| `archive-recovery.ts` | Recover, index backfill, compaction, rebuild, repair |
-| `archive-sanitize.ts` | Reviewed sanitized copies |
-| `archive-info.ts` | Archive info and verification |
-| `runtime.ts` | Router for record/session/journal/AI/content commands |
-| `recording-*.ts` | Audio sources, live recording, controls, playback, takes |
-| `records-*.ts` | Student, session, progress, lifecycle, journal record actions |
-| `ai-*.ts` | AI configuration, transport, package, generation |
-| `guides.ts` / `guide-*.ts` | Guide CRUD, editing, inspection, shared helpers |
-| `journal*.ts` | Journal documents, search, organizers |
-| `transcripts.ts`, `annotations.ts`, `evidence.ts`, `assets.ts` | Content commands |
-| `settings.ts`, `templates.ts`, `model.ts`, `diagnostics.ts` | Supporting commands |
-
-Shared behavior was preserved; only imports and module boundaries moved. The refactor also fixed the unreachable `finally` in `publishStagedFileAtomically` and a lock-selection bug where a command-held `NodeFileArchiveSource` was not found during atomic replacement on Windows.
-
-## Dependency repair
-
-`native-audio-helper` previously could not resolve on Linux: `flexaudio-mic 0.8.1` requires `cpal 0.16`, while the helper requires `cpal 0.18`; both link the system ALSA library.
-
-Resolution:
-
-- `native-audio-helper/vendor/flexaudio-mic` vendors the 0.8.1 microphone backend with its `cpal` dependency raised to `0.18`.
-- `native-audio-helper/Cargo.toml` patches `flexaudio-mic` to that local crate.
-- The vendored backend was adapted to the `cpal 0.18` API (`Error`, `DeviceDescription`, direct `u32` sample rates, by-value stream configs).
-- `native_input.rs` was updated for `cpal 0.18` sample-rate and conversion APIs.
-
-Current validation on Windows: `cargo check` and `npm run build:audio-helper` pass. The vendored patch still needs a Linux and macOS build in CI or on real hardware.
-
-`src-tauri` applies the same `[patch.crates-io]` entry so the desktop host and helper resolve one `flexaudio-mic` copy. `flexaudio-os-macos 0.8.1` requires `libc =0.2.186` exactly, so `src-tauri/Cargo.toml` pins that version. `cargo tree` resolves the patched graph; a full `cargo check` stops later in `llama-cpp-sys-2` (see below).
-
-## Verification already run
-
-Do not repeat these without a relevant code change.
-
-- `npm run typecheck` — passed both TypeScript projects after the final edits.
-- `npx vitest run` — 27 files, 175 tests passed.
-- `npm run lint` — 0 errors; 42 pre-existing Solid reactivity warnings remain.
-- `npm run format:check` — passed.
-- `npx playwright test` — 12/12 passed against the built web app, including the updated workspace, audio, AI, session-package, and encrypted-archive flows.
-- `cargo check` in `native-audio-helper` — passed with no warnings.
-- `npm run build:audio-helper` — release helper built and copied to `src-tauri/binaries`.
-- `npm run cli -- diagnostics audio --json` — native probing verified on this Windows host.
-- Differential runs against the legacy `build/dev/tutorux.exe` baseline passed: legacy archive init/student/journal/session, TypeScript archive verify with history, TypeScript student update followed by a legacy `student show`, TypeScript compaction followed by a legacy `archive verify --full`, reviewed sanitized copy verified by the legacy binary, session package export/import and legacy `session list`, and FLAC import plus WAV export verified by the legacy binary.
-
-## Still outstanding
-
-These are qualification and differential items, not confirmed feature ports:
-
-- Cross-platform CI/package builds and real permission/device qualification on macOS and Linux, especially ScreenCaptureKit, PipeWire, and the vendored `flexaudio-mic` patch. The GitHub workflow matrix covers `windows-2025`, `macos-15`, and `ubuntu-24.04`; it has not run for this branch.
-- Full `cargo check`/`npm run desktop:build` on this Windows host stops in `llama-cpp-sys-2` when its CMake build invokes the Visual Studio 18 2026 generator from the MSYS2 CMake install. This is a local toolchain mismatch, not a source error. Packaging, file association/open-with, single-instance behavior, DPI, and keyboard/screen-reader review remain unexercised until that build runs.
-- Differential coverage used archives generated for the test. Importing a pre-existing user archive from the legacy baseline is still recommended before release.
-- `npm audit` reports 3 advisories (1 high, 2 critical) through `node-llama-cpp@3.22.2` -> `simple-git@3.36.0` / `@simple-git/argv-parser`. The suggested fix downgrades to `node-llama-cpp@2.0.0`, which is not acceptable; `simple-git` 4.x has no compatible upstream adoption in `node-llama-cpp` 3.x. Track an upstream release instead of forcing an override. TypeScript must remain `6.0.3`.
+Latest passed checks: `pnpm run typecheck`, `pnpm run lint` (0 errors, 46 Solid reactivity warnings), `pnpm run format:check` (oxfmt), `pnpm run test` (39 files, 245 tests), `pnpm exec playwright test` (12/12), and `pnpm run build`. `pnpm audit` still reports advisories through `node-llama-cpp@3.22.2` -> `simple-git@3.36.0` / `@simple-git/argv-parser`; the suggested fix downgrades to `node-llama-cpp@2.0.0`, which is not acceptable. Track an upstream release instead of forcing an override.
 
 ## Commit requirements
 
-The user requires one changed file per commit with detailed Conventional Commit messages. Use one PowerShell batch script that stages and commits each path separately. Do not group files. Do not push unless separately requested.
-
-After the batch:
-
-```powershell
-git status --short
-git log -5 --oneline
-```
+One changed file per commit with a detailed Conventional Commit message. Do not group files. Do not push unless separately requested.
 
 ## High-value references
 
-- `docs/migration/feature-inventory.md` — feature ledger and current gaps
-- `cli/main.ts` — entry point only
-- `cli/commands/` — command modules
-- `cli/diagnostics.ts` — endpoint diagnostics fallback and native probe mapping
-- `native-audio-helper/src/native_input.rs` — native endpoint configuration and capture
-- `src-tauri/src/diagnostics.rs` — desktop diagnostics reference
-- `frontend/archive/archive.ts` — archive engine and header repair
-- `frontend/archive/node-source.ts` — active source registry and OS lock ownership
+- `docs/migration/feature-inventory.md` — completed coverage and remaining release checks
+- `docs/ARCHITECTURE.md` — current module boundaries
+- `docs/archive-format/TUX-FORMAT-V1.md` — wire format, indexes, locking, and recovery
+- `frontend/archive/archive.ts` — archive engine, verification, recovery, and maintenance
+- `frontend/main.tsx` — workspace orchestration
+- `cli/commands/` — CLI command families
+- `src-tauri/src/platform/` — native capture
+- `native-audio-helper/src/` — CLI capture and probing
