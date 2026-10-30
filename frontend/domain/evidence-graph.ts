@@ -73,14 +73,19 @@ export function createEvidenceGraphLayout(
     const from = positions.get(edge.fields.get("from_id")?.toLowerCase() ?? "");
     const to = positions.get(edge.fields.get("to_id")?.toLowerCase() ?? "");
     const relationship = edge.fields.get("relationship")?.toLowerCase() ?? "";
-    const sessionId = edge.fields.get("session_id")?.toLowerCase() ?? "";
+    // Older CLI-created edges omit session_id. Resolve their scope from both
+    // endpoints while still rejecting cross-session or conflicting records.
+    const declaredSessionId = edge.fields.get("session_id")?.toLowerCase() ?? "";
+    const sourceSessionId = from?.record.fields.get("session_id")?.toLowerCase() ?? "";
+    const targetSessionId = to?.record.fields.get("session_id")?.toLowerCase() ?? "";
+    const sessionId = declaredSessionId || sourceSessionId;
     if (
       !from ||
       !to ||
       from.record.id.toLowerCase() === to.record.id.toLowerCase() ||
       !sessionId ||
-      sessionId !== from.record.fields.get("session_id")?.toLowerCase() ||
-      sessionId !== to.record.fields.get("session_id")?.toLowerCase() ||
+      sessionId !== sourceSessionId ||
+      sessionId !== targetSessionId ||
       !supportedRelationships.has(relationship)
     ) {
       invalidEdgeCount += 1;
