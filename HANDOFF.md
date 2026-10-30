@@ -2,7 +2,7 @@
 
 ## Current state
 
-The migration is feature-complete for the confirmed gaps in the previous handoff, and the TypeScript CLI has been modularized. The working tree is prepared as a one-file-per-commit batch.
+The migration is feature-complete for the confirmed gaps in the previous handoff, and the TypeScript CLI has been modularized. The work was committed as one file per commit; the working tree is clean.
 
 - Branch: `tauri-rewrite`
 - Legacy parity baseline: `7c78774`
