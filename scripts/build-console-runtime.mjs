@@ -147,7 +147,7 @@ if (!(await hasExpectedNodeVersion(cachedNode)) || !(await exists(cachedNodeLice
 }
 
 const consoleEntryGuard =
-  /\nif \(process\.argv\[1\] && resolve\(process\.argv\[1\]\) === fileURLToPath\(import\.meta\.url\)\) \{\r?\n  process\.exitCode = await executeCli\(process\.argv\.slice\(2\)\);\r?\n\}\s*$/u;
+  /\nif \(process\.argv\[1\] && resolve\(process\.argv\[1\]\) === fileURLToPath\(import\.meta\.url\)\) \{\r?\n {2}process\.exitCode = await executeCli\(process\.argv\.slice\(2\)\);\r?\n\}\s*$/u;
 const consoleEntryPlugin = {
   name: "tutorux-command-console-entry",
   transform(source, id) {
