@@ -7,14 +7,14 @@ Readers must validate all lengths and arithmetic before allocating or seeking.
 
 ## Limits
 
-| Item | Limit |
-| --- | ---: |
-| Header size | 64 bytes |
-| Record header size | 64 bytes |
-| Maximum ordinary record payload | 256 MiB |
-| Maximum index key | 192 bytes |
-| Maximum B+ tree depth | 32 pages |
-| Recovery locator search window | 64 MiB from EOF |
+| Item                            |           Limit |
+| ------------------------------- | --------------: |
+| Header size                     |        64 bytes |
+| Record header size              |        64 bytes |
+| Maximum ordinary record payload |         256 MiB |
+| Maximum index key               |       192 bytes |
+| Maximum B+ tree depth           |        32 pages |
+| Recovery locator search window  | 64 MiB from EOF |
 
 Audio and asset data is represented by independently addressable records so a recording does not
 need to be rewritten for an unrelated edit. Implementations may stream those records; they must
@@ -28,17 +28,17 @@ full verification, and only then publishes the copy. It never replaces the sourc
 
 The first 64 bytes are immutable after initialization:
 
-| Offset | Size | Field |
-| ---: | ---: | --- |
-| 0 | 8 | Magic `TUTORUX\0` |
-| 8 | 2 | Major version (`1`) |
-| 10 | 2 | Minor version (`0`) |
-| 12 | 4 | Header length (`64`) |
-| 16 | 16 | Archive UUID |
-| 32 | 8 | Creation time, Unix microseconds |
-| 40 | 8 | Capability flags |
-| 48 | 12 | Reserved, zero in v1 |
-| 60 | 4 | CRC-32/IEEE of bytes 0..59 |
+| Offset | Size | Field                            |
+| -----: | ---: | -------------------------------- |
+|      0 |    8 | Magic `TUTORUX\0`                |
+|      8 |    2 | Major version (`1`)              |
+|     10 |    2 | Minor version (`0`)              |
+|     12 |    4 | Header length (`64`)             |
+|     16 |   16 | Archive UUID                     |
+|     32 |    8 | Creation time, Unix microseconds |
+|     40 |    8 | Capability flags                 |
+|     48 |   12 | Reserved, zero in v1             |
+|     60 |    4 | CRC-32/IEEE of bytes 0..59       |
 
 Capability bit `0x1` declares that protected record payloads use archive encryption. Unknown
 capability bits are preserved by implementations that understand their requirements. This v1
@@ -52,21 +52,21 @@ opened for writing.
 
 Each record begins at an eight-byte-aligned offset and has this 64-byte header:
 
-| Offset | Size | Field |
-| ---: | ---: | --- |
-| 0 | 4 | Magic `TXRC` |
-| 4 | 2 | Record type |
-| 6 | 2 | Record version |
-| 8 | 4 | Header length (`64`) |
-| 12 | 8 | Payload length |
-| 20 | 16 | Logical object UUID |
-| 36 | 8 | Object revision |
-| 44 | 8 | Previous revision record offset, or zero |
-| 52 | 1 | Codec (`0` = none, `1` = LZ4 block) |
-| 53 | 1 | Flags |
-| 54 | 2 | Reserved, zero in v1 |
-| 56 | 4 | CRC-32/IEEE of the payload |
-| 60 | 4 | CRC-32/IEEE of bytes 0..59 |
+| Offset | Size | Field                                    |
+| -----: | ---: | ---------------------------------------- |
+|      0 |    4 | Magic `TXRC`                             |
+|      4 |    2 | Record type                              |
+|      6 |    2 | Record version                           |
+|      8 |    4 | Header length (`64`)                     |
+|     12 |    8 | Payload length                           |
+|     20 |   16 | Logical object UUID                      |
+|     36 |    8 | Object revision                          |
+|     44 |    8 | Previous revision record offset, or zero |
+|     52 |    1 | Codec (`0` = none, `1` = LZ4 block)      |
+|     53 |    1 | Flags                                    |
+|     54 |    2 | Reserved, zero in v1                     |
+|     56 |    4 | CRC-32/IEEE of the payload               |
+|     60 |    4 | CRC-32/IEEE of bytes 0..59               |
 
 The payload follows the header. The next record begins at `align8(offset + 64 + payload_length)`.
 Padding bytes are zero and are not included in checksums. Readers reject a payload length above the
@@ -101,7 +101,7 @@ includes a fingerprint of its source audio chunk revisions; stale or invalid cac
 from committed audio. It is an internal index record and never an asset-blob reference.
 
 Domain metadata payloads begin with a 4-byte schema magic, a 16-bit schema version, a 16-bit field
-count, then fields sorted by key. Each field is a 16-bit key length, a 32-bit value length, UTF-8
+count, an 8-byte little-endian opaque-blob length, then fields sorted by key. Each field is a 16-bit key length, a 32-bit value length, UTF-8
 key bytes, and UTF-8 value bytes. The remainder is an opaque blob. Keys are unique within a record.
 
 `AudioChunk` records store their encoded samples in the opaque blob. The v1 WAV importer writes
@@ -119,8 +119,9 @@ encountering older sessions without the marker scan the primary audio-chunk inde
 chunk references before validating payloads. The secondary index is rebuilt during compaction and is
 covered by full archive verification.
 
-The manifest's `annotation_session_time_index_version=1`, `student_session_index_version=1`, and
-`evidence_adjacency_index_version=1` flags enable three additional secondary indexes:
+The manifest's `annotation_session_time_index_version=1`, `student_session_index_version=1`,
+`evidence_adjacency_index_version=1`, `transcript_session_index_version=1`, and
+`guide_source_index_version=1` flags enable additional secondary indexes:
 
 - `ANNOTATIONSESSION:<session-uuid>:<20-digit-zero-padded-start_time_us>:<annotation-uuid>` orders
   annotations by their non-negative `start_time_us` within a session. Range lookups include the
@@ -128,6 +129,9 @@ The manifest's `annotation_session_time_index_version=1`, `student_session_index
 - `STUDENTSESSION:<student-uuid>:<session-uuid>` maps a non-anonymous student to each session.
 - `EVIDENCEADJ:<node-uuid>:<edge-uuid>` maps each distinct endpoint of an evidence edge to that edge;
   a self-loop has one entry.
+- `TRANSCRIPTSESSION:<session-uuid>:<cue-uuid>` maps each transcript cue to its session.
+- `GUIDESOURCE:<source-uuid>:<guide-uuid>` maps each cited source, including historical aliases, to
+  the guides that cite it.
 
 Each index value points to a structurally valid primary record revision. When indexed fields change,
 the new key points to the new revision and historical keys can continue to point to older revisions.
@@ -220,13 +224,13 @@ The writer flushes all appended data records and copy-on-write index pages befor
 It then flushes the commit, appends a 32-byte locator, and flushes the locator before reporting
 durable success:
 
-| Offset | Size | Field |
-| ---: | ---: | --- |
-| 0 | 8 | Magic `TUXLOC1\0` |
-| 8 | 8 | Commit record offset |
-| 16 | 8 | Generation |
-| 24 | 4 | CRC-32/IEEE of bytes 0..23 |
-| 28 | 4 | Reserved, zero |
+| Offset | Size | Field                      |
+| -----: | ---: | -------------------------- |
+|      0 |    8 | Magic `TUXLOC1\0`          |
+|      8 |    8 | Commit record offset       |
+|     16 |    8 | Generation                 |
+|     24 |    4 | CRC-32/IEEE of bytes 0..23 |
+|     28 |    4 | Reserved, zero             |
 
 Readers scan backward in the bounded recovery window for valid locators, then validate the
 referenced commit and root page. If the newest candidate is invalid, they follow the previous-commit
@@ -259,10 +263,7 @@ read/write access. Its probe must not write archive bytes or acquire the archive
 held by an active writer can still report filesystem write access. Lock, recovery, and compatibility
 conditions are reported independently through `healthStatus`.
 
-The legacy C++ implementation coordinates through native locks on the archive file handle itself:
-readers hold shared locks and writers hold exclusive locks. During compaction it locks a UUID-named
-replacement and adopts that handle before releasing the source handle. The TypeScript/Tauri port
-uses a stable lock file in the current user's application data/state directory instead. Its filename
+Tutorux uses a stable lock file in the current user's application data/state directory. Its filename
 is a hash of the canonical archive path, so a rename-based replacement keeps the same lock identity.
 It also locks the opened archive file handle, which makes hard-link aliases coordinate by file
 identity. Readers hold shared locks and mutations hold exclusive locks through verification and
