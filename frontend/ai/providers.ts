@@ -6,8 +6,11 @@ export interface AiProviderDefinition {
   description: string;
   protocol: string;
   defaultEndpoint: string;
+  endpointPlaceholder?: string;
   credentialKey: string | null;
   local: boolean;
+  generationAvailable?: boolean;
+  generationUnavailableReason?: string;
 }
 
 export interface AiProviderConfigurationInput {
@@ -16,7 +19,7 @@ export interface AiProviderConfigurationInput {
   model: string;
 }
 
-export const AI_PROVIDERS: readonly AiProviderDefinition[] = [
+const CORE_AI_PROVIDERS: readonly AiProviderDefinition[] = [
   {
     id: "openai",
     name: "OpenAI",
@@ -72,6 +75,24 @@ export const AI_PROVIDERS: readonly AiProviderDefinition[] = [
     local: true,
   },
   {
+    id: "lm-studio",
+    name: "LM Studio (local)",
+    description: "Local OpenAI-compatible LM Studio service",
+    protocol: "OpenAI Chat Completions",
+    defaultEndpoint: "http://127.0.0.1:1234/v1",
+    credentialKey: null,
+    local: true,
+  },
+  {
+    id: "llama.cpp-server",
+    name: "llama.cpp server (local)",
+    description: "Local OpenAI-compatible llama.cpp server",
+    protocol: "OpenAI Chat Completions",
+    defaultEndpoint: "http://127.0.0.1:8080/v1",
+    credentialKey: null,
+    local: true,
+  },
+  {
     id: "embedded-gguf",
     name: "Embedded GGUF (offline)",
     description: "In-process GGUF model · no network request",
@@ -91,6 +112,246 @@ export const AI_PROVIDERS: readonly AiProviderDefinition[] = [
   },
 ];
 
+function compatibleCloudProvider(
+  id: string,
+  name: string,
+  defaultEndpoint: string,
+  credentialKey: string,
+  description = `${name} OpenAI-compatible Chat Completions API`,
+  endpointPlaceholder?: string,
+): AiProviderDefinition {
+  return {
+    id,
+    name,
+    description,
+    protocol: "OpenAI Chat Completions",
+    defaultEndpoint,
+    ...(endpointPlaceholder ? { endpointPlaceholder } : {}),
+    credentialKey,
+    local: false,
+  };
+}
+
+const OPENAI_COMPATIBLE_CLOUD_PROVIDERS: readonly AiProviderDefinition[] = [
+  compatibleCloudProvider("xai", "xAI", "https://api.x.ai/v1", "XAI_API_KEY"),
+  compatibleCloudProvider(
+    "openrouter",
+    "OpenRouter",
+    "https://openrouter.ai/api/v1",
+    "OPENROUTER_API_KEY",
+  ),
+  compatibleCloudProvider(
+    "together",
+    "Together AI",
+    "https://api.together.ai/v1",
+    "TOGETHER_API_KEY",
+  ),
+  compatibleCloudProvider(
+    "fireworks",
+    "Fireworks AI",
+    "https://api.fireworks.ai/inference/v1",
+    "FIREWORKS_API_KEY",
+  ),
+  compatibleCloudProvider(
+    "deepinfra",
+    "DeepInfra",
+    "https://api.deepinfra.com/v1/openai",
+    "DEEPINFRA_API_KEY",
+  ),
+  compatibleCloudProvider(
+    "novita",
+    "Novita AI",
+    "https://api.novita.ai/openai/v1",
+    "NOVITA_API_KEY",
+  ),
+  compatibleCloudProvider(
+    "nebius",
+    "Nebius AI Studio",
+    "https://api.studio.nebius.com/v1",
+    "NEBIUS_API_KEY",
+  ),
+  compatibleCloudProvider("groq", "Groq", "https://api.groq.com/openai/v1", "GROQ_API_KEY"),
+  compatibleCloudProvider("cerebras", "Cerebras", "https://api.cerebras.ai/v1", "CEREBRAS_API_KEY"),
+  compatibleCloudProvider(
+    "sambanova",
+    "SambaNova",
+    "https://api.sambanova.ai/v1",
+    "SAMBANOVA_API_KEY",
+  ),
+  compatibleCloudProvider(
+    "nvidia",
+    "NVIDIA NIM",
+    "https://integrate.api.nvidia.com/v1",
+    "NVIDIA_API_KEY",
+  ),
+  compatibleCloudProvider("deepseek", "DeepSeek", "https://api.deepseek.com", "DEEPSEEK_API_KEY"),
+  compatibleCloudProvider("mistral", "Mistral AI", "https://api.mistral.ai/v1", "MISTRAL_API_KEY"),
+  compatibleCloudProvider(
+    "huggingface",
+    "Hugging Face Inference Providers",
+    "https://router.huggingface.co/v1",
+    "HF_TOKEN",
+  ),
+  compatibleCloudProvider(
+    "moonshot",
+    "Moonshot AI",
+    "https://api.moonshot.ai/v1",
+    "MOONSHOT_API_KEY",
+  ),
+  compatibleCloudProvider("zai", "Z.AI", "https://api.z.ai/api/paas/v4", "ZAI_API_KEY"),
+  compatibleCloudProvider("minimax", "MiniMax", "https://api.minimax.io/v1", "MINIMAX_API_KEY"),
+  compatibleCloudProvider(
+    "siliconflow",
+    "SiliconFlow",
+    "https://api.siliconflow.cn/v1",
+    "SILICONFLOW_API_KEY",
+  ),
+  compatibleCloudProvider(
+    "alibaba-cloud",
+    "Alibaba Cloud Model Studio",
+    "https://dashscope.aliyuncs.com/compatible-mode/v1",
+    "DASHSCOPE_API_KEY",
+  ),
+  compatibleCloudProvider(
+    "baidu",
+    "Baidu Qianfan",
+    "https://qianfan.baidubce.com/v2",
+    "BAIDU_API_KEY",
+  ),
+  compatibleCloudProvider(
+    "tencent-cloud",
+    "Tencent Cloud TokenHub",
+    "https://tokenhub.tencentmaas.com/v1",
+    "TOKENHUB_API_KEY",
+  ),
+  compatibleCloudProvider(
+    "volcengine",
+    "Volcengine Ark",
+    "https://ark.cn-beijing.volces.com/api/v3",
+    "ARK_API_KEY",
+  ),
+  compatibleCloudProvider(
+    "bedrock",
+    "Amazon Bedrock Mantle",
+    "https://bedrock-mantle.us-east-1.api.aws/v1",
+    "AWS_BEARER_TOKEN_BEDROCK",
+  ),
+  compatibleCloudProvider(
+    "azure-openai",
+    "Azure OpenAI",
+    "",
+    "AZURE_OPENAI_API_KEY",
+    "Azure OpenAI v1 Chat Completions API",
+    "https://my-resource.openai.azure.com/openai/v1",
+  ),
+  compatibleCloudProvider(
+    "cloudflare-workers-ai",
+    "Cloudflare Workers AI",
+    "",
+    "CLOUDFLARE_API_TOKEN",
+    "Account-scoped Cloudflare Workers AI OpenAI-compatible API",
+    "https://api.cloudflare.com/client/v4/accounts/<account-id>/ai/v1",
+  ),
+  compatibleCloudProvider("ai21", "AI21 Labs", "https://api.ai21.com/studio/v1", "AI21_API_KEY"),
+];
+
+const ADDITIONAL_AI_PROVIDERS: readonly AiProviderDefinition[] = [
+  {
+    id: "replicate",
+    name: "Replicate",
+    description: "Run reviewed text generations through Replicate’s asynchronous prediction API.",
+    protocol: "Replicate Prediction API",
+    defaultEndpoint: "https://api.replicate.com/v1",
+    credentialKey: "REPLICATE_API_TOKEN",
+    local: false,
+  },
+  {
+    id: "opencode-go",
+    name: "OpenCode Go (models only)",
+    description:
+      "Public model discovery only; this provider is restricted to coding-agent traffic.",
+    protocol: "OpenCode Go · tutoring use restricted",
+    defaultEndpoint: "https://opencode.ai/zen/go/v1",
+    credentialKey: null,
+    local: false,
+    generationAvailable: false,
+    generationUnavailableReason:
+      "OpenCode Go is restricted to coding-agent traffic. Tutorux will not send tutoring packages, notes, or transcripts to it.",
+  },
+  {
+    id: "opencode-zen",
+    name: "OpenCode Zen",
+    description: "Model-routed OpenAI Chat, Responses, Anthropic Messages, and Gemini APIs",
+    protocol: "OpenCode Zen model-routed protocols",
+    defaultEndpoint: "https://opencode.ai/inference/v1",
+    credentialKey: "OPENCODE_API_KEY",
+    local: false,
+  },
+];
+
+export const AI_PROVIDERS: readonly AiProviderDefinition[] = [
+  ...CORE_AI_PROVIDERS.slice(0, 5),
+  ...OPENAI_COMPATIBLE_CLOUD_PROVIDERS,
+  ...CORE_AI_PROVIDERS.slice(5),
+  ...ADDITIONAL_AI_PROVIDERS,
+];
+
+export type OpenCodeZenProtocol = "openai-chat" | "openai-responses" | "anthropic" | "gemini";
+
+export function openCodeZenProtocolForModel(model: string): OpenCodeZenProtocol {
+  if (model.startsWith("jev-")) {
+    throw new Error(
+      "OpenCode Zen Jev models return structured classifications, not tutoring guide text.",
+    );
+  }
+  if (model.startsWith("gpt-") || model.startsWith("grok-") || model.startsWith("muse-spark-")) {
+    return "openai-responses";
+  }
+  if (
+    model.startsWith("claude-") ||
+    model.startsWith("qwen3.5-") ||
+    model.startsWith("qwen3.6-") ||
+    model.startsWith("qwen3.7-") ||
+    model.startsWith("qwen3.8-flash")
+  ) {
+    return "anthropic";
+  }
+  if (model.startsWith("gemini-")) return "gemini";
+  return "openai-chat";
+}
+
+export function providerAuthenticationHeaderName(providerId: string, model = ""): string | null {
+  if (providerId === "opencode-zen") {
+    const protocol = openCodeZenProtocolForModel(model);
+    if (protocol === "anthropic") return "x-api-key";
+    if (protocol === "gemini") return "x-goog-api-key";
+    return "Authorization";
+  }
+  switch (providerId) {
+    case "anthropic":
+      return "x-api-key";
+    case "google-gemini":
+      return "x-goog-api-key";
+    case "azure-openai":
+      return "api-key";
+    case "ollama":
+    case "lm-studio":
+    case "llama.cpp-server":
+    case "embedded-gguf":
+    case "llama.cpp-embedded":
+      return null;
+    default:
+      return "Authorization";
+  }
+}
+
+export function usesAnthropicVersionHeader(providerId: string, model = ""): boolean {
+  return (
+    providerId === "anthropic" ||
+    (providerId === "opencode-zen" && openCodeZenProtocolForModel(model) === "anthropic")
+  );
+}
+
 /** `llama.cpp-embedded` is the legacy archive/CLI ID; `embedded-gguf` is its current UI ID. */
 export function isEmbeddedGgufProvider(providerId: string): boolean {
   const normalized = providerId.trim().toLowerCase();
@@ -98,11 +359,21 @@ export function isEmbeddedGgufProvider(providerId: string): boolean {
 }
 
 export function providerById(providerId: string): AiProviderDefinition | undefined {
-  const normalized = providerId.trim().toLowerCase();
+  let normalized = providerId.trim().toLowerCase();
   if (isEmbeddedGgufProvider(normalized)) {
     return AI_PROVIDERS.find((provider) => provider.id === "embedded-gguf");
   }
+  if (normalized === "lm studio") normalized = "lm-studio";
+  if (normalized === "llama.cpp server") normalized = "llama.cpp-server";
+  if (normalized === "cloudflare" || normalized === "workers-ai") {
+    normalized = "cloudflare-workers-ai";
+  }
+  if (normalized === "z.ai") normalized = "zai";
   return AI_PROVIDERS.find((provider) => provider.id === normalized);
+}
+
+export function isOpenAiCompatibleProvider(providerId: string): boolean {
+  return providerById(providerId)?.protocol.includes("OpenAI") ?? false;
 }
 
 export async function createProviderConfigurationRecord(
@@ -112,7 +383,7 @@ export async function createProviderConfigurationRecord(
   const provider = providerById(input.providerId);
   if (!provider) throw new Error("Choose a supported AI provider.");
   const endpoint = validateProviderEndpoint(input.endpoint, provider);
-  const model = cleanField(input.model, "Model", 256, true);
+  const model = cleanField(input.model, "Model", 1024, true);
   const id = await deterministicUuid(`ai-provider:${provider.id}`);
   return {
     type: RecordType.settings,
@@ -191,6 +462,30 @@ export function validateProviderEndpoint(value: string, provider: AiProviderDefi
   }
   if (parsed.username || parsed.password || parsed.search || parsed.hash) {
     throw new Error("Endpoint URLs cannot contain credentials, query parameters, or fragments.");
+  }
+  if (provider.id === "replicate") {
+    if (
+      parsed.protocol !== "https:" ||
+      parsed.hostname.toLowerCase() !== "api.replicate.com" ||
+      parsed.port !== "" ||
+      (parsed.pathname !== "/v1" && parsed.pathname !== "/v1/")
+    ) {
+      throw new Error("Replicate requests must use the official https://api.replicate.com/v1 API.");
+    }
+    return "https://api.replicate.com/v1";
+  }
+  if (provider.id === "cloudflare-workers-ai") {
+    const match = /^\/client\/v4\/accounts\/([0-9a-f-]+)\/ai\/v1\/?$/u.exec(parsed.pathname);
+    if (
+      parsed.hostname.toLowerCase() !== "api.cloudflare.com" ||
+      parsed.protocol !== "https:" ||
+      parsed.port !== "" ||
+      !match
+    ) {
+      throw new Error(
+        "Cloudflare Workers AI requires an account-scoped endpoint ending in /client/v4/accounts/{account-id}/ai/v1.",
+      );
+    }
   }
   if (provider.local) {
     const loopback = ["localhost", "127.0.0.1", "[::1]"].includes(parsed.hostname.toLowerCase());
