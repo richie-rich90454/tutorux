@@ -1,7 +1,6 @@
 import { ArchiveFormatError, crc32, RecordType, type ArchiveRecord } from "../archive/format";
 import type { ArchiveSnapshot } from "../archive/archive";
 
-const MAX_PREVIEW_DURATION_US = 30_000_000n;
 const MAX_PREVIEW_BYTES = 32 * 1024 * 1024;
 const MAX_AUDIO_CHUNK_BYTES = 1024 * 1024;
 const WAV_U32_MAX = 4_294_967_295n;
@@ -173,15 +172,12 @@ export async function buildAudioPreview(
   const startUs = parseNonNegativeInteger(startTimeUs, "Playback start time");
   const requestedEndUs =
     endTimeUs === undefined
-      ? startUs + MAX_PREVIEW_DURATION_US
+      ? startUs + U64_MAX / 1_000_000n
       : parseNonNegativeInteger(endTimeUs, "Playback end time");
   if (requestedEndUs <= startUs) {
     throw new ArchiveFormatError("audio_range_invalid", "The playback range is empty.");
   }
-  const endUs =
-    requestedEndUs - startUs > MAX_PREVIEW_DURATION_US
-      ? startUs + MAX_PREVIEW_DURATION_US
-      : requestedEndUs;
+  const endUs = requestedEndUs;
   const rate = BigInt(first.sampleRateHz);
   const startFrame = (startUs * rate) / 1_000_000n;
   const requestedEndFrame = (endUs * rate + 999_999n) / 1_000_000n;
