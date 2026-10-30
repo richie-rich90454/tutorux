@@ -7,6 +7,108 @@ import { RecordType, type ArchiveRecord } from "../frontend/archive/format";
 import type { ArchiveSnapshot } from "../frontend/archive/archive";
 import { buildAudioPreview } from "../frontend/domain/audio";
 import { makeWhisperRecords, whisperAudio } from "../frontend/domain/whisper";
+import type { AudioPreview } from "../frontend/domain/audio";
+
+/** Run one bounded, already prepared audio window through the local whisper.cpp CLI. */
+export async function transcribeWhisperPreview(options: {
+  preview: AudioPreview;
+  executable: string;
+  model: string;
+  language: string;
+  diarizeSpeakerTurns?: boolean;
+  threads?: number;
+}): Promise<string> {
+  const executable = resolve(options.executable);
+  const model = resolve(options.model);
+  if (!(await stat(executable)).isFile() || !(await stat(model)).isFile()) {
+    throw new Error("Whisper executable and model must be regular files.");
+  }
+  if (!/^[A-Za-z-]{1,16}$/u.test(options.language)) {
+    throw new Error("The Whisper language must be a language code or auto.");
+  }
+  if (
+    options.threads !== undefined &&
+    (!Number.isSafeInteger(options.threads) || options.threads < 1 || options.threads > 64)
+  ) {
+    throw new Error("The Whisper thread count must be an integer from 1 through 64.");
+  }
+
+  const directory = await mkdtemp(join(tmpdir(), "tutorux-live-whisper-"));
+  const audioPath = join(directory, "audio.wav");
+  const outputBase = join(directory, "transcript");
+  const outputPath = `${outputBase}.json`;
+  const controller = new AbortController();
+  let childProcess: ReturnType<typeof spawn> | undefined;
+  let forceStopTimer: NodeJS.Timeout | undefined;
+  const timeout = setTimeout(
+    () => {
+      controller.abort();
+      forceStopTimer = setTimeout(() => {
+        if (childProcess && childProcess.exitCode === null && childProcess.signalCode === null) {
+          try {
+            childProcess.kill("SIGKILL");
+          } catch {
+            childProcess.kill();
+          }
+        }
+      }, 5_000);
+    },
+    10 * 60 * 1000,
+  );
+  try {
+    await writeFile(audioPath, whisperAudio(options.preview), { mode: 0o600 });
+    await new Promise<void>((accept, reject) => {
+      const child = spawn(
+        executable,
+        [
+          "-m",
+          model,
+          "-f",
+          audioPath,
+          "-l",
+          options.language,
+          "-oj",
+          "-of",
+          outputBase,
+          "-np",
+          ...(options.threads === undefined ? [] : ["-t", String(options.threads)]),
+          ...(options.diarizeSpeakerTurns ? ["-tdrz"] : []),
+        ],
+        { stdio: "ignore", windowsHide: true, signal: controller.signal },
+      );
+      childProcess = child;
+      let failedToStart = false;
+      child.once("error", () => {
+        failedToStart = true;
+      });
+      child.once("close", (code) => {
+        if (forceStopTimer) clearTimeout(forceStopTimer);
+        if (code === 0 && !failedToStart) {
+          accept();
+        } else {
+          reject(
+            new Error(
+              controller.signal.aborted
+                ? "Whisper exceeded the ten-minute window limit."
+                : failedToStart
+                  ? "Could not start Whisper."
+                  : "Whisper could not transcribe this audio. Check the executable and model.",
+            ),
+          );
+        }
+      });
+    });
+    const metadata = await stat(outputPath);
+    if (!metadata.isFile() || metadata.size > 8 * 1024 * 1024) {
+      throw new Error("Whisper output is invalid or too large.");
+    }
+    return await readFile(outputPath, "utf8");
+  } finally {
+    clearTimeout(timeout);
+    if (forceStopTimer) clearTimeout(forceStopTimer);
+    await rm(directory, { recursive: true, force: true });
+  }
+}
 
 interface WhisperOptions {
   snapshot: ArchiveSnapshot;
