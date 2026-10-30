@@ -1573,49 +1573,45 @@ function App(): JSX.Element {
       throw new Error("Choose a secure Replicate credential store before model inspection.");
     }
 
-    try {
-      const chunks: Uint8Array[] = [];
-      let receivedBytes = 0;
-      const result = await platform.inspectReplicateModel(
-        { model, credentialStorage, credential },
-        (chunk) => {
-          receivedBytes += chunk.byteLength;
-          if (receivedBytes > 8 * 1024 * 1024) {
-            throw new Error("The Replicate model schema exceeded the 8 MiB limit.");
-          }
-          chunks.push(chunk.slice());
-        },
-      );
-      current = workspace();
-      if (!current || current.snapshot !== inspectionSnapshot) {
-        // The active archive may change during a network request; schema results are bound to it.
-        throw new Error("The active archive changed during model inspection. Review again.");
-      }
-      if (result.errorMessage) throw new Error(result.errorMessage);
-      if (result.status === 401 || result.status === 403) {
-        throw new Error("Replicate rejected the API token or model access.");
-      }
-      if (result.status === 429) throw new Error("Replicate is rate limiting model inspection.");
-      if (result.status < 200 || result.status >= 300) {
-        throw new Error(`Replicate model inspection returned HTTP ${result.status}.`);
-      }
-      if (
-        !result.complete ||
-        result.responseBytes !== receivedBytes ||
-        result.contentType.trim().toLowerCase() !== "application/json"
-      ) {
-        throw new Error("Replicate returned an incomplete or non-JSON model schema.");
-      }
-      const bytes = new Uint8Array(receivedBytes);
-      let offset = 0;
-      for (const chunk of chunks) {
-        bytes.set(chunk, offset);
-        offset += chunk.byteLength;
-      }
-      return parseReplicateModelInputSchema(bytes, model);
-    } finally {
-      credential = "";
+    const chunks: Uint8Array[] = [];
+    let receivedBytes = 0;
+    const result = await platform.inspectReplicateModel(
+      { model, credentialStorage, credential },
+      (chunk) => {
+        receivedBytes += chunk.byteLength;
+        if (receivedBytes > 8 * 1024 * 1024) {
+          throw new Error("The Replicate model schema exceeded the 8 MiB limit.");
+        }
+        chunks.push(chunk.slice());
+      },
+    );
+    current = workspace();
+    if (!current || current.snapshot !== inspectionSnapshot) {
+      // The active archive may change during a network request; schema results are bound to it.
+      throw new Error("The active archive changed during model inspection. Review again.");
     }
+    if (result.errorMessage) throw new Error(result.errorMessage);
+    if (result.status === 401 || result.status === 403) {
+      throw new Error("Replicate rejected the API token or model access.");
+    }
+    if (result.status === 429) throw new Error("Replicate is rate limiting model inspection.");
+    if (result.status < 200 || result.status >= 300) {
+      throw new Error(`Replicate model inspection returned HTTP ${result.status}.`);
+    }
+    if (
+      !result.complete ||
+      result.responseBytes !== receivedBytes ||
+      result.contentType.trim().toLowerCase() !== "application/json"
+    ) {
+      throw new Error("Replicate returned an incomplete or non-JSON model schema.");
+    }
+    const bytes = new Uint8Array(receivedBytes);
+    let offset = 0;
+    for (const chunk of chunks) {
+      bytes.set(chunk, offset);
+      offset += chunk.byteLength;
+    }
+    return parseReplicateModelInputSchema(bytes, model);
   }
 
   async function saveAiPackage(summary: AiPackageSummary): Promise<boolean> {
@@ -2795,7 +2791,9 @@ function App(): JSX.Element {
       const updates = await setRecordingTrackDeleted(state.snapshot, track.id, deleted);
       await addRecords(
         updates,
-        deleted ? "Recording track and its timeline data moved to Trash." : "Recording track restored.",
+        deleted
+          ? "Recording track and its timeline data moved to Trash."
+          : "Recording track restored.",
       );
     } catch (error) {
       announce(errorMessage(error), "error");
@@ -3294,7 +3292,10 @@ function App(): JSX.Element {
   async function saveThemeMode(mode: ThemeMode): Promise<void> {
     if (!validThemeMode(mode)) return;
     if (busy()) {
-      announce("Wait for the current archive operation to finish before changing appearance.", "info");
+      announce(
+        "Wait for the current archive operation to finish before changing appearance.",
+        "info",
+      );
       return;
     }
     const current = workspace();
@@ -3320,10 +3321,15 @@ function App(): JSX.Element {
       const stableId = await deterministicUuid("setting:ui.theme");
       const latest = existing ?? (await current.snapshot.getRecord(RecordType.settings, stableId));
       if (workspace()?.snapshot !== current.snapshot) {
-        throw new Error("The active archive changed while its appearance preference was being saved.");
+        throw new Error(
+          "The active archive changed while its appearance preference was being saved.",
+        );
       }
       if (busy()) {
-        announce("Wait for the current archive operation to finish before saving appearance.", "info");
+        announce(
+          "Wait for the current archive operation to finish before saving appearance.",
+          "info",
+        );
         return;
       }
       const fields = new Map(latest?.fields ?? []);
@@ -6751,7 +6757,7 @@ function TrashPage(props: {
             class="button button-danger trash-purge-start"
             type="button"
             disabled={props.disabled}
-            onClick={props.onBeginPurge}
+            onClick={() => props.onBeginPurge()}
           >
             Permanently purge Trash
           </button>
@@ -6780,8 +6786,12 @@ function TrashPage(props: {
                           <span>
                             {blocker.recordType} {blocker.recordId} is linked from{" "}
                             {blocker.references
-                              .map((reference) => `${reference.label} (${reference.fields.join(", ")})`)
-                              .join("; ")}.
+                              .map(
+                                (reference) =>
+                                  `${reference.label} (${reference.fields.join(", ")})`,
+                              )
+                              .join("; ")}
+                            .
                           </span>
                         </li>
                       )}
@@ -6792,8 +6802,8 @@ function TrashPage(props: {
               <Show when={review().plan.opaqueRecords > 0}>
                 <p class="trash-purge-blockers" role="alert">
                   {review().plan.opaqueRecords} record(s) from a newer archive version cannot be
-                  checked for active links. Open the archive in a compatible version before
-                  purging Trash.
+                  checked for active links. Open the archive in a compatible version before purging
+                  Trash.
                 </p>
               </Show>
               <div class="trash-purge-actions">
@@ -7279,6 +7289,7 @@ function TranscriptPage(props: {
         (!assetSessionId || assetSessionId === session.id.toLowerCase())
       );
     });
+  });
   const trashedSessionRecordingTracks = createMemo(() => {
     const session = selectedSession();
     if (!session) return [];
@@ -7288,7 +7299,6 @@ function TranscriptPage(props: {
         field(track, "session_id").toLowerCase() === session.id.toLowerCase() &&
         activeTakeIds.has(field(track, "recording_take_id").toLowerCase()),
     );
-  });
   });
   const selectedCues = createMemo(() => {
     const selected = new Set(selectedCueIds());
@@ -7812,8 +7822,9 @@ function TranscriptPage(props: {
               </span>
             </div>
             <span class="transcript-takes-count">
-              {sessionRecordingTakes().length} active takes · {trashedSessionRecordingTakes().length}{" "}
-              takes and {trashedSessionRecordingTracks().length} tracks in Trash
+              {sessionRecordingTakes().length} active takes ·{" "}
+              {trashedSessionRecordingTakes().length} takes and{" "}
+              {trashedSessionRecordingTracks().length} tracks in Trash
             </span>
           </div>
           <div class="transcript-takes-list">
@@ -8144,7 +8155,10 @@ function RecordingTakeRow(props: {
         </div>
       </Show>
       <Show when={props.trashedTracks.length > 0}>
-        <div class="transcript-take-tracks transcript-take-trashed-tracks" aria-label="Tracks in Trash">
+        <div
+          class="transcript-take-tracks transcript-take-trashed-tracks"
+          aria-label="Tracks in Trash"
+        >
           <strong>Tracks in Trash</strong>
           <For each={props.trashedTracks}>
             {(track) => (
@@ -8737,7 +8751,6 @@ function ArchivePage(props: {
   onOpen: () => void;
   onLock: () => void;
 }): JSX.Element {
-  const size = props.state.snapshot.source.size;
   const [verification, setVerification] = createSignal<ArchiveVerificationResult | null>(null);
   const [verificationError, setVerificationError] = createSignal("");
   const [historyVerification, setHistoryVerification] = createSignal<{
@@ -8820,7 +8833,7 @@ function ArchivePage(props: {
         </div>
         <div class="archive-size">
           <span>FILE SIZE</span>
-          <strong>{formatBytes(size)}</strong>
+          <strong>{formatBytes(props.state.snapshot.source.size)}</strong>
           <small>{props.state.location ?? "Browser copy"}</small>
         </div>
       </section>
