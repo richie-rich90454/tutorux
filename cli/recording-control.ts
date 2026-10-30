@@ -89,7 +89,15 @@ export async function startRecordingControlWorker(
   const server = createServer((socket) => {
     handleControlConnection(socket, (request) => {
       if (!isControlRequest(request)) {
-        return { ...errorResponse(state, message, "recording_control_protocol_invalid", "Malformed recording control request."), workerId };
+        return {
+          ...errorResponse(
+            state,
+            message,
+            "recording_control_protocol_invalid",
+            "Malformed recording control request.",
+          ),
+          workerId,
+        };
       }
       const response = respondToControl(request.command, {
         get state() {
@@ -137,7 +145,11 @@ export async function startRecordingControlWorker(
       await closeServer(server);
       if (endpoint.filesystemPath && socketIdentity) {
         const current = await lstat(endpoint.filesystemPath).catch(() => undefined);
-        if (current?.isSocket() && current.dev === socketIdentity.dev && current.ino === socketIdentity.ino) {
+        if (
+          current?.isSocket() &&
+          current.dev === socketIdentity.dev &&
+          current.ino === socketIdentity.ino
+        ) {
           await unlink(endpoint.filesystemPath).catch(() => {});
         }
       }
@@ -192,15 +204,24 @@ async function recordingControlEndpoint(
   await mkdir(directory, { recursive: true, mode: 0o700 });
   const directoryDetails = await lstat(directory);
   if (directoryDetails.isSymbolicLink() || !directoryDetails.isDirectory()) {
-    throw new RecordingControlError("recording_control_directory_invalid", "The private recording control directory is unsafe.");
+    throw new RecordingControlError(
+      "recording_control_directory_invalid",
+      "The private recording control directory is unsafe.",
+    );
   }
   if (process.getuid && directoryDetails.uid !== process.getuid()) {
-    throw new RecordingControlError("recording_control_directory_invalid", "The recording control directory belongs to another user.");
+    throw new RecordingControlError(
+      "recording_control_directory_invalid",
+      "The recording control directory belongs to another user.",
+    );
   }
   if ((directoryDetails.mode & 0o077) !== 0) await chmod(directory, 0o700);
   const filesystemPath = join(directory, `${digest.slice(0, 32)}.sock`);
   if (Buffer.byteLength(filesystemPath, "utf8") >= 104) {
-    throw new RecordingControlError("recording_control_path_too_long", "The system temporary path is too long for local recording control.");
+    throw new RecordingControlError(
+      "recording_control_path_too_long",
+      "The system temporary path is too long for local recording control.",
+    );
   }
   return { address: filesystemPath, filesystemPath };
 }
@@ -210,7 +231,10 @@ async function removeStaleSocket(endpoint: ControlEndpoint): Promise<void> {
   const existing = await lstat(endpoint.filesystemPath).catch(() => undefined);
   if (!existing) return;
   if (existing.isSymbolicLink() || !existing.isSocket()) {
-    throw new RecordingControlError("recording_control_path_unsafe", "The recording control endpoint is occupied by an unexpected filesystem entry.");
+    throw new RecordingControlError(
+      "recording_control_path_unsafe",
+      "The recording control endpoint is occupied by an unexpected filesystem entry.",
+    );
   }
   if (await requestRecordingControlAt(endpoint.address, "status")) {
     throw new RecordingControlError(
@@ -271,7 +295,16 @@ function handleControlConnection(
     if (finished) return;
     if (input.byteLength + chunk.byteLength > MAXIMUM_CONTROL_MESSAGE_BYTES) {
       finished = true;
-      socket.end(JSON.stringify(errorResponse("starting", "", "recording_control_request_too_large", "The recording control request is too large.")) + "\n");
+      socket.end(
+        JSON.stringify(
+          errorResponse(
+            "starting",
+            "",
+            "recording_control_request_too_large",
+            "The recording control request is too large.",
+          ),
+        ) + "\n",
+      );
       return;
     }
     input = Buffer.concat([input, chunk]);
@@ -282,7 +315,16 @@ function handleControlConnection(
       const request = JSON.parse(input.subarray(0, newline).toString("utf8")) as unknown;
       socket.end(`${JSON.stringify(respond(request))}\n`);
     } catch {
-      socket.end(JSON.stringify(errorResponse("starting", "", "recording_control_protocol_invalid", "Malformed recording control request.")) + "\n");
+      socket.end(
+        JSON.stringify(
+          errorResponse(
+            "starting",
+            "",
+            "recording_control_protocol_invalid",
+            "Malformed recording control request.",
+          ),
+        ) + "\n",
+      );
     }
   });
   socket.on("error", () => {});
@@ -292,8 +334,11 @@ function isControlRequest(request: unknown): request is ControlRequest {
   if (typeof request !== "object" || request === null) return false;
   const value = request as Record<string, unknown>;
   return (
-    value.version === CONTROL_PROTOCOL_VERSION &&
-    (value.command === "status" || value.command === "pause" || value.command === "resume" || value.command === "stop")
+    value["version"] === CONTROL_PROTOCOL_VERSION &&
+    (value["command"] === "status" ||
+      value["command"] === "pause" ||
+      value["command"] === "resume" ||
+      value["command"] === "stop")
   );
 }
 
@@ -314,13 +359,23 @@ function respondToControl(
   }
   if (command === "pause") {
     if (state.state !== "recording") {
-      return errorResponse(state.state, state.message, "recording_not_active", "Recording is not in the active state.");
+      return errorResponse(
+        state.state,
+        state.message,
+        "recording_not_active",
+        "Recording is not in the active state.",
+      );
     }
     state.setPause(true);
     return successResponse(state.state, "Recording pause was requested.");
   }
   if (state.state !== "paused") {
-    return errorResponse(state.state, state.message, "recording_not_paused", "Recording is not paused.");
+    return errorResponse(
+      state.state,
+      state.message,
+      "recording_not_paused",
+      "Recording is not paused.",
+    );
   }
   state.setPause(false);
   return successResponse(state.state, "Recording resume was requested.");
@@ -365,7 +420,12 @@ async function requestRecordingControlAt(
       else resolveResponse(response);
     };
     socket.setTimeout(CONTROL_CONNECT_TIMEOUT_MS, () => {
-      finish(new RecordingControlError("recording_control_timeout", "The recording control worker did not respond."));
+      finish(
+        new RecordingControlError(
+          "recording_control_timeout",
+          "The recording control worker did not respond.",
+        ),
+      );
     });
     socket.once("connect", () => {
       socket.write(`${JSON.stringify({ version: CONTROL_PROTOCOL_VERSION, command })}\n`);
@@ -373,7 +433,12 @@ async function requestRecordingControlAt(
     socket.on("data", (chunk: Buffer) => {
       if (settled) return;
       if (input.byteLength + chunk.byteLength > MAXIMUM_CONTROL_MESSAGE_BYTES) {
-        finish(new RecordingControlError("recording_control_response_too_large", "The recording control response is too large."));
+        finish(
+          new RecordingControlError(
+            "recording_control_response_too_large",
+            "The recording control response is too large.",
+          ),
+        );
         return;
       }
       input = Buffer.concat([input, chunk]);
@@ -388,7 +453,12 @@ async function requestRecordingControlAt(
       }
     });
     socket.once("error", (error: NodeJS.ErrnoException) => {
-      if (error.code === "ENOENT" || error.code === "ECONNREFUSED" || error.code === "ECONNRESET" || error.code === "EPIPE") {
+      if (
+        error.code === "ENOENT" ||
+        error.code === "ECONNREFUSED" ||
+        error.code === "ECONNRESET" ||
+        error.code === "EPIPE"
+      ) {
         finish(undefined, undefined);
       } else {
         finish(error);
@@ -401,10 +471,10 @@ function isControlResponse(response: unknown): response is ControlResponse {
   if (typeof response !== "object" || response === null) return false;
   const value = response as Record<string, unknown>;
   return (
-    value.version === CONTROL_PROTOCOL_VERSION &&
-    typeof value.ok === "boolean" &&
-    typeof value.message === "string" &&
-    typeof value.state === "string" &&
-    (value.workerId === undefined || typeof value.workerId === "string")
+    value["version"] === CONTROL_PROTOCOL_VERSION &&
+    typeof value["ok"] === "boolean" &&
+    typeof value["message"] === "string" &&
+    typeof value["state"] === "string" &&
+    (value["workerId"] === undefined || typeof value["workerId"] === "string")
   );
 }
