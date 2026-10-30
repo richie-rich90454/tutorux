@@ -26,6 +26,20 @@ export interface AssetImport {
   readonly chunkCount: number;
 }
 
+/** Filter the visible materials to one session, the general library, or the full library. */
+export function filterAssetsBySession(
+  records: readonly ArchiveRecord[],
+  sessionId: string | null,
+): ArchiveRecord[] {
+  if (sessionId === null) return [...records];
+  const selectedSessionId = sessionId.trim().toLowerCase();
+  return records.filter(
+    (record) =>
+      record.type === RecordType.assetMetadata &&
+      (record.fields.get("session_id") ?? "").trim().toLowerCase() === selectedSessionId,
+  );
+}
+
 export async function makeAssetImport(
   snapshot: ArchiveSnapshot,
   file: AssetFile,
