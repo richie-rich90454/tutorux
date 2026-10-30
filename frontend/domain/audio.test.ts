@@ -7,7 +7,12 @@ import {
 } from "../archive/archive";
 import { crc32, RecordType, type ArchiveRecord } from "../archive/format";
 import type { ArchiveByteSource } from "../archive/source";
-import { buildAudioPreview, buildAudioTrackWavStream, listSessionAudioTracks } from "./audio";
+import {
+  buildAudioPreview,
+  buildAudioTrackWavExport,
+  buildAudioTrackWavStream,
+  listSessionAudioTracks,
+} from "./audio";
 
 describe("archive audio playback", () => {
   it("does not expose audio tracks whose metadata is in Trash", () => {
@@ -117,7 +122,7 @@ describe("archive audio playback", () => {
     expect(new DataView(wav.buffer).getUint16(34, true)).toBe(8);
   });
 
-  it("rejects WAV exports larger than the RIFF size limit before reading PCM", async () => {
+  it("uses RF64 for WAV exports larger than the RIFF size limit", async () => {
     const sessionId = crypto.randomUUID();
     const trackId = crypto.randomUUID();
     const chunk = audioChunk(sessionId, trackId, 0, 0, [1]);
@@ -125,7 +130,9 @@ describe("archive audio playback", () => {
     fields.set("sample_count", "3000000000");
     const snapshot = await archiveWithAudio([{ ...chunk, fields }]);
 
-    await expect(buildAudioTrackWavStream(snapshot, sessionId, trackId)).rejects.toThrow(/4 GiB/u);
+    const exported = await buildAudioTrackWavExport(snapshot, sessionId, trackId);
+    expect(exported.rf64).toBe(true);
+    expect(exported.dataBytes).toBe(6_000_000_000n);
   });
 
   it("rejects audio whose independent PCM checksum is invalid", async () => {
