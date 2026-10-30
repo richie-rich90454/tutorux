@@ -32,7 +32,8 @@ jobs:
           sudo apt-get update
           sudo apt-get install --yes \
             build-essential curl file libayatana-appindicator3-dev libssl-dev \
-            librsvg2-dev libwebkit2gtk-4.1-dev libxdo-dev patchelf
+            libasound2-dev libpipewire-0.3-dev librsvg2-dev libwebkit2gtk-4.1-dev \
+            libxdo-dev patchelf xdg-utils
 
       - uses: actions/setup-node@v4
         with:
@@ -43,7 +44,9 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: src-tauri -> target
+          workspaces: |
+            src-tauri -> target
+            native-audio-helper -> target
 
       - name: Install npm dependencies
         run: npm ci
