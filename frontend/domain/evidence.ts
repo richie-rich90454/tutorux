@@ -435,9 +435,7 @@ export async function restoreEvidenceEdge(
       ? await snapshot.getRecord(RecordType.evidenceNode, endpointId)
       : null;
     if (!endpoint || endpoint.fields.get("_deleted") === "true") {
-      throw new Error(
-        "Restore both linked evidence items before restoring this relationship.",
-      );
+      throw new Error("Restore both linked evidence items before restoring this relationship.");
     }
   }
   return restoreEvidenceRecord(edge, nowUs());
