@@ -7,10 +7,10 @@ does not use a sidecar folder, extraction directory, or separate interchange dat
 
 The package's settings record whose ID matches the archive header ID includes:
 
-| Field | Value |
-| --- | --- |
-| `record_role` | `tutorux-session-package` |
-| `package_version` | `1` |
+| Field               | Value                                     |
+| ------------------- | ----------------------------------------- |
+| `record_role`       | `tutorux-session-package`                 |
+| `package_version`   | `1`                                       |
 | `source_session_id` | UUID of the session in its source archive |
 
 The package must pass full archive verification and contain exactly one active session. It may
