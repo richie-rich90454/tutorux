@@ -9,6 +9,12 @@ import {
 } from "./ai/package";
 import { createAiMultipartHandoff } from "./ai/multipart";
 import { hasAiModelCatalog, loadAiModelCatalog, type AiCatalogModel } from "./ai/model-catalog";
+import {
+  listOllamaInstalledModels,
+  testAiProviderConnection,
+  type AiConnectionTest,
+  type OllamaInstalledModel,
+} from "./ai/ollama";
 import type { AiRequestPreview } from "./ai/request";
 import type { ReplicateModelInputSchema } from "./ai/replicate-schema";
 import { AI_RESPONSE_PREVIEW_CHARACTER_LIMIT, type AiExecutionSummary } from "./ai/response";
@@ -85,6 +91,16 @@ interface AiPageProps {
     onProgress: (responseBytes: number) => void,
   ) => Promise<void>;
   onSaveProvider: (input: AiProviderConfigurationInput) => Promise<boolean>;
+  onImportResponse?: (
+    file: File,
+    sessionId: string,
+    templateId: string,
+  ) => Promise<{
+    jobId: string;
+    guideId: string;
+    status: string;
+    warnings: readonly string[];
+  }>;
   systemCredentialStoreAvailable: boolean;
   hasSystemCredential: (providerId: string) => Promise<boolean>;
   onSaveCredential: (
@@ -123,6 +139,12 @@ export function AiPage(props: AiPageProps): JSX.Element {
   let catalogRequestVersion = 0;
   let catalogController: AbortController | undefined;
   const [providerMessage, setProviderMessage] = createSignal("");
+  const [ollamaModels, setOllamaModels] = createSignal<readonly OllamaInstalledModel[]>([]);
+  const [ollamaListing, setOllamaListing] = createSignal(false);
+  const [connectionTest, setConnectionTest] = createSignal<AiConnectionTest | null>(null);
+  const [connectionTesting, setConnectionTesting] = createSignal(false);
+  const [importingResponse, setImportingResponse] = createSignal(false);
+  const [importMessage, setImportMessage] = createSignal("");
   const [credentialInput, setCredentialInput] = createSignal("");
   const [credentialConfirmed, setCredentialConfirmed] = createSignal(false);
   const [credentialStorage, setCredentialStorage] =
@@ -247,6 +269,9 @@ export function AiPage(props: AiPageProps): JSX.Element {
     setCatalogMessage("");
     setCatalogQuery("");
     setCatalogCapability("all");
+    setOllamaModels([]);
+    setConnectionTest(null);
+    setImportMessage("");
   });
   createEffect(() => {
     if (!embeddedAvailable) return;
@@ -494,6 +519,80 @@ export function AiPage(props: AiPageProps): JSX.Element {
     }
   }
 
+  async function listInstalledOllamaModels(): Promise<void> {
+    setOllamaListing(true);
+    setProviderMessage("");
+    setOllamaModels([]);
+    try {
+      const models = await listOllamaInstalledModels(providerEndpoint());
+      setOllamaModels(models);
+      setProviderMessage(
+        models.length
+          ? `Ollama reported ${models.length} installed model${models.length === 1 ? "" : "s"}. Choose one to use its exact name.`
+          : "Ollama is reachable but reported no installed models.",
+      );
+    } catch (cause) {
+      setProviderMessage(
+        cause instanceof Error ? cause.message : "Ollama installed models could not be listed.",
+      );
+    } finally {
+      setOllamaListing(false);
+    }
+  }
+
+  async function checkProviderConnection(): Promise<void> {
+    setConnectionTesting(true);
+    setConnectionTest(null);
+    setProviderMessage("");
+    try {
+      const result = await testAiProviderConnection(currentProvider().id, providerEndpoint());
+      setConnectionTest(result);
+      setProviderMessage(result.detail);
+    } catch (cause) {
+      setProviderMessage(
+        cause instanceof Error ? cause.message : "The provider connection could not be checked.",
+      );
+    } finally {
+      setConnectionTesting(false);
+    }
+  }
+
+  async function importExternalResponse(file: File | undefined): Promise<void> {
+    if (!file) return;
+    setImportMessage("");
+    if (!props.onImportResponse) {
+      setImportMessage(
+        "External response import needs the archive-connected desktop host. The selected file was not read.",
+      );
+      return;
+    }
+    if (file.size < 1 || file.size > 16 * 1024 * 1024) {
+      setImportMessage("Choose a response file between 1 byte and 16 MiB.");
+      return;
+    }
+    if (!sessionId()) {
+      setImportMessage("Choose a session before importing an external response.");
+      return;
+    }
+    setImportingResponse(true);
+    try {
+      const imported = await props.onImportResponse(
+        file,
+        sessionId(),
+        templateId() === "auto" ? "general" : templateId(),
+      );
+      setImportMessage(
+        `Imported response as ${imported.status}. Job ${imported.jobId.slice(0, 8)} and guide ${imported.guideId.slice(0, 8)} are saved for review.${imported.warnings.length ? ` ${imported.warnings.join(" ")}` : ""}`,
+      );
+    } catch (cause) {
+      setImportMessage(
+        cause instanceof Error ? cause.message : "The external response could not be imported.",
+      );
+    } finally {
+      setImportingResponse(false);
+    }
+  }
+
   async function chooseEmbeddedModel(): Promise<void> {
     setEmbeddedMessage("");
     setEmbeddedBusy(true);
@@ -680,7 +779,7 @@ export function AiPage(props: AiPageProps): JSX.Element {
     } finally {
       setSending(false);
       setCancelRequested(false);
-      if (preview.attachedImages.length > 0) {
+      if ((preview.attachedAssets ?? preview.attachedImages).length > 0) {
         setRequestPreview(null);
         setSendConfirmed(false);
       }
@@ -808,6 +907,72 @@ export function AiPage(props: AiPageProps): JSX.Element {
             />
           </label>
         </div>
+        <div class="ai-review-actions">
+          <button
+            class="button button-outline"
+            type="button"
+            disabled={props.disabled || props.busy || connectionTesting()}
+            onClick={() => void checkProviderConnection()}
+          >
+            {connectionTesting() ? "Testing connection…" : "Test provider connection"}
+          </button>
+          <Show when={currentProvider().id === "ollama"}>
+            <button
+              class="button button-outline"
+              type="button"
+              disabled={props.disabled || props.busy || ollamaListing()}
+              onClick={() => void listInstalledOllamaModels()}
+            >
+              {ollamaListing() ? "Listing installed models…" : "List installed Ollama models"}
+            </button>
+          </Show>
+          <span aria-live="polite">
+            {connectionTest()
+              ? connectionTest()!.detail
+              : "Connection checks send no archive data and do not read saved API keys."}
+          </span>
+        </div>
+        <Show when={ollamaModels().length > 0}>
+          <div class="ai-model-catalog-results">
+            <div class="ai-model-catalog-count">
+              Installed Ollama models · choose one to fill the model ID
+            </div>
+            <div class="ai-model-catalog-list" role="listbox" aria-label="Installed Ollama models">
+              <For each={ollamaModels()}>
+                {(model) => (
+                  <button
+                    class="ai-model-catalog-option"
+                    type="button"
+                    role="option"
+                    aria-selected={providerModel() === model.name}
+                    onClick={() => {
+                      setProviderModel(model.name);
+                      setRequestPreview(null);
+                      setSendConfirmed(false);
+                      setProviderMessage(`${model.name} selected. Save provider settings to use it.`);
+                    }}
+                  >
+                    <span class="ai-model-catalog-option-heading">
+                      <strong>{model.name}</strong>
+                      <span>{model.family || "unknown family"}</span>
+                    </span>
+                    <span class="ai-model-catalog-tags">
+                      <Show when={model.parameterSize}>
+                        <span>{model.parameterSize}</span>
+                      </Show>
+                      <Show when={model.quantization}>
+                        <span>{model.quantization}</span>
+                      </Show>
+                      <Show when={model.sizeBytes !== null}>
+                        <span>{formatBytes(model.sizeBytes!)}</span>
+                      </Show>
+                    </span>
+                  </button>
+                )}
+              </For>
+            </div>
+          </div>
+        </Show>
         <section class="ai-model-catalog" aria-labelledby="ai-model-catalog-title">
           <div class="ai-model-catalog-heading">
             <div>
@@ -1449,16 +1614,17 @@ export function AiPage(props: AiPageProps): JSX.Element {
                       </dd>
                     </div>
                   </dl>
-                  <Show when={preview().attachedImages.length > 0}>
-                    <div class="ai-request-images" aria-label="Attached image materials">
-                      <strong>Images included in this request</strong>
-                      <For each={preview().attachedImages}>
-                        {(image) => (
+                  <Show when={(preview().attachedAssets ?? preview().attachedImages).length > 0}>
+                    <div class="ai-request-images" aria-label="Attached materials">
+                      <strong>Materials included in this request</strong>
+                      <For each={preview().attachedAssets ?? preview().attachedImages}>
+                        {(attachment) => (
                           <div>
                             <span>
-                              {image.filename} · {formatBytes(image.byteSize)}
+                              {attachment.filename} · {formatBytes(attachment.byteSize)}
+                              {"kind" in attachment ? ` · ${attachment.kind}` : " · image"}
                             </span>
-                            <code>SHA-256 · {image.contentHash}</code>
+                            <code>SHA-256 · {attachment.contentHash}</code>
                           </div>
                         )}
                       </For>
@@ -1481,11 +1647,11 @@ export function AiPage(props: AiPageProps): JSX.Element {
                     </p>
                   </Show>
                   <Show
-                    when={preview().attachedImages.length === 0}
+                    when={(preview().attachedAssets ?? preview().attachedImages).length === 0}
                     fallback={
                       <p class="ai-image-body-note">
-                        The exact request body hash covers the package text and selected image
-                        bytes. Image data is sent as base64 and is omitted from this text preview.
+                        The exact request body hash covers the package text and attached material
+                        bytes. Binary data is sent as base64 and is omitted from this text preview.
                       </p>
                     }
                   >
@@ -1500,7 +1666,9 @@ export function AiPage(props: AiPageProps): JSX.Element {
                   </Show>
                   <p class="ai-request-privacy-note">
                     The request body contains the reviewed package text
-                    {preview().attachedImages.length > 0 ? " and selected image bytes" : ""}.
+                    {(preview().attachedAssets ?? preview().attachedImages).length > 0
+                      ? " and attached material bytes"
+                      : ""}.
                     Authentication secrets stay out of this preview.{" "}
                     {preview().providerId === "replicate"
                       ? "The saved key was used only for model-schema inspection; no package was sent."
@@ -1554,8 +1722,8 @@ export function AiPage(props: AiPageProps): JSX.Element {
                       The exact request body hash is <code>{preview().requestBodyHash}</code>. The
                       complete response, including error or partial bytes, will be saved in this
                       archive.
-                      {preview().attachedImages.length > 0
-                        ? ` This request also includes ${preview().attachedImages.length} selected session image${preview().attachedImages.length === 1 ? "" : "s"}; their names and content hashes are listed above.`
+                      {(preview().attachedAssets ?? preview().attachedImages).length > 0
+                        ? ` This request also includes ${(preview().attachedAssets ?? preview().attachedImages).length} session material file${(preview().attachedAssets ?? preview().attachedImages).length === 1 ? "" : "s"}; their names and content hashes are listed above.`
                         : ""}
                       {preview().localOnly
                         ? " This sends the package to the loopback Ollama service."
@@ -1736,6 +1904,43 @@ export function AiPage(props: AiPageProps): JSX.Element {
           </section>
         )}
       </Show>
+
+      <section class="ai-panel" aria-labelledby="ai-import-response-title">
+        <div class="ai-panel-heading">
+          <div>
+            <span class="eyebrow">EXTERNAL RESPONSE</span>
+            <h2 id="ai-import-response-title">Import a response</h2>
+          </div>
+          <span class="ai-provider-status">Review required</span>
+        </div>
+        <p class="ai-provider-intro">
+          Import JSON or plain text returned by another AI tool. Tutorux stores the original bytes,
+          creates an unapproved guide draft, and validates source references before review.
+        </p>
+        <label class="ai-field">
+          <span>Response file</span>
+          <input
+            type="file"
+            accept=".json,.txt,.md,application/json,text/plain,text/markdown"
+            disabled={props.disabled || props.busy || importingResponse()}
+            onChange={(event) => {
+              const file = event.currentTarget.files?.[0];
+              event.currentTarget.value = "";
+              void importExternalResponse(file);
+            }}
+          />
+        </label>
+        <Show when={importingResponse()}>
+          <p class="ai-model-catalog-status" role="status">
+            Importing and validating the external response…
+          </p>
+        </Show>
+        <Show when={importMessage()}>
+          <p class="ai-message" role="status">
+            {importMessage()}
+          </p>
+        </Show>
+      </section>
 
       <section class="ai-panel ai-history" aria-labelledby="ai-history-title">
         <div class="ai-panel-heading">
