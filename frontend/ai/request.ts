@@ -1,5 +1,6 @@
 import { RecordType, type ArchiveRecord } from "../archive/format";
 import type { ArchiveSnapshot } from "../archive/archive";
+import { structuredOutputCapability } from "./catalog-metadata";
 import { readAssetBytes } from "../domain/assets";
 import {
   MAX_AI_PACKAGE_BYTES,
@@ -20,12 +21,24 @@ import { AI_GENERATION_SYSTEM_PROMPT } from "./prompt";
 import type { ReplicateModelInputSchema } from "./replicate-schema";
 
 export const MAX_AI_REQUEST_BODY_BYTES = 16 * 1024 * 1024;
+export const MAX_AI_ATTACHMENT_BYTES = 6 * 1024 * 1024;
 export const MAX_REPLICATE_PROMPT_BYTES = 8 * 1024 * 1024;
 export const MAX_REPLICATE_REQUEST_BYTES = 8 * 1024 * 1024;
 export const DEFAULT_AI_OUTPUT_TOKENS = 4096;
 export { AI_GENERATION_SYSTEM_PROMPT_BYTES } from "./prompt";
 
 const encoder = new TextEncoder();
+
+export type AiAttachmentKind = "image" | "document" | "audio" | "video";
+
+export interface AiPackageAttachmentManifest {
+  id: string;
+  filename: string;
+  mimeType: string;
+  contentHash: string;
+  byteSize: number;
+  kind: AiAttachmentKind;
+}
 
 export interface AiRequestHeaderPreview {
   name: string;
@@ -45,9 +58,11 @@ export interface AiRequestPreview {
   packageHash: string;
   packageBytes: number;
   attachedImages: readonly AiImageAttachmentManifest[];
+  attachedAssets?: readonly AiPackageAttachmentManifest[];
   requestBodyHash: string;
   requestBytes: number;
   maxOutputTokens: number;
+  structuredOutput?: boolean;
   localOnly: boolean;
   credentialAvailable: boolean;
   requestBody: string;
@@ -63,6 +78,7 @@ export async function createAiRequestPreview(
   systemCredentialAvailable = false,
   snapshot?: ArchiveSnapshot,
   replicateInputSchema?: ReplicateModelInputSchema,
+  structuredOutput = false,
 ): Promise<AiRequestPreview> {
   if (
     packageJob.type !== RecordType.aiJob ||
@@ -137,15 +153,32 @@ export async function createAiRequestPreview(
     );
   }
   const imageAttachments = await loadImageAttachments(snapshot, packageManifest, imageManifest);
+  const manifestAttachments = await loadManifestAttachments(
+    snapshot,
+    packageManifest,
+    parsedPackage,
+    new Set(imageAttachments.map((attachment) => attachment.id)),
+  );
+  const allAttachments = [...imageAttachments, ...manifestAttachments];
+  const attachmentBytes = allAttachments.reduce(
+    (total, attachment) => total + attachment.byteSize,
+    0,
+  );
+  if (attachmentBytes > MAX_AI_ATTACHMENT_BYTES) {
+    throw new Error("Attached multimodal assets exceed the 6 MiB outbound request budget.");
+  }
   if (provider.id === "replicate" && replicateInputSchema?.modelId !== model) {
     throw new Error("Inspect the selected Replicate model inputs before reviewing its request.");
   }
+  const requestStructuredOutput =
+    structuredOutput && structuredOutputCapability(provider.id, model) === "supported";
   const requestBody = buildRequestBody(
     provider.id,
     model,
     packageText,
     maximumOutputTokens,
-    imageAttachments,
+    allAttachments,
+    requestStructuredOutput,
     replicateInputSchema,
   );
   const requestBytes = encoder.encode(requestBody);
@@ -155,8 +188,8 @@ export async function createAiRequestPreview(
     throw new Error(
       provider.id === "replicate"
         ? "The Replicate request exceeds the 8 MiB send limit. Shorten the session package."
-        : imageAttachments.length > 0
-          ? "The provider request exceeds the 16 MiB send limit. Remove images or shorten the session package."
+        : allAttachments.length > 0
+          ? "The provider request exceeds the 16 MiB send limit. Remove attachments or shorten the session package."
           : "The provider request exceeds the 16 MiB send limit.",
     );
   }
@@ -193,9 +226,18 @@ export async function createAiRequestPreview(
     packageHash,
     packageBytes: packageJob.blob.byteLength,
     attachedImages: imageManifest,
+    attachedAssets: allAttachments.map(({ id, filename, mimeType, contentHash, byteSize, kind }) => ({
+      id,
+      filename,
+      mimeType,
+      contentHash,
+      byteSize,
+      kind,
+    })),
     requestBodyHash: await sha256(requestBytes),
     requestBytes: requestBytes.byteLength,
     maxOutputTokens: maximumOutputTokens,
+    structuredOutput: requestStructuredOutput,
     localOnly: provider.local,
     credentialAvailable,
     requestBody,
@@ -208,7 +250,8 @@ function buildRequestBody(
   model: string,
   packageText: string,
   maximumOutputTokens: number,
-  imageAttachments: readonly LoadedAiImageAttachment[],
+  attachments: readonly LoadedAiAttachment[],
+  structuredOutput: boolean,
   replicateInputSchema?: ReplicateModelInputSchema,
 ): string {
   const openCodeProtocol =
@@ -234,11 +277,46 @@ function buildRequestBody(
       input[replicateInputSchema.tokenInput] = maximumOutputTokens;
     }
     body = { version: replicateInputSchema.version, input };
+  } else if (isEmbeddedGgufProvider(providerId)) {
+    body = {
+      model,
+      stream: true,
+      max_tokens: maximumOutputTokens,
+      messages: [
+        { role: "system", content: AI_GENERATION_SYSTEM_PROMPT },
+        {
+          role: "user",
+          content: withAttachmentFallback(packageText, attachments, new Set()),
+        },
+      ],
+    };
   } else if (
     isOpenAiCompatibleProvider(providerId) ||
-    isEmbeddedGgufProvider(providerId) ||
     (providerId === "opencode-zen" && openCodeProtocol === "openai-chat")
   ) {
+    const audioAccepted = providerId === "openai";
+    const accepted = new Set<AiAttachmentKind>(["image"]);
+    if (audioAccepted) accepted.add("audio");
+    const text = withAttachmentFallback(packageText, attachments, accepted);
+    const parts: Record<string, unknown>[] = [{ type: "text", text }];
+    for (const attachment of attachments) {
+      if (attachment.kind === "image") {
+        parts.push({
+          type: "image_url",
+          image_url: {
+            url: `data:${attachment.mimeType};base64,${toBase64(attachment.bytes)}`,
+          },
+        });
+      } else if (attachment.kind === "audio" && audioAccepted) {
+        const format = openAiAudioFormat(attachment.mimeType);
+        if (format) {
+          parts.push({
+            type: "input_audio",
+            input_audio: { data: toBase64(attachment.bytes), format },
+          });
+        }
+      }
+    }
     body = {
       model,
       stream: true,
@@ -248,83 +326,105 @@ function buildRequestBody(
         { role: "system", content: AI_GENERATION_SYSTEM_PROMPT },
         {
           role: "user",
-          content: imageAttachments.length
-            ? [
-                { type: "text", text: packageText },
-                ...imageAttachments.map((image) => ({
-                  type: "image_url",
-                  image_url: { url: `data:${image.mimeType};base64,${toBase64(image.bytes)}` },
-                })),
-              ]
-            : packageText,
+          content: parts.length > 1 ? parts : text,
         },
       ],
+      ...(structuredOutput ? { response_format: { type: "json_object" } } : {}),
     };
   } else if (providerId === "opencode-zen" && openCodeProtocol === "openai-responses") {
+    const accepted = new Set<AiAttachmentKind>(["image", "document", "audio"]);
+    const text = withAttachmentFallback(packageText, attachments, accepted);
+    const content: Record<string, unknown>[] = [{ type: "input_text", text }];
+    for (const attachment of attachments) {
+      if (attachment.kind === "image") {
+        content.push({
+          type: "input_image",
+          image_url: `data:${attachment.mimeType};base64,${toBase64(attachment.bytes)}`,
+        });
+      } else if (attachment.kind === "document") {
+        content.push({
+          type: "input_file",
+          filename: attachment.filename,
+          file_data: `data:${attachment.mimeType};base64,${toBase64(attachment.bytes)}`,
+        });
+      } else if (attachment.kind === "audio") {
+        const format = openAiAudioFormat(attachment.mimeType);
+        if (format) {
+          content.push({
+            type: "input_audio",
+            input_audio: { data: toBase64(attachment.bytes), format },
+          });
+        }
+      }
+    }
     body = {
       model,
       instructions: AI_GENERATION_SYSTEM_PROMPT,
-      input: [
-        {
-          role: "user",
-          content: [
-            { type: "input_text", text: packageText },
-            ...imageAttachments.map((image) => ({
-              type: "input_image",
-              image_url: `data:${image.mimeType};base64,${toBase64(image.bytes)}`,
-            })),
-          ],
-        },
-      ],
+      input: [{ role: "user", content }],
       max_output_tokens: maximumOutputTokens,
       stream: true,
+      ...(structuredOutput ? { text: { format: { type: "json_object" } } } : {}),
     };
   } else if (
     providerId === "anthropic" ||
     (providerId === "opencode-zen" && openCodeProtocol === "anthropic")
   ) {
+    const accepted = new Set<AiAttachmentKind>(["image", "document"]);
+    const text = withAttachmentFallback(packageText, attachments, accepted);
+    const content: Record<string, unknown>[] = [{ type: "text", text }];
+    for (const attachment of attachments) {
+      if (attachment.kind === "image") {
+        content.push({
+          type: "image",
+          source: {
+            type: "base64",
+            media_type: attachment.mimeType,
+            data: toBase64(attachment.bytes),
+          },
+        });
+      } else if (attachment.kind === "document" && attachment.mimeType === "application/pdf") {
+        content.push({
+          type: "document",
+          source: {
+            type: "base64",
+            media_type: attachment.mimeType,
+            data: toBase64(attachment.bytes),
+          },
+        });
+      }
+    }
     body = {
       model,
       max_tokens: maximumOutputTokens,
       stream: true,
       system: AI_GENERATION_SYSTEM_PROMPT,
-      messages: [
-        {
-          role: "user",
-          content: imageAttachments.length
-            ? [
-                { type: "text", text: packageText },
-                ...imageAttachments.map((image) => ({
-                  type: "image",
-                  source: {
-                    type: "base64",
-                    media_type: image.mimeType,
-                    data: toBase64(image.bytes),
-                  },
-                })),
-              ]
-            : packageText,
-        },
-      ],
+      messages: [{ role: "user", content: attachments.length ? content : text }],
     };
   } else if (
     providerId === "google-gemini" ||
     (providerId === "opencode-zen" && openCodeProtocol === "gemini")
   ) {
+    const text = withAttachmentFallback(
+      packageText,
+      attachments,
+      new Set<AiAttachmentKind>(["image", "document", "audio", "video"]),
+    );
+    const parts: Record<string, unknown>[] = [{ text }];
+    for (const attachment of attachments) {
+      parts.push({
+        inlineData: {
+          mimeType: attachment.mimeType,
+          data: toBase64(attachment.bytes),
+        },
+      });
+    }
     body = {
       systemInstruction: { parts: [{ text: AI_GENERATION_SYSTEM_PROMPT }] },
-      contents: [
-        {
-          role: "user",
-          parts: [
-            { text: packageText },
-            ...imageAttachments.map((image) => ({
-              inlineData: { mimeType: image.mimeType, data: toBase64(image.bytes) },
-            })),
-          ],
-        },
-      ],
-      generationConfig: { maxOutputTokens: maximumOutputTokens },
+      contents: [{ role: "user", parts }],
+      generationConfig: {
+        maxOutputTokens: maximumOutputTokens,
+        ...(structuredOutput ? { responseMimeType: "application/json" } : {}),
+      },
     };
   } else if (providerId === "cohere") {
     body = {
@@ -335,7 +435,7 @@ function buildRequestBody(
         { role: "system", content: AI_GENERATION_SYSTEM_PROMPT },
         {
           role: "user",
-          content: packageText,
+          content: withAttachmentFallback(packageText, attachments, new Set()),
         },
       ],
     };
@@ -343,11 +443,16 @@ function buildRequestBody(
     body = {
       model,
       instructions: AI_GENERATION_SYSTEM_PROMPT,
-      input: packageText,
+      input: withAttachmentFallback(packageText, attachments, new Set()),
       max_output_tokens: maximumOutputTokens,
       stream: true,
     };
   } else if (providerId === "ollama") {
+    const text = withAttachmentFallback(
+      packageText,
+      attachments,
+      new Set<AiAttachmentKind>(["image"]),
+    );
     body = {
       model,
       stream: true,
@@ -355,13 +460,18 @@ function buildRequestBody(
         { role: "system", content: AI_GENERATION_SYSTEM_PROMPT },
         {
           role: "user",
-          content: packageText,
-          ...(imageAttachments.length
-            ? { images: imageAttachments.map((image) => toBase64(image.bytes)) }
+          content: text,
+          ...(attachments.some((attachment) => attachment.kind === "image")
+            ? {
+                images: attachments
+                  .filter((attachment) => attachment.kind === "image")
+                  .map((attachment) => toBase64(attachment.bytes)),
+              }
             : {}),
         },
       ],
       options: { num_predict: maximumOutputTokens },
+      ...(structuredOutput ? { format: "json" } : {}),
     };
   } else {
     throw new Error("Request previews are not available for this provider.");
@@ -369,22 +479,170 @@ function buildRequestBody(
   return JSON.stringify(body);
 }
 
-interface LoadedAiImageAttachment extends AiImageAttachmentManifest {
+interface LoadedAiAttachment extends AiPackageAttachmentManifest {
   bytes: Uint8Array;
+  extractedText: string;
+}
+
+function withAttachmentFallback(
+  packageText: string,
+  attachments: readonly LoadedAiAttachment[],
+  acceptedKinds: ReadonlySet<AiAttachmentKind>,
+): string {
+  const fallbacks: string[] = [];
+  for (const attachment of attachments) {
+    if (acceptedKinds.has(attachment.kind)) continue;
+    const label =
+      attachment.kind === "document"
+        ? "Document"
+        : attachment.kind === "audio"
+          ? "Audio"
+          : attachment.kind === "video"
+            ? "Video"
+            : "Image";
+    if (attachment.extractedText.trim()) {
+      fallbacks.push(`${label} ${attachment.filename}:\n${attachment.extractedText}`);
+    } else {
+      fallbacks.push(
+        `${label} ${attachment.filename} (${attachment.mimeType}) is listed as metadata only in this request.`,
+      );
+    }
+  }
+  return fallbacks.length ? `${packageText}\n\n${fallbacks.join("\n\n")}` : packageText;
+}
+
+function openAiAudioFormat(mimeType: string): "wav" | "mp3" | null {
+  if (mimeType === "audio/wav" || mimeType === "audio/x-wav") return "wav";
+  if (mimeType === "audio/mpeg" || mimeType === "audio/mp3") return "mp3";
+  return null;
+}
+
+async function loadManifestAttachments(
+  snapshot: ArchiveSnapshot | undefined,
+  packageManifest: Record<string, unknown>,
+  parsedPackage: unknown,
+  skipIds: ReadonlySet<string>,
+): Promise<LoadedAiAttachment[]> {
+  if (!isObject(parsedPackage) || !Array.isArray(parsedPackage["assets_manifest"])) return [];
+  const candidates = parsedPackage["assets_manifest"].flatMap((row) => {
+    if (!isObject(row)) return [];
+    const fields = isObject(row["fields"]) ? row["fields"] : row;
+    const id = row["id"] ?? fields["id"];
+    const filename = fields["filename"];
+    const mimeType = fields["mime_type"];
+    const contentHash = fields["content_hash"];
+    const byteSizeValue = fields["byte_size"];
+    const byteSize =
+      typeof byteSizeValue === "number"
+        ? byteSizeValue
+        : typeof byteSizeValue === "string" && /^\d+$/u.test(byteSizeValue)
+          ? Number(byteSizeValue)
+          : NaN;
+    const kind = typeof mimeType === "string" ? attachmentKindForMimeType(mimeType) : null;
+    if (
+      kind === null ||
+      kind === "image" ||
+      typeof id !== "string" ||
+      !/^[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}$/iu.test(id) ||
+      skipIds.has(id.toLowerCase()) ||
+      typeof filename !== "string" ||
+      !filename.trim() ||
+      typeof contentHash !== "string" ||
+      !/^[\da-f]{64}$/iu.test(contentHash) ||
+      !Number.isSafeInteger(byteSize) ||
+      byteSize < 1
+    ) {
+      return [];
+    }
+    return [
+      {
+        id: id.toLowerCase(),
+        filename,
+        mimeType: mimeType as string,
+        contentHash: contentHash.toLowerCase(),
+        byteSize,
+        kind,
+      },
+    ];
+  });
+  if (candidates.length === 0) return [];
+  if (!snapshot) throw new Error("Open the source archive to load its selected attachments.");
+  const sessionId = packageManifest["session_id"];
+  if (typeof sessionId !== "string" || !sessionId) {
+    throw new Error("The AI package does not identify the session for its selected attachments.");
+  }
+  const loaded: LoadedAiAttachment[] = [];
+  for (const attachment of candidates) {
+    const metadata = await snapshot.getRecord(RecordType.assetMetadata, attachment.id);
+    if (
+      !metadata ||
+      metadata.fields.get("_deleted") === "true" ||
+      INTERNAL_ASSET_ROLES.has(metadata.fields.get("record_role") ?? "") ||
+      metadata.fields.get("session_id")?.toLowerCase() !== sessionId.toLowerCase() ||
+      metadata.fields.get("filename") !== attachment.filename ||
+      metadata.fields.get("mime_type") !== attachment.mimeType ||
+      metadata.fields.get("content_hash")?.toLowerCase() !== attachment.contentHash ||
+      Number(metadata.fields.get("byte_size")) !== attachment.byteSize
+    ) {
+      throw new Error(
+        `Attachment “${attachment.filename}” changed after the package was prepared. Prepare and review it again.`,
+      );
+    }
+    const blobId = metadata.fields.get("blob_id");
+    const blob = blobId ? await snapshot.getRecord(RecordType.assetBlob, blobId) : null;
+    const archivedByteSize =
+      blob?.fields.get("record_role") === "asset-blob-manifest"
+        ? Number(blob.fields.get("byte_size"))
+        : blob?.blob.byteLength;
+    if (!blob || blob.fields.get("_deleted") === "true" || archivedByteSize !== attachment.byteSize) {
+      throw new Error(`Attachment “${attachment.filename}” failed its content validation.`);
+    }
+    const bytes = await readAssetBytes(snapshot, metadata);
+    if (bytes.byteLength !== attachment.byteSize) {
+      throw new Error(`Attachment “${attachment.filename}” failed its content validation.`);
+    }
+    if (attachment.kind === "document" && !ascii(bytes, 0, "%PDF-")) {
+      throw new Error(`Attachment “${attachment.filename}” is not a valid PDF document.`);
+    }
+    loaded.push({
+      ...attachment,
+      bytes,
+      extractedText: metadata.fields.get("extracted_text") ?? "",
+    });
+  }
+  return loaded;
+}
+
+const INTERNAL_ASSET_ROLES = new Set([
+  "audio-track",
+  "waveform-pyramid",
+  "sparse-timestamp-seek-index",
+  "asset-blob-manifest",
+  "asset-blob-chunk",
+]);
+
+function attachmentKindForMimeType(mimeType: string): AiAttachmentKind | null {
+  if (mimeType === "image/png" || mimeType === "image/jpeg" || mimeType === "image/webp") {
+    return "image";
+  }
+  if (mimeType === "application/pdf") return "document";
+  if (mimeType.startsWith("audio/")) return "audio";
+  if (mimeType.startsWith("video/")) return "video";
+  return null;
 }
 
 async function loadImageAttachments(
   snapshot: ArchiveSnapshot | undefined,
   packageManifest: Record<string, unknown>,
   images: readonly AiImageAttachmentManifest[],
-): Promise<LoadedAiImageAttachment[]> {
+): Promise<LoadedAiAttachment[]> {
   if (images.length === 0) return [];
   if (!snapshot) throw new Error("Open the source archive to load its selected images.");
   const sessionId = packageManifest["session_id"];
   if (typeof sessionId !== "string" || !sessionId) {
     throw new Error("The AI package does not identify the session for its selected images.");
   }
-  const loaded: LoadedAiImageAttachment[] = [];
+  const loaded: LoadedAiAttachment[] = [];
   for (const image of images) {
     const metadata = await snapshot.getRecord(RecordType.assetMetadata, image.id);
     if (
@@ -415,7 +673,12 @@ async function loadImageAttachments(
     if (bytes.byteLength !== image.byteSize || actualMimeType !== image.mimeType) {
       throw new Error(`Image material “${image.filename}” failed its content validation.`);
     }
-    loaded.push({ ...image, bytes });
+    loaded.push({
+      ...image,
+      kind: "image",
+      bytes,
+      extractedText: metadata.fields.get("extracted_text") ?? "",
+    });
   }
   return loaded;
 }
