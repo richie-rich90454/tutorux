@@ -26,3 +26,7 @@ screencapturekit = { version = "11.1.1", features = ["macos_14_0"] }
 
 [target.'cfg(not(target_os = "linux"))'.dependencies]
 cpal = "0.18.2"
+
+[patch.crates-io]
+# flexaudio-mic 0.8 still requires cpal 0.16, which links a second ALSA sys crate.
+flexaudio-mic = { path = "vendor/flexaudio-mic" }
