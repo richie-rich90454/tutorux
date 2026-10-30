@@ -1901,6 +1901,57 @@ button:disabled {
   color: var(--muted);
   background: var(--surface-inset);
 }
+.trash-purge-start {
+  margin-left: auto;
+}
+.trash-purge-review {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid color-mix(in srgb, var(--danger) 22%, var(--line));
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--danger-soft) 40%, var(--surface));
+}
+.trash-purge-review h2 {
+  margin: 5px 0 4px;
+  color: var(--ink);
+  font-size: 15px;
+}
+.trash-purge-review p {
+  margin: 0;
+  color: var(--ink-soft);
+  font-size: 11px;
+  line-height: 1.55;
+}
+.trash-purge-blockers {
+  padding: 11px 12px;
+  border: 1px solid color-mix(in srgb, var(--danger) 24%, var(--line));
+  border-radius: 7px;
+  color: var(--danger);
+  background: var(--surface);
+  font-size: 10px;
+  line-height: 1.5;
+}
+.trash-purge-blockers > strong {
+  display: block;
+  margin-bottom: 3px;
+}
+.trash-purge-blockers ul {
+  display: grid;
+  gap: 7px;
+  margin: 9px 0 0;
+  padding-left: 18px;
+}
+.trash-purge-blockers li span {
+  display: block;
+  color: var(--muted);
+}
+.trash-purge-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
 .confirm-dialog {
   width: min(430px, 100%);
 }
@@ -2678,6 +2729,13 @@ button:disabled {
   backdrop-filter: blur(5px);
   animation: fade-in 0.14s ease-out;
 }
+.modal-focus-scope {
+  overscroll-behavior: contain;
+}
+.modal-focus-scope:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--accent) 42%, transparent);
+  outline-offset: 3px;
+}
 .form-dialog {
   position: relative;
   width: min(475px, 100%);
@@ -2772,10 +2830,10 @@ button:disabled {
 .optional-fields textarea::placeholder {
   color: var(--faint);
 }
-.form-field > input:focus,
-.form-field > textarea:focus,
-.form-field > select:focus,
-.optional-fields > textarea:focus {
+.form-field > input:focus-visible,
+.form-field > textarea:focus-visible,
+.form-field > select:focus-visible,
+.optional-fields > textarea:focus-visible {
   border-color: var(--accent);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 12%, transparent);
 }
@@ -2878,6 +2936,262 @@ button:disabled {
   background: var(--surface);
   box-shadow: var(--shadow-menu);
   animation: modal-in 0.14s ease-out;
+}
+.command-console-dialog {
+  width: min(760px, calc(100vw - 32px));
+  max-width: none;
+  max-height: min(88vh, 820px);
+  margin: auto;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  color: var(--ink);
+  background: var(--surface);
+  box-shadow: var(--shadow-menu);
+  animation: modal-in 0.14s ease-out;
+}
+.command-console-dialog::backdrop {
+  background: rgb(11 18 13 / 48%);
+  backdrop-filter: blur(3px);
+}
+.command-console-header {
+  min-height: 72px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 15px 19px;
+  border-bottom: 1px solid var(--line-soft);
+}
+.command-console-header > div {
+  display: grid;
+  gap: 3px;
+}
+.command-console-eyebrow {
+  color: var(--accent);
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+.command-console-header h2 {
+  margin: 0;
+  color: var(--ink);
+  font-size: 15px;
+  font-weight: 650;
+}
+.command-console-header .icon-button {
+  color: var(--muted);
+  font-size: 22px;
+}
+.command-console-body {
+  max-height: calc(min(88vh, 820px) - 73px);
+  overflow-y: auto;
+  padding: 16px 19px 19px;
+}
+.command-console-description {
+  margin: 0 0 13px;
+  color: var(--muted);
+  font-size: 9px;
+  line-height: 1.6;
+}
+.command-console-context {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 11px;
+  border: 1px solid var(--line-soft);
+  border-radius: 8px;
+  background: var(--surface-subtle);
+}
+.command-console-context-mark {
+  width: 31px;
+  height: 31px;
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  border-radius: 7px;
+  color: var(--accent);
+  background: var(--accent-soft);
+  font-size: 20px;
+}
+.command-console-context > div {
+  min-width: 0;
+  flex: 1;
+  display: grid;
+  gap: 3px;
+}
+.command-console-context strong,
+.command-console-context small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.command-console-context strong {
+  color: var(--ink-soft);
+  font-size: 9px;
+  font-weight: 650;
+}
+.command-console-context small {
+  color: var(--faint);
+  font-size: 7px;
+}
+.command-console-lock {
+  flex: 0 0 auto;
+  padding: 4px 7px;
+  border: 1px solid var(--line-soft);
+  border-radius: 999px;
+  color: var(--accent);
+  font-size: 7px;
+  font-weight: 650;
+}
+.command-console-runtime {
+  min-height: 27px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--faint);
+  font-size: 8px;
+}
+.command-console-status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--warning);
+}
+.command-console-status-dot.is-ready {
+  background: var(--success);
+}
+.command-console-form {
+  display: grid;
+  gap: 7px;
+  margin-top: 9px;
+}
+.command-console-form > label,
+.command-console-secrets label > span {
+  color: var(--ink-soft);
+  font-size: 8px;
+  font-weight: 650;
+}
+.command-console-form textarea,
+.command-console-secrets input {
+  width: 100%;
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  color: var(--ink);
+  background: var(--surface-subtle);
+  font: inherit;
+  font-size: 9px;
+}
+.command-console-form textarea {
+  min-height: 57px;
+  resize: vertical;
+  padding: 9px 10px;
+  font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
+  line-height: 1.55;
+}
+.command-console-form textarea:focus,
+.command-console-secrets input:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.command-console-form textarea:disabled,
+.command-console-secrets input:disabled {
+  opacity: 0.65;
+}
+.command-console-command-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  color: var(--faint);
+  font-size: 7px;
+}
+.command-console-secrets {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 5px;
+}
+.command-console-secrets label {
+  min-width: 0;
+  display: grid;
+  gap: 5px;
+}
+.command-console-secrets input {
+  min-height: 33px;
+  padding: 6px 8px;
+}
+.command-console-passphrase-note {
+  margin: 0;
+  color: var(--faint);
+  font-size: 7px;
+  line-height: 1.5;
+}
+.command-console-error {
+  margin: 2px 0 0;
+  color: var(--danger);
+  font-size: 8px;
+  line-height: 1.5;
+}
+.command-console-actions {
+  min-height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 7px;
+  margin-top: 3px;
+}
+.command-console-run-status {
+  flex: 1;
+  color: var(--muted);
+  font-size: 8px;
+}
+.command-console-output-section {
+  margin-top: 15px;
+  border-top: 1px solid var(--line-soft);
+}
+.command-console-output-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 0 7px;
+}
+.command-console-output-heading h3 {
+  margin: 0;
+  color: var(--ink-soft);
+  font-size: 8px;
+  font-weight: 650;
+}
+.command-console-output-heading small {
+  color: var(--faint);
+  font-size: 7px;
+}
+.command-console-output {
+  min-height: 128px;
+  max-height: 240px;
+  display: block;
+  overflow: auto;
+  padding: 10px;
+  border: 1px solid var(--line-soft);
+  border-radius: 7px;
+  color: var(--ink-soft);
+  background: var(--surface-inset);
+  font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
+  font-size: 8px;
+  line-height: 1.65;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+.command-console-output-line {
+  display: block;
+  white-space: pre-wrap;
+}
+.command-console-output-line.is-notice {
+  color: var(--accent);
+}
+.command-console-output-empty {
+  color: var(--faint);
 }
 .palette-search {
   height: 53px;
@@ -3561,4 +3875,30 @@ button:disabled {
 .palette-empty {
   color: var(--muted);
   padding: 12px 20px;
+}
+
+@media (max-width: 560px) {
+  .command-console-dialog {
+    width: calc(100vw - 20px);
+    max-height: calc(100vh - 20px);
+    border-radius: 10px;
+  }
+  .command-console-body {
+    max-height: calc(100vh - 93px);
+    padding: 13px 12px 14px;
+  }
+  .command-console-header {
+    min-height: 66px;
+    padding: 12px;
+  }
+  .command-console-secrets {
+    grid-template-columns: 1fr;
+  }
+  .command-console-actions {
+    justify-content: flex-start;
+    flex-wrap: wrap;
+  }
+  .command-console-run-status {
+    flex-basis: 100%;
+  }
 }
