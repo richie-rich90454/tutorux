@@ -26,7 +26,12 @@ function cliRecord(
   };
 }
 
-async function writeAudioArchive(path: string, sessionId: string, trackId: string, chunkId: string) {
+async function writeAudioArchive(
+  path: string,
+  sessionId: string,
+  trackId: string,
+  chunkId: string,
+) {
   const pcm = new Uint8Array([0x34, 0x12, 0xcc, 0xed]);
   const base = await openArchiveBytes(await createArchiveBytes("Parity audio"));
   const archive = await appendRecords(base, [
@@ -82,9 +87,7 @@ describe("CLI legacy parity", () => {
     };
 
     try {
-      expect(
-        await executeCli(["archive", "init", archivePath, "--name", "Parity"], io),
-      ).toBe(0);
+      expect(await executeCli(["archive", "init", archivePath, "--name", "Parity"], io)).toBe(0);
       const created = await run(["journal", "create"]);
       expect(created.code).toBe(0);
       const entry = created.value as Record<string, string>;
@@ -160,13 +163,13 @@ describe("CLI legacy parity", () => {
     };
 
     try {
-      expect(
-        await executeCli(["archive", "init", archivePath, "--name", "Trash"], io),
-      ).toBe(0);
+      expect(await executeCli(["archive", "init", archivePath, "--name", "Trash"], io)).toBe(0);
       const created = await run(["journal", "create", "--title", "Trash me"]);
       const entry = created.value as Record<string, string>;
       const notesId = entry["notes_document_id"]!;
-      expect((await run(["journal", "update", entry["id"]!, "--notes", "Hello notes"])).code).toBe(0);
+      expect((await run(["journal", "update", entry["id"]!, "--notes", "Hello notes"])).code).toBe(
+        0,
+      );
 
       const deleted = await run(["journal", "delete", entry["id"]!]);
       expect(deleted.code).toBe(0);
@@ -293,9 +296,7 @@ describe("CLI legacy parity", () => {
     };
 
     try {
-      expect(
-        await executeCli(["archive", "init", archivePath, "--name", "Assets"], io),
-      ).toBe(0);
+      expect(await executeCli(["archive", "init", archivePath, "--name", "Assets"], io)).toBe(0);
       const imported = await run(["asset", "add", sourcePath]);
       expect(imported.code).toBe(0);
       const assetId = imported.value[0].id as string;
