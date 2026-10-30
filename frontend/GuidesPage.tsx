@@ -1,4 +1,4 @@
-import { For, Show, createMemo, createSignal, type JSX } from "solid-js";
+import { For, Show, createMemo, createSignal, onCleanup, onMount, type JSX } from "solid-js";
 import { RecordType, type ArchiveRecord } from "./archive/format";
 import type { ArchiveSnapshot } from "./archive/archive";
 import { GuideVersionHistory } from "./GuideVersionHistory";
@@ -8,15 +8,22 @@ import {
   GUIDE_TEMPLATES,
   createGuideDraft,
   createGuideDraftFromSections,
+  duplicateGuideDraft,
   field,
+  findGuideTextMatches,
   generateGuideDraftFromEntry,
   generateGuideDraftFromSession,
   getGuideTemplate,
   guideDraftFromRecord,
   isGuideSourceInScope,
+  makeGuideRecord,
+  moveGuideSection,
+  replaceAllGuideText,
+  replaceGuideTextMatch,
   type GuideBlockDraft,
   type GuideDraft,
   type GuideTemplate,
+  type GuideTextMatch,
 } from "./domain/guides";
 import {
   guideTemplateFromRecord,
@@ -24,6 +31,126 @@ import {
   type GuideTemplateInput,
 } from "./domain/templates";
 import "./guides.css";
+
+interface GuideDialogProps {
+  children: JSX.Element;
+  class: string;
+  labelledBy: string;
+  onEscape: () => void;
+  canEscape: () => boolean;
+  returnFocus?: HTMLElement | null;
+}
+
+function GuideDialog(props: GuideDialogProps): JSX.Element {
+  const returnFocus =
+    props.returnFocus !== undefined
+      ? props.returnFocus
+      : document.activeElement instanceof HTMLElement
+        ? document.activeElement
+        : null;
+  let dialogElement!: HTMLElement;
+
+  const focusableElements = (): HTMLElement[] =>
+    [
+      ...dialogElement.querySelectorAll<HTMLElement>(
+        'a[href], area[href], button:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), summary, audio[controls], video[controls], [contenteditable="true"], [tabindex]:not([tabindex="-1"])',
+      ),
+    ].filter(
+      (element) =>
+        !element.hasAttribute("hidden") &&
+        element.getAttribute("aria-hidden") !== "true" &&
+        element.getClientRects().length > 0,
+    );
+
+  onMount(() => {
+    const initialFocus =
+      dialogElement.querySelector<HTMLElement>("[data-dialog-initial-focus]") ??
+      dialogElement.querySelector<HTMLElement>(
+        'input:not([type="hidden"]):not([disabled]), textarea:not([disabled]), select:not([disabled]), [contenteditable="true"]',
+      ) ??
+      focusableElements()[0] ??
+      dialogElement;
+    initialFocus.focus({ preventScroll: true });
+
+    const onKeyDown = (event: KeyboardEvent): void => {
+      if (
+        !dialogElement.isConnected ||
+        [...document.querySelectorAll<HTMLElement>('[aria-modal="true"]')].at(-1) !== dialogElement
+      ) {
+        return;
+      }
+
+      if (event.key === "Escape") {
+        event.preventDefault();
+        event.stopPropagation();
+        if (props.canEscape()) props.onEscape();
+        return;
+      }
+
+      if (event.key !== "Tab") return;
+      const focusable = focusableElements();
+      if (focusable.length === 0) {
+        event.preventDefault();
+        dialogElement.focus({ preventScroll: true });
+        return;
+      }
+
+      const first = focusable[0]!;
+      const last = focusable.at(-1)!;
+      const active = document.activeElement;
+      if (
+        event.shiftKey &&
+        (active === first || active === dialogElement || !dialogElement.contains(active))
+      ) {
+        event.preventDefault();
+        last.focus();
+      } else if (
+        !event.shiftKey &&
+        (active === last || active === dialogElement || !dialogElement.contains(active))
+      ) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+
+    document.addEventListener("keydown", onKeyDown, true);
+    onCleanup(() => {
+      document.removeEventListener("keydown", onKeyDown, true);
+      queueMicrotask(() => {
+        const activeDialog = [...document.querySelectorAll<HTMLElement>('[aria-modal="true"]')].at(
+          -1,
+        );
+        const returnTarget =
+          returnFocus?.isConnected && !returnFocus.matches(":disabled, [aria-disabled='true']")
+            ? returnFocus
+            : null;
+        const target = activeDialog
+          ? returnTarget && activeDialog.contains(returnTarget)
+            ? returnTarget
+            : (activeDialog.querySelector<HTMLElement>(
+                'a[href], button:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+              ) ?? activeDialog)
+          : (returnTarget ?? document.querySelector<HTMLElement>("#main-content"));
+        target?.focus({ preventScroll: true });
+      });
+    });
+  });
+
+  return (
+    <section
+      ref={(element) => {
+        dialogElement = element;
+      }}
+      class={`${props.class} modal-focus-scope`}
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby={props.labelledBy}
+      tabindex="-1"
+    >
+      {props.children}
+    </section>
+  );
+}
 
 interface GuidePageProps {
   snapshot: ArchiveSnapshot;
@@ -69,10 +196,52 @@ export function GuidesPage(props: GuidePageProps): JSX.Element {
     current: ArchiveRecord | null;
   } | null>(null);
   const [templateNotice, setTemplateNotice] = createSignal("");
+  const [guideNotice, setGuideNotice] = createSignal("");
+  const [templateSearch, setTemplateSearch] = createSignal("");
+  const [templateKind, setTemplateKind] = createSignal<"all" | "built-in" | "custom">("all");
+  const [previewTemplateId, setPreviewTemplateId] = createSignal("");
+  const [armedTemplateDeleteId, setArmedTemplateDeleteId] = createSignal("");
   const canCreate = () => props.sessions.length > 0 && !props.disabled;
   const canCreateEntry = () => props.entries.length > 0 && !props.disabled;
+  const canCreateGuide = () => canCreate() || canCreateEntry();
   const customTemplates = () => props.customTemplates.map(guideTemplateFromRecord);
   const allTemplates = () => [...GUIDE_TEMPLATES, ...customTemplates()];
+  const visibleTemplates = () => {
+    const query = templateSearch().trim().toLocaleLowerCase();
+    return allTemplates().filter((template) => {
+      const custom = !GUIDE_TEMPLATES.some((builtIn) => builtIn.id === template.id);
+      if (templateKind() === "built-in" && custom) return false;
+      if (templateKind() === "custom" && !custom) return false;
+      if (!query) return true;
+      return [
+        template.name,
+        template.subject,
+        template.description,
+        ...template.sections,
+        template.body,
+      ]
+        .join(" ")
+        .toLocaleLowerCase()
+        .includes(query);
+    });
+  };
+  const visibleCustomTemplateRecords = () => {
+    const query = templateSearch().trim().toLocaleLowerCase();
+    return props.customTemplates.filter((record) => {
+      if (!query) return true;
+      const template = guideTemplateFromRecord(record);
+      return [
+        template.name,
+        template.subject,
+        template.description,
+        ...template.sections,
+        template.body,
+      ]
+        .join(" ")
+        .toLocaleLowerCase()
+        .includes(query);
+    });
+  };
 
   function openGeneration(): void {
     setGenerationError("");
@@ -136,6 +305,20 @@ export function GuidesPage(props: GuidePageProps): JSX.Element {
     });
   }
 
+  async function duplicateGuide(record: ArchiveRecord): Promise<void> {
+    setGuideNotice("");
+    try {
+      const saved = await props.onSave(duplicateGuideDraft(guideDraftFromRecord(record)), null);
+      setGuideNotice(
+        saved
+          ? `Created a draft copy of “${field(record, "title", "Study guide")}”.`
+          : "The guide copy was not saved. Review the workspace notice and try again.",
+      );
+    } catch (cause) {
+      setGuideNotice(cause instanceof Error ? cause.message : "The guide could not be copied.");
+    }
+  }
+
   function generateSelectedGuide(event: SubmitEvent): void {
     event.preventDefault();
     const selection = generation();
@@ -190,6 +373,27 @@ export function GuidesPage(props: GuidePageProps): JSX.Element {
     }
   }
 
+  async function duplicateTemplate(record: ArchiveRecord): Promise<void> {
+    const template = guideTemplateFromRecord(record);
+    try {
+      const saved = await props.onSaveTemplate(
+        {
+          name: `${template.name.slice(0, 233).trimEnd()} (copy)`,
+          subject: template.subject,
+          description: template.description,
+          sections: template.sections,
+          body: template.body,
+        },
+        null,
+      );
+      setTemplateNotice(
+        saved ? `Created a copy of “${template.name}”.` : "Template copy was not saved.",
+      );
+    } catch (cause) {
+      setTemplateNotice(cause instanceof Error ? cause.message : "Template could not be copied.");
+    }
+  }
+
   return (
     <div class="page-body guides-page">
       <section class="record-heading guides-heading">
@@ -210,14 +414,11 @@ export function GuidesPage(props: GuidePageProps): JSX.Element {
               if (event.target === event.currentTarget && !props.busy) setGeneration(null);
             }}
           >
-            <section
+            <GuideDialog
               class="guide-generation-dialog"
-              role="dialog"
-              aria-modal="true"
-              aria-labelledby="guide-generation-title"
-              onKeyDown={(event) => {
-                if (event.key === "Escape" && !props.busy) setGeneration(null);
-              }}
+              labelledBy="guide-generation-title"
+              onEscape={() => setGeneration(null)}
+              canEscape={() => !props.busy}
             >
               <header class="guide-editor-header">
                 <div>
@@ -234,6 +435,7 @@ export function GuidesPage(props: GuidePageProps): JSX.Element {
                   class="icon-button guide-trash-button"
                   type="button"
                   aria-label="Close guide generation"
+                  disabled={props.busy}
                   onClick={() => setGeneration(null)}
                 >
                   ×
@@ -384,7 +586,7 @@ export function GuidesPage(props: GuidePageProps): JSX.Element {
                   </button>
                 </footer>
               </form>
-            </section>
+            </GuideDialog>
           </div>
         )}
       </Show>
@@ -426,32 +628,189 @@ export function GuidesPage(props: GuidePageProps): JSX.Element {
             </button>
           </div>
         </div>
-        <div class="guide-template-grid">
-          <For each={allTemplates()}>
-            {(template, index) => (
+        <div class="guide-template-browser" aria-label="Browse guide structures">
+          <div class="guide-template-search" role="search">
+            <span aria-hidden="true" class="guide-template-search-icon">
+              ⌕
+            </span>
+            <input
+              type="search"
+              aria-label="Search guide templates"
+              placeholder="Search by name, subject, or section"
+              value={templateSearch()}
+              onInput={(event) => setTemplateSearch(event.currentTarget.value)}
+            />
+            <Show when={templateSearch()}>
               <button
-                class="guide-template-card"
                 type="button"
-                disabled={!canCreate()}
-                onClick={() => setEditor({ record: null, templateId: template.id })}
+                class="guide-template-search-clear"
+                aria-label="Clear template search"
+                onClick={() => setTemplateSearch("")}
               >
-                <span class={`guide-template-number guide-template-number-${index() % 5}`}>
-                  {String(index() + 1).padStart(2, "0")}
-                </span>
-                <span class="guide-template-copy">
-                  <strong>{template.name}</strong>
-                  <small>{template.description}</small>
-                  <span>
-                    {template.sections.length} sections <span aria-hidden="true">·</span>{" "}
-                    {GUIDE_TEMPLATES.some((builtIn) => builtIn.id === template.id)
-                      ? "Built in"
-                      : "Custom"}
-                  </span>
-                </span>
+                ×
               </button>
-            )}
-          </For>
+            </Show>
+          </div>
+          <div class="guide-template-filters" role="group" aria-label="Template type">
+            <For
+              each={
+                [
+                  { id: "all", label: `All · ${allTemplates().length}` },
+                  { id: "built-in", label: `Built in · ${GUIDE_TEMPLATES.length}` },
+                  { id: "custom", label: `Custom · ${customTemplates().length}` },
+                ] as const
+              }
+            >
+              {(filter) => (
+                <button
+                  type="button"
+                  class="guide-template-filter"
+                  classList={{ "is-active": templateKind() === filter.id }}
+                  aria-pressed={templateKind() === filter.id}
+                  onClick={() => setTemplateKind(filter.id)}
+                >
+                  {filter.label}
+                </button>
+              )}
+            </For>
+          </div>
         </div>
+        <div class="guide-template-grid">
+          <Show
+            when={visibleTemplates().length > 0}
+            fallback={
+              <div class="guide-template-no-results">
+                <span class="guide-template-no-results-mark" aria-hidden="true">
+                  ⌕
+                </span>
+                <div>
+                  <strong>
+                    {templateSearch()
+                      ? "No structures match that search"
+                      : "No templates in this view"}
+                  </strong>
+                  <p>Try another word or switch the template type filter.</p>
+                </div>
+                <Show when={templateSearch()}>
+                  <button
+                    class="button button-quiet"
+                    type="button"
+                    onClick={() => setTemplateSearch("")}
+                  >
+                    Clear search
+                  </button>
+                </Show>
+              </div>
+            }
+          >
+            <For each={visibleTemplates()}>
+              {(template, index) => {
+                const isBuiltIn = () =>
+                  GUIDE_TEMPLATES.some((builtIn) => builtIn.id === template.id);
+                return (
+                  <article class="guide-template-card">
+                    <span
+                      class={`guide-template-number guide-template-number-${index() % 5}`}
+                      aria-hidden="true"
+                    >
+                      {String(index() + 1).padStart(2, "0")}
+                    </span>
+                    <div class="guide-template-copy">
+                      <div class="guide-template-title-line">
+                        <strong>{template.name}</strong>
+                        <span
+                          class={`guide-template-kind${isBuiltIn() ? " is-built-in" : " is-custom"}`}
+                        >
+                          {isBuiltIn() ? "Built in" : "Custom"}
+                        </span>
+                      </div>
+                      <small>
+                        {template.description || "A reusable structure for your next study guide."}
+                      </small>
+                      <span>
+                        {template.subject || "General"} <span aria-hidden="true">·</span>{" "}
+                        {template.sections.length} sections
+                      </span>
+                      <div class="guide-template-card-actions">
+                        <button
+                          class="button button-primary"
+                          type="button"
+                          disabled={!canCreateGuide() || props.busy}
+                          onClick={() => setEditor({ record: null, templateId: template.id })}
+                        >
+                          Use structure
+                        </button>
+                        <button
+                          class="button button-quiet"
+                          type="button"
+                          aria-expanded={previewTemplateId() === template.id}
+                          aria-controls="guide-template-preview"
+                          onClick={() =>
+                            setPreviewTemplateId((current) =>
+                              current === template.id ? "" : template.id,
+                            )
+                          }
+                        >
+                          {previewTemplateId() === template.id ? "Hide details" : "Preview"}
+                        </button>
+                        <button
+                          class="button button-quiet guide-template-export-card"
+                          type="button"
+                          disabled={props.busy}
+                          onClick={() => props.onExportTemplate(template)}
+                        >
+                          Export
+                        </button>
+                      </div>
+                    </div>
+                  </article>
+                );
+              }}
+            </For>
+          </Show>
+        </div>
+        <Show when={allTemplates().find((template) => template.id === previewTemplateId())} keyed>
+          {(template) => (
+            <section
+              class="guide-template-preview"
+              id="guide-template-preview"
+              aria-labelledby="guide-template-preview-title"
+            >
+              <div class="guide-template-preview-heading">
+                <div>
+                  <span class="eyebrow">TEMPLATE PREVIEW · {template.subject || "GENERAL"}</span>
+                  <h3 id="guide-template-preview-title">{template.name}</h3>
+                  <p>
+                    {template.description ||
+                      "A reusable guide structure with your chosen editorial guidance."}
+                  </p>
+                </div>
+                <button
+                  class="button button-primary"
+                  type="button"
+                  disabled={!canCreateGuide() || props.busy}
+                  onClick={() => setEditor({ record: null, templateId: template.id })}
+                >
+                  Start a guide
+                </button>
+              </div>
+              <div class="guide-template-preview-content">
+                <div>
+                  <span class="eyebrow">ORDERED SECTIONS</span>
+                  <ol>
+                    <For each={template.sections}>{(section) => <li>{section}</li>}</For>
+                  </ol>
+                </div>
+                <Show when={template.body}>
+                  <div>
+                    <span class="eyebrow">WRITING GUIDANCE</span>
+                    <p>{template.body}</p>
+                  </div>
+                </Show>
+              </div>
+            </section>
+          )}
+        </Show>
         <Show when={props.templateManagerOpen}>
           <section class="guide-template-manager" aria-labelledby="guide-template-manager-title">
             <div class="guide-template-manager-heading">
@@ -498,9 +857,10 @@ export function GuidesPage(props: GuidePageProps): JSX.Element {
               }
             >
               <div class="guide-template-manage-list">
-                <For each={props.customTemplates}>
+                <For each={visibleCustomTemplateRecords()}>
                   {(record) => {
                     const template = () => guideTemplateFromRecord(record);
+                    const deleteArmed = () => armedTemplateDeleteId() === record.id;
                     return (
                       <article class="guide-template-manage-row">
                         <div class="guide-template-manage-copy">
@@ -521,6 +881,14 @@ export function GuidesPage(props: GuidePageProps): JSX.Element {
                             Export
                           </button>
                           <button
+                            class="button button-quiet"
+                            type="button"
+                            disabled={props.disabled || props.busy}
+                            onClick={() => void duplicateTemplate(record)}
+                          >
+                            Duplicate
+                          </button>
+                          <button
                             class="button button-outline"
                             type="button"
                             disabled={props.disabled || props.busy}
@@ -531,20 +899,50 @@ export function GuidesPage(props: GuidePageProps): JSX.Element {
                           >
                             Edit
                           </button>
-                          <button
-                            class="button button-quiet"
-                            type="button"
-                            disabled={props.disabled || props.busy}
-                            onClick={() => props.onTrashTemplate(record)}
+                          <Show
+                            when={deleteArmed()}
+                            fallback={
+                              <button
+                                class="button button-quiet"
+                                type="button"
+                                disabled={props.disabled || props.busy}
+                                onClick={() => setArmedTemplateDeleteId(record.id)}
+                              >
+                                Move to Trash
+                              </button>
+                            }
                           >
-                            Move to Trash
-                          </button>
+                            <button
+                              class="button button-danger-quiet"
+                              type="button"
+                              disabled={props.disabled || props.busy}
+                              onClick={() => {
+                                props.onTrashTemplate(record);
+                                setArmedTemplateDeleteId("");
+                              }}
+                            >
+                              Confirm move
+                            </button>
+                            <button
+                              class="button button-quiet"
+                              type="button"
+                              onClick={() => setArmedTemplateDeleteId("")}
+                            >
+                              Cancel
+                            </button>
+                          </Show>
                         </div>
                       </article>
                     );
                   }}
                 </For>
               </div>
+              <Show when={visibleCustomTemplateRecords().length === 0}>
+                <p class="guide-template-empty">
+                  No custom templates match this search. Clear the search to browse every saved
+                  template.
+                </p>
+              </Show>
             </Show>
             <Show when={props.trashedTemplates.length > 0}>
               <div class="guide-template-trash-list">
@@ -590,6 +988,11 @@ export function GuidesPage(props: GuidePageProps): JSX.Element {
           </span>
           <span class="list-view-label">Drafts remain yours to shape</span>
         </div>
+        <Show when={guideNotice()}>
+          <p class="guide-action-notice" role="status" aria-live="polite">
+            {guideNotice()}
+          </p>
+        </Show>
         <Show
           when={props.records.length > 0}
           fallback={
@@ -676,6 +1079,14 @@ export function GuidesPage(props: GuidePageProps): JSX.Element {
                         }
                       >
                         Edit
+                      </button>
+                      <button
+                        class="button button-quiet"
+                        type="button"
+                        disabled={!canEdit() || props.busy}
+                        onClick={() => void duplicateGuide(record)}
+                      >
+                        Duplicate
                       </button>
                       <Show when={field(record, "approval_state", "draft") !== "approved"}>
                         <button
@@ -808,12 +1219,42 @@ function GuideEditor(props: {
 }): JSX.Element {
   // The editor is mounted with keyed Show for the selected record, so its initial draft is a snapshot.
   /* eslint-disable solid/reactivity */
-  const [draft, setDraft] = createSignal<GuideDraft>(
+  const initialDraft =
     props.initialDraft ??
-      initialGuideDraft(props.record, props.sessions, props.templateId, props.customTemplates),
-  );
+    initialGuideDraft(props.record, props.sessions, props.templateId, props.customTemplates);
+  const [draft, setDraftState] = createSignal<GuideDraft>(initialDraft);
   /* eslint-enable solid/reactivity */
+  const initialBlockSection = initialDraft.sections.find((section) => section.blocks.length > 0);
+  const [activeBlock, setActiveBlock] = createSignal<{
+    sectionId: string;
+    blockIndex: number;
+  } | null>(initialBlockSection ? { sectionId: initialBlockSection.id, blockIndex: 0 } : null);
   const [error, setError] = createSignal("");
+  const [validationReport, setValidationReport] = createSignal<{
+    valid: boolean;
+    message: string;
+  } | null>(null);
+  const [undoStack, setUndoStack] = createSignal<GuideDraft[]>([]);
+  const [redoStack, setRedoStack] = createSignal<GuideDraft[]>([]);
+  const [findQuery, setFindQuery] = createSignal("");
+  const [replaceText, setReplaceText] = createSignal("");
+  const [activeMatch, setActiveMatch] = createSignal<GuideTextMatch | null>(null);
+  const [findStatus, setFindStatus] = createSignal("");
+  const findBlockPosition = createMemo(() => {
+    const selected = activeBlock();
+    if (!selected) return null;
+    const sectionIndex = draft().sections.findIndex((section) => section.id === selected.sectionId);
+    const blockIndex = selected.blockIndex;
+    if (sectionIndex < 0 || blockIndex < 0 || blockIndex >= draft().sections[sectionIndex]!.blocks.length)
+      return null;
+    return { sectionIndex, blockIndex };
+  });
+  const findMatches = createMemo(() => {
+    const selected = findBlockPosition();
+    return selected ? findGuideTextMatches(draft(), findQuery(), selected) : [];
+  });
+  const blockTextareas = new Map<string, HTMLTextAreaElement>();
+  let inlineEditStart: GuideDraft | null = null;
   const selectedSession = createMemo(() =>
     props.sessions.find((session) => session.id === draft().sessionId),
   );
@@ -821,28 +1262,302 @@ function GuideEditor(props: {
     props.entries.find((entry) => entry.id === draft().entryId),
   );
 
+  function setDraft(
+    update: GuideDraft | ((current: GuideDraft) => GuideDraft),
+    recordHistory = false,
+  ): void {
+    const current = draft();
+    const next = typeof update === "function" ? update(current) : update;
+    if (next === current) return;
+    if (recordHistory) {
+      setUndoStack((history) => [...history.slice(-99), current]);
+      setRedoStack([]);
+      inlineEditStart = null;
+    }
+    setValidationReport(null);
+    setDraftState(next);
+  }
+
+  function handleEditorFocusIn(event: FocusEvent): void {
+    const target = event.target;
+    if (
+      target instanceof HTMLElement &&
+      target.closest(".guide-editor-fields, .guide-editor-section-heading, .guide-block-editor")
+    ) {
+      inlineEditStart = draft();
+    }
+  }
+
+  function handleEditorFocusOut(event: FocusEvent): void {
+    const target = event.target;
+    if (
+      inlineEditStart &&
+      target instanceof HTMLElement &&
+      target.closest(".guide-editor-fields, .guide-editor-section-heading, .guide-block-editor")
+    ) {
+      const before = inlineEditStart;
+      inlineEditStart = null;
+      if (draft() !== before) {
+        setUndoStack((history) => [...history.slice(-99), before]);
+        setRedoStack([]);
+      }
+    }
+  }
+
+  function undoGuideChange(): void {
+    const previous = undoStack().at(-1);
+    if (!previous) return;
+    setUndoStack((history) => history.slice(0, -1));
+    setRedoStack((history) => [...history.slice(-99), draft()]);
+    setValidationReport(null);
+    setDraftState(previous);
+    clearFindSelection();
+  }
+
+  function redoGuideChange(): void {
+    const next = redoStack().at(-1);
+    if (!next) return;
+    setRedoStack((history) => history.slice(0, -1));
+    setUndoStack((history) => [...history.slice(-99), draft()]);
+    setValidationReport(null);
+    setDraftState(next);
+    clearFindSelection();
+  }
+
+  function handleEditorKeyDown(event: KeyboardEvent): void {
+    if (!(event.metaKey || event.ctrlKey) || event.altKey) return;
+    const target = event.target;
+    if (
+      target instanceof HTMLElement &&
+      target.closest("input, textarea, select, [contenteditable='true']")
+    ) {
+      return;
+    }
+    const key = event.key.toLowerCase();
+    if (key === "z") {
+      event.preventDefault();
+      if (event.shiftKey) redoGuideChange();
+      else undoGuideChange();
+    } else if (key === "y") {
+      event.preventDefault();
+      redoGuideChange();
+    }
+  }
+
+  function validateSources(): void {
+    const current = draft();
+    const session = props.sessions.find((item) => item.id === current.sessionId);
+    const entry = props.entries.find((item) => item.id === current.entryId);
+    try {
+      const checked = makeGuideRecord(
+        current,
+        {
+          ...(session ? { session } : {}),
+          ...(entry ? { entry } : {}),
+          records: props.sourceRecords,
+        },
+        props.record,
+      );
+      const sourceReferenceCount = [...checked.fields]
+        .filter(([key]) => /^section\.\d+\.block\.\d+\.source_ids$/u.test(key))
+        .reduce(
+          (count, [, value]) => count + value.split(",").filter(Boolean).length,
+          0,
+        );
+      const staleBlockCount = current.sections.reduce(
+        (count, section) => count + section.blocks.filter((block) => block.stale).length,
+        0,
+      );
+      const staleNote = staleBlockCount
+        ? ` ${staleBlockCount} source-changed ${staleBlockCount === 1 ? "block needs" : "blocks need"} review.`
+        : "";
+      const sourceSummary = sourceReferenceCount
+        ? `${sourceReferenceCount.toLocaleString()} source ${sourceReferenceCount === 1 ? "reference resolves" : "references resolve"} within this guide’s scope.`
+        : "No source references are attached.";
+      setValidationReport({
+        valid: true,
+        message: `Validation passed. Guide structure is valid. ${sourceSummary}${staleNote}`,
+      });
+    } catch (cause) {
+      setValidationReport({
+        valid: false,
+        message: `Validation failed: ${cause instanceof Error ? cause.message : "The guide sources could not be validated."}`,
+      });
+    }
+  }
+
   function updateSection(
     index: number,
     update: (section: GuideDraft["sections"][number]) => GuideDraft["sections"][number],
+    recordHistory = true,
   ): void {
     setDraft((current) => ({
       ...current,
       sections: current.sections.map((section, i) => (i === index ? update(section) : section)),
-    }));
+    }), recordHistory);
   }
 
   function updateBlock(
     sectionIndex: number,
     blockIndex: number,
     update: (block: GuideBlockDraft) => GuideBlockDraft,
+    recordHistory = true,
   ): void {
     updateSection(sectionIndex, (section) => ({
       ...section,
       blocks: section.blocks.map((block, i) => (i === blockIndex ? update(block) : block)),
-    }));
+    }), recordHistory);
+  }
+
+  function clearFindSelection(): void {
+    setActiveMatch(null);
+    setFindStatus("");
+  }
+
+  function moveSection(index: number, direction: -1 | 1): void {
+    clearFindSelection();
+    setDraft((current) => ({
+      ...current,
+      sections: moveGuideSection(current.sections, index, direction),
+    }), true);
+  }
+
+  function addExampleAfter(sectionIndex: number, blockIndex: number): void {
+    clearFindSelection();
+    const sectionId = draft().sections[sectionIndex]?.id;
+    if (sectionId) setActiveBlock({ sectionId, blockIndex });
+    updateSection(
+      sectionIndex,
+      (section) => ({
+        ...section,
+        blocks: [
+          ...section.blocks.slice(0, blockIndex + 1),
+          {
+            kind: "example",
+            text: "",
+            sourceIds: "",
+            stale: false,
+            origin: "tutor-authored",
+          },
+          ...section.blocks.slice(blockIndex + 1),
+        ],
+      }),
+      true,
+    );
+  }
+
+  function activateBlock(sectionId: string, blockIndex: number): void {
+    const selected = activeBlock();
+    if (selected?.sectionId !== sectionId || selected.blockIndex !== blockIndex) {
+      setActiveMatch(null);
+      setFindStatus("");
+    }
+    setActiveBlock({ sectionId, blockIndex });
+  }
+
+  function focusMatch(match: GuideTextMatch): void {
+    const sectionId = draft().sections[match.sectionIndex]?.id;
+    if (!sectionId) return;
+    queueMicrotask(() => {
+      const textarea = blockTextareas.get(`${sectionId}:${match.blockIndex}`);
+      if (!textarea) return;
+      textarea.focus();
+      textarea.setSelectionRange(match.start, match.end);
+    });
+  }
+
+  function findNext(): void {
+    if (!findBlockPosition()) {
+      setFindStatus("Focus a content block before searching.");
+      return;
+    }
+    const matches = findMatches();
+    if (!findQuery()) {
+      setFindStatus("Enter text to find.");
+      return;
+    }
+    if (!matches.length) {
+      setActiveMatch(null);
+      setFindStatus("No matches in the selected block.");
+      return;
+    }
+    const current = activeMatch();
+    const currentIndex = current
+      ? matches.findIndex(
+          (match) =>
+            match.sectionIndex === current.sectionIndex &&
+            match.blockIndex === current.blockIndex &&
+            match.start === current.start,
+        )
+      : -1;
+    const nextIndex = (currentIndex + 1) % matches.length;
+    const match = matches[nextIndex]!;
+    setActiveMatch(match);
+    setFindStatus(`Match ${nextIndex + 1} of ${matches.length}.`);
+    focusMatch(match);
+  }
+
+  function replaceCurrent(): void {
+    if (!findBlockPosition()) {
+      setFindStatus("Focus a content block before replacing text.");
+      return;
+    }
+    const query = findQuery();
+    if (!query) {
+      setFindStatus("Enter text to find.");
+      return;
+    }
+    if (query === replaceText()) {
+      setFindStatus("The replacement is identical. Nothing changed.");
+      return;
+    }
+    const matches = findMatches();
+    const match = activeMatch() ?? matches[0];
+    if (!match) {
+      setFindStatus("No matches in the selected block.");
+      return;
+    }
+    const updated = replaceGuideTextMatch(draft(), match, query, replaceText());
+    if (updated === draft()) {
+      setActiveMatch(null);
+      setFindStatus("The selected match changed. Find next to choose another match.");
+      return;
+    }
+    setDraft(updated, true);
+    setActiveMatch(null);
+    setFindStatus("Replaced one match.");
+  }
+
+  function replaceAll(): void {
+    const selectedBlock = findBlockPosition();
+    if (!selectedBlock) {
+      setFindStatus("Focus a content block before replacing text.");
+      return;
+    }
+    const query = findQuery();
+    if (!query) {
+      setActiveMatch(null);
+      setFindStatus("Enter text to find.");
+      return;
+    }
+    if (query === replaceText()) {
+      setFindStatus("The replacement is identical. Nothing changed.");
+      return;
+    }
+    const result = replaceAllGuideText(draft(), query, replaceText(), selectedBlock);
+    setActiveMatch(null);
+    setFindStatus(
+      result.replacedCount
+        ? `Replaced ${result.replacedCount.toLocaleString()} ${result.replacedCount === 1 ? "match" : "matches"}.`
+        : findQuery()
+          ? "No matches to replace."
+          : "Enter text to find.",
+    );
+    if (result.replacedCount) setDraft(result.draft, true);
   }
 
   function selectTemplate(templateId: string): void {
+    clearFindSelection();
     setDraft((current) => ({
       ...current,
       templateId,
@@ -851,7 +1566,7 @@ function GuideEditor(props: {
       )
         ? templateSections(templateId, props.customTemplates)
         : current.sections,
-    }));
+    }), true);
   }
 
   async function submit(event: SubmitEvent): Promise<void> {
@@ -873,14 +1588,11 @@ function GuideEditor(props: {
         if (event.target === event.currentTarget && !props.busy) props.onClose();
       }}
     >
-      <section
+      <GuideDialog
         class="guide-editor-dialog"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="guide-editor-title"
-        onKeyDown={(event) => {
-          if (event.key === "Escape" && !props.busy) props.onClose();
-        }}
+        labelledBy="guide-editor-title"
+        onEscape={props.onClose}
+        canEscape={() => !props.busy}
       >
         <header class="guide-editor-header">
           <div>
@@ -906,7 +1618,13 @@ function GuideEditor(props: {
             ×
           </button>
         </header>
-        <form class="guide-editor-form" onSubmit={(event) => void submit(event)}>
+        <form
+          class="guide-editor-form"
+          onSubmit={(event) => void submit(event)}
+          onKeyDown={handleEditorKeyDown}
+          onFocusIn={handleEditorFocusIn}
+          onFocusOut={handleEditorFocusOut}
+        >
           <div class="guide-editor-fields">
             <label class="form-field guide-title-field">
               Guide title
@@ -938,7 +1656,7 @@ function GuideEditor(props: {
                         : session
                           ? `${field(session, "title", "Tutoring Session")} — Study Guide`
                           : current.title,
-                    }));
+                    }), true);
                   }}
                 >
                   <option value="" disabled>
@@ -983,6 +1701,104 @@ function GuideEditor(props: {
               </select>
             </label>
           </div>
+
+          <div class="guide-find" role="search" aria-label="Find and replace in selected guide block">
+            <label>
+              Find
+              <input
+                value={findQuery()}
+                onInput={(event) => {
+                  setFindQuery(event.currentTarget.value);
+                  setActiveMatch(null);
+                  setFindStatus("");
+                }}
+              />
+            </label>
+            <label>
+              Replace with
+              <input
+                value={replaceText()}
+                onInput={(event) => setReplaceText(event.currentTarget.value)}
+              />
+            </label>
+            <span class="guide-find-status" aria-live="polite">
+              {findStatus() ||
+                (findBlockPosition()
+                  ? `${findMatches().length.toLocaleString()} ${findMatches().length === 1 ? "match" : "matches"} in selected block`
+                  : "Focus a content block to search its text.")}
+            </span>
+            <div class="guide-find-actions">
+              <button
+                class="button button-quiet"
+                type="button"
+                disabled={props.busy || !findBlockPosition() || !findQuery() || findMatches().length === 0}
+                onClick={findNext}
+              >
+                Find next
+              </button>
+              <button
+                class="button button-quiet"
+                type="button"
+                disabled={props.busy || !findBlockPosition() || !findQuery() || findMatches().length === 0}
+                onClick={replaceCurrent}
+              >
+                Replace
+              </button>
+              <button
+                class="button button-quiet"
+                type="button"
+                disabled={props.busy || !findBlockPosition() || !findQuery() || findMatches().length === 0}
+                onClick={replaceAll}
+              >
+                Replace all
+              </button>
+            </div>
+          </div>
+
+          <div class="guide-editor-commands" aria-label="Guide editing commands">
+            <div class="guide-history-actions" role="group" aria-label="Guide-wide edit history">
+              <button
+                class="button button-quiet"
+                type="button"
+                aria-label="Undo guide change"
+                title="Undo the last guide-wide edit (Ctrl/Cmd+Z outside text fields)"
+                disabled={props.busy || undoStack().length === 0}
+                onClick={undoGuideChange}
+              >
+                Undo
+              </button>
+              <button
+                class="button button-quiet"
+                type="button"
+                aria-label="Redo guide change"
+                title="Redo the last guide-wide edit (Ctrl/Cmd+Shift+Z outside text fields)"
+                disabled={props.busy || redoStack().length === 0}
+                onClick={redoGuideChange}
+              >
+                Redo
+              </button>
+            </div>
+            <button
+              class="button button-outline"
+              type="button"
+              disabled={props.busy}
+              onClick={validateSources}
+            >
+              Validate sources
+            </button>
+          </div>
+          <Show when={validationReport()}>
+            {(report) => (
+              <p
+                class="guide-validation-report"
+                classList={{ "is-invalid": !report().valid }}
+                role={report().valid ? "status" : "alert"}
+                aria-live={report().valid ? "polite" : "assertive"}
+              >
+                {report().message}
+              </p>
+            )}
+          </Show>
 
           <Show
             when={draft().sessionId && selectedSession()}
@@ -1040,23 +1856,49 @@ function GuideEditor(props: {
                           updateSection(sectionIndex(), (current) => ({
                             ...current,
                             heading: event.currentTarget.value,
-                          }))
+                          }), false)
                         }
                       />
                     </label>
-                    <button
-                      class="button button-quiet guide-remove-section"
-                      type="button"
-                      disabled={draft().sections.length <= 1}
-                      onClick={() =>
-                        setDraft((current) => ({
-                          ...current,
-                          sections: current.sections.filter((_, index) => index !== sectionIndex()),
-                        }))
-                      }
-                    >
-                      Remove
-                    </button>
+                    <div class="guide-section-actions">
+                      <button
+                        class="button button-quiet guide-section-move"
+                        type="button"
+                        title="Move section up"
+                        aria-label={`Move section ${sectionIndex() + 1} up`}
+                        disabled={sectionIndex() === 0}
+                        onClick={() => moveSection(sectionIndex(), -1)}
+                      >
+                        ↑
+                      </button>
+                      <button
+                        class="button button-quiet guide-section-move"
+                        type="button"
+                        title="Move section down"
+                        aria-label={`Move section ${sectionIndex() + 1} down`}
+                        disabled={sectionIndex() === draft().sections.length - 1}
+                        onClick={() => moveSection(sectionIndex(), 1)}
+                      >
+                        ↓
+                      </button>
+                      <button
+                        class="button button-quiet guide-remove-section"
+                        type="button"
+                        disabled={draft().sections.length <= 1}
+                        onClick={() => {
+                          clearFindSelection();
+                          setActiveBlock((selected) =>
+                            selected?.sectionId === section.id ? null : selected,
+                          );
+                          setDraft((current) => ({
+                            ...current,
+                            sections: current.sections.filter((_, index) => index !== sectionIndex()),
+                          }), true);
+                        }}
+                      >
+                        Remove
+                      </button>
+                    </div>
                   </div>
                   <div class="guide-block-list">
                     <For each={section.blocks}>
@@ -1110,27 +1952,48 @@ function GuideEditor(props: {
                               </span>
                             </Show>
                             <button
+                              class="button button-quiet guide-example-shortcut"
+                              type="button"
+                              disabled={props.busy}
+                              title="Insert an example block after this block"
+                              onClick={() => addExampleAfter(sectionIndex(), blockIndex())}
+                            >
+                              Add example
+                            </button>
+                            <button
                               class="icon-button"
                               type="button"
                               title="Remove block"
                               aria-label="Remove block"
-                              onClick={() =>
+                              onClick={() => {
+                                clearFindSelection();
+                                setActiveBlock((selected) => {
+                                  if (selected?.sectionId !== section.id) return selected;
+                                  if (selected.blockIndex === blockIndex()) return null;
+                                  return selected.blockIndex > blockIndex()
+                                    ? { ...selected, blockIndex: selected.blockIndex - 1 }
+                                    : selected;
+                                });
                                 updateSection(sectionIndex(), (current) => ({
                                   ...current,
                                   blocks: current.blocks.filter(
                                     (_, index) => index !== blockIndex(),
                                   ),
-                                }))
-                              }
+                                }));
+                              }}
                             >
                               ×
                             </button>
                           </div>
                           <textarea
+                            ref={(element) =>
+                              blockTextareas.set(`${section.id}:${blockIndex()}`, element)
+                            }
+                            onFocus={() => activateBlock(section.id, blockIndex())}
                             rows={4}
                             value={block.text}
                             placeholder="Write the explanation, example, prompt, or practice note…"
-                            onInput={(event) =>
+                            onInput={(event) => {
                               updateBlock(sectionIndex(), blockIndex(), (current) => ({
                                 ...current,
                                 text: event.currentTarget.value,
@@ -1139,8 +2002,9 @@ function GuideEditor(props: {
                                   current.origin === "ai-generated"
                                     ? "human-edited"
                                     : "human-edited",
-                              }))
-                            }
+                              }), false);
+                              clearFindSelection();
+                            }}
                           />
                           <div class="guide-source-row">
                             <label class="form-field">
@@ -1153,7 +2017,7 @@ function GuideEditor(props: {
                                     ...current,
                                     sourceIds: event.currentTarget.value,
                                     stale: false,
-                                  }))
+                                  }), false)
                                 }
                               />
                             </label>
@@ -1167,7 +2031,7 @@ function GuideEditor(props: {
                                   updateBlock(sectionIndex(), blockIndex(), (current) => ({
                                     ...current,
                                     sourceIds: appendSourceId(current.sourceIds, id),
-                                  }));
+                                  }), true);
                                   event.currentTarget.value = "";
                                 }}
                               >
@@ -1204,7 +2068,7 @@ function GuideEditor(props: {
                             origin: "tutor-authored",
                           },
                         ],
-                      }))
+                      }), true)
                     }
                   >
                     + Add a content block
@@ -1223,7 +2087,7 @@ function GuideEditor(props: {
                   ...current.sections,
                   { id: crypto.randomUUID(), heading: "New section", blocks: [] },
                 ],
-              }))
+              }), true)
             }
           >
             + Add section
@@ -1257,7 +2121,7 @@ function GuideEditor(props: {
             </div>
           </footer>
         </form>
-      </section>
+      </GuideDialog>
     </div>
   );
 }
@@ -1348,14 +2212,11 @@ function GuideTemplateEditor(props: {
 
   return (
     <div class="dialog-backdrop guide-editor-backdrop">
-      <section
+      <GuideDialog
         class="guide-editor-dialog guide-template-editor-dialog"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="guide-template-editor-title"
-        onKeyDown={(event) => {
-          if (event.key === "Escape" && !props.busy) props.onClose();
-        }}
+        labelledBy="guide-template-editor-title"
+        onEscape={props.onClose}
+        canEscape={() => !props.busy}
       >
         <header class="guide-editor-header">
           <div>
@@ -1435,7 +2296,7 @@ function GuideTemplateEditor(props: {
             </div>
           </footer>
         </form>
-      </section>
+      </GuideDialog>
     </div>
   );
 }
