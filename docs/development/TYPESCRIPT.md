@@ -5,27 +5,27 @@ This guide covers the SolidJS, Vite, Tauri, Rust host, and CLI code.
 ## Toolchain
 
 - Node.js 24+
-- npm 11+
+- pnpm 10+
 - Rust stable for desktop development and packaging
 - On Linux, the Tauri WebKitGTK development libraries listed in `.github/workflows/tauri-cross-platform.yml`
 
-Use the committed `package-lock.json` for reproducible installs:
+Use the committed `pnpm-lock.yaml` for reproducible installs:
 
 ```sh
-npm ci
+pnpm install --frozen-lockfile
 ```
 
 ## Web workflow
 
 ```sh
-npm run dev
-npm run typecheck
-npm run lint
-npm run format:check
-npm run test
-npm run test:e2e
-npm run build
-npm run preview
+pnpm run dev
+pnpm run typecheck
+pnpm run lint
+pnpm run format:check
+pnpm run test
+pnpm run test:e2e
+pnpm run build
+pnpm run preview
 ```
 
 The static build is written to `dist/`. Do not import `@tauri-apps/*` from a domain module or the browser adapter; Vite selects `frontend/platform/browser.ts` for the web build.
@@ -33,8 +33,8 @@ The static build is written to `dist/`. Do not import `@tauri-apps/*` from a dom
 ## Desktop workflow
 
 ```sh
-npm run desktop:dev
-npm run desktop:build
+pnpm run desktop:dev
+pnpm run desktop:build
 ```
 
 The desktop adapter is selected with Vite's `desktop` mode. The Rust host lives in `src-tauri/` and provides native file operations plus the narrowly scoped HTTP transport for the user's explicitly reviewed AI provider request. It validates the exact reviewed endpoint and request hash, applies provider-route and size limits, and returns response bytes; provider parsing and tutoring rules stay in TypeScript. Run `cargo check --manifest-path src-tauri/Cargo.toml` for a fast host check. Build release bundles on each target OS; Tauri's native toolchain and WebView dependencies are host-specific.
@@ -42,20 +42,20 @@ The desktop adapter is selected with Vite's `desktop` mode. The Rust host lives 
 ## CLI workflow
 
 ```sh
-npm run cli -- --help
-npm run cli -- archive init Lesson.tux --name "Algebra"
-npm run cli -- archive recover Lesson.tux --json
-npm run cli -- archive recover Lesson.tux --apply --json
-npm run cli -- archive compact Lesson.tux --preview --json
-npm run cli -- archive compact Lesson.tux --json
-npm run cli -- archive repair Lesson.tux --output Lesson-repaired.tux --confirm-sensitive --json
-npm run cli -- archive sanitize Lesson.tux --output Lesson-sanitized.tux --include-students <uuid> --json
-npm run cli -- archive sanitize Lesson.tux --output Lesson-sanitized.tux --include-students <uuid> --confirm-sensitive --expected-generation <generation> --expected-selection <sha256> --expected-output Lesson-sanitized.tux --expected-encrypted-output no --json
-npm run cli -- --passphrase-env TUTORUX_SOURCE_PASSPHRASE archive sanitize Protected-Lesson.tux --output Protected-sanitized.tux --include-credentials --json
-npm run cli -- archive sanitize Lesson.tux --output Encrypted-copy.tux --include-students <uuid> --confirm-sensitive --expected-generation <generation> --expected-selection <sha256> --expected-output Encrypted-copy.tux --expected-encrypted-output yes --new-passphrase-env TUTORUX_COPY_PASSPHRASE --json
-npm run cli -- --passphrase-env TUTORUX_SOURCE_PASSPHRASE archive sanitize Protected-Lesson.tux --output Protected-sanitized.tux --include-credentials --confirm-sensitive --expected-generation <generation> --expected-selection <sha256> --expected-output Protected-sanitized.tux --expected-encrypted-output yes --new-passphrase-env TUTORUX_COPY_PASSPHRASE --json
-npm run cli -- --archive Lesson.tux student create --name "Maya Ortiz"
-npm run cli -- --archive Lesson.tux session list --json
+pnpm run cli -- --help
+pnpm run cli -- archive init Lesson.tux --name "Algebra"
+pnpm run cli -- archive recover Lesson.tux --json
+pnpm run cli -- archive recover Lesson.tux --apply --json
+pnpm run cli -- archive compact Lesson.tux --preview --json
+pnpm run cli -- archive compact Lesson.tux --json
+pnpm run cli -- archive repair Lesson.tux --output Lesson-repaired.tux --confirm-sensitive --json
+pnpm run cli -- archive sanitize Lesson.tux --output Lesson-sanitized.tux --include-students <uuid> --json
+pnpm run cli -- archive sanitize Lesson.tux --output Lesson-sanitized.tux --include-students <uuid> --confirm-sensitive --expected-generation <generation> --expected-selection <sha256> --expected-output Lesson-sanitized.tux --expected-encrypted-output no --json
+pnpm run cli -- --passphrase-env TUTORUX_SOURCE_PASSPHRASE archive sanitize Protected-Lesson.tux --output Protected-sanitized.tux --include-credentials --json
+pnpm run cli -- archive sanitize Lesson.tux --output Encrypted-copy.tux --include-students <uuid> --confirm-sensitive --expected-generation <generation> --expected-selection <sha256> --expected-output Encrypted-copy.tux --expected-encrypted-output yes --new-passphrase-env TUTORUX_COPY_PASSPHRASE --json
+pnpm run cli -- --passphrase-env TUTORUX_SOURCE_PASSPHRASE archive sanitize Protected-Lesson.tux --output Protected-sanitized.tux --include-credentials --confirm-sensitive --expected-generation <generation> --expected-selection <sha256> --expected-output Protected-sanitized.tux --expected-encrypted-output yes --new-passphrase-env TUTORUX_COPY_PASSPHRASE --json
+pnpm run cli -- --archive Lesson.tux student create --name "Maya Ortiz"
+pnpm run cli -- --archive Lesson.tux session list --json
 ```
 
 For encrypted creation, set a passphrase in the process environment and name that variable on the
@@ -63,10 +63,10 @@ CLI. In PowerShell:
 
 ```powershell
 # Populate this variable from a secret manager or secure prompt; do not type the secret into a command.
-npm run cli -- archive init Protected-Lesson.tux --name "Algebra" --new-passphrase-env TUTORUX_NEW_ARCHIVE_PASSPHRASE
-npm run cli -- archive verify Protected-Lesson.tux --passphrase-env TUTORUX_NEW_ARCHIVE_PASSPHRASE --json
+pnpm run cli -- archive init Protected-Lesson.tux --name "Algebra" --new-passphrase-env TUTORUX_NEW_ARCHIVE_PASSPHRASE
+pnpm run cli -- archive verify Protected-Lesson.tux --passphrase-env TUTORUX_NEW_ARCHIVE_PASSPHRASE --json
 # Load a replacement phrase from your secret manager or secure prompt first.
-npm run cli -- --passphrase-env TUTORUX_NEW_ARCHIVE_PASSPHRASE archive change-passphrase Protected-Lesson.tux --new-passphrase-env TUTORUX_ROTATED_ARCHIVE_PASSPHRASE
+pnpm run cli -- --passphrase-env TUTORUX_NEW_ARCHIVE_PASSPHRASE archive change-passphrase Protected-Lesson.tux --new-passphrase-env TUTORUX_ROTATED_ARCHIVE_PASSPHRASE
 Remove-Item Env:TUTORUX_NEW_ARCHIVE_PASSPHRASE
 Remove-Item Env:TUTORUX_ROTATED_ARCHIVE_PASSPHRASE
 ```
@@ -79,7 +79,7 @@ The CLI imports the same archive and domain modules as the UI. File paths are re
 
 CLI and desktop archive access share OS-level reader/writer locks, including across compaction,
 passphrase rotation, and atomic replacement. The CLI requires the `tutorux-audio-helper` native
-executable for this coordination; build it with `npm run build:audio-helper`, or run the CLI from
+executable for this coordination; build it with `pnpm run build:audio-helper`, or run the CLI from
 an installed desktop bundle that includes the helper. If the helper cannot be found, archive
 commands stop with an explicit setup error rather than proceeding without a lock. You can set
 `TUTORUX_ARCHIVE_LOCK_HELPER` to the helper executable's path when running from a custom build
@@ -97,8 +97,8 @@ location.
 
 Vitest tests live next to their TypeScript modules and use Node for byte-level and CLI behavior. Playwright tests live in `tests/e2e/` and exercise the browser application.
 
-Run `npm run benchmark:archive` to measure generation creation and archive listing on the current machine. Record machine, runtime, archive size, and record count with the result. Record the machine and workload with each run; the report is a smoke baseline rather than a release budget.
+Run `pnpm run benchmark:archive` to measure generation creation and archive listing on the current machine. Record machine, runtime, archive size, and record count with the result. Record the machine and workload with each run; the report is a smoke baseline rather than a release budget.
 
 ## Updating dependencies
 
-Use npm and update the lockfile. Keep `typescript` pinned to exactly `6.0.3` as requested. Other direct dependencies use current stable versions recorded in `package.json` and `package-lock.json`; review the Vite web and Tauri desktop builds after any major update.
+Use pnpm and update `pnpm-lock.yaml`. Keep `typescript` pinned to exactly `6.0.3` as requested. Other direct dependencies use current stable versions recorded in `package.json` and the lockfile; review the Vite web and Tauri desktop builds after any major update.
