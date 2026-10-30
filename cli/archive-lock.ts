@@ -135,7 +135,9 @@ export class ArchiveLockHandle {
       this.child.stdin.end();
       const exit = await this.exited;
       if (exit !== 0 && exit !== null) {
-        throw new Error(this.stderr.trim() || "The native archive-lock helper did not close cleanly.");
+        throw new Error(
+          this.stderr.trim() || "The native archive-lock helper did not close cleanly.",
+        );
       }
     })();
     return this.closing;
@@ -251,9 +253,16 @@ function installedResourceDirectories(): string[] {
       join(homedir(), "Applications", "Tutorux.app", "Contents", "Resources"),
     );
   } else {
-    values.push("/usr/lib/tutorux", "/usr/local/lib/tutorux", "/opt/tutorux", "/usr/bin", "/usr/local/bin");
+    values.push(
+      "/usr/lib/tutorux",
+      "/usr/local/lib/tutorux",
+      "/opt/tutorux",
+      "/usr/bin",
+      "/usr/local/bin",
+    );
   }
-  for (const entry of (process.env["PATH"] ?? "").split(delimiter).filter(Boolean)) values.push(entry);
+  for (const entry of (process.env["PATH"] ?? "").split(delimiter).filter(Boolean))
+    values.push(entry);
   return [...new Set(values)];
 }
 
