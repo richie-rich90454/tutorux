@@ -6,6 +6,7 @@ import { deterministicUuid, providerById } from "../../frontend/ai/providers";
 import { createAiRequestPreview } from "../../frontend/ai/request";
 import { guideRecordsWithEntryLinks } from "../../frontend/domain/guides";
 import type { AiActionOutcome } from "./ai-actions";
+import { modelStructuredOutputSupport } from "./ai-config-actions";
 import { sendCliAiRequest } from "./ai-transport";
 import { writeTextAtomically } from "./archive-io";
 import { resolveCliEmbeddedModelReference, sendCliEmbeddedAiRequest } from "../embedded-ai";
@@ -54,6 +55,7 @@ export async function aiGenerateAction(
     : storedCredential
       ? field(storedCredential, "value")
       : "";
+  const structuredOutput = await modelStructuredOutputSupport(snapshot, provider.id, model ?? "");
   const preview = await createAiRequestPreview(
     job,
     configuration,
@@ -61,6 +63,8 @@ export async function aiGenerateAction(
     [],
     Boolean(credential),
     snapshot,
+    undefined,
+    structuredOutput,
   );
   const requestOutput = args.options.get("request-output");
   if (requestOutput) {
