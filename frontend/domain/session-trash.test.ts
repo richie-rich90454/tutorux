@@ -26,9 +26,7 @@ function snapshot(records: ArchiveRecord[]): ArchiveSnapshot {
   return {
     listRecords: async (type: number, includeDeleted = false) =>
       records.filter(
-        (item) =>
-          item.type === type &&
-          (includeDeleted || item.fields.get("_deleted") !== "true"),
+        (item) => item.type === type && (includeDeleted || item.fields.get("_deleted") !== "true"),
       ),
     audioTrackIdsBySession: () => new Map(),
     listAudioChunkMetadata: async () => [],
