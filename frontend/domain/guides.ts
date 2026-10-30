@@ -49,12 +49,154 @@ export interface GuideSectionDraft {
   blocks: GuideBlockDraft[];
 }
 
+/** Return an immutable section ordering with the requested neighboring move applied. */
+export function moveGuideSection(
+  sections: readonly GuideSectionDraft[],
+  index: number,
+  direction: -1 | 1,
+): GuideSectionDraft[] {
+  const targetIndex = index + direction;
+  if (
+    !Number.isInteger(index) ||
+    index < 0 ||
+    index >= sections.length ||
+    targetIndex < 0 ||
+    targetIndex >= sections.length
+  ) {
+    return [...sections];
+  }
+  const next = [...sections];
+  [next[index], next[targetIndex]] = [next[targetIndex]!, next[index]!];
+  return next;
+}
+
+export interface GuideTextMatch {
+  sectionIndex: number;
+  blockIndex: number;
+  start: number;
+  end: number;
+}
+
+/** Find non-overlapping, case-sensitive matches in the selected guide block, if supplied. */
+export function findGuideTextMatches(
+  draft: GuideDraft,
+  query: string,
+  selectedBlock?: Pick<GuideTextMatch, "sectionIndex" | "blockIndex">,
+): GuideTextMatch[] {
+  if (!query) return [];
+  const matches: GuideTextMatch[] = [];
+  draft.sections.forEach((section, sectionIndex) => {
+    if (selectedBlock && selectedBlock.sectionIndex !== sectionIndex) return;
+    section.blocks.forEach((block, blockIndex) => {
+      if (selectedBlock && selectedBlock.blockIndex !== blockIndex) return;
+      let start = block.text.indexOf(query);
+      while (start !== -1) {
+        matches.push({ sectionIndex, blockIndex, start, end: start + query.length });
+        start = block.text.indexOf(query, start + query.length);
+      }
+    });
+  });
+  return matches;
+}
+
+/** Replace one still-current match, preserving its block identity and source links. */
+export function replaceGuideTextMatch(
+  draft: GuideDraft,
+  match: GuideTextMatch,
+  query: string,
+  replacement: string,
+): GuideDraft {
+  const section = draft.sections[match.sectionIndex];
+  const block = section?.blocks[match.blockIndex];
+  if (
+    !query ||
+    !block ||
+    !Number.isInteger(match.start) ||
+    !Number.isInteger(match.end) ||
+    match.start < 0 ||
+    match.end !== match.start + query.length ||
+    block.text.slice(match.start, match.end) !== query
+  ) {
+    return draft;
+  }
+  const text = block.text.slice(0, match.start) + replacement + block.text.slice(match.end);
+  if (text === block.text) return draft;
+  return {
+    ...draft,
+    sections: draft.sections.map((currentSection, sectionIndex) =>
+      sectionIndex !== match.sectionIndex
+        ? currentSection
+        : {
+            ...currentSection,
+            blocks: currentSection.blocks.map((currentBlock, blockIndex) =>
+              blockIndex !== match.blockIndex
+                ? currentBlock
+                : { ...currentBlock, text, stale: false, origin: "human-edited" },
+            ),
+          },
+    ),
+  };
+}
+
+/** Replace non-overlapping matches in the selected block when provided, retaining its citations. */
+export function replaceAllGuideText(
+  draft: GuideDraft,
+  query: string,
+  replacement: string,
+  selectedBlock?: Pick<GuideTextMatch, "sectionIndex" | "blockIndex">,
+): { draft: GuideDraft; replacedCount: number } {
+  if (!query || query === replacement) return { draft, replacedCount: 0 };
+  const matches = findGuideTextMatches(draft, query, selectedBlock);
+  if (!matches.length) return { draft, replacedCount: 0 };
+  const matchesByBlock = new Map<string, GuideTextMatch[]>();
+  for (const match of matches) {
+    const key = `${match.sectionIndex}:${match.blockIndex}`;
+    const inBlock = matchesByBlock.get(key) ?? [];
+    inBlock.push(match);
+    matchesByBlock.set(key, inBlock);
+  }
+  const sections = draft.sections.map((section, sectionIndex) => ({
+    ...section,
+    blocks: section.blocks.map((block, blockIndex) => {
+      const inBlock = matchesByBlock.get(`${sectionIndex}:${blockIndex}`);
+      if (!inBlock) return block;
+      let text = block.text;
+      for (let index = inBlock.length - 1; index >= 0; index -= 1) {
+        const match = inBlock[index]!;
+        text = text.slice(0, match.start) + replacement + text.slice(match.end);
+      }
+      return { ...block, text, stale: false, origin: "human-edited" as const };
+    }),
+  }));
+  return { draft: { ...draft, sections }, replacedCount: matches.length };
+}
+
 export interface GuideDraft {
   title: string;
   sessionId: string;
   entryId?: string;
   templateId: string;
   sections: GuideSectionDraft[];
+}
+
+/** Prepare the CLI-compatible copy title and a deep immutable draft for a new guide record. */
+export function duplicateGuideDraft(draft: GuideDraft): GuideDraft {
+  const suffix = " (copy)";
+  const encoder = new TextEncoder();
+  const maximumPrefixBytes = 240 - encoder.encode(suffix).byteLength;
+  let titlePrefix = "";
+  for (const character of draft.title.trimEnd()) {
+    if (encoder.encode(titlePrefix + character).byteLength > maximumPrefixBytes) break;
+    titlePrefix += character;
+  }
+  return {
+    ...draft,
+    title: `${titlePrefix.trimEnd()}${suffix}`,
+    sections: draft.sections.map((section) => ({
+      ...section,
+      blocks: section.blocks.map((block) => ({ ...block })),
+    })),
+  };
 }
 
 export interface GuideExportImage {
