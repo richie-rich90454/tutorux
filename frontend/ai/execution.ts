@@ -4,6 +4,7 @@ import type { AiRequestPreview } from "./request";
 import {
   AI_RESPONSE_PREVIEW_CHARACTER_LIMIT,
   createAiGuideProposal,
+  extractAiResponseMetadata,
   extractAiResponseText,
   type AiExecutionSummary,
 } from "./response";
@@ -80,6 +81,7 @@ export async function executeAiGeneration(input: AiExecutionInput): Promise<AiEx
   const jobId = newUuid();
   const nowUs = (BigInt(Date.now()) * 1000n).toString();
   const responseHash = await sha256Hex(responseBytes);
+  const responseMetadata = extractAiResponseMetadata(preview.providerId, responseBytes);
   const consentFields: [string, string][] = preview.localOnly
     ? []
     : [
@@ -101,6 +103,9 @@ export async function executeAiGeneration(input: AiExecutionInput): Promise<AiEx
     schemaValid: boolean,
     sourceValidation: AiExecutionSummary["sourceValidation"],
     warnings: readonly string[],
+    errorCode = "",
+    errorMessage = "",
+    retryAfter = "",
   ): ArchiveRecord => ({
     type: RecordType.aiJob,
     id: jobId,
@@ -131,6 +136,11 @@ export async function executeAiGeneration(input: AiExecutionInput): Promise<AiEx
       ["schema_valid", schemaValid ? "true" : "false"],
       ["source_validation", sourceValidation],
       ["warnings", warnings.join("\n")],
+      ["error_code", errorCode],
+      ["error_message", errorMessage],
+      ["retry_after", retryAfter],
+      ["provider_response_id", responseMetadata.providerResponseId],
+      ["max_output_tokens", preview.maxOutputTokens.toString()],
       ["created_at_us", nowUs],
       ...consentFields,
       ...replicateSchemaFields,
@@ -157,42 +167,159 @@ export async function executeAiGeneration(input: AiExecutionInput): Promise<AiEx
     responseBytes: responseBytes.byteLength,
     warnings,
   });
-  const failure = (status: string, message: string): AiExecutionResult => {
+  const failure = (
+    status: string,
+    message: string,
+    errorCode: string,
+    retryAfter = responseMetadata.retryAfter,
+  ): AiExecutionResult => {
     const warnings = [message];
     const schemaValid = false;
     const sourceValidation: AiExecutionSummary["sourceValidation"] = "not-available";
+    const errorMessage = responseMetadata.errorMessage || message;
     return {
-      job: createJob(status, null, schemaValid, sourceValidation, warnings),
+      job: createJob(
+        status,
+        null,
+        schemaValid,
+        sourceValidation,
+        warnings,
+        errorCode || responseMetadata.errorCode,
+        errorMessage,
+        retryAfter,
+      ),
       guide: null,
       summary: createSummary(status, null, schemaValid, sourceValidation, "", warnings),
     };
   };
+  const buildGuide = (
+    responseText: string,
+  ): {
+    guide: ArchiveRecord;
+    schemaValid: boolean;
+    sourceValidation: AiExecutionSummary["sourceValidation"];
+    warnings: string[];
+  } => {
+    const proposal = createAiGuideProposal(responseText, input.session.id, input.expectedTemplateId);
+    const warnings = [...proposal.warnings];
+    let sourceValidation: AiExecutionSummary["sourceValidation"];
+    let guide: ArchiveRecord;
+    try {
+      guide = makeGuideRecord(proposal.draft, {
+        session: input.session,
+        records: [...input.sourceRecords],
+      });
+      const hasReferences = proposal.draft.sections.some((section) =>
+        section.blocks.some((block) => block.sourceIds.trim().length > 0),
+      );
+      sourceValidation = hasReferences ? "passed" : "missing-evidence";
+      if (!hasReferences) {
+        warnings.push("The guide has no source references. Add evidence links before approval.");
+      }
+    } catch {
+      sourceValidation = "failed";
+      warnings.push(
+        "Some generated guide content or source links need correction; the response was saved as editable text.",
+      );
+      guide = makeGuideRecord(
+        {
+          title: "AI response — review required",
+          sessionId: input.session.id,
+          templateId: input.expectedTemplateId,
+          sections: [
+            {
+              id: newUuid(),
+              heading: "Generated response — review required",
+              blocks: [
+                {
+                  kind: "paragraph",
+                  text: responseText,
+                  sourceIds: "",
+                  stale: false,
+                  origin: "ai-generated",
+                },
+              ],
+            },
+          ],
+        },
+        { session: input.session, records: [...input.sourceRecords] },
+      );
+    }
+    return {
+      guide,
+      schemaValid: proposal.schemaValid && sourceValidation !== "failed",
+      sourceValidation,
+      warnings,
+    };
+  };
 
   if (transport.cancelled) {
-    return failure(
-      "cancelled",
+    const cancellationMessage =
       transport.errorMessage ??
-        "The Replicate prediction was cancelled. Its bounded raw response was saved for export.",
-    );
+      "Generation was cancelled. The received partial response was saved for export.";
+    if (responseBytes.byteLength > 0) {
+      try {
+        const partialText = extractAiResponseText(
+          preview.providerId,
+          responseBytes,
+          preview.model,
+          true,
+        );
+        const built = buildGuide(partialText);
+        built.warnings.unshift(
+          "Generation was cancelled; the partial response is an unapproved draft that needs review.",
+        );
+        const status = "cancelled-with-partial-output";
+        return {
+          job: createJob(
+            status,
+            built.guide.id,
+            built.schemaValid,
+            built.sourceValidation,
+            built.warnings,
+            "operation_cancelled",
+            cancellationMessage,
+            responseMetadata.retryAfter,
+          ),
+          guide: built.guide,
+          summary: createSummary(
+            status,
+            built.guide.id,
+            built.schemaValid,
+            built.sourceValidation,
+            partialText,
+            built.warnings,
+          ),
+        };
+      } catch {
+        // The partial bytes did not contain decodable text; keep the raw response only.
+      }
+    }
+    return failure("cancelled", cancellationMessage, "operation_cancelled");
   }
   if (responseTooLarge || !transport.complete || transport.responseBytes !== receivedBytes) {
     return failure(
       "response-partial",
       transport.errorMessage ??
         "The response stream was interrupted or exceeded the 16 MiB limit. The received raw bytes were saved for export.",
+      responseTooLarge ? "response_too_large" : "response_partial",
     );
   }
   if (transport.status < 200 || transport.status >= 300) {
+    const message =
+      responseMetadata.errorMessage ||
+      transport.errorMessage ||
+      (preview.providerId === "replicate" && [401, 403].includes(transport.status)
+        ? "Replicate rejected the API token or model access. Its raw response was saved for export."
+        : preview.providerId === "replicate" && transport.status === 429
+          ? "Replicate rate limited the prediction. Its raw response was saved for export."
+          : preview.providerId === "replicate" && transport.status === 408
+            ? "Replicate prediction exceeded the five-minute wait limit. Its latest raw response was saved for export."
+            : `The provider returned HTTP ${transport.status}. Its raw response was saved for export.`);
     return failure(
       "provider-error",
-      transport.errorMessage ??
-        (preview.providerId === "replicate" && [401, 403].includes(transport.status)
-          ? "Replicate rejected the API token or model access. Its raw response was saved for export."
-          : preview.providerId === "replicate" && transport.status === 429
-            ? "Replicate rate limited the prediction. Its raw response was saved for export."
-            : preview.providerId === "replicate" && transport.status === 408
-              ? "Replicate prediction exceeded the five-minute wait limit. Its latest raw response was saved for export."
-              : `The provider returned HTTP ${transport.status}. Its raw response was saved for export.`),
+      message,
+      responseMetadata.errorCode || `provider_http_${transport.status}`,
     );
   }
   const contentType = transport.contentType.trim().toLowerCase();
@@ -200,6 +327,7 @@ export async function executeAiGeneration(input: AiExecutionInput): Promise<AiEx
     return failure(
       "response-needs-correction",
       "The provider returned an unsupported response format. Its raw bytes were saved for export.",
+      "response_content_type_unsupported",
     );
   }
 
@@ -210,64 +338,32 @@ export async function executeAiGeneration(input: AiExecutionInput): Promise<AiEx
     return failure(
       "response-needs-correction",
       `${cause instanceof Error ? cause.message : "The provider response could not be decoded."} Raw bytes were saved for export.`,
+      "response_decode_failed",
     );
   }
-  const proposal = createAiGuideProposal(responseText, input.session.id, input.expectedTemplateId);
-  const warnings = [...proposal.warnings];
-  let sourceValidation: AiExecutionSummary["sourceValidation"];
-  let guide: ArchiveRecord;
-  try {
-    guide = makeGuideRecord(proposal.draft, {
-      session: input.session,
-      records: [...input.sourceRecords],
-    });
-    const hasReferences = proposal.draft.sections.some((section) =>
-      section.blocks.some((block) => block.sourceIds.trim().length > 0),
-    );
-    sourceValidation = hasReferences ? "passed" : "missing-evidence";
-    if (!hasReferences) {
-      warnings.push("The guide has no source references. Add evidence links before approval.");
-    }
-  } catch {
-    sourceValidation = "failed";
-    warnings.push(
-      "Some generated guide content or source links need correction; the response was saved as editable text.",
-    );
-    guide = makeGuideRecord(
-      {
-        title: "AI response — review required",
-        sessionId: input.session.id,
-        templateId: input.expectedTemplateId,
-        sections: [
-          {
-            id: newUuid(),
-            heading: "Generated response — review required",
-            blocks: [
-              {
-                kind: "paragraph",
-                text: responseText,
-                sourceIds: "",
-                stale: false,
-                origin: "ai-generated",
-              },
-            ],
-          },
-        ],
-      },
-      { session: input.session, records: [...input.sourceRecords] },
-    );
-  }
-
-  const schemaValid = proposal.schemaValid && sourceValidation !== "failed";
+  const built = buildGuide(responseText);
   const status =
-    schemaValid && sourceValidation === "passed"
+    built.schemaValid && built.sourceValidation === "passed"
       ? "response-needs-review"
       : "response-needs-correction";
-  const job = createJob(status, guide.id, schemaValid, sourceValidation, warnings);
+  const job = createJob(
+    status,
+    built.guide.id,
+    built.schemaValid,
+    built.sourceValidation,
+    built.warnings,
+  );
   return {
     job,
-    guide,
-    summary: createSummary(status, guide.id, schemaValid, sourceValidation, responseText, warnings),
+    guide: built.guide,
+    summary: createSummary(
+      status,
+      built.guide.id,
+      built.schemaValid,
+      built.sourceValidation,
+      responseText,
+      built.warnings,
+    ),
   };
 }
 
