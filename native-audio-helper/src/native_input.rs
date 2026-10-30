@@ -17,9 +17,11 @@ use std::{
     time::{Duration, Instant},
 };
 
-const OUTPUT_SAMPLE_RATE_HZ: u32 = 16_000;
 const MAX_QUEUED_CHUNKS: usize = 8;
 const MAX_CALLBACK_FRAMES: usize = 128 * 1024;
+const MIN_SAMPLE_RATE_HZ: u32 = 8_000;
+const MAX_SAMPLE_RATE_HZ: u32 = 384_000;
+const MAX_CHANNELS: u16 = 8;
 const SIGNAL_PROBE_DURATION: Duration = Duration::from_millis(1_800);
 const SIGNAL_THRESHOLD_RMS: f64 = 0.001;
 
@@ -47,6 +49,7 @@ struct SignalProbe {
     sample_rate_hz: u32,
     channel_count: u16,
     sample_count: u64,
+    frame_count: u64,
     duration_ms: u64,
     rms: f64,
     peak: f64,
@@ -55,65 +58,30 @@ struct SignalProbe {
     probe: &'static str,
 }
 
+#[derive(Clone, Copy, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct CaptureFormat {
+    sample_format: &'static str,
+    sample_rate_hz: u32,
+    channel_count: u16,
+    bytes_per_sample: u16,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct CaptureSummary {
+    sample_format: &'static str,
+    sample_rate_hz: u32,
+    channel_count: u16,
+    frame_count: u64,
+    byte_count: u64,
+}
+
 #[derive(Default)]
 struct ProbeMetrics {
     sample_count: u64,
     sum_squares: f64,
     peak: f64,
-}
-
-struct Resampler {
-    source_step: f64,
-    next_output_position: f64,
-    input_index: u64,
-    previous: Option<f32>,
-}
-
-impl Resampler {
-    fn new(source_rate_hz: u32) -> Result<Self, String> {
-        if source_rate_hz == 0 {
-            return Err("The selected audio device reported an invalid sample rate.".to_owned());
-        }
-        Ok(Self {
-            source_step: f64::from(source_rate_hz) / f64::from(OUTPUT_SAMPLE_RATE_HZ),
-            next_output_position: 0.0,
-            input_index: 0,
-            previous: None,
-        })
-    }
-
-    fn process(&mut self, samples: &[f32]) -> Result<Vec<i16>, String> {
-        let estimated_len = ((samples.len() as f64 / self.source_step).ceil() as usize)
-            .saturating_add(2)
-            .min(MAX_CALLBACK_FRAMES);
-        let mut output = Vec::with_capacity(estimated_len);
-        for &sample in samples {
-            if !sample.is_finite() {
-                return Err("The selected audio device returned a non-finite sample.".to_owned());
-            }
-            let current_index = self.input_index;
-            if let Some(previous) = self.previous {
-                while self.next_output_position <= current_index as f64 {
-                    let fraction = (self.next_output_position - current_index.saturating_sub(1) as f64)
-                        .clamp(0.0, 1.0) as f32;
-                    output.push(float_to_i16(previous + (sample - previous) * fraction));
-                    self.next_output_position += self.source_step;
-                }
-            } else {
-                output.push(float_to_i16(sample));
-                self.next_output_position += self.source_step;
-            }
-            self.previous = Some(sample);
-            self.input_index = self
-                .input_index
-                .checked_add(1)
-                .ok_or_else(|| "The audio input timeline exceeded its supported limit.".to_owned())?;
-        }
-        if output.len() > MAX_CALLBACK_FRAMES {
-            return Err("The audio callback exceeded the bounded capture queue.".to_owned());
-        }
-        Ok(output)
-    }
 }
 
 pub fn enumerate() -> Result<Vec<NativeCaptureDevice>, String> {
@@ -208,12 +176,14 @@ pub fn capture(source: &str, device_id: &str) -> Result<(), String> {
     let device = resolve_device(source, device_id)?;
     let config = source_config(&device, source)?;
     validate_config(&config, source)?;
-    let channels = usize::from(config.channels());
-    let sample_rate_hz = config.sample_rate();
-    let (sender, receiver) = mpsc::sync_channel::<Vec<i16>>(MAX_QUEUED_CHUNKS);
+    let format = capture_format(&config)
+        .ok_or_else(|| format!("The selected {source} device uses an unsupported sample format."))?;
+    announce_format(&format)?;
+    let frame_bytes = usize::from(format.bytes_per_sample) * usize::from(format.channel_count);
+    let (sender, receiver) = mpsc::sync_channel::<Vec<u8>>(MAX_QUEUED_CHUNKS);
     let terminal_error = Arc::new(Mutex::new(None::<String>));
     let callback_error = Arc::clone(&terminal_error);
-    let stream = build_capture_stream(&device, config, channels, sample_rate_hz, sender, callback_error)?;
+    let stream = build_capture_stream(&device, config, format, sender, callback_error)?;
     let stop = Arc::new(AtomicBool::new(false));
     watch_for_stop(Arc::clone(&stop))?;
     stream
@@ -222,17 +192,21 @@ pub fn capture(source: &str, device_id: &str) -> Result<(), String> {
 
     let stdout = io::stdout();
     let mut output = BufWriter::with_capacity(64 * 1024, stdout.lock());
-    let mut samples_written = 0_u64;
+    let mut frame_count = 0_u64;
+    let mut byte_count = 0_u64;
     while !stop.load(Ordering::Acquire) {
         if let Some(error) = terminal_error.lock().ok().and_then(|error| error.clone()) {
             return Err(error);
         }
         match receiver.recv_timeout(Duration::from_millis(20)) {
-            Ok(samples) => {
-                write_s16le(&mut output, &samples)?;
-                samples_written = samples_written
-                    .checked_add(samples.len() as u64)
-                    .ok_or_else(|| "The captured audio sample count exceeded its limit.".to_owned())?;
+            Ok(pcm) => {
+                write_pcm(&mut output, &pcm)?;
+                frame_count = frame_count
+                    .checked_add((pcm.len() / frame_bytes) as u64)
+                    .ok_or_else(|| "The captured audio frame count exceeded its limit.".to_owned())?;
+                byte_count = byte_count
+                    .checked_add(pcm.len() as u64)
+                    .ok_or_else(|| "The captured audio byte count exceeded its limit.".to_owned())?;
             }
             Err(mpsc::RecvTimeoutError::Timeout) => {}
             Err(mpsc::RecvTimeoutError::Disconnected) => {
@@ -241,18 +215,28 @@ pub fn capture(source: &str, device_id: &str) -> Result<(), String> {
         }
     }
     drop(stream);
-    while let Ok(samples) = receiver.try_recv() {
-        write_s16le(&mut output, &samples)?;
-        samples_written = samples_written
-            .checked_add(samples.len() as u64)
-            .ok_or_else(|| "The captured audio sample count exceeded its limit.".to_owned())?;
+    while let Ok(pcm) = receiver.try_recv() {
+        write_pcm(&mut output, &pcm)?;
+        frame_count = frame_count
+            .checked_add((pcm.len() / frame_bytes) as u64)
+            .ok_or_else(|| "The captured audio frame count exceeded its limit.".to_owned())?;
+        byte_count = byte_count
+            .checked_add(pcm.len() as u64)
+            .ok_or_else(|| "The captured audio byte count exceeded its limit.".to_owned())?;
     }
     output
         .flush()
         .map_err(|error| format!("Could not flush captured audio: {error}"))?;
-    if samples_written == 0 {
+    if frame_count == 0 {
         return Err(format!("The selected {source} source returned no audio samples."));
     }
+    announce_summary(&CaptureSummary {
+        sample_format: format.sample_format,
+        sample_rate_hz: format.sample_rate_hz,
+        channel_count: format.channel_count,
+        frame_count,
+        byte_count,
+    });
     Ok(())
 }
 
@@ -277,7 +261,7 @@ pub fn probe(source: &str, device_id: &str) -> Result<(), String> {
             config.config(),
             config.sample_format(),
             move |data: &Data, _info| {
-                let Some(samples) = data_to_mono_float(data, usize::from(channel_count)) else {
+                let Some(samples) = data_to_float_samples(data) else {
                     set_terminal_error(&callback_error, "The device returned an unsupported sample format.");
                     return;
                 };
@@ -325,6 +309,7 @@ pub fn probe(source: &str, device_id: &str) -> Result<(), String> {
         sample_rate_hz,
         channel_count,
         sample_count: metrics.sample_count,
+        frame_count: metrics.sample_count / u64::from(channel_count),
         duration_ms: u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
         rms,
         peak: metrics.peak,
@@ -343,37 +328,36 @@ pub fn probe(source: &str, device_id: &str) -> Result<(), String> {
 fn build_capture_stream(
     device: &cpal::Device,
     config: cpal::SupportedStreamConfig,
-    channels: usize,
-    sample_rate_hz: u32,
-    sender: SyncSender<Vec<i16>>,
+    format: CaptureFormat,
+    sender: SyncSender<Vec<u8>>,
     callback_error: Arc<Mutex<Option<String>>>,
 ) -> Result<cpal::Stream, String> {
-    let mut resampler = Resampler::new(sample_rate_hz)?;
+    let frame_bytes = usize::from(format.bytes_per_sample) * usize::from(format.channel_count);
     let error_signal = Arc::clone(&callback_error);
     device
         .build_input_stream_raw(
             config.config(),
             config.sample_format(),
             move |data: &Data, _info| {
-                let Some(samples) = data_to_mono_float(data, channels) else {
-                    set_terminal_error(&callback_error, "The audio device returned an unsupported sample format.");
-                    return;
-                };
-                if samples.len() > MAX_CALLBACK_FRAMES {
-                    set_terminal_error(&callback_error, "The audio device returned a callback larger than the bounded capture queue supports.");
-                    return;
-                }
-                let samples = match resampler.process(&samples) {
-                    Ok(samples) => samples,
+                let pcm = match encode_capture(data, &format) {
+                    Ok(pcm) => pcm,
                     Err(error) => {
                         set_terminal_error(&callback_error, &error);
                         return;
                     }
                 };
-                if samples.is_empty() {
+                if pcm.len() % frame_bytes != 0 {
+                    set_terminal_error(&callback_error, "The audio device returned an incomplete PCM frame.");
                     return;
                 }
-                match sender.try_send(samples) {
+                if pcm.len() > MAX_CALLBACK_FRAMES.saturating_mul(frame_bytes) {
+                    set_terminal_error(&callback_error, "The audio device returned a callback larger than the bounded capture queue supports.");
+                    return;
+                }
+                if pcm.is_empty() {
+                    return;
+                }
+                match sender.try_send(pcm) {
                     Ok(()) => {}
                     Err(TrySendError::Full(_)) => set_terminal_error(&callback_error, "Audio delivery fell behind the bounded capture queue."),
                     Err(TrySendError::Disconnected(_)) => set_terminal_error(&callback_error, "The CLI stopped reading captured audio."),
@@ -385,10 +369,91 @@ fn build_capture_stream(
         .map_err(|error| format!("The selected audio stream could not be opened: {error}"))
 }
 
-fn data_to_mono_float(data: &Data, channels: usize) -> Option<Vec<f32>> {
-    if channels == 0 {
-        return None;
+fn encode_capture(data: &Data, format: &CaptureFormat) -> Result<Vec<u8>, String> {
+    let pcm = match data.sample_format() {
+        SampleFormat::F32 => data
+            .as_slice::<f32>()
+            .map(|samples| encode_samples(samples, format.sample_format)),
+        SampleFormat::F64 => data
+            .as_slice::<f64>()
+            .map(|samples| encode_samples(samples, format.sample_format)),
+        SampleFormat::I8 => data
+            .as_slice::<i8>()
+            .map(|samples| encode_samples(samples, format.sample_format)),
+        SampleFormat::I16 => data
+            .as_slice::<i16>()
+            .map(|samples| encode_samples(samples, format.sample_format)),
+        SampleFormat::I24 => data
+            .as_slice::<cpal::I24>()
+            .map(|samples| encode_samples(samples, format.sample_format)),
+        SampleFormat::I32 => data
+            .as_slice::<i32>()
+            .map(|samples| encode_samples(samples, format.sample_format)),
+        SampleFormat::I64 => data
+            .as_slice::<i64>()
+            .map(|samples| encode_samples(samples, format.sample_format)),
+        SampleFormat::U8 => data
+            .as_slice::<u8>()
+            .map(|samples| encode_samples(samples, format.sample_format)),
+        SampleFormat::U16 => data
+            .as_slice::<u16>()
+            .map(|samples| encode_samples(samples, format.sample_format)),
+        SampleFormat::U24 => data
+            .as_slice::<cpal::U24>()
+            .map(|samples| encode_samples(samples, format.sample_format)),
+        SampleFormat::U32 => data
+            .as_slice::<u32>()
+            .map(|samples| encode_samples(samples, format.sample_format)),
+        SampleFormat::U64 => data
+            .as_slice::<u64>()
+            .map(|samples| encode_samples(samples, format.sample_format)),
+        _ => None,
+    };
+    pcm.ok_or_else(|| "The audio device returned an unsupported sample format.".to_owned())
+}
+
+fn encode_samples<T>(samples: &[T], sample_format: &str) -> Vec<u8>
+where
+    T: Sample + SizedSample,
+    f32: cpal::FromSample<T>,
+    i16: cpal::FromSample<T>,
+    i32: cpal::FromSample<T>,
+    u8: cpal::FromSample<T>,
+{
+    let mut output = Vec::with_capacity(samples.len() * 4);
+    match sample_format {
+        "pcm_f32le" => {
+            for sample in samples {
+                output.extend_from_slice(&sample.to_sample::<f32>().to_le_bytes());
+            }
+        }
+        "pcm_s16le" => {
+            for sample in samples {
+                output.extend_from_slice(&sample.to_sample::<i16>().to_le_bytes());
+            }
+        }
+        "pcm_s24le" => {
+            for sample in samples {
+                let bytes = sample.to_sample::<i32>().to_le_bytes();
+                output.extend_from_slice(&bytes[1..]);
+            }
+        }
+        "pcm_s32le" => {
+            for sample in samples {
+                output.extend_from_slice(&sample.to_sample::<i32>().to_le_bytes());
+            }
+        }
+        "pcm_u8" => {
+            for sample in samples {
+                output.push(sample.to_sample::<u8>());
+            }
+        }
+        _ => {}
     }
+    output
+}
+
+fn data_to_float_samples(data: &Data) -> Option<Vec<f32>> {
     let interleaved = match data.sample_format() {
         SampleFormat::F32 => data.as_slice::<f32>().map(convert_samples),
         SampleFormat::F64 => data.as_slice::<f64>().map(convert_samples),
@@ -405,15 +470,7 @@ fn data_to_mono_float(data: &Data, channels: usize) -> Option<Vec<f32>> {
         SampleFormat::DsdU8 | SampleFormat::DsdU16 | SampleFormat::DsdU32 => None,
         _ => None,
     }?;
-    if interleaved.len() % channels != 0 {
-        return None;
-    }
-    Some(
-        interleaved
-            .chunks_exact(channels)
-            .map(|frame| frame.iter().copied().sum::<f32>() / channels as f32)
-            .collect(),
-    )
+    Some(interleaved)
 }
 
 fn convert_samples<T: Sample + SizedSample>(samples: &[T]) -> Vec<f32>
@@ -452,13 +509,52 @@ fn source_config(device: &cpal::Device, source: &str) -> Result<cpal::SupportedS
 }
 
 fn validate_config(config: &cpal::SupportedStreamConfig, source: &str) -> Result<(), String> {
-    if !(8_000..=192_000).contains(&config.sample_rate()) {
+    if !(MIN_SAMPLE_RATE_HZ..=MAX_SAMPLE_RATE_HZ).contains(&config.sample_rate()) {
         return Err(format!("The selected {source} device uses an unsupported sample rate."));
     }
-    if config.channels() == 0 || config.channels() > 32 {
+    if config.channels() == 0 || config.channels() > MAX_CHANNELS {
         return Err(format!("The selected {source} device uses an unsupported channel count."));
     }
+    if output_sample_format(config.sample_format()).is_none() {
+        return Err(format!("The selected {source} device uses an unsupported sample format."));
+    }
     Ok(())
+}
+
+fn capture_format(config: &cpal::SupportedStreamConfig) -> Option<CaptureFormat> {
+    let (sample_format, bytes_per_sample) = output_sample_format(config.sample_format())?;
+    Some(CaptureFormat {
+        sample_format,
+        sample_rate_hz: config.sample_rate(),
+        channel_count: config.channels(),
+        bytes_per_sample,
+    })
+}
+
+fn output_sample_format(format: SampleFormat) -> Option<(&'static str, u16)> {
+    match format {
+        SampleFormat::F32 | SampleFormat::F64 => Some(("pcm_f32le", 4)),
+        SampleFormat::I16 | SampleFormat::U16 => Some(("pcm_s16le", 2)),
+        SampleFormat::I24 | SampleFormat::U24 => Some(("pcm_s24le", 3)),
+        SampleFormat::I32 | SampleFormat::U32 | SampleFormat::I64 | SampleFormat::U64 => {
+            Some(("pcm_s32le", 4))
+        }
+        SampleFormat::I8 | SampleFormat::U8 => Some(("pcm_u8", 1)),
+        _ => None,
+    }
+}
+
+fn announce_format(format: &CaptureFormat) -> Result<(), String> {
+    let encoded = serde_json::to_string(format)
+        .map_err(|error| format!("Could not describe the capture format: {error}"))?;
+    eprintln!("tutorux-audio-helper: capture-format {encoded}");
+    Ok(())
+}
+
+fn announce_summary(summary: &CaptureSummary) {
+    if let Ok(encoded) = serde_json::to_string(summary) {
+        eprintln!("tutorux-audio-helper: capture-summary {encoded}");
+    }
 }
 
 fn set_terminal_error(signal: &Mutex<Option<String>>, message: &str) {
@@ -469,24 +565,11 @@ fn set_terminal_error(signal: &Mutex<Option<String>>, message: &str) {
     }
 }
 
-fn write_s16le(output: &mut impl Write, samples: &[i16]) -> Result<(), String> {
-    let mut bytes = Vec::with_capacity(samples.len() * 2);
-    for sample in samples {
-        bytes.extend_from_slice(&sample.to_le_bytes());
-    }
+fn write_pcm(output: &mut impl Write, pcm: &[u8]) -> Result<(), String> {
     output
-        .write_all(&bytes)
+        .write_all(pcm)
         .and_then(|()| output.flush())
         .map_err(|error| format!("Could not deliver captured audio to the CLI: {error}"))
-}
-
-fn float_to_i16(value: f32) -> i16 {
-    let clipped = if value.is_finite() { value.clamp(-1.0, 1.0) } else { 0.0 };
-    if clipped <= -1.0 {
-        i16::MIN
-    } else {
-        (clipped * f32::from(i16::MAX)).round() as i16
-    }
 }
 
 fn watch_for_stop(stop: Arc<AtomicBool>) -> Result<(), String> {
@@ -519,4 +602,33 @@ fn hosts() -> Vec<cpal::Host> {
 fn is_linux_monitor_name(value: &str) -> bool {
     let value = value.to_ascii_lowercase();
     value.contains("monitor") || value.contains("loopback") || value.ends_with(".mon")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn native_formats_keep_their_sample_width() {
+        assert_eq!(output_sample_format(SampleFormat::F32), Some(("pcm_f32le", 4)));
+        assert_eq!(output_sample_format(SampleFormat::F64), Some(("pcm_f32le", 4)));
+        assert_eq!(output_sample_format(SampleFormat::I16), Some(("pcm_s16le", 2)));
+        assert_eq!(output_sample_format(SampleFormat::U16), Some(("pcm_s16le", 2)));
+        assert_eq!(output_sample_format(SampleFormat::I24), Some(("pcm_s24le", 3)));
+        assert_eq!(output_sample_format(SampleFormat::I32), Some(("pcm_s32le", 4)));
+        assert_eq!(output_sample_format(SampleFormat::U8), Some(("pcm_u8", 1)));
+        assert_eq!(output_sample_format(SampleFormat::DsdU8), None);
+    }
+
+    #[test]
+    fn interleaved_float_samples_are_not_downmixed() {
+        let bytes = encode_samples(&[0.5_f32, -0.5_f32], "pcm_f32le");
+        assert_eq!(bytes, [0.5_f32.to_le_bytes(), (-0.5_f32).to_le_bytes()].concat());
+    }
+
+    #[test]
+    fn sixteen_bit_samples_keep_channel_order() {
+        let bytes = encode_samples(&[i16::MAX, i16::MIN], "pcm_s16le");
+        assert_eq!(bytes, [i16::MAX.to_le_bytes(), i16::MIN.to_le_bytes()].concat());
+    }
 }
