@@ -80,6 +80,31 @@ describe("archive audio playback", () => {
     ]);
   });
 
+  it("loads playback from a cue through the end of the track without a 30 second stop", async () => {
+    const sessionId = crypto.randomUUID();
+    const trackId = crypto.randomUUID();
+    const first = audioChunk(
+      sessionId,
+      trackId,
+      0,
+      0,
+      Array.from({ length: 16 }, () => 1),
+    );
+    const second = audioChunk(
+      sessionId,
+      trackId,
+      1,
+      16,
+      Array.from({ length: 16 }, () => 2),
+    );
+    const snapshot = await archiveWithAudio([first, second]);
+
+    const preview = await buildAudioPreview(snapshot, sessionId, trackId, 0n);
+
+    expect(preview.frameCount).toBe(32);
+    expect(preview.durationUs).toBe(4_000n);
+  });
+
   it("exports an entire track as streamed WAV and preserves timeline gaps", async () => {
     const sessionId = crypto.randomUUID();
     const trackId = crypto.randomUUID();
