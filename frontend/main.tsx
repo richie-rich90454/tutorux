@@ -51,6 +51,10 @@ import { sourceStream, type ArchiveByteSource } from "./archive/source";
 import { AiPage } from "./AiPage";
 import { createAiPackageRecord, type AiPackageSummary } from "./ai/package";
 import { createAiRequestPreview, type AiRequestPreview } from "./ai/request";
+import { importTranscriptBatches } from "./audio/transcript-import";
+import { importCompressedAudioRecords } from "./audio/compressed-import";
+import { importAiResponseRecords } from "./ai/import-response";
+import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
 import {
   parseReplicateModelInputSchema,
   type ReplicateModelInputSchema,
@@ -134,6 +138,7 @@ import {
   makeEvidenceRecord,
   makeEvidenceEdge,
   reviewEvidenceRecord,
+  restoreEvidenceEdge,
   restoreEvidenceRecordGroup,
   trashEvidenceEdge,
   trashEvidenceRecord,
@@ -157,6 +162,8 @@ import {
   makeSessionRecords,
   makeStudentRecord,
   notesEditState,
+  readRemovedNoteBlocks,
+  restoreRemovedNoteBlock,
   restoreRecordFromTrash,
   restoreJournalOrganizerRecord,
   setSessionArchiveState,
@@ -167,6 +174,7 @@ import {
   transitionSessionRecord,
   type JournalInput,
   type JournalNoteBlock,
+  type RemovedNoteBlock,
   type SessionCreateOptions,
   type SessionInput,
   type SessionTransitionAction,
@@ -184,9 +192,7 @@ import {
   correctTranscriptRecord,
   formatTranscriptExport,
   formatTranscriptTimestampUs,
-  makeTranscriptRecords,
   mergeTranscriptRecords,
-  parseTranscriptSource,
   resolveTranscriptFormat,
   setTranscriptSpeaker,
   setTranscriptLinkedAssets,
@@ -203,7 +209,7 @@ import { keyboardShortcutRows, resolveKeyboardShortcut } from "./domain/keyboard
 import { GuidesPage } from "./GuidesPage";
 import { StudentProgressPanel } from "./StudentProgressPanel";
 import { JournalOrganizer } from "./JournalOrganizer";
-import brandLogo from "../web/assets/tutorux.svg";
+import brandLogo from "./assets/tutorux.svg";
 import "./styles.css";
 import "./transcript.css";
 import "./annotation.css";
@@ -262,6 +268,7 @@ interface Workspace {
   assets: ArchiveRecord[];
   evidence: ArchiveRecord[];
   evidenceEdges: ArchiveRecord[];
+  trashedEvidenceEdges: ArchiveRecord[];
   aiJobs: ArchiveRecord[];
   settings: ArchiveRecord[];
   providerSettings: ArchiveRecord[];
@@ -365,6 +372,11 @@ const [busy, setBusy] = createSignal(false);
 const [selectedTranscriptSessionId, setSelectedTranscriptSessionId] = createSignal("");
 const [selectedAnnotationSessionId, setSelectedAnnotationSessionId] = createSignal("");
 const [selectedEvidenceSessionId, setSelectedEvidenceSessionId] = createSignal("");
+const [observationPlayback, setObservationPlayback] = createSignal<{
+  url: string;
+  title: string;
+  start: string;
+} | null>(null);
 const [guideTemplateManagerOpen, setGuideTemplateManagerOpen] = createSignal(false);
 const markerTypes: readonly AnnotationInput["type"][] = [
   "important-concept",
@@ -384,6 +396,16 @@ function markerKeys(state: Workspace | null): string[] {
     ?.fields.get("value");
   const keys = value?.split(",").map((key) => key.toLowerCase());
   return keys && validMarkerKeys(keys, true) ? keys : [...defaultMarkerKeys];
+}
+
+function markerStartTime(session: ArchiveRecord): string {
+  let elapsed = safeBigInt(field(session, "recording_duration_us"));
+  const started = safeBigInt(field(session, "recording_started_at_us"));
+  if (field(session, "recording_state") === "recording" && started > 0n) {
+    const now = BigInt(Date.now()) * 1000n;
+    elapsed = now > started ? now - started : 0n;
+  }
+  return formatTranscriptTimestampUs(elapsed);
 }
 
 function validMarkerKeys(keys: string[], allowReserved = false): boolean {
@@ -700,6 +722,34 @@ function App(): JSX.Element {
           break;
       }
     };
+    const handleQuickMarker = (event: Event): void => {
+      // The mounted Observations page owns the marker note field; elsewhere the
+      // global shortcut still records the marker for the selected session.
+      if (view() === "annotations") return;
+      const detail = (event as CustomEvent<string>).detail;
+      if (!markerTypes.includes(detail as AnnotationInput["type"])) return;
+      const current = workspace();
+      if (!current || !current.snapshot.canMutate || busy()) return;
+      const session =
+        current.sessions.find((item) => item.id === selectedAnnotationSessionId()) ??
+        current.sessions[0];
+      if (!session) {
+        announce("Create a session before using quick markers.", "info");
+        return;
+      }
+      void saveAnnotation(
+        {
+          sessionId: session.id,
+          start: markerStartTime(session),
+          end: "",
+          type: detail as AnnotationInput["type"],
+          priority: "normal",
+          title: annotationTypeLabel(detail),
+          content: "",
+        },
+        null,
+      );
+    };
     if (platform.kind === "desktop" && platform.onNativeCommand) {
       void platform
         .onNativeCommand((command) => {
@@ -736,15 +786,20 @@ function App(): JSX.Element {
       void openPendingLaunchArchives();
     }
     window.addEventListener("tutorux:notice", receiveNotice);
+    window.addEventListener("tutorux:quick-marker", handleQuickMarker);
     window.addEventListener("keydown", handleKeys);
     onCleanup(() => {
       window.removeEventListener("tutorux:notice", receiveNotice);
+      window.removeEventListener("tutorux:quick-marker", handleQuickMarker);
       window.removeEventListener("keydown", handleKeys);
       mediaQuery.removeEventListener("change", updateSystemTheme);
       window.clearTimeout(noticeTimer);
       window.cancelAnimationFrame(navigationFocusFrame);
       nativeCommandListenerDisposed = true;
       removeNativeCommandListener?.();
+      const playback = observationPlayback();
+      if (playback) URL.revokeObjectURL(playback.url);
+      setObservationPlayback(null);
       workspace()?.snapshot.lock();
     });
   });
@@ -795,6 +850,7 @@ function App(): JSX.Element {
         assets: [],
         evidence: [],
         evidenceEdges: [],
+        trashedEvidenceEdges: [],
         aiJobs: [],
         settings: [],
         providerSettings: [],
@@ -912,6 +968,11 @@ function App(): JSX.Element {
       assets: liveAssets,
       evidence: alive(evidence),
       evidenceEdges: alive(evidenceEdges),
+      trashedEvidenceEdges: evidenceEdges.filter(
+        (record) =>
+          record.fields.get("_deleted") === "true" &&
+          record.fields.get("_trash_group_id")?.toLowerCase() === record.id.toLowerCase(),
+      ),
       aiJobs,
       settings: alive(settings).filter((record) => field(record, "record_role") === "setting"),
       providerSettings: alive(settings).filter(
@@ -1037,6 +1098,7 @@ function App(): JSX.Element {
       assets: [],
       evidence: [],
       evidenceEdges: [],
+      trashedEvidenceEdges: [],
       providerSettings: [],
       credentials: [],
     });
@@ -1621,6 +1683,44 @@ function App(): JSX.Element {
     );
   }
 
+  async function importAiResponse(
+    file: File,
+    sessionId: string,
+    templateId: string,
+  ): Promise<{ jobId: string; guideId: string; status: string; warnings: readonly string[] }> {
+    const state = workspace();
+    const session = state?.sessions.find(
+      (record) => record.id.toLowerCase() === sessionId.toLowerCase(),
+    );
+    if (!state || !session) throw new Error("Choose a session before importing a response.");
+    if (state.snapshot.locked || !state.snapshot.canMutate) {
+      throw new Error("Unlock this archive before importing an AI response.");
+    }
+    const imported = await importAiResponseRecords({
+      session,
+      bytes: new Uint8Array(await file.arrayBuffer()),
+      filename: file.name,
+      templateId,
+      records: [
+        ...state.sessions,
+        ...state.transcripts,
+        ...state.annotations,
+        ...state.evidence,
+        ...state.assets,
+        ...state.notesDocuments,
+      ],
+    });
+    if (!(await addRecords(imported.records, `Imported external AI response as ${imported.status}.`))) {
+      throw new Error("The imported response could not be added to the workspace.");
+    }
+    return {
+      jobId: imported.jobId,
+      guideId: imported.guideId,
+      status: imported.status,
+      warnings: imported.warnings,
+    };
+  }
+
   async function sendAiProviderRequest(
     packageDraft: ArchiveRecord,
     expectedTemplateId: string,
@@ -2113,6 +2213,37 @@ function App(): JSX.Element {
     }
   }
 
+  async function restoreTrashedEvidenceEdge(edge: ArchiveRecord): Promise<void> {
+    const state = workspace();
+    if (!state) return;
+    try {
+      const restored = await restoreEvidenceEdge(state.snapshot, edge);
+      await addRecords([restored], "Evidence relationship restored.");
+    } catch (error) {
+      announce(errorMessage(error), "error");
+    }
+  }
+
+  async function restoreTrashedNoteBlock(block: RemovedNoteBlock): Promise<void> {
+    const state = workspace();
+    if (!state) return;
+    const document = state.notesDocuments.find(
+      (item) => item.id.toLowerCase() === block.documentId.toLowerCase(),
+    );
+    if (!document) {
+      announce("The notes containing this block are no longer available.", "error");
+      return;
+    }
+    try {
+      await addRecords(
+        [restoreRemovedNoteBlock(document, block.id)],
+        "Note block restored to its original position.",
+      );
+    } catch (error) {
+      announce(errorMessage(error), "error");
+    }
+  }
+
   async function reviewSessionTrash(session: ArchiveRecord): Promise<void> {
     const state = workspace();
     if (!state || busy()) return;
@@ -2548,6 +2679,39 @@ function App(): JSX.Element {
     }
   }
 
+  async function playObservationFromTimestamp(record: ArchiveRecord): Promise<void> {
+    const state = workspace();
+    if (!state) return;
+    try {
+      const sessionId = field(record, "session_id").toLowerCase();
+      const session = [...state.sessions, ...state.archivedSessions].find(
+        (item) => item.id.toLowerCase() === sessionId,
+      );
+      if (!session) throw new Error("The linked session is not available.");
+      const track = state.audioTracks.find((item) => item.sessionId === sessionId);
+      if (!track) throw new Error("This session has no playable audio track.");
+      const startTimeUs = field(record, "start_time_us", "0") || "0";
+      const preview = await buildAudioPreview(
+        state.snapshot,
+        session.id,
+        track.id,
+        startTimeUs,
+      );
+      const previous = observationPlayback();
+      if (previous) URL.revokeObjectURL(previous.url);
+      const url = URL.createObjectURL(
+        new Blob([preview.wav.slice().buffer as ArrayBuffer], { type: "audio/wav" }),
+      );
+      setObservationPlayback({
+        url,
+        title: field(record, "title", annotationTypeLabel(field(record, "type", "observation"))),
+        start: formatTranscriptTimestampUs(safeBigInt(startTimeUs)),
+      });
+    } catch (error) {
+      announce(errorMessage(error), "error");
+    }
+  }
+
   async function getAnnotationHistory(record: ArchiveRecord): Promise<ArchiveRecord[]> {
     const state = workspace();
     if (!state) return [];
@@ -2605,23 +2769,43 @@ function App(): JSX.Element {
   }
 
   async function importTranscript(file: File, sessionId: string): Promise<void> {
+    const state = workspace();
+    const session = state?.sessions.find((record) => record.id === sessionId);
+    if (!state || !session) {
+      announce("Choose a session before importing a transcript.", "error");
+      return;
+    }
+    if (state.snapshot.locked || !state.snapshot.canMutate) {
+      announce("Unlock this archive before importing transcript cues.", "error");
+      return;
+    }
+    setBusy(true);
+    let pendingSnapshot: ArchiveSnapshot | undefined;
     try {
-      const state = workspace();
-      const session = state?.sessions.find((record) => record.id === sessionId);
-      if (!state || !session) throw new Error("Choose a session before importing a transcript.");
-      if (state.snapshot.locked)
-        throw new Error("Unlock this archive before importing transcript cues.");
-      if (file.size > 256 * 1024 * 1024) {
-        throw new Error("Transcript source exceeds the configured 256 MiB limit.");
-      }
-      const source = new TextDecoder("utf-8", { fatal: true }).decode(await file.arrayBuffer());
       const format = resolveTranscriptFormat("auto", file.name);
-      const cues = parseTranscriptSource(source, format);
-      if (cues.length === 0) {
+      let snapshot = state.snapshot;
+      pendingSnapshot = snapshot;
+      const result = await importTranscriptBatches({
+        source: file.stream() as AsyncIterable<Uint8Array>,
+        format,
+        sessionId: session.id.toLowerCase(),
+        filename: file.name,
+        expectedGeneration: snapshot.commit.generation,
+        commit: async (records, expectedGeneration) => {
+          if (snapshot.commit.generation !== expectedGeneration) {
+            throw new Error("The archive changed while transcript cues were being imported.");
+          }
+          snapshot = await appendRecords(snapshot, records);
+          pendingSnapshot = snapshot;
+          return [...records];
+        },
+      });
+      if (result.imported === 0) {
+        if (snapshot !== state.snapshot) snapshot.lock();
+        pendingSnapshot = undefined;
         announce("No transcript cues were found in that file.", "info");
         return;
       }
-      const records = makeTranscriptRecords(session.id, cues, format, file.name);
       const fields = new Map(session.fields);
       fields.set("processing_state", "review-required");
       fields.set(
@@ -2629,10 +2813,66 @@ function App(): JSX.Element {
         "Imported transcript is provisional and ready for tutor review.",
       );
       fields.set("processing_updated_at_us", (BigInt(Date.now()) * 1000n).toString());
-      records.push({ ...session, fields });
-      await addRecords(records, `Imported ${cues.length} provisional transcript cues.`);
+      snapshot = await appendRecords(snapshot, [{ ...session, fields }]);
+      if (workspace()?.snapshot !== state.snapshot) {
+        snapshot.lock();
+        throw new Error("The active archive changed while the transcript was being imported.");
+      }
+      const updated = await readWorkspace(snapshot, state.name, state.location, true);
+      setWorkspace(updated);
+      applyWorkspaceTheme(updated);
+      state.snapshot.lock();
+      pendingSnapshot = undefined;
+      setView(view());
+      announce(`Imported ${result.imported} provisional transcript cues.`, "success");
+    } catch (error) {
+      if (pendingSnapshot && pendingSnapshot !== workspace()?.snapshot) pendingSnapshot.lock();
+      announce(errorMessage(error), "error");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function importCompressedAudioFile(
+    sessionId: string,
+    allowAdditionalTrack: boolean,
+  ): Promise<void> {
+    const state = workspace();
+    const session = state?.sessions.find((record) => record.id === sessionId);
+    if (!state || !session) {
+      announce("Choose a session before importing audio.", "error");
+      return;
+    }
+    if (state.snapshot.locked || !state.snapshot.canMutate) {
+      announce("Unlock this archive before importing audio.", "error");
+      return;
+    }
+    try {
+      const selected = await openFileDialog({
+        multiple: false,
+        directory: false,
+        filters: [{ name: "Compressed audio", extensions: ["flac", "mp3", "m4a"] }],
+      });
+      if (!selected || Array.isArray(selected)) return;
+      if (workspace()?.snapshot !== state.snapshot) {
+        throw new Error("The active archive changed while the audio picker was open.");
+      }
+      setBusy(true);
+      const tracks = state.audioTracks.filter(
+        (track) => track.sessionId === session.id.toLowerCase(),
+      );
+      const imported = await importCompressedAudioRecords(session, selected, {
+        allowAdditionalTrack,
+        knownTrackIds: tracks.map((track) => track.id),
+      });
+      await addRecords(
+        imported.records,
+        `Imported ${selected.split(/[\\/]/u).pop() ?? "audio"} as a ${imported.sampleRateHz.toLocaleString()} Hz audio track.`,
+      );
     } catch (error) {
       announce(errorMessage(error), "error");
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -3783,6 +4023,9 @@ function App(): JSX.Element {
                     onImportAudio={(file, sessionId, allowAdditionalTrack) =>
                       void importWave(file, sessionId, allowAdditionalTrack)
                     }
+                    onImportCompressedAudio={(sessionId, allowAdditionalTrack) =>
+                      void importCompressedAudioFile(sessionId, allowAdditionalTrack)
+                    }
                     onRecoverAudio={(sessionId) => void recoverWavImport(sessionId)}
                     onRecoverNativeAudio={(sessionId) => void recoverNativeAudio(sessionId)}
                     onRecordAudio={(file, sessionId, consentAtUs) =>
@@ -3854,6 +4097,7 @@ function App(): JSX.Element {
                       platform.exportBinaryFile(name, contents, mimeType)
                     }
                     onSend={sendAiProviderRequest}
+                    onImportResponse={importAiResponse}
                     onSaveProvider={saveAiProvider}
                     onSaveCredential={saveAiCredential}
                     onRemoveCredential={removeAiCredential}
@@ -3878,6 +4122,7 @@ function App(): JSX.Element {
                     onNewSession={() => openDialog("session")}
                     onHistory={getAnnotationHistory}
                     onRestore={restoreAnnotationRevision}
+                    onPlayFromTimestamp={(record) => void playObservationFromTimestamp(record)}
                   />
                 </Show>
                 <Show when={view() === "journal"}>
@@ -3968,12 +4213,18 @@ function App(): JSX.Element {
                     annotations={state.trashedAnnotations}
                     guides={state.trashedGuides}
                     evidence={state.trashedEvidence}
+                    evidenceEdges={state.trashedEvidenceEdges}
+                    noteBlocks={state.notesDocuments.flatMap(
+                      (document) => readRemovedNoteBlocks(document) ?? [],
+                    )}
                     sessions={state.trashedSessions}
                     onRestore={(record) => void restoreStudent(record)}
                     onRestoreJournalEntry={(record) => void restoreJournalEntry(record)}
                     onRestoreAnnotation={(record) => void restoreTrashedAnnotation(record)}
                     onRestoreGuide={(record) => void restoreGuide(record)}
                     onRestoreEvidence={(record) => void restoreEvidence(record)}
+                    onRestoreEvidenceEdge={(record) => void restoreTrashedEvidenceEdge(record)}
+                    onRestoreNoteBlock={(block) => void restoreTrashedNoteBlock(block)}
                     onRestoreSession={(record) => void restoreSessionGroup(record)}
                     pendingPurge={pendingTrashPurge()}
                     onBeginPurge={() => void beginTrashPurge()}
@@ -4028,6 +4279,44 @@ function App(): JSX.Element {
               <Icon name="close" />
             </button>
           </div>
+        )}
+      </Show>
+
+      <Show when={observationPlayback()}>
+        {(playback) => (
+          <section
+            class="transcript-audio-panel"
+            aria-label="Observation audio playback"
+            style={{
+              position: "fixed",
+              right: "1rem",
+              bottom: "5.5rem",
+              "z-index": 60,
+              "max-width": "min(26rem, calc(100vw - 2rem))",
+              "box-shadow": "0 18px 48px rgba(0, 0, 0, .22)",
+            }}
+          >
+            <div class="transcript-audio-copy">
+              <strong>{playback().title}</strong>
+              <span>Playing from {playback().start}</span>
+            </div>
+            <audio
+              controls
+              autoplay
+              src={playback().url}
+              ref={(element) => queueMicrotask(() => void element.play().catch(() => undefined))}
+            />
+            <button
+              class="button button-quiet record-action"
+              type="button"
+              onClick={() => {
+                URL.revokeObjectURL(playback().url);
+                setObservationPlayback(null);
+              }}
+            >
+              Close
+            </button>
+          </section>
         )}
       </Show>
 
@@ -4097,7 +4386,9 @@ function App(): JSX.Element {
               void addRecords(
                 latest
                   ? updateJournalRecords(latest, input, latestNotes, updateNotes)
-                  : makeJournalRecords(input),
+                  : makeJournalRecords(input, {
+                      ensureJournalRoot: !(workspace()?.journals.length ?? 0),
+                    }),
                 record ? "Journal entry updated." : undefined,
               ).catch((error: unknown) => announce(errorMessage(error), "error"));
             }}
@@ -4265,6 +4556,7 @@ function App(): JSX.Element {
                     (workspace()?.trashedAnnotations.length ?? 0) +
                     (workspace()?.trashedGuides.length ?? 0) +
                     (workspace()?.trashedEvidence.length ?? 0) +
+                    (workspace()?.trashedEvidenceEdges.length ?? 0) +
                     (workspace()?.trashedSessions.length ?? 0)
                 }
               >
@@ -4273,6 +4565,7 @@ function App(): JSX.Element {
                     (workspace()?.trashedAnnotations.length ?? 0) +
                     (workspace()?.trashedGuides.length ?? 0) +
                     (workspace()?.trashedEvidence.length ?? 0) +
+                    (workspace()?.trashedEvidenceEdges.length ?? 0) +
                     (workspace()?.trashedSessions.length ?? 0)}
                 </span>
               </Show>
@@ -6057,6 +6350,10 @@ function RecordPage(props: {
 }): JSX.Element {
   const [collectionFilter, setCollectionFilter] = createSignal("");
   const [tagFilter, setTagFilter] = createSignal("");
+  const [journalSort, setJournalSort] = createSignal<"newest" | "oldest" | "title">("newest");
+  const [journalFrom, setJournalFrom] = createSignal("");
+  const [journalTo, setJournalTo] = createSignal("");
+  const [hasSessions, setHasSessions] = createSignal<"all" | "yes" | "no">("all");
   const [sessionPackageStudentId, setSessionPackageStudentId] = createSignal("");
   const [sessionArchiveView, setSessionArchiveView] = createSignal<"current" | "archived">(
     "current",
@@ -6072,10 +6369,44 @@ function RecordPage(props: {
     return props.records.filter((record) => {
       const collections = field(record, "collection_ids").split(",").filter(Boolean);
       const tags = field(record, "tag_ids").split(",").filter(Boolean);
+      const date = field(record, "entry_date");
+      const linkedSessionIds = field(record, "session_ids").split(",").filter(Boolean);
+      const entryId = record.id.toLowerCase();
+      const linkedSessionRecord =
+        props.state.sessions.some(
+          (session) => field(session, "entry_id").toLowerCase() === entryId,
+        ) ||
+        props.state.archivedSessions.some(
+          (session) => field(session, "entry_id").toLowerCase() === entryId,
+        );
+      const hasLinkedSessions = linkedSessionIds.length > 0 || linkedSessionRecord;
       return (
         (!collectionFilter() || collections.includes(collectionFilter())) &&
-        (!tagFilter() || tags.includes(tagFilter()))
+        (!tagFilter() || tags.includes(tagFilter())) &&
+        (!journalFrom() || (Boolean(date) && date >= journalFrom())) &&
+        (!journalTo() || (Boolean(date) && date <= journalTo())) &&
+        (hasSessions() === "all" || (hasSessions() === "yes") === hasLinkedSessions)
       );
+    });
+  });
+  const displayedRecords = createMemo(() => {
+    const records = [...visibleRecords()];
+    if (props.kind !== "journal") {
+      return records.sort((a, b) => recordSort(props.kind, b).localeCompare(recordSort(props.kind, a)));
+    }
+    return records.sort((left, right) => {
+      const titleOrder = field(left, "title").localeCompare(field(right, "title"));
+      if (journalSort() === "title") return titleOrder || left.id.localeCompare(right.id);
+      const leftDate = field(left, "entry_date");
+      const rightDate = field(right, "entry_date");
+      if (!leftDate || !rightDate) {
+        if (leftDate) return -1;
+        if (rightDate) return 1;
+        return titleOrder || left.id.localeCompare(right.id);
+      }
+      const dateOrder = leftDate.localeCompare(rightDate);
+      if (journalSort() === "oldest") return dateOrder || titleOrder;
+      return -dateOrder || titleOrder;
     });
   });
   const meta: Record<
@@ -6247,13 +6578,58 @@ function RecordPage(props: {
               </For>
             </select>
           </label>
-          <Show when={collectionFilter() || tagFilter()}>
+          <label>
+            <span>Sort</span>
+            <select
+              value={journalSort()}
+              onChange={(event) =>
+                setJournalSort(event.currentTarget.value as "newest" | "oldest" | "title")
+              }
+            >
+              <option value="newest">Newest first</option>
+              <option value="oldest">Oldest first</option>
+              <option value="title">Title</option>
+            </select>
+          </label>
+          <label>
+            <span>From date</span>
+            <input
+              type="date"
+              value={journalFrom()}
+              onChange={(event) => setJournalFrom(event.currentTarget.value)}
+            />
+          </label>
+          <label>
+            <span>To date</span>
+            <input
+              type="date"
+              value={journalTo()}
+              onChange={(event) => setJournalTo(event.currentTarget.value)}
+            />
+          </label>
+          <label>
+            <span>Has sessions</span>
+            <select
+              value={hasSessions()}
+              onChange={(event) =>
+                setHasSessions(event.currentTarget.value as "all" | "yes" | "no")
+              }
+            >
+              <option value="all">Any entry</option>
+              <option value="yes">Linked to a session</option>
+              <option value="no">No linked sessions</option>
+            </select>
+          </label>
+          <Show when={collectionFilter() || tagFilter() || journalFrom() || journalTo() || hasSessions() !== "all"}>
             <button
               class="text-action"
               type="button"
               onClick={() => {
                 setCollectionFilter("");
                 setTagFilter("");
+                setJournalFrom("");
+                setJournalTo("");
+                setHasSessions("all");
               }}
             >
               Clear filters
@@ -6325,11 +6701,7 @@ function RecordPage(props: {
           }
         >
           <div class={`record-list record-list-${props.kind}`}>
-            <For
-              each={[...visibleRecords()].sort((a, b) =>
-                recordSort(props.kind, b).localeCompare(recordSort(props.kind, a)),
-              )}
-            >
+            <For each={displayedRecords()}>
               {(record) => (
                 <RecordCard
                   kind={props.kind}
@@ -6532,6 +6904,7 @@ function RecordCard(props: {
     );
   if (props.kind === "journal") {
     const date = dateParts(field(record, "entry_date"));
+    const undated = !field(record, "entry_date");
     const labels = createMemo(() => {
       const collectionIds = field(props.record, "collection_ids").split(",").filter(Boolean);
       const tagIds = field(props.record, "tag_ids").split(",").filter(Boolean);
@@ -6543,11 +6916,11 @@ function RecordCard(props: {
     return (
       <article class="journal-record-card">
         <div class="journal-date journal-date-large">
-          <strong>{date.day}</strong>
-          <small>{date.month}</small>
+          <strong>{undated ? "–" : date.day}</strong>
+          <small>{undated ? "NO DATE" : date.month}</small>
         </div>
         <div class="journal-record-main">
-          <span class="eyebrow">{date.year}</span>
+          <span class="eyebrow">{undated ? "UNDATED" : date.year}</span>
           <h2>{field(record, "title", "Untitled entry")}</h2>
           <p>
             {record.fields.get("session_ids")
@@ -6557,7 +6930,7 @@ function RecordCard(props: {
           <div class="record-inline-meta">
             <span>
               <Icon name="clock" />
-              {field(record, "entry_date")}
+              {field(record, "entry_date") || "No date"}
             </span>
             <span>
               <Icon name="book" />
@@ -6700,6 +7073,8 @@ function TrashPage(props: {
   annotations: ArchiveRecord[];
   guides: ArchiveRecord[];
   evidence: ArchiveRecord[];
+  evidenceEdges: ArchiveRecord[];
+  noteBlocks: RemovedNoteBlock[];
   sessions: ArchiveRecord[];
   disabled: boolean;
   onRestore: (record: ArchiveRecord) => void;
@@ -6707,6 +7082,8 @@ function TrashPage(props: {
   onRestoreAnnotation: (record: ArchiveRecord) => void;
   onRestoreGuide: (record: ArchiveRecord) => void;
   onRestoreEvidence: (record: ArchiveRecord) => void;
+  onRestoreEvidenceEdge: (record: ArchiveRecord) => void;
+  onRestoreNoteBlock: (block: RemovedNoteBlock) => void;
   onRestoreSession: (record: ArchiveRecord) => void;
   pendingPurge: TrashPurgeReview | null;
   onBeginPurge: () => void;
@@ -6725,13 +7102,14 @@ function TrashPage(props: {
       ...props.annotations,
       ...props.guides,
       ...props.evidence,
+      ...props.evidenceEdges,
     ].sort((left, right) => {
       const a = removedAt(left);
       const b = removedAt(right);
       return a > b ? -1 : a < b ? 1 : left.id.localeCompare(right.id);
     });
   };
-  const total = () => trashed().length;
+  const total = () => trashed().length + props.noteBlocks.length;
   return (
     <div class="page-body record-page">
       <section class="record-heading">
@@ -6845,12 +7223,42 @@ function TrashPage(props: {
             />
           }
         >
+          <Show when={props.noteBlocks.length > 0}>
+            <div class="record-list" aria-label="Removed note blocks">
+              <For each={props.noteBlocks}>
+                {(block) => (
+                  <article class="library-record-card trash-record">
+                    <span class="library-icon">
+                      <Icon name="journal" />
+                    </span>
+                    <div>
+                      <span class="eyebrow">REMOVED NOTE BLOCK</span>
+                      <h2>{block.text || "Empty note block"}</h2>
+                      <p>
+                        {block.kind} block removed from{" "}
+                        {block.sessionId ? "session notes" : "journal notes"}
+                      </p>
+                    </div>
+                    <button
+                      class="button button-outline record-action"
+                      type="button"
+                      disabled={props.disabled}
+                      onClick={() => props.onRestoreNoteBlock(block)}
+                    >
+                      Restore
+                    </button>
+                  </article>
+                )}
+              </For>
+            </div>
+          </Show>
           <div class="record-list">
             <For each={trashed()}>
               {(record) => {
                 const journalEntry =
                   record.type === RecordType.settings &&
                   field(record, "record_role") === "journal-entry";
+                const evidenceEdge = record.type === RecordType.evidenceEdge;
                 return (
                   <article class="library-record-card trash-record">
                     <span class="library-icon">
@@ -6866,7 +7274,9 @@ function TrashPage(props: {
                                   ? "guides"
                                   : record.type === RecordType.evidenceNode
                                     ? "evidence"
-                                    : "students"
+                                    : evidenceEdge
+                                      ? "evidence"
+                                      : "students"
                         }
                       />
                     </span>
@@ -6882,7 +7292,9 @@ function TrashPage(props: {
                                 ? "STUDY GUIDE"
                                 : record.type === RecordType.evidenceNode
                                   ? "EVIDENCE ITEM"
-                                  : "STUDENT PROFILE"}
+                                  : evidenceEdge
+                                    ? "EVIDENCE RELATIONSHIP"
+                                    : "STUDENT PROFILE"}
                       </span>
                       <h2>
                         {journalEntry
@@ -6899,7 +7311,9 @@ function TrashPage(props: {
                                 ? field(record, "title", "Untitled guide")
                                 : record.type === RecordType.evidenceNode
                                   ? field(record, "title", "Evidence item")
-                                  : field(record, "display_name", "Unnamed student")}
+                                  : evidenceEdge
+                                    ? `${field(record, "relationship", "relationship")} · ${field(record, "from_id")} → ${field(record, "to_id")}`
+                                    : field(record, "display_name", "Unnamed student")}
                       </h2>
                       <p>
                         {journalEntry
@@ -6914,7 +7328,9 @@ function TrashPage(props: {
                                 ? `${field(record, "approval_state", "draft")} · ${field(record, "template_id", "general")}`
                                 : record.type === RecordType.evidenceNode
                                   ? field(record, "content", "Evidence")
-                                  : field(record, "grade", "Learner")}
+                                  : evidenceEdge
+                                    ? "Removed evidence relationship"
+                                    : field(record, "grade", "Learner")}
                         {field(record, "deleted_at_us")
                           ? ` · Deleted ${formatTimestamp(field(record, "deleted_at_us"))}`
                           : " · Deletion date unavailable"}
@@ -6946,7 +7362,9 @@ function TrashPage(props: {
                                 ? props.onRestoreGuide(record)
                                 : record.type === RecordType.evidenceNode
                                   ? props.onRestoreEvidence(record)
-                                  : props.onRestore(record)
+                                  : evidenceEdge
+                                    ? props.onRestoreEvidenceEdge(record)
+                                    : props.onRestore(record)
                       }
                     >
                       Restore
@@ -7180,6 +7598,7 @@ function TranscriptPage(props: {
   onNewSession: () => void;
   onImport: (file: File, sessionId: string) => void;
   onImportAudio: (file: File, sessionId: string, allowAdditionalTrack: boolean) => void;
+  onImportCompressedAudio: (sessionId: string, allowAdditionalTrack: boolean) => void;
   onRecoverAudio: (sessionId: string) => void;
   onRecoverNativeAudio: (sessionId: string) => void;
   onRecordAudio: (file: File, sessionId: string, consentAtUs: string) => Promise<void>;
@@ -7671,6 +8090,26 @@ function TranscriptPage(props: {
           >
             {sessionHasAudio() ? "Add WAV track" : "Import WAV"}
           </button>
+          <Show when={platform.kind === "desktop"}>
+            <button
+              class="button button-outline"
+              type="button"
+              disabled={
+                props.disabled || !selectedSession() || (sessionHasAudio() && !addSeparateTrack())
+              }
+              onClick={() => {
+                const session = selectedSession();
+                if (session) {
+                  props.onImportCompressedAudio(
+                    session.id,
+                    sessionHasAudio() && addSeparateTrack(),
+                  );
+                }
+              }}
+            >
+              Import FLAC, MP3, or M4A
+            </button>
+          </Show>
           <Show when={recoverableWavImport()}>
             <button
               class="button button-outline"
@@ -9520,6 +9959,9 @@ function FormDialog(props: {
   const journalIds = (key: "collection_ids" | "tag_ids"): string[] =>
     props.record ? field(props.record, key).split(",").filter(Boolean) : [];
   const today = new Date().toISOString().slice(0, 10);
+  const [journalDate, setJournalDate] = createSignal(
+    props.kind === "journal" ? (props.record ? field(props.record, "entry_date") : today) : "",
+  );
   const [validationError, setValidationError] = createSignal("");
   const [encryptOnCreate, setEncryptOnCreate] = createSignal(false);
 
@@ -9621,7 +10063,7 @@ function FormDialog(props: {
         props.onSaveJournal(
           {
             title: value("title"),
-            date: value("date"),
+            date: journalDate(),
             noteBlocks: noteBlocks(),
             collectionIds: data.getAll("collectionIds").map(String),
             tagIds: data.getAll("tagIds").map(String),
@@ -10023,15 +10465,27 @@ function FormDialog(props: {
                 required
               />
             </label>
-            <label class="form-field">
-              Date
-              <input
-                type="date"
-                name="date"
-                value={props.record ? field(props.record, "entry_date") : today}
-                required
-              />
-            </label>
+            <div class="form-field">
+              <span>Date</span>
+              <div style={{ display: "flex", gap: "0.5rem", "align-items": "center" }}>
+                <input
+                  type="date"
+                  name="date"
+                  value={journalDate()}
+                  onInput={(event) => setJournalDate(event.currentTarget.value)}
+                  style={{ flex: "1" }}
+                />
+                <button
+                  class="button button-quiet record-action"
+                  type="button"
+                  disabled={!journalDate()}
+                  onClick={() => setJournalDate("")}
+                >
+                  Clear date
+                </button>
+              </div>
+              <span class="form-help">Leave the date empty for an undated reflection.</span>
+            </div>
             <div class="form-field document-form-field">
               <span>Reflection</span>
               <Show
