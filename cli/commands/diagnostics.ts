@@ -60,8 +60,14 @@ export async function runDiagnosticsCommand(
     }
     emit(
       output,
-      audio.rows,
-      `Audio diagnostics inspected ${audio.rows.length} endpoint(s); no stream was started.\n${JSON.stringify(audio.rows, null, 2)}`,
+      {
+        status: "checked",
+        samples_retained: false,
+        network_checked: false,
+        ...(audio.reason ? { reason: audio.reason } : {}),
+        endpoints: audio.rows,
+      },
+      `Audio diagnostics probed ${audio.rows.length} endpoint(s); measured samples were discarded and no network request was made.${audio.reason ? ` ${audio.reason}` : ""}\n${JSON.stringify(audio.rows, null, 2)}`,
       args.flags.has("json"),
     );
     return 0;
