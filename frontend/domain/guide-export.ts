@@ -420,14 +420,16 @@ function escapeXml(value: string): string {
   let output = "";
   for (const character of value) {
     const point = character.codePointAt(0)!;
-    if (!(
-      point === 0x09 ||
-      point === 0x0a ||
-      point === 0x0d ||
-      (point >= 0x20 && point <= 0xd7ff) ||
-      (point >= 0xe000 && point <= 0xfffd) ||
-      (point >= 0x10000 && point <= 0x10ffff)
-    )) {
+    if (
+      !(
+        point === 0x09 ||
+        point === 0x0a ||
+        point === 0x0d ||
+        (point >= 0x20 && point <= 0xd7ff) ||
+        (point >= 0xe000 && point <= 0xfffd) ||
+        (point >= 0x10000 && point <= 0x10ffff)
+      )
+    ) {
       throw new Error("Guide text contains a character that Word cannot represent.");
     }
     switch (character) {
