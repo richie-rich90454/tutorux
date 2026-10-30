@@ -1,6 +1,10 @@
 import { newUuid } from "../archive/format";
 import { GUIDE_BLOCK_KINDS, type GuideDraft } from "../domain/guides";
-import { isEmbeddedGgufProvider } from "./providers";
+import {
+  isEmbeddedGgufProvider,
+  isOpenAiCompatibleProvider,
+  openCodeZenProtocolForModel,
+} from "./providers";
 
 const MAX_RESPONSE_TEXT_BYTES = 16 * 1024 * 1024;
 const MAX_GUIDE_SECTIONS = 500;
@@ -32,7 +36,11 @@ export interface AiExecutionSummary {
 }
 
 /** Extract generated text from the provider's bounded streaming response bytes. */
-export function extractAiResponseText(providerId: string, responseBytes: Uint8Array): string {
+export function extractAiResponseText(
+  providerId: string,
+  responseBytes: Uint8Array,
+  model = "",
+): string {
   if (responseBytes.byteLength === 0 || responseBytes.byteLength > MAX_RESPONSE_TEXT_BYTES) {
     throw new Error("The provider returned an empty or oversized response.");
   }
@@ -44,9 +52,37 @@ export function extractAiResponseText(providerId: string, responseBytes: Uint8Ar
   }
   const trimmed = raw.trim();
   if (!trimmed) throw new Error("The provider returned no generated text.");
+  if (providerId === "replicate") return collectReplicatePrediction(raw);
   if (providerId === "ollama") return collectOllama(raw);
-  if (/^(?:event|data|id|retry|:)/mu.test(trimmed)) return collectEventStream(providerId, raw);
-  return collectJsonResponse(providerId, parseJson(raw));
+  if (/^(?:event|data|id|retry|:)/mu.test(trimmed)) {
+    return collectEventStream(providerId, raw, model);
+  }
+  return collectJsonResponse(providerId, parseJson(raw), model);
+}
+
+function collectReplicatePrediction(raw: string): string {
+  const prediction = parseJson(raw);
+  assertJsonDepth(prediction, 0);
+  if (prediction["status"] !== "succeeded") {
+    if (prediction["status"] === "failed") {
+      throw new Error("The Replicate prediction failed. Its raw response was saved for export.");
+    }
+    throw new Error("The Replicate prediction did not finish successfully.");
+  }
+  const output = prediction["output"];
+  let text: string;
+  if (typeof output === "string") {
+    text = output;
+  } else if (Array.isArray(output) && output.every((part) => typeof part === "string")) {
+    text = output.join("");
+  } else {
+    throw new Error("Replicate returned a non-text prediction output.");
+  }
+  if (!text.trim()) throw new Error("Replicate returned no generated text.");
+  if (encoder.encode(text).byteLength > MAX_RESPONSE_TEXT_BYTES) {
+    throw new Error("The generated text exceeded the 16 MiB safety limit.");
+  }
+  return text;
 }
 
 /** Turn a model's structured response into an unapproved guide draft or a safe text fallback. */
@@ -179,7 +215,7 @@ export function createAiGuideProposal(
   };
 }
 
-function collectEventStream(providerId: string, raw: string): string {
+function collectEventStream(providerId: string, raw: string, model: string): string {
   const collected: string[] = [];
   let totalTextBytes = 0;
   for (const block of raw.replaceAll("\r\n", "\n").split("\n\n")) {
@@ -202,7 +238,7 @@ function collectEventStream(providerId: string, raw: string): string {
     ) {
       throw new Error("The provider reported an error while generating the response.");
     }
-    const text = extractStreamDelta(providerId, event, eventType);
+    const text = extractStreamDelta(providerId, event, eventType, false, model);
     if (text) {
       totalTextBytes += encoder.encode(text).byteLength;
       collected.push(text);
@@ -233,11 +269,15 @@ function collectOllama(raw: string): string {
   return result;
 }
 
-function collectJsonResponse(providerId: string, event: Record<string, unknown>): string {
+function collectJsonResponse(
+  providerId: string,
+  event: Record<string, unknown>,
+  model: string,
+): string {
   if (event["error"] !== undefined && event["error"] !== null) {
     throw new Error("The provider reported an error while generating the response.");
   }
-  const text = extractStreamDelta(providerId, event, undefined, true);
+  const text = extractStreamDelta(providerId, event, undefined, true, model);
   if (!text.trim()) throw new Error("The provider returned no generated text.");
   return text;
 }
@@ -247,11 +287,14 @@ function extractStreamDelta(
   event: Record<string, unknown>,
   eventType: string | undefined,
   fullResponse = false,
+  model = "",
 ): string {
+  const openCodeProtocol =
+    providerId === "opencode-zen" ? openCodeZenProtocolForModel(model) : undefined;
   if (
-    providerId === "openai" ||
-    providerId === "openai-compatible" ||
-    isEmbeddedGgufProvider(providerId)
+    isOpenAiCompatibleProvider(providerId) ||
+    isEmbeddedGgufProvider(providerId) ||
+    (providerId === "opencode-zen" && openCodeProtocol === "openai-chat")
   ) {
     const choices = Array.isArray(event["choices"]) ? event["choices"] : [];
     const choice = choices[0];
@@ -259,13 +302,19 @@ function extractStreamDelta(
     const message = fullResponse ? choice["message"] : choice["delta"];
     return isObject(message) ? textContent(message["content"]) : "";
   }
-  if (providerId === "anthropic") {
+  if (
+    providerId === "anthropic" ||
+    (providerId === "opencode-zen" && openCodeProtocol === "anthropic")
+  ) {
     if (eventType && eventType !== "content_block_delta" && eventType !== "message") return "";
     const delta = event["delta"];
     if (isObject(delta) && typeof delta["text"] === "string") return delta["text"];
     return fullResponse ? collectTextArray(event["content"]) : "";
   }
-  if (providerId === "google-gemini") {
+  if (
+    providerId === "google-gemini" ||
+    (providerId === "opencode-zen" && openCodeProtocol === "gemini")
+  ) {
     const candidates = Array.isArray(event["candidates"]) ? event["candidates"] : [];
     const candidate = candidates[0];
     if (!isObject(candidate)) return "";
@@ -283,7 +332,10 @@ function extractStreamDelta(
     const message = event["message"];
     return fullResponse && isObject(message) ? collectTextArray(message["content"]) : "";
   }
-  if (providerId === "perplexity") {
+  if (
+    providerId === "perplexity" ||
+    (providerId === "opencode-zen" && openCodeProtocol === "openai-responses")
+  ) {
     if (eventType === "response.output_text.delta" && typeof event["delta"] === "string") {
       return event["delta"];
     }
