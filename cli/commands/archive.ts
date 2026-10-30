@@ -88,7 +88,11 @@ export async function runArchiveCommand(
   if (action === "discover" || action === "list") {
     return runArchiveDiscoveryCommand(args, output);
   }
-  const path = args.positionals[0] ?? (action === "unlock" ? selectedArchivePath : undefined);
+  const path =
+    args.positionals[0] ??
+    (action === "unlock" || action === "info" || action === "open"
+      ? selectedArchivePath
+      : undefined);
   if (!path) throw new CliError(`archive ${action} requires a file path.`);
   if (action === "unlock") {
     const snapshot = await openForCommand(path);
@@ -172,7 +176,7 @@ export async function runArchiveCommand(
   if (action === "sanitize") {
     return runArchiveSanitizeCommand(path, args, output);
   }
-  if (action !== "info" && action !== "verify") {
+  if (action !== "info" && action !== "open" && action !== "verify") {
     throw new CliError(`archive ${action} is not implemented in the TypeScript CLI yet.`);
   }
   return runArchiveInfoCommand(action, path, args, output);
