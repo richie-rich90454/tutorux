@@ -38,7 +38,7 @@ Vite selects `browser.ts` for the static build and `tauri.ts` for the desktop bu
 
 The current browser workspace is an in-memory snapshot. Record writes create a new append-only generation; users explicitly save that generation to the selected file. The desktop adapter streams archive reads and writes in bounded chunks. The browser File System Access API writes directly when available; the fallback produces a download and holds the edited archive in memory.
 
-No database or hosted service is part of the current migration slice. Preferences persist the system/light/dark appearance choice in browser local storage; system mode follows operating-system appearance changes. The existing archive remains the canonical user-data format.
+No database or hosted service is part of the current migration slice. Preferences persist the system/light/dark appearance choice in the active archive's `ui.theme` setting, so the choice travels with `.tux`; system mode follows operating-system appearance changes. Browser local storage is only the fallback when the selected archive has no valid theme setting. The existing archive remains the canonical user-data format.
 
 Session and journal notes remain in legacy-compatible `journal-notes` records. The Solid editor reads and writes ordered, typed blocks in that schema, keeps their IDs stable through edits, and leaves unknown block kinds or extension fields untouched.
 
