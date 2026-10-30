@@ -215,13 +215,13 @@ export async function aiModelsAction(
   }
   const cacheId = await deterministicUuid(`ai-model-cache:${provider.id}`);
   const cachedRecord = await snapshot.getRecord(RecordType.settings, cacheId);
-  const cached =
-    readCatalogCache(cachedRecord) ?? (await readLegacyCatalog(snapshot, provider.id));
+  const cached = readCatalogCache(cachedRecord) ?? (await readLegacyCatalog(snapshot, provider.id));
   const refreshRequested = args.flags.has("refresh");
   const refreshIfStale = args.flags.has("refresh-if-stale");
   if (action === "models" && !refreshRequested) {
     if (!cached) {
-      if (!refreshIfStale) throw new CliError(`No cached models for ${provider.id}. Retry with --refresh.`);
+      if (!refreshIfStale)
+        throw new CliError(`No cached models for ${provider.id}. Retry with --refresh.`);
     } else if (!refreshIfStale || catalogFreshness(cached.checkedAtUs) === "fresh") {
       const rows = cached.models.map((row) =>
         withCatalogFreshness(row, cached.checkedAtUs, Date.now() * 1000),
@@ -459,9 +459,7 @@ async function readLegacyCatalog(
         maximumOutputTokens: numericText(field(record, "maximum_output_tokens")),
         inputModalities: field(record, "input_modalities").split(",").filter(Boolean),
         outputModalities: field(record, "output_modalities").split(",").filter(Boolean),
-        structuredOutputSupport: capabilityStatusValue(
-          field(record, "structured_output_support"),
-        ),
+        structuredOutputSupport: capabilityStatusValue(field(record, "structured_output_support")),
         streamingSupport: capabilityStatusValue(field(record, "streaming_support")),
         availabilityStatus: field(record, "availability_status"),
         metadataSource: field(record, "metadata_source"),
@@ -498,7 +496,9 @@ function catalogMessage(
   const status = rows[0]?.catalog_status ?? "unavailable";
   return (
     `Catalog: ${freshness}; age=${age}s; TTL=${AI_MODEL_CATALOG_TTL_SECONDS}s; source=${source}; status=${status}` +
-    (rows.length ? `\n${rows.map((row) => `${row.model_id}  ${row.catalog_state}`).join("\n")}` : "\nNo models returned.")
+    (rows.length
+      ? `\n${rows.map((row) => `${row.model_id}  ${row.catalog_state}`).join("\n")}`
+      : "\nNo models returned.")
   );
 }
 
@@ -523,9 +523,7 @@ async function aiEmbeddedModelsAction(
       if (!modelId || (requestedModel && modelId !== requestedModel)) continue;
       const modelPath = field(reference, "path");
       const report = modelPath
-        ? await inspectCliModel(resolve(dirname(resolve(archivePath)), modelPath)).catch(
-            () => null,
-          )
+        ? await inspectCliModel(resolve(dirname(resolve(archivePath)), modelPath)).catch(() => null)
         : null;
       const row = buildAiModelCatalogRow(
         {
@@ -534,7 +532,8 @@ async function aiEmbeddedModelsAction(
           owner: "embedded",
           catalogState: "user-selected",
           protocolFamily: "embedded-gguf-runtime",
-          contextWindow: numericSetting(reference, "context_tokens") ??
+          contextWindow:
+            numericSetting(reference, "context_tokens") ??
             numericText(report?.training_context_tokens),
           inputModalities: ["text"],
           outputModalities: ["text"],
@@ -593,8 +592,7 @@ async function aiEmbeddedModelsAction(
       "The GGUF model is missing a valid architecture or required context metadata.",
     );
   }
-  const contextTokens =
-    parsePositiveInteger(field(selected, "context_tokens")) ?? 4096;
+  const contextTokens = parsePositiveInteger(field(selected, "context_tokens")) ?? 4096;
   const estimate = estimateGgufMemory(inspected, contextTokens);
   const modelId = field(selected, "model_id");
   return {
