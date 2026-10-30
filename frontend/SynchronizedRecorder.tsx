@@ -11,10 +11,7 @@ import {
   SynchronizedRecording,
   type SynchronizedCaptureTrackIdentity,
 } from "./domain/synchronized-recording";
-import type {
-  CaptureSampleFormat,
-  MicrophoneArchiveSource,
-} from "./domain/microphone-recording";
+import type { CaptureSampleFormat, MicrophoneArchiveSource } from "./domain/microphone-recording";
 import {
   listNativeSynchronizedAudioDevices,
   preflightNativeMicrophone,
