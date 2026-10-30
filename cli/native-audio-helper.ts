@@ -92,7 +92,7 @@ export async function resolveNativeAudioHelper(): Promise<string> {
     if (await isExecutableFile(path)) return path;
   }
   throw new Error(
-    "Native audio capture needs Tutorux's audio helper. Install the desktop app, build it with npm run build:audio-helper, or set TUTORUX_AUDIO_HELPER to its full path. The CLI does not substitute shared system audio for an application-specific source.",
+    "Native audio capture needs Tutorux's audio helper. Install the desktop app, build it with pnpm run build:audio-helper, or set TUTORUX_AUDIO_HELPER to its full path. The CLI does not substitute shared system audio for an application-specific source.",
   );
 }
 
@@ -283,98 +283,25 @@ export async function probeNativeCaptureDevice(
   return parseNativeProbe(result.stdout, device.source);
 }
 
-/** Measure 1.8 seconds from an app-audio helper stream without saving or archiving the samples. */
+/** Measure a short app-audio stream without saving or archiving the samples. */
 export async function probeNativeApplicationAudioDevice(
   helper: string,
   device: NativeApplicationAudioDevice,
 ): Promise<NativeCaptureProbe> {
-  const child = spawn(helper, ["capture", "--application", device.id], {
-    stdio: ["pipe", "pipe", "pipe"],
-    windowsHide: true,
-  });
-  const chunks: Buffer[] = [];
-  let byteCount = 0;
-  let stderr = "";
-  let overflow = false;
-  const timeout = setTimeout(() => {
-    overflow = true;
-    child.kill();
-  }, 15_000);
-  child.stdout.on("data", (chunk: Buffer) => {
-    if (byteCount + chunk.length > 4 * 1024 * 1024) {
-      overflow = true;
-      child.kill();
-      return;
-    }
-    chunks.push(chunk);
-    byteCount += chunk.length;
-  });
-  child.stderr.on("data", (chunk: Buffer) => {
-    if (stderr.length < 32 * 1024)
-      stderr += chunk.toString("utf8").slice(0, 32 * 1024 - stderr.length);
-  });
-  let spawnError: Error | undefined;
-  child.once("error", (error: Error) => {
-    spawnError = error;
-  });
-  const closed = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>(
-    (resolveClose) => {
-      child.once("close", (code, signal) => resolveClose({ code, signal }));
-    },
-  );
-  await Promise.race([delay(1_800), closed]);
-  if (child.exitCode === null && child.signalCode === null && child.stdin?.writable) {
-    child.stdin.end("stop\n");
-  }
-  const exit = await Promise.race([
-    closed,
-    delay(5_000).then(() => {
-      child.kill();
-      return closed;
-    }),
-  ]);
-  clearTimeout(timeout);
-  if (spawnError) throw new Error("Could not start the native audio helper: " + spawnError.message);
-  if (overflow)
-    throw new Error("The application-audio signal probe exceeded its bounded capture limit.");
-  if (exit.code !== 0) {
+  const result = await runHelper(helper, ["probe", "--application", device.id]);
+  if (result.code !== 0) {
     throw new Error(
-      stderr.trim() || `The application-audio signal probe exited with code ${String(exit.code)}.`,
+      result.stderr.trim() ||
+        `The application-audio signal probe exited with code ${String(result.code)}.`,
     );
   }
-  if (byteCount < 2 || byteCount % 2 !== 0) {
-    throw new Error("The application-audio stream opened but returned no complete PCM samples.");
-  }
-  const pcm = Buffer.concat(chunks, byteCount);
-  let sumSquares = 0;
-  let peak = 0;
-  const sampleCount = pcm.length / 2;
-  for (let offset = 0; offset < pcm.length; offset += 2) {
-    const sample = pcm.readInt16LE(offset) / 32768;
-    const magnitude = Math.abs(sample);
-    sumSquares += magnitude * magnitude;
-    peak = Math.max(peak, magnitude);
-  }
-  const rms = Math.sqrt(sumSquares / sampleCount);
-  return {
-    id: device.id,
-    name: device.name,
-    backend: device.backend,
-    source: "application",
-    sampleFormat: "S16LE",
-    sampleRateHz: 16_000,
-    channelCount: 1,
-    sampleCount,
-    durationMs: Math.round((sampleCount / 16_000) * 1_000),
-    rms,
-    peak,
-    dbfs: rms > 0 ? 20 * Math.log10(rms) : -120,
-    signalDetected: rms >= 0.001,
-    probe: "native-stream-opened-and-signal-measured",
-  };
+  return parseNativeProbe(result.stdout, "application");
 }
 
-function parseNativeProbe(value: string, source: NativeCaptureSource): NativeCaptureProbe {
+function parseNativeProbe(
+  value: string,
+  source: NativeCaptureSource | "application",
+): NativeCaptureProbe {
   let parsed: unknown;
   try {
     parsed = JSON.parse(value);
@@ -417,10 +344,6 @@ function nativeCaptureLimitation(source: NativeCaptureSource): string {
     return "No CoreAudio output-loopback endpoint is available. Duplex devices are omitted to avoid capturing their microphone input as system audio.";
   }
   return "No native system-output loopback device is available on this host. Check output-device support and routing.";
-}
-
-function delay(milliseconds: number): Promise<void> {
-  return new Promise((resolveDelay) => setTimeout(resolveDelay, milliseconds));
 }
 
 function installedResourceDirectories(): string[] {
