@@ -1127,19 +1127,14 @@ export async function planTrashPurge(snapshot: ArchiveSnapshot): Promise<Archive
     throw new ArchiveFormatError("archive_locked", "Unlock this archive before purging Trash.");
   }
   const records = (
-    await Promise.all(
-      trashPurgeRecordTypes.map((type) => snapshot.listRecordMetadata(type, true)),
-    )
+    await Promise.all(trashPurgeRecordTypes.map((type) => snapshot.listRecordMetadata(type, true)))
   ).flat();
   const deleted = records.filter((record) => record.fields.get("_deleted") === "true");
   const deletedIds = new Set(deleted.map((record) => record.id.toLowerCase()));
   const referencesByTarget = new Map<string, Map<string, ArchiveTrashPurgeReference>>();
 
   for (const record of records) {
-    if (
-      !trashPurgeReferenceTypes.has(record.type) ||
-      record.fields.get("_deleted") === "true"
-    ) {
+    if (!trashPurgeReferenceTypes.has(record.type) || record.fields.get("_deleted") === "true") {
       continue;
     }
     for (const [name, value] of record.fields) {
@@ -1220,9 +1215,7 @@ export async function purgeTrashedArchiveSnapshot(
 
   const cleanupRecords: ArchiveRecord[] = [];
   for (const record of (
-    await Promise.all(
-      trashPurgeRecordTypes.map((type) => snapshot.listRecordMetadata(type, true)),
-    )
+    await Promise.all(trashPurgeRecordTypes.map((type) => snapshot.listRecordMetadata(type, true)))
   ).flat()) {
     if (record.fields.get("_deleted") === "true") continue;
     const fields = new Map(record.fields);
