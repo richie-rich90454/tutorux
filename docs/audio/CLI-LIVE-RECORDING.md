@@ -13,7 +13,7 @@ limit is available. Tracks are saved at the source's native sample rate, channel
 ## Native helper and FFmpeg fallback
 
 The desktop bundle includes Tutorux's native audio helper. For a standalone CLI, build it with
-`npm run build:audio-helper` or set `TUTORUX_AUDIO_HELPER` to its executable path. The helper uses
+`pnpm run build:audio-helper` or set `TUTORUX_AUDIO_HELPER` to its executable path. The helper uses
 Windows WASAPI, macOS CoreAudio, and Linux PipeWire for native microphone and system-audio capture.
 It preserves the selected endpoint's sample rate, channel count, and supported sample format for the archive. Whisper windows are downmixed and resampled to 16 kHz mono only for transcription.
 
@@ -29,31 +29,31 @@ audio is staged in a private temporary directory and removed after the archive i
 List native inputs, FFmpeg endpoints, and active application audio targets:
 
 ```sh
-npm run cli -- record devices
-npm run cli -- record devices --json
+pnpm run cli -- record devices
+pnpm run cli -- record devices --json
 ```
 
 `record test` briefly opens the selected input and measures its signal without saving samples:
 
 ```sh
-npm run cli -- record test --source microphone
-npm run cli -- record test --source system-audio --playback <loopback-id>
-npm run cli -- record test --source application --application <application-id>
-npm run cli -- record test --source both --microphone <microphone-id> --application <application-id>
+pnpm run cli -- record test --source microphone
+pnpm run cli -- record test --source system-audio --playback <loopback-id>
+pnpm run cli -- record test --source application --application <application-id>
+pnpm run cli -- record test --source both --microphone <microphone-id> --application <application-id>
 ```
 
 Start a microphone recording for a session in an existing archive:
 
 ```sh
-npm run cli -- --archive Lesson.tux record start --session <session-uuid> --consent
+pnpm run cli -- --archive Lesson.tux record start --session <session-uuid> --consent
 ```
 
 The `record configure` microphone choice is used when `--microphone` or `--device` is omitted.
 Native output loopback endpoints can be captured alone or beside the microphone as separate tracks:
 
 ```sh
-npm run cli -- --archive Lesson.tux record start --session <session-uuid> --consent --source system-audio --playback <loopback-id>
-npm run cli -- --archive Lesson.tux record start --session <session-uuid> --consent --source both --microphone <microphone-id> --playback <loopback-id>
+pnpm run cli -- --archive Lesson.tux record start --session <session-uuid> --consent --source system-audio --playback <loopback-id>
+pnpm run cli -- --archive Lesson.tux record start --session <session-uuid> --consent --source both --microphone <microphone-id> --playback <loopback-id>
 ```
 
 For both tracks, Tutorux opens separate input streams and commits each track's PCM chunks through the
@@ -90,7 +90,7 @@ by application.
 For example, to use an ALSA input on Linux:
 
 ```sh
-npm run cli -- --archive Lesson.tux record start --session <session-uuid> --consent --input-format alsa --device default
+pnpm run cli -- --archive Lesson.tux record start --session <session-uuid> --consent --input-format alsa --device default
 ```
 
 ## Consent and saved audio
@@ -107,7 +107,7 @@ written, the CLI reports an interrupted recording and keeps the saved checkpoint
 recovery. Reconcile an interrupted recording with:
 
 ```sh
-npm run cli -- --archive Lesson.tux record recover --session <session-uuid>
+pnpm run cli -- --archive Lesson.tux record recover --session <session-uuid>
 ```
 
 `record test` opens the selected input for about 1.8 seconds and reports sample format, rate, channel
@@ -125,7 +125,7 @@ To generate provisional transcript cues as audio is checkpointed, add a local wh
 and model and explicitly consent to processing the captured audio with them:
 
 ```sh
-npm run cli -- --archive Lesson.tux record start --session <session-uuid> --consent \
+pnpm run cli -- --archive Lesson.tux record start --session <session-uuid> --consent \
   --live-transcribe --whisper <whisper-cli> --model <model-file> --consent-local-audio
 ```
 
