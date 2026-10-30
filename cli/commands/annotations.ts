@@ -303,7 +303,7 @@ export async function runAnnotationCommand(
     const savedSecond = saved[1] ?? second;
     emit(
       output,
-      { first: toPlainRecord(savedFirst), second: toPlainRecord(savedSecond) },
+      toPlainRecord(savedSecond),
       `Annotation split into ${savedFirst.id} and ${savedSecond.id}.`,
       json,
     );
