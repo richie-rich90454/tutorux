@@ -1,6 +1,7 @@
 import { RecordType, type ArchiveRecord } from "../../frontend/archive/format";
 import { canonicalizeProgressUuid } from "../../frontend/domain/student-progress";
 import { recordLiveSource, recordLiveSynchronized, resolveFfmpegCommand } from "../live-recording";
+import type { RecordingDurability } from "../live-recording";
 import {
   resolveNativeAudioHelper,
   selectNativeApplicationAudioDevice,
@@ -242,6 +243,7 @@ export async function runLiveRecordingCommand(
   let transcriptRecords: ArchiveRecord[];
   let configuredMicrophone: string;
   let configuredPlayback: string;
+  let configuredDurability: RecordingDurability;
   try {
     session = await requireLiveRecord(snapshot, RecordType.session, sessionId);
     expectedGeneration = snapshot.commit.generation;
@@ -268,6 +270,15 @@ export async function runLiveRecordingCommand(
             field(record, "key") === "recording.playback_device_id",
         )
         ?.fields.get("value") ?? "default";
+    const durability = settings
+      .find(
+        (record) =>
+          field(record, "record_role") === "setting" &&
+          field(record, "key") === "recording.durability",
+      )
+      ?.fields.get("value");
+    configuredDurability =
+      durability === "maximum" || durability === "reduced-write" ? durability : "default";
     knownTrackIds = metadata
       .filter(
         (record) =>
@@ -298,6 +309,7 @@ export async function runLiveRecordingCommand(
       ? {}
       : { inputFormat: inputFormatValue as "pulse" | "alsa" }),
     ...(durationSeconds === undefined ? {} : { durationSeconds }),
+    durability: configuredDurability,
     consentConfirmedBy,
     progress: (message: string) => output.stderr(message),
     ...(signal === undefined ? {} : { signal }),
