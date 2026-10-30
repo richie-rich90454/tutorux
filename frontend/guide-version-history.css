@@ -1,75 +1,75 @@
 .guide-version-history {
-  border-top: 1px solid var(--border, #d5ded5);
-  margin-top: 1rem;
-  padding-top: 0.75rem;
+    border-top: 1px solid var(--border, #d5ded5);
+    margin-top: 1rem;
+    padding-top: 0.75rem;
 }
 .guide-version-history > summary {
-  cursor: pointer;
-  font-weight: 650;
-  padding: 0.4rem 0;
+    cursor: pointer;
+    font-weight: 650;
+    padding: 0.4rem 0;
 }
 .guide-version-content {
-  display: grid;
-  gap: 0.8rem;
-  padding: 0.6rem 0 1rem;
+    display: grid;
+    gap: 0.8rem;
+    padding: 0.6rem 0 1rem;
 }
 .guide-version-content p {
-  margin: 0;
+    margin: 0;
 }
 .guide-version-selector {
-  display: grid;
-  gap: 0.35rem;
-  max-width: 28rem;
-  font-weight: 600;
+    display: grid;
+    gap: 0.35rem;
+    max-width: 28rem;
+    font-weight: 600;
 }
 .guide-version-selector select {
-  max-width: 100%;
-  padding: 0.55rem;
-  border: 1px solid var(--border, #cbd6cb);
-  border-radius: 0.4rem;
-  background: var(--surface, #fff);
-  color: inherit;
-  font: inherit;
+    max-width: 100%;
+    padding: 0.55rem;
+    border: 1px solid var(--border, #cbd6cb);
+    border-radius: 0.4rem;
+    background: var(--surface, #fff);
+    color: inherit;
+    font: inherit;
 }
 .guide-version-summary {
-  font-size: 0.875rem;
-  opacity: 0.75;
+    font-size: 0.875rem;
+    opacity: 0.75;
 }
 .guide-version-comparison {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0.75rem;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.75rem;
 }
 .guide-version-comparison section {
-  min-width: 0;
-  border: 1px solid var(--border, #d5ded5);
-  border-radius: 0.5rem;
-  padding: 0.75rem;
+    min-width: 0;
+    border: 1px solid var(--border, #d5ded5);
+    border-radius: 0.5rem;
+    padding: 0.75rem;
 }
 .guide-version-comparison h3 {
-  font-size: 0.9rem;
-  margin: 0 0 0.5rem;
+    font-size: 0.9rem;
+    margin: 0 0 0.5rem;
 }
 .guide-version-comparison pre {
-  max-height: 24rem;
-  overflow: auto;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-  font: inherit;
-  font-size: 0.875rem;
-  margin: 0;
+    max-height: 24rem;
+    overflow: auto;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    font: inherit;
+    font-size: 0.875rem;
+    margin: 0;
 }
 .guide-version-confirm {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.5rem;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem;
 }
 .guide-version-error {
-  color: var(--danger, #a12626);
+    color: var(--danger, #a12626);
 }
 @media (max-width: 720px) {
-  .guide-version-comparison {
-    grid-template-columns: 1fr;
-  }
+    .guide-version-comparison {
+        grid-template-columns: 1fr;
+    }
 }
