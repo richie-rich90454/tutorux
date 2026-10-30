@@ -7,49 +7,49 @@ The application is a SolidJS and TypeScript interface running as a static Vite s
 ## Requirements
 
 - Node.js 24 or newer
-- npm 11 or newer
+- pnpm 10 or newer
 - Rust stable and the native Tauri prerequisites for desktop builds
 - FFmpeg on `PATH` for FLAC, MP3, and M4A import and for CLI recording fallback
 
 ## Development
 
 ```sh
-npm ci
-npm run dev
+pnpm install --frozen-lockfile
+pnpm run dev
 ```
 
 Useful checks and builds:
 
 ```sh
-npm run typecheck
-npm run lint
-npm run format:check
-npm run test
-npm run test:e2e
-npm run benchmark:archive
-npm run build
-npm run build:desktop
-npm run desktop:dev
-npm run desktop:build
+pnpm run typecheck
+pnpm run lint
+pnpm run format:check
+pnpm run test
+pnpm run test:e2e
+pnpm run benchmark:archive
+pnpm run build
+pnpm run build:desktop
+pnpm run desktop:dev
+pnpm run desktop:build
 ```
 
-`npm run build` produces the static site in `dist/`. `npm run desktop:build` packages the Tauri application for the host operating system. Cross-platform release packages are built on matching operating-system runners; one host does not cross-package all three desktop targets.
+`pnpm run build` produces the static site in `dist/`. `pnpm run desktop:build` packages the Tauri application for the host operating system. Cross-platform release packages are built on matching operating-system runners; one host does not cross-package all three desktop targets.
 
 The TypeScript CLI uses the same entry point:
 
 ```sh
-npm run cli -- --help
-npm run cli -- archive discover --directory ./archives --json
-npm run cli -- archive init Lesson.tux
-npm run cli -- archive encrypt Lesson.tux --new-passphrase-env TUTORUX_NEW_ARCHIVE_PASSPHRASE
-npm run cli -- archive rename Lesson.tux --name "Algebra foundations"
-npm run cli -- --passphrase-env TUTORUX_ARCHIVE_PASSPHRASE archive rename Lesson.tux --name "Algebra foundations"
-npm run cli -- --archive Lesson.tux student create --name "Maya Ortiz" --grade 10
-npm run cli -- --archive Lesson.tux session create --title "Fraction review" --subject Mathematics
-npm run cli -- --archive Lesson.tux transcript import --session <uuid> --input lesson.srt
-npm run cli -- --archive Lesson.tux transcript generate --session <uuid>
-npm run cli -- --archive Lesson.tux asset import --input worksheet.pdf --session <uuid>
-npm run cli -- archive verify Lesson.tux --full --json
+pnpm run cli -- --help
+pnpm run cli -- archive discover --directory ./archives --json
+pnpm run cli -- archive init Lesson.tux
+pnpm run cli -- archive encrypt Lesson.tux --new-passphrase-env TUTORUX_NEW_ARCHIVE_PASSPHRASE
+pnpm run cli -- archive rename Lesson.tux --name "Algebra foundations"
+pnpm run cli -- --passphrase-env TUTORUX_ARCHIVE_PASSPHRASE archive rename Lesson.tux --name "Algebra foundations"
+pnpm run cli -- --archive Lesson.tux student create --name "Maya Ortiz" --grade 10
+pnpm run cli -- --archive Lesson.tux session create --title "Fraction review" --subject Mathematics
+pnpm run cli -- --archive Lesson.tux transcript import --session <uuid> --input lesson.srt
+pnpm run cli -- --archive Lesson.tux transcript generate --session <uuid>
+pnpm run cli -- --archive Lesson.tux asset import --input worksheet.pdf --session <uuid>
+pnpm run cli -- archive verify Lesson.tux --full --json
 ```
 
 For an encrypted archive, provide its current passphrase with `--passphrase-env NAME`. `archive rename` changes only the display name. `transcript generate` resolves the session's default track and selected local Whisper model when the corresponding options are omitted; pass `--consent-local-audio` when the host requires explicit confirmation.
@@ -63,11 +63,11 @@ New sessions start active and automatically create a dated journal entry. Use `-
 The CLI records microphone and supported system-loopback inputs at the source's native rate and channel count. It runs in the foreground; press Ctrl+C to stop and save. `record configure` stores microphone, playback, and durability preferences in the archive. Use `--source both` to save microphone and system audio as separate synchronized tracks. The CLI writes native-rate tracks and resamples only the Whisper window input to 16 kHz mono.
 
 ```sh
-npm run cli -- --archive Lesson.tux record start --session <uuid> --consent --source microphone
-npm run cli -- --archive Lesson.tux record start --session <uuid> --consent --source system-audio --playback <loopback-id>
-npm run cli -- --archive Lesson.tux record start --session <uuid> --consent --source both --microphone <microphone-id> --playback <loopback-id>
-npm run cli -- record devices
-npm run cli -- --archive Lesson.tux record play --session <uuid> --track <uuid>
+pnpm run cli -- --archive Lesson.tux record start --session <uuid> --consent --source microphone
+pnpm run cli -- --archive Lesson.tux record start --session <uuid> --consent --source system-audio --playback <loopback-id>
+pnpm run cli -- --archive Lesson.tux record start --session <uuid> --consent --source both --microphone <microphone-id> --playback <loopback-id>
+pnpm run cli -- record devices
+pnpm run cli -- --archive Lesson.tux record play --session <uuid> --track <uuid>
 ```
 
 Device selection, platform backends, consent, optional local Whisper transcription, and the external FFmpeg requirement are covered in [the recording guide](docs/audio/CLI-LIVE-RECORDING.md).
