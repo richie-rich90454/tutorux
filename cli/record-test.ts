@@ -107,7 +107,10 @@ export async function inspectRecordingSources(
       try {
         nativeApplicationDevices = (await listNativeApplicationAudioDevices(helper)).devices;
       } catch (error) {
-        nativeApplicationUnavailableReason = errorMessage(error, "Native application-audio discovery failed.");
+        nativeApplicationUnavailableReason = errorMessage(
+          error,
+          "Native application-audio discovery failed.",
+        );
       }
     }
   }
@@ -142,7 +145,10 @@ export async function inspectRecordingSources(
     : undefined;
 
   if (options.source === "application") {
-    const selected = findApplication(nativeApplicationDevices, options.application ?? options.device);
+    const selected = findApplication(
+      nativeApplicationDevices,
+      options.application ?? options.device,
+    );
     if (!selected) {
       return {
         available: false,
@@ -166,7 +172,10 @@ export async function inspectRecordingSources(
         probe: measured.probe,
         ...(measured.signalDetected
           ? {}
-          : { limitation: "The application stream opened, but no signal above the detection threshold was measured." }),
+          : {
+              limitation:
+                "The application stream opened, but no signal above the detection threshold was measured.",
+            }),
       };
     } catch (error) {
       return {
@@ -203,14 +212,18 @@ export async function inspectRecordingSources(
 
 async function probeInput(options: {
   source: "microphone" | "system-audio";
-  requested?: string;
-  helper?: string;
+  requested?: string | undefined;
+  helper?: string | undefined;
   nativeDevices: readonly NativeCaptureDevice[];
   ffmpeg: string;
   ffmpegDevices: readonly FfmpegAudioDevice[];
-  unavailableReason?: string;
+  unavailableReason?: string | undefined;
 }): Promise<EndpointProbe> {
-  const nativeDevice = selectNativeCandidate(options.nativeDevices, options.source, options.requested);
+  const nativeDevice = selectNativeCandidate(
+    options.nativeDevices,
+    options.source,
+    options.requested,
+  );
   if (nativeDevice && options.helper) {
     try {
       const measured = await probeNativeCaptureDevice(options.helper, nativeDevice);
@@ -235,7 +248,8 @@ async function probeInput(options: {
       available: false,
       probe: "stream-not-opened",
       limitation:
-        fallback.limitation ?? options.unavailableReason ??
+        fallback.limitation ??
+        options.unavailableReason ??
         (options.source === "system-audio" ? systemAudioLimitation() : microphoneLimitation()),
     };
   }
@@ -276,7 +290,9 @@ async function probeApplication(
       probe: "native-stream-not-opened",
       limitation:
         unavailableReason ??
-        (devices.length ? "Choose an available application with --application <id>." : applicationTargetLimitation()),
+        (devices.length
+          ? "Choose an available application with --application <id>."
+          : applicationTargetLimitation()),
     };
   }
   try {
@@ -304,17 +320,22 @@ function selectNativeCandidate(
   if (requested && requested !== "default") {
     return candidates.find((device) => device.id === requested || device.name === requested);
   }
-  return candidates.find((device) => device.isDefault) ?? (candidates.length === 1 ? candidates[0] : undefined);
+  return (
+    candidates.find((device) => device.isDefault) ??
+    (candidates.length === 1 ? candidates[0] : undefined)
+  );
 }
 
 function selectFfmpegCandidate(options: {
   source: "microphone" | "system-audio";
-  requested?: string;
+  requested?: string | undefined;
   ffmpegDevices: readonly FfmpegAudioDevice[];
-  unavailableReason?: string;
-}): { device?: FfmpegAudioDevice; limitation?: string } {
+  unavailableReason?: string | undefined;
+}): { device?: FfmpegAudioDevice; limitation?: string | undefined } {
   const matching = options.ffmpegDevices.filter((device) =>
-    options.source === "microphone" ? !isFfmpegLoopback(device) : isSupportedFfmpegSystemAudioDevice(device),
+    options.source === "microphone"
+      ? !isFfmpegLoopback(device)
+      : isSupportedFfmpegSystemAudioDevice(device),
   );
   if (options.requested && options.requested !== "default") {
     const device = options.ffmpegDevices.find(
@@ -330,12 +351,14 @@ function selectFfmpegCandidate(options: {
     }
     if (options.source === "microphone" && isFfmpegLoopback(device)) {
       return {
-        limitation: "The selected endpoint appears to be a loopback source, not a microphone input.",
+        limitation:
+          "The selected endpoint appears to be a loopback source, not a microphone input.",
       };
     }
     return { device };
   }
-  const device = matching.find((candidate) => candidate.backend === preferredFfmpegBackend()) ?? matching[0];
+  const device =
+    matching.find((candidate) => candidate.backend === preferredFfmpegBackend()) ?? matching[0];
   return device
     ? {
         device,
@@ -359,11 +382,16 @@ function probeEndpoint(probe: NativeCaptureProbe): EndpointProbe {
     probe: probe.probe,
     ...(probe.signalDetected
       ? {}
-      : { limitation: "The stream opened, but no signal above the detection threshold was measured." }),
+      : {
+          limitation:
+            "The stream opened, but no signal above the detection threshold was measured.",
+        }),
   };
 }
 
-function probeFields(probe: NativeCaptureProbe): Pick<
+function probeFields(
+  probe: NativeCaptureProbe,
+): Pick<
   EndpointProbe,
   | "device_id"
   | "device_name"
@@ -408,7 +436,10 @@ function findApplication(
 }
 
 function isFfmpegLoopback(device: FfmpegAudioDevice): boolean {
-  return isSupportedFfmpegSystemAudioDevice(device) || /monitor|loopback|stereo\s*mix/iu.test(`${device.id} ${device.name}`);
+  return (
+    isSupportedFfmpegSystemAudioDevice(device) ||
+    /monitor|loopback|stereo\s*mix/iu.test(`${device.id} ${device.name}`)
+  );
 }
 
 function preferredFfmpegBackend(): string {
