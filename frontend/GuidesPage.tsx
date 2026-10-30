@@ -1,4 +1,13 @@
-import { For, Show, createMemo, createSignal, onCleanup, onMount, type JSX } from "solid-js";
+import {
+  For,
+  Show,
+  createEffect,
+  createMemo,
+  createSignal,
+  onCleanup,
+  onMount,
+  type JSX,
+} from "solid-js";
 import { RecordType, type ArchiveRecord } from "./archive/format";
 import type { ArchiveSnapshot } from "./archive/archive";
 import { GuideVersionHistory } from "./GuideVersionHistory";
@@ -15,11 +24,16 @@ import {
   generateGuideDraftFromSession,
   getGuideTemplate,
   guideDraftFromRecord,
+  guideRegenerationTarget,
+  insertGuideImageBlock,
   isGuideSourceInScope,
   makeGuideRecord,
   moveGuideSection,
   replaceAllGuideText,
+  replaceGuideSectionFromGenerated,
   replaceGuideTextMatch,
+  resolveGuideTemplates,
+  validateGuideForExport,
   type GuideBlockDraft,
   type GuideDraft,
   type GuideTemplate,
@@ -194,6 +208,7 @@ export function GuidesPage(props: GuidePageProps): JSX.Element {
   const [generationError, setGenerationError] = createSignal("");
   const [templateEditor, setTemplateEditor] = createSignal<{
     current: ArchiveRecord | null;
+    builtinTemplate?: GuideTemplate | undefined;
   } | null>(null);
   const [templateNotice, setTemplateNotice] = createSignal("");
   const [guideNotice, setGuideNotice] = createSignal("");
@@ -201,11 +216,45 @@ export function GuidesPage(props: GuidePageProps): JSX.Element {
   const [templateKind, setTemplateKind] = createSignal<"all" | "built-in" | "custom">("all");
   const [previewTemplateId, setPreviewTemplateId] = createSignal("");
   const [armedTemplateDeleteId, setArmedTemplateDeleteId] = createSignal("");
+  const [overrideRecords, setOverrideRecords] = createSignal<ArchiveRecord[]>([]);
+  createEffect(() => {
+    const snapshot = props.snapshot;
+    let active = true;
+    void snapshot
+      .listRecords(RecordType.settings)
+      .then((records) => {
+        if (!active) return;
+        setOverrideRecords(
+          records.filter(
+            (record) =>
+              field(record, "record_role") === "guide-template" &&
+              Boolean(field(record, "builtin_template_id")),
+          ),
+        );
+      })
+      .catch(() => {
+        if (active) setOverrideRecords([]);
+      });
+    onCleanup(() => {
+      active = false;
+    });
+  });
   const canCreate = () => props.sessions.length > 0 && !props.disabled;
   const canCreateEntry = () => props.entries.length > 0 && !props.disabled;
   const canCreateGuide = () => canCreate() || canCreateEntry();
   const customTemplates = () => props.customTemplates.map(guideTemplateFromRecord);
-  const allTemplates = () => [...GUIDE_TEMPLATES, ...customTemplates()];
+  const templateOverrides = () => {
+    const seen = new Set<string>();
+    return [...props.customTemplates, ...overrideRecords()].filter((record) => {
+      const builtinId = field(record, "builtin_template_id");
+      if (!builtinId || seen.has(builtinId) || field(record, "record_role") !== "guide-template")
+        return false;
+      seen.add(builtinId);
+      return true;
+    });
+  };
+  const allTemplates = () =>
+    resolveGuideTemplates([...props.customTemplates, ...overrideRecords()]);
   const visibleTemplates = () => {
     const query = templateSearch().trim().toLocaleLowerCase();
     return allTemplates().filter((template) => {
@@ -319,6 +368,32 @@ export function GuidesPage(props: GuidePageProps): JSX.Element {
     }
   }
 
+  function exportGuideRecord(
+    record: ArchiveRecord,
+    format: "markdown" | "html" | "json" | "docx" | "pdf",
+  ): void {
+    setGuideNotice("");
+    try {
+      const sessionId = field(record, "session_id");
+      const entryId = field(record, "entry_id");
+      const session = props.sessions.find((item) => item.id === sessionId);
+      const entry = props.entries.find((item) => item.id === entryId);
+      if (!session && !entry) {
+        throw new Error("Restore the source journal entry or session before exporting this guide.");
+      }
+      validateGuideForExport(record, {
+        ...(session ? { session } : {}),
+        ...(entry ? { entry } : {}),
+        records: props.sourceRecords,
+      });
+      props.onExport(record, format);
+    } catch (cause) {
+      setGuideNotice(
+        cause instanceof Error ? cause.message : "The study guide could not be exported.",
+      );
+    }
+  }
+
   function generateSelectedGuide(event: SubmitEvent): void {
     event.preventDefault();
     const selection = generation();
@@ -349,7 +424,11 @@ export function GuidesPage(props: GuidePageProps): JSX.Element {
         );
       }
       if (selection.record) draft.title = regenerationTitle() || draft.title;
-      setEditor({ record: selection.record, templateId: draft.templateId, initialDraft: draft });
+      setEditor({
+        record: guideRegenerationTarget(selection.record),
+        templateId: draft.templateId,
+        initialDraft: draft,
+      });
       setGeneration(null);
     } catch (cause) {
       setGenerationError(
@@ -365,7 +444,7 @@ export function GuidesPage(props: GuidePageProps): JSX.Element {
     if (!file) return;
     try {
       if (file.size > 1024 * 1024) throw new Error("Template file exceeds the 1 MiB limit.");
-      const template = parseGuideTemplateImport(await file.text());
+      const template = parseGuideTemplateImport(await file.text(), file.name);
       const saved = await props.onSaveTemplate(template, null);
       setTemplateNotice(saved ? `Imported “${template.name}”.` : "Template import was not saved.");
     } catch (cause) {
@@ -559,8 +638,10 @@ export function GuidesPage(props: GuidePageProps): JSX.Element {
                     ? "Gather linked sessions and the entry’s own notes into one cited guide. Transcript excerpts stay marked for review; transcript-derived claims appear only after a tutor verifies them."
                     : "Tutor observations and notes are included with citations. Transcript excerpts stay marked for review; transcript-derived claims appear only after a tutor verifies them."}
                   <Show when={selection.record}>
-                    <br /> Saving this regenerated draft creates a new revision and keeps the
-                    previous guide in history.
+                    <br /> Saving this regenerated draft{" "}
+                    {field(selection.record!, "approval_state") === "approved"
+                      ? "creates a new draft and leaves the approved guide unchanged."
+                      : "creates a new revision and keeps the previous guide in history."}
                   </Show>
                 </p>
                 <Show when={generationError()}>
@@ -707,6 +788,10 @@ export function GuidesPage(props: GuidePageProps): JSX.Element {
               {(template, index) => {
                 const isBuiltIn = () =>
                   GUIDE_TEMPLATES.some((builtIn) => builtIn.id === template.id);
+                const override = () =>
+                  templateOverrides().find(
+                    (record) => field(record, "builtin_template_id") === template.id,
+                  );
                 return (
                   <article class="guide-template-card">
                     <span
@@ -761,6 +846,22 @@ export function GuidesPage(props: GuidePageProps): JSX.Element {
                         >
                           Export
                         </button>
+                        <Show when={isBuiltIn()}>
+                          <button
+                            class="button button-outline"
+                            type="button"
+                            disabled={props.disabled || props.busy}
+                            onClick={() => {
+                              setTemplateNotice("");
+                              setTemplateEditor({
+                                current: override() ?? null,
+                                builtinTemplate: template,
+                              });
+                            }}
+                          >
+                            {override() ? "Edit override" : "Customize"}
+                          </button>
+                        </Show>
                       </div>
                     </div>
                   </article>
@@ -820,11 +921,11 @@ export function GuidesPage(props: GuidePageProps): JSX.Element {
               </div>
               <div class="guide-template-manager-actions">
                 <label class="button button-outline guide-template-import">
-                  Import JSON
+                  Import
                   <input
                     type="file"
-                    accept=".json,application/json"
-                    aria-label="Import a study guide template JSON file"
+                    accept=".json,.md,.markdown,.txt,application/json,text/plain,text/markdown"
+                    aria-label="Import a study guide template JSON or Markdown file"
                     onChange={(event) => void importTemplate(event)}
                     disabled={props.disabled || props.busy}
                   />
@@ -848,11 +949,11 @@ export function GuidesPage(props: GuidePageProps): JSX.Element {
               </p>
             </Show>
             <Show
-              when={props.customTemplates.length > 0}
+              when={props.customTemplates.length > 0 || templateOverrides().length > 0}
               fallback={
                 <p class="guide-template-empty">
                   Your archive has no custom structures yet. Create one for a teaching approach you
-                  return to, or import a Tutorux template JSON file.
+                  return to, or import a Tutorux template JSON, Markdown, or text file.
                 </p>
               }
             >
@@ -943,6 +1044,69 @@ export function GuidesPage(props: GuidePageProps): JSX.Element {
                   template.
                 </p>
               </Show>
+            </Show>
+            <Show when={templateOverrides().length > 0}>
+              <div class="guide-template-manage-list">
+                <span class="eyebrow">BUILT-IN OVERRIDES</span>
+                <For each={templateOverrides()}>
+                  {(record) => {
+                    const builtin = () =>
+                      GUIDE_TEMPLATES.find(
+                        (template) => template.id === field(record, "builtin_template_id"),
+                      );
+                    const effective = () => {
+                      const template = builtin();
+                      return template
+                        ? (allTemplates().find((item) => item.id === template.id) ?? template)
+                        : guideTemplateFromRecord(record);
+                    };
+                    return (
+                      <article class="guide-template-manage-row">
+                        <div class="guide-template-manage-copy">
+                          <strong>{effective().name}</strong>
+                          <span>Built-in override · {effective().sections.length} sections</span>
+                          <small>{effective().description || "No description"}</small>
+                        </div>
+                        <div class="guide-template-manage-actions">
+                          <button
+                            class="button button-quiet"
+                            type="button"
+                            disabled={props.busy}
+                            onClick={() => props.onExportTemplate(effective())}
+                          >
+                            Export
+                          </button>
+                          <button
+                            class="button button-outline"
+                            type="button"
+                            disabled={props.disabled || props.busy}
+                            onClick={() => {
+                              setTemplateNotice("");
+                              setTemplateEditor({
+                                current: record,
+                                ...(builtin() ? { builtinTemplate: builtin()! } : {}),
+                              });
+                            }}
+                          >
+                            Edit override
+                          </button>
+                          <button
+                            class="button button-quiet"
+                            type="button"
+                            disabled={props.disabled || props.busy}
+                            onClick={() => {
+                              props.onTrashTemplate(record);
+                              setTemplateNotice("Built-in template restored to its defaults.");
+                            }}
+                          >
+                            Restore defaults
+                          </button>
+                        </div>
+                      </article>
+                    );
+                  }}
+                </For>
+              </div>
             </Show>
             <Show when={props.trashedTemplates.length > 0}>
               <div class="guide-template-trash-list">
@@ -1102,7 +1266,7 @@ export function GuidesPage(props: GuidePageProps): JSX.Element {
                         class="button button-quiet"
                         type="button"
                         disabled={props.busy}
-                        onClick={() => props.onExport(record, "markdown")}
+                        onClick={() => exportGuideRecord(record, "markdown")}
                       >
                         Markdown
                       </button>
@@ -1110,7 +1274,7 @@ export function GuidesPage(props: GuidePageProps): JSX.Element {
                         class="button button-quiet"
                         type="button"
                         disabled={props.busy}
-                        onClick={() => props.onExport(record, "html")}
+                        onClick={() => exportGuideRecord(record, "html")}
                       >
                         HTML
                       </button>
@@ -1129,7 +1293,7 @@ export function GuidesPage(props: GuidePageProps): JSX.Element {
                             class="button button-quiet"
                             type="button"
                             disabled={props.busy}
-                            onClick={() => props.onExport(record, "json")}
+                            onClick={() => exportGuideRecord(record, "json")}
                           >
                             JSON record
                           </button>
@@ -1137,7 +1301,7 @@ export function GuidesPage(props: GuidePageProps): JSX.Element {
                             class="button button-quiet"
                             type="button"
                             disabled={props.busy}
-                            onClick={() => props.onExport(record, "docx")}
+                            onClick={() => exportGuideRecord(record, "docx")}
                           >
                             Word document
                           </button>
@@ -1145,7 +1309,7 @@ export function GuidesPage(props: GuidePageProps): JSX.Element {
                             class="button button-quiet"
                             type="button"
                             disabled={props.busy}
-                            onClick={() => props.onExport(record, "pdf")}
+                            onClick={() => exportGuideRecord(record, "pdf")}
                           >
                             PDF / Print
                           </button>
@@ -1180,7 +1344,7 @@ export function GuidesPage(props: GuidePageProps): JSX.Element {
             entries={props.entries}
             students={props.students}
             sourceRecords={props.sourceRecords}
-            customTemplates={customTemplates()}
+            templates={allTemplates()}
             disabled={props.disabled}
             busy={props.busy}
             onClose={() => setEditor(null)}
@@ -1192,6 +1356,7 @@ export function GuidesPage(props: GuidePageProps): JSX.Element {
         {(active) => (
           <GuideTemplateEditor
             current={active.current}
+            {...(active.builtinTemplate ? { builtinTemplate: active.builtinTemplate } : {})}
             busy={props.busy}
             disabled={props.disabled}
             onClose={() => setTemplateEditor(null)}
@@ -1211,7 +1376,7 @@ function GuideEditor(props: {
   entries: ArchiveRecord[];
   students: ArchiveRecord[];
   sourceRecords: ArchiveRecord[];
-  customTemplates: GuideTemplate[];
+  templates: GuideTemplate[];
   disabled: boolean;
   busy: boolean;
   onClose: () => void;
@@ -1221,7 +1386,7 @@ function GuideEditor(props: {
   /* eslint-disable solid/reactivity */
   const initialDraft =
     props.initialDraft ??
-    initialGuideDraft(props.record, props.sessions, props.templateId, props.customTemplates);
+    initialGuideDraft(props.record, props.sessions, props.templateId, props.templates);
   const [draft, setDraftState] = createSignal<GuideDraft>(initialDraft);
   /* eslint-enable solid/reactivity */
   const initialBlockSection = initialDraft.sections.find((section) => section.blocks.length > 0);
@@ -1240,6 +1405,7 @@ function GuideEditor(props: {
   const [replaceText, setReplaceText] = createSignal("");
   const [activeMatch, setActiveMatch] = createSignal<GuideTextMatch | null>(null);
   const [findStatus, setFindStatus] = createSignal("");
+  const [saveAsNewDraft, setSaveAsNewDraft] = createSignal(false);
   const findBlockPosition = createMemo(() => {
     const selected = activeBlock();
     if (!selected) return null;
@@ -1265,6 +1431,21 @@ function GuideEditor(props: {
   const selectedEntry = createMemo(() =>
     props.entries.find((entry) => entry.id === draft().entryId),
   );
+  const imageAssets = createMemo(() => {
+    const session = selectedSession();
+    const entry = selectedEntry();
+    if (!session && !entry) return [];
+    const scope = session
+      ? { session, records: props.sourceRecords }
+      : { entry: entry!, records: props.sourceRecords };
+    return props.sourceRecords.filter(
+      (record) =>
+        record.type === RecordType.assetMetadata &&
+        field(record, "_deleted") !== "true" &&
+        /^image\//u.test(field(record, "mime_type")) &&
+        isGuideSourceInScope(record.id.toLowerCase(), scope),
+    );
+  });
 
   function setDraft(
     update: GuideDraft | ((current: GuideDraft) => GuideDraft),
@@ -1457,6 +1638,56 @@ function GuideEditor(props: {
     );
   }
 
+  function regenerateSection(sectionIndex: number): void {
+    setError("");
+    const current = draft();
+    try {
+      const session = selectedSession();
+      const entry = selectedEntry();
+      let generated: GuideDraft;
+      if (session) {
+        generated = generateGuideDraftFromSession(
+          session,
+          current.templateId || "auto",
+          props.sourceRecords,
+          props.students,
+          props.templates,
+          draftIncludesEntryNotes(current, props.sourceRecords),
+        );
+      } else if (entry) {
+        generated = generateGuideDraftFromEntry(
+          entry,
+          current.templateId || "auto",
+          props.sourceRecords,
+          props.students,
+          props.templates,
+        );
+      } else {
+        throw new Error("Choose a session or journal entry before regenerating a section.");
+      }
+      setDraft(replaceGuideSectionFromGenerated(current, sectionIndex, generated), true);
+      if (props.record && field(props.record, "approval_state") === "approved")
+        setSaveAsNewDraft(true);
+      clearFindSelection();
+    } catch (cause) {
+      setError(
+        cause instanceof Error ? cause.message : "The guide section could not be regenerated.",
+      );
+    }
+  }
+
+  function insertImage(sectionIndex: number, assetId: string): void {
+    setError("");
+    const asset = imageAssets().find((record) => record.id === assetId);
+    if (!asset) return;
+    try {
+      setDraft((current) => insertGuideImageBlock(current, sectionIndex, asset), true);
+      clearFindSelection();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "The image could not be inserted.");
+    }
+  }
+
   function activateBlock(sectionId: string, blockIndex: number): void {
     const selected = activeBlock();
     if (selected?.sectionId !== sectionId || selected.blockIndex !== blockIndex) {
@@ -1569,6 +1800,7 @@ function GuideEditor(props: {
 
   function selectTemplate(templateId: string): void {
     clearFindSelection();
+    const templates = props.templates;
     setDraft(
       (current) => ({
         ...current,
@@ -1576,7 +1808,7 @@ function GuideEditor(props: {
         sections: current.sections.every((section) =>
           section.blocks.every((block) => !block.text.trim()),
         )
-          ? templateSections(templateId, props.customTemplates)
+          ? templateSections(templateId, templates)
           : current.sections,
       }),
       true,
@@ -1587,7 +1819,7 @@ function GuideEditor(props: {
     event.preventDefault();
     setError("");
     try {
-      const saved = await props.onSave(draft(), props.record);
+      const saved = await props.onSave(draft(), saveAsNewDraft() ? null : props.record);
       if (saved) props.onClose();
       else setError("Guide could not be saved. See the workspace notice for details.");
     } catch (cause) {
@@ -1705,14 +1937,14 @@ function GuideEditor(props: {
               >
                 <Show
                   when={
-                    !allTemplates(props.customTemplates).some(
+                    !allTemplates(props.templates).some(
                       (template) => template.id === draft().templateId,
                     )
                   }
                 >
                   <option value={draft().templateId}>Saved template · {draft().templateId}</option>
                 </Show>
-                <For each={allTemplates(props.customTemplates)}>
+                <For each={allTemplates(props.templates)}>
                   {(template) => <option value={template.id}>{template.name}</option>}
                 </For>
               </select>
@@ -1913,6 +2145,38 @@ function GuideEditor(props: {
                         ↓
                       </button>
                       <button
+                        class="button button-quiet"
+                        type="button"
+                        title="Regenerate this section from current evidence"
+                        disabled={props.disabled || props.busy}
+                        onClick={() => regenerateSection(sectionIndex())}
+                      >
+                        Regenerate section
+                      </button>
+                      <Show when={imageAssets().length > 0}>
+                        <select
+                          class="guide-section-image-select"
+                          aria-label={`Insert an image in section ${sectionIndex() + 1}`}
+                          value=""
+                          disabled={props.disabled || props.busy}
+                          onChange={(event) => {
+                            const assetId = event.currentTarget.value;
+                            if (!assetId) return;
+                            insertImage(sectionIndex(), assetId);
+                            event.currentTarget.value = "";
+                          }}
+                        >
+                          <option value="">Insert image…</option>
+                          <For each={imageAssets()}>
+                            {(asset) => (
+                              <option value={asset.id}>
+                                {field(asset, "title", "Archive image")}
+                              </option>
+                            )}
+                          </For>
+                        </select>
+                      </Show>
+                      <button
                         class="button button-quiet guide-remove-section"
                         type="button"
                         disabled={draft().sections.length <= 1}
@@ -1962,6 +2226,15 @@ function GuideEditor(props: {
                                     <option value={kind}>{kind.replaceAll("-", " ")}</option>
                                   )}
                                 </For>
+                                <Show
+                                  when={
+                                    !(GUIDE_BLOCK_KINDS as readonly string[]).includes(block.kind)
+                                  }
+                                >
+                                  <option value={block.kind}>
+                                    {block.kind} (unsupported · preserved)
+                                  </option>
+                                </Show>
                               </select>
                             </label>
                             <label>
@@ -1980,6 +2253,17 @@ function GuideEditor(props: {
                                     <option value={origin}>{origin.replaceAll("-", " ")}</option>
                                   )}
                                 </For>
+                                <Show
+                                  when={
+                                    !(GUIDE_BLOCK_ORIGINS as readonly string[]).includes(
+                                      block.origin,
+                                    )
+                                  }
+                                >
+                                  <option value={block.origin}>
+                                    {block.origin} (unsupported · preserved)
+                                  </option>
+                                </Show>
                               </select>
                             </label>
                             <Show when={block.stale}>
@@ -2184,11 +2468,32 @@ function GuideEditor(props: {
   );
 }
 
+function draftIncludesEntryNotes(draft: GuideDraft, records: readonly ArchiveRecord[]): boolean {
+  const entryNoteIds = new Set(
+    records
+      .filter(
+        (record) =>
+          record.type === RecordType.settings &&
+          field(record, "record_role") === "journal-notes" &&
+          field(record, "entry_id").toLowerCase() === draft.entryId?.toLowerCase() &&
+          field(record, "session_id").toLowerCase() !== draft.sessionId.toLowerCase(),
+      )
+      .map((record) => record.id.toLowerCase()),
+  );
+  return draft.sections.some((section) =>
+    section.blocks.some((block) =>
+      block.sourceIds
+        .split(/[\s,;]+/u)
+        .some((sourceId) => entryNoteIds.has(sourceId.toLowerCase())),
+    ),
+  );
+}
+
 function templateSections(
   templateId: string,
-  customTemplates: readonly GuideTemplate[],
+  templates: readonly GuideTemplate[],
 ): GuideDraft["sections"] {
-  const template = allTemplates(customTemplates).find((item) => item.id === templateId);
+  const template = allTemplates(templates).find((item) => item.id === templateId);
   return (template ?? getGuideTemplate(templateId)).sections.map((heading) => ({
     id: crypto.randomUUID(),
     heading,
@@ -2200,11 +2505,11 @@ function initialGuideDraft(
   record: ArchiveRecord | null,
   sessions: ArchiveRecord[],
   templateId: string,
-  customTemplates: readonly GuideTemplate[],
+  templates: readonly GuideTemplate[],
 ): GuideDraft {
   if (record) return guideDraftFromRecord(record);
   const firstSession = sessions[0];
-  const template = allTemplates(customTemplates).find((item) => item.id === templateId);
+  const template = allTemplates(templates).find((item) => item.id === templateId);
   if (template) {
     return firstSession
       ? createGuideDraftFromSections(firstSession, template.id, template.sections)
@@ -2212,7 +2517,7 @@ function initialGuideDraft(
           title: "",
           sessionId: "",
           templateId: template.id,
-          sections: templateSections(template.id, customTemplates),
+          sections: templateSections(template.id, templates),
         };
   }
   return firstSession
@@ -2221,23 +2526,24 @@ function initialGuideDraft(
         title: "",
         sessionId: "",
         templateId,
-        sections: templateSections(templateId, customTemplates),
+        sections: templateSections(templateId, templates),
       };
 }
 
-function allTemplates(customTemplates: readonly GuideTemplate[]): GuideTemplate[] {
-  return [...GUIDE_TEMPLATES, ...customTemplates];
+function allTemplates(templates: readonly GuideTemplate[]): GuideTemplate[] {
+  return [...templates];
 }
 
 function GuideTemplateEditor(props: {
   current: ArchiveRecord | null;
+  builtinTemplate?: GuideTemplate | undefined;
   busy: boolean;
   disabled: boolean;
   onClose: () => void;
   onSave: (input: GuideTemplateInput, current: ArchiveRecord | null) => Promise<boolean>;
 }): JSX.Element {
   const existing = createMemo(() =>
-    props.current ? guideTemplateFromRecord(props.current) : null,
+    props.current ? guideTemplateFromRecord(props.current) : (props.builtinTemplate ?? null),
   );
   const [error, setError] = createSignal("");
 
@@ -2258,6 +2564,7 @@ function GuideTemplateEditor(props: {
             .map((section) => section.trim())
             .filter(Boolean),
           body: value("body"),
+          builtinTemplateId: props.builtinTemplate?.id,
         },
         props.current,
       );
@@ -2280,7 +2587,13 @@ function GuideTemplateEditor(props: {
           <div>
             <span class="eyebrow">A STRUCTURE THAT'S YOURS</span>
             <h2 id="guide-template-editor-title">
-              {props.current ? "Edit template" : "Create a template"}
+              {props.builtinTemplate
+                ? props.current
+                  ? `Edit ${props.builtinTemplate.name} override`
+                  : `Customize ${props.builtinTemplate.name}`
+                : props.current
+                  ? "Edit template"
+                  : "Create a template"}
             </h2>
             <p>Give a reusable teaching approach a name, clear sections, and a little guidance.</p>
           </div>
