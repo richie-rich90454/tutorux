@@ -1,61 +1,61 @@
 {
-  "name": "tutorux",
-  "private": true,
-  "version": "1.0.0",
-  "type": "module",
-  "description": "A local-first tutoring workstation",
-  "bin": {
-    "tutorux": "cli/entry.js"
-  },
-  "engines": {
-    "node": ">=22.13.0"
-  },
-  "scripts": {
-    "dev": "vite --host 127.0.0.1 --port 1420 --strictPort",
-    "build": "pnpm run typecheck && vite build --mode web",
-    "build:desktop": "pnpm run typecheck && vite build --mode desktop",
-    "build:audio-helper": "node scripts/build-audio-helper.mjs",
-    "build:console-runtime": "node scripts/build-console-runtime.mjs",
-    "preview": "vite preview --host 127.0.0.1 --port 1420 --strictPort",
-    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.node.json",
-    "lint": "eslint frontend cli scripts tests/e2e vite.config.ts playwright.config.ts eslint.config.js",
-    "format:check": "oxfmt --check frontend cli scripts tests/e2e tests/fixtures/README.md README.md docs index.html vite.config.ts playwright.config.ts eslint.config.js package.json tsconfig.json tsconfig.node.json --ignore-path .gitignore",
-    "format": "oxfmt --write frontend cli scripts tests/e2e tests/fixtures/README.md README.md docs index.html vite.config.ts playwright.config.ts eslint.config.js package.json tsconfig.json tsconfig.node.json --ignore-path .gitignore",
-    "test": "vitest run",
-    "test:watch": "vitest",
-    "test:e2e": "playwright test",
-    "cli": "tsx cli/main.ts",
-    "benchmark:archive": "tsx scripts/benchmark-archive.ts",
-    "tauri": "tauri",
-    "dev:desktop": "vite --mode desktop --host 127.0.0.1 --port 1420 --strictPort",
-    "desktop:dev": "tauri dev",
-    "desktop:build": "tauri build"
-  },
-  "dependencies": {
-    "@tauri-apps/api": "2.12.4",
-    "@tauri-apps/plugin-dialog": "2.8.4",
-    "@tauri-apps/plugin-fs": "2.7.1",
-    "fflate": "0.8.3",
-    "libsodium-wrappers-sumo": "0.8.4",
-    "node-llama-cpp": "3.22.2",
-    "pdfjs-dist": "6.4.299",
-    "sharp": "0.35.5",
-    "solid-js": "1.9.18",
-    "tsx": "4.23.15"
-  },
-  "devDependencies": {
-    "@eslint/js": "10.0.1",
-    "@playwright/test": "1.64.1",
-    "@tauri-apps/cli": "2.12.4",
-    "@types/node": "26.6.6",
-    "eslint": "10.13.0",
-    "eslint-plugin-solid": "0.18.1",
-    "oxfmt": "0.75.0",
-    "typescript": "6.0.3",
-    "typescript-eslint": "8.72.1",
-    "vite": "8.3.5",
-    "vite-plugin-solid": "2.11.15",
-    "vitest": "5.0.5"
-  },
-  "packageManager": "pnpm@12.14.0"
+    "name": "tutorux",
+    "private": true,
+    "version": "1.0.0",
+    "type": "module",
+    "description": "A local-first tutoring workstation",
+    "bin": {
+        "tutorux": "cli/entry.js"
+    },
+    "engines": {
+        "node": ">=22.13.0"
+    },
+    "scripts": {
+        "dev": "vite --host 127.0.0.1 --port 1420 --strictPort",
+        "build": "pnpm run typecheck && vite build --mode web",
+        "build:desktop": "pnpm run typecheck && vite build --mode desktop",
+        "build:audio-helper": "node scripts/build-audio-helper.mjs",
+        "build:console-runtime": "node scripts/build-console-runtime.mjs",
+        "preview": "vite preview --host 127.0.0.1 --port 1420 --strictPort",
+        "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.node.json",
+        "lint": "eslint frontend cli scripts tests/e2e vite.config.ts playwright.config.ts eslint.config.js",
+        "format:check": "oxfmt --check frontend cli scripts tests/e2e tests/fixtures/README.md README.md docs index.html vite.config.ts playwright.config.ts eslint.config.js package.json tsconfig.json tsconfig.node.json --ignore-path .gitignore",
+        "format": "oxfmt --write frontend cli scripts tests/e2e tests/fixtures/README.md README.md docs index.html vite.config.ts playwright.config.ts eslint.config.js package.json tsconfig.json tsconfig.node.json --ignore-path .gitignore",
+        "test": "vitest run",
+        "test:watch": "vitest",
+        "test:e2e": "playwright test",
+        "cli": "tsx cli/main.ts",
+        "benchmark:archive": "tsx scripts/benchmark-archive.ts",
+        "tauri": "tauri",
+        "dev:desktop": "vite --mode desktop --host 127.0.0.1 --port 1420 --strictPort",
+        "desktop:dev": "tauri dev",
+        "desktop:build": "tauri build"
+    },
+    "dependencies": {
+        "@tauri-apps/api": "2.12.4",
+        "@tauri-apps/plugin-dialog": "2.8.4",
+        "@tauri-apps/plugin-fs": "2.7.1",
+        "fflate": "0.8.3",
+        "libsodium-wrappers-sumo": "0.8.4",
+        "node-llama-cpp": "3.22.2",
+        "pdfjs-dist": "6.4.299",
+        "sharp": "0.35.5",
+        "solid-js": "1.9.18",
+        "tsx": "4.23.15"
+    },
+    "devDependencies": {
+        "@eslint/js": "10.0.1",
+        "@playwright/test": "1.64.1",
+        "@tauri-apps/cli": "2.12.4",
+        "@types/node": "26.6.6",
+        "eslint": "10.13.0",
+        "eslint-plugin-solid": "0.18.1",
+        "oxfmt": "0.75.0",
+        "typescript": "6.0.3",
+        "typescript-eslint": "8.72.1",
+        "vite": "8.3.5",
+        "vite-plugin-solid": "2.11.15",
+        "vitest": "5.0.5"
+    },
+    "packageManager": "pnpm@12.14.0"
 }
