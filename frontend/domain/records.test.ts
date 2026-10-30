@@ -9,6 +9,8 @@ import {
   makeStudentRecord,
   moveRecordToTrash,
   notesEditState,
+  readRemovedNoteBlocks,
+  restoreRemovedNoteBlock,
   restoreRecordFromTrash,
   restoreJournalOrganizerRecord,
   updateJournalRecords,
@@ -513,5 +515,175 @@ describe("student profile lifecycle", () => {
         tutorNotes: "",
       }),
     ).toThrow("invalid Unicode");
+  });
+
+  it("recovers a removed note block at its original position after reopening", () => {
+    const created = makeJournalRecords({
+      title: "Reflection",
+      date: "2025-04-01",
+      noteBlocks: [
+        { id: "intro", kind: "paragraph", text: "Intro" },
+        { id: "middle", kind: "heading", text: "Middle" },
+        { id: "end", kind: "paragraph", text: "End" },
+      ],
+    });
+    const updated = updateJournalRecords(
+      created[0]!,
+      {
+        title: "Reflection",
+        date: "2025-04-01",
+        noteBlocks: [
+          { id: "intro", kind: "paragraph", text: "Intro" },
+          { id: "end", kind: "paragraph", text: "End" },
+        ],
+      },
+      created[1]!,
+      true,
+    );
+    const saved = { ...updated[1]!, fields: new Map(updated[1]!.fields) };
+    expect(saved.fields.get("removed_block_count")).toBe("1");
+    expect(saved.fields.get("removed_block_0_id")).toBe("middle");
+    expect(saved.fields.get("removed_block_0_index")).toBe("1");
+    expect(readRemovedNoteBlocks(saved)).toEqual([
+      {
+        documentId: saved.id,
+        entryId: created[0]!.id,
+        sessionId: "",
+        id: "middle",
+        kind: "heading",
+        text: "Middle",
+        index: 1,
+      },
+    ]);
+
+    const restored = restoreRemovedNoteBlock(saved, "middle");
+    expect(notesEditState(restored).blocks.map((block) => block.id)).toEqual([
+      "intro",
+      "middle",
+      "end",
+    ]);
+    expect(restored.fields.get("removed_block_count")).toBe("0");
+    expect(restored.fields.has("last_removed_block_id")).toBe(false);
+
+    const undo = updateJournalRecords(
+      created[0]!,
+      {
+        title: "Reflection",
+        date: "2025-04-01",
+        noteBlocks: [
+          { id: "intro", kind: "paragraph", text: "Intro" },
+          { id: "middle", kind: "heading", text: "Middle" },
+          { id: "end", kind: "paragraph", text: "End" },
+        ],
+      },
+      saved,
+      true,
+    );
+    expect(undo[1]!.fields.get("removed_block_count")).toBe("0");
+  });
+
+  it("persists removed session note blocks with their saved positions", () => {
+    const created = makeSessionRecords({
+      studentId: "",
+      subject: "Math",
+      title: "Fractions",
+      objectives: "",
+      noteBlocks: [
+        { id: "first", kind: "paragraph", text: "First" },
+        { id: "second", kind: "quote", text: "Second" },
+      ],
+    });
+    const updated = updateSessionRecords(
+      created[0]!,
+      {
+        studentId: "",
+        subject: "Math",
+        title: "Fractions",
+        objectives: "",
+        noteBlocks: [{ id: "second", kind: "quote", text: "Second" }],
+      },
+      created[1]!,
+      true,
+    );
+    expect(updated[1]!.fields.get("removed_block_count")).toBe("1");
+    expect(updated[1]!.fields.get("removed_block_0_id")).toBe("first");
+    expect(updated[1]!.fields.get("removed_block_0_index")).toBe("0");
+    expect(readRemovedNoteBlocks(updated[1]!)?.[0]?.text).toBe("First");
+  });
+
+  it("restores multiple removed blocks in their original order from any pick order", () => {
+    const created = makeJournalRecords({
+      title: "Reflection",
+      date: "",
+      noteBlocks: [
+        { id: "a", kind: "paragraph", text: "A" },
+        { id: "b", kind: "paragraph", text: "B" },
+        { id: "c", kind: "paragraph", text: "C" },
+      ],
+    });
+    const afterB = updateJournalRecords(
+      created[0]!,
+      {
+        title: "Reflection",
+        date: "",
+        noteBlocks: [
+          { id: "a", kind: "paragraph", text: "A" },
+          { id: "c", kind: "paragraph", text: "C" },
+        ],
+      },
+      created[1]!,
+      true,
+    );
+    const afterC = updateJournalRecords(
+      created[0]!,
+      { title: "Reflection", date: "", noteBlocks: [{ id: "a", kind: "paragraph", text: "A" }] },
+      afterB[1]!,
+      true,
+    );
+    const restoredB = restoreRemovedNoteBlock(afterC[1]!, "b");
+    const restoredC = restoreRemovedNoteBlock(restoredB, "c");
+    expect(notesEditState(restoredC).blocks.map((block) => block.id)).toEqual(["a", "b", "c"]);
+  });
+
+  it("reads legacy last-removed-block recovery fields", () => {    const created = makeJournalRecords({ title: "Reflection", date: "", notes: "Intro" });
+    const fields = new Map(created[1]!.fields);
+    fields.set("last_removed_block_id", "legacy-block");
+    fields.set("last_removed_block_kind", "quote");
+    fields.set("last_removed_block_text", "Remember this");
+    fields.set("last_removed_block_index", "0");
+    const document = { ...created[1]!, fields };
+    expect(readRemovedNoteBlocks(document)).toEqual([
+      {
+        documentId: document.id,
+        entryId: created[0]!.id,
+        sessionId: "",
+        id: "legacy-block",
+        kind: "quote",
+        text: "Remember this",
+        index: 0,
+      },
+    ]);
+    const restored = restoreRemovedNoteBlock(document, "legacy-block");
+    expect(notesEditState(restored).blocks[0]).toEqual({
+      id: "legacy-block",
+      kind: "quote",
+      text: "Remember this",
+    });
+  });
+
+  it("creates the journal root only when requested and accepts an undated entry", () => {
+    const withoutRoot = makeJournalRecords(
+      { title: "Reflection", date: "", notes: "" },
+      { ensureJournalRoot: false },
+    );
+    expect(withoutRoot).toHaveLength(2);
+    expect(withoutRoot[0]!.fields.get("entry_date")).toBe("");
+
+    const withRoot = makeJournalRecords(
+      { title: "Reflection", date: "", notes: "" },
+      { ensureJournalRoot: true },
+    );
+    expect(withRoot).toHaveLength(3);
+    expect(withRoot[2]!.fields.get("record_role")).toBe("journal");
   });
 });
