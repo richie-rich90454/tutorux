@@ -14,7 +14,7 @@ export const CLI_AI_MODEL_MAX_ID_BYTES = 1024;
 export const CLI_AI_MODEL_MAX_CURSOR_BYTES = 8 * 1024;
 
 export interface CliAiModelPage {
-  models: { id: string }[];
+  models: { id: string; owner?: string }[];
   nextCursor: string | undefined;
 }
 
@@ -61,7 +61,15 @@ export function parseCliAiModelPage(providerId: string, data: unknown): CliAiMod
     if (typeof id !== "string" || !id) return [];
     if (new TextEncoder().encode(id).byteLength > CLI_AI_MODEL_MAX_ID_BYTES)
       throw new CliError("Provider model catalog contains an invalid model ID.");
-    return [{ id }];
+    const details =
+      providerId === "ollama" && row["details"] && typeof row["details"] === "object"
+        ? (row["details"] as Record<string, unknown>)
+        : undefined;
+    const family = typeof details?.["family"] === "string" ? details["family"] : "";
+    const parameterSize =
+      typeof details?.["parameter_size"] === "string" ? details["parameter_size"] : "";
+    const owner = [family, parameterSize].filter(Boolean).join(" · ");
+    return [{ id, ...(owner ? { owner } : {}) }];
   });
 
   let nextCursor: string | undefined;
@@ -134,7 +142,7 @@ export async function discoverCliAiModels(
   providerId: string,
   endpoint: string,
   credential: string,
-): Promise<{ id: string }[]> {
+): Promise<{ id: string; owner?: string }[]> {
   const headers: Record<string, string> = { accept: "application/json" };
   if (credential) {
     const header =
@@ -147,7 +155,7 @@ export async function discoverCliAiModels(
   }
   if (providerId === "anthropic") headers["anthropic-version"] = "2023-06-01";
   const signal = AbortSignal.timeout(30_000);
-  const models: { id: string }[] = [];
+  const models: { id: string; owner?: string }[] = [];
   const seenIds = new Set<string>();
   const seenCursors = new Set<string>();
   let cursor: string | undefined;
