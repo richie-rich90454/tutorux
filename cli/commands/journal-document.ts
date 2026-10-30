@@ -9,8 +9,67 @@ import {
 } from "../../frontend/domain/records";
 import { closeSnapshot, mutateArchive, openForCommand } from "./archive-io";
 import { CliError, emit, field, parseBoundedOption, requiredOption } from "./shared";
-import { requireLiveRecord, toPlainRecord } from "./record-helpers";
+import { requireLiveRecord } from "./record-helpers";
 import type { CliIo, ParsedArguments } from "./shared";
+
+/** Split note text into paragraphs and preserve block IDs for unchanged text, matching the C++ CLI. */
+export function reconcileJournalNoteBlocks(
+  existing: readonly JournalNoteBlock[],
+  text: string,
+): JournalNoteBlock[] {
+  const paragraphs: string[] = [];
+  if (text) {
+    let paragraphStart = 0;
+    for (let index = 0; index < text.length; ) {
+      if (text[index] !== "\n") {
+        index += 1;
+        continue;
+      }
+      let nextLine = index + 1;
+      while (nextLine < text.length && [" ", "\t", "\r"].includes(text[nextLine]!)) nextLine += 1;
+      if (nextLine >= text.length || text[nextLine] !== "\n") {
+        index += 1;
+        continue;
+      }
+      if (index > paragraphStart) paragraphs.push(text.slice(paragraphStart, index));
+      index = nextLine + 1;
+      while (index < text.length && text[index] === "\n") index += 1;
+      paragraphStart = index;
+    }
+    if (paragraphStart < text.length) paragraphs.push(text.slice(paragraphStart));
+  }
+  if (paragraphs.length > 10_000)
+    throw new CliError("A notes document cannot exceed 10,000 blocks.");
+
+  const existingByText = new Map<string, number[]>();
+  existing.forEach((block, index) => {
+    const matches = existingByText.get(block.text) ?? [];
+    matches.push(index);
+    existingByText.set(block.text, matches);
+  });
+  const used = new Set<number>();
+  const matches: Array<number | undefined> = paragraphs.map((paragraph) => {
+    const index = existingByText.get(paragraph)?.find((candidate) => !used.has(candidate));
+    if (index === undefined) return undefined;
+    used.add(index);
+    return index;
+  });
+  const unmatchedExisting = existing.flatMap((_, index) => (used.has(index) ? [] : [index]));
+  const unmatchedParagraphs = matches.flatMap((match, index) =>
+    match === undefined ? [index] : [],
+  );
+  const paired = Math.min(unmatchedExisting.length, unmatchedParagraphs.length);
+  for (let index = 0; index < paired; index += 1) {
+    matches[unmatchedParagraphs[index]!] = unmatchedExisting[index];
+  }
+  return paragraphs.map((paragraph, index) => {
+    const matched = matches[index];
+    const block = matched === undefined ? undefined : existing[matched];
+    return block
+      ? { ...block, text: paragraph }
+      : { id: randomUUID(), kind: "paragraph" as const, text: paragraph };
+  });
+}
 
 export async function runJournalDocumentAction(
   path: string,
@@ -27,7 +86,6 @@ export async function runJournalDocumentAction(
   const snapshot = await openForCommand(path);
   const generation = snapshot.commit.generation;
   let changes: ArchiveRecord[];
-  let result: unknown;
   try {
     let document = await requireLiveRecord(snapshot, RecordType.settings, id);
     if (field(document, "record_role") !== "journal-notes")
@@ -51,6 +109,11 @@ export async function runJournalDocumentAction(
         session_id: field(document, "session_id"),
         revision: document.revision.toString(),
         text: blocks.map((block) => block.text).join("\n"),
+        blocks_json: JSON.stringify(
+          blocks.map((block) => ({ id: block.id, kind: block.kind, text: block.text })),
+        ),
+        created_at_us: field(document, "created_at_us"),
+        updated_at_us: field(document, "updated_at_us"),
         blocks,
       };
       emit(output, shown, blocks.map((block) => block.text).join("\n"), args.flags.has("json"));
@@ -139,11 +202,15 @@ export async function runJournalDocumentAction(
       const to = parseBoundedOption(args.options.get("to"), "to", -1, 0, blocks.length - 1);
       if (from < 0 || to < 0) throw new CliError("--from and --to are required.");
       blocks.splice(to, 0, blocks.splice(from, 1)[0]!);
-    } else {
+    } else if (args.options.has("block-id")) {
       const block = blocks.find((item) => item.id === requiredOption(args, "block-id"));
       if (!block) throw new CliError("Note block was not found.");
       block.text = requiredOption(args, "text");
       if (args.options.has("kind")) block.kind = readKind();
+    } else if (args.options.has("text")) {
+      blocks.splice(0, blocks.length, ...reconcileJournalNoteBlocks(blocks, args.options.get("text")!));
+    } else {
+      throw new CliError("Provide --text TEXT, optionally with --block-id ID.");
     }
     const sessionId = field(document, "session_id");
     const ownerId = sessionId || field(document, "entry_id");
@@ -176,11 +243,20 @@ export async function runJournalDocumentAction(
     }
     const replacement = { ...updated, fields };
     changes = changes.map((record) => (record.id === updated.id ? replacement : record));
-    result = toPlainRecord(replacement);
   } finally {
     await closeSnapshot(snapshot);
   }
-  await mutateArchive(path, changes, generation);
+  const saved = await mutateArchive(path, changes, generation);
+  const savedDocument =
+    saved.find((record) => record.id === id) ??
+    changes.find((record) => record.id === id) ??
+    changes[0]!;
+  const result = {
+    document_id: savedDocument.id,
+    entry_id: field(savedDocument, "entry_id"),
+    revision: savedDocument.revision.toString(),
+    status: "saved",
+  };
   emit(output, result, "Journal notes document updated.", args.flags.has("json"));
   return 0;
 }
