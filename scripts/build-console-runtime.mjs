@@ -396,7 +396,7 @@ async function collectRuntimePackages(packageDirectory, optionalPackages) {
     const alreadyIncluded = [...packages.values()].some((entry) => entry.name === optionalName);
     if (!alreadyIncluded) {
       throw new Error(
-        `The target-specific native dependency ${optionalName} is missing from this npm installation. Reinstall dependencies on a matching ${hostTarget.key} build machine.`,
+        `The target-specific native dependency ${optionalName} is missing from this dependency installation. Reinstall dependencies on a matching ${hostTarget.key} build machine.`,
       );
     }
   }
@@ -429,7 +429,7 @@ async function writeThirdPartyNotices(destinationDirectory, entries) {
     "Tutorux command console third-party runtime notices",
     "",
     "The bundled CLI includes or loads the following third-party packages.",
-    "License texts found in their npm packages are included in this folder.",
+    "License texts found in their installed packages are included in this folder.",
     "Node.js is distributed separately with NODE-LICENSE.txt.",
     "",
   ];
@@ -441,7 +441,7 @@ async function writeThirdPartyNotices(destinationDirectory, entries) {
     );
     notices.push(`${entry.name}@${entry.version} — ${entry.license}`);
     if (licenseFiles.length === 0) {
-      notices.push("  No top-level license text file was published in this npm package.");
+      notices.push("  No top-level license text file was published in this package.");
       continue;
     }
     for (const licenseFile of licenseFiles) {
