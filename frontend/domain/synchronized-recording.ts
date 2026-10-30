@@ -2,11 +2,14 @@ import { RecordType, type ArchiveRecord } from "../archive/format";
 import {
   makeMicrophoneCaptureChunkRecords,
   makeMicrophoneRecordingRecords,
+  type CaptureSampleFormat,
   type MicrophoneArchiveSource,
 } from "./microphone-recording";
 
 const MAX_BYTES_PER_TRACK = 64 * 1024 * 1024;
 const U64_MAX = 18_446_744_073_709_551_615n;
+
+export type CaptureDurability = "default" | "maximum" | "reduced-write";
 
 /** Capture microphone and shared audio on one Web Audio clock as separate PCM tracks. */
 export class SynchronizedRecording {
@@ -191,6 +194,8 @@ export interface SynchronizedCaptureTrackIdentity {
   source: MicrophoneArchiveSource;
   trackId: string;
   sampleRateHz: number;
+  sampleFormat?: CaptureSampleFormat;
+  channelCount?: number;
   label?: string;
   sourceDeviceId?: string;
   sourceBackend?: string;
@@ -218,6 +223,7 @@ export function makeSynchronizedCaptureStartRecords(options: {
   knownTrackIds: readonly string[];
   startedAtUs: string;
   consentAtUs: string;
+  durability?: CaptureDurability;
   captureSourceBackend: string;
   consentConfirmedBy: string;
 }): ArchiveRecord[] {
@@ -241,7 +247,7 @@ export function makeSynchronizedCaptureStartRecords(options: {
     if (
       !Number.isSafeInteger(track.sampleRateHz) ||
       track.sampleRateHz < 8_000 ||
-      track.sampleRateHz > 192_000
+      track.sampleRateHz > 384_000
     ) {
       throw new Error("A native audio source returned an unsupported sample rate.");
     }
@@ -249,6 +255,7 @@ export function makeSynchronizedCaptureStartRecords(options: {
   assertCaptureSession(options.session, options.tracks[0]!.sampleRateHz);
 
   const timestamp = options.startedAtUs;
+  const durability = options.durability ?? "default";
   const takeId = options.takeId.toLowerCase();
   const takeTrackIds = options.tracks.map((track) => track.trackId.toLowerCase());
   const linkedTrackIds = mergedTrackIds(options.session, [
@@ -270,9 +277,9 @@ export function makeSynchronizedCaptureStartRecords(options: {
       ["capture_consent_policy", "1"],
       ["consent_confirmed_by", options.consentConfirmedBy],
       ["state", "recording"],
-      ["sample_format", "pcm_s16le"],
+      ["sample_format", identity.sampleFormat ?? "pcm_s16le"],
       ["sample_rate_hz", String(identity.sampleRateHz)],
-      ["channel_count", "1"],
+      ["channel_count", String(identity.channelCount ?? 1)],
       ["channel_mask", "0"],
       ["sample_count", "0"],
       ["timeline_sample_count", "0"],
@@ -281,6 +288,7 @@ export function makeSynchronizedCaptureStartRecords(options: {
       ["byte_count", "0"],
       ["capture_pause_count", "0"],
       ["capture_paused_duration_us", "0"],
+      ["durability", durability],
       ["started_at_us", timestamp],
       ["updated_at_us", timestamp],
     ]);
@@ -317,6 +325,7 @@ export function makeSynchronizedCaptureStartRecords(options: {
       ["duration_us", "0"],
       ["capture_pause_count", "0"],
       ["capture_paused_duration_us", "0"],
+      ["durability", durability],
       ["created_at_us", timestamp],
       ["updated_at_us", timestamp],
     ]),
@@ -329,14 +338,15 @@ export function makeSynchronizedCaptureStartRecords(options: {
     fields.set("recording_track_id", primary.trackId.toLowerCase());
   fields.set("recording_source", source);
   fields.set("recording_source_backend", options.captureSourceBackend);
-  fields.set("recording_sample_format", "pcm_s16le");
+  fields.set("recording_sample_format", primary.sampleFormat ?? "pcm_s16le");
   fields.set("recording_sample_rate_hz", String(primary.sampleRateHz));
-  fields.set("recording_channel_count", "1");
+  fields.set("recording_channel_count", String(primary.channelCount ?? 1));
   fields.set("recording_channel_mask", "0");
   fields.set("recording_started_at_us", timestamp);
   fields.set("recording_consent_at_us", options.consentAtUs);
   fields.set("recording_consent_policy", "1");
   fields.set("recording_consent_confirmed_by", options.consentConfirmedBy);
+  fields.set("recording_durability", durability);
   fields.set(
     "recording_track_mode",
     options.tracks.length === 2 ? "synchronized-separate" : "single-source",
@@ -356,7 +366,15 @@ export function makeSynchronizedCaptureStartRecords(options: {
 export function makeSynchronizedCaptureChunkRecords(options: {
   session: ArchiveRecord;
   track: ArchiveRecord;
-  chunk: { sequence: number; firstSampleIndex: string; samples: Uint8Array<ArrayBuffer> };
+  chunk: {
+    sequence: number;
+    firstSampleIndex: string;
+    samples: Uint8Array<ArrayBuffer>;
+    sampleFormat?: CaptureSampleFormat;
+    channelCount?: number;
+    gapBeforeSamples?: string;
+    containsDeviceDiscontinuity?: boolean;
+  };
   source: MicrophoneArchiveSource;
 }): ArchiveRecord[] {
   const sampleRateHz = Number(options.track.fields.get("sample_rate_hz"));
@@ -623,7 +641,7 @@ function assertCaptureSession(session: ArchiveRecord, sampleRateHz: number): voi
   if (session.type !== RecordType.session || session.fields.get("_deleted") === "true") {
     throw new Error("Choose an active tutoring session before recording audio.");
   }
-  if (!Number.isSafeInteger(sampleRateHz) || sampleRateHz < 8_000 || sampleRateHz > 192_000) {
+  if (!Number.isSafeInteger(sampleRateHz) || sampleRateHz < 8_000 || sampleRateHz > 384_000) {
     throw new Error("A native audio source returned an unsupported sample rate.");
   }
   if (
