@@ -1,7 +1,11 @@
 import { lstat, readFile } from "node:fs/promises";
-import { resolve } from "node:path";
+import { basename, resolve } from "node:path";
 import { RecordType, type ArchiveRecord } from "../../frontend/archive/format";
-import { GUIDE_TEMPLATES } from "../../frontend/domain/guides";
+import {
+  GUIDE_TEMPLATES,
+  applyGuideTemplateOverride,
+  builtInGuideTemplates,
+} from "../../frontend/domain/guides";
 import { moveRecordToTrash, restoreRecordFromTrash } from "../../frontend/domain/records";
 import {
   makeCustomGuideTemplateRecord,
@@ -32,7 +36,7 @@ export async function runTemplateCommand(
     const snapshot = await openForCommand(path);
     try {
       const stored = await snapshot.listRecords(RecordType.settings);
-      const rows: Record<string, unknown>[] = GUIDE_TEMPLATES.map((template) => ({
+      const rows: Record<string, unknown>[] = builtInGuideTemplates(stored).map((template) => ({
         id: template.id,
         name: template.name,
         origin: "built-in",
@@ -70,19 +74,22 @@ export async function runTemplateCommand(
     const snapshot = await openForCommand(path);
     let template: Record<string, unknown>;
     try {
-      const builtin = GUIDE_TEMPLATES.find((item) => item.id === idOrName);
+      const stored = await snapshot.listRecords(RecordType.settings);
+      const builtin = GUIDE_TEMPLATES.find(
+        (item) => item.id.toLocaleLowerCase() === idOrName.toLocaleLowerCase(),
+      );
       if (builtin) {
+        const effective = applyGuideTemplateOverride(builtin, stored);
         template = {
-          id: builtin.id,
-          name: builtin.name,
+          id: effective.id,
+          name: effective.name,
           origin: "built-in",
-          subject: builtin.subject,
-          description: builtin.description,
-          sections: [...builtin.sections],
-          body: builtin.body,
+          subject: effective.subject,
+          description: effective.description,
+          sections: [...effective.sections],
+          body: effective.body,
         };
       } else {
-        const stored = await snapshot.listRecords(RecordType.settings);
         const record = stored.find(
           (item) =>
             field(item, "record_role") === "guide-template" &&
@@ -135,7 +142,7 @@ export async function runTemplateCommand(
     const sections = args.options.has("sections")
       ? parseTemplateSectionArgument(args.options.get("sections")!)
       : (imported?.sections ?? []);
-    if (!sections.length)
+    if (!sections.length && action !== "import")
       throw new CliError("Provide at least one template section with --sections.");
     const record = makeCustomGuideTemplateRecord({
       name,
@@ -156,6 +163,72 @@ export async function runTemplateCommand(
 
   if (action === "update" || action === "delete" || action === "restore") {
     const id = requiredPosition(args, 0, "template ID");
+    const builtin = GUIDE_TEMPLATES.find(
+      (template) => template.id.toLocaleLowerCase() === id.toLocaleLowerCase(),
+    );
+    if (builtin && (action === "update" || action === "delete")) {
+      const snapshot = await openForCommand(path);
+      let stored: ArchiveRecord[];
+      let override: ArchiveRecord | undefined;
+      try {
+        stored = await snapshot.listRecords(RecordType.settings, true);
+        const matching = stored.filter(
+          (record) =>
+            field(record, "record_role") === "guide-template" &&
+            field(record, "builtin_template_id") === builtin.id,
+        );
+        override = matching.find((record) => field(record, "_deleted") !== "true") ?? matching[0];
+      } finally {
+        await closeSnapshot(snapshot);
+      }
+      if (action === "delete") {
+        if (!override || field(override, "_deleted") === "true") {
+          emit(
+            output,
+            { id: builtin.id, restored: true },
+            "Built-in template restored to its defaults.",
+            json,
+          );
+          return 0;
+        }
+        const removed = moveRecordToTrash(override);
+        const saved = (await mutateArchive(path, [removed]))[0] ?? removed;
+        emit(output, toPlainRecord(saved), "Built-in template restored to its defaults.", json);
+        return 0;
+      }
+      if (override && field(override, "_deleted") === "true")
+        throw new CliError(`Template ${id} is in Trash. Restore it before updating.`);
+      const existingSections = override
+        ? decodeStoredTemplateSections(field(override, "sections"))
+        : [];
+      const record = makeCustomGuideTemplateRecord(
+        {
+          name: args.options.has("name")
+            ? requiredOption(args, "name")
+            : (override ? field(override, "name") : "") || builtin.name,
+          subject: args.options.has("subject")
+            ? args.options.get("subject")!
+            : (override ? field(override, "subject") : "") || builtin.subject,
+          description: args.options.has("description")
+            ? args.options.get("description")!
+            : (override ? field(override, "description") : "") || builtin.description,
+          sections: args.options.has("sections")
+            ? validateTemplateSections(parseTemplateSectionArgument(args.options.get("sections")!))
+            : existingSections.length
+              ? existingSections
+              : [...builtin.sections],
+          body: args.options.has("body")
+            ? args.options.get("body")!
+            : (override ? field(override, "body") : "") || builtin.body,
+          builtinTemplateId: builtin.id,
+        },
+        override ?? null,
+      );
+      const saved = (await mutateArchive(path, [record]))[0] ?? record;
+      emit(output, toPlainRecord(saved), "Built-in template override updated.", json);
+      return 0;
+    }
+
     const snapshot = await openForCommand(path);
     let current: ArchiveRecord;
     try {
@@ -194,7 +267,6 @@ export async function runTemplateCommand(
         const sections = validateTemplateSections(
           parseTemplateSectionArgument(args.options.get("sections")!),
         );
-        if (!sections.length) throw new CliError("A template must contain at least one section.");
         fields.set("sections", sections.join("\n"));
       }
       if (args.options.has("body"))
@@ -263,5 +335,5 @@ export async function readTemplateImport(inputPath: string): Promise<GuideTempla
   if (!info.isFile() || info.isSymbolicLink())
     throw new CliError("Template input must be a regular, non-symlink file.");
   if (info.size > 1024 * 1024) throw new CliError("Template input exceeds the 1 MiB limit.");
-  return parseGuideTemplateImport(await readFile(absolutePath, "utf8"));
+  return parseGuideTemplateImport(await readFile(absolutePath, "utf8"), basename(absolutePath));
 }
