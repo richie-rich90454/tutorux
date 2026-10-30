@@ -654,7 +654,8 @@ function App(): JSX.Element {
   let mainContentElement: HTMLElement | undefined;
   let navigationFocusFrame = 0;
   let browserAutosaveBinding:
-    { archiveId: string; capability: BrowserArchiveAutosave; authorized: boolean } | undefined;
+    | { archiveId: string; capability: BrowserArchiveAutosave; authorized: boolean }
+    | undefined;
 
   onMount(() => {
     if (platform.kind === "desktop") {
@@ -1710,7 +1711,9 @@ function App(): JSX.Element {
         ...state.notesDocuments,
       ],
     });
-    if (!(await addRecords(imported.records, `Imported external AI response as ${imported.status}.`))) {
+    if (
+      !(await addRecords(imported.records, `Imported external AI response as ${imported.status}.`))
+    ) {
       throw new Error("The imported response could not be added to the workspace.");
     }
     return {
@@ -2691,12 +2694,7 @@ function App(): JSX.Element {
       const track = state.audioTracks.find((item) => item.sessionId === sessionId);
       if (!track) throw new Error("This session has no playable audio track.");
       const startTimeUs = field(record, "start_time_us", "0") || "0";
-      const preview = await buildAudioPreview(
-        state.snapshot,
-        session.id,
-        track.id,
-        startTimeUs,
-      );
+      const preview = await buildAudioPreview(state.snapshot, session.id, track.id, startTimeUs);
       const previous = observationPlayback();
       if (previous) URL.revokeObjectURL(previous.url);
       const url = URL.createObjectURL(
@@ -6392,7 +6390,9 @@ function RecordPage(props: {
   const displayedRecords = createMemo(() => {
     const records = [...visibleRecords()];
     if (props.kind !== "journal") {
-      return records.sort((a, b) => recordSort(props.kind, b).localeCompare(recordSort(props.kind, a)));
+      return records.sort((a, b) =>
+        recordSort(props.kind, b).localeCompare(recordSort(props.kind, a)),
+      );
     }
     return records.sort((left, right) => {
       const titleOrder = field(left, "title").localeCompare(field(right, "title"));
@@ -6620,7 +6620,15 @@ function RecordPage(props: {
               <option value="no">No linked sessions</option>
             </select>
           </label>
-          <Show when={collectionFilter() || tagFilter() || journalFrom() || journalTo() || hasSessions() !== "all"}>
+          <Show
+            when={
+              collectionFilter() ||
+              tagFilter() ||
+              journalFrom() ||
+              journalTo() ||
+              hasSessions() !== "all"
+            }
+          >
             <button
               class="text-action"
               type="button"
@@ -6752,7 +6760,8 @@ function RecordCard(props: {
   notesDocuments: ArchiveRecord[];
   onWriteRecords: ((records: ArchiveRecord[], message: string) => Promise<boolean>) | undefined;
   onRestoreSessionVersion:
-    ((current: ArchiveRecord, previous: ArchiveRecord) => Promise<boolean>) | undefined;
+    | ((current: ArchiveRecord, previous: ArchiveRecord) => Promise<boolean>)
+    | undefined;
   disabled: boolean;
   busy: boolean;
   onProgressReview:
@@ -7386,7 +7395,8 @@ function SessionRow(props: {
   expanded?: boolean;
   snapshot?: ArchiveSnapshot;
   onRestoreVersion?:
-    ((current: ArchiveRecord, previous: ArchiveRecord) => Promise<boolean>) | undefined;
+    | ((current: ArchiveRecord, previous: ArchiveRecord) => Promise<boolean>)
+    | undefined;
   disabled?: boolean;
   onEdit?: ((record: ArchiveRecord) => void) | undefined;
   onTrash?: ((record: ArchiveRecord) => void) | undefined;
