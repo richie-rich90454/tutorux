@@ -146,7 +146,9 @@ export async function guideEditAction(
     }
     if (args.options.has("approval-state")) changed = true;
     if (!changed)
-      throw new CliError("Provide a title, heading, block, or approval-state change to update a guide.");
+      throw new CliError(
+        "Provide a title, heading, block, or approval-state change to update a guide.",
+      );
   } else if (action === "add-section" || action === "section") {
     const heading = requiredOption(args, "heading");
     const blocks = args.options.has("text")
