@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { Stats } from "node:fs";
 import { realpath, rm, stat } from "node:fs/promises";
-import { basename, dirname, join, resolve } from "node:path";
+import { basename, dirname, extname, join, resolve } from "node:path";
 import {
   createArchiveBytes,
   createEncryptedArchiveBytes,
@@ -27,7 +27,7 @@ export async function runArchiveInitCommand(
   args: ParsedArguments,
   output: CliIo,
 ): Promise<number> {
-  const name = requiredOption(args, "name");
+  const name = args.options.get("name")?.trim() || basename(path, extname(path));
   const description = args.options.get("description") ?? "";
   const passphraseEnvironment = args.options.get("new-passphrase-env");
   if (passphraseEnvironment === undefined && args.flags.has("new-passphrase-env")) {
@@ -63,19 +63,24 @@ export async function runArchiveEncryptCommand(
   args: ParsedArguments,
   output: CliIo,
 ): Promise<number> {
-  const newPassphraseEnvironment = args.options.get("new-passphrase-env");
-  if (newPassphraseEnvironment === undefined && args.flags.has("new-passphrase-env")) {
-    throw new CliError("--new-passphrase-env requires an environment variable name.");
-  }
+  const newPassphraseEnvironment =
+    args.options.get("new-passphrase-env") ?? args.options.get("passphrase-env");
+  let newPassphrase: string | undefined;
   if (newPassphraseEnvironment === undefined) {
-    throw new CliError("archive encrypt requires --new-passphrase-env <name>.");
-  }
-  if (!/^[A-Za-z_][A-Za-z\d_]*$/u.test(newPassphraseEnvironment)) {
-    throw new CliError("--new-passphrase-env requires a valid environment variable name.");
-  }
-  const newPassphrase = process.env[newPassphraseEnvironment];
-  if (newPassphrase === undefined) {
-    throw new CliError("The new archive passphrase environment variable is not set.");
+    newPassphrase = archiveAccessContext.getStore()?.passphrase;
+    if (newPassphrase === undefined) {
+      throw new CliError(
+        "archive encrypt requires --new-passphrase-env <name> or --passphrase-env <name>.",
+      );
+    }
+  } else {
+    if (!/^[A-Za-z_][A-Za-z\d_]*$/u.test(newPassphraseEnvironment)) {
+      throw new CliError("--new-passphrase-env requires a valid environment variable name.");
+    }
+    newPassphrase = process.env[newPassphraseEnvironment];
+    if (newPassphrase === undefined) {
+      throw new CliError("The new archive passphrase environment variable is not set.");
+    }
   }
 
   const archivePath = resolve(path);
