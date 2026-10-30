@@ -3,14 +3,14 @@ import { resolve } from "node:path";
 import { RecordType, type ArchiveRecord } from "../../frontend/archive/format";
 import { prepareAudioImport } from "../audio-import";
 import { canonicalizeProgressUuid } from "../../frontend/domain/student-progress";
-import { makeWaveImportRecords } from "../../frontend/domain/wav";
-import { buildAudioTrackWavStream, listSessionAudioTracks } from "../../frontend/domain/audio";
-import { summarizeWaveform } from "../recording-waveform";
-import { mixRecordingTracks } from "../../frontend/domain/audio-mix";
+import { makeWaveImportRecordsIncremental } from "../../frontend/domain/wav";
+import { buildAudioTrackWavExport, listSessionAudioTracks } from "../../frontend/domain/audio";
+import { mixRecordingTracksIncremental } from "../../frontend/domain/audio-mix";
 import {
   buildWaveformIndex,
   readWaveformIndex,
   waveformIndexIsCurrent,
+  type WaveformBucket,
 } from "../../frontend/domain/waveform-index";
 import { resolveFfmpegCommand } from "../live-recording";
 import { closeSnapshot, mutateArchive, openForCommand } from "./archive-io";
@@ -25,6 +25,29 @@ import {
 import { requireLiveRecord } from "./record-helpers";
 import type { CliIo, ParsedArguments } from "./shared";
 import { writeAudioStreamAtomically } from "./recording-playback";
+
+/** Combine a stored pyramid level into exactly the requested bucket count. */
+function downsampleWaveformBuckets(
+  buckets: readonly WaveformBucket[],
+  limit: number,
+): WaveformBucket[] {
+  const count = Math.min(limit, buckets.length);
+  if (count === buckets.length) return [...buckets];
+  const result: WaveformBucket[] = [];
+  for (let index = 0; index < count; index++) {
+    const start = Math.floor((index * buckets.length) / count);
+    const end = Math.floor(((index + 1) * buckets.length) / count);
+    const slice = buckets.slice(start, Math.max(start + 1, end));
+    result.push({
+      startFrame: slice[0]!.startFrame,
+      endFrame: slice.at(-1)!.endFrame,
+      minimum: Math.min(...slice.map((bucket) => bucket.minimum)),
+      maximum: Math.max(...slice.map((bucket) => bucket.maximum)),
+      containsGap: slice.some((bucket) => bucket.containsGap),
+    });
+  }
+  return result;
+}
 
 export async function runRecordingAudioCommand(
   action: string,
@@ -50,19 +73,34 @@ export async function runRecordingAudioCommand(
         .map((id) => canonicalizeProgressUuid(id.trim()));
       if (!takeId || trackIds.some((id) => !id))
         throw new CliError("--take and --tracks require valid UUIDs.");
-      const mixed = await mixRecordingTracks(
+      let expectedGeneration = generation;
+      const mixLabel = args.options.get("label");
+      const mixed = await mixRecordingTracksIncremental({
         snapshot,
         sessionId,
         takeId,
-        trackIds as string[],
-        args.options.get("label"),
-      );
-      changes = mixed.records;
+        trackIds: trackIds as string[],
+        ...(mixLabel === undefined ? {} : { label: mixLabel }),
+        expectedGeneration,
+        commit: async (records, expected) => {
+          const saved = await mutateArchive(
+            path,
+            records,
+            expected,
+            "The archive changed during mixing. Retry with the current archive.",
+          );
+          expectedGeneration = expected + 1n;
+          return saved;
+        },
+      });
+      changes = [];
       result = {
         session_id: sessionId,
         take_id: takeId,
         track_id: mixed.trackId,
+        sample_format: "pcm_s16le",
         sample_rate_hz: mixed.sampleRateHz,
+        channel_count: 2,
         frame_count: mixed.frameCount,
         duration_us: mixed.durationUs,
         chunk_count: mixed.chunkCount,
@@ -98,34 +136,47 @@ export async function runRecordingAudioCommand(
       if (args.options.has("ffmpeg") && !ffmpegValue?.trim())
         throw new CliError("--ffmpeg cannot be empty.");
       const prepared = await prepareAudioImport(input, resolveFfmpegCommand(ffmpegValue));
-      let imported: Awaited<ReturnType<typeof makeWaveImportRecords>>;
+      let imported: Awaited<ReturnType<typeof makeWaveImportRecordsIncremental>>;
       try {
         const blob = await openAsBlob(prepared.path);
-        imported = await makeWaveImportRecords(
+        let expectedGeneration = generation;
+        imported = await makeWaveImportRecordsIncremental({
           session,
-          {
+          file: {
             name: prepared.sourceFilename,
             size: blob.size,
             slice: (start, end) => blob.slice(start, end),
           },
-          args.flags.has("additional-track"),
-          tracks.map((track) => track.id),
-          prepared.sourceCodec
+          allowAdditionalTrack: args.flags.has("additional-track"),
+          knownTrackIds: tracks.map((track) => track.id),
+          sourceMetadata: prepared.sourceCodec
             ? {
                 sourceFilename: prepared.sourceFilename,
                 sourceCodec: prepared.sourceCodec,
               }
             : { sourceFilename: prepared.sourceFilename },
-        );
+          expectedGeneration,
+          commit: async (records, expected) => {
+            const saved = await mutateArchive(
+              path,
+              records,
+              expected,
+              "The archive changed during audio import. Recover or review it and try again.",
+            );
+            expectedGeneration = expected + 1n;
+            return saved;
+          },
+        });
         await prepared.validateSourceUnchanged();
       } finally {
         await prepared.cleanup();
       }
-      changes = imported.records;
+      changes = [];
       result = {
         session_id: sessionId,
         track_id: imported.trackId,
         take_id: imported.takeId,
+        sample_format: imported.sampleFormat,
         sample_rate_hz: imported.sampleRateHz,
         channel_count: imported.channelCount,
         sample_count: imported.sampleCount.toString(),
@@ -188,10 +239,51 @@ export async function runRecordingAudioCommand(
         message = `Waveform index for track ${trackId}: level ${level + 1} of ${levels.length}, ${buckets.length} buckets${current ? "" : " (source changed; rebuild recommended)"}.`;
       } else if (action === "waveform") {
         const limit = parseBoundedOption(args.options.get("buckets"), "buckets", 512, 1, 8192);
-        const buckets = await summarizeWaveform(snapshot, sessionId, trackId, limit);
-        result = buckets;
-        const levels = " .:-=+*#@";
-        message = `Waveform for track ${trackId}\nAmplitude: ${buckets.map((bucket) => levels[Math.floor((Math.max(Math.abs(bucket.minimum), Math.abs(bucket.maximum)) * (levels.length - 1)) / 32768)]).join("")}\nGaps:      ${buckets.map((bucket) => (bucket.contains_gap ? "!" : " ")).join("")}`;
+        const stored = (await snapshot.listRecords(RecordType.waveformIndex)).find(
+          (record) =>
+            field(record, "record_role") === "waveform-pyramid" &&
+            field(record, "session_id").toLowerCase() === sessionId &&
+            field(record, "track_id").toLowerCase() === trackId,
+        );
+        let index = stored;
+        let levels: WaveformBucket[][] | undefined;
+        if (stored && (await waveformIndexIsCurrent(snapshot, stored))) {
+          try {
+            levels = readWaveformIndex(stored);
+          } catch {
+            levels = undefined;
+          }
+        }
+        if (!levels) {
+          index = await buildWaveformIndex(snapshot, sessionId, trackId);
+          changes = [index];
+          levels = readWaveformIndex(index);
+        }
+        const base = downsampleWaveformBuckets(levels[0]!, limit);
+        const buckets = base.map((bucket, bucketIndex) => ({
+          track_id: trackId,
+          sample_rate_hz: Number(field(index!, "sample_rate_hz")),
+          channel_count: Number(field(index!, "channel_count")),
+          bucket: bucketIndex,
+          start_frame: Number(bucket.startFrame),
+          end_frame: Number(bucket.endFrame),
+          minimum: bucket.minimum,
+          maximum: bucket.maximum,
+          contains_gap: bucket.containsGap,
+        }));
+        result = buckets.map((bucket) => ({
+          track_id: bucket.track_id,
+          sample_rate_hz: String(bucket.sample_rate_hz),
+          channel_count: String(bucket.channel_count),
+          bucket: String(bucket.bucket),
+          start_frame: String(bucket.start_frame),
+          end_frame: String(bucket.end_frame),
+          minimum: String(bucket.minimum),
+          maximum: String(bucket.maximum),
+          contains_gap: bucket.contains_gap ? "true" : "false",
+        }));
+        const glyphs = " .:-=+*#@";
+        message = `Waveform for track ${trackId}\nAmplitude: ${buckets.map((bucket) => glyphs[Math.floor((Math.max(Math.abs(bucket.minimum), Math.abs(bucket.maximum)) * (glyphs.length - 1)) / 32768)]).join("")}\nGaps:      ${buckets.map((bucket) => (bucket.contains_gap ? "!" : " ")).join("")}`;
       } else {
         const destination = resolve(requiredOption(args, "output"));
         if (await sameFileIdentity(destination, path))
@@ -204,17 +296,22 @@ export async function runRecordingAudioCommand(
           throw new CliError(
             "This recording contains gaps. Use --fill-gaps to insert silence explicitly.",
           );
-        await writeAudioStreamAtomically(
-          destination,
-          await buildAudioTrackWavStream(snapshot, sessionId, trackId),
-          args.flags.has("overwrite"),
-        );
+        const exported = await buildAudioTrackWavExport(snapshot, sessionId, trackId);
+        await writeAudioStreamAtomically(destination, exported.stream, args.flags.has("overwrite"));
+        const rate = BigInt(field(chunks[0]!, "sample_rate_hz") || "0");
         result = {
           session_id: sessionId,
           track_id: trackId,
           destination,
-          chunk_count: chunks.length,
-          inserted_silence_for_gaps: hasGaps,
+          sample_format: field(chunks[0]!, "sample_format"),
+          sample_rate_hz: rate.toString(),
+          channel_count: field(chunks[0]!, "channel_count"),
+          sample_count: exported.sampleCount.toString(),
+          chunk_count: String(chunks.length),
+          duration_us: rate === 0n ? "0" : ((exported.sampleCount * 1_000_000n) / rate).toString(),
+          data_bytes: exported.dataBytes.toString(),
+          container: exported.rf64 ? "RF64" : "RIFF/WAVE",
+          inserted_silence_for_gaps: hasGaps ? "true" : "false",
         };
         message = `Exported audio track ${trackId} to ${destination}.`;
       }
