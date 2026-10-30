@@ -121,8 +121,8 @@ async function preflightBrowserMicrophone(
         const rms = intervalCount ? Math.sqrt(intervalSquares / intervalCount) : 0;
         onLevel({
           elapsedMs,
-          framesInInterval: Math.round((now - previousAt) * context.sampleRate / 1_000),
-          framesMeasured: Math.round((now - startedAt) * context.sampleRate / 1_000),
+          framesInInterval: Math.round(((now - previousAt) * context.sampleRate) / 1_000),
+          framesMeasured: Math.round(((now - startedAt) * context.sampleRate) / 1_000),
           peakLevel: intervalPeak,
           rmsLevel: rms,
           peakDbfs: intervalPeak > 0 ? 20 * Math.log10(intervalPeak) : -120,
@@ -140,7 +140,7 @@ async function preflightBrowserMicrophone(
     return {
       deviceId,
       measuredDurationMs: Math.min(durationMs, Math.round(performance.now() - startedAt)),
-      framesMeasured: Math.round(durationMs * context.sampleRate / 1_000),
+      framesMeasured: Math.round((durationMs * context.sampleRate) / 1_000),
       peakLevel: totalPeak,
       rmsLevel: rms,
       peakDbfs: totalPeak > 0 ? 20 * Math.log10(totalPeak) : -120,
@@ -162,11 +162,15 @@ export function SynchronizedRecorder(props: Props) {
   const [systemAudioDeviceId, setSystemAudioDeviceId] = createSignal("");
   const [secondaryAudioUnavailableReason, setSecondaryAudioUnavailableReason] = createSignal("");
   const [microphoneUnavailableReason, setMicrophoneUnavailableReason] = createSignal("");
-  const [preflightState, setPreflightState] = createSignal<"unchecked" | "checking" | "ready" | "silent">("unchecked");
+  const [preflightState, setPreflightState] = createSignal<
+    "unchecked" | "checking" | "ready" | "silent"
+  >("unchecked");
   const [preflightDeviceId, setPreflightDeviceId] = createSignal("");
   const [inputPeak, setInputPeak] = createSignal(0);
   const [inputRmsDbfs, setInputRmsDbfs] = createSignal(-120);
-  const [preflightMessage, setPreflightMessage] = createSignal("Check the selected microphone before recording.");
+  const [preflightMessage, setPreflightMessage] = createSignal(
+    "Check the selected microphone before recording.",
+  );
   const [consent, setConsent] = createSignal(false);
   const [state, setState] = createSignal<
     "idle" | "requesting" | "recording" | "pausing" | "paused" | "resuming" | "saving"
@@ -324,8 +328,8 @@ export function SynchronizedRecorder(props: Props) {
         if (!microphones.some((device) => device.id === deviceId())) {
           const nextDeviceId =
             microphones.find((device) => device.label.endsWith(" · Default"))?.id ??
-              microphones[0]?.id ??
-              "";
+            microphones[0]?.id ??
+            "";
           setDeviceId(nextDeviceId);
           resetMicrophonePreflight();
         }
@@ -335,8 +339,7 @@ export function SynchronizedRecorder(props: Props) {
               found.systemAudio.some(
                 (candidate) => candidate.deviceId === device.id && candidate.isDefault,
               ),
-            )?.id ??
-              "",
+            )?.id ?? "",
           );
         }
       } else if (navigator.mediaDevices?.enumerateDevices) {
@@ -353,14 +356,14 @@ export function SynchronizedRecorder(props: Props) {
           resetMicrophonePreflight();
         }
         setMicrophoneUnavailableReason(
-          navigator.mediaDevices.getUserMedia
+          typeof navigator.mediaDevices.getUserMedia === "function"
             ? ""
             : "This browser does not support microphone capture.",
         );
       } else {
         setDevices([]);
         setMicrophoneUnavailableReason(
-          navigator.mediaDevices?.getUserMedia
+          typeof navigator.mediaDevices?.getUserMedia === "function"
             ? ""
             : "This browser does not support microphone capture.",
         );
@@ -375,7 +378,9 @@ export function SynchronizedRecorder(props: Props) {
   const checkMicrophone = async () => {
     if (state() !== "idle" || preflightState() === "checking") return;
     if (nativeDesktop() && !deviceId()) {
-      setError(microphoneUnavailableReason() || "Choose an available microphone before checking input.");
+      setError(
+        microphoneUnavailableReason() || "Choose an available microphone before checking input.",
+      );
       return;
     }
     const selectedDevice = deviceId();
@@ -535,7 +540,9 @@ export function SynchronizedRecorder(props: Props) {
   const start = async () => {
     if (!consent() || props.disabled || pending()) return;
     if (preflightState() !== "ready" || preflightDeviceId() !== deviceId()) {
-      setError("Check the selected microphone and confirm that it has an input signal before recording.");
+      setError(
+        "Check the selected microphone and confirm that it has an input signal before recording.",
+      );
       return;
     }
     if (platform.kind === "desktop" && !deviceId()) {
@@ -591,10 +598,9 @@ export function SynchronizedRecorder(props: Props) {
                   source: "system-audio",
                   sampleRateHz: started.systemAudioSampleRateHz,
                   label: "Shared system audio",
-                  sourceDeviceId:
-                    selectedSecondaryAudio?.source === "system-audio"
-                      ? selectedSecondaryAudio.id
-                      : undefined,
+                  ...(selectedSecondaryAudio?.source === "system-audio"
+                    ? { sourceDeviceId: selectedSecondaryAudio.id }
+                    : {}),
                 },
                 {
                   source: "application-audio",
@@ -602,11 +608,21 @@ export function SynchronizedRecorder(props: Props) {
                   label: started.applicationAudioName
                     ? `${started.applicationAudioName} application audio`
                     : "Application audio",
-                  sourceDeviceId: started.applicationAudioDeviceId ?? undefined,
-                  sourceBackend: started.applicationAudioBackend ?? undefined,
-                  applicationName: started.applicationAudioName ?? undefined,
-                  applicationProcessId: started.applicationAudioProcessId ?? undefined,
-                  applicationBundleId: started.applicationAudioBundleId ?? undefined,
+                  ...(started.applicationAudioDeviceId != null
+                    ? { sourceDeviceId: started.applicationAudioDeviceId }
+                    : {}),
+                  ...(started.applicationAudioBackend != null
+                    ? { sourceBackend: started.applicationAudioBackend }
+                    : {}),
+                  ...(started.applicationAudioName != null
+                    ? { applicationName: started.applicationAudioName }
+                    : {}),
+                  ...(started.applicationAudioProcessId != null
+                    ? { applicationProcessId: started.applicationAudioProcessId }
+                    : {}),
+                  ...(started.applicationAudioBundleId != null
+                    ? { applicationBundleId: started.applicationAudioBundleId }
+                    : {}),
                 },
               ];
               for (const identity of trackIdentities) {
@@ -775,8 +791,8 @@ export function SynchronizedRecorder(props: Props) {
           }
         >
           <p>
-            The desktop app records from your selected microphone and can add shared system audio
-            or one selected application audio stream. Video is never saved.
+            The desktop app records from your selected microphone and can add shared system audio or
+            one selected application audio stream. Video is never saved.
           </p>
         </Show>
 
