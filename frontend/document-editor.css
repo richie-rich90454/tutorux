@@ -1,23 +1,23 @@
 .sr-only {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-  clip: rect(0, 0, 0, 0);
-  white-space: nowrap;
-  clip-path: inset(50%);
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    clip-path: inset(50%);
 }
 
 .document-editor {
-  display: grid;
-  gap: 9px;
-  min-width: 0;
-  padding: 10px;
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  background:
-    linear-gradient(115deg, color-mix(in srgb, var(--accent) 5%, transparent), transparent 48%),
-    var(--surface-subtle);
+    display: grid;
+    gap: 9px;
+    min-width: 0;
+    padding: 10px;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background:
+        linear-gradient(115deg, color-mix(in srgb, var(--accent) 5%, transparent), transparent 48%),
+        var(--surface-subtle);
 }
 
 .document-editor-toolbar,
@@ -25,483 +25,483 @@
 .document-editor-add,
 .document-block-heading,
 .document-block-actions {
-  display: flex;
-  align-items: center;
+    display: flex;
+    align-items: center;
 }
 
 .document-editor-toolbar {
-  justify-content: space-between;
-  flex-wrap: wrap;
-  gap: 10px;
-  padding: 1px 1px 7px;
-  border-bottom: 1px solid var(--line-soft);
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 10px;
+    padding: 1px 1px 7px;
+    border-bottom: 1px solid var(--line-soft);
 }
 
 .document-editor-summary {
-  gap: 8px;
+    gap: 8px;
 }
 
 .document-editor-mark {
-  width: 27px;
-  height: 27px;
-  display: grid;
-  place-items: center;
-  border: 1px solid color-mix(in srgb, var(--accent) 24%, var(--line));
-  border-radius: 7px;
-  color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 9%, var(--surface));
-  font-family: Georgia, "Times New Roman", serif;
-  font-size: 18px;
-  line-height: 1;
+    width: 27px;
+    height: 27px;
+    display: grid;
+    place-items: center;
+    border: 1px solid color-mix(in srgb, var(--accent) 24%, var(--line));
+    border-radius: 7px;
+    color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 9%, var(--surface));
+    font-family: Georgia, "Times New Roman", serif;
+    font-size: 18px;
+    line-height: 1;
 }
 
 .document-editor-summary > div {
-  display: grid;
-  gap: 2px;
+    display: grid;
+    gap: 2px;
 }
 
 .document-editor-summary strong {
-  color: var(--ink-soft);
-  font-size: 10px;
-  font-weight: 650;
+    color: var(--ink-soft);
+    font-size: 10px;
+    font-weight: 650;
 }
 
 .document-editor-summary small {
-  color: var(--faint);
-  font-size: 8px;
+    color: var(--faint);
+    font-size: 8px;
 }
 
 .document-editor-add {
-  gap: 6px;
+    gap: 6px;
 }
 
 .document-editor-tools {
-  display: flex;
-  align-items: center;
-  gap: 3px;
-  margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 3px;
+    margin-left: auto;
 }
 
 .document-editor-tools .button {
-  min-height: 29px;
-  padding: 0 8px;
-  font-size: 9px;
+    min-height: 29px;
+    padding: 0 8px;
+    font-size: 9px;
 }
 
 .document-editor-formatting {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 8px;
-  padding: 0 1px;
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 0 1px;
 }
 
 .document-editor-formatting > span {
-  color: var(--faint);
-  font-size: 8px;
+    color: var(--faint);
+    font-size: 8px;
 }
 
 .document-editor-formatting > div {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 4px;
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 4px;
 }
 
 .document-editor-formatting button {
-  min-height: 27px;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 3px 7px;
-  border: 1px solid var(--line-soft);
-  border-radius: 6px;
-  color: var(--ink-soft);
-  background: var(--surface);
-  font: inherit;
-  font-size: 8px;
-  cursor: pointer;
+    min-height: 27px;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 3px 7px;
+    border: 1px solid var(--line-soft);
+    border-radius: 6px;
+    color: var(--ink-soft);
+    background: var(--surface);
+    font: inherit;
+    font-size: 8px;
+    cursor: pointer;
 }
 
 .document-editor-formatting button:hover:not(:disabled),
 .document-editor-formatting button:focus-visible {
-  border-color: color-mix(in srgb, var(--accent) 42%, var(--line));
-  background: var(--surface-subtle);
+    border-color: color-mix(in srgb, var(--accent) 42%, var(--line));
+    background: var(--surface-subtle);
 }
 
 .document-editor-formatting button:disabled {
-  color: var(--faint);
-  cursor: default;
-  opacity: 0.55;
+    color: var(--faint);
+    cursor: default;
+    opacity: 0.55;
 }
 
 .document-editor-formatting kbd {
-  color: var(--faint);
-  font: inherit;
-  font-size: 7px;
+    color: var(--faint);
+    font: inherit;
+    font-size: 7px;
 }
 
 .document-export-menu {
-  position: relative;
+    position: relative;
 }
 
 .document-export-menu summary {
-  display: flex;
-  align-items: center;
-  list-style: none;
-  cursor: pointer;
+    display: flex;
+    align-items: center;
+    list-style: none;
+    cursor: pointer;
 }
 
 .document-export-menu summary::-webkit-details-marker {
-  display: none;
+    display: none;
 }
 
 .document-export-options {
-  position: absolute;
-  z-index: 2;
-  top: 100%;
-  right: 0;
-  min-width: 145px;
-  display: grid;
-  padding: 5px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: var(--surface);
-  box-shadow: 0 8px 24px rgb(20 29 23 / 14%);
+    position: absolute;
+    z-index: 2;
+    top: 100%;
+    right: 0;
+    min-width: 145px;
+    display: grid;
+    padding: 5px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--surface);
+    box-shadow: 0 8px 24px rgb(20 29 23 / 14%);
 }
 
 .document-export-options button {
-  padding: 8px;
-  border: 0;
-  border-radius: 5px;
-  color: var(--ink);
-  background: transparent;
-  font: inherit;
-  font-size: 10px;
-  text-align: left;
-  cursor: pointer;
+    padding: 8px;
+    border: 0;
+    border-radius: 5px;
+    color: var(--ink);
+    background: transparent;
+    font: inherit;
+    font-size: 10px;
+    text-align: left;
+    cursor: pointer;
 }
 
 .document-export-options button:hover,
 .document-export-options button:focus-visible {
-  background: var(--surface-subtle);
+    background: var(--surface-subtle);
 }
 
 .document-editor-error {
-  margin: 0;
-  color: var(--danger);
-  font-size: 10px;
+    margin: 0;
+    color: var(--danger);
+    font-size: 10px;
 }
 
 .notes-autosave {
-  display: grid;
-  gap: 5px;
-  margin-top: 8px;
-  color: var(--muted);
-  font-size: 10px;
+    display: grid;
+    gap: 5px;
+    margin-top: 8px;
+    color: var(--muted);
+    font-size: 10px;
 }
 
 .notes-autosave label {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  color: var(--ink-soft);
-  font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    color: var(--ink-soft);
+    font-weight: 600;
 }
 
 .notes-autosave input {
-  accent-color: var(--accent);
+    accent-color: var(--accent);
 }
 
 .notes-autosave small {
-  line-height: 1.5;
+    line-height: 1.5;
 }
 
 .note-print-preview {
-  display: none;
+    display: none;
 }
 
 @media print {
-  html.note-printing body > :not(.note-print-preview) {
-    display: none !important;
-  }
+    html.note-printing body > :not(.note-print-preview) {
+        display: none !important;
+    }
 
-  html.note-printing .note-print-preview {
-    display: block;
-    color: #202820;
-    font: 11pt/1.6 sans-serif;
-  }
+    html.note-printing .note-print-preview {
+        display: block;
+        color: #202820;
+        font: 11pt/1.6 sans-serif;
+    }
 
-  .note-print-preview h1,
-  .note-print-preview h2 {
-    line-height: 1.2;
-  }
+    .note-print-preview h1,
+    .note-print-preview h2 {
+        line-height: 1.2;
+    }
 
-  .note-print-preview p,
-  .note-print-preview blockquote,
-  .note-print-preview pre {
-    white-space: pre-wrap;
-  }
+    .note-print-preview p,
+    .note-print-preview blockquote,
+    .note-print-preview pre {
+        white-space: pre-wrap;
+    }
 
-  .note-print-preview blockquote {
-    margin-left: 0;
-    padding-left: 1em;
-    border-left: 3px solid #78947b;
-  }
+    .note-print-preview blockquote {
+        margin-left: 0;
+        padding-left: 1em;
+        border-left: 3px solid #78947b;
+    }
 
-  .note-print-preview .checklist {
-    padding-left: 0;
-    list-style: none;
-  }
+    .note-print-preview .checklist {
+        padding-left: 0;
+        list-style: none;
+    }
 }
 
 .document-editor-add select,
 .document-block-heading > select {
-  max-width: 180px;
-  min-width: 0;
-  height: 29px;
-  padding: 0 23px 0 8px;
-  border: 1px solid var(--line);
-  border-radius: 7px;
-  color: var(--ink-soft);
-  background: var(--surface);
-  font: inherit;
-  font-size: 9px;
+    max-width: 180px;
+    min-width: 0;
+    height: 29px;
+    padding: 0 23px 0 8px;
+    border: 1px solid var(--line);
+    border-radius: 7px;
+    color: var(--ink-soft);
+    background: var(--surface);
+    font: inherit;
+    font-size: 9px;
 }
 
 .document-editor-add-button {
-  min-height: 29px;
-  padding: 0 10px;
-  font-size: 9px;
+    min-height: 29px;
+    padding: 0 10px;
+    font-size: 9px;
 }
 
 .document-editor-pages {
-  display: grid;
-  gap: 7px;
-  min-width: 0;
+    display: grid;
+    gap: 7px;
+    min-width: 0;
 }
 
 .document-block {
-  min-width: 0;
-  overflow: hidden;
-  border: 1px solid var(--line-soft);
-  border-radius: 8px;
-  background: var(--surface);
-  transition:
-    border-color 140ms ease,
-    box-shadow 140ms ease;
+    min-width: 0;
+    overflow: hidden;
+    border: 1px solid var(--line-soft);
+    border-radius: 8px;
+    background: var(--surface);
+    transition:
+        border-color 140ms ease,
+        box-shadow 140ms ease;
 }
 
 .document-block:focus-within {
-  border-color: color-mix(in srgb, var(--accent) 50%, var(--line));
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 9%, transparent);
+    border-color: color-mix(in srgb, var(--accent) 50%, var(--line));
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 9%, transparent);
 }
 
 .document-block-heading {
-  min-height: 34px;
-  gap: 7px;
-  padding: 4px 6px 4px 9px;
-  border-bottom: 1px solid var(--line-soft);
-  background: color-mix(in srgb, var(--surface-subtle) 68%, var(--surface));
+    min-height: 34px;
+    gap: 7px;
+    padding: 4px 6px 4px 9px;
+    border-bottom: 1px solid var(--line-soft);
+    background: color-mix(in srgb, var(--surface-subtle) 68%, var(--surface));
 }
 
 .document-block-number {
-  width: 22px;
-  flex: 0 0 auto;
-  color: var(--faint);
-  font-size: 8px;
-  font-variant-numeric: tabular-nums;
-  letter-spacing: 0.06em;
+    width: 22px;
+    flex: 0 0 auto;
+    color: var(--faint);
+    font-size: 8px;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 0.06em;
 }
 
 .document-block-heading > select {
-  height: 25px;
-  padding-left: 7px;
-  border-color: transparent;
-  background: transparent;
-  font-size: 8px;
+    height: 25px;
+    padding-left: 7px;
+    border-color: transparent;
+    background: transparent;
+    font-size: 8px;
 }
 
 .document-block-actions {
-  gap: 2px;
-  margin-left: auto;
+    gap: 2px;
+    margin-left: auto;
 }
 
 .document-block-actions button {
-  width: 24px;
-  height: 24px;
-  display: grid;
-  place-items: center;
-  padding: 0;
-  border: 0;
-  border-radius: 5px;
-  color: var(--muted);
-  background: transparent;
-  font-size: 12px;
-  cursor: pointer;
+    width: 24px;
+    height: 24px;
+    display: grid;
+    place-items: center;
+    padding: 0;
+    border: 0;
+    border-radius: 5px;
+    color: var(--muted);
+    background: transparent;
+    font-size: 12px;
+    cursor: pointer;
 }
 
 .document-block-actions button:hover:not(:disabled),
 .document-block-actions button:focus-visible {
-  color: var(--ink);
-  background: var(--surface);
+    color: var(--ink);
+    background: var(--surface);
 }
 
 .document-block-actions button:disabled {
-  color: var(--line-strong);
-  cursor: default;
+    color: var(--line-strong);
+    cursor: default;
 }
 
 .document-block-actions .document-block-remove:not(:disabled):hover {
-  color: var(--danger, #a85343);
+    color: var(--danger, #a85343);
 }
 
 .document-block textarea {
-  width: 100%;
-  display: block;
-  min-height: 78px;
-  resize: vertical;
-  padding: 11px 13px 12px 15px;
-  border: 0;
-  border-radius: 0;
-  outline: 0;
-  color: var(--ink-soft);
-  background: transparent;
-  font: inherit;
-  font-size: 10px;
-  line-height: 1.75;
+    width: 100%;
+    display: block;
+    min-height: 78px;
+    resize: vertical;
+    padding: 11px 13px 12px 15px;
+    border: 0;
+    border-radius: 0;
+    outline: 0;
+    color: var(--ink-soft);
+    background: transparent;
+    font: inherit;
+    font-size: 10px;
+    line-height: 1.75;
 }
 
 .document-block textarea:focus-visible {
-  outline: 0;
+    outline: 0;
 }
 
 .document-block[data-kind="heading"] textarea {
-  min-height: 56px;
-  color: var(--ink);
-  font-size: 14px;
-  font-weight: 650;
-  letter-spacing: -0.02em;
+    min-height: 56px;
+    color: var(--ink);
+    font-size: 14px;
+    font-weight: 650;
+    letter-spacing: -0.02em;
 }
 
 .document-block[data-kind="quote"] textarea {
-  border-left: 3px solid color-mix(in srgb, var(--accent) 48%, var(--line));
-  color: var(--muted);
-  font-family: Georgia, "Times New Roman", serif;
-  font-size: 11px;
-  font-style: italic;
+    border-left: 3px solid color-mix(in srgb, var(--accent) 48%, var(--line));
+    color: var(--muted);
+    font-family: Georgia, "Times New Roman", serif;
+    font-size: 11px;
+    font-style: italic;
 }
 
 .document-block[data-kind="code"] textarea {
-  color: var(--ink-soft);
-  background: color-mix(in srgb, var(--surface-subtle) 76%, var(--surface));
-  font-family: ui-monospace, "Cascadia Code", "SFMono-Regular", Consolas, monospace;
-  font-size: 9px;
-  tab-size: 2;
+    color: var(--ink-soft);
+    background: color-mix(in srgb, var(--surface-subtle) 76%, var(--surface));
+    font-family: ui-monospace, "Cascadia Code", "SFMono-Regular", Consolas, monospace;
+    font-size: 9px;
+    tab-size: 2;
 }
 
 .document-block[data-kind$="list"] textarea,
 .document-block[data-kind="checklist"] textarea {
-  padding-left: 19px;
-  background-image: linear-gradient(var(--line-soft), var(--line-soft));
-  background-position: 11px 15px;
-  background-repeat: repeat-y;
-  background-size: 1px 1.75em;
+    padding-left: 19px;
+    background-image: linear-gradient(var(--line-soft), var(--line-soft));
+    background-position: 11px 15px;
+    background-repeat: repeat-y;
+    background-size: 1px 1.75em;
 }
 
 .document-editor-empty {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  min-height: 74px;
-  padding: 12px;
-  border: 1px dashed var(--line);
-  border-radius: 8px;
-  color: var(--muted);
-  background: color-mix(in srgb, var(--surface) 65%, transparent);
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    min-height: 74px;
+    padding: 12px;
+    border: 1px dashed var(--line);
+    border-radius: 8px;
+    color: var(--muted);
+    background: color-mix(in srgb, var(--surface) 65%, transparent);
 }
 
 .document-editor-empty > span {
-  width: 25px;
-  height: 25px;
-  display: grid;
-  place-items: center;
-  border-radius: 50%;
-  color: var(--accent);
-  background: var(--surface);
-  font-size: 15px;
+    width: 25px;
+    height: 25px;
+    display: grid;
+    place-items: center;
+    border-radius: 50%;
+    color: var(--accent);
+    background: var(--surface);
+    font-size: 15px;
 }
 
 .document-editor-empty p,
 .document-editor-footnote {
-  margin: 0;
-  color: var(--faint);
-  font-size: 8px;
-  line-height: 1.5;
+    margin: 0;
+    color: var(--faint);
+    font-size: 8px;
+    line-height: 1.5;
 }
 
 .document-editor-footnote {
-  padding: 0 2px;
+    padding: 0 2px;
 }
 
 @media (max-width: 520px) {
-  .document-editor {
-    padding: 8px;
-  }
+    .document-editor {
+        padding: 8px;
+    }
 
-  .document-editor-toolbar {
-    align-items: flex-start;
-    flex-direction: column;
-  }
+    .document-editor-toolbar {
+        align-items: flex-start;
+        flex-direction: column;
+    }
 
-  .document-editor-add {
-    width: 100%;
-  }
+    .document-editor-add {
+        width: 100%;
+    }
 
-  .document-editor-tools {
-    margin-left: 0;
-  }
+    .document-editor-tools {
+        margin-left: 0;
+    }
 
-  .document-editor-add select {
-    max-width: none;
-    flex: 1;
-  }
+    .document-editor-add select {
+        max-width: none;
+        flex: 1;
+    }
 }
 .document-find {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: end;
-  gap: 0.5rem;
-  padding: 0.75rem;
-  border-bottom: 1px solid var(--line);
-  background: var(--surface-subtle);
+    display: flex;
+    flex-wrap: wrap;
+    align-items: end;
+    gap: 0.5rem;
+    padding: 0.75rem;
+    border-bottom: 1px solid var(--line);
+    background: var(--surface-subtle);
 }
 
 .document-find label {
-  display: grid;
-  gap: 0.25rem;
-  flex: 1 1 10rem;
-  color: var(--muted);
-  font-size: 0.75rem;
+    display: grid;
+    gap: 0.25rem;
+    flex: 1 1 10rem;
+    color: var(--muted);
+    font-size: 0.75rem;
 }
 
 .document-find input {
-  min-width: 0;
-  padding: 0.4rem 0.5rem;
-  border: 1px solid var(--line-strong);
-  border-radius: var(--radius);
-  color: var(--ink);
-  background: var(--surface);
+    min-width: 0;
+    padding: 0.4rem 0.5rem;
+    border: 1px solid var(--line-strong);
+    border-radius: var(--radius);
+    color: var(--ink);
+    background: var(--surface);
 }
 
 .document-find button {
-  padding: 0.4rem 0.6rem;
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  color: var(--ink);
-  background: var(--surface);
+    padding: 0.4rem 0.6rem;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    color: var(--ink);
+    background: var(--surface);
 }
 
 .document-find button:disabled {
-  opacity: 0.5;
+    opacity: 0.5;
 }
