@@ -203,12 +203,22 @@ async function persistRecovery(
   const records: ArchiveRecord[] = [{ ...session, fields: sessionFields }];
   if (takeId) {
     const take = await snapshot.getRecord(RecordType.assetMetadata, takeId);
-    if (!take || take.fields.get("record_role") !== "recording-take" || take.fields.get("_deleted") === "true") {
-      throw new ArchiveFormatError("recording_take_not_found", "Audio recovery metadata has no active recording take.");
+    if (
+      !take ||
+      take.fields.get("record_role") !== "recording-take" ||
+      take.fields.get("_deleted") === "true"
+    ) {
+      throw new ArchiveFormatError(
+        "recording_take_not_found",
+        "Audio recovery metadata has no active recording take.",
+      );
     }
     const takeFields = new Map(take.fields);
     takeFields.set("state", completed ? "completed" : summary.chunks === 0 ? "failed" : "partial");
-    takeFields.set("duration_us", samplesToMicroseconds(summary.samples, summary.sampleRate).toString());
+    takeFields.set(
+      "duration_us",
+      samplesToMicroseconds(summary.samples, summary.sampleRate).toString(),
+    );
     takeFields.set("ended_at_us", now);
     takeFields.set("updated_at_us", now);
     records.push({ ...take, fields: takeFields });
