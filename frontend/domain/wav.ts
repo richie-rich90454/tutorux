@@ -1,15 +1,18 @@
 import { crc32, newUuid, RecordType, type ArchiveRecord } from "../archive/format";
 
-export const MAX_WAVE_IMPORT_BYTES = 256 * 1024 * 1024;
 const MAX_AUDIO_CHUNK_BYTES = 1024 * 1024;
 const MAX_FORMAT_CHUNK_BYTES = 1024 * 1024;
+const CHUNKS_PER_COMMIT = 8;
 const U64_MAX = 18_446_744_073_709_551_615n;
+const UUID_PATTERN = /^[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}$/u;
 const encoder = new TextEncoder();
 
 export interface WaveFile {
   readonly name: string;
   readonly size: number;
   slice(start?: number, end?: number): Blob;
+  /** Optional bounded range reader for large files that must not be loaded at once. */
+  readRange?(offset: number, length: number): Promise<Uint8Array>;
 }
 
 export interface WaveImportResult {
@@ -30,6 +33,21 @@ export interface WaveImportSourceMetadata {
   sourceCodec?: string;
 }
 
+export interface WaveImportCommit {
+  (records: readonly ArchiveRecord[], expectedGeneration: bigint): Promise<ArchiveRecord[]>;
+}
+
+export interface IncrementalWaveImportOptions {
+  session: ArchiveRecord;
+  file: WaveFile;
+  allowAdditionalTrack?: boolean;
+  knownTrackIds?: readonly string[];
+  sourceMetadata?: WaveImportSourceMetadata;
+  expectedGeneration: bigint;
+  commit: WaveImportCommit;
+  chunksPerCommit?: number;
+}
+
 interface DataRange {
   offset: number;
   length: number;
@@ -47,6 +65,30 @@ interface WaveFormat {
   dataBytes: number;
 }
 
+interface WaveImportPlan {
+  session: ArchiveRecord;
+  sessionId: string;
+  format: WaveFormat;
+  filename: string;
+  sourceCodec: string;
+  trackId: string;
+  takeId: string;
+  timestamp: string;
+  sampleCount: bigint;
+  durationUs: bigint;
+  alignedChunkBytes: number;
+  chunksPerCommit: number;
+  expectedChunks: number;
+  linkedTrackIds: string[];
+  priorTrackIds: Set<string>;
+}
+
+interface ImportCounters {
+  chunks: number;
+  samples: bigint;
+  bytes: bigint;
+}
+
 /** Import PCM WAV bytes as legacy-compatible, independently checksummed archive audio chunks. */
 export async function makeWaveImportRecords(
   session: ArchiveRecord,
@@ -55,11 +97,120 @@ export async function makeWaveImportRecords(
   knownTrackIds: readonly string[] = [],
   sourceMetadata: WaveImportSourceMetadata = {},
 ): Promise<WaveImportResult> {
+  const plan = await prepareWaveImport(
+    session,
+    file,
+    allowAdditionalTrack,
+    knownTrackIds,
+    sourceMetadata,
+  );
+  const chunks: ArchiveRecord[] = [];
+  let imported: ImportCounters = { chunks: 0, samples: 0n, bytes: 0n };
+  for await (const batch of waveChunkBatches(file, plan)) {
+    chunks.push(...batch.records);
+    imported = batch.counters;
+  }
+  verifyImportedCount(plan, imported);
+  const finalRecords = makeWaveImportFinalRecords(plan, imported);
+  return {
+    records: [...chunks, ...finalRecords],
+    trackId: plan.trackId,
+    takeId: plan.takeId,
+    sampleRateHz: plan.format.sampleRateHz,
+    channelCount: plan.format.channelCount,
+    sampleFormat: plan.format.sampleFormat,
+    sampleCount: plan.sampleCount,
+    chunkCount: imported.chunks,
+    durationUs: plan.durationUs,
+    byteCount: plan.format.dataBytes,
+  };
+}
+
+/**
+ * Stream a WAV import in bounded batches, committing each batch before reading the next.
+ * Committed chunks survive a late failure and the session records enough state to recover.
+ */
+export async function makeWaveImportRecordsIncremental(
+  options: IncrementalWaveImportOptions,
+): Promise<WaveImportResult> {
+  const plan = await prepareWaveImport(
+    options.session,
+    options.file,
+    options.allowAdditionalTrack ?? false,
+    options.knownTrackIds ?? [],
+    options.sourceMetadata ?? {},
+    options.chunksPerCommit,
+  );
+  let generation = options.expectedGeneration;
+  let imported: ImportCounters = { chunks: 0, samples: 0n, bytes: 0n };
+  let session = options.session;
+  const commit = async (records: readonly ArchiveRecord[]): Promise<ArchiveRecord[]> => {
+    const saved = await options.commit(records, generation);
+    generation += 1n;
+    const savedSession = saved.find(
+      (record) =>
+        record.type === RecordType.session &&
+        record.id.toLowerCase() === options.session.id.toLowerCase(),
+    );
+    if (savedSession) session = savedSession;
+    return saved;
+  };
+
+  await commit(makeWaveImportStartRecords(plan));
+  try {
+    for await (const batch of waveChunkBatches(options.file, plan)) {
+      await commit([
+        ...batch.records,
+        makeRecord(
+          RecordType.assetMetadata,
+          plan.trackId,
+          makeTrackFields(plan, batch.counters, "importing"),
+        ),
+        makeWaveImportProgressRecord(plan, session, batch.counters),
+      ]);
+      imported = batch.counters;
+    }
+    verifyImportedCount(plan, imported);
+    await commit(makeWaveImportFinalRecords(plan, imported));
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    try {
+      await commit(makeWaveImportInterruptedRecords(plan, session, imported, message));
+    } catch (persistError) {
+      const detail = persistError instanceof Error ? persistError.message : String(persistError);
+      throw new Error(`${message} Unable to persist interrupted state: ${detail}`, {
+        cause: persistError,
+      });
+    }
+    throw error;
+  }
+  return {
+    records: [],
+    trackId: plan.trackId,
+    takeId: plan.takeId,
+    sampleRateHz: plan.format.sampleRateHz,
+    channelCount: plan.format.channelCount,
+    sampleFormat: plan.format.sampleFormat,
+    sampleCount: plan.sampleCount,
+    chunkCount: imported.chunks,
+    durationUs: plan.durationUs,
+    byteCount: plan.format.dataBytes,
+  };
+}
+
+async function prepareWaveImport(
+  session: ArchiveRecord,
+  file: WaveFile,
+  allowAdditionalTrack: boolean,
+  knownTrackIds: readonly string[],
+  sourceMetadata: WaveImportSourceMetadata,
+  chunksPerCommit = CHUNKS_PER_COMMIT,
+): Promise<WaveImportPlan> {
   if (session.type !== RecordType.session || session.fields.get("_deleted") === "true") {
     throw new Error("Choose an active tutoring session before importing audio.");
   }
-  if (!Number.isSafeInteger(file.size) || file.size < 12 || file.size > MAX_WAVE_IMPORT_BYTES) {
-    throw new Error("WAV files must be between 12 bytes and 256 MiB in this version.");
+  if (!Number.isSafeInteger(file.size) || file.size < 12) {
+    throw new Error("The WAV file size is invalid.");
   }
   const state = session.fields.get("recording_state") ?? "";
   if (["initializing", "recording", "paused", "finalizing"].includes(state)) {
@@ -82,58 +233,6 @@ export async function makeWaveImportRecords(
   const timestamp = (BigInt(Date.now()) * 1_000n).toString();
   const trackId = newUuid();
   const takeId = newUuid();
-  const alignedChunkBytes =
-    Math.floor(MAX_AUDIO_CHUNK_BYTES / format.blockAlign) * format.blockAlign;
-  const records: ArchiveRecord[] = [];
-  let sequence = 0;
-  let firstSample = 0n;
-
-  for (const range of format.dataRanges) {
-    for (let rangeOffset = 0; rangeOffset < range.length;) {
-      const chunkLength = Math.min(alignedChunkBytes, range.length - rangeOffset);
-      const raw = new Uint8Array(
-        await file
-          .slice(range.offset + rangeOffset, range.offset + rangeOffset + chunkLength)
-          .arrayBuffer(),
-      );
-      if (
-        raw.byteLength !== chunkLength ||
-        raw.byteLength === 0 ||
-        raw.byteLength % format.blockAlign
-      ) {
-        throw new Error("The WAV source changed or contains an incomplete sample frame.");
-      }
-      const frameCount = BigInt(raw.byteLength / format.blockAlign);
-      const nextSample = firstSample + frameCount;
-      if (nextSample > U64_MAX) throw new Error("The WAV sample timeline exceeds archive limits.");
-      const chunkFields = new Map<string, string>([
-        ["session_id", session.id.toLowerCase()],
-        ["track_id", trackId],
-        ["sequence_number", String(sequence)],
-        ["first_sample_index", firstSample.toString()],
-        ["sample_count", frameCount.toString()],
-        ["timeline_start_us", samplesToMicroseconds(firstSample, format.sampleRateHz).toString()],
-        ["timeline_end_us", samplesToMicroseconds(nextSample, format.sampleRateHz).toString()],
-        ["sample_format", format.sampleFormat],
-        ["sample_rate_hz", String(format.sampleRateHz)],
-        ["channel_count", String(format.channelCount)],
-        ["channel_mask", String(format.channelMask)],
-        ["codec", "none"],
-        ["source_codec", sourceCodec],
-        ["payload_checksum", String(crc32(raw))],
-        ["source_filename", filename],
-      ]);
-      records.push(makeRecord(RecordType.audioChunk, newUuid(), chunkFields, raw));
-      sequence += 1;
-      firstSample = nextSample;
-      rangeOffset += chunkLength;
-    }
-  }
-
-  if (firstSample !== sampleCount || sequence === 0) {
-    throw new Error("The WAV sample count changed during import.");
-  }
-
   const priorTrackIds = new Set<string>();
   for (const value of [
     session.fields.get("recording_track_ids"),
@@ -142,121 +241,297 @@ export async function makeWaveImportRecords(
   ]) {
     for (const id of (value ?? "").split(",")) {
       const normalized = id.trim().toLowerCase();
-      if (/^[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}$/u.test(normalized)) {
-        priorTrackIds.add(normalized);
-      }
+      if (UUID_PATTERN.test(normalized)) priorTrackIds.add(normalized);
     }
   }
   for (const id of knownTrackIds) {
     const normalized = id.trim().toLowerCase();
-    if (/^[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}$/u.test(normalized)) {
-      priorTrackIds.add(normalized);
-    }
+    if (UUID_PATTERN.test(normalized)) priorTrackIds.add(normalized);
   }
   const linkedTrackIds = [...priorTrackIds];
   if (!linkedTrackIds.includes(trackId)) linkedTrackIds.push(trackId);
-  const startedAtUs = timestamp;
-  const trackFields = new Map<string, string>([
-    ["record_role", "audio-track"],
-    ["session_id", session.id.toLowerCase()],
-    ["track_id", trackId],
-    ["recording_take_id", takeId],
-    ["label", filename],
-    ["source", "imported-file"],
-    ["state", "completed"],
-    ["message", ""],
-    ["sample_format", format.sampleFormat],
-    ["sample_rate_hz", String(format.sampleRateHz)],
-    ["channel_count", String(format.channelCount)],
-    ["channel_mask", String(format.channelMask)],
-    ["sample_count", sampleCount.toString()],
-    ["timeline_sample_count", sampleCount.toString()],
-    ["duration_us", durationUs.toString()],
-    ["chunk_count", String(sequence)],
-    ["byte_count", String(format.dataBytes)],
-    ["source_filename", filename],
-    ["updated_at_us", timestamp],
-  ]);
-  records.push(makeRecord(RecordType.assetMetadata, trackId, trackFields));
-  records.push(
-    makeRecord(
-      RecordType.assetMetadata,
-      takeId,
-      new Map([
-        ["record_role", "recording-take"],
-        ["session_id", session.id.toLowerCase()],
-        ["label", filename],
-        ["source", "imported-file"],
-        ["state", "completed"],
-        ["track_ids", trackId],
-        ["started_at_us", startedAtUs],
-        ["ended_at_us", timestamp],
-        ["duration_us", durationUs.toString()],
-        ["created_at_us", timestamp],
-        ["updated_at_us", timestamp],
-      ]),
-    ),
+  const alignedChunkBytes =
+    Math.floor(MAX_AUDIO_CHUNK_BYTES / format.blockAlign) * format.blockAlign;
+  const expectedChunks = format.dataRanges.reduce(
+    (total, range) => total + Math.ceil(range.length / alignedChunkBytes),
+    0,
   );
-
-  const sessionFields = new Map(session.fields);
-  sessionFields.set("recording_track_ids", linkedTrackIds.join(","));
-  sessionFields.set("recording_track_count", String(linkedTrackIds.length));
-  if (!sessionFields.get("recording_track_id")) sessionFields.set("recording_track_id", trackId);
-  if (priorTrackIds.size === 0) {
-    sessionFields.set("recording_source", "imported-file");
-    sessionFields.set("recording_sample_format", format.sampleFormat);
-    sessionFields.set("recording_sample_rate_hz", String(format.sampleRateHz));
-    sessionFields.set("recording_channel_count", String(format.channelCount));
-    sessionFields.set("recording_channel_mask", String(format.channelMask));
-    sessionFields.set("recording_started_at_us", timestamp);
-    sessionFields.set("recording_samples", sampleCount.toString());
-    sessionFields.set("recording_timeline_samples", sampleCount.toString());
-    sessionFields.set("recording_bytes", String(format.dataBytes));
-    sessionFields.set("recording_audio_chunks", String(sequence));
-  } else {
-    sessionFields.set(
-      "recording_audio_chunks",
-      (safeCount(sessionFields.get("recording_audio_chunks")) + sequence).toString(),
-    );
-    sessionFields.set(
-      "recording_bytes",
-      (safeCount(sessionFields.get("recording_bytes")) + format.dataBytes).toString(),
-    );
-  }
-  const priorDuration = safeBigInt(sessionFields.get("recording_duration_us"));
-  if (durationUs > priorDuration) sessionFields.set("recording_duration_us", durationUs.toString());
-  sessionFields.set("recording_state", "completed");
-  sessionFields.set("recording_ended_at_us", timestamp);
-  sessionFields.set("audio_import_track_id", trackId);
-  sessionFields.set("audio_import_take_id", takeId);
-  sessionFields.set("audio_import_expected_chunks", String(sequence));
-  sessionFields.set("audio_import_expected_samples", sampleCount.toString());
-  sessionFields.set("audio_import_expected_bytes", String(format.dataBytes));
-  sessionFields.set("audio_import_sample_rate_hz", String(format.sampleRateHz));
-  sessionFields.set("audio_import_channel_count", String(format.channelCount));
-  sessionFields.set("audio_import_channel_mask", String(format.channelMask));
-  sessionFields.set("audio_import_sample_format", format.sampleFormat);
-  sessionFields.set("audio_import_source_codec", sourceCodec);
-  sessionFields.set("audio_import_bytes", String(format.dataBytes));
-  sessionFields.set("audio_chunks_imported", String(sequence));
-  sessionFields.set("audio_samples_imported", sampleCount.toString());
-  sessionFields.set("audio_import_state", "completed");
-  sessionFields.set("audio_imported_at_us", timestamp);
-  sessionFields.set("updated_at_us", timestamp);
-  records.push({ ...session, fields: sessionFields });
-
   return {
-    records,
+    session,
+    sessionId: session.id.toLowerCase(),
+    format,
+    filename,
+    sourceCodec,
     trackId,
     takeId,
-    sampleRateHz: format.sampleRateHz,
-    channelCount: format.channelCount,
-    sampleFormat: format.sampleFormat,
+    timestamp,
     sampleCount,
-    chunkCount: sequence,
     durationUs,
-    byteCount: format.dataBytes,
+    alignedChunkBytes,
+    chunksPerCommit: Math.max(1, Math.min(64, chunksPerCommit)),
+    expectedChunks,
+    linkedTrackIds,
+    priorTrackIds,
   };
+}
+
+async function* waveChunkBatches(
+  file: WaveFile,
+  plan: WaveImportPlan,
+): AsyncGenerator<{ records: ArchiveRecord[]; counters: ImportCounters }> {
+  let sequence = 0;
+  let firstSample = 0n;
+  let pending: ArchiveRecord[] = [];
+  for (const range of plan.format.dataRanges) {
+    for (let rangeOffset = 0; rangeOffset < range.length;) {
+      const chunkLength = Math.min(plan.alignedChunkBytes, range.length - rangeOffset);
+      const raw = await readRange(file, range.offset + rangeOffset, chunkLength);
+      if (
+        raw.byteLength !== chunkLength ||
+        raw.byteLength === 0 ||
+        raw.byteLength % plan.format.blockAlign
+      ) {
+        throw new Error("The WAV source changed or contains an incomplete sample frame.");
+      }
+      const frameCount = BigInt(raw.byteLength / plan.format.blockAlign);
+      const nextSample = firstSample + frameCount;
+      if (nextSample > U64_MAX) throw new Error("The WAV sample timeline exceeds archive limits.");
+      const chunkFields = new Map<string, string>([
+        ["session_id", plan.sessionId],
+        ["track_id", plan.trackId],
+        ["sequence_number", String(sequence)],
+        ["first_sample_index", firstSample.toString()],
+        ["sample_count", frameCount.toString()],
+        [
+          "timeline_start_us",
+          samplesToMicroseconds(firstSample, plan.format.sampleRateHz).toString(),
+        ],
+        ["timeline_end_us", samplesToMicroseconds(nextSample, plan.format.sampleRateHz).toString()],
+        ["sample_format", plan.format.sampleFormat],
+        ["sample_rate_hz", String(plan.format.sampleRateHz)],
+        ["channel_count", String(plan.format.channelCount)],
+        ["channel_mask", String(plan.format.channelMask)],
+        ["codec", "none"],
+        ["source_codec", plan.sourceCodec],
+        ["payload_checksum", String(crc32(raw))],
+        ["source_filename", plan.filename],
+      ]);
+      pending.push(makeRecord(RecordType.audioChunk, newUuid(), chunkFields, new Uint8Array(raw)));
+      sequence += 1;
+      firstSample = nextSample;
+      rangeOffset += chunkLength;
+      if (pending.length >= plan.chunksPerCommit) {
+        yield {
+          records: pending,
+          counters: {
+            chunks: sequence,
+            samples: firstSample,
+            bytes: firstSample * BigInt(plan.format.blockAlign),
+          },
+        };
+        pending = [];
+      }
+    }
+  }
+  if (pending.length) {
+    yield {
+      records: pending,
+      counters: {
+        chunks: sequence,
+        samples: firstSample,
+        bytes: firstSample * BigInt(plan.format.blockAlign),
+      },
+    };
+  }
+}
+
+function makeWaveImportStartRecords(plan: WaveImportPlan): ArchiveRecord[] {
+  const timestamp = plan.timestamp;
+  const trackFields = makeTrackFields(plan, { chunks: 0, samples: 0n, bytes: 0n }, "importing");
+  const takeFields = makeTakeFields(plan, "importing", 0n);
+  const sessionFields = makeSessionImportFields(plan, {
+    chunks: 0,
+    samples: 0n,
+    bytes: 0n,
+  });
+  sessionFields.set("recording_state", "recording");
+  sessionFields.set("audio_import_state", "importing");
+  sessionFields.set("audio_import_error", "");
+  sessionFields.delete("audio_imported_at_us");
+  sessionFields.set("updated_at_us", timestamp);
+  return [
+    makeRecord(RecordType.assetMetadata, plan.trackId, trackFields),
+    makeRecord(RecordType.assetMetadata, plan.takeId, takeFields),
+    { ...plan.session, fields: sessionFields },
+  ];
+}
+
+function makeWaveImportProgressRecord(
+  plan: WaveImportPlan,
+  session: ArchiveRecord,
+  counters: ImportCounters,
+): ArchiveRecord {
+  const fields = makeSessionImportFields(plan, counters);
+  fields.set("recording_state", "recording");
+  fields.set("audio_import_state", "importing");
+  fields.set("audio_import_error", "");
+  fields.set("updated_at_us", (BigInt(Date.now()) * 1_000n).toString());
+  return { ...session, fields };
+}
+
+function makeWaveImportFinalRecords(
+  plan: WaveImportPlan,
+  counters: ImportCounters,
+): ArchiveRecord[] {
+  const trackFields = makeTrackFields(plan, counters, "completed");
+  const takeFields = makeTakeFields(plan, "completed", plan.durationUs);
+  const sessionFields = makeSessionImportFields(plan, counters);
+  sessionFields.set("recording_state", "completed");
+  sessionFields.set("audio_import_state", "completed");
+  sessionFields.set("audio_import_error", "");
+  sessionFields.set("audio_imported_at_us", plan.timestamp);
+  sessionFields.set("recording_ended_at_us", plan.timestamp);
+  sessionFields.set("updated_at_us", plan.timestamp);
+  return [
+    makeRecord(RecordType.assetMetadata, plan.trackId, trackFields),
+    makeRecord(RecordType.assetMetadata, plan.takeId, takeFields),
+    { ...plan.session, fields: sessionFields },
+  ];
+}
+
+function makeWaveImportInterruptedRecords(
+  plan: WaveImportPlan,
+  session: ArchiveRecord,
+  counters: ImportCounters,
+  reason: string,
+): ArchiveRecord[] {
+  const fields = makeSessionImportFields(plan, counters, session);
+  fields.set("recording_state", "interrupted");
+  fields.set("audio_import_state", "interrupted");
+  fields.set("audio_import_error", reason);
+  fields.delete("audio_imported_at_us");
+  fields.set("updated_at_us", (BigInt(Date.now()) * 1_000n).toString());
+  const takeFields = makeTakeFields(
+    plan,
+    counters.chunks === 0 ? "failed" : "partial",
+    samplesToMicroseconds(counters.samples, plan.format.sampleRateHz),
+  );
+  return [
+    makeRecord(
+      RecordType.assetMetadata,
+      plan.trackId,
+      makeTrackFields(plan, counters, counters.chunks === 0 ? "failed" : "partial"),
+    ),
+    makeRecord(RecordType.assetMetadata, plan.takeId, takeFields),
+    { ...session, fields },
+  ];
+}
+
+function makeTrackFields(
+  plan: WaveImportPlan,
+  counters: ImportCounters,
+  state: string,
+): Map<string, string> {
+  return new Map<string, string>([
+    ["record_role", "audio-track"],
+    ["session_id", plan.sessionId],
+    ["track_id", plan.trackId],
+    ["recording_take_id", plan.takeId],
+    ["label", plan.filename],
+    ["source", "imported-file"],
+    ["state", state],
+    ["message", ""],
+    ["sample_format", plan.format.sampleFormat],
+    ["sample_rate_hz", String(plan.format.sampleRateHz)],
+    ["channel_count", String(plan.format.channelCount)],
+    ["channel_mask", String(plan.format.channelMask)],
+    ["sample_count", counters.samples.toString()],
+    ["timeline_sample_count", counters.samples.toString()],
+    ["duration_us", samplesToMicroseconds(counters.samples, plan.format.sampleRateHz).toString()],
+    ["chunk_count", String(counters.chunks)],
+    ["byte_count", counters.bytes.toString()],
+    ["source_filename", plan.filename],
+    ["updated_at_us", plan.timestamp],
+  ]);
+}
+
+function makeTakeFields(
+  plan: WaveImportPlan,
+  state: string,
+  durationUs: bigint,
+): Map<string, string> {
+  return new Map<string, string>([
+    ["record_role", "recording-take"],
+    ["session_id", plan.sessionId],
+    ["label", plan.filename],
+    ["source", "imported-file"],
+    ["state", state],
+    ["track_ids", plan.trackId],
+    ["started_at_us", plan.timestamp],
+    ["ended_at_us", state === "completed" ? plan.timestamp : ""],
+    ["duration_us", durationUs.toString()],
+    ["created_at_us", plan.timestamp],
+    ["updated_at_us", plan.timestamp],
+  ]);
+}
+
+function makeSessionImportFields(
+  plan: WaveImportPlan,
+  counters: ImportCounters,
+  session: ArchiveRecord = plan.session,
+): Map<string, string> {
+  const fields = new Map(session.fields);
+  fields.set("recording_track_ids", plan.linkedTrackIds.join(","));
+  fields.set("recording_track_count", String(plan.linkedTrackIds.length));
+  if (!fields.get("recording_track_id")) fields.set("recording_track_id", plan.trackId);
+  if (plan.priorTrackIds.size === 0) {
+    fields.set("recording_source", "imported-file");
+    fields.set("recording_sample_format", plan.format.sampleFormat);
+    fields.set("recording_sample_rate_hz", String(plan.format.sampleRateHz));
+    fields.set("recording_channel_count", String(plan.format.channelCount));
+    fields.set("recording_channel_mask", String(plan.format.channelMask));
+    fields.set("recording_started_at_us", plan.timestamp);
+    fields.set("recording_samples", counters.samples.toString());
+    fields.set("recording_timeline_samples", counters.samples.toString());
+    fields.set("recording_bytes", counters.bytes.toString());
+    fields.set("recording_audio_chunks", String(counters.chunks));
+  } else {
+    fields.set(
+      "recording_audio_chunks",
+      (safeCount(session.fields.get("recording_audio_chunks")) + counters.chunks).toString(),
+    );
+    fields.set(
+      "recording_bytes",
+      (safeBigInt(session.fields.get("recording_bytes")) + counters.bytes).toString(),
+    );
+  }
+  const priorDuration = safeBigInt(session.fields.get("recording_duration_us"));
+  const duration = samplesToMicroseconds(counters.samples, plan.format.sampleRateHz);
+  if (duration > priorDuration) fields.set("recording_duration_us", duration.toString());
+  fields.set("audio_import_track_id", plan.trackId);
+  fields.set("audio_import_take_id", plan.takeId);
+  fields.set("audio_import_expected_chunks", String(plan.expectedChunks));
+  fields.set("audio_import_expected_samples", plan.sampleCount.toString());
+  fields.set("audio_import_expected_bytes", String(plan.format.dataBytes));
+  fields.set("audio_import_sample_rate_hz", String(plan.format.sampleRateHz));
+  fields.set("audio_import_channel_count", String(plan.format.channelCount));
+  fields.set("audio_import_channel_mask", String(plan.format.channelMask));
+  fields.set("audio_import_sample_format", plan.format.sampleFormat);
+  fields.set("audio_import_source_codec", plan.sourceCodec);
+  fields.set("audio_import_bytes", counters.bytes.toString());
+  fields.set("audio_chunks_imported", String(counters.chunks));
+  fields.set("audio_samples_imported", counters.samples.toString());
+  return fields;
+}
+
+function verifyImportedCount(plan: WaveImportPlan, counters: ImportCounters): void {
+  if (
+    counters.chunks !== plan.expectedChunks ||
+    counters.samples !== plan.sampleCount ||
+    counters.bytes !== BigInt(plan.format.dataBytes)
+  ) {
+    throw new Error("The WAV sample count changed during import.");
+  }
 }
 
 async function inspectWave(file: WaveFile): Promise<WaveFormat> {
@@ -340,8 +615,8 @@ async function inspectWave(file: WaveFile): Promise<WaveFormat> {
     } else if (chunkName === "data" && chunkLength > 0) {
       dataRanges.push({ offset: payloadOffset, length: chunkLength });
       dataBytes += chunkLength;
-      if (dataBytes > MAX_WAVE_IMPORT_BYTES) {
-        throw new Error("WAV audio data is larger than the 256 MiB import limit.");
+      if (!Number.isSafeInteger(dataBytes)) {
+        throw new Error("WAV audio data exceeds the supported file range.");
       }
     }
     cursor = payloadOffset + paddedLength;
@@ -370,7 +645,9 @@ async function readRange(file: WaveFile, offset: number, length: number): Promis
   ) {
     throw new Error("The WAV file ended before the requested data could be read.");
   }
-  const bytes = new Uint8Array(await file.slice(offset, end).arrayBuffer());
+  const bytes = file.readRange
+    ? await file.readRange(offset, length)
+    : new Uint8Array(await file.slice(offset, end).arrayBuffer());
   if (bytes.byteLength !== length) throw new Error("The WAV file changed during import.");
   return bytes;
 }
