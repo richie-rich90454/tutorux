@@ -1,14 +1,14 @@
 import { randomUUID } from "node:crypto";
 import { RecordType } from "../../frontend/archive/format";
 import {
-  GUIDE_TEMPLATES,
   approveGuideRecord,
   generateGuideDraftFromEntry,
   generateGuideDraftFromSession,
   guideRecordsWithEntryLinks,
+  guideRegenerationTarget,
   makeGuideRecord,
+  resolveGuideTemplates,
 } from "../../frontend/domain/guides";
-import { guideTemplateFromRecord } from "../../frontend/domain/templates";
 import { mutateArchive } from "./archive-io";
 import { guideBlock, guideIndex, readGuideContext, updateGuideBlock } from "./guide-helpers";
 import { CliError, emit, field, parseBoundedOption, requiredOption } from "./shared";
@@ -27,14 +27,7 @@ export async function guideEditAction(
   const { current, draft, scope } = context;
   if (action === "regenerate") {
     const students = scope.records.filter((item) => item.type === RecordType.student);
-    const customTemplates = scope.records
-      .filter(
-        (item) =>
-          item.type === RecordType.settings &&
-          field(item, "record_role") === "guide-template" &&
-          !field(item, "builtin_template_id"),
-      )
-      .map(guideTemplateFromRecord);
+    const templates = resolveGuideTemplates(scope.records);
     const entryNoteIds = new Set(
       scope.records
         .filter(
@@ -56,7 +49,6 @@ export async function guideEditAction(
     const includeEntryEvidence =
       args.flags.has("include-entry-evidence") ||
       (!args.flags.has("session-only") && alreadyIncludesEntryNotes);
-    const templates = [...GUIDE_TEMPLATES, ...customTemplates];
     const regenerated = scope.session
       ? generateGuideDraftFromSession(
           scope.session,
@@ -91,7 +83,7 @@ export async function guideEditAction(
       replacement = draft;
     }
     replacement.title = args.options.get("title") ?? draft.title;
-    const previous = field(current, "approval_state") === "approved" ? null : current;
+    const previous = guideRegenerationTarget(current);
     const updated = makeGuideRecord(replacement, scope, previous);
     const saved =
       (
@@ -152,8 +144,9 @@ export async function guideEditAction(
       updateGuideBlock(block, args);
       changed = true;
     }
+    if (args.options.has("approval-state")) changed = true;
     if (!changed)
-      throw new CliError("Provide a title, heading, or block change to update a guide.");
+      throw new CliError("Provide a title, heading, block, or approval-state change to update a guide.");
   } else if (action === "add-section" || action === "section") {
     const heading = requiredOption(args, "heading");
     const blocks = args.options.has("text")
@@ -246,7 +239,16 @@ export async function guideEditAction(
     throw new CliError(`guide ${action} is not implemented in the TypeScript CLI yet.`);
   }
 
-  const updated = makeGuideRecord(draft, scope, current);
+  let updated = makeGuideRecord(draft, scope, current);
+  if (args.options.has("approval-state")) {
+    const state = args.options.get("approval-state")!;
+    if (!["draft", "proposed", "approved"].includes(state)) {
+      throw new CliError("--approval-state must be draft, proposed, or approved.");
+    }
+    const fields = new Map(updated.fields);
+    fields.set("approval_state", state);
+    updated = { ...updated, fields };
+  }
   const saved =
     (await mutateArchive(path, guideRecordsWithEntryLinks(updated, current, scope.records)))[0] ??
     updated;
