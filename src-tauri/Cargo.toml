@@ -11,6 +11,7 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 base64 = "0.23"
+tutorux-archive-lock = { path = "../native-archive-lock" }
 reqwest = { version = "0.13.5", default-features = false, features = ["rustls", "stream", "system-proxy"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -20,11 +21,28 @@ tauri-plugin-dialog = "2"
 tauri-plugin-fs = "2"
 tauri-plugin-single-instance = "2.5.4"
 keyring = "4.2.0"
+libc = "0.2.191"
 llama-cpp-2 = "=0.1.160"
 uuid = { version = "1", features = ["v4"] }
 zeroize = "1.8"
 encoding_rs = "0.8.35"
 whisper-rs = { version = "=0.16.0", default-features = false }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+cpal = {
+    version = "0.18.2",
+    default-features = false,
+    features = ["pipewire"],
+}
+
+[target.'cfg(any(target_os = "windows", target_os = "linux"))'.dependencies]
+flexaudio = "0.8"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+screencapturekit = { version = "11.1.1", features = ["macos_14_0"] }
+
+[target.'cfg(not(target_os = "linux"))'.dependencies]
+cpal = "0.18.2"
 
 [features]
 custom-protocol = ["tauri/custom-protocol"]
