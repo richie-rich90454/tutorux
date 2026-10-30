@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { appendRecords, createArchiveBytes, openArchiveBytes } from "../archive/archive";
 import { RecordType, type ArchiveRecord } from "../archive/format";
 import { buildAudioPreview } from "./audio";
-import { makeWaveImportRecords } from "./wav";
+import { makeWaveImportRecords, makeWaveImportRecordsIncremental } from "./wav";
 
 describe("legacy-compatible WAV import", () => {
   it("imports multiple data chunks and plays them in their original order", async () => {
@@ -77,6 +77,85 @@ describe("legacy-compatible WAV import", () => {
       `${existingTrackId},${imported.trackId}`,
     );
     expect(updatedSession.fields.get("recording_track_count")).toBe("2");
+  });
+
+  it("commits WAV chunks incrementally and preserves earlier batches after a read failure", async () => {
+    const session = makeSession();
+    const file = makeWaveFile(
+      [pcm16([100, 200]), pcm16([300, 400])],
+      { sampleFormat: "pcm_s16le" },
+      "streamed.wav",
+    );
+    const secondPayloadOffset = 56;
+    const readFailure = new Error("simulated source read failure");
+    const streamed = {
+      name: file.name,
+      size: file.size,
+      slice: (start?: number, end?: number) => file.slice(start, end),
+      readRange: async (offset: number, length: number) => {
+        if (offset >= secondPayloadOffset) throw readFailure;
+        return new Uint8Array(await file.slice(offset, offset + length).arrayBuffer());
+      },
+    };
+    const commits: { generation: bigint; records: readonly ArchiveRecord[] }[] = [];
+    await expect(
+      makeWaveImportRecordsIncremental({
+        session,
+        file: streamed,
+        expectedGeneration: 7n,
+        chunksPerCommit: 1,
+        commit: async (records, generation) => {
+          commits.push({ generation, records });
+          return [...records];
+        },
+      }),
+    ).rejects.toThrow(/simulated source read failure/u);
+
+    expect(commits.map((entry) => entry.generation)).toEqual([7n, 8n, 9n]);
+    expect(
+      commits[0]!.records.find((record) => record.type === RecordType.audioChunk),
+    ).toBeUndefined();
+    expect(
+      commits[1]!.records
+        .find((record) => record.type === RecordType.audioChunk)
+        ?.fields.get("sequence_number"),
+    ).toBe("0");
+    const interrupted = commits[2]!.records.find((record) => record.type === RecordType.session)!;
+    expect(interrupted.fields.get("audio_import_state")).toBe("interrupted");
+    expect(interrupted.fields.get("audio_chunks_imported")).toBe("1");
+    expect(interrupted.fields.get("audio_import_error")).toContain("simulated source read failure");
+  });
+
+  it("commits a completed incremental import in bounded batches", async () => {
+    const session = makeSession();
+    const file = makeWaveFile(
+      [pcm16([1, 2]), pcm16([3, 4]), pcm16([5, 6])],
+      { sampleFormat: "pcm_s16le" },
+      "batched.wav",
+    );
+    const commits: { generation: bigint; records: readonly ArchiveRecord[] }[] = [];
+    const imported = await makeWaveImportRecordsIncremental({
+      session,
+      file,
+      expectedGeneration: 10n,
+      chunksPerCommit: 1,
+      commit: async (records, generation) => {
+        commits.push({ generation, records });
+        return [...records];
+      },
+    });
+
+    expect(imported.chunkCount).toBe(3);
+    expect(commits.map((entry) => entry.generation)).toEqual([10n, 11n, 12n, 13n, 14n]);
+    const completed = commits.at(-1)!.records;
+    expect(
+      completed
+        .find((record) => record.type === RecordType.session)
+        ?.fields.get("audio_import_state"),
+    ).toBe("completed");
+    expect(
+      completed.find((record) => record.type === RecordType.assetMetadata)?.fields.get("state"),
+    ).toBe("completed");
   });
 
   it("rejects compressed WAV encoding and malformed RIFF boundaries", async () => {
