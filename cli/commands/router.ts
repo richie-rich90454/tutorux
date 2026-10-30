@@ -127,8 +127,10 @@ export async function runRecordCommand(
       emit(
         output,
         {
-          path: canonicalDestinationPath,
           session_id: session.id,
+          output: canonicalDestinationPath,
+          status: "exported",
+          path: canonicalDestinationPath,
           bytes: packageSnapshot.source.size.toString(),
           created: true,
         },
@@ -208,6 +210,10 @@ export async function runRecordCommand(
       {
         session: toPlainRecord(importedSession),
         session_id: importedSessionId,
+        entry_id: field(importedSession, "entry_id"),
+        notes_document_id: field(importedSession, "notes_document_id"),
+        student_id: args.options.get("student-id") ?? "preserved-or-anonymous",
+        status: "imported",
         imported_records: importedRecords.length,
       },
       `Imported session ${field(importedSession, "title", "Tutoring session")} (${importedSessionId}).`,
@@ -290,11 +296,7 @@ export async function runRecordCommand(
     const session = saved[0] ?? records[0]!;
     emit(
       output,
-      {
-        session: toPlainRecord(session),
-        notesDocumentId: (saved[1] ?? records[1]!).id,
-        entryId: field(session, "entry_id"),
-      },
+      toPlainRecord(session),
       `Created session ${field(session, "title")} (${session.id}) in journal entry ${field(session, "entry_id")}.`,
       args.flags.has("json"),
     );
@@ -305,18 +307,31 @@ export async function runRecordCommand(
     const tagIds = optionIdList(args, "tag-ids");
     await validateJournalLinks(path, collectionIds ?? [], "journal-collection");
     await validateJournalLinks(path, tagIds ?? [], "journal-tag");
-    const records = makeJournalRecords({
-      title: requiredOption(args, "title"),
-      date: requiredOption(args, "date"),
-      notes: args.options.get("notes") ?? "",
-      ...(collectionIds === undefined ? {} : { collectionIds }),
-      ...(tagIds === undefined ? {} : { tagIds }),
-    });
+    const hasJournalRoot = await (async () => {
+      const snapshot = await openForCommand(path);
+      try {
+        return (await snapshot.listRecords(RecordType.settings)).some(
+          (record) => field(record, "record_role") === "journal",
+        );
+      } finally {
+        await closeSnapshot(snapshot);
+      }
+    })();
+    const records = makeJournalRecords(
+      {
+        title: args.options.get("title") ?? "Untitled entry",
+        date: args.options.get("date") ?? new Date().toISOString().slice(0, 10),
+        notes: args.options.get("notes") ?? "",
+        ...(collectionIds === undefined ? {} : { collectionIds }),
+        ...(tagIds === undefined ? {} : { tagIds }),
+      },
+      { ensureJournalRoot: !hasJournalRoot },
+    );
     const saved = await mutateArchive(path, records);
     const entry = saved[0] ?? records[0]!;
     emit(
       output,
-      { entry: toPlainRecord(entry), notesDocumentId: (saved[1] ?? records[1]!).id },
+      toPlainRecord(entry),
       `Created journal entry ${field(entry, "title")} (${entry.id}).`,
       args.flags.has("json"),
     );
