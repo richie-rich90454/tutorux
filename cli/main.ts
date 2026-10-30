@@ -1,6 +1,7 @@
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { AI_PROVIDERS } from "../frontend/ai/providers";
+import { aiProviderCatalogStatus, AI_PROVIDERS } from "../frontend/ai/providers";
+import { GUIDE_TEMPLATES } from "../frontend/domain/guides";
 import { canonicalizeProgressUuid } from "../frontend/domain/student-progress";
 import { startRecordingControlWorker, type RecordingControlWorker } from "./recording-control";
 import { runArchiveCommand } from "./commands/archive";
@@ -296,12 +297,16 @@ export async function executeCli(
         if (group === "archive")
           return await runArchiveCommand(action, parsed, output, archivePath);
         if (group === "ai" && action === "providers") {
+          const rows = AI_PROVIDERS.map((provider) => ({
+            provider_id: provider.id,
+            provider: provider.name,
+            status: aiProviderCatalogStatus(provider.id),
+            catalog: provider,
+          }));
           emit(
             output,
-            AI_PROVIDERS,
-            AI_PROVIDERS.map(
-              (provider) => `${provider.id}  ${provider.name}  ${provider.protocol}`,
-            ).join("\n"),
+            rows,
+            rows.map((row) => `${row.provider_id}  ${row.provider}  ${row.status}`).join("\n"),
             parsed.flags.has("json"),
           );
           return 0;
@@ -314,6 +319,24 @@ export async function executeCli(
           return runDiagnosticsCommand(action, archivePath, parsed, output, signal);
         if (group === "benchmark")
           return runBenchmarkCommand(action, archivePath, parsed, output, signal);
+        if (group === "template" && action === "list" && !archivePath) {
+          const rows = GUIDE_TEMPLATES.map((template) => ({
+            id: template.id,
+            name: template.name,
+            origin: "built-in",
+            subject: template.subject,
+            description: template.description,
+            sections: [...template.sections],
+            body: template.body,
+          }));
+          emit(
+            output,
+            rows,
+            `${rows.length} study-guide template${rows.length === 1 ? "" : "s"} from the built-in catalog.`,
+            parsed.flags.has("json"),
+          );
+          return 0;
+        }
         if (!archivePath) throw new CliError("Record commands require --archive <path>.");
         return await runRecordCommand(
           group,
