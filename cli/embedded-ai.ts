@@ -5,10 +5,12 @@ import { basename, dirname, isAbsolute, resolve } from "node:path";
 import type {
   GgufFileInfo,
   Llama,
+  LlamaChatSession,
   LlamaContext,
   LlamaContextSequence,
   LlamaModel,
 } from "node-llama-cpp";
+import type * as NodeLlamaCpp from "node-llama-cpp";
 import type { ArchiveRecord } from "../frontend/archive/format";
 import type { AiTransportRequest, AiTransportResult } from "../frontend/platform/types";
 
@@ -143,7 +145,9 @@ export async function sendCliEmbeddedAiRequest(
   }
   const path = await validateLocalGgufPath(selection.path);
   if (path !== selection.path) {
-    throw new Error("The selected GGUF model path changed after it was inspected. Select it again.");
+    throw new Error(
+      "The selected GGUF model path changed after it was inspected. Select it again.",
+    );
   }
   validateContextAndThreads(selection.contextTokens, selection.cpuThreads, selection.gpuLayers);
   validateModelId(selection.modelId);
@@ -169,7 +173,9 @@ export async function sendCliEmbeddedAiRequest(
   let emittedText = false;
   const pushText = (text: string) => {
     if (!text || outputExceededLimit) return;
-    const event = encoder.encode(`data: ${JSON.stringify({ choices: [{ delta: { content: text } }] })}\n\n`);
+    const event = encoder.encode(
+      `data: ${JSON.stringify({ choices: [{ delta: { content: text } }] })}\n\n`,
+    );
     if (responseBytes + event.byteLength > MAX_RESPONSE_BYTES) {
       outputExceededLimit = true;
       controller.abort(new Error("Local model response exceeded the 16 MiB safety limit."));
@@ -184,13 +190,13 @@ export async function sendCliEmbeddedAiRequest(
   let model: LlamaModel | undefined;
   let context: LlamaContext | undefined;
   let sequence: LlamaContextSequence | undefined;
-  let session: InstanceType<(typeof import("node-llama-cpp"))["LlamaChatSession"]> | undefined;
+  let session: LlamaChatSession | undefined;
   try {
     if (controller.signal.aborted) {
       return { status: 200, contentType: "text/event-stream", responseBytes, complete: false };
     }
 
-    let runtime: typeof import("node-llama-cpp");
+    let runtime: typeof NodeLlamaCpp;
     try {
       runtime = await import("node-llama-cpp");
     } catch {
@@ -211,9 +217,12 @@ export async function sendCliEmbeddedAiRequest(
       if (cause instanceof runtime.NoBinaryFoundError) {
         throw new Error(
           "No compatible local llama.cpp binary is installed. The CLI will not download or build one automatically.",
+          { cause },
         );
       }
-      throw new Error("The offline llama.cpp runtime could not initialize on this device.");
+      throw new Error("The offline llama.cpp runtime could not initialize on this device.", {
+        cause,
+      });
     }
 
     assertSameIdentity(selection.identity, await readIdentity(selection.path));
@@ -285,7 +294,7 @@ export async function sendCliEmbeddedAiRequest(
       return { status: 200, contentType: "text/event-stream", responseBytes, complete: false };
     }
     if (cause instanceof Error) throw cause;
-    throw new Error("The local GGUF model could not complete inference.");
+    throw new Error("The local GGUF model could not complete inference.", { cause });
   } finally {
     signal?.removeEventListener("abort", abort);
     try {
@@ -422,7 +431,9 @@ async function validateLocalGgufPath(path: string): Promise<string> {
   } catch (cause) {
     if (cause instanceof Error && cause.message.startsWith("The model path")) throw cause;
     if (cause instanceof Error && cause.message.startsWith("GGUF file size")) throw cause;
-    throw new Error("The selected GGUF model path is missing or is not a regular local file.");
+    throw new Error("The selected GGUF model path is missing or is not a regular local file.", {
+      cause,
+    });
   }
   return canonical;
 }
@@ -432,7 +443,7 @@ async function inspectGguf(
   signal?: AbortSignal,
 ): Promise<{ architecture: string; tensorCount: number; layerCount: number }> {
   if (signal?.aborted) throw signal.reason ?? new Error("GGUF inspection was cancelled.");
-  let runtime: typeof import("node-llama-cpp");
+  let runtime: typeof NodeLlamaCpp;
   try {
     runtime = await import("node-llama-cpp");
   } catch {
@@ -456,7 +467,8 @@ async function inspectGguf(
   const architectureValue = general?.["architecture"];
   const tensorCount = Number(info.tensorCount);
   const layerCountValue: unknown = info.architectureMetadata["block_count"];
-  const layerCount = typeof layerCountValue === "bigint" ? Number(layerCountValue) : layerCountValue;
+  const layerCount =
+    typeof layerCountValue === "bigint" ? Number(layerCountValue) : layerCountValue;
   if (
     info.version < 2 ||
     typeof architectureValue !== "string" ||
@@ -485,7 +497,9 @@ async function readIdentity(path: string): Promise<CliEmbeddedFileIdentity> {
     if (cause instanceof Error && cause.message.startsWith("The selected GGUF model changed")) {
       throw cause;
     }
-    throw new Error("The selected GGUF model is no longer available at its validated path.");
+    throw new Error("The selected GGUF model is no longer available at its validated path.", {
+      cause,
+    });
   }
 }
 
@@ -515,20 +529,29 @@ function assertSameIdentity(
 }
 
 function estimateMemory(modelBytes: number, contextTokens: number): number {
-  const estimate = modelBytes + contextTokens * ESTIMATED_CONTEXT_BYTES_PER_TOKEN + MEMORY_OVERHEAD_BYTES;
+  const estimate =
+    modelBytes + contextTokens * ESTIMATED_CONTEXT_BYTES_PER_TOKEN + MEMORY_OVERHEAD_BYTES;
   if (!Number.isSafeInteger(estimate) || estimate > MAX_ESTIMATED_MEMORY_BYTES) {
-    throw new Error("The selected GGUF context and model exceed the 64 GiB estimated memory limit.");
+    throw new Error(
+      "The selected GGUF context and model exceed the 64 GiB estimated memory limit.",
+    );
   }
   return estimate;
 }
 
-function validateContextAndThreads(contextTokens: number, cpuThreads: number, gpuLayers: number): void {
+function validateContextAndThreads(
+  contextTokens: number,
+  cpuThreads: number,
+  gpuLayers: number,
+): void {
   if (
     !Number.isSafeInteger(contextTokens) ||
     contextTokens < MIN_CONTEXT_TOKENS ||
     contextTokens > MAX_CONTEXT_TOKENS
   ) {
-    throw new Error(`Local GGUF context must be between ${MIN_CONTEXT_TOKENS} and ${MAX_CONTEXT_TOKENS} tokens.`);
+    throw new Error(
+      `Local GGUF context must be between ${MIN_CONTEXT_TOKENS} and ${MAX_CONTEXT_TOKENS} tokens.`,
+    );
   }
   if (!Number.isSafeInteger(cpuThreads) || cpuThreads < 0 || cpuThreads > MAX_CPU_THREADS) {
     throw new Error(`Local GGUF CPU threads must be between 0 and ${MAX_CPU_THREADS}.`);
@@ -559,8 +582,16 @@ function effectiveCpuThreads(configured: number): number {
   return Math.min(MAX_CPU_THREADS, Math.max(1, availableParallelism()));
 }
 
+function hasControlCharacter(value: string): boolean {
+  for (const character of value) {
+    const code = character.codePointAt(0) ?? 0;
+    if (code <= 0x1f || code === 0x7f) return true;
+  }
+  return false;
+}
+
 function validateModelId(value: string): void {
-  if (!value.trim() || encoder.encode(value).byteLength > 1024 || /[\u0000-\u001f\u007f]/u.test(value)) {
+  if (!value.trim() || encoder.encode(value).byteLength > 1024 || hasControlCharacter(value)) {
     throw new Error("Choose a valid local GGUF model ID.");
   }
 }
