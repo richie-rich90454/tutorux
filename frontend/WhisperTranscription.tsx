@@ -56,9 +56,11 @@ export function WhisperTranscription(props: Props) {
     setError("");
     setMessage("");
     cancelled = false;
+    let savedRecords = 0;
+    let committedWindows = 0;
     try {
       const preview = props.preview;
-      const snapshot = props.snapshot;
+      let snapshot = props.snapshot;
       const sessionId = props.sessionId;
       const trackId = props.trackId;
       const selectedLanguage = language().trim();
@@ -106,6 +108,27 @@ export function WhisperTranscription(props: Props) {
       let speakerTurnBoundaries = 0;
       let cursor = 0n;
       let windows = 0;
+      const committedIds = new Set<string>();
+      const commitChanges = async (): Promise<void> => {
+        if (!changes.size) return;
+        const records = [...changes.values()].filter((record) => !committedIds.has(record.id));
+        changes.clear();
+        if (!records.length) return;
+        try {
+          if (
+            !(await props.onSave(records, "Saved completed local transcription windows.", snapshot))
+          ) {
+            throw new Error("The completed transcription windows could not be saved.");
+          }
+        } catch (error) {
+          for (const record of records) changes.set(record.id, record);
+          throw error;
+        }
+        for (const record of records) committedIds.add(record.id);
+        snapshot = props.snapshot;
+        savedRecords += records.length;
+        committedWindows += 1;
+      };
       do {
         if (cancelled) throw new Error("Transcription cancelled.");
         const current = wholeTrack
@@ -156,11 +179,26 @@ export function WhisperTranscription(props: Props) {
         skipped += result.skipped;
         windows++;
         cursor += windowUs;
-        if (wholeTrack)
+        if (wholeTrack) {
+          await commitChanges();
           setMessage(
-            `Processed ${windows} audio windows. Results will be saved together when complete.`,
+            `Saved ${committedWindows} completed audio window(s); ${savedRecords} cue change(s) durable so far.`,
           );
+        }
       } while (wholeTrack && cursor < endUs);
+      if (wholeTrack) {
+        await commitChanges();
+        if (!savedRecords) {
+          setMessage(
+            `No new cues were found${skipped ? `; ${skipped} overlapped protected or out-of-range audio` : ""}.`,
+          );
+        } else {
+          setMessage(
+            `Saved ${savedRecords} cue change(s) from ${windows} audio window(s)${skipped ? `; skipped ${skipped} protected or out-of-range cues` : ""}.${detectSpeakerTurns ? ` Tiny diarization marked ${speakerTurnBoundaries} speaker-turn boundaries; assign speaker identities manually.` : ""} Review provisional cues before reuse.`,
+          );
+        }
+        return;
+      }
       const records = [...changes.values()];
       if (!records.length) {
         setMessage(
@@ -174,7 +212,12 @@ export function WhisperTranscription(props: Props) {
         );
       }
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : String(reason));
+      const message = reason instanceof Error ? reason.message : String(reason);
+      setError(
+        committedWindows > 0
+          ? `${message} ${savedRecords} cue change(s) from ${committedWindows} completed window(s) were already saved.`
+          : message,
+      );
     } finally {
       if (runId) await invoke("end_whisper_run", { runId }).catch(() => undefined);
       runId = undefined;
