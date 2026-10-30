@@ -1070,7 +1070,10 @@ export async function createSanitizedCopy(
       const previousSize = output.source.size;
       const previous = output;
       output = await appendRecords(previous, batch);
-      if (output !== previous) previous.lock();
+      if (output !== previous) {
+        previous.lock();
+        await previous.source.close?.();
+      }
       output = await persist(output, previousSize);
       batch = [];
       batchBytes = 0;
