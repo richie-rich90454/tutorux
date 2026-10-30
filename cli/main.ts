@@ -10,14 +10,14 @@ import { isRecordingControlTerminal } from "./commands/recording-control-command
 import { runRecordingDevicesCommand, runRecordingTestCommand } from "./commands/recording-devices";
 import { runRecordCommand } from "./commands/router";
 import {
-  CliError,
-  RECORDING_WORKER_ID_ENVIRONMENT,
-  RECORDING_WORKER_PASSPHRASE_ENVIRONMENT,
-  archiveAccessContext,
-  emit,
-  parseArguments,
-  requiredOption,
-  takeGlobalOption,
+    CliError,
+    RECORDING_WORKER_ID_ENVIRONMENT,
+    RECORDING_WORKER_PASSPHRASE_ENVIRONMENT,
+    archiveAccessContext,
+    emit,
+    parseArguments,
+    requiredOption,
+    takeGlobalOption,
 } from "./commands/shared";
 import type { CliIo } from "./commands/shared";
 
@@ -200,173 +200,186 @@ Global options:
   --version         Show the application version`;
 
 export const io: CliIo = {
-  stdout: (message) => process.stdout.write(`${message}\n`),
-  stderr: (message) => process.stderr.write(`${message}\n`),
+    stdout: (message) => process.stdout.write(`${message}\n`),
+    stderr: (message) => process.stderr.write(`${message}\n`),
 };
 
 export async function executeCli(
-  argv: readonly string[],
-  output: CliIo = io,
-  signal?: AbortSignal,
+    argv: readonly string[],
+    output: CliIo = io,
+    signal?: AbortSignal,
 ): Promise<number> {
-  const recordingWorkerMode = argv[0] === "--record-worker";
-  const commandArgv = recordingWorkerMode ? argv.slice(1) : argv;
-  if (commandArgv.includes("--help") || commandArgv.includes("-h") || commandArgv[0] === "help") {
-    output.stdout(HELP);
-    return 0;
-  }
-  if (
-    commandArgv.includes("--version") ||
-    commandArgv.includes("-v") ||
-    commandArgv[0] === "version"
-  ) {
-    output.stdout("Tutorux 1.0.0 (TypeScript)");
-    return 0;
-  }
-
-  try {
-    const args = [...commandArgv];
-    const passphraseEnvironment = takeGlobalOption(args, "passphrase-env");
-    const archiveDirectory = takeGlobalOption(args, "directory");
-    const archiveContext: { passphrase: string | undefined } = { passphrase: undefined };
-    if (passphraseEnvironment !== undefined) {
-      if (!/^[A-Za-z_][A-Za-z\d_]*$/u.test(passphraseEnvironment)) {
-        throw new CliError("--passphrase-env requires a valid environment variable name.");
-      }
-      const passphrase = process.env[passphraseEnvironment];
-      if (passphrase === undefined) {
-        throw new CliError("The archive passphrase environment variable is not set.");
-      }
-      archiveContext.passphrase = passphrase;
-      if (
-        recordingWorkerMode &&
-        passphraseEnvironment === RECORDING_WORKER_PASSPHRASE_ENVIRONMENT
-      ) {
-        delete process.env[passphraseEnvironment];
-      }
+    const recordingWorkerMode = argv[0] === "--record-worker";
+    const commandArgv = recordingWorkerMode ? argv.slice(1) : argv;
+    if (commandArgv.includes("--help") || commandArgv.includes("-h") || commandArgv[0] === "help") {
+        output.stdout(HELP);
+        return 0;
     }
-    return await archiveAccessContext.run(archiveContext, async () => {
-      let recordingControlWorker: RecordingControlWorker | undefined;
-      try {
-        const jsonOutput = args.includes("--json");
-        for (let index = args.length - 1; index >= 0; index -= 1) {
-          if (args[index] === "--json") args.splice(index, 1);
-        }
-        const archivePath = takeGlobalOption(args, "archive");
-        const group = args.shift();
-        const action = args.shift();
-        if (!group || !action)
-          throw new CliError("Choose a command group and action. Run `tutorux --help` for help.");
-        const parsed = parseArguments(args);
-        if (jsonOutput) parsed.flags.add("json");
-        if (archiveDirectory !== undefined) {
-          if (group !== "archive" || (action !== "discover" && action !== "list")) {
-            throw new CliError("--directory is only available for archive discovery.");
-          }
-          parsed.options.set("directory", archiveDirectory);
-        }
+    if (
+        commandArgv.includes("--version") ||
+        commandArgv.includes("-v") ||
+        commandArgv[0] === "version"
+    ) {
+        output.stdout("Tutorux 1.0.0 (TypeScript)");
+        return 0;
+    }
 
-        if (recordingWorkerMode) {
-          if (
-            !archivePath ||
-            group !== "record" ||
-            action !== "start" ||
-            parsed.flags.has("detach")
-          ) {
-            throw new CliError(
-              "The detached recording worker received an invalid internal command.",
-            );
-          }
-          const workerSessionId = canonicalizeProgressUuid(requiredOption(parsed, "session"));
-          if (!workerSessionId) throw new CliError("--session must be a valid UUID.");
-          const workerId = process.env[RECORDING_WORKER_ID_ENVIRONMENT];
-          if (
-            !workerId ||
-            !/^[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}$/iu.test(workerId)
-          ) {
-            throw new CliError("The detached recording worker identity is invalid.");
-          }
-          delete process.env[RECORDING_WORKER_ID_ENVIRONMENT];
-          recordingControlWorker = await startRecordingControlWorker(
-            archivePath,
-            workerSessionId,
-            workerId,
-          );
+    try {
+        const args = [...commandArgv];
+        const passphraseEnvironment = takeGlobalOption(args, "passphrase-env");
+        const archiveDirectory = takeGlobalOption(args, "directory");
+        const archiveContext: { passphrase: string | undefined } = { passphrase: undefined };
+        if (passphraseEnvironment !== undefined) {
+            if (!/^[A-Za-z_][A-Za-z\d_]*$/u.test(passphraseEnvironment)) {
+                throw new CliError("--passphrase-env requires a valid environment variable name.");
+            }
+            const passphrase = process.env[passphraseEnvironment];
+            if (passphrase === undefined) {
+                throw new CliError("The archive passphrase environment variable is not set.");
+            }
+            archiveContext.passphrase = passphrase;
+            if (
+                recordingWorkerMode &&
+                passphraseEnvironment === RECORDING_WORKER_PASSPHRASE_ENVIRONMENT
+            ) {
+                delete process.env[passphraseEnvironment];
+            }
         }
+        return await archiveAccessContext.run(archiveContext, async () => {
+            let recordingControlWorker: RecordingControlWorker | undefined;
+            try {
+                const jsonOutput = args.includes("--json");
+                for (let index = args.length - 1; index >= 0; index -= 1) {
+                    if (args[index] === "--json") args.splice(index, 1);
+                }
+                const archivePath = takeGlobalOption(args, "archive");
+                const group = args.shift();
+                const action = args.shift();
+                if (!group || !action)
+                    throw new CliError(
+                        "Choose a command group and action. Run `tutorux --help` for help.",
+                    );
+                const parsed = parseArguments(args);
+                if (jsonOutput) parsed.flags.add("json");
+                if (archiveDirectory !== undefined) {
+                    if (group !== "archive" || (action !== "discover" && action !== "list")) {
+                        throw new CliError("--directory is only available for archive discovery.");
+                    }
+                    parsed.options.set("directory", archiveDirectory);
+                }
 
-        if (group === "archive")
-          return await runArchiveCommand(action, parsed, output, archivePath);
-        if (group === "ai" && action === "providers") {
-          const rows = AI_PROVIDERS.map((provider) => ({
-            provider_id: provider.id,
-            provider: provider.name,
-            status: aiProviderCatalogStatus(provider.id),
-            catalog: provider,
-          }));
-          emit(
-            output,
-            rows,
-            rows.map((row) => `${row.provider_id}  ${row.provider}  ${row.status}`).join("\n"),
-            parsed.flags.has("json"),
-          );
-          return 0;
-        }
-        if (group === "record" && action === "devices")
-          return await runRecordingDevicesCommand(parsed, output);
-        if (group === "record" && action === "test")
-          return await runRecordingTestCommand(parsed, output);
-        if (group === "diagnostics")
-          return runDiagnosticsCommand(action, archivePath, parsed, output, signal);
-        if (group === "benchmark")
-          return runBenchmarkCommand(action, archivePath, parsed, output, signal);
-        if (group === "template" && action === "list" && !archivePath) {
-          const rows = GUIDE_TEMPLATES.map((template) => ({
-            id: template.id,
-            name: template.name,
-            origin: "built-in",
-            subject: template.subject,
-            description: template.description,
-            sections: [...template.sections],
-            body: template.body,
-          }));
-          emit(
-            output,
-            rows,
-            `${rows.length} study-guide template${rows.length === 1 ? "" : "s"} from the built-in catalog.`,
-            parsed.flags.has("json"),
-          );
-          return 0;
-        }
-        if (!archivePath) throw new CliError("Record commands require --archive <path>.");
-        return await runRecordCommand(
-          group,
-          action,
-          archivePath,
-          parsed,
-          output,
-          signal,
-          recordingControlWorker,
-        );
-      } catch (error) {
-        if (recordingControlWorker && !isRecordingControlTerminal(recordingControlWorker.state())) {
-          recordingControlWorker.stateChanged(
-            "failed",
-            error instanceof Error ? error.message : "The detached recording worker failed.",
-          );
-        }
-        throw error;
-      } finally {
-        await recordingControlWorker?.close();
-        archiveContext.passphrase = undefined;
-      }
-    });
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "The command failed unexpectedly.";
-    output.stderr(`tutorux: ${message}`);
-    return error instanceof CliError ? 2 : 1;
-  }
+                if (recordingWorkerMode) {
+                    if (
+                        !archivePath ||
+                        group !== "record" ||
+                        action !== "start" ||
+                        parsed.flags.has("detach")
+                    ) {
+                        throw new CliError(
+                            "The detached recording worker received an invalid internal command.",
+                        );
+                    }
+                    const workerSessionId = canonicalizeProgressUuid(
+                        requiredOption(parsed, "session"),
+                    );
+                    if (!workerSessionId) throw new CliError("--session must be a valid UUID.");
+                    const workerId = process.env[RECORDING_WORKER_ID_ENVIRONMENT];
+                    if (
+                        !workerId ||
+                        !/^[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}$/iu.test(
+                            workerId,
+                        )
+                    ) {
+                        throw new CliError("The detached recording worker identity is invalid.");
+                    }
+                    delete process.env[RECORDING_WORKER_ID_ENVIRONMENT];
+                    recordingControlWorker = await startRecordingControlWorker(
+                        archivePath,
+                        workerSessionId,
+                        workerId,
+                    );
+                }
+
+                if (group === "archive")
+                    return await runArchiveCommand(action, parsed, output, archivePath);
+                if (group === "ai" && action === "providers") {
+                    const rows = AI_PROVIDERS.map((provider) => ({
+                        provider_id: provider.id,
+                        provider: provider.name,
+                        status: aiProviderCatalogStatus(provider.id),
+                        catalog: provider,
+                    }));
+                    emit(
+                        output,
+                        rows,
+                        rows
+                            .map((row) => `${row.provider_id}  ${row.provider}  ${row.status}`)
+                            .join("\n"),
+                        parsed.flags.has("json"),
+                    );
+                    return 0;
+                }
+                if (group === "record" && action === "devices")
+                    return await runRecordingDevicesCommand(parsed, output);
+                if (group === "record" && action === "test")
+                    return await runRecordingTestCommand(parsed, output);
+                if (group === "diagnostics")
+                    return runDiagnosticsCommand(action, archivePath, parsed, output, signal);
+                if (group === "benchmark")
+                    return runBenchmarkCommand(action, archivePath, parsed, output, signal);
+                if (group === "template" && action === "list" && !archivePath) {
+                    const rows = GUIDE_TEMPLATES.map((template) => ({
+                        id: template.id,
+                        name: template.name,
+                        origin: "built-in",
+                        subject: template.subject,
+                        description: template.description,
+                        sections: [...template.sections],
+                        body: template.body,
+                    }));
+                    emit(
+                        output,
+                        rows,
+                        `${rows.length} study-guide template${rows.length === 1 ? "" : "s"} from the built-in catalog.`,
+                        parsed.flags.has("json"),
+                    );
+                    return 0;
+                }
+                if (!archivePath) throw new CliError("Record commands require --archive <path>.");
+                return await runRecordCommand(
+                    group,
+                    action,
+                    archivePath,
+                    parsed,
+                    output,
+                    signal,
+                    recordingControlWorker,
+                );
+            } catch (error) {
+                if (
+                    recordingControlWorker &&
+                    !isRecordingControlTerminal(recordingControlWorker.state())
+                ) {
+                    recordingControlWorker.stateChanged(
+                        "failed",
+                        error instanceof Error
+                            ? error.message
+                            : "The detached recording worker failed.",
+                    );
+                }
+                throw error;
+            } finally {
+                await recordingControlWorker?.close();
+                archiveContext.passphrase = undefined;
+            }
+        });
+    } catch (error) {
+        const message = error instanceof Error ? error.message : "The command failed unexpectedly.";
+        output.stderr(`tutorux: ${message}`);
+        return error instanceof CliError ? 2 : 1;
+    }
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  process.exitCode = await executeCli(process.argv.slice(2));
+    process.exitCode = await executeCli(process.argv.slice(2));
 }
