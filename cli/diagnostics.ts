@@ -6,7 +6,14 @@ import {
   type ArchiveHistoryVerificationResult,
   type ArchiveSnapshot,
 } from "../frontend/archive/archive";
-import { listNativeCaptureDevices, type NativeCaptureDevice } from "./native-audio-helper";
+import {
+  listNativeApplicationAudioDevices,
+  listNativeCaptureDevices,
+  probeNativeCaptureDevice,
+  type NativeApplicationAudioDevice,
+  type NativeCaptureDevice,
+  type NativeCaptureProbe,
+} from "./native-audio-helper";
 
 const executeFile = promisify(execFile);
 const AUDIO_COMMAND_TIMEOUT_MS = 5_000;
@@ -33,11 +40,15 @@ export interface AudioDiagnosticRow {
   name: string;
   kind: "microphone" | "application" | "playback";
   default: boolean | null;
-  probe_state: "ready" | "unsupported" | "not-probed";
+  probe_state: "ready" | "unsupported" | "failed" | "not-probed";
   probe_message: string;
+  backend?: string;
+  application_process_id?: string;
   sample_format?: string;
   sample_rate_hz?: string;
   channel_count?: string;
+  signal_detected?: string;
+  dbfs?: string;
 }
 
 export interface AudioDiagnosticResult {
@@ -45,6 +56,20 @@ export interface AudioDiagnosticResult {
   rows: AudioDiagnosticRow[];
   status: string;
   reason?: string;
+  samples_retained: boolean;
+  network_checked: boolean;
+}
+
+export interface AudioDiagnosticDependencies {
+  listCaptureDevices?: () => Promise<{ helper: string; devices: NativeCaptureDevice[] }>;
+  listApplicationDevices?: (
+    helper: string,
+  ) => Promise<{ helper: string; devices: NativeApplicationAudioDevice[] }>;
+  probeCaptureDevice?: (helper: string, device: NativeCaptureDevice) => Promise<NativeCaptureProbe>;
+  probeApplicationDevice?: (
+    helper: string,
+    device: NativeApplicationAudioDevice,
+  ) => Promise<NativeCaptureProbe>;
 }
 
 export interface ArchiveDiagnosticOptions {
@@ -95,8 +120,9 @@ export async function buildArchiveDiagnosticReport(
     const audio = await enumerateAudioDiagnostics(options.signal);
     report["audio_device_count"] = audio.available ? audio.rows.length : "unavailable";
     report["audio_status"] = audio.available ? "checked" : "unavailable";
-    if (audio.reason) report["audio_reason"] = audio.reason;
+    report["audio_samples_retained"] = false;
     report["network_checked"] = false;
+    if (audio.reason) report["audio_reason"] = audio.reason;
   }
   return report;
 }
@@ -137,11 +163,71 @@ export function readBenchmarkHostSummary(): Record<string, string | number> {
 
 export async function enumerateAudioDiagnostics(
   signal?: AbortSignal,
+  dependencies: AudioDiagnosticDependencies = {},
 ): Promise<AudioDiagnosticResult> {
   throwIfAborted(signal);
-  const native = await inspectNativeAudioEndpoints(signal);
-  if (native.rows.length) {
-    return { available: true, rows: native.rows.slice(0, MAX_AUDIO_DEVICES), status: "checked" };
+  const listCaptureDevices = dependencies.listCaptureDevices ?? listNativeCaptureDevices;
+  const listApplicationDevices =
+    dependencies.listApplicationDevices ?? listNativeApplicationAudioDevices;
+  const probeCaptureDevice = dependencies.probeCaptureDevice ?? probeNativeCaptureDevice;
+  const probeApplicationDevice = dependencies.probeApplicationDevice ?? probeNativeApplicationAudio;
+  let nativeReason = "";
+  try {
+    const { helper, devices } = await listCaptureDevices();
+    throwIfAborted(signal);
+    const rows: AudioDiagnosticRow[] = [];
+    for (const device of devices) {
+      throwIfAborted(signal);
+      const row = nativeDiagnosticRow(device);
+      try {
+        const probe = await probeCaptureDevice(helper, device);
+        rows.push(probedDiagnosticRow(row, probe));
+      } catch (error) {
+        if (signal?.aborted) throw error;
+        rows.push({
+          ...row,
+          probe_state: device.sampleFormat === undefined ? "unsupported" : "failed",
+          probe_message: probeFailure("microphone or system audio", error),
+        });
+      }
+    }
+    try {
+      const applications = await listApplicationDevices(helper);
+      throwIfAborted(signal);
+      for (const application of applications.devices) {
+        throwIfAborted(signal);
+        const row = applicationDiagnosticRow(application);
+        try {
+          const probe = await probeApplicationDevice(applications.helper, application);
+          rows.push(probedDiagnosticRow(row, probe));
+        } catch (error) {
+          if (signal?.aborted) throw error;
+          rows.push({
+            ...row,
+            probe_state: "failed",
+            probe_message: probeFailure("application audio", error),
+          });
+        }
+      }
+    } catch (error) {
+      if (signal?.aborted) throw error;
+      nativeReason = `Application audio endpoints are unavailable: ${errorMessage(error)}`;
+    }
+    if (rows.length) {
+      return {
+        available: true,
+        rows: rows.slice(0, MAX_AUDIO_DEVICES),
+        status: "checked",
+        ...(nativeReason ? { reason: nativeReason.slice(0, MAX_DEVICE_TEXT_LENGTH) } : {}),
+        samples_retained: false,
+        network_checked: false,
+      };
+    }
+    nativeReason ||=
+      "The native audio helper enumerated no microphone, system-audio, or application endpoints.";
+  } catch (error) {
+    if (signal?.aborted) throw error;
+    nativeReason = `Endpoint formats are unavailable from the native audio helper: ${errorMessage(error)}`;
   }
   try {
     const rows = await enumerateHostAudioDevices(signal);
@@ -151,43 +237,22 @@ export async function enumerateAudioDiagnostics(
       rows: rows.slice(0, MAX_AUDIO_DEVICES).map((row) => ({
         ...row,
         probe_state: "unsupported",
-        probe_message: native.reason,
+        probe_message: nativeReason,
       })),
       status: "checked",
+      reason: nativeReason.slice(0, MAX_DEVICE_TEXT_LENGTH),
+      samples_retained: false,
+      network_checked: false,
     };
   } catch (error) {
     if (signal?.aborted) throw error;
-    const detail =
-      error instanceof Error ? error.message : "The host audio device list is unavailable.";
     return {
       available: false,
       rows: [],
       status: "unavailable",
-      reason: detail.slice(0, MAX_DEVICE_TEXT_LENGTH),
-    };
-  }
-}
-
-async function inspectNativeAudioEndpoints(
-  signal?: AbortSignal,
-): Promise<{ rows: AudioDiagnosticRow[]; reason: string }> {
-  try {
-    const { devices } = await listNativeCaptureDevices();
-    throwIfAborted(signal);
-    return {
-      rows: audioDiagnosticRowsFromNativeDevices(devices),
-      reason: "The native audio helper enumerated no microphone or system-audio endpoints.",
-    };
-  } catch (error) {
-    if (signal?.aborted) throw error;
-    const detail =
-      error instanceof Error ? error.message : "The native audio helper is unavailable.";
-    return {
-      rows: [],
-      reason: `Endpoint formats are unavailable from the native audio helper: ${detail}`.slice(
-        0,
-        MAX_DEVICE_TEXT_LENGTH,
-      ),
+      reason: `${nativeReason} ${errorMessage(error)}`.trim().slice(0, MAX_DEVICE_TEXT_LENGTH),
+      samples_retained: false,
+      network_checked: false,
     };
   }
 }
@@ -204,6 +269,7 @@ function nativeDiagnosticRow(device: NativeCaptureDevice): AudioDiagnosticRow {
     name: device.name.slice(0, MAX_DEVICE_TEXT_LENGTH),
     kind: device.source === "microphone" ? ("microphone" as const) : ("playback" as const),
     default: device.isDefault,
+    backend: device.backend.slice(0, MAX_DEVICE_TEXT_LENGTH),
   };
   if (
     device.sampleFormat !== undefined &&
@@ -226,6 +292,84 @@ function nativeDiagnosticRow(device: NativeCaptureDevice): AudioDiagnosticRow {
     probe_message:
       "This native audio helper did not report an endpoint configuration; rebuild the audio helper and retry.",
   };
+}
+
+function applicationDiagnosticRow(application: NativeApplicationAudioDevice): AudioDiagnosticRow {
+  return {
+    device_id: application.id.slice(0, MAX_DEVICE_TEXT_LENGTH),
+    name: application.name.slice(0, MAX_DEVICE_TEXT_LENGTH),
+    kind: "application",
+    default: null,
+    backend: application.backend.slice(0, MAX_DEVICE_TEXT_LENGTH),
+    application_process_id: String(application.processId),
+    probe_state: "not-probed",
+    probe_message: "The application stream was discovered and has not been opened yet.",
+  };
+}
+
+function probedDiagnosticRow(
+  row: AudioDiagnosticRow,
+  probe: NativeCaptureProbe,
+): AudioDiagnosticRow {
+  return {
+    ...row,
+    probe_state: "ready",
+    probe_message: `Native stream opened for ${String(probe.durationMs)} ms; ${probe.signalDetected ? "signal detected" : "no signal detected"}; samples were measured and discarded.`,
+    sample_format: probe.sampleFormat.slice(0, MAX_DEVICE_TEXT_LENGTH),
+    sample_rate_hz: String(probe.sampleRateHz),
+    channel_count: String(probe.channelCount),
+    signal_detected: String(probe.signalDetected),
+    dbfs: probe.dbfs.toFixed(1),
+  };
+}
+
+async function probeNativeApplicationAudio(
+  helper: string,
+  device: NativeApplicationAudioDevice,
+): Promise<NativeCaptureProbe> {
+  const output = await runHostCommand(
+    helper,
+    ["probe", "--application", device.id],
+    undefined,
+    15_000,
+  );
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(output);
+  } catch {
+    throw new Error("The native audio helper returned an invalid application-audio probe result.");
+  }
+  if (
+    !isRecord(parsed) ||
+    parsed["source"] !== "application" ||
+    typeof parsed["sampleFormat"] !== "string" ||
+    !Number.isSafeInteger(parsed["sampleRateHz"]) ||
+    !Number.isSafeInteger(parsed["channelCount"]) ||
+    !Number.isSafeInteger(parsed["sampleCount"]) ||
+    !Number.isSafeInteger(parsed["durationMs"]) ||
+    typeof parsed["rms"] !== "number" ||
+    !Number.isFinite(parsed["rms"]) ||
+    typeof parsed["peak"] !== "number" ||
+    !Number.isFinite(parsed["peak"]) ||
+    typeof parsed["dbfs"] !== "number" ||
+    !Number.isFinite(parsed["dbfs"]) ||
+    typeof parsed["signalDetected"] !== "boolean" ||
+    parsed["probe"] !== "native-stream-opened-and-signal-measured"
+  ) {
+    throw new Error("The native audio helper returned an invalid application-audio probe result.");
+  }
+  return parsed as unknown as NativeCaptureProbe;
+}
+
+function probeFailure(kind: string, error: unknown): string {
+  return `The native ${kind} stream could not be probed: ${errorMessage(error)}`.slice(
+    0,
+    MAX_DEVICE_TEXT_LENGTH,
+  );
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : "Unknown native audio helper failure.";
 }
 
 export function throwIfAborted(signal?: AbortSignal): void {
@@ -452,10 +596,11 @@ async function runHostCommand(
   file: string,
   args: readonly string[],
   signal?: AbortSignal,
+  timeoutMs = AUDIO_COMMAND_TIMEOUT_MS,
 ): Promise<string> {
   const options = {
     encoding: "utf8" as const,
-    timeout: AUDIO_COMMAND_TIMEOUT_MS,
+    timeout: timeoutMs,
     maxBuffer: AUDIO_COMMAND_MAX_BUFFER,
     windowsHide: true,
     ...(signal === undefined ? {} : { signal }),
