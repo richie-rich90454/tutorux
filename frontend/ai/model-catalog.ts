@@ -155,7 +155,9 @@ export async function loadAiModelCatalog(
       return { models: cached.models, freshness: "stale-cache-fallback" };
     }
     if (controller.signal.aborted) {
-      throw new Error("The public model catalog timed out. Try again when you are online.");
+      throw new Error("The public model catalog timed out. Try again when you are online.", {
+        cause,
+      });
     }
     throw cause instanceof Error
       ? cause
