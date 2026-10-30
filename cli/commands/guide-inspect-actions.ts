@@ -7,6 +7,7 @@ import {
   makeGuideRecord,
   renderGuideHtml,
   renderGuideMarkdown,
+  validateGuideForExport,
   type GuideExportImage,
 } from "../../frontend/domain/guides";
 import {
@@ -50,6 +51,7 @@ export async function guideValidateAction(
         ? await readGuideScope(snapshot, draft.sessionId)
         : await readGuideEntryScope(snapshot, draft.entryId ?? "");
       makeGuideRecord(draft, scope, record);
+      validateGuideForExport(record, scope);
     } catch (cause) {
       error = cause instanceof Error ? cause.message : "Guide validation failed.";
     }
@@ -139,6 +141,17 @@ export async function guideShowOrExportAction(
           mimeType,
           bytes: await readAssetBytes(snapshot, metadata),
         });
+      }
+    }
+    if (action === "export") {
+      const draft = guideDraftFromRecord(record);
+      const scope = draft.sessionId
+        ? await readGuideScope(snapshot, draft.sessionId)
+        : await readGuideEntryScope(snapshot, draft.entryId ?? "");
+      try {
+        validateGuideForExport(record, scope);
+      } catch (cause) {
+        throw new CliError(cause instanceof Error ? cause.message : "Guide validation failed.");
       }
     }
   } finally {
