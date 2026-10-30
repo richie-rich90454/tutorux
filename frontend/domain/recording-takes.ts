@@ -40,6 +40,152 @@ export async function renameRecordingTrack(
   return { ...track, fields };
 }
 
+/** Move one track in an active recording take and its timeline data into or out of Trash. */
+export async function setRecordingTrackDeleted(
+  snapshot: ArchiveSnapshot,
+  trackId: string,
+  deleted: boolean,
+): Promise<ArchiveRecord[]> {
+  const track = await snapshot.getRecord(RecordType.assetMetadata, trackId.toLowerCase());
+  if (!track || track.fields.get("record_role") !== "audio-track") {
+    throw new Error("The recording track is unavailable.");
+  }
+  const currentlyDeleted = track.fields.get("_deleted") === "true";
+  if (currentlyDeleted === deleted) {
+    throw new Error(deleted ? "The track is already in Trash." : "The track is not in Trash.");
+  }
+
+  const sessionId = track.fields.get("session_id")?.toLowerCase() ?? "";
+  const takeId = track.fields.get("recording_take_id")?.toLowerCase() ?? "";
+  const trackRecordId = track.id.toLowerCase();
+  if (!UUID_PATTERN.test(sessionId) || !UUID_PATTERN.test(takeId)) {
+    throw new Error("This track is not linked to a restorable recording take.");
+  }
+  const take = await snapshot.getRecord(RecordType.assetMetadata, takeId);
+  if (
+    !take ||
+    take.fields.get("_deleted") === "true" ||
+    take.fields.get("record_role") !== "recording-take" ||
+    take.fields.get("session_id")?.toLowerCase() !== sessionId
+  ) {
+    throw new Error("Restore the parent take before restoring or removing this track.");
+  }
+
+  const takeTrackIds = splitIds(take.fields.get("track_ids"));
+  if (deleted && !takeTrackIds.includes(trackRecordId)) {
+    throw new Error("The selected track is not linked to its recording take.");
+  }
+  const session = await snapshot.getRecord(RecordType.session, sessionId);
+  if (!session || session.fields.get("_deleted") === "true") {
+    throw new Error("The parent session is unavailable.");
+  }
+
+  const time = nowUs();
+  const takeFields = new Map(take.fields);
+  const sessionFields = new Map(session.fields);
+  const trackFields = new Map(track.fields);
+  const sessionTrackIds = splitIds(sessionFields.get("recording_track_ids"));
+
+  if (deleted) {
+    const takePosition = takeTrackIds.indexOf(trackRecordId);
+    const sessionPosition = sessionTrackIds.indexOf(trackRecordId);
+    trackFields.set("_trash_restore_take_track_index", String(takePosition));
+    trackFields.set(
+      "_trash_restore_session_track_index",
+      String(sessionPosition < 0 ? sessionTrackIds.length : sessionPosition),
+    );
+    takeFields.set(
+      "track_ids",
+      takeTrackIds.filter((id) => id !== trackRecordId).join(","),
+    );
+    sessionTrackIds.splice(
+      0,
+      sessionTrackIds.length,
+      ...sessionTrackIds.filter((id) => id !== trackRecordId),
+    );
+
+    if (sessionFields.get("recording_track_id")?.toLowerCase() === trackRecordId) {
+      trackFields.set("_trash_restore_was_primary", "true");
+      if (sessionTrackIds.length > 0) {
+        sessionFields.set("recording_track_id", sessionTrackIds[0]!);
+        trackFields.set("_trash_restore_fallback_primary_id", sessionTrackIds[0]!);
+      } else {
+        sessionFields.delete("recording_track_id");
+        trackFields.delete("_trash_restore_fallback_primary_id");
+      }
+    }
+    setDeletedFields(trackFields, true, trackRecordId, time);
+  } else {
+    if (takeTrackIds.includes(trackRecordId)) {
+      throw new Error("This track is already linked to its take.");
+    }
+    const takePosition = restoredPosition(
+      trackFields.get("_trash_restore_take_track_index"),
+      takeTrackIds.length,
+    );
+    takeTrackIds.splice(takePosition, 0, trackRecordId);
+
+    const remainingSessionIds = sessionTrackIds.filter((id) => id !== trackRecordId);
+    sessionTrackIds.splice(0, sessionTrackIds.length, ...remainingSessionIds);
+    const sessionPosition = restoredPosition(
+      trackFields.get("_trash_restore_session_track_index"),
+      sessionTrackIds.length,
+    );
+    sessionTrackIds.splice(sessionPosition, 0, trackRecordId);
+    takeFields.set("track_ids", takeTrackIds.join(","));
+
+    const currentPrimary = sessionFields.get("recording_track_id")?.toLowerCase() ?? "";
+    const fallbackPrimary =
+      trackFields.get("_trash_restore_fallback_primary_id")?.toLowerCase() ?? "";
+    const wasPrimary = trackFields.get("_trash_restore_was_primary") === "true";
+    if (wasPrimary && (!currentPrimary || (fallbackPrimary && currentPrimary === fallbackPrimary))) {
+      sessionFields.set("recording_track_id", trackRecordId);
+    }
+
+    for (const key of [
+      "_trash_restore_was_primary",
+      "_trash_restore_fallback_primary_id",
+      "_trash_restore_take_track_index",
+      "_trash_restore_session_track_index",
+    ]) {
+      trackFields.delete(key);
+    }
+    setDeletedFields(trackFields, false, trackRecordId, time);
+  }
+
+  takeFields.set("updated_at_us", time);
+  sessionFields.set("recording_track_ids", sessionTrackIds.join(","));
+  sessionFields.set("updated_at_us", time);
+  trackFields.set("updated_at_us", time);
+
+  const records = new Map<string, ArchiveRecord>();
+  records.set(recordKey(take), { ...take, fields: takeFields });
+  records.set(recordKey(session), { ...session, fields: sessionFields });
+  records.set(recordKey(track), { ...track, fields: trackFields });
+
+  const waveformMetadata = await snapshot.listRecordMetadata(RecordType.waveformIndex, true);
+  for (const metadata of waveformMetadata) {
+    if (
+      metadata.fields.get("session_id")?.toLowerCase() !== sessionId ||
+      (metadata.fields.get("track_id") ?? "").toLowerCase() !== trackRecordId ||
+      !shouldChangeTrashState(metadata, deleted, trackRecordId)
+    ) {
+      continue;
+    }
+    const record = await snapshot.getRecord(RecordType.waveformIndex, metadata.id);
+    if (record) records.set(recordKey(record), changedTrashState(record, deleted, trackRecordId, time));
+  }
+
+  const chunks = await snapshot.listAudioChunkMetadata(sessionId, trackRecordId, true);
+  for (const metadata of chunks) {
+    if (!shouldChangeTrashState(metadata, deleted, trackRecordId)) continue;
+    const record = await snapshot.getRecord(RecordType.audioChunk, metadata.id);
+    if (record) records.set(recordKey(record), changedTrashState(record, deleted, trackRecordId, time));
+  }
+
+  return [...records.values()];
+}
+
 /** Move a take and its linked tracks and chunks into or out of Trash. */
 export async function setRecordingTakeDeleted(
   snapshot: ArchiveSnapshot,
@@ -207,6 +353,12 @@ function splitIds(value: string | undefined): string[] {
     .split(",")
     .map((id) => id.trim().toLowerCase())
     .filter((id) => UUID_PATTERN.test(id));
+}
+
+function restoredPosition(value: string | undefined, listLength: number): number {
+  if (value === undefined || !/^\d+$/u.test(value)) return listLength;
+  const position = Number(value);
+  return Number.isSafeInteger(position) ? Math.min(position, listLength) : listLength;
 }
 
 function setDeletedFields(
