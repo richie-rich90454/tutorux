@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { RecordType, type ArchiveRecord } from "../../frontend/archive/format";
+import { RecordType, recordTypeName, type ArchiveRecord } from "../../frontend/archive/format";
 import { type ArchiveSnapshot } from "../../frontend/archive/archive";
 import { type SanitizedCopySummary } from "../../frontend/archive/sanitized-copy";
 import { closeSnapshot, mutateArchive, openForCommand } from "./archive-io";
@@ -35,12 +35,12 @@ export function sessionStartedAt(record: ArchiveRecord): bigint {
   return parseIntegerField(field(record, "created_at_us"));
 }
 
-export function toPlainRecord(record: ArchiveRecord): Record<string, unknown> {
+export function toPlainRecord(record: ArchiveRecord): Record<string, string> {
   return {
-    type: record.type,
     id: record.id,
+    type: recordTypeName(record.type),
     revision: record.revision.toString(),
-    fields: Object.fromEntries(record.fields),
+    ...Object.fromEntries(record.fields),
   };
 }
 
