@@ -289,7 +289,8 @@ export async function startNativeSynchronizedAudioCapture(options: {
     const containsDeviceDiscontinuity = queue.stagedDiscontinuity;
     queue.staged = rest;
     queue.stagedBytes -= size;
-    queue.stagedFirstSampleIndex = queue.stagedBytes > 0 ? BigInt(firstSampleIndex) + BigInt(frameAligned) : undefined;
+    queue.stagedFirstSampleIndex =
+      queue.stagedBytes > 0 ? BigInt(firstSampleIndex) + BigInt(frameAligned) : undefined;
     queue.stagedGapBeforeSamples = "0";
     queue.stagedDiscontinuity = rest.length > 0 ? false : queue.stagedDiscontinuity;
     const sequence = queue.archiveSequence++;
