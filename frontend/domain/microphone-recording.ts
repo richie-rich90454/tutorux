@@ -14,10 +14,35 @@ export interface MicrophoneCaptureIdentity {
   consentConfirmedBy?: string;
 }
 
+export type CaptureSampleFormat =
+  | "pcm_u8"
+  | "pcm_s16le"
+  | "pcm_s24le"
+  | "pcm_s32le"
+  | "pcm_f32le";
+
 export interface MicrophoneCaptureChunk {
   sequence: number;
   firstSampleIndex: string;
   samples: Uint8Array<ArrayBuffer>;
+  sampleFormat?: CaptureSampleFormat;
+  channelCount?: number;
+  gapBeforeSamples?: string;
+  containsDeviceDiscontinuity?: boolean;
+}
+
+function captureBytesPerSample(format: CaptureSampleFormat): number {
+  switch (format) {
+    case "pcm_u8":
+      return 1;
+    case "pcm_s16le":
+      return 2;
+    case "pcm_s24le":
+      return 3;
+    case "pcm_s32le":
+    case "pcm_f32le":
+      return 4;
+  }
 }
 
 export type MicrophoneArchiveSource = "microphone" | "system-audio" | "application-audio";
@@ -121,6 +146,8 @@ export function makeMicrophoneCaptureChunkRecords(options: {
 }): ArchiveRecord[] {
   const { session, track, chunk, sampleRateHz } = options;
   const source = options.source ?? "microphone";
+  const sampleFormat = chunk.sampleFormat ?? "pcm_s16le";
+  const channelCount = chunk.channelCount ?? 1;
   assertCaptureSession(session, sampleRateHz, true);
   if (
     track.type !== RecordType.assetMetadata ||
@@ -133,11 +160,21 @@ export function makeMicrophoneCaptureChunkRecords(options: {
     throw new Error("The microphone recovery track is no longer active.");
   }
   if (
+    (track.fields.get("sample_format") ?? "pcm_s16le") !== sampleFormat ||
+    Number(track.fields.get("channel_count") ?? 1) !== channelCount
+  ) {
+    throw new Error("The audio source changed format while recording.");
+  }
+  const bytesPerFrame = captureBytesPerSample(sampleFormat) * channelCount;
+  if (
     !Number.isSafeInteger(chunk.sequence) ||
     chunk.sequence < 0 ||
+    !Number.isInteger(channelCount) ||
+    channelCount < 1 ||
+    channelCount > 8 ||
     chunk.samples.byteLength === 0 ||
     chunk.samples.byteLength > MAX_MICROPHONE_ARCHIVE_CHUNK_BYTES ||
-    chunk.samples.byteLength % 2 !== 0
+    chunk.samples.byteLength % bytesPerFrame !== 0
   ) {
     throw new Error("A microphone archive chunk must contain aligned PCM below 1 MiB.");
   }
@@ -152,18 +189,23 @@ export function makeMicrophoneCaptureChunkRecords(options: {
     timelineSamples === undefined ||
     byteCount === undefined ||
     !/^\d+$/u.test(chunk.firstSampleIndex) ||
-    BigInt(chunk.firstSampleIndex) !== timelineSamples
+    !/^\d+$/u.test(chunk.gapBeforeSamples ?? "0") ||
+    BigInt(chunk.firstSampleIndex) < timelineSamples ||
+    BigInt(chunk.firstSampleIndex) !== timelineSamples + BigInt(chunk.gapBeforeSamples ?? "0")
   ) {
     throw new Error("Microphone recovery chunks must be committed once in sequence.");
   }
-  const frames = BigInt(chunk.samples.byteLength / 2);
+  const firstSampleIndex = BigInt(chunk.firstSampleIndex);
+  const frames = BigInt(chunk.samples.byteLength / bytesPerFrame);
   const nextSamples = sampleCount + frames;
-  const nextTimeline = timelineSamples + frames;
+  const nextTimeline = firstSampleIndex + frames;
   const nextBytes = byteCount + BigInt(chunk.samples.byteLength);
   const nextSequence = BigInt(chunk.sequence + 1);
   const startedAtUs = track.fields.get("started_at_us") ?? "";
   const timestamp = nowUs();
   const trackFields = new Map(track.fields);
+  trackFields.set("sample_format", sampleFormat);
+  trackFields.set("channel_count", String(channelCount));
   trackFields.set("chunk_count", nextSequence.toString());
   trackFields.set("sample_count", nextSamples.toString());
   trackFields.set("timeline_sample_count", nextTimeline.toString());
@@ -180,16 +222,16 @@ export function makeMicrophoneCaptureChunkRecords(options: {
       ["sequence_number", String(chunk.sequence)],
       ["first_sample_index", chunk.firstSampleIndex],
       ["sample_count", frames.toString()],
-      ["gap_before_samples", "0"],
-      ["timeline_start_us", samplesToMicroseconds(timelineSamples, sampleRateHz).toString()],
+      ["gap_before_samples", chunk.gapBeforeSamples ?? "0"],
+      ["timeline_start_us", samplesToMicroseconds(firstSampleIndex, sampleRateHz).toString()],
       ["timeline_end_us", samplesToMicroseconds(nextTimeline, sampleRateHz).toString()],
-      ["sample_format", "pcm_s16le"],
+      ["sample_format", sampleFormat],
       ["sample_rate_hz", String(sampleRateHz)],
-      ["channel_count", "1"],
-      ["channel_mask", "0"],
+      ["channel_count", String(channelCount)],
+      ["channel_mask", track.fields.get("channel_mask") ?? "0"],
       ["codec", "none"],
       ["source", source],
-      ["contains_device_discontinuity", "false"],
+      ["contains_device_discontinuity", String(chunk.containsDeviceDiscontinuity ?? false)],
       ["payload_checksum", String(crc32(chunk.samples))],
     ]),
     chunk.samples,
@@ -392,7 +434,7 @@ function assertCaptureSession(
 ): void {
   if (session.type !== RecordType.session || session.fields.get("_deleted") === "true")
     throw new Error("Choose an active tutoring session before recording audio.");
-  if (!Number.isSafeInteger(sampleRateHz) || sampleRateHz < 8_000 || sampleRateHz > 192_000)
+  if (!Number.isSafeInteger(sampleRateHz) || sampleRateHz < 8_000 || sampleRateHz > 384_000)
     throw new Error("The microphone returned an unsupported sample rate.");
   if (
     !allowInProgress &&
