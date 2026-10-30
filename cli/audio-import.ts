@@ -3,7 +3,6 @@ import { lstat, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, extname, join, resolve } from "node:path";
 
-const MAX_DECODED_WAVE_BYTES = 257 * 1024 * 1024;
 const MAX_STDERR_BYTES = 32 * 1024;
 const DECODER_TIMEOUT_MS = 10 * 60 * 1_000;
 
@@ -107,7 +106,6 @@ async function decodeCompressedAudio(
     { stdio: ["ignore", "ignore", "pipe"], windowsHide: true },
   );
   let stderr = "";
-  let overflow = false;
   let timedOut = false;
   let spawnError: Error | undefined;
   const timeout = setTimeout(() => {
@@ -115,16 +113,6 @@ async function decodeCompressedAudio(
     child.kill();
   }, DECODER_TIMEOUT_MS);
   const forceKill = setTimeout(() => child.kill("SIGKILL"), DECODER_TIMEOUT_MS + 5_000);
-  const outputLimitPoll = setInterval(() => {
-    void lstat(destinationPath)
-      .then((info) => {
-        if (info.size > MAX_DECODED_WAVE_BYTES) {
-          overflow = true;
-          child.kill();
-        }
-      })
-      .catch(() => undefined);
-  }, 100);
   const closed = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>(
     (resolveClose) => {
       child.once("close", (code, signal) => resolveClose({ code, signal }));
@@ -146,7 +134,6 @@ async function decodeCompressedAudio(
       throw new Error(`Could not start FFmpeg audio decoding: ${spawnError.message}`);
     }
     if (timedOut) throw new Error("FFmpeg audio decoding exceeded the 10-minute time limit.");
-    if (overflow) throw new Error("Decoded audio exceeds the 256 MiB import limit.");
     if (exit.code !== 0) {
       throw new Error(
         stderr.trim() || `FFmpeg audio decoding exited with code ${String(exit.code)}.`,
@@ -156,12 +143,8 @@ async function decodeCompressedAudio(
     if (!decodedInfo?.isFile() || decodedInfo.isSymbolicLink() || decodedInfo.size < 12) {
       throw new Error("FFmpeg did not produce a valid decoded WAVE file.");
     }
-    if (decodedInfo.size > MAX_DECODED_WAVE_BYTES) {
-      throw new Error("Decoded audio exceeds the 256 MiB import limit.");
-    }
   } finally {
     clearTimeout(timeout);
     clearTimeout(forceKill);
-    clearInterval(outputLimitPoll);
   }
 }
