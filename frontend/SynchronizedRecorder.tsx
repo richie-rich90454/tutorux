@@ -11,7 +11,10 @@ import {
   SynchronizedRecording,
   type SynchronizedCaptureTrackIdentity,
 } from "./domain/synchronized-recording";
-import type { MicrophoneArchiveSource } from "./domain/microphone-recording";
+import type {
+  CaptureSampleFormat,
+  MicrophoneArchiveSource,
+} from "./domain/microphone-recording";
 import {
   listNativeSynchronizedAudioDevices,
   preflightNativeMicrophone,
@@ -24,6 +27,19 @@ import type {
 } from "./platform/synchronized-audio";
 import { hasDesktopArchiveCapability, persistMicrophoneArchiveGeneration } from "./platform/tauri";
 import { platform } from "@platform";
+
+function parseCaptureFormat(value: string | undefined): CaptureSampleFormat {
+  switch (value) {
+    case "pcm_u8":
+    case "pcm_s16le":
+    case "pcm_s24le":
+    case "pcm_s32le":
+    case "pcm_f32le":
+      return value;
+    default:
+      return "pcm_s16le";
+  }
+}
 
 interface AudioDeviceOption {
   id: string;
@@ -592,11 +608,15 @@ export function SynchronizedRecorder(props: Props) {
                 {
                   source: "microphone",
                   sampleRateHz: started.microphoneSampleRateHz,
+                  sampleFormat: parseCaptureFormat(started.microphoneSampleFormat),
+                  channelCount: started.microphoneChannelCount ?? 1,
                   label: "Microphone recording",
                 },
                 {
                   source: "system-audio",
                   sampleRateHz: started.systemAudioSampleRateHz,
+                  sampleFormat: parseCaptureFormat(started.systemAudioSampleFormat),
+                  channelCount: started.systemAudioChannelCount ?? 1,
                   label: "Shared system audio",
                   ...(selectedSecondaryAudio?.source === "system-audio"
                     ? { sourceDeviceId: selectedSecondaryAudio.id }
@@ -605,6 +625,8 @@ export function SynchronizedRecorder(props: Props) {
                 {
                   source: "application-audio",
                   sampleRateHz: started.applicationAudioSampleRateHz,
+                  sampleFormat: parseCaptureFormat(started.applicationAudioSampleFormat),
+                  channelCount: started.applicationAudioChannelCount ?? 1,
                   label: started.applicationAudioName
                     ? `${started.applicationAudioName} application audio`
                     : "Application audio",
