@@ -61,7 +61,8 @@ export async function listOllamaInstalledModels(
     const name = typeof item["name"] === "string" ? item["name"] : item["model"];
     if (typeof name !== "string" || !name.trim() || name.includes("\0")) continue;
     const details = isObject(item["details"]) ? item["details"] : {};
-    const size = typeof item["size"] === "number" && Number.isSafeInteger(item["size"]) ? item["size"] : null;
+    const size =
+      typeof item["size"] === "number" && Number.isSafeInteger(item["size"]) ? item["size"] : null;
     models.push({
       name: name.trim(),
       sizeBytes: size,
@@ -85,7 +86,8 @@ export async function testAiProviderConnection(
   if (provider.id === "embedded-gguf") {
     return {
       status: "local-runtime",
-      detail: "Embedded GGUF inference runs inside the desktop app; no provider connection is needed.",
+      detail:
+        "Embedded GGUF inference runs inside the desktop app; no provider connection is needed.",
       modelCount: null,
     };
   }
@@ -140,7 +142,10 @@ export async function testAiProviderConnection(
     }
     return {
       status: "connected",
-      detail: modelCount === null ? "Provider endpoint is reachable." : `Provider endpoint is reachable with ${modelCount} listed model(s).`,
+      detail:
+        modelCount === null
+          ? "Provider endpoint is reachable."
+          : `Provider endpoint is reachable with ${modelCount} listed model(s).`,
       modelCount,
     };
   }
