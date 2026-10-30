@@ -4,18 +4,25 @@ use cpal::{
     Data,
 };
 use serde::Serialize;
+#[cfg(target_os = "linux")]
+use std::fs;
 use std::{
     collections::HashSet,
-    fs,
-    process::{Command, Stdio},
     sync::{Arc, Mutex},
     thread,
-    time::{Duration, Instant},
+    time::Duration,
+};
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+use std::{
+    process::{Command, Stdio},
+    time::Instant,
 };
 use tauri::WebviewWindow;
 
 const MAX_AUDIO_STREAM_PROBES: usize = 12;
 const AUDIO_STREAM_PROBE_DURATION: Duration = Duration::from_millis(125);
+#[cfg(target_os = "windows")]
+const WINDOWS_TO_UNIX_EPOCH_TICKS: u64 = 116_444_736_000_000_000;
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -140,30 +147,17 @@ fn collect_process_metrics() -> ProcessMetrics {
 
 #[cfg(target_os = "windows")]
 fn windows_process_metrics() -> ProcessMetrics {
-    let process_id = std::process::id();
-    let script = format!(
-        "$ErrorActionPreference='Stop'; $p=Get-Process -Id {process_id}; $o=Get-CimInstance Win32_OperatingSystem; [Console]::WriteLine(('{0}|{1}|{2}|{3}|{4}' -f [long]($p.TotalProcessorTime.Ticks / 10), [uint64]$p.WorkingSet64, [uint64]$p.PeakWorkingSet64, [long](((Get-Date)-$p.StartTime).TotalMilliseconds * 1000), [uint64]($o.FreePhysicalMemory * 1024)))"
-    );
-    let values = run_bounded_command(
-        "powershell.exe",
-        &["-NoProfile", "-NonInteractive", "-Command", &script],
-    )
-    .and_then(|output| parse_unsigned_fields(&output, '|', 5));
-
-    match values {
-        Ok(values) => ProcessMetrics {
-            cpu_time_microseconds: available_metric(values[0]),
-            resident_memory_bytes: available_metric(values[1]),
-            peak_resident_memory_bytes: available_metric(values[2]),
-            uptime_microseconds: values[3]
-                .checked_mul(1_000)
-                .map(available_metric)
-                .unwrap_or_else(|| unavailable_metric("Windows returned an out-of-range process uptime.")),
-            available_memory_bytes: available_metric(values[4]),
+    match windows_process_snapshot() {
+        Ok(snapshot) => ProcessMetrics {
+            cpu_time_microseconds: available_metric(snapshot.cpu_time_microseconds),
+            resident_memory_bytes: available_metric(snapshot.resident_memory_bytes),
+            peak_resident_memory_bytes: available_metric(snapshot.peak_resident_memory_bytes),
+            uptime_microseconds: available_metric(snapshot.uptime_microseconds),
+            available_memory_bytes: available_metric(snapshot.available_memory_bytes),
         },
         Err(reason) => {
             let reason = format!(
-                "Windows process metrics could not be read through the local PowerShell system interface: {reason}"
+                "Windows process metrics could not be read through the local Win32 process API: {reason}"
             );
             ProcessMetrics {
                 uptime_microseconds: unavailable_metric(reason.clone()),
@@ -174,6 +168,125 @@ fn windows_process_metrics() -> ProcessMetrics {
             }
         }
     }
+}
+
+#[cfg(target_os = "windows")]
+struct WindowsProcessSnapshot {
+    cpu_time_microseconds: u64,
+    resident_memory_bytes: u64,
+    peak_resident_memory_bytes: u64,
+    uptime_microseconds: u64,
+    available_memory_bytes: u64,
+}
+
+#[cfg(target_os = "windows")]
+fn windows_process_snapshot() -> Result<WindowsProcessSnapshot, String> {
+    use windows_sys::Win32::Foundation::FILETIME;
+    use windows_sys::Win32::System::{
+        ProcessStatus::{GetProcessMemoryInfo, PROCESS_MEMORY_COUNTERS},
+        SystemInformation::{GlobalMemoryStatusEx, MEMORYSTATUSEX},
+        Threading::{GetCurrentProcess, GetProcessTimes},
+    };
+
+    let process = unsafe { GetCurrentProcess() };
+    let mut creation = FILETIME::default();
+    let mut exit = FILETIME::default();
+    let mut kernel = FILETIME::default();
+    let mut user = FILETIME::default();
+    // SAFETY: GetCurrentProcess returns a pseudo handle valid for this process, and every
+    // FILETIME pointer refers to a live, uniquely borrowed local.
+    if unsafe { GetProcessTimes(process, &mut creation, &mut exit, &mut kernel, &mut user) } == 0 {
+        return Err("GetProcessTimes did not return this process's timing counters.".to_owned());
+    }
+
+    let cpu_ticks = filetime_ticks(kernel).saturating_add(filetime_ticks(user));
+    let creation_ticks = filetime_ticks(creation);
+    let now_ticks = unix_filetime_ticks()?;
+    let uptime_ticks = now_ticks.saturating_sub(creation_ticks);
+
+    let mut counters = PROCESS_MEMORY_COUNTERS::default();
+    counters.cb = std::mem::size_of::<PROCESS_MEMORY_COUNTERS>() as u32;
+    // SAFETY: counters is a live, uniquely borrowed PROCESS_MEMORY_COUNTERS whose cb field
+    // states its own size, as GetProcessMemoryInfo requires.
+    if unsafe { GetProcessMemoryInfo(process, &mut counters, counters.cb) } == 0 {
+        return Err(
+            "GetProcessMemoryInfo did not return this process's memory counters.".to_owned(),
+        );
+    }
+
+    let mut memory = MEMORYSTATUSEX::default();
+    memory.dwLength = std::mem::size_of::<MEMORYSTATUSEX>() as u32;
+    // SAFETY: memory is a live, uniquely borrowed MEMORYSTATUSEX whose dwLength field states
+    // its own size, as GlobalMemoryStatusEx requires.
+    if unsafe { GlobalMemoryStatusEx(&mut memory) } == 0 {
+        return Err("GlobalMemoryStatusEx did not return the system memory status.".to_owned());
+    }
+
+    Ok(WindowsProcessSnapshot {
+        cpu_time_microseconds: cpu_ticks / 10,
+        resident_memory_bytes: u64::try_from(counters.WorkingSetSize)
+            .map_err(|_| "The resident memory counter exceeded the supported range.".to_owned())?,
+        peak_resident_memory_bytes: u64::try_from(counters.PeakWorkingSetSize).map_err(|_| {
+            "The peak resident memory counter exceeded the supported range.".to_owned()
+        })?,
+        uptime_microseconds: uptime_ticks / 10,
+        available_memory_bytes: memory.ullAvailPhys,
+    })
+}
+
+#[cfg(target_os = "windows")]
+fn filetime_ticks(value: windows_sys::Win32::Foundation::FILETIME) -> u64 {
+    (u64::from(value.dwHighDateTime) << 32) | u64::from(value.dwLowDateTime)
+}
+
+#[cfg(target_os = "windows")]
+fn unix_filetime_ticks() -> Result<u64, String> {
+    let elapsed = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_err(|_| "The system clock is before the Unix epoch.".to_owned())?;
+    let ticks = elapsed
+        .as_micros()
+        .checked_mul(10)
+        .and_then(|value| value.checked_add(u128::from(WINDOWS_TO_UNIX_EPOCH_TICKS)))
+        .ok_or_else(|| "The system clock exceeded the supported Windows time range.".to_owned())?;
+    u64::try_from(ticks)
+        .map_err(|_| "The system clock exceeded the supported Windows time range.".to_owned())
+}
+
+#[cfg(target_os = "windows")]
+fn windows_available_memory_bytes() -> Result<u64, String> {
+    use windows_sys::Win32::System::SystemInformation::{GlobalMemoryStatusEx, MEMORYSTATUSEX};
+
+    let mut memory = MEMORYSTATUSEX::default();
+    memory.dwLength = std::mem::size_of::<MEMORYSTATUSEX>() as u32;
+    // SAFETY: memory is a live, uniquely borrowed MEMORYSTATUSEX whose dwLength field states
+    // its own size, as GlobalMemoryStatusEx requires.
+    if unsafe { GlobalMemoryStatusEx(&mut memory) } == 0 {
+        return Err("GlobalMemoryStatusEx did not return the system memory status.".to_owned());
+    }
+    Ok(memory.ullAvailPhys)
+}
+
+#[cfg(target_os = "macos")]
+pub(crate) fn available_system_memory_bytes() -> Result<u64, String> {
+    macos_available_memory()
+}
+
+#[cfg(target_os = "linux")]
+pub(crate) fn available_system_memory_bytes() -> Result<u64, String> {
+    fs::read_to_string("/proc/meminfo")
+        .map_err(|error| error.to_string())
+        .and_then(|contents| parse_proc_memory_kib(&contents, "MemAvailable"))
+}
+
+#[cfg(target_os = "windows")]
+pub(crate) fn available_system_memory_bytes() -> Result<u64, String> {
+    windows_available_memory_bytes()
+}
+
+#[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
+pub(crate) fn available_system_memory_bytes() -> Result<u64, String> {
+    Err("Available system memory is not implemented for this operating system.".to_owned())
 }
 
 #[cfg(target_os = "macos")]
@@ -211,7 +324,11 @@ fn macos_process_metrics() -> ProcessMetrics {
     };
 
     let peak_resident_memory_bytes = macos_peak_resident_memory().map_or_else(
-        |reason| unavailable_metric(format!("macOS peak resident memory is unavailable: {reason}")),
+        |reason| {
+            unavailable_metric(format!(
+                "macOS peak resident memory is unavailable: {reason}"
+            ))
+        },
         available_metric,
     );
     let available_memory_bytes = macos_available_memory().map_or_else(
@@ -260,8 +377,12 @@ fn linux_process_metrics() -> ProcessMetrics {
     let process = fs::read_to_string("/proc/self/stat")
         .map_err(|error| error.to_string())
         .and_then(|contents| parse_linux_process_stat(&contents));
-    let clock_ticks = run_bounded_command("getconf", &["CLK_TCK"])
-        .and_then(|output| output.trim().parse::<u64>().map_err(|_| "getconf returned an invalid clock-tick rate.".to_owned()));
+    let clock_ticks = run_bounded_command("getconf", &["CLK_TCK"]).and_then(|output| {
+        output
+            .trim()
+            .parse::<u64>()
+            .map_err(|_| "getconf returned an invalid clock-tick rate.".to_owned())
+    });
     let uptime_microseconds = fs::read_to_string("/proc/uptime")
         .map_err(|error| error.to_string())
         .and_then(|contents| parse_first_seconds(&contents));
@@ -270,7 +391,8 @@ fn linux_process_metrics() -> ProcessMetrics {
         (Ok((user_ticks, system_ticks, start_ticks)), Ok(ticks_per_second))
             if ticks_per_second > 0 =>
         {
-            let cpu = ticks_to_microseconds(user_ticks.saturating_add(system_ticks), ticks_per_second);
+            let cpu =
+                ticks_to_microseconds(user_ticks.saturating_add(system_ticks), ticks_per_second);
             let uptime = uptime_microseconds.map(|system_uptime| {
                 system_uptime.saturating_sub(ticks_to_microseconds(start_ticks, ticks_per_second))
             });
@@ -298,7 +420,11 @@ fn linux_process_metrics() -> ProcessMetrics {
             available_metric,
         ),
         peak_resident_memory_bytes: peak_resident_memory_bytes.map_or_else(
-            |reason| unavailable_metric(format!("Linux peak resident memory is unavailable: {reason}")),
+            |reason| {
+                unavailable_metric(format!(
+                    "Linux peak resident memory is unavailable: {reason}"
+                ))
+            },
             available_metric,
         ),
         available_memory_bytes: available_memory_bytes.map_or_else(
@@ -331,14 +457,16 @@ fn parse_proc_memory_kib(contents: &str, field_name: &str) -> Result<u64, String
         .lines()
         .find_map(|line| {
             let (name, remainder) = line.split_once(':')?;
-            (name == field_name).then(|| remainder.split_whitespace().next()).flatten()
+            (name == field_name)
+                .then(|| remainder.split_whitespace().next())
+                .flatten()
         })
         .ok_or_else(|| format!("{field_name} was not present in the proc memory report."))?
         .parse::<u64>()
         .map_err(|_| format!("{field_name} was not a valid memory value."))?;
     value
         .checked_mul(1024)
-        .ok_or_else(|| format!("{field_name} exceeded the supported memory range.".to_owned()) )
+        .ok_or_else(|| format!("{field_name} exceeded the supported memory range.".to_owned()))
 }
 
 #[cfg(target_os = "linux")]
@@ -354,8 +482,8 @@ fn parse_first_seconds(contents: &str) -> Result<u64, String> {
 
 #[cfg(target_os = "linux")]
 fn ticks_to_microseconds(ticks: u64, ticks_per_second: u64) -> u64 {
-    ((u128::from(ticks) * 1_000_000) / u128::from(ticks_per_second))
-        .min(u128::from(u64::MAX)) as u64
+    ((u128::from(ticks) * 1_000_000) / u128::from(ticks_per_second)).min(u128::from(u64::MAX))
+        as u64
 }
 
 #[cfg(target_os = "macos")]
@@ -435,7 +563,10 @@ fn macos_available_memory() -> Result<u64, String> {
         let Some((name, count)) = line.split_once(':') else {
             continue;
         };
-        if matches!(name.trim(), "Pages free" | "Pages inactive" | "Pages speculative") {
+        if matches!(
+            name.trim(),
+            "Pages free" | "Pages inactive" | "Pages speculative"
+        ) {
             let count = count
                 .trim()
                 .trim_end_matches('.')
@@ -453,24 +584,7 @@ fn macos_available_memory() -> Result<u64, String> {
         .ok_or_else(|| "vm_stat returned an out-of-range available memory value.".into())
 }
 
-#[cfg(target_os = "windows")]
-fn parse_unsigned_fields(contents: &str, separator: char, expected: usize) -> Result<Vec<u64>, String> {
-    let values: Vec<u64> = contents
-        .trim()
-        .split(separator)
-        .map(|field| {
-            field
-                .trim()
-                .parse::<u64>()
-                .map_err(|_| "The local system command returned an invalid metric value.".to_owned())
-        })
-        .collect::<Result<_, _>>()?;
-    if values.len() != expected {
-        return Err("The local system command returned an incomplete metrics row.".into());
-    }
-    Ok(values)
-}
-
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 fn run_bounded_command(program: &str, arguments: &[&str]) -> Result<String, String> {
     let mut child = Command::new(program)
         .args(arguments)
@@ -491,13 +605,19 @@ fn run_bounded_command(program: &str, arguments: &[&str]) -> Result<String, Stri
             None => thread::sleep(Duration::from_millis(20)),
         }
     };
-    let output = child.wait_with_output().map_err(|error| error.to_string())?;
+    let output = child
+        .wait_with_output()
+        .map_err(|error| error.to_string())?;
     if !status.success() {
-        return Err(format!("The local system command exited with status {}.", status));
+        return Err(format!(
+            "The local system command exited with status {}.",
+            status
+        ));
     }
     Ok(String::from_utf8_lossy(&output.stdout).into_owned())
 }
 
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 fn seconds_to_microseconds(seconds: f64) -> Result<u64, String> {
     if !seconds.is_finite() || seconds < 0.0 || seconds > (u64::MAX as f64 / 1_000_000.0) {
         return Err("The operating system returned an out-of-range time value.".into());
@@ -634,8 +754,8 @@ fn enumerate_audio_endpoints(probe_streams: bool) -> AudioEndpointDiagnostics {
             },
         })
         .collect();
-    let application_truncated_count = application_endpoint_count
-        .saturating_sub(MAX_AUDIO_STREAM_PROBES);
+    let application_truncated_count =
+        application_endpoint_count.saturating_sub(MAX_AUDIO_STREAM_PROBES);
     let application_unavailable_reason = application_unavailable_reason.or_else(|| {
         if application_endpoint_count == 0 {
             None
@@ -815,4 +935,26 @@ fn hosts() -> Vec<cpal::Host> {
 fn is_linux_monitor_name(value: &str) -> bool {
     let normalized = value.to_ascii_lowercase();
     normalized.contains("monitor") || normalized.contains("loopback")
+}
+
+#[cfg(all(test, target_os = "windows"))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn filetime_ticks_combines_both_halves() {
+        let value = windows_sys::Win32::Foundation::FILETIME {
+            dwLowDateTime: 0x1234_5678,
+            dwHighDateTime: 0x0000_0001,
+        };
+        assert_eq!(filetime_ticks(value), 0x0000_0001_1234_5678);
+    }
+
+    #[test]
+    fn native_process_metrics_return_positive_values() {
+        let snapshot =
+            windows_process_snapshot().expect("the local Win32 process queries should work");
+        assert!(snapshot.resident_memory_bytes > 0);
+        assert!(snapshot.available_memory_bytes > 0);
+    }
 }
