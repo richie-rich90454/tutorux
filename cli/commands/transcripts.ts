@@ -1,14 +1,13 @@
-import { lstat, readFile } from "node:fs/promises";
-import { basename, resolve } from "node:path";
+import { lstat } from "node:fs/promises";
+import { createReadStream } from "node:fs";
+import { basename, dirname, isAbsolute, resolve } from "node:path";
 import { availableParallelism } from "node:os";
 import { RecordType, type ArchiveRecord } from "../../frontend/archive/format";
 import { canonicalizeProgressUuid } from "../../frontend/domain/student-progress";
 import {
   correctTranscriptRecord,
   formatTranscriptExport,
-  makeTranscriptRecords,
   mergeTranscriptRecords,
-  parseTranscriptSource,
   parseTranscriptTimestamp,
   resolveTranscriptFormat,
   setTranscriptSpeaker,
@@ -19,6 +18,7 @@ import {
   type TranscriptExportFormat,
 } from "../../frontend/domain/transcript";
 import { listSessionAudioTracks } from "../../frontend/domain/audio";
+import { importTranscriptBatches } from "../../frontend/audio/transcript-import";
 import { transcribeTrack } from "../whisper";
 import { closeSnapshot, mutateArchive, openForCommand, writeTextAtomically } from "./archive-io";
 import {
@@ -174,16 +174,13 @@ export async function runTranscriptCommand(
   if (action === "plan") return runTranscriptionPlan(path, args, output, false);
 
   if (action === "transcribe" || action === "generate" || action === "refine") {
-    if (!args.flags.has("consent-local-audio")) {
-      throw new CliError(
-        "Use --consent-local-audio to authorize processing this recording with the selected local executable.",
-      );
-    }
     const selectedSession = requiredOption(args, "session");
-    const trackId = requiredOption(args, "track");
-    const executable = requiredOption(args, "whisper");
-    const model = requiredOption(args, "model");
+    const trackValue = args.options.get("track");
     const language = args.options.get("language") ?? "auto";
+    if (args.flags.has("threads")) throw new CliError("--threads requires a value.");
+    const threads = args.options.has("threads")
+      ? parseBoundedOption(args.options.get("threads"), "threads", 1, 1, 64)
+      : undefined;
     const startUs = args.options.has("start")
       ? parseTranscriptTimestamp(requiredOption(args, "start"))
       : 0n;
@@ -194,6 +191,45 @@ export async function runTranscriptCommand(
     try {
       const session = await requireLiveRecord(snapshot, RecordType.session, selectedSession);
       const generation = snapshot.commit.generation;
+      const assets = await snapshot.listRecordMetadata(RecordType.assetMetadata);
+      const tracks = listSessionAudioTracks(session, assets);
+      if (!tracks.length) throw new CliError("The session has no recorded audio track.");
+      const requestedTrack = trackValue?.toLowerCase();
+      const track =
+        requestedTrack === undefined
+          ? tracks[0]!
+          : tracks.find((candidate) => candidate.id.toLowerCase() === requestedTrack);
+      if (!track) throw new CliError("--track must select an audio track in this session.");
+      const trackId = track.id;
+      let model = args.options.get("model");
+      if (model && !isAbsolute(model)) model = resolve(dirname(resolve(path)), model);
+      if (!model) {
+        const activeModels = (await snapshot.listRecords(RecordType.settings)).filter(
+          (record) =>
+            field(record, "record_role") === "model-reference" &&
+            field(record, "_deleted") !== "true" &&
+            field(record, "active") === "true" &&
+            ["whisper", "whisper.cpp", "local-whisper"].includes(field(record, "provider")),
+        );
+        if (activeModels.length > 1)
+          throw new CliError(
+            "More than one local Whisper model is active; pass --model FILE to choose one.",
+          );
+        const referenced = activeModels[0] ? field(activeModels[0], "path") : "";
+        if (referenced) model = resolve(dirname(resolve(path)), referenced);
+      }
+      if (!model) throw new CliError("Select an active local Whisper model or pass --model FILE.");
+      const executable =
+        args.options.get("whisper") ?? process.env["TUTORUX_WHISPER"] ?? "whisper-cli";
+      const chunks = await snapshot.listAudioChunkMetadata(selectedSession, trackId);
+      const lastChunk = chunks.at(-1);
+      const rate = BigInt(lastChunk ? field(lastChunk, "sample_rate_hz", "0") : "0");
+      const frames = lastChunk
+        ? BigInt(field(lastChunk, "first_sample_index", "0")) +
+          BigInt(field(lastChunk, "sample_count", "0"))
+        : 0n;
+      const audioDurationUs = rate === 0n ? "0" : ((frames * 1_000_000n) / rate).toString();
+      let expectedGeneration = generation;
       const result = await transcribeTrack({
         snapshot,
         sessionId: selectedSession,
@@ -205,11 +241,23 @@ export async function runTranscriptCommand(
         ...(endUs === undefined ? {} : { endUs }),
         refine: action === "refine",
         diarizeSpeakerTurns: args.flags.has("diarize"),
+        ...(threads === undefined ? {} : { threads }),
         progress: (message) => {
           if (!json) output.stderr(message);
         },
+        expectedGeneration,
+        commit: async (records, expected) => {
+          const saved = await mutateArchive(
+            path,
+            records,
+            expected,
+            "The archive changed during transcription. Review it and try again.",
+          );
+          expectedGeneration = expected + 1n;
+          return saved;
+        },
       });
-      if (result.changes.length) {
+      if (result.generated || result.superseded || result.skipped) {
         const fields = new Map(session.fields);
         fields.set("processing_state", "review-required");
         fields.set(
@@ -219,16 +267,33 @@ export async function runTranscriptCommand(
         fields.set("processing_updated_at_us", timestampNow());
         await mutateArchive(
           path,
-          [...result.changes, { ...session, fields }],
-          generation,
+          [{ ...session, fields }],
+          expectedGeneration,
           "The archive changed during transcription. Review it and try again.",
         );
       }
+      const diarizationEnabled = args.flags.has("diarize");
       emit(
         output,
         {
           session_id: selectedSession,
           track_id: trackId,
+          created_segment_count: String(result.generated),
+          superseded_segment_count: String(result.superseded),
+          preserved_human_segment_count: String(result.skipped),
+          diarization_enabled: diarizationEnabled ? "true" : "false",
+          diarization_scope: diarizationEnabled
+            ? "experimental-speaker-turn-boundaries-only"
+            : "disabled",
+          diarization_model_requirement: diarizationEnabled
+            ? "TDRZ-compatible Whisper model required"
+            : "not-applicable",
+          speaker_turn_boundary_count: String(result.speakerTurnBoundaries),
+          audio_duration_us: audioDurationUs,
+          model: basename(model),
+          backend: "whisper.cpp-cli",
+          threads: result.threads,
+          verification_state: "provisional",
           generated: result.generated,
           superseded: result.superseded,
           skipped: result.skipped,
@@ -254,15 +319,7 @@ export async function runTranscriptCommand(
       throw new CliError("Transcript input must be a regular, non-symlink file.");
     if (metadata.size > 256 * 1024 * 1024)
       throw new CliError("Transcript source exceeds the configured 256 MiB limit.");
-    const bytes = await readFile(inputAbsolutePath);
-    let source: string;
-    try {
-      source = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
-    } catch {
-      throw new CliError("Transcript source must be valid UTF-8.");
-    }
     const format = resolveTranscriptFormat(args.options.get("format") ?? "auto", inputAbsolutePath);
-    const cues = parseTranscriptSource(source, format);
     const snapshot = await openForCommand(path);
     let session: ArchiveRecord;
     let expectedGeneration: bigint;
@@ -272,8 +329,19 @@ export async function runTranscriptCommand(
     } finally {
       await closeSnapshot(snapshot);
     }
-    const changes = makeTranscriptRecords(sessionId, cues, format, basename(inputAbsolutePath));
-    if (changes.length > 0) {
+    const imported = await importTranscriptBatches({
+      source: createReadStream(inputAbsolutePath),
+      format,
+      sessionId,
+      filename: basename(inputAbsolutePath),
+      expectedGeneration,
+      commit: async (records, expected) => {
+        const saved = await mutateArchive(path, records, expected);
+        expectedGeneration = expected + 1n;
+        return saved;
+      },
+    });
+    if (imported.imported > 0) {
       const fields = new Map(session.fields);
       fields.set("processing_state", "review-required");
       fields.set(
@@ -281,18 +349,17 @@ export async function runTranscriptCommand(
         "Imported transcript is provisional and ready for tutor review.",
       );
       fields.set("processing_updated_at_us", timestampNow());
-      changes.push({ ...session, fields });
-      await mutateArchive(path, changes, expectedGeneration);
+      await mutateArchive(path, [{ ...session, fields }], expectedGeneration);
     }
     emit(
       output,
       {
         session_id: sessionId,
         source_format: format,
-        imported_segment_count: String(cues.length),
+        imported_segment_count: String(imported.imported),
         verification_state: "provisional",
       },
-      `Imported ${cues.length} transcript segment(s) from ${format}; all imported text is provisional pending tutor review.`,
+      `Imported ${imported.imported} transcript segment(s) from ${format}; all imported text is provisional pending tutor review.`,
       json,
     );
     return 0;
