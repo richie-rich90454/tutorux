@@ -1,7 +1,13 @@
-import { createMemo, createSignal, For, Show, type JSX } from "solid-js";
+import { createEffect, createMemo, createSignal, For, Show, type JSX } from "solid-js";
 import { RecordType, type ArchiveRecord } from "./archive/format";
 import type { ArchiveSnapshot } from "./archive/archive";
-import { guideDraftFromRecord, makeGuideRecord } from "./domain/guides";
+import { GUIDE_TEMPLATES, guideDraftFromRecord, makeGuideRecord } from "./domain/guides";
+import { makeSessionRecords, makeStudentRecord } from "./domain/records";
+import {
+  journalEntryDeleteBlockerMessage,
+  journalEntryDeleteBlockers,
+  trashJournalEntryGroup,
+} from "./domain/journal-trash";
 import "./journal-relations.css";
 
 const field = (record: ArchiveRecord, key: string) => record.fields.get(key) ?? "";
@@ -12,6 +18,38 @@ const ids = (value: string) =>
     .map((id) => id.trim())
     .filter(Boolean);
 const timestamp = () => (BigInt(Date.now()) * 1000n).toString();
+function sessionDate(session: ArchiveRecord): { key: string; label: string } | null {
+  try {
+    const milliseconds = Number(
+      BigInt(field(session, "started_at_us") || field(session, "created_at_us") || "0") / 1000n,
+    );
+    if (!Number.isFinite(milliseconds) || milliseconds <= 0) return null;
+    const date = new Date(milliseconds);
+    if (Number.isNaN(date.getTime())) return null;
+    const pad = (value: number) => value.toString().padStart(2, "0");
+    return {
+      key: `${date.getUTCFullYear()}-${pad(date.getUTCMonth() + 1)}-${pad(date.getUTCDate())}`,
+      label: new Intl.DateTimeFormat(undefined, {
+        year: "numeric",
+        month: "short",
+        day: "numeric",
+        hour: "numeric",
+        minute: "2-digit",
+        timeZone: "UTC",
+        timeZoneName: "short",
+      }).format(date),
+    };
+  } catch {
+    return null;
+  }
+}
+function startedAt(session: ArchiveRecord): bigint {
+  try {
+    return BigInt(field(session, "started_at_us") || field(session, "created_at_us") || "0");
+  } catch {
+    return 0n;
+  }
+}
 function update(record: ArchiveRecord, changes: Record<string, string>): ArchiveRecord {
   const fields = new Map(record.fields);
   for (const [key, value] of Object.entries(changes)) fields.set(key, value);
@@ -153,7 +191,9 @@ export function JournalRelations(props: {
   snapshot: ArchiveSnapshot;
   entries: ArchiveRecord[];
   sessions: ArchiveRecord[];
+  students: ArchiveRecord[];
   guides: ArchiveRecord[];
+  guideTemplates: ArchiveRecord[];
   assets: ArchiveRecord[];
   notesDocuments: ArchiveRecord[];
   disabled: boolean;
@@ -162,20 +202,64 @@ export function JournalRelations(props: {
   const [open, setOpen] = createSignal(false);
   const [error, setError] = createSignal("");
   const [pending, setPending] = createSignal(false);
+  const [deleteConfirmed, setDeleteConfirmed] = createSignal(false);
+  const deleteBlockers = createMemo(() =>
+    journalEntryDeleteBlockers(props.entry, props.sessions, props.guides, props.notesDocuments),
+  );
+  createEffect(() => {
+    deleteBlockers();
+    setDeleteConfirmed(false);
+  });
+  const canDeleteEntry = createMemo(() =>
+    Object.values(deleteBlockers()).every((count) => count === 0),
+  );
   const attached = createMemo(
     () => new Set(ids(field(props.entry, "attachment_ids")).map((id) => id.toLowerCase())),
   );
   const linkedSessions = createMemo(() =>
-    props.sessions.filter((item) => same(field(item, "entry_id"), props.entry.id)),
+    props.sessions.filter(
+      (item) =>
+        field(item, "_deleted") !== "true" &&
+        field(item, "archived") !== "true" &&
+        same(field(item, "entry_id"), props.entry.id),
+    ),
   );
   const linkedGuides = createMemo(() =>
     props.guides.filter((item) => same(field(item, "entry_id"), props.entry.id)),
   );
   const availableSessions = createMemo(() =>
-    props.sessions.filter((item) => !same(field(item, "entry_id"), props.entry.id)),
+    props.sessions.filter(
+      (item) =>
+        field(item, "_deleted") !== "true" &&
+        field(item, "archived") !== "true" &&
+        !same(field(item, "entry_id"), props.entry.id),
+    ),
   );
   const [sessionId, setSessionId] = createSignal("");
+  const [sessionTitle, setSessionTitle] = createSignal("");
+  const [sessionType, setSessionType] = createSignal("notes-only");
+  const [recordingSource, setRecordingSource] = createSignal("none");
+  const [sessionStudent, setSessionStudent] = createSignal("");
+  const [newStudentName, setNewStudentName] = createSignal("");
+  const [newStudentGrade, setNewStudentGrade] = createSignal("");
+  const [sessionSubject, setSessionSubject] = createSignal("");
+  const [sessionObjectives, setSessionObjectives] = createSignal("");
+  const [sessionLanguage, setSessionLanguage] = createSignal("auto");
+  const [sessionGuideTemplate, setSessionGuideTemplate] = createSignal("");
   const [guideId, setGuideId] = createSignal("");
+  const [timelineDate, setTimelineDate] = createSignal("");
+  const [appliedTimelineDate, setAppliedTimelineDate] = createSignal("");
+  const timelineSessions = createMemo(() =>
+    linkedSessions()
+      .filter(
+        (session) => !appliedTimelineDate() || sessionDate(session)?.key === appliedTimelineDate(),
+      )
+      .sort((left, right) => {
+        const leftStart = startedAt(left);
+        const rightStart = startedAt(right);
+        return leftStart < rightStart ? -1 : leftStart > rightStart ? 1 : 0;
+      }),
+  );
   const availableGuides = createMemo(() =>
     props.guides.filter(
       (guide) => !field(guide, "session_id") && !same(field(guide, "entry_id"), props.entry.id),
@@ -240,6 +324,66 @@ export function JournalRelations(props: {
       setError(cause instanceof Error ? cause.message : String(cause));
     }
   }
+  async function createSession(event: SubmitEvent): Promise<void> {
+    event.preventDefault();
+    setError("");
+    const title = sessionTitle().trim();
+    const creatingStudent = sessionStudent() === "__new_student__";
+    if (!title) {
+      setError("Enter a title for the session.");
+      return;
+    }
+    if (creatingStudent && !newStudentName().trim()) {
+      setError("Enter a name for the new student.");
+      return;
+    }
+    try {
+      const student = creatingStudent
+        ? makeStudentRecord({
+            name: newStudentName(),
+            grade: newStudentGrade(),
+            subjects: sessionSubject(),
+            objectives: "",
+            tutorNotes: "",
+          })
+        : null;
+      const records = makeSessionRecords(
+        {
+          title,
+          studentId: student?.id ?? sessionStudent(),
+          subject: sessionSubject(),
+          objectives: sessionObjectives(),
+          noteBlocks: [],
+        },
+        {
+          linkedEntry: props.entry,
+          sessionType: sessionType(),
+          recordingSource: recordingSource(),
+          transcriptionLanguage: sessionLanguage(),
+          guideTemplateId: sessionGuideTemplate(),
+        },
+      );
+      if (
+        await write(
+          [...(student ? [student] : []), ...records],
+          "Session created in this journal entry.",
+        )
+      ) {
+        setSessionTitle("");
+        setSessionType("notes-only");
+        setRecordingSource("none");
+        setSessionStudent("");
+        setNewStudentName("");
+        setNewStudentGrade("");
+        setSessionSubject("");
+        setSessionObjectives("");
+        setSessionLanguage("auto");
+        setSessionGuideTemplate("");
+      }
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    }
+  }
   async function toggleAsset(asset: ArchiveRecord, enabled: boolean): Promise<void> {
     await write(
       [
@@ -249,6 +393,25 @@ export function JournalRelations(props: {
       ],
       enabled ? "Material linked to journal entry." : "Material unlinked from journal entry.",
     );
+  }
+  async function trashEntry(): Promise<void> {
+    setPending(true);
+    setError("");
+    try {
+      const records = await trashJournalEntryGroup(props.snapshot, props.entry.id);
+      if (
+        await props.onWriteRecords(
+          records,
+          "Journal entry and its notes moved to recoverable Trash.",
+        )
+      ) {
+        setDeleteConfirmed(false);
+      }
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setPending(false);
+    }
   }
   return (
     <section class="journal-relations">
@@ -260,18 +423,234 @@ export function JournalRelations(props: {
       >
         {open() ? "Hide connections" : "Connections"}
       </button>
+      <div class="journal-entry-delete">
+        <Show when={!canDeleteEntry()}>
+          <p>{journalEntryDeleteBlockerMessage(deleteBlockers())}</p>
+        </Show>
+        <Show when={canDeleteEntry()}>
+          <label>
+            <input
+              type="checkbox"
+              checked={deleteConfirmed()}
+              disabled={props.disabled || pending()}
+              onChange={(event) => setDeleteConfirmed(event.currentTarget.checked)}
+            />
+            Move this entry and its notes to recoverable Trash. The group can be restored later.
+          </label>
+          <button
+            type="button"
+            class="button button-danger record-action"
+            disabled={props.disabled || pending() || !deleteConfirmed()}
+            onClick={() => void trashEntry()}
+          >
+            {pending() ? "Moving…" : "Move entry to Trash"}
+          </button>
+        </Show>
+      </div>
       <Show when={open()}>
         <div class="journal-relations-content">
           <Show when={error()}>
             <p role="alert">{error()}</p>
           </Show>
           <h3>Sessions</h3>
+          <form class="journal-session-create" onSubmit={createSession}>
+            <h4>Create a session in this entry</h4>
+            <label class="form-field">
+              Session title
+              <input
+                required
+                maxlength="240"
+                value={sessionTitle()}
+                onInput={(event) => setSessionTitle(event.currentTarget.value)}
+              />
+            </label>
+            <div class="journal-session-create-grid">
+              <label class="form-field">
+                Mode
+                <select
+                  value={sessionType()}
+                  onChange={(event) => {
+                    const value = event.currentTarget.value;
+                    setSessionType(value);
+                    setRecordingSource(
+                      value === "record-audio"
+                        ? "microphone"
+                        : value === "import-recording"
+                          ? "imported-file"
+                          : "none",
+                    );
+                  }}
+                >
+                  <option value="notes-only">Notes only</option>
+                  <option value="record-audio">Record audio</option>
+                  <option value="import-recording">Import recording</option>
+                </select>
+              </label>
+              <label class="form-field">
+                Student
+                <select
+                  value={sessionStudent()}
+                  onChange={(event) => setSessionStudent(event.currentTarget.value)}
+                >
+                  <option value="">Independent session</option>
+                  <For each={props.students}>
+                    {(student) => (
+                      <option value={student.id}>{field(student, "display_name", "Student")}</option>
+                    )}
+                  </For>
+                  <option value="__new_student__">Create a new student</option>
+                </select>
+              </label>
+              <label class="form-field">
+                Transcription language
+                <input
+                  value={sessionLanguage()}
+                  placeholder="auto"
+                  maxlength="32"
+                  onInput={(event) => setSessionLanguage(event.currentTarget.value)}
+                />
+              </label>
+              <label class="form-field">
+                Guide template
+                <select
+                  value={sessionGuideTemplate()}
+                  onChange={(event) => setSessionGuideTemplate(event.currentTarget.value)}
+                >
+                  <option value="">Use recommended template</option>
+                  <For each={GUIDE_TEMPLATES}>
+                    {(template) => <option value={template.id}>{template.name}</option>}
+                  </For>
+                  <For
+                    each={props.guideTemplates.filter(
+                      (template) =>
+                        !GUIDE_TEMPLATES.some((builtIn) => same(builtIn.id, template.id)),
+                    )}
+                  >
+                    {(template) => (
+                      <option value={template.id}>{field(template, "name", "Custom template")}</option>
+                    )}
+                  </For>
+                </select>
+              </label>
+              <label class="form-field">
+                Capture source
+                <select
+                  value={recordingSource()}
+                  onChange={(event) => setRecordingSource(event.currentTarget.value)}
+                >
+                  <Show when={sessionType() === "record-audio"}>
+                    <option value="microphone">Microphone</option>
+                    <option value="system-audio">System audio</option>
+                    <option value="both">Microphone and system audio</option>
+                    <option value="application">Application audio</option>
+                  </Show>
+                  <Show when={sessionType() === "import-recording"}>
+                    <option value="imported-file">Imported file</option>
+                  </Show>
+                  <Show when={sessionType() === "notes-only"}>
+                    <option value="none">None</option>
+                  </Show>
+                </select>
+              </label>
+            </div>
+            <Show when={sessionStudent() === "__new_student__"}>
+              <div class="journal-session-create-grid">
+                <label class="form-field">
+                  New student name
+                  <input
+                    required
+                    maxlength="256"
+                    value={newStudentName()}
+                    onInput={(event) => setNewStudentName(event.currentTarget.value)}
+                  />
+                </label>
+                <label class="form-field">
+                  Grade or level
+                  <input
+                    maxlength="128"
+                    value={newStudentGrade()}
+                    onInput={(event) => setNewStudentGrade(event.currentTarget.value)}
+                  />
+                </label>
+              </div>
+            </Show>
+            <div class="journal-session-create-grid">
+              <label class="form-field">
+                Subject
+                <input
+                  maxlength="200"
+                  value={sessionSubject()}
+                  onInput={(event) => setSessionSubject(event.currentTarget.value)}
+                />
+              </label>
+              <label class="form-field">
+                Learning objectives
+                <input
+                  maxlength="4000"
+                  value={sessionObjectives()}
+                  onInput={(event) => setSessionObjectives(event.currentTarget.value)}
+                />
+              </label>
+            </div>
+            <button
+              type="submit"
+              class="button button-primary record-action"
+              disabled={props.disabled || pending()}
+            >
+              {pending() ? "Creating…" : "Create session"}
+            </button>
+          </form>
+          <div class="journal-relations-action journal-session-timeline-filter">
+            <label>
+              Timeline date (UTC)
+              <input
+                type="date"
+                value={timelineDate()}
+                aria-label="Filter linked sessions by UTC date"
+                onInput={(event) => setTimelineDate(event.currentTarget.value)}
+              />
+            </label>
+            <button
+              type="button"
+              class="button button-outline record-action"
+              disabled={!timelineDate() || linkedSessions().length === 0}
+              onClick={() => {
+                setAppliedTimelineDate(timelineDate());
+                setError("");
+              }}
+            >
+              Jump to date
+            </button>
+            <button
+              type="button"
+              class="button button-quiet record-action"
+              disabled={!appliedTimelineDate()}
+              onClick={() => {
+                setTimelineDate("");
+                setAppliedTimelineDate("");
+              }}
+            >
+              All dates
+            </button>
+          </div>
           <Show when={linkedSessions().length} fallback={<p>No sessions linked.</p>}>
-            <ul>
-              <For each={linkedSessions()}>
-                {(item) => <li>{field(item, "title") || "Untitled session"}</li>}
-              </For>
-            </ul>
+            <Show
+              when={timelineSessions().length}
+              fallback={<p>No linked sessions on {appliedTimelineDate()}.</p>}
+            >
+              <ul>
+                <For each={timelineSessions()}>
+                  {(item) => (
+                    <li>
+                      {field(item, "title") || "Untitled session"}
+                      <Show when={sessionDate(item)}>
+                        {(date) => <small>{date().label}</small>}
+                      </Show>
+                    </li>
+                  )}
+                </For>
+              </ul>
+            </Show>
           </Show>
           <Show when={availableSessions().length}>
             <div class="journal-relations-action">
