@@ -1,6 +1,8 @@
 import { createSignal, For, Show, type JSX } from "solid-js";
 import type { ArchiveSnapshot } from "./archive/archive";
 import { RecordType, type ArchiveRecord } from "./archive/format";
+import { canChangeAssetSession, moveAssetToSession } from "./domain/asset-placement";
+import { MAX_ASSET_BATCH_FILES, type AssetBatchProgress } from "./domain/assets-stream";
 import "./material-details.css";
 
 const field = (record: ArchiveRecord, key: string) => record.fields.get(key) ?? "";
@@ -38,9 +40,59 @@ export function MaterialDetails(props: {
   const [name, setName] = createSignal("");
   const [description, setDescription] = createSignal("");
   const [history, setHistory] = createSignal<ArchiveRecord[] | null>(null);
+  const [sessions, setSessions] = createSignal<ArchiveRecord[]>([]);
+  const [sessionPanelOpen, setSessionPanelOpen] = createSignal(false);
+  const [sessionSelection, setSessionSelection] = createSignal("");
   const [error, setError] = createSignal("");
   const [pending, setPending] = createSignal(false);
   const [confirmRemove, setConfirmRemove] = createSignal(false);
+
+  async function openSessionPanel(): Promise<void> {
+    const shouldOpen = !sessionPanelOpen();
+    setSessionPanelOpen(shouldOpen);
+    if (!shouldOpen) return;
+    setSessionSelection(field(props.record, "session_id").toLowerCase());
+    setError("");
+    setPending(true);
+    try {
+      const available = (await props.snapshot.listRecords(RecordType.session, true))
+        .filter((session) => field(session, "_deleted") !== "true")
+        .sort((left, right) =>
+          field(left, "title", "Untitled session").localeCompare(
+            field(right, "title", "Untitled session"),
+            undefined,
+            { sensitivity: "base" },
+          ),
+        );
+      setSessions(available);
+    } catch (cause) {
+      setError(errorText(cause));
+    } finally {
+      setPending(false);
+    }
+  }
+
+  async function saveSessionPlacement(): Promise<void> {
+    setError("");
+    setPending(true);
+    try {
+      const moved = await moveAssetToSession(props.snapshot, props.record, sessionSelection());
+      if (
+        await props.onWriteRecords(
+          [moved],
+          sessionSelection()
+            ? "Material moved into the selected session. Save to write the change to disk."
+            : "Material moved to the general library. Save to write the change to disk.",
+        )
+      )
+        setSessionPanelOpen(false);
+    } catch (cause) {
+      setError(errorText(cause));
+    } finally {
+      setPending(false);
+    }
+  }
+
   async function save(): Promise<void> {
     setError("");
     setPending(true);
@@ -128,6 +180,17 @@ export function MaterialDetails(props: {
         >
           Details
         </button>
+        <Show when={canChangeAssetSession(props.record)}>
+          <button
+            class="button button-quiet record-action"
+            type="button"
+            disabled={pending()}
+            aria-expanded={sessionPanelOpen()}
+            onClick={() => void openSessionPanel()}
+          >
+            Session
+          </button>
+        </Show>
         <button
           class="button button-quiet record-action"
           type="button"
@@ -170,6 +233,69 @@ export function MaterialDetails(props: {
             </button>
           </div>
         </div>
+      </Show>
+      <Show when={sessionPanelOpen()}>
+        <form
+          class="material-details-panel"
+          onSubmit={(event) => {
+            event.preventDefault();
+            void saveSessionPlacement();
+          }}
+        >
+          <p>
+            Choose which session owns this material. A material can belong to one session or stay in
+            the general library.
+          </p>
+          <label>
+            Session
+            <select
+              value={sessionSelection()}
+              disabled={props.disabled || pending()}
+              onChange={(event) => setSessionSelection(event.currentTarget.value)}
+            >
+              <option value="">General library</option>
+              <Show
+                when={
+                  sessionSelection() &&
+                  !sessions().some((session) => session.id.toLowerCase() === sessionSelection())
+                }
+              >
+                <option value={sessionSelection()}>
+                  Unavailable session · move to General library
+                </option>
+              </Show>
+              <For each={sessions()}>
+                {(session) => (
+                  <option value={session.id.toLowerCase()}>
+                    {field(session, "title", "Untitled session")}
+                    {field(session, "archived") === "true" ? " · Archived" : ""}
+                  </option>
+                )}
+              </For>
+            </select>
+          </label>
+          <div class="material-details-actions">
+            <button
+              class="button button-outline record-action"
+              type="submit"
+              disabled={
+                props.disabled ||
+                pending() ||
+                sessionSelection() === field(props.record, "session_id").toLowerCase()
+              }
+            >
+              Move material
+            </button>
+            <button
+              class="button button-quiet record-action"
+              type="button"
+              disabled={pending()}
+              onClick={() => setSessionPanelOpen(false)}
+            >
+              Cancel
+            </button>
+          </div>
+        </form>
       </Show>
       <Show when={open()}>
         <form
@@ -323,5 +449,109 @@ export function MaterialTrash(props: {
         </div>
       </Show>
     </section>
+  );
+}
+
+export function MaterialImportControls(props: {
+  disabled: boolean;
+  onImport: (files: readonly File[], onProgress: AssetBatchProgress) => Promise<boolean>;
+}): JSX.Element {
+  const [pending, setPending] = createSignal(false);
+  const [status, setStatus] = createSignal("");
+  const [error, setError] = createSignal("");
+  let fileInput: HTMLInputElement | undefined;
+  let folderInput: HTMLInputElement | undefined;
+
+  async function importSelection(input: HTMLInputElement): Promise<void> {
+    const files = Array.from(input.files ?? []);
+    input.value = "";
+    setError("");
+    if (files.length === 0) return;
+    if (files.length > MAX_ASSET_BATCH_FILES) {
+      setError(`Choose no more than ${MAX_ASSET_BATCH_FILES.toLocaleString()} files at a time.`);
+      return;
+    }
+
+    setPending(true);
+    setStatus(
+      `Preparing ${files.length.toLocaleString()} ${files.length === 1 ? "material" : "materials"}…`,
+    );
+    let lastProgressAt = 0;
+    try {
+      const imported = await props.onImport(files, (phase, completed, total) => {
+        const now = performance.now();
+        if (completed !== total && now - lastProgressAt < 500) return;
+        lastProgressAt = now;
+        if (phase === "staging" && completed === total) {
+          setStatus("Verifying and finalizing the material archive…");
+          return;
+        }
+        const action = phase === "checking" ? "Checking" : "Writing";
+        setStatus(`${action} material ${completed.toLocaleString()} of ${total.toLocaleString()}…`);
+      });
+      setStatus(
+        imported
+          ? `${files.length.toLocaleString()} ${files.length === 1 ? "material is" : "materials are"} ready in the archive. Save to write them to disk.`
+          : "Import was not completed. Review the archive message and try again.",
+      );
+    } catch (cause) {
+      setError(errorText(cause));
+      setStatus("");
+    } finally {
+      setPending(false);
+    }
+  }
+
+  return (
+    <div class="material-import-controls" aria-busy={pending()}>
+      <input
+        ref={(element) => (fileInput = element)}
+        class="visually-hidden"
+        type="file"
+        multiple
+        disabled={props.disabled || pending()}
+        aria-label="Choose materials to import"
+        onChange={(event) => void importSelection(event.currentTarget)}
+      />
+      <input
+        ref={(element) => {
+          folderInput = element;
+          element.setAttribute("webkitdirectory", "");
+          element.setAttribute("directory", "");
+        }}
+        class="visually-hidden"
+        type="file"
+        multiple
+        disabled={props.disabled || pending()}
+        aria-label="Choose a folder of materials to import"
+        onChange={(event) => void importSelection(event.currentTarget)}
+      />
+      <button
+        class="button button-primary"
+        type="button"
+        disabled={props.disabled || pending()}
+        onClick={() => fileInput?.click()}
+      >
+        {pending() ? "Importing materials…" : "Add materials"}
+      </button>
+      <button
+        class="button button-outline"
+        type="button"
+        disabled={props.disabled || pending()}
+        onClick={() => folderInput?.click()}
+      >
+        Import folder
+      </button>
+      <Show when={error()}>
+        <p class="material-import-feedback" role="alert">
+          {error()}
+        </p>
+      </Show>
+      <Show when={status()}>
+        <p class="material-import-feedback" role="status" aria-live="polite">
+          {status()}
+        </p>
+      </Show>
+    </div>
   );
 }
