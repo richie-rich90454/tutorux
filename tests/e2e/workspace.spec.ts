@@ -174,7 +174,7 @@ test("creates, updates, exports, and reopens a portable tutoring workspace", asy
   await page
     .getByLabel("Session for imported material")
     .selectOption({ label: "Linear equations, one step at a time" });
-  await page.getByLabel("Choose a material to import").setInputFiles({
+  await page.getByLabel("Choose materials to import").setInputFiles({
     name: "lesson-notes.txt",
     mimeType: "text/plain",
     buffer: Buffer.from("Balance model worksheet", "utf8"),
@@ -249,8 +249,14 @@ test("creates, updates, exports, and reopens a portable tutoring workspace", asy
 
   await page.getByRole("button", { name: "Observations", exact: true }).click();
   await page.getByRole("button", { name: "Add observation", exact: true }).click();
-  await page.getByRole("combobox", { name: "Type" }).selectOption("student-mistake");
-  await page.getByRole("combobox", { name: "Priority" }).selectOption("high");
+  await page
+    .locator(".annotation-form")
+    .getByRole("combobox", { name: "Type" })
+    .selectOption("student-mistake");
+  await page
+    .locator(".annotation-form")
+    .getByRole("combobox", { name: "Priority" })
+    .selectOption("high");
   await page.getByRole("textbox", { name: "Title optional" }).fill("Check the sign change");
   await page.getByLabel("Start time").fill("00:00:02");
   await page.getByLabel("End time").fill("00:00:04");
@@ -294,7 +300,10 @@ test("creates, updates, exports, and reopens a portable tutoring workspace", asy
   await expect(page.getByRole("heading", { name: "Check the sign change" })).toBeVisible();
 
   await page.getByRole("button", { name: "Add observation", exact: true }).click();
-  await page.getByRole("combobox", { name: "Type" }).selectOption("follow-up-priority");
+  await page
+    .locator(".annotation-form")
+    .getByRole("combobox", { name: "Type" })
+    .selectOption("follow-up-priority");
   await page.getByRole("textbox", { name: "Title optional" }).fill("Plan a model follow-up");
   await page.getByLabel("Start time").fill("00:00:05");
   await page.getByLabel("End time").fill("00:00:07");
@@ -327,9 +336,13 @@ test("creates, updates, exports, and reopens a portable tutoring workspace", asy
     .filter({ has: page.getByRole("heading", { name: "Check the sign change" }) });
   const evidenceId = await evidenceCard.getAttribute("data-evidence-id");
   expect(evidenceId).toMatch(/^[\da-f-]{36}$/iu);
-  await page.getByLabel("From", { exact: true }).selectOption({ label: "Check the sign change" });
-  await page.getByLabel("Relationship").selectOption("contradicts");
-  await page.getByLabel("To", { exact: true }).selectOption({ label: "Plan a model follow-up" });
+  await page
+    .getByRole("combobox", { name: "From", exact: true })
+    .selectOption({ label: "Check the sign change" });
+  await page.getByRole("combobox", { name: "Relationship" }).selectOption("contradicts");
+  await page
+    .getByRole("combobox", { name: "To", exact: true })
+    .selectOption({ label: "Plan a model follow-up" });
   await page.getByRole("button", { name: "Add relationship" }).click();
   await expect(
     page.getByRole("img", { name: "3 evidence items connected by 1 relationship" }),
@@ -340,6 +353,13 @@ test("creates, updates, exports, and reopens a portable tutoring workspace", asy
     page.getByRole("img", { name: "3 evidence items connected by 0 relationships" }),
   ).toBeVisible();
   await expect(page.locator(".evidence-contradiction-row")).toHaveCount(0);
+  await page
+    .getByRole("combobox", { name: "From", exact: true })
+    .selectOption({ label: "Check the sign change" });
+  await page.getByRole("combobox", { name: "Relationship" }).selectOption("contradicts");
+  await page
+    .getByRole("combobox", { name: "To", exact: true })
+    .selectOption({ label: "Plan a model follow-up" });
   await page.getByRole("button", { name: "Add relationship" }).click();
   await expect(page.locator(".evidence-contradiction-row")).toHaveCount(1);
   const stableEvidenceCard = page.locator(`[data-evidence-id="${evidenceId}"]`);
@@ -524,7 +544,11 @@ test("creates and manages archive-backed study guide templates", async ({ page }
 
   await page.getByRole("button", { name: "Study guides", exact: true }).click();
 
-  await page.getByRole("button", { name: /Socratic review/u }).click();
+  await page
+    .locator(".guide-template-card")
+    .filter({ hasText: "Socratic review" })
+    .getByRole("button", { name: "Use structure" })
+    .click();
   const headings = page.getByLabel("Section heading");
   await expect(headings).toHaveCount(4);
   await expect(headings.nth(1)).toHaveValue("Guiding questions");
@@ -538,7 +562,7 @@ test("creates and manages archive-backed study guide templates", async ({ page }
   expect(guideHtml).toContain('<main class="document">');
   expect(guideHtml).toContain("@media print");
 
-  await page.locator(".guide-record-actions").getByRole("button", { name: "More" }).click();
+  await page.locator(".guide-record-actions").getByText("More", { exact: true }).click();
   const guideJsonDownload = page.waitForEvent("download");
   await page.locator(".guide-record-actions").getByRole("button", { name: "JSON record" }).click();
   const guideJsonPath = testInfo.outputPath("study-guide.json");
@@ -555,7 +579,7 @@ test("creates and manages archive-backed study guide templates", async ({ page }
   await (await guideDocxDownload).saveAs(guideDocxPath);
   const guideDocx = unzipSync(new Uint8Array(await readFile(guideDocxPath)));
   const guideDocumentXml = strFromU8(guideDocx["word/document.xml"]!);
-  expect(guideDocumentXml).toContain("Compare quantities");
+  expect(guideDocumentXml).toContain("Guiding questions");
   expect(guideDocumentXml).toContain("w:sectPr");
 
   await page.evaluate(() => {
@@ -601,6 +625,7 @@ test("creates and manages archive-backed study guide templates", async ({ page }
   await expect(templateRow).toContainText("3 sections");
 
   await templateRow.getByRole("button", { name: "Move to Trash" }).click();
+  await templateRow.getByRole("button", { name: "Confirm move" }).click();
   await expect(templateRow).toHaveCount(0);
   await page.getByRole("button", { name: "Restore", exact: true }).click();
   await expect(templateRow).toContainText("3 sections");
