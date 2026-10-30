@@ -249,7 +249,11 @@ async function inspectGgufFile(path: string, fileSize: number): Promise<GgufMode
         const valueLength = await reader.uint64();
         if (valueLength > BigInt(GGUF_MAX_STRING_BYTES))
           throw new CliError("A GGUF metadata string is too large.");
-        if (key === "general.architecture" || key === "general.name" || key === "general.description") {
+        if (
+          key === "general.architecture" ||
+          key === "general.name" ||
+          key === "general.description"
+        ) {
           strings.set(key, (await reader.bytes(Number(valueLength))).toString("utf8"));
         } else {
           await reader.skip(Number(valueLength));
@@ -380,11 +384,9 @@ class GgufReader {
       }
       return;
     }
-    if (elementType === 9)
-      throw new CliError("The GGUF metadata contains a nested array.");
+    if (elementType === 9) throw new CliError("The GGUF metadata contains a nested array.");
     const total = BigInt(scalarSize(elementType)) * count;
-    if (total > BigInt(this.fileSize))
-      throw new CliError("The GGUF metadata array is too large.");
+    if (total > BigInt(this.fileSize)) throw new CliError("The GGUF metadata array is too large.");
     await this.skip(Number(total));
   }
 }
