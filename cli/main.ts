@@ -1,15 +1,12 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { createHash, randomUUID } from "node:crypto";
 import { openAsBlob } from "node:fs";
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { link, lstat, open, readFile, readdir, realpath, rename, rm, stat } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { availableParallelism } from "node:os";
-import {
-  buildArchiveDiagnosticReport,
-  enumerateAudioDiagnostics,
-} from "./diagnostics";
+import { buildArchiveDiagnosticReport, enumerateAudioDiagnostics } from "./diagnostics";
 import {
   CLI_BENCHMARK_ACTIONS,
   createBenchmarkReport,
@@ -19,7 +16,12 @@ import {
   measureRendering,
   type CliBenchmarkAction,
 } from "./benchmark";
-import { ArchiveFormatError, RecordType, type ArchiveRecord } from "../frontend/archive/format";
+import {
+  ArchiveFormatError,
+  inspectArchiveVersion,
+  RecordType,
+  type ArchiveRecord,
+} from "../frontend/archive/format";
 import {
   appendRecords,
   backfillArchiveSecondaryIndexes,
@@ -58,13 +60,17 @@ import { createAiGuideProposal } from "../frontend/ai/response";
 import { executeAiGeneration } from "../frontend/ai/execution";
 import type { AiTransportRequest, AiTransportResult } from "../frontend/platform/types";
 import { packAiContext } from "./ai-context";
-import { exportAiPackage } from "./ai-export";
 import {
-  resolveCliEmbeddedModelReference,
-  sendCliEmbeddedAiRequest,
-} from "./embedded-ai";
+  estimateOllamaContextFit,
+  estimateOllamaInputTokenUpperBound,
+  inspectOllamaContextLength,
+} from "./ai-estimate";
+import { exportAiPackage } from "./ai-export";
+import { resolveCliEmbeddedModelReference, sendCliEmbeddedAiRequest } from "./embedded-ai";
 import { appendCliAssetFile, exportCliAssetAtomically } from "./assets-stream";
+import { prepareAudioImport } from "./audio-import";
 import { NodeFileArchiveSource } from "../frontend/archive/node-source";
+import { acquireArchiveLock } from "./archive-lock";
 import { iterateVerifiedAssetChunks, readAssetBytes } from "../frontend/domain/assets";
 import {
   evidenceSourcesAreCurrent,
@@ -176,7 +182,11 @@ import {
 } from "../frontend/domain/recording-takes";
 import { createSessionPackage, importSessionPackage } from "../frontend/domain/session-packages";
 import { makeWaveImportRecords } from "../frontend/domain/wav";
-import { buildAudioTrackWavStream, listSessionAudioTracks } from "../frontend/domain/audio";
+import {
+  buildAudioTrackPcmRangeStream,
+  buildAudioTrackWavStream,
+  listSessionAudioTracks,
+} from "../frontend/domain/audio";
 import { summarizeWaveform } from "./recording-waveform";
 import { mixRecordingTracks } from "../frontend/domain/audio-mix";
 import {
@@ -185,6 +195,29 @@ import {
   waveformIndexIsCurrent,
 } from "../frontend/domain/waveform-index";
 import { transcribeTrack } from "./whisper";
+import {
+  enumerateFfmpegAudioDevices,
+  recordLiveSource,
+  recordLiveSynchronized,
+  resolveFfmpegCommand,
+  type FfmpegAudioDevice,
+} from "./live-recording";
+import {
+  listNativeApplicationAudioDevices,
+  listNativeCaptureDevices,
+  selectNativeApplicationAudioDevice,
+} from "./native-audio-helper";
+import { playAudioRange } from "./record-playback";
+import { inspectRecordingSources } from "./record-test";
+import {
+  RecordingControlError,
+  sendRecordingControl,
+  startRecordingControlWorker,
+  type RecordingControlCommand,
+  type RecordingControlSnapshot,
+  type RecordingControlState,
+  type RecordingControlWorker,
+} from "./recording-control";
 import { prepareWavImportRecovery } from "../frontend/domain/wav-recovery";
 import { prepareNativeCaptureRecovery } from "../frontend/domain/native-recording-recovery";
 import { moveJournalSessionForCli } from "./journal-move";
@@ -202,6 +235,8 @@ interface ParsedArguments {
 
 const ASSET_IMPORT_BATCH_BYTES = 64 * 1024 * 1024;
 const ASSET_IMPORT_BATCH_FILES = 128;
+const RECORDING_WORKER_ID_ENVIRONMENT = "TUTORUX_CLI_RECORD_WORKER_ID";
+const RECORDING_WORKER_PASSPHRASE_ENVIRONMENT = "TUTORUX_CLI_RECORD_WORKER_PASSPHRASE";
 const archiveAccessContext = new AsyncLocalStorage<{ passphrase: string | undefined }>();
 
 const io: CliIo = {
@@ -213,9 +248,15 @@ const HELP = `Tutorux — local-first tutoring archive tools
 
 Usage:
   tutorux archive init <file.tux> --name <name> [--description <text>] [--new-passphrase-env <name>]
+  tutorux archive discover|list [--directory <directory>] [--json]
+    scans immediate regular .tux files; locked and unsupported candidates show limited metadata
+  tutorux archive rename <file.tux> --name <name> [--passphrase-env <name>]
+  tutorux archive encrypt <file.tux> --new-passphrase-env <name>
+  tutorux archive unlock <file.tux> [--passphrase-env <name>] [--json]
   tutorux --passphrase-env <current-name> archive change-passphrase <file.tux> --new-passphrase-env <new-name>
   tutorux archive info <file.tux> [--json]
   tutorux archive verify <file.tux> [--history] [--passphrase-env <name>] [--json]
+  tutorux archive backup|copy <file.tux> --output <copy.tux> --confirm-sensitive [--json]
   tutorux archive recover <file.tux> [--apply] [--json]
   tutorux archive compact <file.tux> [--prune-unreferenced-assets] [--apply] [--json]
   tutorux archive backfill-indexes <file.tux> [--apply] [--json]
@@ -228,13 +269,17 @@ Usage:
     --include-recordings | --include-recording-tracks UUID,... | --exclude-recording-tracks UUID,...
     --include-private-annotations --include-generation-logs --include-credentials
     encrypted sources and credential-inclusive copies require --new-passphrase-env on confirmation
-  tutorux --archive <file.tux> student create --name <name> [--grade <grade>] [--difficulties <text>] [--demonstrated-improvements <text>] [--preferred-guide-template <id>]
+  tutorux --archive <file.tux> student create --name <name> [--grade <grade>] [--subjects <text>] [--objectives <text>] [--notes <text>] [--difficulties <text>] [--demonstrated-improvements <text>] [--preferred-guide-template <id>]
   tutorux --archive <file.tux> student list [--include-deleted] [--json]
   tutorux --archive <file.tux> student show <uuid> [--json]
+  tutorux --archive <file.tux> student update <uuid> [--name <name>] [--grade <grade>] [--subjects <text>] [--objectives <text>] [--difficulties <text>] [--demonstrated-improvements <text>] [--notes|--tutor-notes <text>] [--preferred-guide-template <id>]
+  tutorux --archive <file.tux> student delete|restore <uuid>
   tutorux --archive <file.tux> student history <student-id> [--json]
   tutorux --archive <file.tux> student progress <student-id> [--json]
   tutorux --archive <file.tux> student progress-review <student-id> --skill <name> --classification <value> --evidence-ids <uuid,...> --reviewed-by <name> [--note <text>]
-  tutorux --archive <file.tux> session create --title <title> --subject <subject> [--student <uuid>] [--entry-id <uuid>]
+  tutorux --archive <file.tux> session create [--title <title>] [--subject <subject>] [--student-id <uuid>] [--entry-id <uuid>]
+    [--type notes-only|record-audio|import-recording] [--language auto|code] [--guide-template <id>]
+    [--recording-source none|microphone|system-audio|both|application|imported-file]
   tutorux --archive <file.tux> session list [--student-id <uuid>] [--entry-id <uuid>] [--from <YYYY-MM-DD>] [--to <YYYY-MM-DD>] [--archived|--unarchived] [--include-deleted] [--json]
   tutorux --archive <file.tux> session show|verify <uuid> [--json]
   tutorux --archive <file.tux> session update <uuid> [--title <title>] [--subject <subject>] [--objectives <text>] [--student-id <uuid>] [--entry-id <uuid>] [--notes <text>]
@@ -248,7 +293,7 @@ Usage:
   tutorux --archive <file.tux> session restore <uuid>
   tutorux --archive <file.tux> journal create --title <title> --date <YYYY-MM-DD> [--collection-ids <uuid,...>] [--tag-ids <uuid,...>]
   tutorux --archive <file.tux> journal update <entry-id> [--title <title>] [--date <YYYY-MM-DD>] [--notes <text>] [--collection-ids <uuid,...>] [--tag-ids <uuid,...>]
-  tutorux --archive <file.tux> journal list [--json]
+  tutorux --archive <file.tux> journal list|entry list [--collection-id <uuid>] [--tag-id <uuid>] [--from <date>] [--to <date>] [--has-sessions true|false] [--query <text>] [--json]
   tutorux --archive <file.tux> journal search --query <text> [--collection-id <uuid>] [--tag-id <uuid>] [--from <date>] [--to <date>] [--has-sessions true|false] [--json]
   tutorux --archive <file.tux> journal document show|update|add-block|remove-block|restore-block|move-block <document-id> [options]
   tutorux --archive <file.tux> journal collection|tag list|create|show|update|delete|restore
@@ -310,6 +355,7 @@ Usage:
   tutorux --archive <file.tux> ai context --session <uuid> [--token-budget <n>] [--max-item-tokens <n>]
   tutorux --archive <file.tux> ai models|test --provider <id> [--refresh] [--api-key-env <name>]
   tutorux --archive <file.tux> ai capabilities --provider <id> --model <id>
+  tutorux --archive <file.tux> ai estimate --provider ollama --job <uuid> [--model <id>] [--max-tokens <1..1000000>] [--endpoint <loopback-url>] [--json]
   tutorux --archive <file.tux> ai configure --provider <id> [--endpoint <url>] [--model <id>]
   tutorux --archive <file.tux> ai package --session <uuid> [--template <id|auto>] [--image-ids <uuid,...>] [--output <file>]
   tutorux --archive <file.tux> ai generate --job <uuid> --provider <id> [--model <id>] [--api-key-env <name>] [--max-tokens <n>] [--request-output <file>] [--confirm-outbound --confirm-hash <sha256>]
@@ -317,10 +363,31 @@ Usage:
   tutorux --archive <file.tux> ai jobs|cancel <job-id> [--json]
   tutorux --archive <file.tux> model list|select|inspect|verify|remove-reference
   tutorux diagnostics run|archive|report [--full] | providers | graphics | audio | network
-  tutorux benchmark startup|memory|cpu|indexing|rendering|export|full
+  tutorux benchmark startup|memory|cpu|indexing|rendering|export|audio|full
   tutorux --archive <file.tux> record take-list --session <uuid> [--include-deleted] [--json]
+  tutorux --archive <file.tux> record configure [--microphone <default|id>] [--playback <default|id>] [--durability <default|maximum|reduced-write>]
+  Live recording prefers the bundled native audio helper for microphone and system audio; FFmpeg is the fallback and is not bundled.
+  Playback requires ffplay from a host FFmpeg distribution; the CLI does not bundle it.
+  tutorux record devices [--ffmpeg <executable>] [--json]
+    lists native microphone/system inputs, FFmpeg endpoints, and native process-audio targets
+  tutorux record test [--source microphone|system-audio|loopback|application|both] [--device <id>]
+    [--microphone <id>] [--playback <id>] [--application <id>] [--system-audio] [--ffmpeg <executable>]
+    opens a short input probe and measures signal levels; no recording is saved
+  tutorux --archive <file.tux> record start --session <uuid> --consent
+    [--source microphone|system-audio|both|application]
+    [--device <id>|--microphone <id>|--playback <id>|--application <id>] [--system-audio]
+    [--ffmpeg <executable>] [--input-format pulse|alsa] [--duration-seconds <n>]
+    [--confirmed-by <label>] [--detach] [--live-transcribe --whisper <executable> --model <file>
+      --consent-local-audio [--language auto|code] [--threads <1..64>]
+      [--window-seconds <1..27>] [--diarize]]
+    --source application records one process; --source both --application <id> records microphone and process audio
+    Native microphone/system/application capture uses the audio helper; FFmpeg is the fallback. Standalone users can set TUTORUX_AUDIO_HELPER or run npm run build:audio-helper
+  tutorux --archive <file.tux> record status [--session <uuid>] | pause|resume|stop --session <uuid>
+    Detached recording workers can be checked, paused, resumed, or stopped from another CLI process.
   tutorux --archive <file.tux> record recover --session <uuid> [--json]
-  tutorux --archive <file.tux> record import --session <uuid> --input <file.wav> [--additional-track]
+  tutorux --archive <file.tux> record play --session <uuid> [--track <uuid>]
+    [--start-frame <n>|--start-us <n>] [--duration-frames <n>|--duration-us <n>] [--ffplay <executable>]
+  tutorux --archive <file.tux> record import --session <uuid> --input <file.wav|flac|mp3|m4a> [--additional-track] [--ffmpeg <executable>]
   tutorux --archive <file.tux> record export-wav --session <uuid> --output <file.wav> [--track <uuid>] [--fill-gaps] [--overwrite]
   tutorux --archive <file.tux> record waveform --session <uuid> [--track <uuid>] [--buckets <n>]
   tutorux --archive <file.tux> record waveform-index-build --session <uuid> [--track <uuid>]
@@ -332,8 +399,10 @@ Usage:
   tutorux --archive <file.tux> transcript import --session <uuid> --input <file> [--format auto|text|srt|vtt]
   tutorux --archive <file.tux> transcript plan --session <uuid> [--track <uuid>] [--threads <n>] [--model-memory-mb <n>] [--available-memory-mb <n>]
   tutorux --archive <file.tux> annotation plan --session <uuid> [--track <uuid>] [--threads <n>] [--model-memory-mb <n>] [--available-memory-mb <n>]
-  tutorux --archive <file.tux> transcript transcribe|refine --session <uuid> --track <uuid> --whisper <executable> --model <model> --consent-local-audio [--language auto|code] [--start time] [--end time] [--diarize] [--json]
+  tutorux --archive <file.tux> transcript transcribe|generate|refine --session <uuid> --track <uuid> --whisper <executable> --model <model> --consent-local-audio [--language auto|code] [--start time] [--end time] [--diarize] [--json]
+    generate is an alias for transcribe
   tutorux --archive <file.tux> transcript show --session <uuid> [--json]
+  tutorux --archive <file.tux> transcript search --session <uuid> --query <text> [--json]
   tutorux --archive <file.tux> transcript export --session <uuid> --output <file> [--format text|srt|vtt|json]
   tutorux --archive <file.tux> transcript correct <segment-id> --text <replacement>
   tutorux --archive <file.tux> transcript split <segment-id> --before <text> --after <text> [--at <time>]
@@ -342,10 +411,11 @@ Usage:
   tutorux --archive <file.tux> transcript restore <segment-id> --revision <history-index>
   tutorux --archive <file.tux> transcript timestamp <segment-id> --start <time> --end <time>
   tutorux --archive <file.tux> transcript verify <segment-id> [--state human-verified|provisional|needs-review]
-  tutorux --archive <file.tux> transcript speaker <segment-id> --name <label> | --unknown
+  tutorux --archive <file.tux> transcript speaker <segment-id> --name <label> | --speaker <label> | --unknown
 
 Global options:
   --archive <path>  Select the archive for record commands
+  --directory <path>  Select the immediate directory for archive discovery (defaults to current directory)
   --passphrase-env <name>  Read an encrypted archive passphrase from an environment variable
   --json            Print machine-readable JSON
   --help            Show this help
@@ -356,18 +426,21 @@ export async function executeCli(
   output: CliIo = io,
   signal?: AbortSignal,
 ): Promise<number> {
-  if (argv.includes("--help") || argv.includes("-h") || argv[0] === "help") {
+  const recordingWorkerMode = argv[0] === "--record-worker";
+  const commandArgv = recordingWorkerMode ? argv.slice(1) : argv;
+  if (commandArgv.includes("--help") || commandArgv.includes("-h") || commandArgv[0] === "help") {
     output.stdout(HELP);
     return 0;
   }
-  if (argv.includes("--version") || argv.includes("-v") || argv[0] === "version") {
+  if (commandArgv.includes("--version") || commandArgv.includes("-v") || commandArgv[0] === "version") {
     output.stdout("Tutorux 1.0.0 (TypeScript)");
     return 0;
   }
 
   try {
-    const args = [...argv];
+    const args = [...commandArgv];
     const passphraseEnvironment = takeGlobalOption(args, "passphrase-env");
+    const archiveDirectory = takeGlobalOption(args, "directory");
     const archiveContext: { passphrase: string | undefined } = { passphrase: undefined };
     if (passphraseEnvironment !== undefined) {
       if (!/^[A-Za-z_][A-Za-z\d_]*$/u.test(passphraseEnvironment)) {
@@ -378,8 +451,12 @@ export async function executeCli(
         throw new CliError("The archive passphrase environment variable is not set.");
       }
       archiveContext.passphrase = passphrase;
+      if (recordingWorkerMode && passphraseEnvironment === RECORDING_WORKER_PASSPHRASE_ENVIRONMENT) {
+        delete process.env[passphraseEnvironment];
+      }
     }
     return await archiveAccessContext.run(archiveContext, async () => {
+      let recordingControlWorker: RecordingControlWorker | undefined;
       try {
         const jsonOutput = args.includes("--json");
         for (let index = args.length - 1; index >= 0; index -= 1) {
@@ -392,8 +469,28 @@ export async function executeCli(
           throw new CliError("Choose a command group and action. Run `tutorux --help` for help.");
         const parsed = parseArguments(args);
         if (jsonOutput) parsed.flags.add("json");
+        if (archiveDirectory !== undefined) {
+          if (group !== "archive" || (action !== "discover" && action !== "list")) {
+            throw new CliError("--directory is only available for archive discovery.");
+          }
+          parsed.options.set("directory", archiveDirectory);
+        }
 
-        if (group === "archive") return await runArchiveCommand(action, parsed, output);
+        if (recordingWorkerMode) {
+          if (!archivePath || group !== "record" || action !== "start" || parsed.flags.has("detach")) {
+            throw new CliError("The detached recording worker received an invalid internal command.");
+          }
+          const workerSessionId = canonicalizeProgressUuid(requiredOption(parsed, "session"));
+          if (!workerSessionId) throw new CliError("--session must be a valid UUID.");
+          const workerId = process.env[RECORDING_WORKER_ID_ENVIRONMENT];
+          if (!workerId || !/^[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}$/iu.test(workerId)) {
+            throw new CliError("The detached recording worker identity is invalid.");
+          }
+          delete process.env[RECORDING_WORKER_ID_ENVIRONMENT];
+          recordingControlWorker = await startRecordingControlWorker(archivePath, workerSessionId, workerId);
+        }
+
+        if (group === "archive") return await runArchiveCommand(action, parsed, output, archivePath);
         if (group === "ai" && action === "providers") {
           emit(
             output,
@@ -405,13 +502,26 @@ export async function executeCli(
           );
           return 0;
         }
+        if (group === "record" && action === "devices")
+          return await runRecordingDevicesCommand(parsed, output);
+        if (group === "record" && action === "test")
+          return await runRecordingTestCommand(parsed, output);
         if (group === "diagnostics")
           return runDiagnosticsCommand(action, archivePath, parsed, output, signal);
         if (group === "benchmark")
           return runBenchmarkCommand(action, archivePath, parsed, output, signal);
         if (!archivePath) throw new CliError("Record commands require --archive <path>.");
-        return await runRecordCommand(group, action, archivePath, parsed, output);
+        return await runRecordCommand(group, action, archivePath, parsed, output, signal, recordingControlWorker);
+      } catch (error) {
+        if (recordingControlWorker && !isRecordingControlTerminal(recordingControlWorker.state())) {
+          recordingControlWorker.stateChanged(
+            "failed",
+            error instanceof Error ? error.message : "The detached recording worker failed.",
+          );
+        }
+        throw error;
       } finally {
+        await recordingControlWorker?.close();
         archiveContext.passphrase = undefined;
       }
     });
@@ -464,13 +574,223 @@ function parseArguments(args: readonly string[]): ParsedArguments {
   return { positionals, options, flags };
 }
 
+async function inspectCliArchiveCandidate(
+  archivePath: string,
+  displayFilename: string,
+): Promise<Record<string, unknown> | null> {
+  const candidatePath = resolve(archivePath);
+  let fallbackSize = "0";
+  try {
+    const fileInfo = await lstat(candidatePath, { bigint: true });
+    if (fileInfo.isSymbolicLink() || !fileInfo.isFile()) return null;
+    fallbackSize = fileInfo.size.toString();
+  } catch {
+    return null;
+  }
+
+  const writable = await canOpenArchiveWritable(candidatePath);
+  let source: NodeFileArchiveSource | undefined;
+  let snapshot: ArchiveSnapshot | undefined;
+  try {
+    source = await NodeFileArchiveSource.open(candidatePath);
+    try {
+      snapshot = await openArchiveSource(source);
+    } catch (error) {
+      let health = archiveCandidateHealth(error);
+      if (
+        error instanceof ArchiveFormatError &&
+        (error.code === "archive_version_unsupported" ||
+          error.code === "archive_capability_unsupported")
+      ) {
+        try {
+          const version = inspectArchiveVersion(
+            await source.read(0n, Number(source.size < 64n ? source.size : 64n)),
+          );
+          return {
+            path: candidatePath,
+            name: displayFilename.slice(0, -4),
+            size_bytes: source.size.toString(),
+            format_major: String(version.major),
+            format_minor: String(version.minor),
+            health:
+              error.code === "archive_capability_unsupported"
+                ? "unsupported-capability"
+                : "unsupported-version",
+            writable,
+            metadata_only: true,
+          };
+        } catch (headerError) {
+          health = archiveCandidateHealth(headerError);
+        }
+      }
+      return {
+        path: candidatePath,
+        name: displayFilename.slice(0, -4),
+        size_bytes: source.size.toString(),
+        format_major: "0",
+        format_minor: "0",
+        health,
+        writable,
+      };
+    }
+
+    const manifest = await snapshot
+      .getRecord(RecordType.settings, snapshot.header.id)
+      .catch(() => null);
+    const fileSize = source.size;
+    const locked = snapshot.locked;
+    const health = locked
+      ? "locked"
+      : fileSize > snapshot.publishedEndOffset
+        ? "recovery-required"
+        : "healthy";
+    return {
+      path: candidatePath,
+      name: manifest?.fields.get("display_name") ?? displayFilename.slice(0, -4),
+      description: manifest?.fields.get("description") ?? "",
+      id: snapshot.header.id,
+      generation: snapshot.commit.generation.toString(),
+      size_bytes: fileSize.toString(),
+      student_count: parseArchiveCounter(manifest?.fields.get("student_count")),
+      session_count: parseArchiveCounter(manifest?.fields.get("session_count")),
+      created_at_us: snapshot.header.createdAtUs.toString(),
+      format_major: String(snapshot.header.majorVersion),
+      format_minor: String(snapshot.header.minorVersion),
+      writable,
+      health,
+    };
+  } catch (error) {
+    return {
+      path: candidatePath,
+      name: displayFilename.slice(0, -4),
+      size_bytes: fallbackSize,
+      format_major: "0",
+      format_minor: "0",
+      health: archiveCandidateHealth(error),
+      writable,
+    };
+  } finally {
+    snapshot?.lock();
+    await source?.close().catch(() => undefined);
+  }
+}
+
+function archiveCandidateHealth(error: unknown): string {
+  if (error instanceof ArchiveFormatError) return error.code;
+  if (error && typeof error === "object" && "code" in error) {
+    const code = error.code;
+    if (typeof code === "string" && code) return code;
+  }
+  return "archive_open_failed";
+}
+
+function parseArchiveCounter(value: string | undefined): string {
+  if (value === undefined || !/^\d+$/u.test(value)) return "0";
+  const normalized = value.replace(/^0+(?=\d)/u, "");
+  if (normalized.length > 20) return "0";
+  const parsed = BigInt(normalized);
+  return parsed <= 0xffff_ffff_ffff_ffffn ? parsed.toString() : "0";
+}
+
+async function canOpenArchiveWritable(path: string): Promise<boolean> {
+  try {
+    const handle = await open(path, "r+");
+    await handle.close();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function runArchiveDiscoveryCommand(args: ParsedArguments, output: CliIo): Promise<number> {
+  if (args.flags.has("directory")) {
+    throw new CliError("--directory requires a path.");
+  }
+  if (args.positionals.length) {
+    throw new CliError("archive discover does not accept an archive path; use --directory.");
+  }
+  const directory = resolve(args.options.get("directory") ?? process.cwd());
+  const directoryInfo = await stat(directory).catch(() => null);
+  if (!directoryInfo?.isDirectory()) {
+    throw new CliError("Archive discovery path is not a directory.");
+  }
+  const entries = await readdir(directory, { withFileTypes: true });
+  const candidates = entries
+    .filter((entry) => entry.name.toLowerCase().endsWith(".tux"))
+    .sort((left, right) => (left.name < right.name ? -1 : left.name > right.name ? 1 : 0));
+  const archives: Record<string, unknown>[] = [];
+  for (const entry of candidates) {
+    const archive = await inspectCliArchiveCandidate(join(directory, entry.name), entry.name);
+    if (archive) archives.push(archive);
+  }
+  const summary = archives.length
+    ? archives.map(archiveDiscoveryText).join("\n")
+    : "No valid .tux archives found in this directory.";
+  emit(output, archives, summary, args.flags.has("json"));
+  return 0;
+}
+
+function archiveDiscoveryText(archive: Record<string, unknown>): string {
+  const name = basename(String(archive["path"] ?? archive["name"] ?? "Archive"));
+  const format = `${String(archive["format_major"] ?? "0")}.${String(archive["format_minor"] ?? "0")}`;
+  const size = String(archive["size_bytes"] ?? "0");
+  const access = archive["writable"] === true ? "Read/Write" : "Read-only";
+  const health = String(archive["health"] ?? "unknown");
+  const lines = [name, `  Format: ${format}`, `  Size: ${size} bytes`, `  Access: ${access}`];
+  if (archive["metadata_only"] === true) {
+    lines.push(`  Health: ${health} (header metadata only)`);
+    lines.push("  This application cannot safely read records in this archive.");
+    return lines.join("\n");
+  }
+  lines.push(`  Name: ${String(archive["name"] ?? name)}`);
+  if (typeof archive["id"] === "string") lines.push(`  ID: ${archive["id"]}`);
+  if (typeof archive["generation"] === "string")
+    lines.push(`  Generation: ${archive["generation"]}`);
+  if (typeof archive["student_count"] === "string")
+    lines.push(`  Students: ${archive["student_count"]}`);
+  if (typeof archive["session_count"] === "string")
+    lines.push(`  Sessions: ${archive["session_count"]}`);
+  if (health !== "healthy") lines.push(`  Health: ${health}`);
+  if (typeof archive["description"] === "string" && archive["description"])
+    lines.push(`  Description: ${archive["description"]}`);
+  return lines.join("\n");
+}
+
 async function runArchiveCommand(
   action: string,
   args: ParsedArguments,
   output: CliIo,
+  selectedArchivePath?: string,
 ): Promise<number> {
-  const path = args.positionals[0];
+  if (action === "discover" || action === "list") {
+    return runArchiveDiscoveryCommand(args, output);
+  }
+  const path = args.positionals[0] ?? (action === "unlock" ? selectedArchivePath : undefined);
   if (!path) throw new CliError(`archive ${action} requires a file path.`);
+  if (action === "unlock") {
+    const snapshot = await openForCommand(path);
+    try {
+      await verifyArchiveSnapshot(snapshot);
+      const result = {
+        path: resolve(path),
+        encrypted: snapshot.encrypted,
+        generation: snapshot.commit.generation.toString(),
+        status: snapshot.encrypted ? "unlocked" : "not-encrypted",
+        verified: true,
+      };
+      emit(
+        output,
+        result,
+        snapshot.encrypted
+          ? `Archive unlocked and verified at generation ${result.generation}.`
+          : `Archive is not encrypted; generation ${result.generation} was verified.`,
+        args.flags.has("json"),
+      );
+      return 0;
+    } finally {
+      await closeSnapshot(snapshot);
+    }
+  }
   if (action === "init") {
     const name = requiredOption(args, "name");
     const description = args.options.get("description") ?? "";
@@ -491,7 +811,9 @@ async function runArchiveCommand(
       }
       bytes = await createEncryptedArchiveBytes(name, description, passphrase);
     }
-    await writeBytesAtomically(resolve(path), bytes);
+    const archivePath = resolve(path);
+    const temporary = await stageBytesForPublication(archivePath, bytes);
+    await publishStagedFileAtomically(temporary, archivePath, undefined, "Archive");
     emit(
       output,
       { path: resolve(path), name, bytes: bytes.byteLength, created: true },
@@ -499,6 +821,197 @@ async function runArchiveCommand(
       args.flags.has("json"),
     );
     return 0;
+  }
+  if (action === "rename") {
+    const name = requiredOption(args, "name");
+    const snapshot = await openForCommand(path);
+    let changedManifest: ArchiveRecord;
+    const generation = snapshot.commit.generation;
+    try {
+      const manifest = await snapshot.getRecord(RecordType.settings, snapshot.header.id);
+      if (!manifest) throw new CliError("Archive manifest is missing.");
+      const fields = new Map(manifest.fields);
+      fields.set("display_name", name);
+      changedManifest = { ...manifest, fields };
+    } finally {
+      await closeSnapshot(snapshot);
+    }
+    await mutateArchive(
+      path,
+      [changedManifest],
+      generation,
+      "The archive changed while its name update was being prepared. Retry the command.",
+    );
+    emit(
+      output,
+      { name, status: "updated" },
+      "Archive display name updated.",
+      args.flags.has("json"),
+    );
+    return 0;
+  }
+  if (action === "encrypt") {
+    const newPassphraseEnvironment = args.options.get("new-passphrase-env");
+    if (newPassphraseEnvironment === undefined && args.flags.has("new-passphrase-env")) {
+      throw new CliError("--new-passphrase-env requires an environment variable name.");
+    }
+    if (newPassphraseEnvironment === undefined) {
+      throw new CliError("archive encrypt requires --new-passphrase-env <name>.");
+    }
+    if (!/^[A-Za-z_][A-Za-z\d_]*$/u.test(newPassphraseEnvironment)) {
+      throw new CliError("--new-passphrase-env requires a valid environment variable name.");
+    }
+    const newPassphrase = process.env[newPassphraseEnvironment];
+    if (newPassphrase === undefined) {
+      throw new CliError("The new archive passphrase environment variable is not set.");
+    }
+
+    const archivePath = resolve(path);
+    const openedInfo = await stat(archivePath);
+    const source = await NodeFileArchiveSource.open(archivePath);
+    const stagePath = join(dirname(archivePath), `.tutorux-${randomUUID()}.encrypt.partial`);
+    let sourceClosed = false;
+    let current: ArchiveSnapshot | undefined;
+    let next: ArchiveSnapshot | undefined;
+    let stagedSource: NodeFileArchiveSource | undefined;
+    let staged: ArchiveSnapshot | undefined;
+    let verified: ArchiveSnapshot | undefined;
+    let archiveId = "";
+    let sourceGeneration = 0n;
+    let resultingGeneration = 0n;
+    const sameSourceIdentity = (info: Awaited<ReturnType<typeof stat>>): boolean =>
+      info.size === openedInfo.size &&
+      info.mtimeMs === openedInfo.mtimeMs &&
+      info.ctimeMs === openedInfo.ctimeMs &&
+      info.dev === openedInfo.dev &&
+      info.ino === openedInfo.ino;
+    const ensureSourceUnchanged = async (): Promise<void> => {
+      const beforeOpen = await stat(archivePath);
+      if (!sameSourceIdentity(beforeOpen)) {
+        throw new CliError("The archive changed during encryption. Retry the command.");
+      }
+      const checkSource = await NodeFileArchiveSource.open(archivePath);
+      let checkSnapshot: ArchiveSnapshot | undefined;
+      try {
+        if (BigInt(beforeOpen.size) !== checkSource.size) {
+          throw new CliError("The archive changed during encryption. Retry the command.");
+        }
+        checkSnapshot = await openArchiveSource(checkSource);
+        if (
+          checkSnapshot.header.id.toLowerCase() !== archiveId.toLowerCase() ||
+          checkSnapshot.commit.generation !== sourceGeneration ||
+          checkSnapshot.encrypted ||
+          checkSnapshot.source.size !== checkSnapshot.publishedEndOffset
+        ) {
+          throw new CliError("The archive changed during encryption. Retry the command.");
+        }
+        await verifyArchiveHistory(checkSnapshot);
+      } finally {
+        checkSnapshot?.lock();
+        await checkSource.close();
+      }
+      const afterOpen = await stat(archivePath);
+      if (!sameSourceIdentity(afterOpen)) {
+        throw new CliError("The archive changed during encryption. Retry the command.");
+      }
+    };
+    try {
+      if (BigInt(openedInfo.size) !== source.size) {
+        throw new CliError("The archive changed while encryption was starting. Retry the command.");
+      }
+      current = await openArchiveSource(source);
+      if (current.encrypted) {
+        throw new CliError("Only unencrypted archives can be encrypted with this command.");
+      }
+      if (current.source.size !== current.publishedEndOffset) {
+        throw new CliError(
+          "The archive has unpublished trailing data. Recover or discard it before encryption.",
+        );
+      }
+      archiveId = current.header.id;
+      sourceGeneration = current.commit.generation;
+      const sourceHistory = await verifyArchiveHistory(current);
+      next = await current.enableEncryption(newPassphrase);
+      if (
+        next.header.id.toLowerCase() !== archiveId.toLowerCase() ||
+        next.source.size !== next.publishedEndOffset
+      ) {
+        throw new CliError(
+          "Encrypted archive staging did not preserve the source archive identity.",
+        );
+      }
+      await writeSourceAtomically(stagePath, next);
+
+      stagedSource = await NodeFileArchiveSource.open(stagePath);
+      const stagedInfo = await stat(stagePath);
+      if (BigInt(stagedInfo.size) !== stagedSource.size) {
+        throw new CliError("The staged encrypted archive changed before verification.");
+      }
+      staged = await openArchiveSource(stagedSource);
+      if (
+        !staged.encrypted ||
+        staged.header.id.toLowerCase() !== archiveId.toLowerCase() ||
+        staged.source.size !== staged.publishedEndOffset
+      ) {
+        throw new CliError("The staged archive did not retain its identity and encryption state.");
+      }
+      verified = await staged.unlock(newPassphrase);
+      resultingGeneration = verified.commit.generation;
+      const stagedHistory = await verifyArchiveHistory(verified);
+      if (
+        stagedHistory.currentRecords !== sourceHistory.currentRecords + 1 ||
+        stagedHistory.historicalRevisions !== sourceHistory.historicalRevisions
+      ) {
+        throw new CliError("The staged encrypted archive did not preserve every record revision.");
+      }
+
+      verified.lock();
+      verified = undefined;
+      staged.lock();
+      staged = undefined;
+      await stagedSource.close();
+      stagedSource = undefined;
+      current.lock();
+      current = undefined;
+      next.lock();
+      next = undefined;
+      await ensureSourceUnchanged();
+      await source.upgradeLock();
+      if (!(await source.stillMatchesPath())) {
+        throw new CliError("The archive changed during encryption. Retry the command.");
+      }
+      await source.closeReadHandle();
+      await source.prepareLockReplacement(stagePath);
+      await replaceFile(stagePath, archivePath);
+      await source.adoptLockReplacement();
+      await source.close();
+      sourceClosed = true;
+
+      const result = {
+        path: archivePath,
+        archive_id: archiveId,
+        previous_generation: sourceGeneration.toString(),
+        generation: resultingGeneration.toString(),
+        encrypted: true,
+        verified: true,
+        preserved_historical_revisions: sourceHistory.historicalRevisions,
+      };
+      emit(
+        output,
+        result,
+        `Encrypted and verified ${basename(path)} while preserving ${sourceHistory.historicalRevisions} historical record revisions.`,
+        args.flags.has("json"),
+      );
+      return 0;
+    } finally {
+      verified?.lock();
+      staged?.lock();
+      current?.lock();
+      if (next && next !== current) next.lock();
+      if (stagedSource) await stagedSource.close().catch(() => undefined);
+      if (!sourceClosed) await source.close().catch(() => undefined);
+      await rm(stagePath, { force: true }).catch(() => undefined);
+    }
   }
   if (action === "change-passphrase") {
     const newPassphraseEnvironment = args.options.get("new-passphrase-env");
@@ -575,6 +1088,74 @@ async function runArchiveCommand(
       await source.close();
     }
   }
+  if (action === "backup" || action === "copy") {
+    if (!args.flags.has("confirm-sensitive")) {
+      throw new CliError(
+        "A full archive copy may contain student histories, recordings, private annotations, and credentials. Review the destination and retry with --confirm-sensitive.",
+      );
+    }
+
+    const archivePath = resolve(path);
+    const requestedDestinationPath = resolve(requiredOption(args, "output"));
+    const [sourceCanonicalPath, destinationParentPath] = await Promise.all([
+      realpath(archivePath),
+      realpath(dirname(requestedDestinationPath)),
+    ]);
+    const destinationPath = resolve(destinationParentPath, basename(requestedDestinationPath));
+    const samePath =
+      process.platform === "win32"
+        ? sourceCanonicalPath.toLowerCase() === destinationPath.toLowerCase()
+        : sourceCanonicalPath === destinationPath;
+    if (samePath) throw new CliError("Backup destination must differ from the archive.");
+    if (!(await stat(destinationParentPath)).isDirectory()) {
+      throw new CliError("Backup destination directory is unavailable.");
+    }
+
+    const openedInfo = await stat(sourceCanonicalPath);
+    const source = await NodeFileArchiveSource.open(sourceCanonicalPath);
+    let snapshot: ArchiveSnapshot | undefined;
+    try {
+      if (BigInt(openedInfo.size) !== source.size) {
+        throw new CliError("The archive changed while backup was starting. Retry the command.");
+      }
+      snapshot = await openArchiveSource(source);
+      const validateBeforePublish = async (): Promise<void> => {
+        const currentInfo = await stat(sourceCanonicalPath);
+        if (
+          currentInfo.size !== openedInfo.size ||
+          currentInfo.mtimeMs !== openedInfo.mtimeMs ||
+          currentInfo.ctimeMs !== openedInfo.ctimeMs ||
+          currentInfo.dev !== openedInfo.dev ||
+          currentInfo.ino !== openedInfo.ino
+        ) {
+          throw new CliError("The archive changed during backup. Retry the command.");
+        }
+      };
+      await writeSourceToNewFileAtomically(
+        destinationPath,
+        snapshot,
+        validateBeforePublish,
+        "Backup",
+      );
+      emit(
+        output,
+        {
+          path: sourceCanonicalPath,
+          output: destinationPath,
+          bytes: snapshot.source.size.toString(),
+          status: "created",
+          encrypted: snapshot.encrypted,
+          original_preserved: true,
+        },
+        `Backup created at ${destinationPath}; the original archive was preserved.`,
+        args.flags.has("json"),
+      );
+      return 0;
+    } finally {
+      snapshot?.lock();
+      await source.close();
+    }
+  }
   if (action === "recover") {
     const archivePath = resolve(path);
     const openedInfo = await stat(archivePath);
@@ -641,7 +1222,7 @@ async function runArchiveCommand(
       const migration = await backfillArchiveSecondaryIndexes(snapshot);
       migrated = migration.snapshot;
       const applied = args.flags.has("apply");
-      if (applied && migration.addedEntries > 0) {
+      if (applied && (migration.addedEntries > 0 || migration.schemaVersionsUpdated)) {
         const currentInfo = await stat(archivePath);
         if (
           currentInfo.size !== openedInfo.size ||
@@ -661,9 +1242,10 @@ async function runArchiveCommand(
         resultingGeneration: migrated.commit.generation.toString(),
         addedEntries: migration.addedEntries,
         conflictingEntries: migration.conflictingEntries,
+        schemaVersionsUpdated: migration.schemaVersionsUpdated,
         applied,
       };
-      const summary = `${migration.addedEntries} missing secondary index entries; ${migration.conflictingEntries} existing conflicting aliases preserved.`;
+      const summary = `${migration.addedEntries} missing secondary index entries; ${migration.conflictingEntries} existing conflicting aliases preserved; ${migration.schemaVersionsUpdated ? "schema versions updated" : "schema versions unchanged"}.`;
       emit(
         output,
         result,
@@ -850,7 +1432,10 @@ async function runArchiveCommand(
     const openedInfo = await stat(archivePath);
     const source = await NodeFileArchiveSource.open(archivePath);
     let snapshot: ArchiveSnapshot | undefined;
+    let recoveredForRepair: ArchiveSnapshot | undefined;
     let repaired: ArchiveSnapshot | undefined;
+    let reconstructedHeader = false;
+    let recoveredTailBytes = 0n;
     try {
       if (BigInt(openedInfo.size) !== source.size) {
         throw new CliError("The archive changed while repair was starting. Retry the command.");
@@ -860,13 +1445,29 @@ async function runArchiveCommand(
       } catch (error) {
         if (!(error instanceof ArchiveFormatError)) throw error;
         const passphrase = archiveAccessContext.getStore()?.passphrase;
-        if (error.code === "archive_header_checksum")
+        if (error.code === "archive_header_checksum") {
           snapshot = await recoverChecksumDamagedArchiveHeader(source, passphrase);
-        else if (error.code === "archive_magic_invalid")
+          reconstructedHeader = true;
+        } else if (error.code === "archive_magic_invalid") {
           snapshot = await recoverMagicDamagedArchiveHeader(source, passphrase);
-        else throw error;
+          reconstructedHeader = true;
+        } else throw error;
       }
-      const repair = await repairArchiveSnapshot(snapshot);
+      if (!snapshot) throw new CliError("The archive could not be opened for repair.");
+      let repairSource: ArchiveSnapshot = snapshot;
+      if (reconstructedHeader && snapshot.source.size > snapshot.publishedEndOffset) {
+        try {
+          const recovery = await recoverUnpublishedCommit(snapshot);
+          recoveredForRepair = recovery.snapshot;
+          recoveredTailBytes = recovery.discardedTrailingBytes;
+          repairSource = recoveredForRepair;
+        } catch (error) {
+          // The legacy repair path keeps the verified published generation when
+          // trailing commit frames cannot be authenticated and linked safely.
+          if (!(error instanceof ArchiveFormatError)) throw error;
+        }
+      }
+      const repair = await repairArchiveSnapshot(repairSource);
       repaired = repair.snapshot;
       const validateBeforePublish = async (): Promise<void> => {
         const currentInfo = await stat(archivePath);
@@ -886,8 +1487,8 @@ async function runArchiveCommand(
         status: "repaired-copy",
         original_preserved: true,
         selected_verified_generation: repair.selectedGeneration.toString(),
-        discarded_bytes: repair.discardedTrailingBytes.toString(),
-        original_bytes: repair.originalBytes.toString(),
+        discarded_bytes: (repair.discardedTrailingBytes + recoveredTailBytes).toString(),
+        original_bytes: snapshot.source.size.toString(),
         compacted_bytes: repair.compactedBytes.toString(),
         records_preserved: repair.preservedRecords,
       };
@@ -900,6 +1501,7 @@ async function runArchiveCommand(
       return 0;
     } finally {
       repaired?.lock();
+      recoveredForRepair?.lock();
       snapshot?.lock();
       await source.close();
     }
@@ -1272,13 +1874,34 @@ async function runRecordingAudioCommand(
         };
       } else if (args.flags.has("consent") || args.options.has("capture-consent-at-us"))
         throw new CliError("Consent metadata requires --capture-source.");
-      const blob = await openAsBlob(input);
-      const imported = await makeWaveImportRecords(
-        session,
-        { name: basename(input), size: blob.size, slice: (start, end) => blob.slice(start, end) },
-        args.flags.has("additional-track"),
-        tracks.map((track) => track.id),
-      );
+      if (args.flags.has("ffmpeg")) throw new CliError("--ffmpeg requires an executable path.");
+      const ffmpegValue = args.options.get("ffmpeg");
+      if (args.options.has("ffmpeg") && !ffmpegValue?.trim())
+        throw new CliError("--ffmpeg cannot be empty.");
+      const prepared = await prepareAudioImport(input, resolveFfmpegCommand(ffmpegValue));
+      let imported: Awaited<ReturnType<typeof makeWaveImportRecords>>;
+      try {
+        const blob = await openAsBlob(prepared.path);
+        imported = await makeWaveImportRecords(
+          session,
+          {
+            name: prepared.sourceFilename,
+            size: blob.size,
+            slice: (start, end) => blob.slice(start, end),
+          },
+          args.flags.has("additional-track"),
+          tracks.map((track) => track.id),
+          prepared.sourceCodec
+            ? {
+                sourceFilename: prepared.sourceFilename,
+                sourceCodec: prepared.sourceCodec,
+              }
+            : { sourceFilename: prepared.sourceFilename },
+        );
+        await prepared.validateSourceUnchanged();
+      } finally {
+        await prepared.cleanup();
+      }
       changes = imported.records;
       result = {
         session_id: sessionId,
@@ -1385,6 +2008,844 @@ async function runRecordingAudioCommand(
   return 0;
 }
 
+async function runRecordingDevicesCommand(args: ParsedArguments, output: CliIo): Promise<number> {
+  if (args.positionals.length)
+    throw new CliError("record devices does not accept positional arguments.");
+  if (args.flags.has("ffmpeg")) throw new CliError("--ffmpeg requires an executable path.");
+  const ffmpegValue = args.options.get("ffmpeg");
+  if (args.options.has("ffmpeg") && !ffmpegValue?.trim())
+    throw new CliError("--ffmpeg cannot be empty.");
+  const ffmpeg = resolveFfmpegCommand(ffmpegValue);
+  let ffmpegUnavailableReason = "";
+  let devices: FfmpegAudioDevice[] = [];
+  try {
+    devices = await enumerateFfmpegAudioDevices(ffmpeg);
+  } catch (error) {
+    ffmpegUnavailableReason = error instanceof Error ? error.message : "FFmpeg discovery failed.";
+  }
+  const rows: Array<{
+    id: string;
+    name: string;
+    backend: string;
+    source?: string;
+    is_default?: boolean;
+    process_id?: number;
+    bundle_id?: string;
+  }> = devices.map((device) => ({
+    id: device.id,
+    name: device.name,
+    backend: device.backend,
+  }));
+  let nativeInputUnavailableReason = "";
+  try {
+    const native = await listNativeCaptureDevices();
+    rows.push(
+      ...native.devices.map((device) => ({
+        id: device.id,
+        name: device.name,
+        backend: device.backend,
+        source: device.source,
+        is_default: device.isDefault,
+      })),
+    );
+  } catch (error) {
+    nativeInputUnavailableReason =
+      error instanceof Error ? error.message : "Native microphone/system-audio discovery failed.";
+  }
+  let applicationAudioUnavailableReason = "";
+  try {
+    const native = await listNativeApplicationAudioDevices();
+    rows.push(
+      ...native.devices.map((device) => ({
+        id: device.id,
+        name: device.name,
+        backend: device.backend,
+        source: "application",
+        process_id: device.processId,
+        ...(device.bundleId === undefined ? {} : { bundle_id: device.bundleId }),
+      })),
+    );
+  } catch (error) {
+    applicationAudioUnavailableReason =
+      error instanceof Error ? error.message : "Native application-audio discovery failed.";
+  }
+  emit(
+    output,
+    {
+      ffmpeg,
+      devices: rows,
+      ...(ffmpegUnavailableReason ? { ffmpeg_unavailable_reason: ffmpegUnavailableReason } : {}),
+      ...(nativeInputUnavailableReason
+        ? { native_audio_unavailable_reason: nativeInputUnavailableReason }
+        : {}),
+      ...(applicationAudioUnavailableReason
+        ? { application_audio_unavailable_reason: applicationAudioUnavailableReason }
+        : {}),
+    },
+    [
+      ...rows.map(
+        (device) =>
+          `${device.id}  ${device.name}  (${device.backend}${device.source ? ` · ${device.source}` : ""}${device.is_default ? " · default" : ""})`,
+      ),
+      ...(ffmpegUnavailableReason ? [`FFmpeg unavailable: ${ffmpegUnavailableReason}`] : []),
+      ...(nativeInputUnavailableReason
+        ? [`Native microphone/system audio unavailable: ${nativeInputUnavailableReason}`]
+        : []),
+      ...(applicationAudioUnavailableReason
+        ? [`Application audio unavailable: ${applicationAudioUnavailableReason}`]
+        : []),
+      ...(!rows.length &&
+      !ffmpegUnavailableReason &&
+      !nativeInputUnavailableReason &&
+      !applicationAudioUnavailableReason
+        ? [
+            "No audio input endpoints were found. Check device support and operating-system permissions.",
+          ]
+        : []),
+    ].join("\n"),
+    args.flags.has("json"),
+  );
+  return rows.length ? 0 : 1;
+}
+
+async function runRecordingTestCommand(args: ParsedArguments, output: CliIo): Promise<number> {
+  if (args.positionals.length)
+    throw new CliError("record test does not accept positional arguments.");
+  if (args.options.has("system-audio"))
+    throw new CliError("--system-audio is a flag and does not accept a value.");
+  const optionValue = (name: string): string | undefined => {
+    if (args.flags.has(name)) throw new CliError(`--${name} requires a value.`);
+    const value = args.options.get(name);
+    if (value === "") throw new CliError(`--${name} cannot be empty.`);
+    return value;
+  };
+  const requestedSource =
+    optionValue("source") ?? (args.flags.has("system-audio") ? "system-audio" : "microphone");
+  if (
+    requestedSource !== "microphone" &&
+    requestedSource !== "system-audio" &&
+    requestedSource !== "loopback" &&
+    requestedSource !== "application" &&
+    requestedSource !== "both"
+  ) {
+    throw new CliError(
+      "Recording test source must be 'microphone', 'system-audio', 'application', or 'both'.",
+    );
+  }
+  const device = optionValue("device");
+  const microphone = optionValue("microphone");
+  const playback = optionValue("playback");
+  const application = optionValue("application");
+  const ffmpeg = optionValue("ffmpeg");
+  const testBoth =
+    requestedSource === "both" ||
+    (requestedSource === "microphone" && args.flags.has("system-audio"));
+  if (application && args.flags.has("system-audio")) {
+    throw new CliError(
+      "Choose one synchronized secondary track with '--application' or '--system-audio'.",
+    );
+  }
+  if (application && playback) {
+    throw new CliError(
+      "Select one synchronized secondary track with '--application' or '--playback'.",
+    );
+  }
+  if (application && requestedSource !== "both" && requestedSource !== "application") {
+    throw new CliError("Use '--application ID' with '--source application' or '--source both'.");
+  }
+  if (
+    requestedSource === "application" &&
+    (args.flags.has("system-audio") || microphone !== undefined || playback !== undefined)
+  ) {
+    throw new CliError("Application audio tests accept only '--device ID' or '--application ID'.");
+  }
+  if (testBoth && device !== undefined) {
+    throw new CliError("Test synchronized sources with '--microphone' and '--playback'.");
+  }
+  if (
+    !testBoth &&
+    device !== undefined &&
+    ((requestedSource === "microphone" && microphone !== undefined) ||
+      ((requestedSource === "system-audio" || requestedSource === "loopback") &&
+        playback !== undefined) ||
+      (requestedSource === "application" && application !== undefined))
+  ) {
+    throw new CliError("Use either '--device ID' or the source-specific device option.");
+  }
+  const source = testBoth
+    ? "both"
+    : requestedSource === "loopback"
+      ? "system-audio"
+      : requestedSource;
+  const report = await inspectRecordingSources({
+    source,
+    ...(device === undefined ? {} : { device }),
+    ...(microphone === undefined ? {} : { microphone }),
+    ...(playback === undefined ? {} : { playback }),
+    ...(application === undefined ? {} : { application }),
+    ...(ffmpeg === undefined ? {} : { ffmpeg }),
+  });
+  const limitation =
+    report.limitation ??
+    (report.synchronized_tracks
+      ?.map((track) => track.limitation)
+      .filter(Boolean)
+      .join(" ") ||
+      "The selected stream was opened and measured for about 1.8 seconds; no recording was saved.");
+  const measurements = (report.synchronized_tracks ?? [report])
+    .filter((track) => track.available)
+    .map((track) =>
+      track.signal_detected
+        ? `${track.source}: signal detected (RMS ${track.rms?.toFixed(4)}, peak ${track.peak?.toFixed(4)}, ${track.dbfs?.toFixed(1)} dBFS).`
+        : `${track.source}: stream opened, but no signal above threshold was measured (RMS ${track.rms?.toFixed(4)}, ${track.dbfs?.toFixed(1)} dBFS).`,
+    )
+    .join(" ");
+  const summary = report.available
+    ? `${report.source === "both" ? "Requested audio streams were" : `The ${report.source} stream was`} opened and measured. ${measurements} ${limitation}`
+    : `The requested ${report.source} input is unavailable or unsupported. ${limitation}`;
+  emit(output, report, summary, args.flags.has("json"));
+  return report.available ? 0 : 1;
+}
+
+async function runLiveRecordingCommand(
+  path: string,
+  args: ParsedArguments,
+  output: CliIo,
+  signal?: AbortSignal,
+  recordingControl?: RecordingControlWorker,
+): Promise<number> {
+  const json = args.flags.has("json");
+  if (args.positionals.length)
+    throw new CliError("record start does not accept positional arguments.");
+  if (!args.flags.has("consent"))
+    throw new CliError("Recording requires explicit confirmation with --consent.");
+  if (
+    [
+      "source",
+      "device",
+      "microphone",
+      "playback",
+      "application",
+      "language",
+      "threads",
+      "window-seconds",
+      "confirmed-by",
+    ].some((name) => args.flags.has(name))
+  )
+    throw new CliError("A recording option is missing its value.");
+  if (args.options.has("system-audio"))
+    throw new CliError("--system-audio is a flag and does not accept a value.");
+  if (args.flags.has("ffmpeg")) throw new CliError("--ffmpeg requires an executable path.");
+  const sourceOption = args.options.get("source");
+  const source = sourceOption ?? (args.flags.has("system-audio") ? "system-audio" : "microphone");
+  if (!["microphone", "system-audio", "loopback", "both", "application"].includes(source)) {
+    throw new CliError(
+      "Recording source must be 'microphone', 'system-audio', 'application', or 'both'.",
+    );
+  }
+  const requestedSource = source === "loopback" ? "system-audio" : source;
+  const deviceOption = args.options.get("device");
+  const microphoneOption = args.options.get("microphone");
+  const playbackOption = args.options.get("playback");
+  const applicationOption = args.options.get("application");
+  for (const [name, value] of [
+    ["--device", deviceOption],
+    ["--microphone", microphoneOption],
+    ["--playback", playbackOption],
+    ["--application", applicationOption],
+  ] as const) {
+    if (value !== undefined && !value.trim()) throw new CliError(`${name} cannot be empty.`);
+  }
+  let requestsMicrophone = false;
+  let requestsSystemAudio = false;
+  let requestsApplicationAudio = false;
+  if (requestedSource === "both") {
+    requestsMicrophone = true;
+    if (applicationOption !== undefined && args.flags.has("system-audio")) {
+      throw new CliError(
+        "Choose one synchronized secondary track with --application or --system-audio.",
+      );
+    }
+    requestsSystemAudio = applicationOption === undefined;
+    requestsApplicationAudio = applicationOption !== undefined;
+  } else if (requestedSource === "microphone") {
+    requestsMicrophone = true;
+    requestsSystemAudio = args.flags.has("system-audio");
+    if (applicationOption !== undefined) {
+      throw new CliError("Use --application only with --source application or --source both.");
+    }
+  } else if (requestedSource === "application") {
+    requestsApplicationAudio = true;
+    if (
+      args.flags.has("system-audio") ||
+      microphoneOption !== undefined ||
+      playbackOption !== undefined
+    ) {
+      throw new CliError(
+        "Application-only capture accepts --device or --application, not microphone or system-audio selectors.",
+      );
+    }
+  } else {
+    requestsSystemAudio = true;
+    requestsMicrophone = microphoneOption !== undefined;
+    if (applicationOption !== undefined) {
+      throw new CliError("Use --application only with --source application or --source both.");
+    }
+  }
+  if (applicationOption !== undefined && playbackOption !== undefined) {
+    throw new CliError("Select one synchronized secondary track with --application or --playback.");
+  }
+  if (microphoneOption !== undefined && !requestsMicrophone) {
+    throw new CliError("Use --microphone only when the microphone source is enabled.");
+  }
+  if (playbackOption !== undefined && !requestsSystemAudio) {
+    throw new CliError("Use --playback only when system-audio capture is enabled.");
+  }
+  if (!requestsMicrophone && !requestsSystemAudio && !requestsApplicationAudio) {
+    throw new CliError("Choose at least one supported recording source.");
+  }
+  if (
+    requestsMicrophone &&
+    (requestsSystemAudio || requestsApplicationAudio) &&
+    deviceOption !== undefined
+  ) {
+    throw new CliError(
+      "Use source-specific selectors to choose synchronized inputs; --device is only for one source.",
+    );
+  }
+  if (
+    deviceOption !== undefined &&
+    (microphoneOption !== undefined ||
+      playbackOption !== undefined ||
+      applicationOption !== undefined)
+  ) {
+    throw new CliError("Choose --device or source-specific audio selectors, not both.");
+  }
+  const device =
+    deviceOption ??
+    (requestsMicrophone
+      ? microphoneOption
+      : requestsApplicationAudio
+        ? applicationOption
+        : playbackOption);
+  const inputFormatValue = args.options.get("input-format");
+  if (args.flags.has("input-format")) throw new CliError("--input-format requires pulse or alsa.");
+  if (inputFormatValue !== undefined && inputFormatValue !== "pulse" && inputFormatValue !== "alsa")
+    throw new CliError("--input-format must be pulse or alsa.");
+  if (requestsApplicationAudio && !requestsMicrophone && inputFormatValue !== undefined) {
+    throw new CliError(
+      "--input-format applies to FFmpeg microphone capture, not application audio.",
+    );
+  }
+
+  const liveWhisper = args.flags.has("live-transcribe");
+  const diarize = args.flags.has("diarize");
+  if (liveWhisper && requestsMicrophone && (requestsSystemAudio || requestsApplicationAudio)) {
+    throw new CliError(
+      "Live transcription requires one captured track. Start a single source or transcribe the synchronized tracks after recording.",
+    );
+  }
+  const whisperOptionsPresent = ["whisper", "model", "language", "threads", "window-seconds"].some(
+    (name) => args.options.has(name),
+  );
+  if (diarize && !liveWhisper) throw new CliError("Use --diarize with --live-transcribe.");
+  if (!liveWhisper && (whisperOptionsPresent || args.flags.has("consent-local-audio")))
+    throw new CliError("Whisper options require --live-transcribe.");
+  if (liveWhisper && !args.flags.has("consent-local-audio"))
+    throw new CliError(
+      "Use --consent-local-audio to authorize local Whisper processing during recording.",
+    );
+  if (args.flags.has("consent-local-audio") && !liveWhisper)
+    throw new CliError("--consent-local-audio requires --live-transcribe.");
+  if (!liveWhisper && (args.flags.has("whisper") || args.flags.has("model")))
+    throw new CliError("--whisper and --model require values.");
+
+  let whisper:
+    | {
+        executable: string;
+        model: string;
+        language: string;
+        windowSeconds: number;
+        threads?: number;
+        diarizeSpeakerTurns: boolean;
+      }
+    | undefined;
+  if (liveWhisper) {
+    if (["language", "threads", "window-seconds"].some((name) => args.flags.has(name)))
+      throw new CliError("A Whisper option is missing its value.");
+    const executable = requiredOption(args, "whisper");
+    const model = requiredOption(args, "model");
+    const language = args.options.get("language") ?? "auto";
+    const windowSeconds = parseBoundedOption(
+      args.options.get("window-seconds"),
+      "window-seconds",
+      5,
+      1,
+      27,
+    );
+    const threads = args.options.has("threads")
+      ? parseBoundedOption(args.options.get("threads"), "threads", 1, 1, 64)
+      : undefined;
+    whisper = {
+      executable,
+      model,
+      language,
+      windowSeconds,
+      ...(threads === undefined ? {} : { threads }),
+      diarizeSpeakerTurns: diarize,
+    };
+  }
+
+  const sessionId = canonicalizeProgressUuid(requiredOption(args, "session"));
+  if (!sessionId) throw new CliError("--session must be a valid UUID.");
+  const durationSeconds = args.options.has("duration-seconds")
+    ? parseBoundedOption(args.options.get("duration-seconds"), "duration-seconds", 1, 1, 604_800)
+    : undefined;
+  if (args.flags.has("duration-seconds"))
+    throw new CliError("--duration-seconds requires a value.");
+  const consentConfirmedBy = args.options.get("confirmed-by")?.trim() ?? "CLI user";
+  if (
+    !consentConfirmedBy ||
+    consentConfirmedBy.length > 256 ||
+    /[\r\n\0]/u.test(consentConfirmedBy)
+  )
+    throw new CliError(
+      "--confirmed-by must be a non-empty, single-line label up to 256 characters.",
+    );
+
+  const ffmpegValue = args.options.get("ffmpeg");
+  if (args.options.has("ffmpeg") && !ffmpegValue?.trim())
+    throw new CliError("--ffmpeg cannot be empty.");
+  const ffmpeg = resolveFfmpegCommand(ffmpegValue);
+  const applicationCapture = requestsApplicationAudio
+    ? await (async () => {
+        const helper = await resolveNativeAudioHelper();
+        const device = await selectNativeApplicationAudioDevice(
+          helper,
+          applicationOption ?? deviceOption,
+        );
+        return { helper, device };
+      })()
+    : undefined;
+  const snapshot = await openForCommand(path);
+  let session: ArchiveRecord;
+  let expectedGeneration: bigint;
+  let knownTrackIds: string[];
+  let transcriptRecords: ArchiveRecord[];
+  let configuredMicrophone = "default";
+  let configuredPlayback = "default";
+  try {
+    session = await requireLiveRecord(snapshot, RecordType.session, sessionId);
+    expectedGeneration = snapshot.commit.generation;
+    if (isArchiveRecordingActive(field(session, "recording_state"))) {
+      throw new CliError(
+        `Session ${sessionId} already has an active recording state. Check record status or recover the saved take before starting another recording.`,
+      );
+    }
+    const metadata = await snapshot.listRecordMetadata(RecordType.assetMetadata);
+    const settings = await snapshot.listRecords(RecordType.settings);
+    configuredMicrophone =
+      settings
+        .find(
+          (record) =>
+            field(record, "record_role") === "setting" &&
+            field(record, "key") === "recording.microphone_device_id",
+        )
+        ?.fields.get("value") ?? "default";
+    configuredPlayback =
+      settings
+        .find(
+          (record) =>
+            field(record, "record_role") === "setting" &&
+            field(record, "key") === "recording.playback_device_id",
+        )
+        ?.fields.get("value") ?? "default";
+    knownTrackIds = metadata
+      .filter(
+        (record) =>
+          field(record, "record_role") === "audio-track" &&
+          field(record, "session_id").toLowerCase() === sessionId,
+      )
+      .map((record) => field(record, "track_id", record.id));
+    transcriptRecords = (await snapshot.listRecords(RecordType.transcriptSegment)).filter(
+      (record) => field(record, "session_id").toLowerCase() === sessionId,
+    );
+  } finally {
+    await closeSnapshot(snapshot);
+  }
+
+  if (args.flags.has("detach")) {
+    return await startDetachedRecordingCommand(path, args, output, signal);
+  }
+
+  const commit = async (records: readonly ArchiveRecord[], generation: bigint) =>
+    await mutateArchive(
+      path,
+      records,
+      generation,
+      "The archive changed during live recording. Stop, recover the saved take, then retry.",
+    );
+  const inputOptions = {
+    ...(inputFormatValue === undefined
+      ? {}
+      : { inputFormat: inputFormatValue as "pulse" | "alsa" }),
+    ...(durationSeconds === undefined ? {} : { durationSeconds }),
+    consentConfirmedBy,
+    progress: (message: string) => output.stderr(message),
+    ...(signal === undefined ? {} : { signal }),
+    ...(recordingControl === undefined ? {} : { recordingControl }),
+    commit,
+  };
+  const result =
+    requestsMicrophone && (requestsSystemAudio || requestsApplicationAudio)
+      ? await recordLiveSynchronized({
+          sessionId,
+          session,
+          knownTrackIds,
+          expectedGeneration,
+          ffmpeg,
+          ...inputOptions,
+          ...((microphoneOption ?? configuredMicrophone) === "default"
+            ? {}
+            : { microphoneDevice: microphoneOption ?? configuredMicrophone }),
+          ...(applicationCapture
+            ? { applicationCapture }
+            : playbackOption === undefined
+              ? { systemAudioDevice: configuredPlayback }
+              : { systemAudioDevice: playbackOption }),
+        })
+      : await recordLiveSource({
+          sessionId,
+          session,
+          knownTrackIds,
+          transcriptRecords,
+          expectedGeneration,
+          ffmpeg,
+          source: requestsApplicationAudio
+            ? "application-audio"
+            : requestsSystemAudio
+              ? "system-audio"
+              : "microphone",
+          ...inputOptions,
+          ...(device === undefined
+            ? requestsSystemAudio
+              ? { device: configuredPlayback }
+              : configuredMicrophone === "default"
+                ? {}
+                : { device: configuredMicrophone }
+            : device === "default"
+              ? requestsSystemAudio
+                ? { device }
+                : {}
+              : { device }),
+          ...(applicationCapture === undefined ? {} : { applicationCapture }),
+          ...(whisper === undefined ? {} : { whisper }),
+        });
+  emit(
+    output,
+    result,
+    (result.source === "both"
+      ? `Synchronized recording ${result.state}: ${result.durationUs} microseconds across ${result.tracks.length} separate tracks and ${result.chunkCount} checkpoints.`
+      : `Recording ${result.state}: ${result.durationUs} microseconds saved in ${result.chunkCount} checkpoint(s).`) +
+      (result.source !== "both" && result.liveTranscriptSegmentCount
+        ? ` Saved ${result.liveTranscriptSegmentCount} provisional Whisper cue(s).`
+        : "") +
+      (result.error ? ` ${result.error}` : "") +
+      (result.source !== "both" && result.liveTranscriptionError
+        ? ` Live transcription stopped: ${result.liveTranscriptionError}`
+        : ""),
+    json,
+  );
+  return result.state === "completed" ? 0 : 1;
+}
+
+async function startDetachedRecordingCommand(
+  archivePath: string,
+  args: ParsedArguments,
+  output: CliIo,
+  signal?: AbortSignal,
+): Promise<number> {
+  const cliEntry = process.argv[1];
+  if (!cliEntry) throw new CliError("The CLI entry path is unavailable for detached recording.");
+  const sessionId = canonicalizeProgressUuid(requiredOption(args, "session"));
+  if (!sessionId) throw new CliError("--session must be a valid UUID.");
+  const existingWorker = await sendRecordingControl(archivePath, sessionId, "status");
+  if (existingWorker && isArchiveRecordingActive(existingWorker.state)) {
+    throw new CliError(`A detached recording worker for session ${sessionId} is already ${existingWorker.state}.`);
+  }
+  const workerId = randomUUID();
+  const workerArguments = ["--record-worker"];
+  const passphrase = archiveAccessContext.getStore()?.passphrase;
+  const passphraseEnvironment = RECORDING_WORKER_PASSPHRASE_ENVIRONMENT;
+  if (passphrase !== undefined) {
+    workerArguments.push("--passphrase-env", passphraseEnvironment);
+  }
+  workerArguments.push(
+    "--archive",
+    resolve(archivePath),
+    "record",
+    "start",
+    ...serializeParsedArguments(args, new Set(["detach"])),
+  );
+
+  const environment = { ...process.env };
+  environment[RECORDING_WORKER_ID_ENVIRONMENT] = workerId;
+  if (passphrase !== undefined) environment[passphraseEnvironment] = passphrase;
+  const child = spawn(
+    process.execPath,
+    [...process.execArgv, cliEntry, ...workerArguments],
+    {
+      cwd: process.cwd(),
+      env: environment,
+      detached: true,
+      stdio: "ignore",
+      windowsHide: true,
+    },
+  );
+  child.unref();
+  let childExit: { code: number | null; signal: NodeJS.Signals | null; error?: Error } | undefined;
+  const childClosed = new Promise<void>((resolveClose) => {
+    child.once("error", (error: Error) => {
+      childExit = { code: null, signal: null, error };
+      resolveClose();
+    });
+    child.once("close", (code, childSignal) => {
+      childExit ??= { code, signal: childSignal };
+      resolveClose();
+    });
+  });
+  const terminateWorker = async (requestStop: boolean, gracePeriodMs = 30_000): Promise<void> => {
+    if (requestStop) await sendRecordingControl(archivePath, sessionId, "stop").catch(() => undefined);
+    if (!childExit) await Promise.race([childClosed, delay(gracePeriodMs)]);
+    if (!childExit) {
+      try {
+        child.kill("SIGTERM");
+      } catch {
+        child.kill();
+      }
+      await Promise.race([childClosed, delay(5_000)]);
+    }
+    if (!childExit) {
+      try {
+        child.kill("SIGKILL");
+      } catch {
+        child.kill();
+      }
+      await Promise.race([childClosed, delay(2_000)]);
+    }
+  };
+
+  const deadline = Date.now() + 60_000;
+  let current: RecordingControlSnapshot | undefined;
+  while (Date.now() < deadline) {
+    if (signal?.aborted) {
+      await terminateWorker(true);
+      return 130;
+    }
+    if (childExit) break;
+    current = await sendRecordingControl(archivePath, sessionId, "status").catch((error: unknown) => {
+      if (error instanceof RecordingControlError && error.code === "recording_control_timeout") return undefined;
+      throw error;
+    });
+    if (current?.worker === "detached" && current.workerId !== workerId) {
+      await terminateWorker(false, 1_000);
+      throw new CliError(`A detached recording worker for session ${sessionId} is already ${current.state}.`);
+    }
+    if (current && (current.state === "recording" || current.state === "paused")) break;
+    if (current && isRecordingControlTerminal(current.state)) break;
+    if (childExit) break;
+    await Promise.race([childClosed, delay(100)]);
+  }
+
+  if (!current || (current.state !== "recording" && current.state !== "paused" && !isRecordingControlTerminal(current.state))) {
+    current = await sendRecordingControl(archivePath, sessionId, "status").catch(() => undefined);
+  }
+  if (!current || current.state === "not-started") {
+    current = await readRecordingSessionStatus(archivePath, sessionId).catch(() => undefined);
+  }
+  if (!current) {
+    await terminateWorker(true);
+    const detail = childExit?.error?.message;
+    throw new CliError(
+      detail
+        ? `The detached recording worker could not start: ${detail}`
+        : "The detached recording worker did not report a ready state within 60 seconds.",
+    );
+  }
+  if (
+    current.worker === "detached" &&
+    current.workerId !== workerId
+  ) {
+    await terminateWorker(false, 1_000);
+    throw new CliError(`A detached recording worker for session ${sessionId} is already ${current.state}.`);
+  }
+  if (current.worker === "not-running" && isArchiveRecordingActive(current.state)) {
+    await terminateWorker(false, 1_000);
+    throw new CliError(
+      `Session ${sessionId} has a persisted active recording state but no detached worker. Recover the saved recording before starting another take.`,
+    );
+  }
+  if (
+    current.state !== "recording" &&
+    current.state !== "paused" &&
+    current.state !== "completed" &&
+    !isRecordingControlTerminal(current.state)
+  ) {
+    await terminateWorker(true);
+    const detail = childExit?.error?.message
+      ? `The detached recording worker could not start: ${childExit.error.message}`
+      : childExit
+        ? `The detached recording worker exited before audio capture became active (code ${String(childExit.code)}).`
+        : "The detached recording worker did not report a ready state within 60 seconds.";
+    throw new CliError(detail);
+  }
+
+  const report = { ...current, worker: current.worker === "detached" ? "detached" : "not-running" };
+  const json = args.flags.has("json");
+  emit(
+    output,
+    report,
+    `Recording ${report.state}: ${report.message}`,
+    json,
+  );
+  return report.state === "recording" || report.state === "paused" || report.state === "completed" ? 0 : 1;
+}
+
+async function runRecordingControlCommand(
+  action: string,
+  archivePath: string,
+  args: ParsedArguments,
+  output: CliIo,
+): Promise<number> {
+  if (args.positionals.length) throw new CliError(`record ${action} does not accept positional arguments.`);
+  for (const flag of args.flags) {
+    if (flag !== "json" && flag !== "session") throw new CliError(`record ${action} does not accept --${flag}.`);
+  }
+  for (const option of args.options.keys()) {
+    if (option !== "session") throw new CliError(`record ${action} does not accept --${option}.`);
+  }
+  if (args.flags.has("session")) throw new CliError("--session requires a value.");
+  const sessionOption = args.options.get("session");
+  const json = args.flags.has("json");
+
+  if (sessionOption === undefined) {
+    if (action !== "status") throw new CliError(`Recording control requires '--session UUID'.`);
+    const snapshot = await openForCommand(archivePath);
+    let activeCount = 0;
+    try {
+      const sessions = await snapshot.listRecords(RecordType.session);
+      activeCount = sessions.filter((session) => isArchiveRecordingActive(field(session, "recording_state"))).length;
+    } finally {
+      await closeSnapshot(snapshot);
+    }
+    emit(
+      output,
+      { active_recordings: String(activeCount) },
+      `Active recording sessions: ${activeCount}.`,
+      json,
+    );
+    return 0;
+  }
+
+  const sessionId = canonicalizeProgressUuid(sessionOption);
+  if (!sessionId) throw new CliError("--session must be a valid UUID.");
+  let current = await sendRecordingControl(archivePath, sessionId, action as RecordingControlCommand);
+  if (!current && action === "status") current = await readRecordingSessionStatus(archivePath, sessionId);
+  if (!current) {
+    throw new CliError(
+      `No detached recording worker is active for session ${sessionId}.`,
+    );
+  }
+  if (action === "status") {
+    emit(output, current, `Recording state: ${current.state}\n${current.message}`, json);
+    return 0;
+  }
+
+  const expectedState: RecordingControlState | undefined =
+    action === "pause" ? "paused" : action === "resume" ? "recording" : undefined;
+  const deadline = Date.now() + (action === "stop" ? 30_000 : 5_000);
+  while (Date.now() < deadline) {
+    if (
+      (expectedState !== undefined && current.state === expectedState) ||
+      (action === "stop" && isRecordingControlTerminal(current.state))
+    ) {
+      break;
+    }
+    await delay(100);
+    const refreshed = await sendRecordingControl(archivePath, sessionId, "status").catch(() => undefined);
+    if (refreshed) current = refreshed;
+    else if (action === "stop") {
+      current = await readRecordingSessionStatus(archivePath, sessionId).catch(() => current!);
+      if (isArchiveRecordingTerminal(current.state)) break;
+    } else {
+      throw new CliError("The detached recording worker stopped before confirming the requested state.");
+    }
+    if (isRecordingControlTerminal(current.state)) break;
+  }
+
+  const confirmed =
+    (expectedState !== undefined && current.state === expectedState) ||
+    (action === "stop" && (isRecordingControlTerminal(current.state) || isArchiveRecordingTerminal(current.state)));
+  emit(output, current, `Recording state: ${current.state}\n${current.message}`, json);
+  return confirmed ? 0 : 2;
+}
+
+async function readRecordingSessionStatus(
+  archivePath: string,
+  sessionId: string,
+): Promise<RecordingControlSnapshot> {
+  const snapshot = await openForCommand(archivePath);
+  try {
+    const session = await requireLiveRecord(snapshot, RecordType.session, sessionId);
+    const state = field(session, "recording_state", "not-started");
+    const controlState = isRecordingControlState(state) ? state : state === "partial" ? "partial" : "not-started";
+    return {
+      sessionId,
+      state: controlState,
+      message: field(session, "recording_error") || `Archive recording state is '${state}'. No detached worker is connected.`,
+      worker: "not-running",
+    };
+  } finally {
+    await closeSnapshot(snapshot);
+  }
+}
+
+function isArchiveRecordingActive(state: string): boolean {
+  return state === "starting" || state === "initializing" || state === "recording" || state === "paused" || state === "finalizing";
+}
+
+function isArchiveRecordingTerminal(state: string): boolean {
+  return state === "completed" || state === "interrupted" || state === "partial" || state === "failed";
+}
+
+function isRecordingControlState(state: string): state is RecordingControlState {
+  return (
+    state === "starting" ||
+    state === "initializing" ||
+    state === "recording" ||
+    state === "paused" ||
+    state === "finalizing" ||
+    state === "completed" ||
+    state === "interrupted" ||
+    state === "failed"
+  );
+}
+
+function isRecordingControlTerminal(state: string): boolean {
+  return state === "completed" || state === "interrupted" || state === "partial" || state === "failed";
+}
+
+function delay(milliseconds: number): Promise<void> {
+  return new Promise((resolveDelay) => setTimeout(resolveDelay, milliseconds));
+}
+
+function serializeParsedArguments(args: ParsedArguments, omitFlags: ReadonlySet<string> = new Set()): string[] {
+  return [
+    ...[...args.options].map(([name, value]) => `--${name}=${value}`),
+    ...[...args.flags].filter((flag) => !omitFlags.has(flag)).map((flag) => `--${flag}`),
+  ];
+}
+
 async function writeAudioStreamAtomically(
   destination: string,
   stream: ReadableStream<Uint8Array>,
@@ -1415,13 +2876,242 @@ async function writeAudioStreamAtomically(
   }
 }
 
+async function runRecordingPlaybackCommand(
+  path: string,
+  args: ParsedArguments,
+  output: CliIo,
+  signal?: AbortSignal,
+): Promise<number> {
+  if (args.positionals.length)
+    throw new CliError("record play does not accept positional arguments.");
+  const optionValue = (name: string): string | undefined => {
+    if (args.flags.has(name)) throw new CliError(`--${name} requires a value.`);
+    const value = args.options.get(name);
+    if (value === "") throw new CliError(`--${name} cannot be empty.`);
+    return value;
+  };
+  const sessionId = canonicalizeProgressUuid(requiredOption(args, "session"));
+  if (!sessionId) throw new CliError("--session must be a valid UUID.");
+  const requestedTrack = optionValue("track");
+  const trackId =
+    requestedTrack === undefined ? undefined : canonicalizeProgressUuid(requestedTrack);
+  if (requestedTrack !== undefined && !trackId) throw new CliError("--track must be a valid UUID.");
+  const startFrameValue = parsePlaybackUnsignedOption(args, "start-frame");
+  const startUsValue = parsePlaybackUnsignedOption(args, "start-us");
+  const durationFramesValue = parsePlaybackUnsignedOption(args, "duration-frames");
+  const durationUsValue = parsePlaybackUnsignedOption(args, "duration-us");
+  if (
+    (startFrameValue !== undefined && startUsValue !== undefined) ||
+    (durationFramesValue !== undefined && durationUsValue !== undefined)
+  ) {
+    throw new CliError("Choose either a frame or microsecond value for each playback position.");
+  }
+  if (durationFramesValue === 0n)
+    throw new CliError("Playback duration must be greater than zero.");
+  const ffplay = optionValue("ffplay");
+  const snapshot = await openForCommand(path);
+  let report: Record<string, unknown> = {};
+  let completed = true;
+  let cancelled = false;
+  let exitStatus = 0;
+  try {
+    await requireLiveRecord(snapshot, RecordType.session, sessionId);
+    let selectedTrackId = trackId;
+    if (selectedTrackId === undefined) {
+      const chunkRecords = await snapshot.listRecordMetadata(RecordType.audioChunk);
+      const sessionTrackIds = new Set(
+        chunkRecords
+          .filter((record) => field(record, "session_id").toLowerCase() === sessionId)
+          .map((record) => field(record, "track_id").toLowerCase())
+          .filter(Boolean),
+      );
+      if (sessionTrackIds.size === 0)
+        throw new CliError("The selected session contains no audio tracks.");
+      if (sessionTrackIds.size !== 1)
+        throw new CliError("This session has multiple audio tracks. Select one explicitly.");
+      selectedTrackId = [...sessionTrackIds][0]!;
+    }
+
+    const chunkMetadata = await snapshot.listAudioChunkMetadata(sessionId, selectedTrackId);
+    if (!chunkMetadata.length)
+      throw new CliError("The selected session track has no committed audio chunks.");
+    const sampleRateHz = Number(field(chunkMetadata[0]!, "sample_rate_hz"));
+    if (!Number.isInteger(sampleRateHz) || sampleRateHz < 8_000 || sampleRateHz > 384_000)
+      throw new CliError("The selected track has an invalid sample rate.");
+    const startFrame =
+      startUsValue === undefined
+        ? (startFrameValue ?? 0n)
+        : playbackMicrosecondsToFrames(startUsValue, sampleRateHz, "Playback start time");
+    const maximumFrames =
+      durationUsValue === undefined
+        ? durationFramesValue
+        : playbackMicrosecondsToFrames(durationUsValue, sampleRateHz, "Playback duration");
+    if (durationUsValue !== undefined && maximumFrames === 0n) {
+      throw new CliError("The requested playback duration is shorter than one audio frame.");
+    }
+
+    const range = await buildAudioTrackPcmRangeStream(
+      snapshot,
+      sessionId,
+      selectedTrackId,
+      startFrame,
+      maximumFrames,
+    );
+    let submittedFrames = 0n;
+    let gapFramesPlayed: string | null = range.gapFramesPlayed.toString();
+    if (range.playedFrames === 0n) {
+      await range.stream.cancel();
+    } else {
+      const playback = await playAudioRange(range, ffplay, signal, (message) => {
+        if (!args.flags.has("json")) output.stdout(message);
+      });
+      if (playback.error) throw new Error(playback.error);
+      completed = playback.completed;
+      cancelled = playback.cancelled;
+      submittedFrames = playback.submittedFrames;
+      if (!completed) {
+        gapFramesPlayed = null;
+        exitStatus = cancelled ? 130 : 1;
+      }
+    }
+    const playedFrames = completed ? range.playedFrames : submittedFrames;
+    const playbackDurationUs = (playedFrames * 1_000_000n) / BigInt(range.sampleRateHz);
+    report = {
+      session_id: sessionId,
+      track_id: range.trackId,
+      sample_rate_hz: String(range.sampleRateHz),
+      channel_count: String(range.channelCount),
+      start_frame: range.startFrame.toString(),
+      timeline_frame_count: range.timelineFrameCount.toString(),
+      played_frames: playedFrames.toString(),
+      frames_submitted_to_player: submittedFrames.toString(),
+      gap_frames_played: gapFramesPlayed,
+      duration_us: (playbackDurationUs > 18_446_744_073_709_551_615n
+        ? 18_446_744_073_709_551_615n
+        : playbackDurationUs
+      ).toString(),
+      completed,
+    };
+  } finally {
+    await closeSnapshot(snapshot);
+  }
+
+  const summary = completed
+    ? `Played ${String(report.played_frames)} frame(s) from track ${String(report.track_id)}.`
+    : cancelled
+      ? `Playback stopped after submitting ${String(report.frames_submitted_to_player)} frame(s) to ffplay. The player may have buffered additional audio.`
+      : `Playback stopped after submitting ${String(report.frames_submitted_to_player)} frame(s) to ffplay.`;
+  emit(output, report, summary, args.flags.has("json"));
+  return exitStatus;
+}
+
+function parsePlaybackUnsignedOption(args: ParsedArguments, name: string): bigint | undefined {
+  if (args.flags.has(name)) throw new CliError(`--${name} requires a non-negative integer.`);
+  const value = args.options.get(name);
+  if (value === undefined) return undefined;
+  if (!/^\d+$/u.test(value)) throw new CliError(`--${name} must be a non-negative integer.`);
+  const parsed = BigInt(value);
+  if (parsed > 18_446_744_073_709_551_615n)
+    throw new CliError(`--${name} exceeds the supported playback range.`);
+  return parsed;
+}
+
+function playbackMicrosecondsToFrames(value: bigint, sampleRateHz: number, label: string): bigint {
+  const rate = BigInt(sampleRateHz);
+  const wholeSeconds = value / 1_000_000n;
+  const remainingUs = value % 1_000_000n;
+  const maximum = 18_446_744_073_709_551_615n;
+  if (wholeSeconds > maximum / rate)
+    throw new CliError(`${label} exceeds the supported audio timeline.`);
+  const wholeFrames = wholeSeconds * rate;
+  const partialFrames = (remainingUs * rate) / 1_000_000n;
+  if (partialFrames > maximum - wholeFrames)
+    throw new CliError(`${label} exceeds the supported audio timeline.`);
+  return wholeFrames + partialFrames;
+}
+
 async function runRecordingTakeCommand(
   action: string,
   path: string,
   args: ParsedArguments,
   output: CliIo,
+  signal?: AbortSignal,
+  recordingControl?: RecordingControlWorker,
 ): Promise<number> {
   const json = args.flags.has("json");
+  if (action === "play") return runRecordingPlaybackCommand(path, args, output, signal);
+  if (action === "start") return runLiveRecordingCommand(path, args, output, signal, recordingControl);
+  if (action === "status" || action === "pause" || action === "resume" || action === "stop") {
+    return await runRecordingControlCommand(action, path, args, output);
+  }
+  if (action === "configure") {
+    for (const name of ["microphone", "playback", "durability"]) {
+      if (args.flags.has(name)) throw new CliError(`--${name} requires a value.`);
+    }
+    const microphone = args.options.get("microphone");
+    const playback = args.options.get("playback");
+    const durability = args.options.get("durability");
+    if (microphone === "") throw new CliError("The '--microphone' device value cannot be empty.");
+    if (playback === "") throw new CliError("The '--playback' device value cannot be empty.");
+    if (
+      durability !== undefined &&
+      durability !== "default" &&
+      durability !== "maximum" &&
+      durability !== "reduced-write"
+    ) {
+      throw new CliError("Durability must be 'default', 'maximum', or 'reduced-write'.");
+    }
+    if (args.positionals.length)
+      throw new CliError("record configure does not accept positional arguments.");
+
+    const snapshot = await openForCommand(path);
+    let generation = 0n;
+    let configured = {
+      microphone_device_id: "default",
+      playback_device_id: "default",
+      durability: "default",
+    };
+    try {
+      generation = snapshot.commit.generation;
+      const settings = await snapshot.listRecords(RecordType.settings);
+      const read = (key: string): string =>
+        settings
+          .find(
+            (record) => field(record, "record_role") === "setting" && field(record, "key") === key,
+          )
+          ?.fields.get("value") ?? "default";
+      configured = {
+        microphone_device_id: microphone ?? read("recording.microphone_device_id"),
+        playback_device_id: playback ?? read("recording.playback_device_id"),
+        durability: durability ?? read("recording.durability"),
+      };
+    } finally {
+      await closeSnapshot(snapshot);
+    }
+
+    const changes: ArchiveRecord[] = [];
+    if (microphone !== undefined)
+      changes.push(await makeCliSettingRecord("recording.microphone_device_id", microphone, false));
+    if (playback !== undefined)
+      changes.push(await makeCliSettingRecord("recording.playback_device_id", playback, false));
+    if (durability !== undefined)
+      changes.push(await makeCliSettingRecord("recording.durability", durability, false));
+    if (changes.length) {
+      await mutateArchive(
+        path,
+        changes,
+        generation,
+        "The archive changed while recording configuration was being prepared. Retry the command.",
+      );
+    }
+    emit(
+      output,
+      configured,
+      `Recording configuration saved in the active archive.\nMicrophone: ${configured.microphone_device_id}\nPlayback: ${configured.playback_device_id}\nDurability: ${configured.durability}`,
+      json,
+    );
+    return 0;
+  }
   if (
     [
       "import",
@@ -1567,7 +3257,11 @@ async function runSessionAudioRecovery(
       output,
       {
         session_id: id,
-        state: native.completed ? "completed" : BigInt(native.chunkCount) > 0n ? "partial" : "failed",
+        state: native.completed
+          ? "completed"
+          : BigInt(native.chunkCount) > 0n
+            ? "partial"
+            : "failed",
         duration_us: native.durationUs,
         sample_count: native.sampleCount,
         chunk_count: native.chunkCount,
@@ -1612,24 +3306,30 @@ async function runRecordCommand(
   path: string,
   args: ParsedArguments,
   output: CliIo,
+  signal?: AbortSignal,
+  recordingControl?: RecordingControlWorker,
 ): Promise<number> {
   if ((group === "session" || group === "record") && action === "recover") {
     return runSessionAudioRecovery(path, args, output);
   }
   if (group === "ai") return runAiCommand(action, path, args, output);
   if (group === "model") return runModelCommand(action, path, args, output);
-  if (group === "record") return runRecordingTakeCommand(action, path, args, output);
+  if (group === "record")
+    return runRecordingTakeCommand(action, path, args, output, signal, recordingControl);
   if (group === "journal" && (action === "collection" || action === "tag")) {
     return runJournalOrganizerCommand(action, path, args, output);
   }
-  if (group === "journal" && action === "search") return runJournalSearch(path, args, output);
+  if (group === "journal" && (action === "search" || action === "list")) {
+    return runJournalSearch(path, args, output, action === "search");
+  }
   if (group === "journal" && action === "document") return runJournalDocument(path, args, output);
   if (group === "journal" && action === "entry") {
     const entryAction = args.positionals[0];
     if (!entryAction) throw new CliError("Choose a journal entry action.");
     const forwarded = { ...args, positionals: args.positionals.slice(1) };
-    if (entryAction === "search" || (entryAction === "list" && args.options.has("query")))
-      return runJournalSearch(path, forwarded, output);
+    if (entryAction === "search" || entryAction === "list") {
+      return runJournalSearch(path, forwarded, output, entryAction === "search");
+    }
     return runRecordCommand("journal", entryAction, path, forwarded, output);
   }
   if (group === "session" && action === "export") {
@@ -1802,6 +3502,16 @@ async function runRecordCommand(
       creationOptions = {
         ensureJournalRoot: !settings.some((record) => field(record, "record_role") === "journal"),
         ...(linkedEntry ? { linkedEntry } : {}),
+        ...(args.options.has("type") ? { sessionType: args.options.get("type")! } : {}),
+        ...(args.options.has("language")
+          ? { transcriptionLanguage: args.options.get("language")! }
+          : {}),
+        ...(args.options.has("guide-template")
+          ? { guideTemplateId: args.options.get("guide-template")! }
+          : {}),
+        ...(args.options.has("recording-source")
+          ? { recordingSource: args.options.get("recording-source")! }
+          : {}),
       };
     } finally {
       await closeSnapshot(snapshot);
@@ -1809,8 +3519,8 @@ async function runRecordCommand(
     const records = makeSessionRecords(
       {
         studentId: args.options.get("student") ?? args.options.get("student-id") ?? "",
-        subject: requiredOption(args, "subject"),
-        title: requiredOption(args, "title"),
+        subject: args.options.get("subject") ?? "",
+        title: args.options.get("title") ?? "Untitled session",
         objectives: args.options.get("objectives") ?? "",
         notes: args.options.get("notes") ?? "",
       },
@@ -2249,7 +3959,10 @@ async function runGuideCommand(
       throw new CliError("Guide output cannot replace its source archive.");
     if (format === "docx") await writeBytesAtomically(destination, renderGuideDocx(record, images));
     else if (format === "pdf")
-      await writeBytesAtomically(destination, await renderGuidePdf(record, images, decodeGuideWebp));
+      await writeBytesAtomically(
+        destination,
+        await renderGuidePdf(record, images, decodeGuideWebp),
+      );
     else {
       const contents =
         format === "html"
@@ -2827,7 +4540,12 @@ async function runDiagnosticsCommand(
     const audio = await enumerateAudioDiagnostics(signal);
     if (!audio.available) {
       const report = { status: "unavailable-in-cli", reason: audio.reason };
-      emit(output, report, report.reason ?? "Audio endpoint enumeration is unavailable.", args.flags.has("json"));
+      emit(
+        output,
+        report,
+        report.reason ?? "Audio endpoint enumeration is unavailable.",
+        args.flags.has("json"),
+      );
       return 0;
     }
     emit(
@@ -2877,7 +4595,11 @@ async function runDiagnosticsCommand(
     await writeTextAtomically(destination, contents);
     emit(
       output,
-      { output: destination, status: "exported", bytes: new TextEncoder().encode(contents).byteLength },
+      {
+        output: destination,
+        status: "exported",
+        bytes: new TextEncoder().encode(contents).byteLength,
+      },
       `Diagnostic report exported to ${destination}.`,
       args.flags.has("json"),
     );
@@ -3003,6 +4725,75 @@ async function runAiCommand(
         model_capabilities: "unknown",
       };
       message = `${provider.name}: ${provider.protocol}; model-specific capabilities are unknown.`;
+    } else if (action === "estimate") {
+      if (args.positionals.length)
+        throw new CliError("ai estimate does not accept positional arguments.");
+      if (args.flags.has("model")) throw new CliError("--model requires a value.");
+      if (args.flags.has("endpoint")) throw new CliError("--endpoint requires a value.");
+      if (args.flags.has("max-tokens")) throw new CliError("--max-tokens requires a value.");
+      const provider = providerById(requiredOption(args, "provider"));
+      if (!provider || provider.id !== "ollama") {
+        throw new CliError("Ollama estimation is available only with --provider ollama.");
+      }
+      const jobIdInput = requiredOption(args, "job");
+      const jobId = canonicalizeProgressUuid(jobIdInput);
+      if (!jobId) throw new CliError("--job must be a valid UUID.");
+      const job = await requireLiveRecord(snapshot, RecordType.aiJob, jobId);
+      if (
+        (field(job, "mode") !== "local" && field(job, "requested_mode") !== "local") ||
+        field(job, "format") !== "json" ||
+        field(job, "status") !== "package-ready" ||
+        job.blob.byteLength === 0
+      ) {
+        throw new CliError("Ollama estimation requires a stored local JSON AI package.");
+      }
+      const maxTokens = parseBoundedOption(
+        args.options.get("max-tokens"),
+        "max-tokens",
+        4096,
+        1,
+        1_000_000,
+      );
+      const configuration = await snapshot.getRecord(
+        RecordType.settings,
+        await deterministicUuid("ai-provider:ollama"),
+      );
+      const hasConfiguration =
+        configuration !== null &&
+        field(configuration, "_deleted") !== "true" &&
+        field(configuration, "record_role") === "ai-provider";
+      const endpoint =
+        args.options.get("endpoint") ??
+        ((hasConfiguration ? field(configuration, "endpoint") : "") || provider.defaultEndpoint);
+      const model =
+        args.options.get("model")?.trim() ??
+        (hasConfiguration ? field(configuration, "selected_model").trim() : "");
+      if (!model) {
+        throw new CliError(
+          "Choose a model with --model or configure one with 'ai configure --model'.",
+        );
+      }
+      const contextLength = await inspectOllamaContextLength(endpoint, model);
+      const inputTokenUpperBound = estimateOllamaInputTokenUpperBound(job.blob.byteLength);
+      const contextFit = estimateOllamaContextFit(inputTokenUpperBound, maxTokens, contextLength);
+      const displayedContextLength =
+        contextLength === null ? "not reported" : String(contextLength);
+      result = {
+        provider: provider.id,
+        model,
+        job_id: job.id,
+        input_token_upper_bound: String(inputTokenUpperBound),
+        requested_output_tokens: String(maxTokens),
+        context_length: displayedContextLength,
+        context_fit: contextFit,
+        method: "utf-8-byte upper bound; conservative",
+      };
+      message =
+        `Conservative prompt-token upper bound: ${inputTokenUpperBound}` +
+        `\nRequested output tokens: ${maxTokens}` +
+        `\nModel context length: ${displayedContextLength}` +
+        `\nContext fit: ${contextFit}` +
+        "\nEstimate method: UTF-8 byte upper bound; conservative.\n";
     } else if (action === "models" || action === "test") {
       const provider = providerById(requiredOption(args, "provider"));
       if (!provider) throw new CliError("Choose a supported AI provider.");
@@ -3322,7 +5113,10 @@ async function runAiCommand(
           session: scope.session,
           sourceRecords: scope.records,
           send: async (request, onChunk) => {
-            if (request.providerId !== "embedded-gguf" && request.providerId !== "llama.cpp-embedded")
+            if (
+              request.providerId !== "embedded-gguf" &&
+              request.providerId !== "llama.cpp-embedded"
+            )
               return sendCliAiRequest(request, onChunk);
             const controller = new AbortController();
             const timeout = setTimeout(
@@ -3340,12 +5134,7 @@ async function runAiCommand(
                 request.model,
                 controller.signal,
               );
-              return await sendCliEmbeddedAiRequest(
-                request,
-                selection,
-                onChunk,
-                controller.signal,
-              );
+              return await sendCliEmbeddedAiRequest(request, selection, onChunk, controller.signal);
             } finally {
               clearTimeout(timeout);
               process.off("SIGINT", cancel);
@@ -3452,17 +5241,12 @@ function parseCliAiModelPage(providerId: string, data: unknown): CliAiModelPage 
     if (root["has_more"] === true) {
       const rootCursor = root["last_id"];
       const cursor =
-        typeof rootCursor === "string" && rootCursor
-          ? rootCursor
-          : (models.at(-1)?.id ?? "");
+        typeof rootCursor === "string" && rootCursor ? rootCursor : (models.at(-1)?.id ?? "");
       if (!cursor) throw new CliError("Provider model pagination cursor is invalid.");
       nextCursor = cursor;
     }
   }
-  if (
-    nextCursor &&
-    new TextEncoder().encode(nextCursor).byteLength > CLI_AI_MODEL_MAX_CURSOR_BYTES
-  )
+  if (nextCursor && new TextEncoder().encode(nextCursor).byteLength > CLI_AI_MODEL_MAX_CURSOR_BYTES)
     throw new CliError("Provider model pagination cursor is invalid.");
 
   return { models, nextCursor };
@@ -4282,8 +6066,7 @@ async function runAssetCommand(
           deduplicated: imported.deduplicated,
           chunkCount: imported.chunkCount,
         });
-        if (!imported.deduplicated)
-          pendingBytes += Number(field(imported.metadata, "byte_size"));
+        if (!imported.deduplicated) pendingBytes += Number(field(imported.metadata, "byte_size"));
         pendingFiles += 1;
         if (pendingBytes >= ASSET_IMPORT_BATCH_BYTES || pendingFiles >= ASSET_IMPORT_BATCH_FILES)
           await flushBatch();
@@ -5175,10 +6958,13 @@ async function runJournalSearch(
   path: string,
   args: ParsedArguments,
   output: CliIo,
+  requireQuery = true,
 ): Promise<number> {
-  const query = requiredOption(args, "query");
-  if (!query.trim()) throw new CliError("Provide non-empty --query text.");
-  const foldedQuery = query.toLocaleLowerCase();
+  const query = args.options.get("query");
+  if (requireQuery && query === undefined) throw new CliError("--query is required.");
+  if (query !== undefined && !query.trim()) throw new CliError("Provide non-empty --query text.");
+  const searchMode = query !== undefined;
+  const foldedQuery = query?.toLocaleLowerCase() ?? "";
   const filterId = (name: string): string | undefined => {
     const value = args.options.get(name);
     if (!value) return undefined;
@@ -5217,8 +7003,12 @@ async function runJournalSearch(
     ]);
     const entries = settings.filter((record) => field(record, "record_role") === "journal-entry");
     const notes = settings.filter((record) => field(record, "record_role") === "journal-notes");
-    const rows: { record: ArchiveRecord; source: string; excerpt: string; sessionIds: string[] }[] =
-      [];
+    const rows: {
+      record: ArchiveRecord;
+      source?: string;
+      excerpt?: string;
+      sessionIds: string[];
+    }[] = [];
     for (const entry of entries) {
       const id = entry.id.toLowerCase();
       const linkedSessions = sessions.filter(
@@ -5272,17 +7062,24 @@ async function runJournalSearch(
             candidates.push({ source: "guide", text: block.text });
         }
       }
-      const match = candidates.find((candidate) =>
-        candidate.text.toLocaleLowerCase().includes(foldedQuery),
-      );
-      if (!match) continue;
-      const offset = match.text.toLocaleLowerCase().indexOf(foldedQuery);
-      const characters = Array.from(match.text);
-      const start = Array.from(match.text.slice(0, offset)).length;
+      const match = searchMode
+        ? candidates.find((candidate) => candidate.text.toLocaleLowerCase().includes(foldedQuery))
+        : undefined;
+      if (searchMode && !match) continue;
+      const excerpt = match
+        ? (() => {
+            const offset = match.text.toLocaleLowerCase().indexOf(foldedQuery);
+            const characters = Array.from(match.text);
+            const start = Array.from(match.text.slice(0, offset)).length;
+            return characters
+              .slice(Math.max(0, start - 48), Math.max(0, start - 48) + 180)
+              .join("");
+          })()
+        : undefined;
       rows.push({
         record: entry,
-        source: match.source,
-        excerpt: characters.slice(Math.max(0, start - 48), Math.max(0, start - 48) + 180).join(""),
+        ...(match === undefined ? {} : { source: match.source }),
+        ...(excerpt === undefined ? {} : { excerpt }),
         sessionIds,
       });
     }
@@ -5295,8 +7092,8 @@ async function runJournalSearch(
       ...toPlainRecord(row.record),
       session_ids: row.sessionIds.join(","),
       session_count: String(row.sessionIds.length),
-      match_source: row.source,
-      excerpt: row.excerpt,
+      ...(row.source === undefined ? {} : { match_source: row.source }),
+      ...(row.excerpt === undefined ? {} : { excerpt: row.excerpt }),
     }));
     emit(
       output,
@@ -5305,10 +7102,12 @@ async function runJournalSearch(
         ? rows
             .map(
               (row) =>
-                `${row.record.id}  ${field(row.record, "title")}  ${field(row.record, "entry_date")}  ${row.sessionIds.length} session(s)  [${row.source}] ${row.excerpt}`,
+                `${row.record.id}  ${field(row.record, "title")}  ${field(row.record, "entry_date")}  ${row.sessionIds.length} session(s)${row.source === undefined ? "" : `  [${row.source}] ${row.excerpt ?? ""}`}`,
             )
             .join("\n")
-        : "No journal entries matched the search.",
+        : searchMode
+          ? "No journal entries matched the search."
+          : "No journal entries in this archive.",
       args.flags.has("json"),
     );
     return 0;
@@ -5692,7 +7491,7 @@ async function runTranscriptCommand(
 
   if (action === "plan") return runTranscriptionPlan(path, args, output, false);
 
-  if (action === "transcribe" || action === "refine") {
+  if (action === "transcribe" || action === "generate" || action === "refine") {
     if (!args.flags.has("consent-local-audio")) {
       throw new CliError(
         "Use --consent-local-audio to authorize processing this recording with the selected local executable.",
@@ -5784,8 +7583,10 @@ async function runTranscriptCommand(
     const cues = parseTranscriptSource(source, format);
     const snapshot = await openForCommand(path);
     let session: ArchiveRecord;
+    let expectedGeneration: bigint;
     try {
       session = await requireLiveRecord(snapshot, RecordType.session, sessionId);
+      expectedGeneration = snapshot.commit.generation;
     } finally {
       await closeSnapshot(snapshot);
     }
@@ -5799,7 +7600,7 @@ async function runTranscriptCommand(
       );
       fields.set("processing_updated_at_us", timestampNow());
       changes.push({ ...session, fields });
-      await mutateArchive(path, changes);
+      await mutateArchive(path, changes, expectedGeneration);
     }
     emit(
       output,
@@ -5820,6 +7621,7 @@ async function runTranscriptCommand(
     const snapshot = await openForCommand(path);
     let snapshotClosed = false;
     try {
+      const expectedGeneration = snapshot.commit.generation;
       const limit = parseBoundedOption(args.options.get("limit"), "limit", 100, 1, 10_000);
       const history = await snapshot.getRecordHistory(RecordType.transcriptSegment, id, limit);
       if (history.length === 0) throw new CliError(`Transcript segment was not found: ${id}`);
@@ -5849,7 +7651,7 @@ async function runTranscriptCommand(
       const restored = { ...selected, fields };
       await closeSnapshot(snapshot);
       snapshotClosed = true;
-      const [saved] = await mutateArchive(path, [restored]);
+      const [saved] = await mutateArchive(path, [restored], expectedGeneration);
       emit(
         output,
         toFlatTranscriptRecord(saved ?? restored),
@@ -5955,36 +7757,47 @@ async function runTranscriptCommand(
 
   if (["correct", "timestamp", "verify", "speaker"].includes(action)) {
     const id = requiredPosition(args, 0, "transcript segment ID");
-    const current = await getLiveRecordAtPath(path, RecordType.transcriptSegment, id);
+    const snapshot = await openForCommand(path);
     let updated: ArchiveRecord;
-    if (action === "correct") {
-      const text = args.options.get("text");
-      if (text === undefined || text.length === 0) throw new CliError("--text is required.");
-      updated = correctTranscriptRecord(current, text);
-    } else if (action === "timestamp") {
-      const start = args.options.get("start");
-      const end = args.options.get("end");
-      if (!start || !end) throw new CliError("--start and --end are required.");
-      updated = setTranscriptTimestamp(current, start, end);
-    } else if (action === "verify") {
-      const state = args.options.get("state") ?? "human-verified";
-      if (state !== "human-verified" && state !== "provisional" && state !== "needs-review") {
-        throw new CliError(
-          "Verification state must be human-verified, provisional, or needs-review.",
-        );
+    let expectedGeneration: bigint;
+    try {
+      expectedGeneration = snapshot.commit.generation;
+      const current = await requireLiveRecord(snapshot, RecordType.transcriptSegment, id);
+      if (action === "correct") {
+        const text = args.options.get("text");
+        if (text === undefined || text.length === 0) throw new CliError("--text is required.");
+        updated = correctTranscriptRecord(current, text);
+      } else if (action === "timestamp") {
+        const start = args.options.get("start");
+        const end = args.options.get("end");
+        if (!start || !end) throw new CliError("--start and --end are required.");
+        updated = setTranscriptTimestamp(current, start, end);
+      } else if (action === "verify") {
+        const state = args.options.get("state") ?? "human-verified";
+        if (state !== "human-verified" && state !== "provisional" && state !== "needs-review") {
+          throw new CliError(
+            "Verification state must be human-verified, provisional, or needs-review.",
+          );
+        }
+        updated = setTranscriptVerification(current, state);
+      } else {
+        const nameProvided = args.options.has("name");
+        const speakerProvided = args.options.has("speaker");
+        const label = args.options.get("name") ?? args.options.get("speaker");
+        if (args.flags.has("unknown") && (nameProvided || speakerProvided))
+          throw new CliError("Use either --unknown or a speaker name, not both.");
+        if (args.flags.has("unknown")) {
+          updated = setTranscriptSpeaker(current, null);
+        } else if (label !== undefined && label.length > 0) {
+          updated = setTranscriptSpeaker(current, label);
+        } else {
+          throw new CliError("Provide --name <label>, --speaker <label>, or --unknown.");
+        }
       }
-      updated = setTranscriptVerification(current, state);
-    } else {
-      const label = args.options.get("name");
-      if (args.flags.has("unknown") && label)
-        throw new CliError("Use either --unknown or --name, not both.");
-      if (args.flags.has("unknown")) {
-        updated = setTranscriptSpeaker(current, null);
-      } else if (label) {
-        updated = setTranscriptSpeaker(current, label);
-      } else throw new CliError("Provide --name <label> or --unknown.");
+    } finally {
+      await closeSnapshot(snapshot);
     }
-    const [saved] = await mutateArchive(path, [updated]);
+    const [saved] = await mutateArchive(path, [updated], expectedGeneration);
     emit(
       output,
       toFlatTranscriptRecord(saved ?? updated),
@@ -6728,23 +8541,37 @@ async function runExtendedRecordCommand(
   }
 
   if (group === "student" && action === "update") {
-    const record = await updateRecord(
+    const current = await getLiveRecordAtPath(
       path,
       RecordType.student,
       requiredPosition(args, 0, "student ID"),
-      {
-        name: "display_name",
-        grade: "grade",
-        subjects: "subjects",
-        objectives: "learning_objectives",
-        "learning-objectives": "learning_objectives",
-        difficulties: "known_difficulties",
-        "demonstrated-improvements": "demonstrated_improvements",
-        "tutor-notes": "tutor_notes",
-        "preferred-guide-template": "preferred_guide_template",
-      },
-      args,
     );
+    const allowedOptions: Readonly<Record<string, string>> = {
+      name: "display_name",
+      grade: "grade",
+      subjects: "subjects",
+      objectives: "learning_objectives",
+      "learning-objectives": "learning_objectives",
+      difficulties: "known_difficulties",
+      "demonstrated-improvements": "demonstrated_improvements",
+      notes: "tutor_notes",
+      "tutor-notes": "tutor_notes",
+      "preferred-guide-template": "preferred_guide_template",
+    };
+    const selectedOptions = Object.entries(allowedOptions).filter(([option]) =>
+      args.options.has(option),
+    );
+    if (selectedOptions.length === 0) {
+      throw new CliError("Provide at least one supported student field to update.");
+    }
+    const fields = new Map(current.fields);
+    for (const [option, fieldName] of selectedOptions) {
+      fields.set(fieldName, validateStudentProfileField(fieldName, args.options.get(option)!));
+    }
+    fields.set("updated_at_us", timestampNow());
+    const updated = { ...current, fields };
+    const [saved] = await mutateArchive(path, [updated]);
+    const record = saved ?? updated;
     emit(
       output,
       toPlainRecord(record),
@@ -7250,6 +9077,41 @@ function validateUpdatedField(fieldName: string, rawValue: string): string {
   return value;
 }
 
+function validateStudentProfileField(fieldName: string, value: string): string {
+  const limits: Readonly<Record<string, number>> = {
+    display_name: 256,
+    grade: 128,
+    subjects: 2_048,
+    learning_objectives: 4_096,
+    known_difficulties: 4_096,
+    demonstrated_improvements: 4_096,
+    preferred_guide_template: 128,
+    tutor_notes: 16_384,
+  };
+  const maximumBytes = limits[fieldName];
+  if (maximumBytes === undefined) throw new CliError("Unsupported student profile field.");
+  if (new TextEncoder().encode(value).byteLength > maximumBytes) {
+    throw new CliError(`Student profile fields must be ${maximumBytes} UTF-8 bytes or fewer.`);
+  }
+  const multilineFields: ReadonlySet<string> = new Set([
+    "learning_objectives",
+    "known_difficulties",
+    "demonstrated_improvements",
+    "tutor_notes",
+  ]);
+  const allowLineBreaks = multilineFields.has(fieldName);
+  for (const character of value) {
+    const codePoint = character.codePointAt(0)!;
+    if (
+      codePoint === 0x7f ||
+      (codePoint < 0x20 && !(allowLineBreaks && (codePoint === 0x09 || codePoint === 0x0a)))
+    ) {
+      throw new CliError("Student profile fields contain unsupported control characters.");
+    }
+  }
+  return value;
+}
+
 function requiredPosition(args: ParsedArguments, index: number, label: string): string {
   const value = args.positionals[index]?.trim();
   if (!value) throw new CliError(`${label} is required.`);
@@ -7306,7 +9168,7 @@ async function unlockSnapshotForCli(
 async function closeSnapshot(snapshot: ArchiveSnapshot): Promise<void> {
   const source = snapshot.source;
   snapshot.lock();
-  if (source instanceof NodeFileArchiveSource) await source.close();
+  await Promise.all(findNodeArchiveSources(source).map((nodeSource) => nodeSource.close()));
 }
 
 async function mutateArchive(
@@ -7340,7 +9202,8 @@ async function mutateArchive(
 }
 
 async function writeSourceAtomically(path: string, snapshot: ArchiveSnapshot): Promise<void> {
-  const temporary = join(dirname(path), `.tutorux-${randomUUID()}.partial`);
+  const destination = resolve(path);
+  const temporary = join(dirname(destination), `.tutorux-${randomUUID()}.partial`);
   const output = await open(temporary, "wx", 0o600);
   try {
     const chunkSize = 1024 * 1024;
@@ -7366,7 +9229,34 @@ async function writeSourceAtomically(path: string, snapshot: ArchiveSnapshot): P
     throw error;
   }
   await output.close();
-  await replaceFile(temporary, path);
+  let destinationLock: Awaited<ReturnType<typeof acquireArchiveLock>> | undefined;
+  let sourceLock: NodeFileArchiveSource | undefined;
+  try {
+    for (const candidate of findNodeArchiveSources(snapshot.source)) {
+      if (await candidate.isSamePath(destination)) {
+        sourceLock = candidate;
+        break;
+      }
+    }
+    if (sourceLock) {
+      await sourceLock.upgradeLock();
+      if (!(await sourceLock.stillMatchesPath())) {
+        throw new CliError("The archive changed before the updated generation could be published. Reopen it and retry.");
+      }
+      await sourceLock.prepareLockReplacement(temporary);
+    } else {
+      destinationLock = await acquireArchiveLock(destination, "exclusive");
+      await destinationLock.prepareReplacement(temporary);
+    }
+    await replaceFile(temporary, destination);
+    if (sourceLock) await sourceLock.adoptLockReplacement();
+    else await destinationLock?.adoptReplacement();
+  } catch (error) {
+    await rm(temporary, { force: true });
+    throw error;
+  } finally {
+    await destinationLock?.close();
+  }
 }
 
 async function writeSourceToNewFileAtomically(
@@ -7425,15 +9315,17 @@ async function publishStagedFileAtomically(
   purpose = "Archive",
 ): Promise<void> {
   const destination = resolve(path);
+  const destinationLock = await acquireArchiveLock(destination, "exclusive");
   try {
-    await stat(destination);
-    throw new CliError(`${purpose} output already exists: ${destination}`);
-  } catch (error) {
-    if (error instanceof CliError) throw error;
-    if (!isNotFound(error)) throw error;
-  }
-  try {
+    try {
+      await stat(destination);
+      throw new CliError(`${purpose} output already exists: ${destination}`);
+    } catch (error) {
+      if (error instanceof CliError) throw error;
+      if (!isNotFound(error)) throw error;
+    }
     await validateBeforePublish?.();
+    await destinationLock.prepareReplacement(temporary);
     if (process.platform === "win32") {
       const script = [
         "$ErrorActionPreference = 'Stop'",
@@ -7461,6 +9353,7 @@ async function publishStagedFileAtomically(
       await link(temporary, destination);
       await rm(temporary, { force: true }).catch(() => undefined);
     }
+    await destinationLock.adoptReplacement();
   } catch (error) {
     await rm(temporary, { force: true });
     if (error instanceof Error && "code" in error && error.code === "EEXIST") {
@@ -7489,7 +9382,34 @@ async function publishStagedFileAtomically(
         `${purpose} exists at ${destination}, but its directory could not be durably flushed: ${detail}`,
       );
     }
+  } finally {
+    await destinationLock.close();
   }
+}
+
+function findNodeArchiveSources(source: ArchiveSnapshot["source"]): NodeFileArchiveSource[] {
+  const pending = [source as object];
+  const visited = new Set<object>();
+  const sources = new Set<NodeFileArchiveSource>();
+  while (pending.length > 0) {
+    const current = pending.pop()!;
+    if (visited.has(current)) continue;
+    visited.add(current);
+    if (current instanceof NodeFileArchiveSource) {
+      sources.add(current);
+      continue;
+    }
+    const composite = current as {
+      appended?: unknown;
+      base?: unknown;
+      original?: unknown;
+      source?: unknown;
+    };
+    for (const nested of [composite.base, composite.appended, composite.original, composite.source]) {
+      if (nested && typeof nested === "object") pending.push(nested);
+    }
+  }
+  return [...sources];
 }
 
 async function writeBytesAtomically(path: string, bytes: Uint8Array): Promise<void> {
@@ -7514,6 +9434,21 @@ async function writeBytesAtomically(path: string, bytes: Uint8Array): Promise<vo
   try {
     await rename(temporary, path);
   } catch (error) {
+    await rm(temporary, { force: true });
+    throw error;
+  }
+}
+
+async function stageBytesForPublication(path: string, bytes: Uint8Array): Promise<string> {
+  const temporary = join(dirname(path), `.tutorux-${randomUUID()}.partial`);
+  const output = await open(temporary, "wx", 0o600);
+  try {
+    await output.writeFile(bytes);
+    await output.sync();
+    await output.close();
+    return temporary;
+  } catch (error) {
+    await output.close().catch(() => undefined);
     await rm(temporary, { force: true });
     throw error;
   }
