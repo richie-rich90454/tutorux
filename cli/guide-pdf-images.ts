@@ -21,7 +21,11 @@ export const decodeGuideWebp: GuidePdfWebpDecoder = async (bytes) => {
   }
 
   const input = Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-  const options = { animated: false, failOn: "warning" as const, limitInputPixels: MAX_IMAGE_PIXELS };
+  const options = {
+    animated: false,
+    failOn: "warning" as const,
+    limitInputPixels: MAX_IMAGE_PIXELS,
+  };
   let width: number;
   let height: number;
   try {
