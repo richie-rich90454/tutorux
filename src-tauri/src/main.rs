@@ -1,16 +1,17 @@
 mod ai_transport;
 mod archive_lock;
-mod credentials;
+mod audio_import;
 mod console;
+mod credentials;
 mod diagnostics;
 mod embedded_ai;
 mod live_transcription;
 mod platform;
 mod transcription;
 
+use crate::archive_lock::{ArchiveLockRegistry, SharedArchiveLock};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
-use tutorux_archive_lock::LockMode;
 use std::{
     collections::{HashMap, VecDeque},
     fs::{self, File, OpenOptions},
@@ -18,13 +19,13 @@ use std::{
     path::{Path, PathBuf},
     sync::Mutex,
 };
-use crate::archive_lock::{ArchiveLockRegistry, SharedArchiveLock};
 use tauri::{
     ipc::Response,
     menu::{Menu, MenuItem, PredefinedMenuItem, Submenu},
     AppHandle, Emitter, Manager, State,
 };
 use tauri_plugin_fs::FsExt;
+use tutorux_archive_lock::LockMode;
 use uuid::Uuid;
 use zeroize::Zeroizing;
 
@@ -180,7 +181,9 @@ fn append_audio_archive_generation(
         .map_err(|_| "Archive access state is unavailable.".to_owned())?
         .get(&archive_token)
         .map(|archive| archive.lock.clone())
-        .ok_or_else(|| "Archive access has expired. Reopen the file before recording.".to_owned())?;
+        .ok_or_else(|| {
+            "Archive access has expired. Reopen the file before recording.".to_owned()
+        })?;
     let _archive_write_lock = state.archive_locks.exclusive_guard(&archive_lock)?;
     let mut archives = state
         .opened_archives
@@ -1067,6 +1070,7 @@ fn main() {
         })
         .invoke_handler(tauri::generate_handler![
             diagnostics::get_desktop_diagnostics,
+            audio_import::import_compressed_audio,
             console::command_console_availability,
             console::run_command_console,
             console::cancel_command_console,
