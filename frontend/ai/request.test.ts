@@ -343,7 +343,13 @@ describe("AI request preview", () => {
     ]);
     const webmBytes = new Uint8Array([0x1a, 0x45, 0xdf, 0xa3, 0x01, 0x02, 0x03, 0x04]);
     const snapshot = await appendRecords(withSession, [
-      ...(await materialRecords(sessionId, "handout.pdf", "application/pdf", pdfBytes, "Worksheet text")),
+      ...(await materialRecords(
+        sessionId,
+        "handout.pdf",
+        "application/pdf",
+        pdfBytes,
+        "Worksheet text",
+      )),
       ...(await materialRecords(sessionId, "lecture.wav", "audio/wav", wavBytes)),
       ...(await materialRecords(sessionId, "clip.webm", "video/webm", webmBytes)),
     ]);
