@@ -42,6 +42,7 @@ export function AnnotationPage(props: {
   onNewSession: () => void;
   onHistory: (record: ArchiveRecord) => Promise<ArchiveRecord[]>;
   onRestore: (record: ArchiveRecord, historyIndex: number) => Promise<boolean>;
+  onPlayFromTimestamp: ((record: ArchiveRecord) => void) | undefined;
 }): JSX.Element {
   const [adding, setAdding] = createSignal(false);
   const [markerNote, setMarkerNote] = createSignal("");
@@ -345,6 +346,7 @@ export function AnnotationPage(props: {
                         onDuplicate={() => props.onDuplicate(record)}
                         onHistory={props.onHistory}
                         onRestore={props.onRestore}
+                        onPlayFromTimestamp={props.onPlayFromTimestamp}
                       />
                     )}
                   </For>
@@ -370,6 +372,7 @@ function AnnotationCard(props: {
   onDuplicate: () => Promise<boolean>;
   onHistory: (record: ArchiveRecord) => Promise<ArchiveRecord[]>;
   onRestore: (record: ArchiveRecord, historyIndex: number) => Promise<boolean>;
+  onPlayFromTimestamp: ((record: ArchiveRecord) => void) | undefined;
 }): JSX.Element {
   const [editing, setEditing] = createSignal(false);
   const [splitting, setSplitting] = createSignal(false);
@@ -476,6 +479,16 @@ function AnnotationCard(props: {
             >
               Edit observation
             </button>
+            <Show when={props.onPlayFromTimestamp}>
+              <button
+                class="button button-quiet record-action"
+                type="button"
+                disabled={props.disabled}
+                onClick={() => props.onPlayFromTimestamp?.(props.record)}
+              >
+                Play from timestamp
+              </button>
+            </Show>
             <button
               class="button button-quiet record-action"
               type="button"
