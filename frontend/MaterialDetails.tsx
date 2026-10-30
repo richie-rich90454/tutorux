@@ -5,7 +5,8 @@ import { canChangeAssetSession, moveAssetToSession } from "./domain/asset-placem
 import { MAX_ASSET_BATCH_FILES, type AssetBatchProgress } from "./domain/assets-stream";
 import "./material-details.css";
 
-const field = (record: ArchiveRecord, key: string) => record.fields.get(key) ?? "";
+const field = (record: ArchiveRecord, key: string, fallback = "") =>
+  record.fields.get(key) ?? fallback;
 const now = () => (BigInt(Date.now()) * 1000n).toString();
 const errorText = (error: unknown) => (error instanceof Error ? error.message : String(error));
 function hasInvalidControls(value: string, multiline: boolean): boolean {
