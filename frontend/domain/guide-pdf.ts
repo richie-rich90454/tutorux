@@ -60,12 +60,10 @@ export async function renderGuidePdf(
   const imageIndexes = new Map<string, number>();
   let totalImageStreamBytes = 0;
   let current: PdfPage;
-  let pageNumber = 0;
 
   const startPage = (cover: boolean): PdfPage => {
     if (pages.length >= MAX_PAGES)
       throw new Error("The guide exceeds the 10,000-page PDF export limit.");
-    pageNumber += 1;
     const page: PdfPage = { content: "", imageIndexes: [], y: PAGE_HEIGHT - MARGIN };
     pages.push(page);
     current = page;
