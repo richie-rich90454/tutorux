@@ -99,8 +99,7 @@ export async function prepareNativeCaptureRecovery(
     }
 
     const legacySessionTrack =
-      !isTrackMetadata &&
-      trackId === validUuid(session.fields.get("recording_track_id"));
+      !isTrackMetadata && trackId === validUuid(session.fields.get("recording_track_id"));
     if (!isTrackMetadata && !legacySessionTrack) {
       outcomes.push(
         failedTrack(
@@ -115,12 +114,21 @@ export async function prepareNativeCaptureRecovery(
     const formatRecord = isTrackMetadata ? metadata! : session;
     const format = readFormat(formatRecord, isTrackMetadata);
     if (typeof format === "string") {
-      outcomes.push(failedTrack(trackId, sourceName(metadata?.fields.get("source")), new Error(format)));
+      outcomes.push(
+        failedTrack(trackId, sourceName(metadata?.fields.get("source")), new Error(format)),
+      );
       continue;
     }
 
     const previousState = value(formatRecord, isTrackMetadata ? "state" : "recording_state");
-    const result = await recoverTrack(snapshot, session, trackId, format, previousState, metadata ?? undefined);
+    const result = await recoverTrack(
+      snapshot,
+      session,
+      trackId,
+      format,
+      previousState,
+      metadata ?? undefined,
+    );
     outcomes.push(result);
     if (result.metadata && result.recovered) {
       const fields = new Map(result.metadata.fields);
@@ -196,7 +204,8 @@ export async function prepareNativeCaptureRecovery(
     if (!linkedIds.some((id) => recoveredIds.has(id))) continue;
     const take = await snapshot.getRecord(RecordType.assetMetadata, indexedTake.id);
     if (!take) continue;
-    const allTracksRecovered = linkedIds.length > 0 && linkedIds.every((id) => recoveredIds.has(id));
+    const allTracksRecovered =
+      linkedIds.length > 0 && linkedIds.every((id) => recoveredIds.has(id));
     const takeFields = new Map(take.fields);
     takeFields.set(
       "state",
@@ -208,13 +217,11 @@ export async function prepareNativeCaptureRecovery(
     records.set(recordKey(take), { ...take, fields: takeFields });
   }
 
-  const state = completed ? "completed" : totals.chunks > 0n ? "partial" : "failed";
-  const message =
-    completed
-      ? `Verified and recovered all ${outcomes.length} native audio track${outcomes.length === 1 ? "" : "s"}.`
-      : totals.chunks > 0n
-        ? `Preserved ${totals.chunks.toLocaleString()} verified native audio chunks; one or more tracks remain partial or interrupted.`
-        : "No valid committed native audio was available; the recording remains failed.";
+  const message = completed
+    ? `Verified and recovered all ${outcomes.length} native audio track${outcomes.length === 1 ? "" : "s"}.`
+    : totals.chunks > 0n
+      ? `Preserved ${totals.chunks.toLocaleString()} verified native audio chunks; one or more tracks remain partial or interrupted.`
+      : "No valid committed native audio was available; the recording remains failed.";
 
   return {
     records: [...records.values()],
@@ -228,7 +235,10 @@ export async function prepareNativeCaptureRecovery(
   };
 }
 
-async function nativeTrackIds(snapshot: ArchiveSnapshot, session: ArchiveRecord): Promise<string[]> {
+async function nativeTrackIds(
+  snapshot: ArchiveSnapshot,
+  session: ArchiveRecord,
+): Promise<string[]> {
   const encoded = session.fields.get("recording_track_ids") ?? "";
   const ids: string[] = [];
   if (encoded) {
@@ -276,7 +286,12 @@ async function recoverTrack(
   const deviceId = value(metadata ?? session, metadata ? "device_id" : "recording_device_id");
   const bytesPerSample = BYTES_PER_SAMPLE[format.sampleFormat];
   if (!bytesPerSample)
-    return failedTrack(trackId, source, new Error("Recording sample format is unsupported."), metadata);
+    return failedTrack(
+      trackId,
+      source,
+      new Error("Recording sample format is unsupported."),
+      metadata,
+    );
   const blockAlign = bytesPerSample * format.channels;
   const sampleRate = Number(format.sampleRate);
   const maximumTimelineSample =
@@ -354,7 +369,9 @@ async function recoverTrack(
     if (discontinuity === "true" || gapBefore > 0n) totals.discontinuities += 1n;
   }
 
-  const countField = metadata ? metadata.fields.get("chunk_count") : session.fields.get("recording_audio_chunks");
+  const countField = metadata
+    ? metadata.fields.get("chunk_count")
+    : session.fields.get("recording_audio_chunks");
   if (countField !== undefined) {
     const expectedCount = unsignedField(countField);
     if (expectedCount === undefined && !failure) {
