@@ -1245,7 +1245,11 @@ function GuideEditor(props: {
     if (!selected) return null;
     const sectionIndex = draft().sections.findIndex((section) => section.id === selected.sectionId);
     const blockIndex = selected.blockIndex;
-    if (sectionIndex < 0 || blockIndex < 0 || blockIndex >= draft().sections[sectionIndex]!.blocks.length)
+    if (
+      sectionIndex < 0 ||
+      blockIndex < 0 ||
+      blockIndex >= draft().sections[sectionIndex]!.blocks.length
+    )
       return null;
     return { sectionIndex, blockIndex };
   });
@@ -1360,10 +1364,7 @@ function GuideEditor(props: {
       );
       const sourceReferenceCount = [...checked.fields]
         .filter(([key]) => /^section\.\d+\.block\.\d+\.source_ids$/u.test(key))
-        .reduce(
-          (count, [, value]) => count + value.split(",").filter(Boolean).length,
-          0,
-        );
+        .reduce((count, [, value]) => count + value.split(",").filter(Boolean).length, 0);
       const staleBlockCount = current.sections.reduce(
         (count, section) => count + section.blocks.filter((block) => block.stale).length,
         0,
@@ -1391,10 +1392,13 @@ function GuideEditor(props: {
     update: (section: GuideDraft["sections"][number]) => GuideDraft["sections"][number],
     recordHistory = true,
   ): void {
-    setDraft((current) => ({
-      ...current,
-      sections: current.sections.map((section, i) => (i === index ? update(section) : section)),
-    }), recordHistory);
+    setDraft(
+      (current) => ({
+        ...current,
+        sections: current.sections.map((section, i) => (i === index ? update(section) : section)),
+      }),
+      recordHistory,
+    );
   }
 
   function updateBlock(
@@ -1403,10 +1407,14 @@ function GuideEditor(props: {
     update: (block: GuideBlockDraft) => GuideBlockDraft,
     recordHistory = true,
   ): void {
-    updateSection(sectionIndex, (section) => ({
-      ...section,
-      blocks: section.blocks.map((block, i) => (i === blockIndex ? update(block) : block)),
-    }), recordHistory);
+    updateSection(
+      sectionIndex,
+      (section) => ({
+        ...section,
+        blocks: section.blocks.map((block, i) => (i === blockIndex ? update(block) : block)),
+      }),
+      recordHistory,
+    );
   }
 
   function clearFindSelection(): void {
@@ -1416,10 +1424,13 @@ function GuideEditor(props: {
 
   function moveSection(index: number, direction: -1 | 1): void {
     clearFindSelection();
-    setDraft((current) => ({
-      ...current,
-      sections: moveGuideSection(current.sections, index, direction),
-    }), true);
+    setDraft(
+      (current) => ({
+        ...current,
+        sections: moveGuideSection(current.sections, index, direction),
+      }),
+      true,
+    );
   }
 
   function addExampleAfter(sectionIndex: number, blockIndex: number): void {
@@ -1558,15 +1569,18 @@ function GuideEditor(props: {
 
   function selectTemplate(templateId: string): void {
     clearFindSelection();
-    setDraft((current) => ({
-      ...current,
-      templateId,
-      sections: current.sections.every((section) =>
-        section.blocks.every((block) => !block.text.trim()),
-      )
-        ? templateSections(templateId, props.customTemplates)
-        : current.sections,
-    }), true);
+    setDraft(
+      (current) => ({
+        ...current,
+        templateId,
+        sections: current.sections.every((section) =>
+          section.blocks.every((block) => !block.text.trim()),
+        )
+          ? templateSections(templateId, props.customTemplates)
+          : current.sections,
+      }),
+      true,
+    );
   }
 
   async function submit(event: SubmitEvent): Promise<void> {
@@ -1647,16 +1661,19 @@ function GuideEditor(props: {
                     const session = props.sessions.find(
                       (item) => item.id === event.currentTarget.value,
                     );
-                    setDraft((current) => ({
-                      ...current,
-                      sessionId: event.currentTarget.value,
-                      entryId: session ? field(session, "entry_id") : "",
-                      title: props.record
-                        ? current.title
-                        : session
-                          ? `${field(session, "title", "Tutoring Session")} — Study Guide`
-                          : current.title,
-                    }), true);
+                    setDraft(
+                      (current) => ({
+                        ...current,
+                        sessionId: event.currentTarget.value,
+                        entryId: session ? field(session, "entry_id") : "",
+                        title: props.record
+                          ? current.title
+                          : session
+                            ? `${field(session, "title", "Tutoring Session")} — Study Guide`
+                            : current.title,
+                      }),
+                      true,
+                    );
                   }}
                 >
                   <option value="" disabled>
@@ -1702,7 +1719,11 @@ function GuideEditor(props: {
             </label>
           </div>
 
-          <div class="guide-find" role="search" aria-label="Find and replace in selected guide block">
+          <div
+            class="guide-find"
+            role="search"
+            aria-label="Find and replace in selected guide block"
+          >
             <label>
               Find
               <input
@@ -1731,7 +1752,9 @@ function GuideEditor(props: {
               <button
                 class="button button-quiet"
                 type="button"
-                disabled={props.busy || !findBlockPosition() || !findQuery() || findMatches().length === 0}
+                disabled={
+                  props.busy || !findBlockPosition() || !findQuery() || findMatches().length === 0
+                }
                 onClick={findNext}
               >
                 Find next
@@ -1739,7 +1762,9 @@ function GuideEditor(props: {
               <button
                 class="button button-quiet"
                 type="button"
-                disabled={props.busy || !findBlockPosition() || !findQuery() || findMatches().length === 0}
+                disabled={
+                  props.busy || !findBlockPosition() || !findQuery() || findMatches().length === 0
+                }
                 onClick={replaceCurrent}
               >
                 Replace
@@ -1747,7 +1772,9 @@ function GuideEditor(props: {
               <button
                 class="button button-quiet"
                 type="button"
-                disabled={props.busy || !findBlockPosition() || !findQuery() || findMatches().length === 0}
+                disabled={
+                  props.busy || !findBlockPosition() || !findQuery() || findMatches().length === 0
+                }
                 onClick={replaceAll}
               >
                 Replace all
@@ -1853,10 +1880,14 @@ function GuideEditor(props: {
                         value={section.heading}
                         maxlength="256"
                         onInput={(event) =>
-                          updateSection(sectionIndex(), (current) => ({
-                            ...current,
-                            heading: event.currentTarget.value,
-                          }), false)
+                          updateSection(
+                            sectionIndex(),
+                            (current) => ({
+                              ...current,
+                              heading: event.currentTarget.value,
+                            }),
+                            false,
+                          )
                         }
                       />
                     </label>
@@ -1890,10 +1921,15 @@ function GuideEditor(props: {
                           setActiveBlock((selected) =>
                             selected?.sectionId === section.id ? null : selected,
                           );
-                          setDraft((current) => ({
-                            ...current,
-                            sections: current.sections.filter((_, index) => index !== sectionIndex()),
-                          }), true);
+                          setDraft(
+                            (current) => ({
+                              ...current,
+                              sections: current.sections.filter(
+                                (_, index) => index !== sectionIndex(),
+                              ),
+                            }),
+                            true,
+                          );
                         }}
                       >
                         Remove
@@ -1994,15 +2030,20 @@ function GuideEditor(props: {
                             value={block.text}
                             placeholder="Write the explanation, example, prompt, or practice note…"
                             onInput={(event) => {
-                              updateBlock(sectionIndex(), blockIndex(), (current) => ({
-                                ...current,
-                                text: event.currentTarget.value,
-                                stale: false,
-                                origin:
-                                  current.origin === "ai-generated"
-                                    ? "human-edited"
-                                    : "human-edited",
-                              }), false);
+                              updateBlock(
+                                sectionIndex(),
+                                blockIndex(),
+                                (current) => ({
+                                  ...current,
+                                  text: event.currentTarget.value,
+                                  stale: false,
+                                  origin:
+                                    current.origin === "ai-generated"
+                                      ? "human-edited"
+                                      : "human-edited",
+                                }),
+                                false,
+                              );
                               clearFindSelection();
                             }}
                           />
@@ -2013,11 +2054,16 @@ function GuideEditor(props: {
                                 value={block.sourceIds}
                                 placeholder="Paste archive IDs, separated by commas"
                                 onInput={(event) =>
-                                  updateBlock(sectionIndex(), blockIndex(), (current) => ({
-                                    ...current,
-                                    sourceIds: event.currentTarget.value,
-                                    stale: false,
-                                  }), false)
+                                  updateBlock(
+                                    sectionIndex(),
+                                    blockIndex(),
+                                    (current) => ({
+                                      ...current,
+                                      sourceIds: event.currentTarget.value,
+                                      stale: false,
+                                    }),
+                                    false,
+                                  )
                                 }
                               />
                             </label>
@@ -2028,10 +2074,15 @@ function GuideEditor(props: {
                                 onChange={(event) => {
                                   const id = event.currentTarget.value;
                                   if (!id) return;
-                                  updateBlock(sectionIndex(), blockIndex(), (current) => ({
-                                    ...current,
-                                    sourceIds: appendSourceId(current.sourceIds, id),
-                                  }), true);
+                                  updateBlock(
+                                    sectionIndex(),
+                                    blockIndex(),
+                                    (current) => ({
+                                      ...current,
+                                      sourceIds: appendSourceId(current.sourceIds, id),
+                                    }),
+                                    true,
+                                  );
                                   event.currentTarget.value = "";
                                 }}
                               >
@@ -2056,19 +2107,23 @@ function GuideEditor(props: {
                     class="button button-quiet guide-add-block"
                     type="button"
                     onClick={() =>
-                      updateSection(sectionIndex(), (current) => ({
-                        ...current,
-                        blocks: [
-                          ...current.blocks,
-                          {
-                            kind: "paragraph",
-                            text: "",
-                            sourceIds: "",
-                            stale: false,
-                            origin: "tutor-authored",
-                          },
-                        ],
-                      }), true)
+                      updateSection(
+                        sectionIndex(),
+                        (current) => ({
+                          ...current,
+                          blocks: [
+                            ...current.blocks,
+                            {
+                              kind: "paragraph",
+                              text: "",
+                              sourceIds: "",
+                              stale: false,
+                              origin: "tutor-authored",
+                            },
+                          ],
+                        }),
+                        true,
+                      )
                     }
                   >
                     + Add a content block
@@ -2081,13 +2136,16 @@ function GuideEditor(props: {
             class="button button-outline guide-add-section"
             type="button"
             onClick={() =>
-              setDraft((current) => ({
-                ...current,
-                sections: [
-                  ...current.sections,
-                  { id: crypto.randomUUID(), heading: "New section", blocks: [] },
-                ],
-              }), true)
+              setDraft(
+                (current) => ({
+                  ...current,
+                  sections: [
+                    ...current.sections,
+                    { id: crypto.randomUUID(), heading: "New section", blocks: [] },
+                  ],
+                }),
+                true,
+              )
             }
           >
             + Add section
