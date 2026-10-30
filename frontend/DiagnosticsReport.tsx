@@ -6,11 +6,7 @@ import {
 } from "./archive/archive";
 import { ArchiveFormatError } from "./archive/format";
 import { platform } from "@platform";
-import type {
-  DesktopDiagnostics,
-  DiagnosticMetric,
-  EndpointAvailability,
-} from "./platform/types";
+import type { DesktopDiagnostics, DiagnosticMetric, EndpointAvailability } from "./platform/types";
 import "./diagnostics-report.css";
 
 interface DiagnosticsReportProps {
@@ -81,7 +77,11 @@ function endpointProbeText(
   ).length;
   const notProbed = endpoint.probes.filter((probe) => probe.state === "not-probed").length;
   const failed = endpoint.probes.filter((probe) => probe.state === "unavailable");
-  const reasons = [...new Set(failed.flatMap((probe) => (probe.unavailableReason ? [probe.unavailableReason] : [])))];
+  const reasons = [
+    ...new Set(
+      failed.flatMap((probe) => (probe.unavailableReason ? [probe.unavailableReason] : [])),
+    ),
+  ];
   const reason = endpoint.unavailableReason ?? reasons.join(" ");
   const explicitStreamProbe = probeScope?.startsWith("explicit opt-in") ?? false;
   const result = explicitStreamProbe
@@ -123,8 +123,7 @@ export function DiagnosticsReport(props: DiagnosticsReportProps): JSX.Element {
 
     let desktopDiagnostics: DesktopDiagnostics | null = null;
     try {
-      desktopDiagnostics =
-        (await platform.desktopDiagnostics?.(includeAudioStreamProbe)) ?? null;
+      desktopDiagnostics = (await platform.desktopDiagnostics?.(includeAudioStreamProbe)) ?? null;
     } catch {
       // Platform details are optional; an unavailable audio backend must not block diagnostics.
     }
@@ -282,9 +281,9 @@ export function DiagnosticsReport(props: DiagnosticsReportProps): JSX.Element {
           and identifiers are omitted. Audio stream probes are optional: when selected, each
           supported endpoint is opened for up to 125 ms, for at most 12 endpoints total. Audio
           callback buffers are immediately discarded and never saved. Your operating system may ask
-          for audio permission. Diagnostics never make a
-          network request or write audio to the archive. The report omits file paths, credentials,
-          transcripts, recordings, and record contents.
+          for audio permission. Diagnostics never make a network request or write audio to the
+          archive. The report omits file paths, credentials, transcripts, recordings, and record
+          contents.
         </p>
         <label class="diagnostics-report-history">
           <input
@@ -376,11 +375,15 @@ export function DiagnosticsReport(props: DiagnosticsReportProps): JSX.Element {
               </div>
               <div>
                 <dt>Process uptime / CPU time</dt>
-                <dd>{result().processUptime} · {result().processCpuTime}</dd>
+                <dd>
+                  {result().processUptime} · {result().processCpuTime}
+                </dd>
               </div>
               <div>
                 <dt>Resident / peak memory</dt>
-                <dd>{result().residentMemory} · {result().peakResidentMemory}</dd>
+                <dd>
+                  {result().residentMemory} · {result().peakResidentMemory}
+                </dd>
               </div>
               <div>
                 <dt>Available system memory</dt>
