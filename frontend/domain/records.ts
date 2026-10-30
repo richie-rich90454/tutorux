@@ -3,1308 +3,1324 @@ import { RecordType, type ArchiveRecord, validateRecordPayloadSize } from "../ar
 let lastTimestampUs = 0n;
 
 const nowUs = (): string => {
-  const wallClock = BigInt(Date.now()) * 1000n;
-  lastTimestampUs = wallClock > lastTimestampUs ? wallClock : lastTimestampUs + 1n;
-  return lastTimestampUs.toString();
+    const wallClock = BigInt(Date.now()) * 1000n;
+    lastTimestampUs = wallClock > lastTimestampUs ? wallClock : lastTimestampUs + 1n;
+    return lastTimestampUs.toString();
 };
 
 export interface StudentInput {
-  name: string;
-  grade: string;
-  subjects: string;
-  objectives: string;
-  tutorNotes: string;
-  difficulties?: string;
-  demonstratedImprovements?: string;
-  preferredGuideTemplate?: string;
+    name: string;
+    grade: string;
+    subjects: string;
+    objectives: string;
+    tutorNotes: string;
+    difficulties?: string;
+    demonstratedImprovements?: string;
+    preferredGuideTemplate?: string;
 }
 
 export type NotesInput =
-  | { notes: string; noteBlocks?: never }
-  | { notes?: never; noteBlocks: readonly JournalNoteBlock[] };
+    | { notes: string; noteBlocks?: never }
+    | { notes?: never; noteBlocks: readonly JournalNoteBlock[] };
 
 export type SessionInput = {
-  studentId: string;
-  subject: string;
-  title: string;
-  objectives: string;
+    studentId: string;
+    subject: string;
+    title: string;
+    objectives: string;
 } & NotesInput;
 
 export interface SessionCreateOptions {
-  linkedEntry?: ArchiveRecord;
-  ensureJournalRoot?: boolean;
-  sessionType?: string;
-  transcriptionLanguage?: string;
-  guideTemplateId?: string;
-  recordingSource?: string;
+    linkedEntry?: ArchiveRecord;
+    ensureJournalRoot?: boolean;
+    sessionType?: string;
+    transcriptionLanguage?: string;
+    guideTemplateId?: string;
+    recordingSource?: string;
 }
 
 export type SessionTransitionAction = "start" | "complete" | "review" | "resume";
 
 export interface SessionCloneInput {
-  title?: string;
-  sessionType?: string;
-  ensureJournalRoot?: boolean;
+    title?: string;
+    sessionType?: string;
+    ensureJournalRoot?: boolean;
 }
 
 export type JournalInput = {
-  title: string;
-  date: string;
-  collectionIds?: readonly string[];
-  tagIds?: readonly string[];
+    title: string;
+    date: string;
+    collectionIds?: readonly string[];
+    tagIds?: readonly string[];
 } & NotesInput;
 
 export interface JournalCreateOptions {
-  ensureJournalRoot?: boolean;
+    ensureJournalRoot?: boolean;
 }
 
 export interface RemovedNoteBlock {
-  documentId: string;
-  entryId: string;
-  sessionId: string;
-  id: string;
-  kind: JournalNoteBlockKind;
-  text: string;
-  index: number;
+    documentId: string;
+    entryId: string;
+    sessionId: string;
+    id: string;
+    kind: JournalNoteBlockKind;
+    text: string;
+    index: number;
 }
 
 export interface JournalCollectionInput {
-  name: string;
-  description: string;
-  color: string;
+    name: string;
+    description: string;
+    color: string;
 }
 
 export interface JournalTagInput {
-  name: string;
-  color: string;
+    name: string;
+    color: string;
 }
 
 export interface NotesEditState {
-  blocks: JournalNoteBlock[];
-  editable: boolean;
+    blocks: JournalNoteBlock[];
+    editable: boolean;
 }
 
 export const MAX_JOURNAL_NOTE_BLOCKS = 10_000;
 export const MAX_RECOVERABLE_NOTE_BLOCKS = 256;
 
 export const JOURNAL_NOTE_BLOCK_KINDS = [
-  "paragraph",
-  "heading",
-  "bullet-list",
-  "numbered-list",
-  "checklist",
-  "quote",
-  "code",
+    "paragraph",
+    "heading",
+    "bullet-list",
+    "numbered-list",
+    "checklist",
+    "quote",
+    "code",
 ] as const;
 
 export type JournalNoteBlockKind = (typeof JOURNAL_NOTE_BLOCK_KINDS)[number];
 
 export interface JournalNoteBlock {
-  id: string;
-  kind: JournalNoteBlockKind;
-  text: string;
+    id: string;
+    kind: JournalNoteBlockKind;
+    text: string;
 }
 
 export function makeStudentRecord(input: StudentInput): ArchiveRecord {
-  const name = requiredText(input.name, "Student name", 256);
-  const timestamp = nowUs();
-  return record(RecordType.student, crypto.randomUUID(), {
-    display_name: name,
-    grade: cleanText(input.grade, "Grade", 128),
-    subjects: cleanText(input.subjects, "Subjects", 2_048),
-    learning_objectives: cleanText(input.objectives, "Learning objectives", 4_096, true),
-    known_difficulties: cleanText(input.difficulties ?? "", "Known difficulties", 4_096, true),
-    demonstrated_improvements: cleanText(
-      input.demonstratedImprovements ?? "",
-      "Demonstrated improvements",
-      4_096,
-      true,
-    ),
-    preferred_guide_template: cleanText(
-      input.preferredGuideTemplate ?? "",
-      "Preferred study-guide template",
-      128,
-    ),
-    progress_classifications: "",
-    tutor_notes: cleanText(input.tutorNotes, "Private tutor notes", 16_384, true),
-    created_at_us: timestamp,
-    updated_at_us: timestamp,
-  });
+    const name = requiredText(input.name, "Student name", 256);
+    const timestamp = nowUs();
+    return record(RecordType.student, crypto.randomUUID(), {
+        display_name: name,
+        grade: cleanText(input.grade, "Grade", 128),
+        subjects: cleanText(input.subjects, "Subjects", 2_048),
+        learning_objectives: cleanText(input.objectives, "Learning objectives", 4_096, true),
+        known_difficulties: cleanText(input.difficulties ?? "", "Known difficulties", 4_096, true),
+        demonstrated_improvements: cleanText(
+            input.demonstratedImprovements ?? "",
+            "Demonstrated improvements",
+            4_096,
+            true,
+        ),
+        preferred_guide_template: cleanText(
+            input.preferredGuideTemplate ?? "",
+            "Preferred study-guide template",
+            128,
+        ),
+        progress_classifications: "",
+        tutor_notes: cleanText(input.tutorNotes, "Private tutor notes", 16_384, true),
+        created_at_us: timestamp,
+        updated_at_us: timestamp,
+    });
 }
 
 /** Update the editable student profile while retaining its ID and unknown legacy fields. */
 export function updateStudentRecord(current: ArchiveRecord, input: StudentInput): ArchiveRecord {
-  if (current.type !== RecordType.student) {
-    throw new Error("Only a student profile can be updated with student details.");
-  }
-  const fields = new Map(current.fields);
-  fields.set("display_name", requiredText(input.name, "Student name", 256));
-  fields.set("grade", cleanText(input.grade, "Grade", 128));
-  fields.set("subjects", cleanText(input.subjects, "Subjects", 2_048));
-  fields.set(
-    "learning_objectives",
-    cleanText(input.objectives, "Learning objectives", 4_096, true),
-  );
-  if (input.difficulties !== undefined) {
+    if (current.type !== RecordType.student) {
+        throw new Error("Only a student profile can be updated with student details.");
+    }
+    const fields = new Map(current.fields);
+    fields.set("display_name", requiredText(input.name, "Student name", 256));
+    fields.set("grade", cleanText(input.grade, "Grade", 128));
+    fields.set("subjects", cleanText(input.subjects, "Subjects", 2_048));
     fields.set(
-      "known_difficulties",
-      cleanText(input.difficulties, "Known difficulties", 4_096, true),
+        "learning_objectives",
+        cleanText(input.objectives, "Learning objectives", 4_096, true),
     );
-  }
-  if (input.demonstratedImprovements !== undefined) {
-    fields.set(
-      "demonstrated_improvements",
-      cleanText(input.demonstratedImprovements, "Demonstrated improvements", 4_096, true),
-    );
-  }
-  if (input.preferredGuideTemplate !== undefined) {
-    fields.set(
-      "preferred_guide_template",
-      cleanText(input.preferredGuideTemplate, "Preferred study-guide template", 128),
-    );
-  }
-  fields.set("tutor_notes", cleanText(input.tutorNotes, "Private tutor notes", 16_384, true));
-  fields.set("updated_at_us", nowUs());
-  return { ...current, fields };
+    if (input.difficulties !== undefined) {
+        fields.set(
+            "known_difficulties",
+            cleanText(input.difficulties, "Known difficulties", 4_096, true),
+        );
+    }
+    if (input.demonstratedImprovements !== undefined) {
+        fields.set(
+            "demonstrated_improvements",
+            cleanText(input.demonstratedImprovements, "Demonstrated improvements", 4_096, true),
+        );
+    }
+    if (input.preferredGuideTemplate !== undefined) {
+        fields.set(
+            "preferred_guide_template",
+            cleanText(input.preferredGuideTemplate, "Preferred study-guide template", 128),
+        );
+    }
+    fields.set("tutor_notes", cleanText(input.tutorNotes, "Private tutor notes", 16_384, true));
+    fields.set("updated_at_us", nowUs());
+    return { ...current, fields };
 }
 
 /** Move a record to recoverable Trash without mutating the current archive snapshot. */
 export function moveRecordToTrash(current: ArchiveRecord): ArchiveRecord {
-  if (current.fields.get("_deleted") === "true") {
-    throw new Error("This record is already in Trash.");
-  }
-  const fields = new Map(current.fields);
-  const timestamp = nowUs();
-  fields.set("_deleted", "true");
-  fields.set("deleted_at_us", timestamp);
-  fields.set("updated_at_us", timestamp);
-  if (current.type === RecordType.session) fields.set("_trash_group_id", current.id);
-  return { ...current, fields };
+    if (current.fields.get("_deleted") === "true") {
+        throw new Error("This record is already in Trash.");
+    }
+    const fields = new Map(current.fields);
+    const timestamp = nowUs();
+    fields.set("_deleted", "true");
+    fields.set("deleted_at_us", timestamp);
+    fields.set("updated_at_us", timestamp);
+    if (current.type === RecordType.session) fields.set("_trash_group_id", current.id);
+    return { ...current, fields };
 }
 
 /** Restore a soft-deleted record while keeping all unrelated archive fields intact. */
 export function restoreRecordFromTrash(current: ArchiveRecord): ArchiveRecord {
-  if (current.fields.get("_deleted") !== "true") {
-    throw new Error("This record is not in Trash.");
-  }
-  const fields = new Map(current.fields);
-  const timestamp = nowUs();
-  fields.delete("_deleted");
-  fields.delete("deleted_at_us");
-  fields.delete("_trash_group_id");
-  fields.set("restored_at_us", timestamp);
-  fields.set("updated_at_us", timestamp);
-  return { ...current, fields };
+    if (current.fields.get("_deleted") !== "true") {
+        throw new Error("This record is not in Trash.");
+    }
+    const fields = new Map(current.fields);
+    const timestamp = nowUs();
+    fields.delete("_deleted");
+    fields.delete("deleted_at_us");
+    fields.delete("_trash_group_id");
+    fields.set("restored_at_us", timestamp);
+    fields.set("updated_at_us", timestamp);
+    return { ...current, fields };
 }
 
 /** Apply a valid session state transition while preserving unrelated archive fields. */
 export function transitionSessionRecord(
-  current: ArchiveRecord,
-  action: SessionTransitionAction,
+    current: ArchiveRecord,
+    action: SessionTransitionAction,
 ): ArchiveRecord {
-  if (current.type !== RecordType.session) {
-    throw new Error("Only a session can change lifecycle state.");
-  }
-  if (current.fields.get("_deleted") === "true") {
-    throw new Error("Restore this session before changing its lifecycle state.");
-  }
+    if (current.type !== RecordType.session) {
+        throw new Error("Only a session can change lifecycle state.");
+    }
+    if (current.fields.get("_deleted") === "true") {
+        throw new Error("Restore this session before changing its lifecycle state.");
+    }
 
-  const fields = new Map(current.fields);
-  const state = fields.get("session_state") ?? "active";
-  const timestamp = nowUs();
-  if (action === "start") {
-    if (state !== "created" && state !== "active" && state !== "in-progress") {
-      throw new Error(
-        "A completed session must use resume; starting does not restart audio capture.",
-      );
+    const fields = new Map(current.fields);
+    const state = fields.get("session_state") ?? "active";
+    const timestamp = nowUs();
+    if (action === "start") {
+        if (state !== "created" && state !== "active" && state !== "in-progress") {
+            throw new Error(
+                "A completed session must use resume; starting does not restart audio capture.",
+            );
+        }
+        const startedAt = fields.get("started_at_us") ?? "0";
+        if (!/^-?\d+$/u.test(startedAt) || BigInt(startedAt) <= 0n) {
+            fields.set("started_at_us", timestamp);
+        }
+        fields.set("session_state", "active");
+        fields.set("ended_at_us", "0");
+    } else if (action === "complete") {
+        if (state !== "active" && state !== "in-progress") {
+            throw new Error("Only an active session can be completed.");
+        }
+        if (fields.get("recording_state") === "recording") {
+            throw new Error("Stop the active recording before completing the session.");
+        }
+        fields.set("session_state", "completed");
+        fields.set("ended_at_us", timestamp);
+        fields.set("last_completed_at_us", timestamp);
+    } else if (action === "review") {
+        if (state !== "completed" && state !== "reviewed") {
+            throw new Error("Complete the session before marking it reviewed.");
+        }
+        fields.set("session_state", "reviewed");
+        fields.set("reviewed_at_us", timestamp);
+    } else {
+        if (state !== "completed" && state !== "reviewed") {
+            throw new Error("Only a completed or reviewed session can be resumed.");
+        }
+        fields.set("session_state", "active");
+        fields.set("resumed_at_us", timestamp);
+        fields.set("ended_at_us", "0");
     }
-    const startedAt = fields.get("started_at_us") ?? "0";
-    if (!/^-?\d+$/u.test(startedAt) || BigInt(startedAt) <= 0n) {
-      fields.set("started_at_us", timestamp);
-    }
-    fields.set("session_state", "active");
-    fields.set("ended_at_us", "0");
-  } else if (action === "complete") {
-    if (state !== "active" && state !== "in-progress") {
-      throw new Error("Only an active session can be completed.");
-    }
-    if (fields.get("recording_state") === "recording") {
-      throw new Error("Stop the active recording before completing the session.");
-    }
-    fields.set("session_state", "completed");
-    fields.set("ended_at_us", timestamp);
-    fields.set("last_completed_at_us", timestamp);
-  } else if (action === "review") {
-    if (state !== "completed" && state !== "reviewed") {
-      throw new Error("Complete the session before marking it reviewed.");
-    }
-    fields.set("session_state", "reviewed");
-    fields.set("reviewed_at_us", timestamp);
-  } else {
-    if (state !== "completed" && state !== "reviewed") {
-      throw new Error("Only a completed or reviewed session can be resumed.");
-    }
-    fields.set("session_state", "active");
-    fields.set("resumed_at_us", timestamp);
-    fields.set("ended_at_us", "0");
-  }
-  fields.set("updated_at_us", timestamp);
-  return { ...current, fields };
+    fields.set("updated_at_us", timestamp);
+    return { ...current, fields };
 }
 
 /** Clone session details into a fresh, active session without copying its recording payloads. */
 export function cloneSessionRecords(
-  current: ArchiveRecord,
-  linkedEntry: ArchiveRecord | null,
-  input: SessionCloneInput = {},
+    current: ArchiveRecord,
+    linkedEntry: ArchiveRecord | null,
+    input: SessionCloneInput = {},
 ): ArchiveRecord[] {
-  if (current.type !== RecordType.session || current.fields.get("_deleted") === "true") {
-    throw new Error("Select an active session to duplicate.");
-  }
-  const sourceEntryId = current.fields.get("entry_id") ?? "";
-  if (
-    sourceEntryId &&
-    (!linkedEntry ||
-      linkedEntry.type !== RecordType.settings ||
-      linkedEntry.fields.get("record_role") !== "journal-entry" ||
-      linkedEntry.fields.get("_deleted") === "true" ||
-      linkedEntry.id.toLowerCase() !== sourceEntryId.toLowerCase())
-  ) {
-    throw new Error("The session’s linked journal entry could not be found.");
-  }
-  if (!sourceEntryId && linkedEntry) {
-    throw new Error("The session has no journal entry to link to its duplicate.");
-  }
-
-  const title =
-    input.title === undefined
-      ? copySessionTitle(current.fields.get("title") ?? "Untitled session")
-      : requiredText(input.title, "Session title", 240);
-  const sessionType = input.sessionType ?? "notes-only";
-  if (!isSessionType(sessionType)) {
-    throw new Error("Session type must be notes-only, record-audio, or import-recording.");
-  }
-
-  const timestamp = nowUs();
-  const sessionId = crypto.randomUUID();
-  const fields = new Map(current.fields);
-  for (const key of fields.keys()) {
+    if (current.type !== RecordType.session || current.fields.get("_deleted") === "true") {
+        throw new Error("Select an active session to duplicate.");
+    }
+    const sourceEntryId = current.fields.get("entry_id") ?? "";
     if (
-      key.startsWith("recording_") ||
-      [
-        "_deleted",
-        "_trash_group_id",
-        "_trash_session_group_id",
-        "audio_import_state",
-        "audio_import_track_id",
-        "deleted_at_us",
-        "last_completed_at_us",
-        "resumed_at_us",
-        "restored_at_us",
-        "recording_track_count",
-      ].includes(key)
+        sourceEntryId &&
+        (!linkedEntry ||
+            linkedEntry.type !== RecordType.settings ||
+            linkedEntry.fields.get("record_role") !== "journal-entry" ||
+            linkedEntry.fields.get("_deleted") === "true" ||
+            linkedEntry.id.toLowerCase() !== sourceEntryId.toLowerCase())
     ) {
-      fields.delete(key);
+        throw new Error("The session’s linked journal entry could not be found.");
     }
-  }
-
-  const records: ArchiveRecord[] = [];
-  let entryId = sourceEntryId;
-  if (!entryId) entryId = crypto.randomUUID();
-  const sessionNotesId = crypto.randomUUID();
-  fields.set("entry_id", entryId);
-  fields.set("notes_document_id", sessionNotesId);
-  fields.set("title", title);
-  fields.set("session_state", "active");
-  fields.set("session_type", sessionType);
-  fields.set("recording_source", "none");
-  fields.set("recording_state", "not-started");
-  fields.set("processing_state", "not-processed");
-  fields.set("archived", "false");
-  fields.set("created_at_us", timestamp);
-  fields.set("started_at_us", timestamp);
-  fields.set("ended_at_us", "0");
-  fields.set("reviewed_at_us", "0");
-  fields.set("updated_at_us", timestamp);
-  const session = {
-    ...current,
-    id: sessionId,
-    revision: 0n,
-    previousOffset: 0n,
-    fields,
-    blob: current.blob.slice(),
-  };
-  records.push(session);
-
-  if (linkedEntry) {
-    const entryFields = new Map(linkedEntry.fields);
-    entryFields.set("session_ids", mergeIds(entryFields.get("session_ids") ?? "", sessionId));
-    entryFields.set("updated_at_us", timestamp);
-    records.push({ ...linkedEntry, fields: entryFields });
-  } else {
-    if (input.ensureJournalRoot) {
-      records.push(
-        record(RecordType.settings, crypto.randomUUID(), {
-          record_role: "journal",
-          title: "Tutorux journal",
-          created_at_us: timestamp,
-          updated_at_us: timestamp,
-        }),
-      );
+    if (!sourceEntryId && linkedEntry) {
+        throw new Error("The session has no journal entry to link to its duplicate.");
     }
-    const entryNotesId = crypto.randomUUID();
-    const entryDate = currentUtcJournalDate();
-    records.push(
-      record(RecordType.settings, entryId, {
-        record_role: "journal-entry",
-        title,
-        entry_date: entryDate,
-        collection_ids: "",
-        tag_ids: "",
-        notes_document_id: entryNotesId,
-        session_ids: sessionId,
-        study_guide_ids: "",
-        attachment_ids: "",
-        created_at_us: timestamp,
-        updated_at_us: timestamp,
-      }),
-      makeNotesDocument(entryNotesId, entryId, "", timestamp, { notes: "" }),
-    );
-  }
-  records.push(makeNotesDocument(sessionNotesId, entryId, sessionId, timestamp, { notes: "" }));
-  return records;
+
+    const title =
+        input.title === undefined
+            ? copySessionTitle(current.fields.get("title") ?? "Untitled session")
+            : requiredText(input.title, "Session title", 240);
+    const sessionType = input.sessionType ?? "notes-only";
+    if (!isSessionType(sessionType)) {
+        throw new Error("Session type must be notes-only, record-audio, or import-recording.");
+    }
+
+    const timestamp = nowUs();
+    const sessionId = crypto.randomUUID();
+    const fields = new Map(current.fields);
+    for (const key of fields.keys()) {
+        if (
+            key.startsWith("recording_") ||
+            [
+                "_deleted",
+                "_trash_group_id",
+                "_trash_session_group_id",
+                "audio_import_state",
+                "audio_import_track_id",
+                "deleted_at_us",
+                "last_completed_at_us",
+                "resumed_at_us",
+                "restored_at_us",
+                "recording_track_count",
+            ].includes(key)
+        ) {
+            fields.delete(key);
+        }
+    }
+
+    const records: ArchiveRecord[] = [];
+    let entryId = sourceEntryId;
+    if (!entryId) entryId = crypto.randomUUID();
+    const sessionNotesId = crypto.randomUUID();
+    fields.set("entry_id", entryId);
+    fields.set("notes_document_id", sessionNotesId);
+    fields.set("title", title);
+    fields.set("session_state", "active");
+    fields.set("session_type", sessionType);
+    fields.set("recording_source", "none");
+    fields.set("recording_state", "not-started");
+    fields.set("processing_state", "not-processed");
+    fields.set("archived", "false");
+    fields.set("created_at_us", timestamp);
+    fields.set("started_at_us", timestamp);
+    fields.set("ended_at_us", "0");
+    fields.set("reviewed_at_us", "0");
+    fields.set("updated_at_us", timestamp);
+    const session = {
+        ...current,
+        id: sessionId,
+        revision: 0n,
+        previousOffset: 0n,
+        fields,
+        blob: current.blob.slice(),
+    };
+    records.push(session);
+
+    if (linkedEntry) {
+        const entryFields = new Map(linkedEntry.fields);
+        entryFields.set("session_ids", mergeIds(entryFields.get("session_ids") ?? "", sessionId));
+        entryFields.set("updated_at_us", timestamp);
+        records.push({ ...linkedEntry, fields: entryFields });
+    } else {
+        if (input.ensureJournalRoot) {
+            records.push(
+                record(RecordType.settings, crypto.randomUUID(), {
+                    record_role: "journal",
+                    title: "Tutorux journal",
+                    created_at_us: timestamp,
+                    updated_at_us: timestamp,
+                }),
+            );
+        }
+        const entryNotesId = crypto.randomUUID();
+        const entryDate = currentUtcJournalDate();
+        records.push(
+            record(RecordType.settings, entryId, {
+                record_role: "journal-entry",
+                title,
+                entry_date: entryDate,
+                collection_ids: "",
+                tag_ids: "",
+                notes_document_id: entryNotesId,
+                session_ids: sessionId,
+                study_guide_ids: "",
+                attachment_ids: "",
+                created_at_us: timestamp,
+                updated_at_us: timestamp,
+            }),
+            makeNotesDocument(entryNotesId, entryId, "", timestamp, { notes: "" }),
+        );
+    }
+    records.push(makeNotesDocument(sessionNotesId, entryId, sessionId, timestamp, { notes: "" }));
+    return records;
 }
 
 /** Archive or return a session to the current sessions list without deleting its records. */
 export function setSessionArchiveState(current: ArchiveRecord, archived: boolean): ArchiveRecord {
-  if (current.type !== RecordType.session || current.fields.get("_deleted") === "true") {
-    throw new Error("Select an active session to change its archive state.");
-  }
-  if (archived && current.fields.get("recording_state") === "recording") {
-    throw new Error("Stop the active recording before archiving this session.");
-  }
-  const fields = new Map(current.fields);
-  fields.set("archived", archived ? "true" : "false");
-  fields.set("updated_at_us", nowUs());
-  return { ...current, fields };
+    if (current.type !== RecordType.session || current.fields.get("_deleted") === "true") {
+        throw new Error("Select an active session to change its archive state.");
+    }
+    if (archived && current.fields.get("recording_state") === "recording") {
+        throw new Error("Stop the active recording before archiving this session.");
+    }
+    const fields = new Map(current.fields);
+    fields.set("archived", archived ? "true" : "false");
+    fields.set("updated_at_us", nowUs());
+    return { ...current, fields };
 }
 
 export function makeSessionRecords(
-  input: SessionInput,
-  options: SessionCreateOptions = {},
+    input: SessionInput,
+    options: SessionCreateOptions = {},
 ): ArchiveRecord[] {
-  const timestamp = nowUs();
-  const sessionId = crypto.randomUUID();
-  const linkedEntry = options.linkedEntry;
-  const sessionType = options.sessionType ?? "notes-only";
-  const transcriptionLanguage = options.transcriptionLanguage ?? "auto";
-  const guideTemplateId = options.guideTemplateId ?? "";
-  const recordingSource =
-    options.recordingSource ??
-    (sessionType === "record-audio"
-      ? "microphone"
-      : sessionType === "import-recording"
-        ? "imported-file"
-        : "none");
-  if (!isSessionType(sessionType)) {
-    throw new Error("Session type must be notes-only, record-audio, or import-recording.");
-  }
-  if (
-    transcriptionLanguage !== "auto" &&
-    (transcriptionLanguage.length < 2 ||
-      transcriptionLanguage.length > 32 ||
-      !/^[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*$/u.test(transcriptionLanguage))
-  ) {
-    throw new Error("Use auto or a language code such as en or zh-Hant.");
-  }
-  const allowedRecordingSources: ReadonlySet<string> = new Set([
-    "none",
-    "microphone",
-    "system-audio",
-    "both",
-    "application",
-    "imported-file",
-  ]);
-  if (!allowedRecordingSources.has(recordingSource)) {
-    throw new Error("Choose none, microphone, system-audio, both, application, or imported-file.");
-  }
-  if (
-    new TextEncoder().encode(guideTemplateId).byteLength > 128 ||
-    /\p{Cc}/u.test(guideTemplateId)
-  ) {
-    throw new Error("The guide template ID is too long or contains control characters.");
-  }
-  if (
-    linkedEntry &&
-    (linkedEntry.type !== RecordType.settings ||
-      linkedEntry.fields.get("record_role") !== "journal-entry" ||
-      linkedEntry.fields.get("_deleted") === "true")
-  ) {
-    throw new Error("Select an active journal entry to link to this session.");
-  }
-  const entryId = linkedEntry?.id.toLowerCase() ?? crypto.randomUUID();
-  const notesId = crypto.randomUUID();
-  const title = requiredText(input.title, "Session title", 240);
-  const records: ArchiveRecord[] = [
-    record(RecordType.session, sessionId, {
-      student_id: input.studentId || "anonymous",
-      entry_id: entryId,
-      notes_document_id: notesId,
-      subject: cleanText(input.subject, "Subject", 200),
-      title,
-      learning_objectives: cleanText(input.objectives, "Learning objectives", 4_000),
-      session_type: sessionType,
-      session_state: "active",
-      transcription_language: transcriptionLanguage,
-      guide_template_id: guideTemplateId,
-      recording_source: recordingSource,
-      started_at_us: timestamp,
-      ended_at_us: "0",
-      reviewed_at_us: "0",
-      recording_state: "not-started",
-      processing_state: "not-processed",
-      archived: "false",
-      created_at_us: timestamp,
-      updated_at_us: timestamp,
-    }),
-    makeNotesDocument(notesId, entryId, sessionId, timestamp, input),
-  ];
+    const timestamp = nowUs();
+    const sessionId = crypto.randomUUID();
+    const linkedEntry = options.linkedEntry;
+    const sessionType = options.sessionType ?? "notes-only";
+    const transcriptionLanguage = options.transcriptionLanguage ?? "auto";
+    const guideTemplateId = options.guideTemplateId ?? "";
+    const recordingSource =
+        options.recordingSource ??
+        (sessionType === "record-audio"
+            ? "microphone"
+            : sessionType === "import-recording"
+              ? "imported-file"
+              : "none");
+    if (!isSessionType(sessionType)) {
+        throw new Error("Session type must be notes-only, record-audio, or import-recording.");
+    }
+    if (
+        transcriptionLanguage !== "auto" &&
+        (transcriptionLanguage.length < 2 ||
+            transcriptionLanguage.length > 32 ||
+            !/^[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*$/u.test(transcriptionLanguage))
+    ) {
+        throw new Error("Use auto or a language code such as en or zh-Hant.");
+    }
+    const allowedRecordingSources: ReadonlySet<string> = new Set([
+        "none",
+        "microphone",
+        "system-audio",
+        "both",
+        "application",
+        "imported-file",
+    ]);
+    if (!allowedRecordingSources.has(recordingSource)) {
+        throw new Error(
+            "Choose none, microphone, system-audio, both, application, or imported-file.",
+        );
+    }
+    if (
+        new TextEncoder().encode(guideTemplateId).byteLength > 128 ||
+        /\p{Cc}/u.test(guideTemplateId)
+    ) {
+        throw new Error("The guide template ID is too long or contains control characters.");
+    }
+    if (
+        linkedEntry &&
+        (linkedEntry.type !== RecordType.settings ||
+            linkedEntry.fields.get("record_role") !== "journal-entry" ||
+            linkedEntry.fields.get("_deleted") === "true")
+    ) {
+        throw new Error("Select an active journal entry to link to this session.");
+    }
+    const entryId = linkedEntry?.id.toLowerCase() ?? crypto.randomUUID();
+    const notesId = crypto.randomUUID();
+    const title = requiredText(input.title, "Session title", 240);
+    const records: ArchiveRecord[] = [
+        record(RecordType.session, sessionId, {
+            student_id: input.studentId || "anonymous",
+            entry_id: entryId,
+            notes_document_id: notesId,
+            subject: cleanText(input.subject, "Subject", 200),
+            title,
+            learning_objectives: cleanText(input.objectives, "Learning objectives", 4_000),
+            session_type: sessionType,
+            session_state: "active",
+            transcription_language: transcriptionLanguage,
+            guide_template_id: guideTemplateId,
+            recording_source: recordingSource,
+            started_at_us: timestamp,
+            ended_at_us: "0",
+            reviewed_at_us: "0",
+            recording_state: "not-started",
+            processing_state: "not-processed",
+            archived: "false",
+            created_at_us: timestamp,
+            updated_at_us: timestamp,
+        }),
+        makeNotesDocument(notesId, entryId, sessionId, timestamp, input),
+    ];
 
-  if (linkedEntry) {
-    const fields = new Map(linkedEntry.fields);
-    fields.set("session_ids", mergeIds(fields.get("session_ids") ?? "", sessionId));
-    fields.set("updated_at_us", timestamp);
-    records.push({ ...linkedEntry, fields });
-    return records;
-  }
+    if (linkedEntry) {
+        const fields = new Map(linkedEntry.fields);
+        fields.set("session_ids", mergeIds(fields.get("session_ids") ?? "", sessionId));
+        fields.set("updated_at_us", timestamp);
+        records.push({ ...linkedEntry, fields });
+        return records;
+    }
 
-  const entryNotesId = crypto.randomUUID();
-  const entryDate = currentUtcJournalDate();
-  if (options.ensureJournalRoot ?? true) {
+    const entryNotesId = crypto.randomUUID();
+    const entryDate = currentUtcJournalDate();
+    if (options.ensureJournalRoot ?? true) {
+        records.push(
+            record(RecordType.settings, crypto.randomUUID(), {
+                record_role: "journal",
+                title: "Tutorux journal",
+                created_at_us: timestamp,
+                updated_at_us: timestamp,
+            }),
+        );
+    }
     records.push(
-      record(RecordType.settings, crypto.randomUUID(), {
+        record(RecordType.settings, entryId, {
+            record_role: "journal-entry",
+            title,
+            entry_date: entryDate,
+            collection_ids: "",
+            tag_ids: "",
+            notes_document_id: entryNotesId,
+            session_ids: sessionId,
+            study_guide_ids: "",
+            attachment_ids: "",
+            created_at_us: timestamp,
+            updated_at_us: timestamp,
+        }),
+        makeNotesDocument(entryNotesId, entryId, "", timestamp, { notes: "" }),
+    );
+    return records;
+}
+
+export function makeJournalRecords(
+    input: JournalInput,
+    options: JournalCreateOptions = {},
+): ArchiveRecord[] {
+    const timestamp = nowUs();
+    const entryId = crypto.randomUUID();
+    const notesId = crypto.randomUUID();
+    validateJournalDate(input.date);
+    const records = [
+        record(RecordType.settings, entryId, {
+            record_role: "journal-entry",
+            title: requiredText(input.title, "Entry title", 240),
+            entry_date: input.date,
+            collection_ids: encodeJournalIds(input.collectionIds ?? [], "Collection"),
+            tag_ids: encodeJournalIds(input.tagIds ?? [], "Tag"),
+            notes_document_id: notesId,
+            session_ids: "",
+            study_guide_ids: "",
+            attachment_ids: "",
+            created_at_us: timestamp,
+            updated_at_us: timestamp,
+        }),
+        makeNotesDocument(notesId, entryId, "", timestamp, input),
+    ];
+    if (options.ensureJournalRoot ?? true) records.push(makeJournalRootRecord(timestamp));
+    return records;
+}
+
+function makeJournalRootRecord(timestamp: string): ArchiveRecord {
+    return record(RecordType.settings, crypto.randomUUID(), {
         record_role: "journal",
         title: "Tutorux journal",
         created_at_us: timestamp,
         updated_at_us: timestamp,
-      }),
-    );
-  }
-  records.push(
-    record(RecordType.settings, entryId, {
-      record_role: "journal-entry",
-      title,
-      entry_date: entryDate,
-      collection_ids: "",
-      tag_ids: "",
-      notes_document_id: entryNotesId,
-      session_ids: sessionId,
-      study_guide_ids: "",
-      attachment_ids: "",
-      created_at_us: timestamp,
-      updated_at_us: timestamp,
-    }),
-    makeNotesDocument(entryNotesId, entryId, "", timestamp, { notes: "" }),
-  );
-  return records;
-}
-
-export function makeJournalRecords(
-  input: JournalInput,
-  options: JournalCreateOptions = {},
-): ArchiveRecord[] {
-  const timestamp = nowUs();
-  const entryId = crypto.randomUUID();
-  const notesId = crypto.randomUUID();
-  validateJournalDate(input.date);
-  const records = [
-    record(RecordType.settings, entryId, {
-      record_role: "journal-entry",
-      title: requiredText(input.title, "Entry title", 240),
-      entry_date: input.date,
-      collection_ids: encodeJournalIds(input.collectionIds ?? [], "Collection"),
-      tag_ids: encodeJournalIds(input.tagIds ?? [], "Tag"),
-      notes_document_id: notesId,
-      session_ids: "",
-      study_guide_ids: "",
-      attachment_ids: "",
-      created_at_us: timestamp,
-      updated_at_us: timestamp,
-    }),
-    makeNotesDocument(notesId, entryId, "", timestamp, input),
-  ];
-  if (options.ensureJournalRoot ?? true) records.push(makeJournalRootRecord(timestamp));
-  return records;
-}
-
-function makeJournalRootRecord(timestamp: string): ArchiveRecord {
-  return record(RecordType.settings, crypto.randomUUID(), {
-    record_role: "journal",
-    title: "Tutorux journal",
-    created_at_us: timestamp,
-    updated_at_us: timestamp,
-  });
+    });
 }
 
 /** Create a v1-compatible journal collection settings record. */
 export function makeJournalCollectionRecord(input: JournalCollectionInput): ArchiveRecord {
-  const timestamp = nowUs();
-  return record(RecordType.settings, crypto.randomUUID(), {
-    record_role: "journal-collection",
-    name: requiredText(input.name, "Collection name", 256),
-    description: cleanText(input.description, "Collection description", 4_096, true),
-    color: cleanColor(input.color),
-    created_at_us: timestamp,
-    updated_at_us: timestamp,
-  });
+    const timestamp = nowUs();
+    return record(RecordType.settings, crypto.randomUUID(), {
+        record_role: "journal-collection",
+        name: requiredText(input.name, "Collection name", 256),
+        description: cleanText(input.description, "Collection description", 4_096, true),
+        color: cleanColor(input.color),
+        created_at_us: timestamp,
+        updated_at_us: timestamp,
+    });
 }
 
 /** Create a v1-compatible journal tag settings record. */
 export function makeJournalTagRecord(input: JournalTagInput): ArchiveRecord {
-  const timestamp = nowUs();
-  return record(RecordType.settings, crypto.randomUUID(), {
-    record_role: "journal-tag",
-    name: requiredText(input.name, "Tag name", 128),
-    color: cleanColor(input.color),
-    created_at_us: timestamp,
-    updated_at_us: timestamp,
-  });
+    const timestamp = nowUs();
+    return record(RecordType.settings, crypto.randomUUID(), {
+        record_role: "journal-tag",
+        name: requiredText(input.name, "Tag name", 128),
+        color: cleanColor(input.color),
+        created_at_us: timestamp,
+        updated_at_us: timestamp,
+    });
 }
 
 /** Rename or recolor an organizer record while retaining unknown legacy fields. */
 export function updateJournalOrganizerRecord(
-  current: ArchiveRecord,
-  input: JournalCollectionInput | JournalTagInput,
+    current: ArchiveRecord,
+    input: JournalCollectionInput | JournalTagInput,
 ): ArchiveRecord {
-  if (current.type !== RecordType.settings) {
-    throw new Error("Only a journal collection or tag can be updated here.");
-  }
-  const role = current.fields.get("record_role");
-  if (role !== "journal-collection" && role !== "journal-tag") {
-    throw new Error("Only a journal collection or tag can be updated here.");
-  }
-  const fields = new Map(current.fields);
-  fields.set(
-    "name",
-    requiredText(
-      input.name,
-      role === "journal-collection" ? "Collection name" : "Tag name",
-      role === "journal-collection" ? 256 : 128,
-    ),
-  );
-  fields.set("color", cleanColor(input.color));
-  if (role === "journal-collection") {
+    if (current.type !== RecordType.settings) {
+        throw new Error("Only a journal collection or tag can be updated here.");
+    }
+    const role = current.fields.get("record_role");
+    if (role !== "journal-collection" && role !== "journal-tag") {
+        throw new Error("Only a journal collection or tag can be updated here.");
+    }
+    const fields = new Map(current.fields);
     fields.set(
-      "description",
-      cleanText(
-        (input as JournalCollectionInput).description,
-        "Collection description",
-        4_096,
-        true,
-      ),
+        "name",
+        requiredText(
+            input.name,
+            role === "journal-collection" ? "Collection name" : "Tag name",
+            role === "journal-collection" ? 256 : 128,
+        ),
     );
-  }
-  fields.set("updated_at_us", nowUs());
-  return { ...current, fields };
+    fields.set("color", cleanColor(input.color));
+    if (role === "journal-collection") {
+        fields.set(
+            "description",
+            cleanText(
+                (input as JournalCollectionInput).description,
+                "Collection description",
+                4_096,
+                true,
+            ),
+        );
+    }
+    fields.set("updated_at_us", nowUs());
+    return { ...current, fields };
 }
 
 /** Soft-delete a collection or tag and detach it from entries with reversible link markers. */
 export function archiveJournalOrganizerRecord(
-  current: ArchiveRecord,
-  entries: readonly ArchiveRecord[],
+    current: ArchiveRecord,
+    entries: readonly ArchiveRecord[],
 ): ArchiveRecord[] {
-  const role = current.fields.get("record_role");
-  if (
-    current.type !== RecordType.settings ||
-    (role !== "journal-collection" && role !== "journal-tag") ||
-    current.fields.get("_deleted") === "true"
-  ) {
-    throw new Error("Select an active journal collection or tag to archive.");
-  }
-  const isCollection = role === "journal-collection";
-  const linkField = isCollection ? "collection_ids" : "tag_ids";
-  const restoreField = isCollection ? "_trash_restore_collection_refs" : "_trash_restore_tag_refs";
-  const timestamp = nowUs();
-  const changes = entries.flatMap((entry) => {
+    const role = current.fields.get("record_role");
     if (
-      entry.type !== RecordType.settings ||
-      entry.fields.get("record_role") !== "journal-entry" ||
-      entry.fields.get("_deleted") === "true"
-    )
-      return [];
-    const fields = new Map(entry.fields);
-    const ids = splitIds(fields.get(linkField) ?? "");
-    if (!ids.includes(current.id)) return [];
-    fields.set(linkField, ids.filter((id) => id !== current.id).join(","));
-    fields.set(restoreField, mergeIds(fields.get(restoreField) ?? "", current.id));
+        current.type !== RecordType.settings ||
+        (role !== "journal-collection" && role !== "journal-tag") ||
+        current.fields.get("_deleted") === "true"
+    ) {
+        throw new Error("Select an active journal collection or tag to archive.");
+    }
+    const isCollection = role === "journal-collection";
+    const linkField = isCollection ? "collection_ids" : "tag_ids";
+    const restoreField = isCollection
+        ? "_trash_restore_collection_refs"
+        : "_trash_restore_tag_refs";
+    const timestamp = nowUs();
+    const changes = entries.flatMap((entry) => {
+        if (
+            entry.type !== RecordType.settings ||
+            entry.fields.get("record_role") !== "journal-entry" ||
+            entry.fields.get("_deleted") === "true"
+        )
+            return [];
+        const fields = new Map(entry.fields);
+        const ids = splitIds(fields.get(linkField) ?? "");
+        if (!ids.includes(current.id)) return [];
+        fields.set(linkField, ids.filter((id) => id !== current.id).join(","));
+        fields.set(restoreField, mergeIds(fields.get(restoreField) ?? "", current.id));
+        fields.set("updated_at_us", timestamp);
+        return [{ ...entry, fields }];
+    });
+    const fields = new Map(current.fields);
+    fields.set("_deleted", "true");
+    fields.set("deleted_at_us", timestamp);
     fields.set("updated_at_us", timestamp);
-    return [{ ...entry, fields }];
-  });
-  const fields = new Map(current.fields);
-  fields.set("_deleted", "true");
-  fields.set("deleted_at_us", timestamp);
-  fields.set("updated_at_us", timestamp);
-  return [...changes, { ...current, fields }];
+    return [...changes, { ...current, fields }];
 }
 
 /** Restore an archived collection or tag and put its prior links back on live entries. */
 export function restoreJournalOrganizerRecord(
-  current: ArchiveRecord,
-  entries: readonly ArchiveRecord[],
+    current: ArchiveRecord,
+    entries: readonly ArchiveRecord[],
 ): ArchiveRecord[] {
-  const role = current.fields.get("record_role");
-  if (
-    current.type !== RecordType.settings ||
-    (role !== "journal-collection" && role !== "journal-tag") ||
-    current.fields.get("_deleted") !== "true"
-  ) {
-    throw new Error("Select an archived journal collection or tag to restore.");
-  }
-  const isCollection = role === "journal-collection";
-  const linkField = isCollection ? "collection_ids" : "tag_ids";
-  const restoreField = isCollection ? "_trash_restore_collection_refs" : "_trash_restore_tag_refs";
-  const timestamp = nowUs();
-  const changes = entries.flatMap((entry) => {
-    if (entry.type !== RecordType.settings || entry.fields.get("record_role") !== "journal-entry")
-      return [];
-    const fields = new Map(entry.fields);
-    const pending = splitIds(fields.get(restoreField) ?? "");
-    if (!pending.includes(current.id)) return [];
-    fields.set(linkField, mergeIds(fields.get(linkField) ?? "", current.id));
-    const remaining = pending.filter((id) => id !== current.id);
-    if (remaining.length) fields.set(restoreField, remaining.join(","));
-    else fields.delete(restoreField);
+    const role = current.fields.get("record_role");
+    if (
+        current.type !== RecordType.settings ||
+        (role !== "journal-collection" && role !== "journal-tag") ||
+        current.fields.get("_deleted") !== "true"
+    ) {
+        throw new Error("Select an archived journal collection or tag to restore.");
+    }
+    const isCollection = role === "journal-collection";
+    const linkField = isCollection ? "collection_ids" : "tag_ids";
+    const restoreField = isCollection
+        ? "_trash_restore_collection_refs"
+        : "_trash_restore_tag_refs";
+    const timestamp = nowUs();
+    const changes = entries.flatMap((entry) => {
+        if (
+            entry.type !== RecordType.settings ||
+            entry.fields.get("record_role") !== "journal-entry"
+        )
+            return [];
+        const fields = new Map(entry.fields);
+        const pending = splitIds(fields.get(restoreField) ?? "");
+        if (!pending.includes(current.id)) return [];
+        fields.set(linkField, mergeIds(fields.get(linkField) ?? "", current.id));
+        const remaining = pending.filter((id) => id !== current.id);
+        if (remaining.length) fields.set(restoreField, remaining.join(","));
+        else fields.delete(restoreField);
+        fields.set("updated_at_us", timestamp);
+        return [{ ...entry, fields }];
+    });
+    const fields = new Map(current.fields);
+    fields.delete("_deleted");
+    fields.delete("deleted_at_us");
+    fields.set("restored_at_us", timestamp);
     fields.set("updated_at_us", timestamp);
-    return [{ ...entry, fields }];
-  });
-  const fields = new Map(current.fields);
-  fields.delete("_deleted");
-  fields.delete("deleted_at_us");
-  fields.set("restored_at_us", timestamp);
-  fields.set("updated_at_us", timestamp);
-  return [...changes, { ...current, fields }];
+    return [...changes, { ...current, fields }];
 }
 
 /** Decode known archive-backed note blocks without claiming ownership of unknown legacy fields. */
 export function notesEditState(
-  document: ArchiveRecord | null | undefined,
-  expectedOwner?: { entryId: string; sessionId: string },
+    document: ArchiveRecord | null | undefined,
+    expectedOwner?: { entryId: string; sessionId: string },
 ): NotesEditState {
-  if (!document) return { blocks: [], editable: true };
-  if (
-    document.type !== RecordType.settings ||
-    document.fields.get("record_role") !== "journal-notes" ||
-    document.fields.get("_deleted") === "true"
-  ) {
-    return { blocks: [], editable: false };
-  }
-  if (
-    expectedOwner &&
-    normalizeOwnerId(document.fields.get("entry_id") ?? "") !==
-      normalizeOwnerId(expectedOwner.entryId)
-  ) {
-    return { blocks: [], editable: false };
-  }
-  if (
-    expectedOwner &&
-    normalizeOwnerId(document.fields.get("session_id") ?? "") !==
-      normalizeOwnerId(expectedOwner.sessionId)
-  ) {
-    return { blocks: [], editable: false };
-  }
-  try {
-    validateRecordPayloadSize(document.fields, document.blob.byteLength);
-  } catch {
-    return { blocks: [], editable: false };
-  }
-  const countText = document.fields.get("block_count") ?? "";
-  if (!/^\d+$/u.test(countText)) return { blocks: [], editable: false };
-  const count = Number(countText);
-  if (!Number.isSafeInteger(count) || count < 0 || count > MAX_JOURNAL_NOTE_BLOCKS) {
-    return { blocks: [], editable: false };
-  }
-  const blocks: JournalNoteBlock[] = [];
-  const ids = new Set<string>();
-  const knownBlockFields = new Set<string>();
-  for (let index = 0; index < count; index += 1) {
-    const prefix = `block.${index}`;
-    const id = document.fields.get(`${prefix}.id`) ?? "";
-    const kind = document.fields.get(`${prefix}.kind`) ?? "";
-    const text = document.fields.get(`${prefix}.text`) ?? "";
+    if (!document) return { blocks: [], editable: true };
     if (
-      !id ||
-      ids.has(id) ||
-      !isWellFormedUnicode(id) ||
-      !isJournalNoteBlockKind(kind) ||
-      !isWellFormedUnicode(text) ||
-      containsUnsupportedControl(text, true)
+        document.type !== RecordType.settings ||
+        document.fields.get("record_role") !== "journal-notes" ||
+        document.fields.get("_deleted") === "true"
     ) {
-      return { blocks: [], editable: false };
+        return { blocks: [], editable: false };
     }
-    ids.add(id);
-    knownBlockFields.add(`${prefix}.id`);
-    knownBlockFields.add(`${prefix}.kind`);
-    knownBlockFields.add(`${prefix}.text`);
-    blocks.push({ id, kind, text });
-  }
-  for (const key of document.fields.keys()) {
-    if (/^block\.\d+\./u.test(key) && !knownBlockFields.has(key)) {
-      return { blocks: [], editable: false };
+    if (
+        expectedOwner &&
+        normalizeOwnerId(document.fields.get("entry_id") ?? "") !==
+            normalizeOwnerId(expectedOwner.entryId)
+    ) {
+        return { blocks: [], editable: false };
     }
-  }
-  return { blocks, editable: true };
+    if (
+        expectedOwner &&
+        normalizeOwnerId(document.fields.get("session_id") ?? "") !==
+            normalizeOwnerId(expectedOwner.sessionId)
+    ) {
+        return { blocks: [], editable: false };
+    }
+    try {
+        validateRecordPayloadSize(document.fields, document.blob.byteLength);
+    } catch {
+        return { blocks: [], editable: false };
+    }
+    const countText = document.fields.get("block_count") ?? "";
+    if (!/^\d+$/u.test(countText)) return { blocks: [], editable: false };
+    const count = Number(countText);
+    if (!Number.isSafeInteger(count) || count < 0 || count > MAX_JOURNAL_NOTE_BLOCKS) {
+        return { blocks: [], editable: false };
+    }
+    const blocks: JournalNoteBlock[] = [];
+    const ids = new Set<string>();
+    const knownBlockFields = new Set<string>();
+    for (let index = 0; index < count; index += 1) {
+        const prefix = `block.${index}`;
+        const id = document.fields.get(`${prefix}.id`) ?? "";
+        const kind = document.fields.get(`${prefix}.kind`) ?? "";
+        const text = document.fields.get(`${prefix}.text`) ?? "";
+        if (
+            !id ||
+            ids.has(id) ||
+            !isWellFormedUnicode(id) ||
+            !isJournalNoteBlockKind(kind) ||
+            !isWellFormedUnicode(text) ||
+            containsUnsupportedControl(text, true)
+        ) {
+            return { blocks: [], editable: false };
+        }
+        ids.add(id);
+        knownBlockFields.add(`${prefix}.id`);
+        knownBlockFields.add(`${prefix}.kind`);
+        knownBlockFields.add(`${prefix}.text`);
+        blocks.push({ id, kind, text });
+    }
+    for (const key of document.fields.keys()) {
+        if (/^block\.\d+\./u.test(key) && !knownBlockFields.has(key)) {
+            return { blocks: [], editable: false };
+        }
+    }
+    return { blocks, editable: true };
 }
 
 /** Read blocks removed from a notes document so Trash can list and restore them. */
 export function readRemovedNoteBlocks(document: ArchiveRecord): RemovedNoteBlock[] | null {
-  if (
-    document.type !== RecordType.settings ||
-    document.fields.get("record_role") !== "journal-notes" ||
-    document.fields.get("_deleted") === "true"
-  ) {
-    return [];
-  }
-  const blocks = parseRemovedNoteBlocks(document.fields);
-  if (!blocks) return null;
-  return blocks.map((block) => ({
-    documentId: document.id,
-    entryId: document.fields.get("entry_id") ?? "",
-    sessionId: document.fields.get("session_id") ?? "",
-    ...block,
-  }));
+    if (
+        document.type !== RecordType.settings ||
+        document.fields.get("record_role") !== "journal-notes" ||
+        document.fields.get("_deleted") === "true"
+    ) {
+        return [];
+    }
+    const blocks = parseRemovedNoteBlocks(document.fields);
+    if (!blocks) return null;
+    return blocks.map((block) => ({
+        documentId: document.id,
+        entryId: document.fields.get("entry_id") ?? "",
+        sessionId: document.fields.get("session_id") ?? "",
+        ...block,
+    }));
 }
 
 /** Restore a removed note block to its saved position in the notes document. */
 export function restoreRemovedNoteBlock(document: ArchiveRecord, blockId: string): ArchiveRecord {
-  if (
-    document.type !== RecordType.settings ||
-    document.fields.get("record_role") !== "journal-notes" ||
-    document.fields.get("_deleted") === "true"
-  ) {
-    throw new Error("The session notes containing this block are unavailable.");
-  }
-  const state = notesEditState(document);
-  if (!state.editable) {
-    throw new Error("The saved note block recovery data is invalid.");
-  }
-  const blocks = parseRemovedNoteBlocks(document.fields);
-  if (!blocks) throw new Error("The saved note block recovery data is invalid.");
-  const removedIndex = blocks.findIndex((block) => block.id === blockId);
-  if (removedIndex < 0) throw new Error("This note block is no longer in Trash.");
-  if (state.blocks.some((block) => block.id === blockId)) {
-    throw new Error("A note block with this identifier is already active.");
-  }
-  const [saved] = blocks.splice(removedIndex, 1);
-  if (!saved) throw new Error("This note block is no longer in Trash.");
-  for (const block of blocks.slice(removedIndex)) {
-    if (block.index >= saved.index) block.index += 1;
-  }
-  const restored = [...state.blocks];
-  restored.splice(Math.min(saved.index, restored.length), 0, {
-    id: saved.id,
-    kind: saved.kind,
-    text: saved.text,
-  });
-  const fields = new Map(document.fields);
-  writeNoteBlocks(fields, restored);
-  writeRemovedNoteBlocks(fields, blocks);
-  fields.set("updated_at_us", nowUs());
-  validateRecordPayloadSize(fields, document.blob.byteLength);
-  return { ...document, fields };
+    if (
+        document.type !== RecordType.settings ||
+        document.fields.get("record_role") !== "journal-notes" ||
+        document.fields.get("_deleted") === "true"
+    ) {
+        throw new Error("The session notes containing this block are unavailable.");
+    }
+    const state = notesEditState(document);
+    if (!state.editable) {
+        throw new Error("The saved note block recovery data is invalid.");
+    }
+    const blocks = parseRemovedNoteBlocks(document.fields);
+    if (!blocks) throw new Error("The saved note block recovery data is invalid.");
+    const removedIndex = blocks.findIndex((block) => block.id === blockId);
+    if (removedIndex < 0) throw new Error("This note block is no longer in Trash.");
+    if (state.blocks.some((block) => block.id === blockId)) {
+        throw new Error("A note block with this identifier is already active.");
+    }
+    const [saved] = blocks.splice(removedIndex, 1);
+    if (!saved) throw new Error("This note block is no longer in Trash.");
+    for (const block of blocks.slice(removedIndex)) {
+        if (block.index >= saved.index) block.index += 1;
+    }
+    const restored = [...state.blocks];
+    restored.splice(Math.min(saved.index, restored.length), 0, {
+        id: saved.id,
+        kind: saved.kind,
+        text: saved.text,
+    });
+    const fields = new Map(document.fields);
+    writeNoteBlocks(fields, restored);
+    writeRemovedNoteBlocks(fields, blocks);
+    fields.set("updated_at_us", nowUs());
+    validateRecordPayloadSize(fields, document.blob.byteLength);
+    return { ...document, fields };
 }
 
 interface RecoverableNoteBlock {
-  id: string;
-  kind: JournalNoteBlockKind;
-  text: string;
-  index: number;
+    id: string;
+    kind: JournalNoteBlockKind;
+    text: string;
+    index: number;
 }
 
 function parseRemovedNoteBlocks(
-  fields: ReadonlyMap<string, string>,
+    fields: ReadonlyMap<string, string>,
 ): RecoverableNoteBlock[] | null {
-  const countText = fields.get("removed_block_count") ?? "";
-  if (countText !== "") {
-    if (!/^\d+$/u.test(countText)) return null;
-    const count = Number(countText);
-    if (!Number.isSafeInteger(count) || count > MAX_RECOVERABLE_NOTE_BLOCKS) return null;
-    const blocks: RecoverableNoteBlock[] = [];
-    for (let index = 0; index < count; index += 1) {
-      const prefix = `removed_block_${index}_`;
-      const id = fields.get(`${prefix}id`) ?? "";
-      const kind = fields.get(`${prefix}kind`) ?? "";
-      const text = fields.get(`${prefix}text`) ?? "";
-      const indexText = fields.get(`${prefix}index`) ?? "";
-      if (
+    const countText = fields.get("removed_block_count") ?? "";
+    if (countText !== "") {
+        if (!/^\d+$/u.test(countText)) return null;
+        const count = Number(countText);
+        if (!Number.isSafeInteger(count) || count > MAX_RECOVERABLE_NOTE_BLOCKS) return null;
+        const blocks: RecoverableNoteBlock[] = [];
+        for (let index = 0; index < count; index += 1) {
+            const prefix = `removed_block_${index}_`;
+            const id = fields.get(`${prefix}id`) ?? "";
+            const kind = fields.get(`${prefix}kind`) ?? "";
+            const text = fields.get(`${prefix}text`) ?? "";
+            const indexText = fields.get(`${prefix}index`) ?? "";
+            if (
+                !id ||
+                !isJournalNoteBlockKind(kind) ||
+                !isWellFormedUnicode(id) ||
+                !isWellFormedUnicode(text) ||
+                containsUnsupportedControl(text, true) ||
+                !/^\d+$/u.test(indexText)
+            ) {
+                return null;
+            }
+            const savedIndex = Number(indexText);
+            if (!Number.isSafeInteger(savedIndex)) return null;
+            blocks.push({ id, kind, text, index: savedIndex });
+        }
+        if (blocks.length > 0) return blocks;
+    }
+
+    const id = fields.get("last_removed_block_id") ?? "";
+    const kind = fields.get("last_removed_block_kind") ?? "";
+    const text = fields.get("last_removed_block_text") ?? "";
+    const indexText = fields.get("last_removed_block_index") ?? "";
+    if (!id && !kind && !text && !indexText) return [];
+    if (
         !id ||
         !isJournalNoteBlockKind(kind) ||
         !isWellFormedUnicode(id) ||
         !isWellFormedUnicode(text) ||
         containsUnsupportedControl(text, true) ||
         !/^\d+$/u.test(indexText)
-      ) {
+    ) {
         return null;
-      }
-      const savedIndex = Number(indexText);
-      if (!Number.isSafeInteger(savedIndex)) return null;
-      blocks.push({ id, kind, text, index: savedIndex });
     }
-    if (blocks.length > 0) return blocks;
-  }
-
-  const id = fields.get("last_removed_block_id") ?? "";
-  const kind = fields.get("last_removed_block_kind") ?? "";
-  const text = fields.get("last_removed_block_text") ?? "";
-  const indexText = fields.get("last_removed_block_index") ?? "";
-  if (!id && !kind && !text && !indexText) return [];
-  if (
-    !id ||
-    !isJournalNoteBlockKind(kind) ||
-    !isWellFormedUnicode(id) ||
-    !isWellFormedUnicode(text) ||
-    containsUnsupportedControl(text, true) ||
-    !/^\d+$/u.test(indexText)
-  ) {
-    return null;
-  }
-  const index = Number(indexText);
-  if (!Number.isSafeInteger(index)) return null;
-  return [{ id, kind, text, index }];
+    const index = Number(indexText);
+    if (!Number.isSafeInteger(index)) return null;
+    return [{ id, kind, text, index }];
 }
 
 function writeRemovedNoteBlocks(
-  fields: Map<string, string>,
-  blocks: readonly RecoverableNoteBlock[],
+    fields: Map<string, string>,
+    blocks: readonly RecoverableNoteBlock[],
 ): void {
-  for (const key of [...fields.keys()]) {
-    if (key.startsWith("removed_block_") || key.startsWith("last_removed_block_")) {
-      fields.delete(key);
+    for (const key of [...fields.keys()]) {
+        if (key.startsWith("removed_block_") || key.startsWith("last_removed_block_")) {
+            fields.delete(key);
+        }
     }
-  }
-  fields.set("removed_block_count", String(blocks.length));
-  blocks.forEach((block, index) => {
-    const prefix = `removed_block_${index}_`;
-    fields.set(`${prefix}id`, block.id);
-    fields.set(`${prefix}kind`, block.kind);
-    fields.set(`${prefix}text`, block.text);
-    fields.set(`${prefix}index`, String(block.index));
-  });
-  const newest = blocks.at(-1);
-  if (newest) {
-    fields.set("last_removed_block_id", newest.id);
-    fields.set("last_removed_block_kind", newest.kind);
-    fields.set("last_removed_block_text", newest.text);
-    fields.set("last_removed_block_index", String(newest.index));
-  }
+    fields.set("removed_block_count", String(blocks.length));
+    blocks.forEach((block, index) => {
+        const prefix = `removed_block_${index}_`;
+        fields.set(`${prefix}id`, block.id);
+        fields.set(`${prefix}kind`, block.kind);
+        fields.set(`${prefix}text`, block.text);
+        fields.set(`${prefix}index`, String(block.index));
+    });
+    const newest = blocks.at(-1);
+    if (newest) {
+        fields.set("last_removed_block_id", newest.id);
+        fields.set("last_removed_block_kind", newest.kind);
+        fields.set("last_removed_block_text", newest.text);
+        fields.set("last_removed_block_index", String(newest.index));
+    }
 }
 
 function recordRemovedNoteBlocks(
-  fields: Map<string, string>,
-  previous: readonly JournalNoteBlock[],
-  next: readonly JournalNoteBlock[],
+    fields: Map<string, string>,
+    previous: readonly JournalNoteBlock[],
+    next: readonly JournalNoteBlock[],
 ): void {
-  const nextIds = new Set(next.map((block) => block.id));
-  const removed = previous.flatMap((block, index) =>
-    nextIds.has(block.id) ? [] : [{ id: block.id, kind: block.kind, text: block.text, index }],
-  );
-  const recovered = parseRemovedNoteBlocks(fields);
-  if (!recovered) {
-    throw new Error("The saved note block recovery data is invalid.");
-  }
-  const merged = recovered.filter((block) => !nextIds.has(block.id));
-  const known = new Set(merged.map((block) => block.id));
-  for (const block of removed) {
-    if (!known.has(block.id)) {
-      merged.push(block);
-      known.add(block.id);
-    }
-  }
-  if (merged.length === recovered.length && removed.length === 0) return;
-  if (merged.length > MAX_RECOVERABLE_NOTE_BLOCKS) {
-    throw new Error(
-      "Trash can hold 256 removed note blocks. Restore or purge one before removing another.",
+    const nextIds = new Set(next.map((block) => block.id));
+    const removed = previous.flatMap((block, index) =>
+        nextIds.has(block.id) ? [] : [{ id: block.id, kind: block.kind, text: block.text, index }],
     );
-  }
-  writeRemovedNoteBlocks(fields, merged);
+    const recovered = parseRemovedNoteBlocks(fields);
+    if (!recovered) {
+        throw new Error("The saved note block recovery data is invalid.");
+    }
+    const merged = recovered.filter((block) => !nextIds.has(block.id));
+    const known = new Set(merged.map((block) => block.id));
+    for (const block of removed) {
+        if (!known.has(block.id)) {
+            merged.push(block);
+            known.add(block.id);
+        }
+    }
+    if (merged.length === recovered.length && removed.length === 0) return;
+    if (merged.length > MAX_RECOVERABLE_NOTE_BLOCKS) {
+        throw new Error(
+            "Trash can hold 256 removed note blocks. Restore or purge one before removing another.",
+        );
+    }
+    writeRemovedNoteBlocks(fields, merged);
 }
 
 function writeNoteBlocks(fields: Map<string, string>, blocks: readonly JournalNoteBlock[]): void {
-  for (const key of [...fields.keys()]) {
-    if (/^block\.\d+\.(?:id|kind|text)$/u.test(key)) fields.delete(key);
-  }
-  fields.set("block_count", String(blocks.length));
-  appendNoteBlocks(fields, blocks);
+    for (const key of [...fields.keys()]) {
+        if (/^block\.\d+\.(?:id|kind|text)$/u.test(key)) fields.delete(key);
+    }
+    fields.set("block_count", String(blocks.length));
+    appendNoteBlocks(fields, blocks);
 }
 
 /** Update a session while preserving its recording, transcript, timing, and extension fields. */
 export function updateSessionRecords(
-  current: ArchiveRecord,
-  input: SessionInput,
-  notesDocument: ArchiveRecord | null,
-  updateNotes: boolean,
+    current: ArchiveRecord,
+    input: SessionInput,
+    notesDocument: ArchiveRecord | null,
+    updateNotes: boolean,
 ): ArchiveRecord[] {
-  if (current.type !== RecordType.session) {
-    throw new Error("Only a session can be updated with session details.");
-  }
-  const timestamp = nowUs();
-  const fields = new Map(current.fields);
-  fields.set("student_id", input.studentId || "anonymous");
-  fields.set("subject", cleanText(input.subject, "Subject", 200));
-  fields.set("title", requiredText(input.title, "Session title", 240));
-  fields.set("learning_objectives", cleanText(input.objectives, "Learning objectives", 4_000));
-  fields.set("updated_at_us", timestamp);
-  const updatedSession = { ...current, fields };
-  if (!updateNotes) return [updatedSession];
-  const sessionId = current.id;
-  const existingId = fields.get("notes_document_id") ?? "";
-  const noteDocument = updateNotesDocument(
-    notesDocument,
-    existingId,
-    fields.get("entry_id") ?? "",
-    sessionId,
-    timestamp,
-    input,
-  );
-  fields.set("notes_document_id", noteDocument.id);
-  return [updatedSession, noteDocument];
+    if (current.type !== RecordType.session) {
+        throw new Error("Only a session can be updated with session details.");
+    }
+    const timestamp = nowUs();
+    const fields = new Map(current.fields);
+    fields.set("student_id", input.studentId || "anonymous");
+    fields.set("subject", cleanText(input.subject, "Subject", 200));
+    fields.set("title", requiredText(input.title, "Session title", 240));
+    fields.set("learning_objectives", cleanText(input.objectives, "Learning objectives", 4_000));
+    fields.set("updated_at_us", timestamp);
+    const updatedSession = { ...current, fields };
+    if (!updateNotes) return [updatedSession];
+    const sessionId = current.id;
+    const existingId = fields.get("notes_document_id") ?? "";
+    const noteDocument = updateNotesDocument(
+        notesDocument,
+        existingId,
+        fields.get("entry_id") ?? "",
+        sessionId,
+        timestamp,
+        input,
+    );
+    fields.set("notes_document_id", noteDocument.id);
+    return [updatedSession, noteDocument];
 }
 
 /** Update a journal entry and, when safe, its archive-backed notes document. */
 export function updateJournalRecords(
-  current: ArchiveRecord,
-  input: JournalInput,
-  notesDocument: ArchiveRecord | null,
-  updateNotes: boolean,
+    current: ArchiveRecord,
+    input: JournalInput,
+    notesDocument: ArchiveRecord | null,
+    updateNotes: boolean,
 ): ArchiveRecord[] {
-  if (
-    current.type !== RecordType.settings ||
-    current.fields.get("record_role") !== "journal-entry"
-  ) {
-    throw new Error("Only a journal entry can be updated with journal details.");
-  }
-  validateJournalDate(input.date);
-  const timestamp = nowUs();
-  const fields = new Map(current.fields);
-  fields.set("title", requiredText(input.title, "Entry title", 240));
-  fields.set("entry_date", input.date);
-  if (input.collectionIds !== undefined) {
-    fields.set("collection_ids", encodeJournalIds(input.collectionIds, "Collection"));
-  }
-  if (input.tagIds !== undefined) fields.set("tag_ids", encodeJournalIds(input.tagIds, "Tag"));
-  fields.set("updated_at_us", timestamp);
-  const updatedEntry = { ...current, fields };
-  if (!updateNotes) return [updatedEntry];
-  const entryId = current.id;
-  const existingId = fields.get("notes_document_id") ?? "";
-  const noteDocument = updateNotesDocument(
-    notesDocument,
-    existingId,
-    entryId,
-    "",
-    timestamp,
-    input,
-  );
-  fields.set("notes_document_id", noteDocument.id);
-  return [updatedEntry, noteDocument];
+    if (
+        current.type !== RecordType.settings ||
+        current.fields.get("record_role") !== "journal-entry"
+    ) {
+        throw new Error("Only a journal entry can be updated with journal details.");
+    }
+    validateJournalDate(input.date);
+    const timestamp = nowUs();
+    const fields = new Map(current.fields);
+    fields.set("title", requiredText(input.title, "Entry title", 240));
+    fields.set("entry_date", input.date);
+    if (input.collectionIds !== undefined) {
+        fields.set("collection_ids", encodeJournalIds(input.collectionIds, "Collection"));
+    }
+    if (input.tagIds !== undefined) fields.set("tag_ids", encodeJournalIds(input.tagIds, "Tag"));
+    fields.set("updated_at_us", timestamp);
+    const updatedEntry = { ...current, fields };
+    if (!updateNotes) return [updatedEntry];
+    const entryId = current.id;
+    const existingId = fields.get("notes_document_id") ?? "";
+    const noteDocument = updateNotesDocument(
+        notesDocument,
+        existingId,
+        entryId,
+        "",
+        timestamp,
+        input,
+    );
+    fields.set("notes_document_id", noteDocument.id);
+    return [updatedEntry, noteDocument];
 }
 
 /** Update only the notes document, leaving the owner's other edited fields untouched. */
 export function updateOwnerNotes(
-  owner: ArchiveRecord,
-  notesDocument: ArchiveRecord | null,
-  blocks: readonly JournalNoteBlock[],
+    owner: ArchiveRecord,
+    notesDocument: ArchiveRecord | null,
+    blocks: readonly JournalNoteBlock[],
 ): ArchiveRecord[] {
-  const session = owner.type === RecordType.session;
-  const entry =
-    owner.type === RecordType.settings && owner.fields.get("record_role") === "journal-entry";
-  if ((!session && !entry) || owner.fields.get("_deleted") === "true") {
-    throw new Error("Select an active session or journal entry to save notes.");
-  }
-  const timestamp = nowUs();
-  const existingId = owner.fields.get("notes_document_id") ?? "";
-  const document = updateNotesDocument(
-    notesDocument,
-    existingId,
-    session ? (owner.fields.get("entry_id") ?? "") : owner.id,
-    session ? owner.id : "",
-    timestamp,
-    { noteBlocks: blocks },
-  );
-  if (existingId === document.id) return [document];
-  const fields = new Map(owner.fields);
-  fields.set("notes_document_id", document.id);
-  fields.set("updated_at_us", timestamp);
-  return [{ ...owner, fields }, document];
+    const session = owner.type === RecordType.session;
+    const entry =
+        owner.type === RecordType.settings && owner.fields.get("record_role") === "journal-entry";
+    if ((!session && !entry) || owner.fields.get("_deleted") === "true") {
+        throw new Error("Select an active session or journal entry to save notes.");
+    }
+    const timestamp = nowUs();
+    const existingId = owner.fields.get("notes_document_id") ?? "";
+    const document = updateNotesDocument(
+        notesDocument,
+        existingId,
+        session ? (owner.fields.get("entry_id") ?? "") : owner.id,
+        session ? owner.id : "",
+        timestamp,
+        { noteBlocks: blocks },
+    );
+    if (existingId === document.id) return [document];
+    const fields = new Map(owner.fields);
+    fields.set("notes_document_id", document.id);
+    fields.set("updated_at_us", timestamp);
+    return [{ ...owner, fields }, document];
 }
 
 function encodeJournalIds(ids: readonly string[], label: string): string {
-  if (ids.length > 10_000) throw new Error(`${label} links exceed the archive limit.`);
-  const unique = new Set<string>();
-  for (const rawId of ids) {
-    const id = rawId.trim().toLowerCase();
-    if (!/^[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}$/u.test(id)) {
-      throw new Error(`${label} links must use valid archive IDs.`);
+    if (ids.length > 10_000) throw new Error(`${label} links exceed the archive limit.`);
+    const unique = new Set<string>();
+    for (const rawId of ids) {
+        const id = rawId.trim().toLowerCase();
+        if (!/^[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}$/u.test(id)) {
+            throw new Error(`${label} links must use valid archive IDs.`);
+        }
+        unique.add(id);
     }
-    unique.add(id);
-  }
-  return [...unique].join(",");
+    return [...unique].join(",");
 }
 
 function splitIds(value: string): string[] {
-  return value
-    .split(",")
-    .map((id) => id.trim())
-    .filter(Boolean);
+    return value
+        .split(",")
+        .map((id) => id.trim())
+        .filter(Boolean);
 }
 
 function mergeIds(value: string, id: string): string {
-  const ids = splitIds(value);
-  if (!ids.some((item) => item.toLowerCase() === id.toLowerCase())) ids.push(id);
-  return ids.join(",");
+    const ids = splitIds(value);
+    if (!ids.some((item) => item.toLowerCase() === id.toLowerCase())) ids.push(id);
+    return ids.join(",");
 }
 
 function isSessionType(value: string): boolean {
-  return value === "notes-only" || value === "record-audio" || value === "import-recording";
+    return value === "notes-only" || value === "record-audio" || value === "import-recording";
 }
 
 function copySessionTitle(title: string): string {
-  const suffix = " (copy)";
-  const encoder = new TextEncoder();
-  let prefix = "";
-  for (const character of title) {
-    if (encoder.encode(`${prefix}${character}${suffix}`).byteLength > 240) break;
-    prefix += character;
-  }
-  return requiredText(`${prefix}${suffix}`, "Session title", 240);
+    const suffix = " (copy)";
+    const encoder = new TextEncoder();
+    let prefix = "";
+    for (const character of title) {
+        if (encoder.encode(`${prefix}${character}${suffix}`).byteLength > 240) break;
+        prefix += character;
+    }
+    return requiredText(`${prefix}${suffix}`, "Session title", 240);
 }
 
 function cleanColor(value: string): string {
-  const color = value.trim();
-  if (color && !/^#[\da-f]{6}$/iu.test(color)) {
-    throw new Error("Choose a color in #RRGGBB format.");
-  }
-  return color.toLowerCase();
+    const color = value.trim();
+    if (color && !/^#[\da-f]{6}$/iu.test(color)) {
+        throw new Error("Choose a color in #RRGGBB format.");
+    }
+    return color.toLowerCase();
 }
 
 function record(type: number, id: string, fields: Record<string, string>): ArchiveRecord {
-  return {
-    type,
-    id,
-    revision: 0n,
-    previousOffset: 0n,
-    fields: new Map(Object.entries(fields)),
-    blob: new Uint8Array(),
-  };
+    return {
+        type,
+        id,
+        revision: 0n,
+        previousOffset: 0n,
+        fields: new Map(Object.entries(fields)),
+        blob: new Uint8Array(),
+    };
 }
 
 function makeNotesDocument(
-  id: string,
-  entryId: string,
-  sessionId: string,
-  timestamp: string,
-  notes: NotesInput,
+    id: string,
+    entryId: string,
+    sessionId: string,
+    timestamp: string,
+    notes: NotesInput,
 ): ArchiveRecord {
-  const blocks = normalizeJournalNoteBlocks(notes);
-  const fields: Record<string, string> = {
-    record_role: "journal-notes",
-    entry_id: entryId,
-    session_id: sessionId,
-    created_at_us: timestamp,
-    updated_at_us: timestamp,
-    block_count: String(blocks.length),
-  };
-  appendNoteBlocks(fields, blocks);
-  validateRecordPayloadSize(Object.entries(fields));
-  return record(RecordType.settings, id, fields);
+    const blocks = normalizeJournalNoteBlocks(notes);
+    const fields: Record<string, string> = {
+        record_role: "journal-notes",
+        entry_id: entryId,
+        session_id: sessionId,
+        created_at_us: timestamp,
+        updated_at_us: timestamp,
+        block_count: String(blocks.length),
+    };
+    appendNoteBlocks(fields, blocks);
+    validateRecordPayloadSize(Object.entries(fields));
+    return record(RecordType.settings, id, fields);
 }
 
 function updateNotesDocument(
-  current: ArchiveRecord | null,
-  expectedId: string,
-  entryId: string,
-  sessionId: string,
-  timestamp: string,
-  notes: NotesInput,
+    current: ArchiveRecord | null,
+    expectedId: string,
+    entryId: string,
+    sessionId: string,
+    timestamp: string,
+    notes: NotesInput,
 ): ArchiveRecord {
-  if (!current) {
-    if (expectedId) {
-      throw new Error(
-        "The linked notes document is missing. The archive needs review before editing.",
-      );
+    if (!current) {
+        if (expectedId) {
+            throw new Error(
+                "The linked notes document is missing. The archive needs review before editing.",
+            );
+        }
+        const id = crypto.randomUUID();
+        return makeNotesDocument(id, entryId, sessionId, timestamp, notes);
     }
-    const id = crypto.randomUUID();
-    return makeNotesDocument(id, entryId, sessionId, timestamp, notes);
-  }
-  const state = notesEditState(current, { entryId, sessionId });
-  if (!state.editable || current.id !== expectedId) {
-    throw new Error("These notes use a structured format the current editor cannot safely change.");
-  }
-  if (
-    notes.noteBlocks === undefined &&
-    (state.blocks.length > 1 ||
-      (state.blocks.length === 1 && state.blocks[0]!.kind !== "paragraph"))
-  ) {
-    throw new Error("These notes use a structured format the current editor cannot safely change.");
-  }
-  const blocks =
-    notes.noteBlocks === undefined
-      ? notes.notes
-        ? [
-            {
-              id: state.blocks[0]?.id ?? crypto.randomUUID(),
-              kind: "paragraph" as const,
-              text: cleanText(notes.notes, "Notes", 100_000, true),
-            },
-          ]
-        : []
-      : normalizeJournalNoteBlocks(notes);
-  const fields = new Map(current.fields);
-  recordRemovedNoteBlocks(fields, state.blocks, blocks);
-  writeNoteBlocks(fields, blocks);
-  fields.set("entry_id", entryId);
-  fields.set("session_id", sessionId);
-  fields.set("updated_at_us", timestamp);
-  validateRecordPayloadSize(fields, current.blob.byteLength);
-  return { ...current, fields };
+    const state = notesEditState(current, { entryId, sessionId });
+    if (!state.editable || current.id !== expectedId) {
+        throw new Error(
+            "These notes use a structured format the current editor cannot safely change.",
+        );
+    }
+    if (
+        notes.noteBlocks === undefined &&
+        (state.blocks.length > 1 ||
+            (state.blocks.length === 1 && state.blocks[0]!.kind !== "paragraph"))
+    ) {
+        throw new Error(
+            "These notes use a structured format the current editor cannot safely change.",
+        );
+    }
+    const blocks =
+        notes.noteBlocks === undefined
+            ? notes.notes
+                ? [
+                      {
+                          id: state.blocks[0]?.id ?? crypto.randomUUID(),
+                          kind: "paragraph" as const,
+                          text: cleanText(notes.notes, "Notes", 100_000, true),
+                      },
+                  ]
+                : []
+            : normalizeJournalNoteBlocks(notes);
+    const fields = new Map(current.fields);
+    recordRemovedNoteBlocks(fields, state.blocks, blocks);
+    writeNoteBlocks(fields, blocks);
+    fields.set("entry_id", entryId);
+    fields.set("session_id", sessionId);
+    fields.set("updated_at_us", timestamp);
+    validateRecordPayloadSize(fields, current.blob.byteLength);
+    return { ...current, fields };
 }
 
 function normalizeOwnerId(value: string): string {
-  return value.trim().toLowerCase();
+    return value.trim().toLowerCase();
 }
 
 function normalizeJournalNoteBlocks(notes: NotesInput): JournalNoteBlock[] {
-  if (notes.noteBlocks === undefined) {
-    const text = cleanText(notes.notes ?? "", "Notes", 100_000, true);
-    return text
-      ? [
-          {
-            id: crypto.randomUUID(),
-            kind: "paragraph",
-            text: cleanText(text, "Notes", 100_000, true),
-          },
-        ]
-      : [];
-  }
-  const noteBlocks = notes.noteBlocks;
-  if (noteBlocks.length > MAX_JOURNAL_NOTE_BLOCKS) {
-    throw new Error(
-      `Notes can contain at most ${MAX_JOURNAL_NOTE_BLOCKS.toLocaleString("en-US")} blocks.`,
-    );
-  }
-  const ids = new Set<string>();
-  const normalized = noteBlocks.map((block, index) => {
-    const id = block.id;
-    if (!id || !isWellFormedUnicode(id) || ids.has(id)) {
-      throw new Error("Document block IDs must be present and unique valid Unicode text.");
+    if (notes.noteBlocks === undefined) {
+        const text = cleanText(notes.notes ?? "", "Notes", 100_000, true);
+        return text
+            ? [
+                  {
+                      id: crypto.randomUUID(),
+                      kind: "paragraph",
+                      text: cleanText(text, "Notes", 100_000, true),
+                  },
+              ]
+            : [];
     }
-    if (!isJournalNoteBlockKind(block.kind)) {
-      throw new Error(`Block ${index + 1} uses an unsupported document type.`);
+    const noteBlocks = notes.noteBlocks;
+    if (noteBlocks.length > MAX_JOURNAL_NOTE_BLOCKS) {
+        throw new Error(
+            `Notes can contain at most ${MAX_JOURNAL_NOTE_BLOCKS.toLocaleString("en-US")} blocks.`,
+        );
     }
-    ids.add(id);
-    const blockText = block.text;
-    if (!isWellFormedUnicode(blockText)) {
-      throw new Error(`Block ${index + 1} contains invalid Unicode text.`);
+    const ids = new Set<string>();
+    const normalized = noteBlocks.map((block, index) => {
+        const id = block.id;
+        if (!id || !isWellFormedUnicode(id) || ids.has(id)) {
+            throw new Error("Document block IDs must be present and unique valid Unicode text.");
+        }
+        if (!isJournalNoteBlockKind(block.kind)) {
+            throw new Error(`Block ${index + 1} uses an unsupported document type.`);
+        }
+        ids.add(id);
+        const blockText = block.text;
+        if (!isWellFormedUnicode(blockText)) {
+            throw new Error(`Block ${index + 1} contains invalid Unicode text.`);
+        }
+        if (containsUnsupportedControl(blockText, true)) {
+            throw new Error(`Block ${index + 1} contains unsupported control characters.`);
+        }
+        return { id, kind: block.kind, text: blockText };
+    });
+    if (normalized.length === 1 && normalized[0]!.kind === "paragraph" && !normalized[0]!.text) {
+        return [];
     }
-    if (containsUnsupportedControl(blockText, true)) {
-      throw new Error(`Block ${index + 1} contains unsupported control characters.`);
-    }
-    return { id, kind: block.kind, text: blockText };
-  });
-  if (normalized.length === 1 && normalized[0]!.kind === "paragraph" && !normalized[0]!.text) {
-    return [];
-  }
-  return normalized;
+    return normalized;
 }
 
 function appendNoteBlocks(
-  fields: Record<string, string> | Map<string, string>,
-  blocks: readonly JournalNoteBlock[],
+    fields: Record<string, string> | Map<string, string>,
+    blocks: readonly JournalNoteBlock[],
 ): void {
-  blocks.forEach((block, index) => {
-    const prefix = `block.${index}`;
-    const entries: readonly (readonly [string, string])[] = [
-      [`${prefix}.id`, block.id],
-      [`${prefix}.kind`, block.kind],
-      [`${prefix}.text`, block.text],
-    ];
-    if (fields instanceof Map) {
-      entries.forEach(([key, value]) => fields.set(key, value));
-    } else {
-      entries.forEach(([key, value]) => {
-        fields[key] = value;
-      });
-    }
-  });
+    blocks.forEach((block, index) => {
+        const prefix = `block.${index}`;
+        const entries: readonly (readonly [string, string])[] = [
+            [`${prefix}.id`, block.id],
+            [`${prefix}.kind`, block.kind],
+            [`${prefix}.text`, block.text],
+        ];
+        if (fields instanceof Map) {
+            entries.forEach(([key, value]) => fields.set(key, value));
+        } else {
+            entries.forEach(([key, value]) => {
+                fields[key] = value;
+            });
+        }
+    });
 }
 
 function isJournalNoteBlockKind(value: string): value is JournalNoteBlockKind {
-  return JOURNAL_NOTE_BLOCK_KINDS.some((kind) => kind === value);
+    return JOURNAL_NOTE_BLOCK_KINDS.some((kind) => kind === value);
 }
 
 function validateJournalDate(value: string): void {
-  if (!value) return;
-  const match = /^(\d{4})-(\d{2})-(\d{2})$/u.exec(value);
-  if (!match) throw new Error("Choose a valid journal date.");
-  const year = Number(match[1]);
-  const month = Number(match[2]);
-  const day = Number(match[3]);
-  const leap = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
-  const monthLengths = [31, leap ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
-  if (year === 0 || month < 1 || month > 12 || day < 1 || day > monthLengths[month - 1]!) {
-    throw new Error("Choose a valid journal date.");
-  }
+    if (!value) return;
+    const match = /^(\d{4})-(\d{2})-(\d{2})$/u.exec(value);
+    if (!match) throw new Error("Choose a valid journal date.");
+    const year = Number(match[1]);
+    const month = Number(match[2]);
+    const day = Number(match[3]);
+    const leap = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
+    const monthLengths = [31, leap ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+    if (year === 0 || month < 1 || month > 12 || day < 1 || day > monthLengths[month - 1]!) {
+        throw new Error("Choose a valid journal date.");
+    }
 }
 
 function currentUtcJournalDate(): string {
-  const today = new Date();
-  return [today.getUTCFullYear(), today.getUTCMonth() + 1, today.getUTCDate()]
-    .map((part, index) => (index === 0 ? String(part) : String(part).padStart(2, "0")))
-    .join("-");
+    const today = new Date();
+    return [today.getUTCFullYear(), today.getUTCMonth() + 1, today.getUTCDate()]
+        .map((part, index) => (index === 0 ? String(part) : String(part).padStart(2, "0")))
+        .join("-");
 }
 
 function requiredText(value: string, label: string, maximum: number): string {
-  const cleaned = cleanText(value, label, maximum).trim();
-  if (!cleaned) throw new Error(`${label} is required.`);
-  return cleaned;
+    const cleaned = cleanText(value, label, maximum).trim();
+    if (!cleaned) throw new Error(`${label} is required.`);
+    return cleaned;
 }
 
 function cleanText(
-  value: string,
-  label: string,
-  maximumBytes: number,
-  allowLineBreaks = false,
+    value: string,
+    label: string,
+    maximumBytes: number,
+    allowLineBreaks = false,
 ): string {
-  if (!isWellFormedUnicode(value)) {
-    throw new Error(`${label} contains invalid Unicode text.`);
-  }
-  if (new TextEncoder().encode(value).byteLength > maximumBytes)
-    throw new Error(`${label} must be ${maximumBytes.toLocaleString()} UTF-8 bytes or fewer.`);
-  if (containsUnsupportedControl(value, allowLineBreaks)) {
-    throw new Error(`${label} contains unsupported control characters.`);
-  }
-  return allowLineBreaks ? value : value.trim();
+    if (!isWellFormedUnicode(value)) {
+        throw new Error(`${label} contains invalid Unicode text.`);
+    }
+    if (new TextEncoder().encode(value).byteLength > maximumBytes)
+        throw new Error(`${label} must be ${maximumBytes.toLocaleString()} UTF-8 bytes or fewer.`);
+    if (containsUnsupportedControl(value, allowLineBreaks)) {
+        throw new Error(`${label} contains unsupported control characters.`);
+    }
+    return allowLineBreaks ? value : value.trim();
 }
 
 function containsUnsupportedControl(value: string, allowLineBreaks: boolean): boolean {
-  for (const character of value) {
-    const code = character.codePointAt(0)!;
-    if (code === 0x7f || (code < 0x20 && !(allowLineBreaks && (code === 0x09 || code === 0x0a)))) {
-      return true;
+    for (const character of value) {
+        const code = character.codePointAt(0)!;
+        if (
+            code === 0x7f ||
+            (code < 0x20 && !(allowLineBreaks && (code === 0x09 || code === 0x0a)))
+        ) {
+            return true;
+        }
     }
-  }
-  return false;
+    return false;
 }
 
 function isWellFormedUnicode(value: string): boolean {
-  for (let index = 0; index < value.length; index += 1) {
-    const code = value.charCodeAt(index);
-    if (code >= 0xd800 && code <= 0xdbff) {
-      const next = value.charCodeAt(index + 1);
-      if (!(next >= 0xdc00 && next <= 0xdfff)) return false;
-      index += 1;
-    } else if (code >= 0xdc00 && code <= 0xdfff) {
-      return false;
+    for (let index = 0; index < value.length; index += 1) {
+        const code = value.charCodeAt(index);
+        if (code >= 0xd800 && code <= 0xdbff) {
+            const next = value.charCodeAt(index + 1);
+            if (!(next >= 0xdc00 && next <= 0xdfff)) return false;
+            index += 1;
+        } else if (code >= 0xdc00 && code <= 0xdfff) {
+            return false;
+        }
     }
-  }
-  return true;
+    return true;
 }
