@@ -83,6 +83,101 @@ export async function buildWaveformIndex(
   check();
   const metadata = await snapshot.listAudioChunkMetadata(sessionId, trackId);
   if (!metadata.length) throw new Error("The selected track has no audio chunks.");
+  const stream = await buildAudioTrackWavStream(snapshot, sessionId, trackId);
+  const previous = (await snapshot.listRecords(RecordType.waveformIndex)).find(
+    (record) =>
+      record.fields.get("record_role") === "waveform-pyramid" &&
+      record.fields.get("session_id")?.toLowerCase() === sessionId.toLowerCase() &&
+      record.fields.get("track_id")?.toLowerCase() === trackId.toLowerCase(),
+  );
+  return buildWaveformIndexFromStream(
+    metadata,
+    sessionId,
+    trackId,
+    stream,
+    true,
+    previous,
+    options,
+  );
+}
+
+/** Build a waveform pyramid for newly generated PCM chunks before they are saved. */
+export async function buildWaveformIndexFromChunks(
+  chunks: readonly ArchiveRecord[],
+  sessionId: string,
+  trackId: string,
+  options: { signal?: AbortSignal; onProgress?: (fraction: number) => void } = {},
+): Promise<ArchiveRecord> {
+  if (!chunks.length) throw new Error("The selected track has no audio chunks.");
+  let nextChunk = 0;
+  let pendingGapBytes = 0;
+  let pendingChunk: ArchiveRecord | undefined;
+  const silenceBlock = new Uint8Array(64 * 1024);
+  const stream = new ReadableStream<Uint8Array>({
+    pull(controller) {
+      if (pendingGapBytes > 0) {
+        const length = Math.min(pendingGapBytes, silenceBlock.length);
+        pendingGapBytes -= length;
+        controller.enqueue(
+          length === silenceBlock.length ? silenceBlock : silenceBlock.slice(0, length),
+        );
+        return;
+      }
+      if (pendingChunk) {
+        controller.enqueue(pendingChunk.blob);
+        pendingChunk = undefined;
+        return;
+      }
+      if (nextChunk >= chunks.length) {
+        controller.close();
+        return;
+      }
+      const chunk = chunks[nextChunk++]!;
+      if (
+        chunk.type !== RecordType.audioChunk ||
+        chunk.fields.get("sample_format") !== "pcm_s16le" ||
+        chunk.fields.get("channel_count") !== "2"
+      ) {
+        controller.error(new Error("The mixed audio chunks have an unsupported format."));
+        return;
+      }
+      const gapBytes = integer(chunk, "gap_before_samples", true) * 4n;
+      if (gapBytes > BigInt(Number.MAX_SAFE_INTEGER)) {
+        controller.error(new Error("The mixed audio gap is too large to index."));
+        return;
+      }
+      pendingChunk = chunk;
+      pendingGapBytes = Number(gapBytes);
+      if (pendingGapBytes === 0) {
+        controller.enqueue(chunk.blob);
+        pendingChunk = undefined;
+      }
+    },
+  });
+  return buildWaveformIndexFromStream(
+    chunks,
+    sessionId,
+    trackId,
+    stream,
+    false,
+    undefined,
+    options,
+  );
+}
+
+async function buildWaveformIndexFromStream(
+  metadata: readonly ArchiveRecord[],
+  sessionId: string,
+  trackId: string,
+  stream: ReadableStream<Uint8Array>,
+  skipHeader: boolean,
+  previous: ArchiveRecord | undefined,
+  options: { signal?: AbortSignal; onProgress?: (fraction: number) => void },
+): Promise<ArchiveRecord> {
+  const check = () => {
+    if (options.signal?.aborted) throw new Error("Waveform generation cancelled.");
+  };
+  check();
   const first = metadata[0]!;
   const format = first.fields.get("sample_format") ?? "";
   const bytesPerSample = sampleWidth(format);
@@ -111,7 +206,8 @@ export async function buildWaveformIndex(
     if (gap) gaps.push({ start: timelineFrames, end: start });
     timelineFrames = start + count;
     storedFrames += count;
-    signatures += `${record.id.toLowerCase()}:${record.revision}:${sequence}:${start}:${count}:${gap}\n`;
+    const persistedRevision = record.revision === 0n ? 1n : record.revision;
+    signatures += `${record.id.toLowerCase()}:${persistedRevision}:${sequence}:${start}:${count}:${gap}\n`;
   }
   if (timelineFrames > BigInt(Number.MAX_SAFE_INTEGER))
     throw new Error("The audio timeline is too large to index.");
@@ -132,10 +228,10 @@ export async function buildWaveformIndex(
       containsGap: gapIndex < gaps.length && gaps[gapIndex]!.start < endFrame,
     });
   }
-  const reader = (await buildAudioTrackWavStream(snapshot, sessionId, trackId)).getReader();
+  const reader = stream.getReader();
   let frame = 0;
   let bucketIndex = 0;
-  let firstChunk = true;
+  let firstChunk = skipHeader;
   try {
     while (true) {
       check();
@@ -212,12 +308,6 @@ export async function buildWaveformIndex(
   const sourceFingerprint = Array.from(fingerprint, (byte) =>
     byte.toString(16).padStart(2, "0"),
   ).join("");
-  const previous = (await snapshot.listRecords(RecordType.waveformIndex)).find(
-    (record) =>
-      record.fields.get("record_role") === "waveform-pyramid" &&
-      record.fields.get("session_id")?.toLowerCase() === sessionId.toLowerCase() &&
-      record.fields.get("track_id")?.toLowerCase() === trackId.toLowerCase(),
-  );
   check();
   return {
     type: RecordType.waveformIndex,
