@@ -62,10 +62,7 @@ export function capabilityStatus(value: boolean | null | undefined): AiCapabilit
   return value === true ? "supported" : value === false ? "unsupported" : "unknown";
 }
 
-export function structuredOutputCapability(
-  providerId: string,
-  model = "",
-): AiCapabilityStatus {
+export function structuredOutputCapability(providerId: string, model = ""): AiCapabilityStatus {
   if (
     providerId === "openai" ||
     providerId === "openai-compatible" ||
@@ -145,7 +142,10 @@ export function catalogAgeSeconds(checkedAtUs: string, nowUs = Date.now() * 1000
   return Math.floor((nowUs - checked) / 1_000_000);
 }
 
-export function catalogFreshness(checkedAtUs: string, nowUs = Date.now() * 1000): AiCatalogFreshness {
+export function catalogFreshness(
+  checkedAtUs: string,
+  nowUs = Date.now() * 1000,
+): AiCatalogFreshness {
   const checked = Number(checkedAtUs);
   if (!Number.isSafeInteger(checked) || checked <= 0) return "unavailable";
   return catalogAgeSeconds(checkedAtUs, nowUs) <= AI_MODEL_CATALOG_TTL_SECONDS ? "fresh" : "stale";
@@ -159,7 +159,8 @@ export function buildAiModelCatalogRow(
   const structured = metadata.structuredOutputSupport ?? "unknown";
   const streaming = metadata.streamingSupport ?? "unknown";
   const tools = capabilityStatus(metadata.toolSupport);
-  const protocolFamily = metadata.protocolFamily ?? aiModelProtocolFamily(metadata.providerId, metadata.modelId);
+  const protocolFamily =
+    metadata.protocolFamily ?? aiModelProtocolFamily(metadata.providerId, metadata.modelId);
   const freshness = catalogFreshness(checkedAtUs, nowUs);
   const row: AiModelCatalogRow = {
     provider_id: metadata.providerId,
