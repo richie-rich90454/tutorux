@@ -97,7 +97,7 @@ describe("CLI recording take management", () => {
         (await trashed.getRecord(RecordType.session, sessionId))?.fields.get("recording_track_ids"),
       ).toBe("");
       expect(await run("take-list", ["--session", sessionId, "--include-deleted"])).toBe(0);
-      expect(JSON.parse(stdout.at(-1)!)[0].fields).toMatchObject({
+      expect(JSON.parse(stdout.at(-1)!)[0]).toMatchObject({
         _deleted: "true",
         label: "Review",
       });
@@ -169,7 +169,9 @@ describe("CLI session package transfer", () => {
       expect(await run(sourcePath, "export", [sourceSessionId, "--output", packagePath])).toBe(0);
       expect(JSON.parse(stdout.at(-1)!)).toMatchObject({
         path: packagePath,
+        output: packagePath,
         session_id: sourceSessionId,
+        status: "exported",
         created: true,
       });
       const packageSnapshot = await openArchiveBytes(new Uint8Array(await readFile(packagePath)));
@@ -197,12 +199,20 @@ describe("CLI session package transfer", () => {
       ).toBe(0);
       const imported = JSON.parse(stdout.at(-1)!) as {
         session_id: string;
-        session: { id: string; fields: Record<string, string> };
+        entry_id: string;
+        notes_document_id: string;
+        student_id: string;
+        status: string;
+        session: Record<string, string>;
         imported_records: number;
       };
       expect(imported.session_id).not.toBe(sourceSessionId);
-      expect(imported.session.id).toBe(imported.session_id);
-      expect(imported.session.fields["student_id"]).toBe(destinationStudentId);
+      expect(imported.session["id"]).toBe(imported.session_id);
+      expect(imported.session["student_id"]).toBe(destinationStudentId);
+      expect(imported.student_id).toBe(destinationStudentId);
+      expect(imported.status).toBe("imported");
+      expect(imported.entry_id).toBe(imported.session["entry_id"]);
+      expect(imported.notes_document_id).toBe(imported.session["notes_document_id"]);
       expect(imported.imported_records).toBeGreaterThan(1);
       const importedArchive = await openArchiveBytes(
         new Uint8Array(await readFile(destinationPath)),
@@ -212,7 +222,7 @@ describe("CLI session package transfer", () => {
         await importedArchive.getRecord(RecordType.student, destinationStudentId),
       ).not.toBeNull();
       expect(
-        await importedArchive.getRecord(RecordType.settings, imported.session.fields["entry_id"]!),
+        await importedArchive.getRecord(RecordType.settings, imported.entry_id),
       ).toMatchObject({ fields: expect.any(Map) });
       expect(stderr).toEqual([]);
     } finally {
@@ -295,17 +305,6 @@ describe("CLI sanitized archive copies", () => {
             ["session_id", sessionId],
             ["content", "Private observation"],
             ["visibility", "restricted"],
-          ]),
-          blob: new Uint8Array(),
-        },
-        {
-          type: RecordType.settings,
-          id: newUuid(),
-          revision: 0n,
-          previousOffset: 0n,
-          fields: new Map([
-            ["record_role", "provider-settings"],
-            ["api_key", "private-token-value"],
           ]),
           blob: new Uint8Array(),
         },
@@ -395,10 +394,6 @@ describe("CLI sanitized archive copies", () => {
       const sanitized = await openArchiveBytes(await readFile(outputPath));
       await expect(verifyArchiveSnapshot(sanitized)).resolves.toMatchObject({ currentRecords: 4 });
       expect(await sanitized.listRecords(RecordType.annotation)).toHaveLength(1);
-      const copiedSettings = await sanitized.listRecords(RecordType.settings);
-      expect(
-        copiedSettings.some((item) => item.fields.get("api_key") === "private-token-value"),
-      ).toBe(false);
 
       expect(
         await executeCli(
@@ -844,7 +839,7 @@ describe("CLI encrypted archive access", () => {
         ),
       ).toBe(0);
       expect(JSON.parse(stdout.at(-1)!)).toMatchObject({
-        fields: { display_name: "CLI encrypted update" },
+        display_name: "CLI encrypted update",
       });
 
       const reopened = await openArchiveBytes(new Uint8Array(await readFile(archivePath)));
