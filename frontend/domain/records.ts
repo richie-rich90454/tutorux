@@ -415,7 +415,7 @@ export function makeSessionRecords(
   }
   if (
     new TextEncoder().encode(guideTemplateId).byteLength > 128 ||
-    /[\u0000-\u001f\u007f]/u.test(guideTemplateId)
+    /\p{Cc}/u.test(guideTemplateId)
   ) {
     throw new Error("The guide template ID is too long or contains control characters.");
   }
