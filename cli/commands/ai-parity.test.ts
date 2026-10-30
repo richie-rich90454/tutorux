@@ -2,7 +2,11 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { executeCli } from "../main";
-import { appendRecords, createArchiveBytes, openArchiveBytes } from "../../frontend/archive/archive";
+import {
+  appendRecords,
+  createArchiveBytes,
+  openArchiveBytes,
+} from "../../frontend/archive/archive";
 import { newUuid, RecordType, type ArchiveRecord } from "../../frontend/archive/format";
 
 function u32(value: number): Buffer {
@@ -157,7 +161,10 @@ describe("AI CLI parity", () => {
       await writeFile(archivePath, await updated.source.read(0n, Number(updated.source.size)));
 
       expect(
-        await executeCli(["--json", "--archive", archivePath, "ai", "models", "--provider", "openai"], io),
+        await executeCli(
+          ["--json", "--archive", archivePath, "ai", "models", "--provider", "openai"],
+          io,
+        ),
       ).toBe(0);
       const rows = JSON.parse(stdout.at(-1)!) as Record<string, string>[];
       expect(rows).toHaveLength(1);
@@ -271,15 +278,7 @@ describe("AI CLI parity", () => {
 
       expect(
         await executeCli(
-          [
-            "--json",
-            "--archive",
-            archivePath,
-            "model",
-            "inspect",
-            "--path",
-            "fixture.gguf",
-          ],
+          ["--json", "--archive", archivePath, "model", "inspect", "--path", "fixture.gguf"],
           io,
         ),
       ).toBe(0);
