@@ -6,7 +6,7 @@ use cpal::{
 };
 use serde::Serialize;
 use std::{
-    io::{self, BufRead, BufWriter, Write},
+    io::{self, BufWriter, Write},
     str::FromStr,
     sync::{
         atomic::{AtomicBool, Ordering},
@@ -31,6 +31,9 @@ pub struct NativeCaptureDevice {
     pub backend: String,
     pub source: String,
     pub is_default: bool,
+    pub sample_format: String,
+    pub sample_rate_hz: u32,
+    pub channel_count: u16,
 }
 
 #[derive(Serialize)]
@@ -132,24 +135,30 @@ pub fn enumerate() -> Result<Vec<NativeCaptureDevice>, String> {
                 }
                 #[cfg(target_os = "linux")]
                 if is_linux_monitor_name(name) {
-                    if device.default_input_config().is_ok() {
+                    if let Ok(config) = device.default_input_config() {
                         system_audio.push(NativeCaptureDevice {
                             id: id.to_string(),
                             name: format!("System audio · {name}"),
                             backend: backend.clone(),
                             source: "system-audio".to_owned(),
                             is_default: false,
+                            sample_format: format!("{:?}", config.sample_format()),
+                            sample_rate_hz: config.sample_rate(),
+                            channel_count: config.channels(),
                         });
                     }
                     continue;
                 }
-                if device.default_input_config().is_ok() {
+                if let Ok(config) = device.default_input_config() {
                     microphones.push(NativeCaptureDevice {
                         id: id.to_string(),
                         name: name.to_owned(),
                         backend: backend.clone(),
                         source: "microphone".to_owned(),
                         is_default: Some(&id) == default_microphone_id.as_ref(),
+                        sample_format: format!("{:?}", config.sample_format()),
+                        sample_rate_hz: config.sample_rate(),
+                        channel_count: config.channels(),
                     });
                 }
             }
@@ -168,7 +177,10 @@ pub fn enumerate() -> Result<Vec<NativeCaptureDevice>, String> {
                 let Ok(id) = device.id() else { continue };
                 let Ok(description) = device.description() else { continue };
                 let name = description.name().trim();
-                if name.is_empty() || device.default_output_config().is_err() {
+                let Ok(config) = device.default_output_config() else {
+                    continue;
+                };
+                if name.is_empty() {
                     continue;
                 }
                 system_audio.push(NativeCaptureDevice {
@@ -177,6 +189,9 @@ pub fn enumerate() -> Result<Vec<NativeCaptureDevice>, String> {
                     backend: backend.clone(),
                     source: "system-audio".to_owned(),
                     is_default: Some(&id) == default_output_id.as_ref(),
+                    sample_format: format!("{:?}", config.sample_format()),
+                    sample_rate_hz: config.sample_rate(),
+                    channel_count: config.channels(),
                 });
             }
         }
@@ -194,7 +209,7 @@ pub fn capture(source: &str, device_id: &str) -> Result<(), String> {
     let config = source_config(&device, source)?;
     validate_config(&config, source)?;
     let channels = usize::from(config.channels());
-    let sample_rate_hz = config.sample_rate().0;
+    let sample_rate_hz = config.sample_rate();
     let (sender, receiver) = mpsc::sync_channel::<Vec<i16>>(MAX_QUEUED_CHUNKS);
     let terminal_error = Arc::new(Mutex::new(None::<String>));
     let callback_error = Arc::clone(&terminal_error);
@@ -250,7 +265,7 @@ pub fn probe(source: &str, device_id: &str) -> Result<(), String> {
     let config = source_config(&device, source)?;
     validate_config(&config, source)?;
     let sample_format = format!("{:?}", config.sample_format());
-    let sample_rate_hz = config.sample_rate().0;
+    let sample_rate_hz = config.sample_rate();
     let channel_count = config.channels();
     let metrics = Arc::new(Mutex::new(ProbeMetrics::default()));
     let callback_metrics = Arc::clone(&metrics);
@@ -401,7 +416,10 @@ fn data_to_mono_float(data: &Data, channels: usize) -> Option<Vec<f32>> {
     )
 }
 
-fn convert_samples<T: Sample + SizedSample>(samples: &[T]) -> Vec<f32> {
+fn convert_samples<T: Sample + SizedSample>(samples: &[T]) -> Vec<f32>
+where
+    f32: cpal::FromSample<T>,
+{
     samples.iter().map(|sample| sample.to_sample::<f32>()).collect()
 }
 
@@ -418,7 +436,7 @@ fn resolve_device(source: &str, device_id: &str) -> Result<cpal::Device, String>
     #[cfg(not(target_os = "linux"))]
     let host = cpal::default_host();
     host.device_by_id(&id)
-        .ok_or_else(|| format!("The selected {source} device is no longer available.".to_owned()))
+        .ok_or_else(|| format!("The selected {source} device is no longer available."))
 }
 
 fn source_config(device: &cpal::Device, source: &str) -> Result<cpal::SupportedStreamConfig, String> {
@@ -434,7 +452,7 @@ fn source_config(device: &cpal::Device, source: &str) -> Result<cpal::SupportedS
 }
 
 fn validate_config(config: &cpal::SupportedStreamConfig, source: &str) -> Result<(), String> {
-    if !(8_000..=192_000).contains(&config.sample_rate().0) {
+    if !(8_000..=192_000).contains(&config.sample_rate()) {
         return Err(format!("The selected {source} device uses an unsupported sample rate."));
     }
     if config.channels() == 0 || config.channels() > 32 {
@@ -502,4 +520,3 @@ fn is_linux_monitor_name(value: &str) -> bool {
     let value = value.to_ascii_lowercase();
     value.contains("monitor") || value.contains("loopback") || value.ends_with(".mon")
 }
-
