@@ -421,6 +421,28 @@ export async function restoreEvidenceRecordGroup(
   return changes;
 }
 
+/** Restore one removed evidence relationship after checking both endpoints are active. */
+export async function restoreEvidenceEdge(
+  snapshot: ArchiveSnapshot,
+  edge: ArchiveRecord,
+): Promise<ArchiveRecord> {
+  if (edge.type !== RecordType.evidenceEdge || edge.fields.get("_deleted") !== "true") {
+    throw new Error("Select an evidence relationship from Trash to restore it.");
+  }
+  for (const key of ["from_id", "to_id"] as const) {
+    const endpointId = edge.fields.get(key) ?? "";
+    const endpoint = isUuid(endpointId)
+      ? await snapshot.getRecord(RecordType.evidenceNode, endpointId)
+      : null;
+    if (!endpoint || endpoint.fields.get("_deleted") === "true") {
+      throw new Error(
+        "Restore both linked evidence items before restoring this relationship.",
+      );
+    }
+  }
+  return restoreEvidenceRecord(edge, nowUs());
+}
+
 export async function evidenceSourcesAreCurrent(
   snapshot: ArchiveSnapshot,
   record: ArchiveRecord,
