@@ -13,8 +13,6 @@ interface ArchiveSettingsCopyProps {
   onSave: (records: ArchiveRecord[], message: string) => Promise<boolean>;
 }
 
-const field = (record: ArchiveRecord, name: string): string => record.fields.get(name) ?? "";
-
 /** Reviewed, credential-safe transfer of ordinary settings between archive files. */
 export function ArchiveSettingsCopy(props: ArchiveSettingsCopyProps): JSX.Element {
   const [opening, setOpening] = createSignal(false);
