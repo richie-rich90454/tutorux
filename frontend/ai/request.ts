@@ -226,14 +226,16 @@ export async function createAiRequestPreview(
     packageHash,
     packageBytes: packageJob.blob.byteLength,
     attachedImages: imageManifest,
-    attachedAssets: allAttachments.map(({ id, filename, mimeType, contentHash, byteSize, kind }) => ({
-      id,
-      filename,
-      mimeType,
-      contentHash,
-      byteSize,
-      kind,
-    })),
+    attachedAssets: allAttachments.map(
+      ({ id, filename, mimeType, contentHash, byteSize, kind }) => ({
+        id,
+        filename,
+        mimeType,
+        contentHash,
+        byteSize,
+        kind,
+      }),
+    ),
     requestBodyHash: await sha256(requestBytes),
     requestBytes: requestBytes.byteLength,
     maxOutputTokens: maximumOutputTokens,
@@ -594,7 +596,11 @@ async function loadManifestAttachments(
       blob?.fields.get("record_role") === "asset-blob-manifest"
         ? Number(blob.fields.get("byte_size"))
         : blob?.blob.byteLength;
-    if (!blob || blob.fields.get("_deleted") === "true" || archivedByteSize !== attachment.byteSize) {
+    if (
+      !blob ||
+      blob.fields.get("_deleted") === "true" ||
+      archivedByteSize !== attachment.byteSize
+    ) {
       throw new Error(`Attachment “${attachment.filename}” failed its content validation.`);
     }
     const bytes = await readAssetBytes(snapshot, metadata);
