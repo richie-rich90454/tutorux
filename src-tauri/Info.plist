@@ -3,6 +3,10 @@
 <plist version="1.0">
 <dict>
   <key>NSMicrophoneUsageDescription</key>
-  <string>Tutorux uses the microphone only when you start a session recording.</string>
+  <string>Tutorux accesses the microphone only when you check its input level or start a session recording.</string>
+  <key>NSAudioCaptureUsageDescription</key>
+  <string>Tutorux captures shared or selected application audio only when you start a synchronized recording.</string>
+  <key>NSScreenCaptureUsageDescription</key>
+  <string>Tutorux uses ScreenCaptureKit to capture audio from the application you select, only when you start a synchronized recording.</string>
 </dict>
 </plist>
