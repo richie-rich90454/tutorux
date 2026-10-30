@@ -83,6 +83,8 @@ export function makeWhisperRecords(options: {
   ) {
     throw new Error("Whisper returned an invalid transcript.");
   }
+  const detectedLanguage = whisperResultLanguage(parsed);
+  const language = detectedLanguage ?? options.language;
   const start = (options.preview.startFrame * 1_000_000n) / BigInt(options.preview.sampleRateHz);
   const end = start + options.preview.durationUs;
   const overlaps = (record: ArchiveRecord): boolean => {
@@ -186,7 +188,7 @@ export function makeWhisperRecords(options: {
       ["source_backend_version", "whisper.cpp CLI"],
       ["source_run_id", runId],
       ["source_window_start_us", start.toString()],
-      ["language", options.language],
+      ["language", language],
       ["created_at_us", createdAt],
     ]);
     if (options.diarizeSpeakerTurns) {
@@ -207,4 +209,13 @@ export function makeWhisperRecords(options: {
     });
   }
   return { records, skipped };
+}
+
+/** Read whisper.cpp's detected language from CLI JSON when the model ran language detection. */
+function whisperResultLanguage(parsed: object): string | undefined {
+  if (!("result" in parsed)) return undefined;
+  const result = parsed.result;
+  if (!result || typeof result !== "object" || !("language" in result)) return undefined;
+  const language = result.language;
+  return typeof language === "string" && /^[A-Za-z-]{1,16}$/u.test(language) ? language : undefined;
 }
