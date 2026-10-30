@@ -6,6 +6,7 @@ import type { Readable } from "node:stream";
 import { RecordType, type ArchiveRecord } from "../frontend/archive/format";
 import {
   MAX_MICROPHONE_ARCHIVE_CHUNK_BYTES,
+  type CaptureSampleFormat,
   type MicrophoneArchiveSource,
 } from "../frontend/domain/microphone-recording";
 import {
@@ -16,7 +17,7 @@ import {
 } from "../frontend/domain/synchronized-recording";
 import { makeWhisperRecords } from "../frontend/domain/whisper";
 import type { AudioPreview } from "../frontend/domain/audio";
-import { transcribeWhisperPreview } from "./whisper";
+import { LiveWhisperSession } from "./whisper";
 import {
   resolveNativeAudioHelper,
   selectNativeCaptureDevice,
@@ -26,10 +27,145 @@ import {
 } from "./native-audio-helper";
 import type { RecordingControlWorker } from "./recording-control";
 
-const SAMPLE_RATE_HZ = 16_000;
-const MAX_QUEUED_PCM_BYTES = 8 * 1024 * 1024;
-const MAX_QUEUED_TRANSCRIPTION_BYTES = 8 * 1024 * 1024;
+const FFMPEG_SAMPLE_RATE_HZ = 16_000;
+const APPLICATION_SAMPLE_RATE_HZ = 48_000;
+const APPLICATION_CHANNELS = 2;
+const MAX_QUEUED_PCM_BYTES = 96 * 1024 * 1024;
+const MAX_QUEUED_TRANSCRIPTION_BYTES = 96 * 1024 * 1024;
 const STDERR_CAPTURE_LIMIT = 32 * 1024;
+const HELPER_FORMAT_PREFIX = "tutorux-audio-helper: capture-format ";
+
+export interface LiveCaptureFormat {
+  sampleFormat: CaptureSampleFormat;
+  sampleRateHz: number;
+  channelCount: number;
+}
+
+export const FFMPEG_CAPTURE_FORMAT: LiveCaptureFormat = {
+  sampleFormat: "pcm_s16le",
+  sampleRateHz: FFMPEG_SAMPLE_RATE_HZ,
+  channelCount: 1,
+};
+
+export const APPLICATION_CAPTURE_FORMAT: LiveCaptureFormat = {
+  sampleFormat: "pcm_f32le",
+  sampleRateHz: APPLICATION_SAMPLE_RATE_HZ,
+  channelCount: APPLICATION_CHANNELS,
+};
+
+export function captureBytesPerSample(format: CaptureSampleFormat): number {
+  switch (format) {
+    case "pcm_u8":
+      return 1;
+    case "pcm_s16le":
+      return 2;
+    case "pcm_s24le":
+      return 3;
+    case "pcm_s32le":
+    case "pcm_f32le":
+      return 4;
+  }
+}
+
+export function captureFormatFromNativeDevice(
+  device: Pick<NativeCaptureDevice, "sampleFormat" | "sampleRateHz" | "channelCount">,
+): LiveCaptureFormat | undefined {
+  const sampleFormat = normalizeCaptureSampleFormat(device.sampleFormat);
+  if (
+    sampleFormat === undefined ||
+    device.sampleRateHz === undefined ||
+    !Number.isSafeInteger(device.sampleRateHz) ||
+    device.sampleRateHz < 8_000 ||
+    device.sampleRateHz > 384_000 ||
+    device.channelCount === undefined ||
+    !Number.isSafeInteger(device.channelCount) ||
+    device.channelCount < 1 ||
+    device.channelCount > 8
+  ) {
+    return undefined;
+  }
+  return {
+    sampleFormat,
+    sampleRateHz: device.sampleRateHz,
+    channelCount: device.channelCount,
+  };
+}
+
+export function parseCaptureFormatLine(line: string): LiveCaptureFormat | undefined {
+  const index = line.indexOf(HELPER_FORMAT_PREFIX);
+  if (index < 0) return undefined;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(line.slice(index + HELPER_FORMAT_PREFIX.length).trim());
+  } catch {
+    return undefined;
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return undefined;
+  const value = parsed as Record<string, unknown>;
+  const sampleFormat = normalizeCaptureSampleFormat(
+    typeof value["sampleFormat"] === "string" ? value["sampleFormat"] : undefined,
+  );
+  const sampleRateHz = value["sampleRateHz"];
+  const channelCount = value["channelCount"];
+  if (
+    sampleFormat === undefined ||
+    typeof sampleRateHz !== "number" ||
+    !Number.isSafeInteger(sampleRateHz) ||
+    sampleRateHz < 8_000 ||
+    sampleRateHz > 384_000 ||
+    typeof channelCount !== "number" ||
+    !Number.isSafeInteger(channelCount) ||
+    channelCount < 1 ||
+    channelCount > 8
+  ) {
+    return undefined;
+  }
+  return { sampleFormat, sampleRateHz, channelCount };
+}
+
+export function sameCaptureFormat(left: LiveCaptureFormat, right: LiveCaptureFormat): boolean {
+  return (
+    left.sampleFormat === right.sampleFormat &&
+    left.sampleRateHz === right.sampleRateHz &&
+    left.channelCount === right.channelCount
+  );
+}
+
+function normalizeCaptureSampleFormat(value: string | undefined): CaptureSampleFormat | undefined {
+  switch (value?.trim().toLowerCase()) {
+    case "u8":
+    case "i8":
+    case "pcm_u8":
+      return "pcm_u8";
+    case "i16":
+    case "u16":
+    case "s16":
+    case "s16le":
+    case "pcm_s16le":
+      return "pcm_s16le";
+    case "i24":
+    case "u24":
+    case "s24":
+    case "s24le":
+    case "pcm_s24le":
+      return "pcm_s24le";
+    case "i32":
+    case "u32":
+    case "i64":
+    case "u64":
+    case "s32":
+    case "s32le":
+    case "pcm_s32le":
+      return "pcm_s32le";
+    case "f32":
+    case "f64":
+    case "f32le":
+    case "pcm_f32le":
+      return "pcm_f32le";
+    default:
+      return undefined;
+  }
+}
 
 export interface FfmpegAudioDevice {
   id: string;
@@ -38,6 +174,8 @@ export interface FfmpegAudioDevice {
   processId?: number;
   bundleId?: string;
 }
+
+export type RecordingDurability = "default" | "maximum" | "reduced-write";
 
 export interface LiveRecordingOptions {
   sessionId: string;
@@ -54,6 +192,7 @@ export interface LiveRecordingOptions {
   };
   inputFormat?: "pulse" | "alsa";
   durationSeconds?: number;
+  durability?: RecordingDurability;
   consentConfirmedBy: string;
   whisper?: {
     executable: string;
@@ -80,7 +219,9 @@ export interface LiveRecordingResult {
   deviceId: string;
   deviceName: string;
   inputBackend: string;
+  sampleFormat: CaptureSampleFormat;
   sampleRateHz: number;
+  channelCount: number;
   sampleCount: string;
   chunkCount: number;
   byteCount: number;
@@ -106,6 +247,7 @@ export interface LiveSynchronizedRecordingOptions {
   };
   inputFormat?: "pulse" | "alsa";
   durationSeconds?: number;
+  durability?: RecordingDurability;
   consentConfirmedBy: string;
   commit: LiveRecordingOptions["commit"];
   progress: (message: string) => void;
@@ -122,7 +264,9 @@ export interface LiveSynchronizedRecordingResult {
     trackId: string;
     deviceId: string;
     deviceName: string;
+    sampleFormat: CaptureSampleFormat;
     sampleRateHz: number;
+    channelCount: number;
     sampleCount: string;
     chunkCount: number;
     byteCount: number;
@@ -291,10 +435,10 @@ export async function probeFfmpegAudioDevice(options: {
     backend: options.device.backend,
     source: options.source,
     sampleFormat: "S16LE",
-    sampleRateHz: SAMPLE_RATE_HZ,
-    channelCount: 1,
+    sampleRateHz: FFMPEG_CAPTURE_FORMAT.sampleRateHz,
+    channelCount: FFMPEG_CAPTURE_FORMAT.channelCount,
     sampleCount,
-    durationMs: Math.round((sampleCount / SAMPLE_RATE_HZ) * 1_000),
+    durationMs: Math.round((sampleCount / FFMPEG_CAPTURE_FORMAT.sampleRateHz) * 1_000),
     rms,
     peak,
     dbfs: rms > 0 ? 20 * Math.log10(rms) : -120,
@@ -349,12 +493,31 @@ export async function recordLiveSource(
         (source === "system-audio"
           ? await selectSystemAudioDevice(options.ffmpeg, backend, options.device)
           : await selectDevice(options.ffmpeg, backend, options.device)));
-  const checkpointBytes = Math.min(27 * SAMPLE_RATE_HZ * 2, MAX_MICROPHONE_ARCHIVE_CHUNK_BYTES);
-  const windowSeconds = options.whisper?.windowSeconds ?? 27;
-  const windowBytes = windowSeconds * SAMPLE_RATE_HZ * 2;
-  if (windowBytes > MAX_MICROPHONE_ARCHIVE_CHUNK_BYTES) {
+  const captureFormat = applicationCapture
+    ? APPLICATION_CAPTURE_FORMAT
+    : nativeCapture
+      ? captureFormatFromNativeDevice(nativeCapture.device)
+      : FFMPEG_CAPTURE_FORMAT;
+  if (!captureFormat) {
     throw new Error(
-      "The recording checkpoint is larger than the archive's 1 MiB audio chunk limit.",
+      "The native audio helper did not report the selected input's sample format. Rebuild the audio helper and retry.",
+    );
+  }
+  const frameBytes = captureBytesPerSample(captureFormat.sampleFormat) * captureFormat.channelCount;
+  const checkpointBytes = recordingCheckpointBytes(
+    options.durability,
+    captureFormat.sampleFormat,
+    captureFormat.sampleRateHz,
+    captureFormat.channelCount,
+  );
+  const windowSeconds = options.whisper?.windowSeconds ?? 27;
+  const windowBytes = windowSeconds * captureFormat.sampleRateHz * frameBytes;
+  if (
+    options.whisper &&
+    (!Number.isSafeInteger(windowBytes) || windowBytes > MAX_QUEUED_PCM_BYTES)
+  ) {
+    throw new Error(
+      "The live Whisper window exceeds the bounded capture queue; reduce --window-seconds.",
     );
   }
 
@@ -372,7 +535,9 @@ export async function recordLiveSource(
       {
         source,
         trackId,
-        sampleRateHz: SAMPLE_RATE_HZ,
+        sampleFormat: captureFormat.sampleFormat,
+        sampleRateHz: captureFormat.sampleRateHz,
+        channelCount: captureFormat.channelCount,
         ...(applicationCapture
           ? {
               sourceDeviceId: applicationCapture.device.id,
@@ -394,6 +559,7 @@ export async function recordLiveSource(
     knownTrackIds: options.knownTrackIds,
     startedAtUs,
     consentAtUs: startedAtUs,
+    ...(options.durability === undefined ? {} : { durability: options.durability }),
     captureSourceBackend:
       applicationCapture || nativeCapture ? "native-audio-helper" : "ffmpeg-cli",
     consentConfirmedBy: options.consentConfirmedBy,
@@ -422,9 +588,24 @@ export async function recordLiveSource(
   );
   const processName = helperCapture ? "The native audio helper" : "FFmpeg";
   let stderr = "";
+  let formatText = "";
+  let formatChecked = !helperCapture;
   child.stderr!.on("data", (chunk: Buffer) => {
+    const text = chunk.toString("utf8");
+    if (!formatChecked) {
+      formatText = (formatText + text).slice(-8_192);
+      const detected = parseCaptureFormatLine(formatText);
+      if (detected) {
+        formatChecked = true;
+        if (!sameCaptureFormat(detected, captureFormat)) {
+          requestStop(
+            `The native audio helper opened a ${detected.sampleFormat} ${detected.sampleRateHz} Hz ${detected.channelCount}-channel stream instead of the saved ${captureFormat.sampleFormat} ${captureFormat.sampleRateHz} Hz ${captureFormat.channelCount}-channel format.`,
+          );
+        }
+      }
+    }
     if (stderr.length < STDERR_CAPTURE_LIMIT) {
-      stderr += chunk.toString("utf8").slice(0, STDERR_CAPTURE_LIMIT - stderr.length);
+      stderr += text.slice(0, STDERR_CAPTURE_LIMIT - stderr.length);
     }
   });
 
@@ -525,6 +706,11 @@ export async function recordLiveSource(
   }> = [];
   let pendingArchiveParts: Uint8Array[] = [];
   let pendingInferenceWindows: Array<{ pcm: Uint8Array; firstSampleIndex: bigint }> = [];
+  let inferenceParts: Uint8Array[] = [];
+  let inferenceBytes = 0;
+  let inferenceStart: bigint | undefined;
+  let liveWhisperSession: LiveWhisperSession | undefined;
+  let liveWhisperReuseWarningShown = false;
   let pendingArchiveBytes = 0;
   let pendingArchiveStart: bigint | undefined;
   let pauseCount = 0;
@@ -562,10 +748,43 @@ export async function recordLiveSource(
     if (pendingArchiveStart === undefined) pendingArchiveStart = firstSampleIndex;
     pendingArchiveParts.push(audio);
     pendingArchiveBytes += audio.byteLength;
-    if (options.whisper && !liveTranscriptionError)
-      pendingInferenceWindows.push({ pcm: audio, firstSampleIndex });
+    if (options.whisper && !liveTranscriptionError) enqueueInferencePcm(audio, firstSampleIndex);
     if (pendingArchiveBytes >= checkpointBytes) flushArchiveCheckpoint();
     return true;
+  };
+
+  const takeInferenceBytes = (length: number): Uint8Array => {
+    const output = new Uint8Array(length);
+    let offset = 0;
+    while (offset < length) {
+      const part = inferenceParts[0]!;
+      const count = Math.min(part.byteLength, length - offset);
+      output.set(part.subarray(0, count), offset);
+      offset += count;
+      if (count === part.byteLength) inferenceParts.shift();
+      else inferenceParts[0] = part.subarray(count);
+    }
+    inferenceBytes -= length;
+    return output;
+  };
+
+  const enqueueInferencePcm = (audio: Uint8Array, firstSampleIndex: bigint): void => {
+    if (inferenceStart === undefined) inferenceStart = firstSampleIndex;
+    inferenceParts.push(audio);
+    inferenceBytes += audio.byteLength;
+    while (inferenceBytes >= windowBytes) {
+      const window = takeInferenceBytes(windowBytes);
+      pendingInferenceWindows.push({ pcm: window, firstSampleIndex: inferenceStart });
+      inferenceStart += BigInt(window.byteLength / frameBytes);
+    }
+  };
+
+  const flushInferenceWindow = (): void => {
+    if (!inferenceBytes || inferenceStart === undefined) return;
+    const window = takeInferenceBytes(inferenceBytes);
+    pendingInferenceWindows.push({ pcm: window, firstSampleIndex: inferenceStart });
+    inferenceParts = [];
+    inferenceStart = undefined;
   };
 
   const enqueueTranscriptionWindow = (
@@ -591,6 +810,9 @@ export async function recordLiveSource(
     liveTranscriptionError = reason;
     transcriptionWindows.length = 0;
     pendingInferenceWindows.length = 0;
+    inferenceParts = [];
+    inferenceBytes = 0;
+    inferenceStart = undefined;
     queuedTranscriptionBytes = 0;
     options.progress(`Live Whisper stopped; recording continues: ${reason}`);
   };
@@ -607,16 +829,20 @@ export async function recordLiveSource(
         try {
           await audioWrite;
           if (liveTranscriptionError) continue;
-          const preview = makePreview(window.pcm, window.firstSampleIndex);
+          const preview = buildCapturePreview(window.pcm, window.firstSampleIndex, captureFormat);
           const whisper = options.whisper!;
-          const json = await transcribeWhisperPreview({
-            preview,
+          liveWhisperSession ??= await LiveWhisperSession.create({
             executable: whisper.executable,
             model: whisper.model,
             language: whisper.language,
             ...(whisper.threads === undefined ? {} : { threads: whisper.threads }),
             diarizeSpeakerTurns: whisper.diarizeSpeakerTurns,
           });
+          if (!liveWhisperSession.reusedProcess && !liveWhisperReuseWarningShown) {
+            liveWhisperReuseWarningShown = true;
+            options.progress(`Live Whisper: ${liveWhisperSession.reuseWarning}`);
+          }
+          const json = await liveWhisperSession.transcribe(preview, options.signal);
           const result = makeWhisperRecords({
             json,
             sessionId: options.sessionId,
@@ -643,7 +869,7 @@ export async function recordLiveSource(
             });
           }
           options.progress(
-            `Transcribed ${formatDuration(BigInt(preview.frameCount))}; ${result.records.length} provisional cue change(s).`,
+            `Transcribed ${formatDuration(BigInt(preview.frameCount), preview.sampleRateHz)}; ${result.records.length} provisional cue change(s).`,
           );
         } catch (error) {
           stopLiveTranscription(errorMessage(error));
@@ -662,7 +888,15 @@ export async function recordLiveSource(
   };
 
   const flushArchiveCheckpoint = (): void => {
-    if (!pendingArchiveBytes || pendingArchiveStart === undefined) return;
+    if (!pendingArchiveBytes || pendingArchiveStart === undefined) {
+      if (pendingInferenceWindows.length) {
+        const inferenceWindows = pendingInferenceWindows;
+        pendingInferenceWindows = [];
+        for (const window of inferenceWindows)
+          enqueueTranscriptionWindow(window, Promise.resolve());
+      }
+      return;
+    }
     const pcm = new Uint8Array(pendingArchiveBytes);
     let offset = 0;
     for (const part of pendingArchiveParts) {
@@ -684,6 +918,8 @@ export async function recordLiveSource(
           sequence: chunkCount,
           firstSampleIndex: firstSampleIndex.toString(),
           samples: pcm,
+          sampleFormat: captureFormat.sampleFormat,
+          channelCount: captureFormat.channelCount,
         },
         source,
       });
@@ -691,13 +927,13 @@ export async function recordLiveSource(
       generation += 1n;
       track = requiredSaved(saved, RecordType.assetMetadata, trackId);
       session = requiredSaved(saved, RecordType.session, options.sessionId);
-      sampleCount += BigInt(pcm.byteLength / 2);
+      sampleCount += BigInt(pcm.byteLength / frameBytes);
       chunkCount += 1;
       byteCount += pcm.byteLength;
       queuedPcmBytes -= pcm.byteLength;
       if (chunkCount === 1 || chunkCount % 12 === 0) {
         options.progress(
-          `Saved ${chunkCount} ${sourceLabel(source)} checkpoint(s), ${formatDuration(sampleCount)} recorded.`,
+          `Saved ${chunkCount} ${sourceLabel(source)} checkpoint(s), ${formatDuration(sampleCount, captureFormat.sampleRateHz)} recorded.`,
         );
       }
     });
@@ -714,15 +950,16 @@ export async function recordLiveSource(
         const shouldPause = options.recordingControl!.pauseRequested();
         if (shouldPause === isPaused || stopRequested) return;
         if (shouldPause) {
-          const alignedLength = pending.length - (pending.length % 2);
+          const alignedLength = pending.length - (pending.length % frameBytes);
           if (alignedLength) {
             const finalPcm = pending.subarray(0, alignedLength);
             const firstSampleIndex = receivedSampleCount;
             if (enqueuePcmWindow(new Uint8Array(finalPcm), firstSampleIndex)) {
-              receivedSampleCount += BigInt(finalPcm.byteLength / 2);
+              receivedSampleCount += BigInt(finalPcm.byteLength / frameBytes);
             }
           }
           pending = Buffer.alloc(0);
+          flushInferenceWindow();
           flushArchiveCheckpoint();
           await archiveQueue;
           if (stopRequested) return;
@@ -799,12 +1036,12 @@ export async function recordLiveSource(
           }
         }
         pending = pending.length ? Buffer.concat([pending, bytes]) : Buffer.from(bytes);
-        while (pending.length >= windowBytes) {
-          const window = pending.subarray(0, windowBytes);
-          pending = pending.subarray(windowBytes);
+        while (pending.length >= checkpointBytes) {
+          const window = pending.subarray(0, checkpointBytes);
+          pending = pending.subarray(checkpointBytes);
           const firstSampleIndex = receivedSampleCount;
           if (enqueuePcmWindow(new Uint8Array(window), firstSampleIndex))
-            receivedSampleCount += BigInt(window.byteLength / 2);
+            receivedSampleCount += BigInt(window.byteLength / frameBytes);
           if (stopError) break;
         }
         if (stopError) break;
@@ -820,17 +1057,18 @@ export async function recordLiveSource(
       : `Recording ${sourceLabel(source)} from ${device.name} through FFmpeg (${backend.name}); press Ctrl+C to stop and save.`,
   );
   await streamTask;
-  if (pending.length >= 2 && !forceStop) {
-    const alignedLength = pending.length - (pending.length % 2);
+  if (pending.length >= frameBytes && !forceStop) {
+    const alignedLength = pending.length - (pending.length % frameBytes);
     const trailing = pending.subarray(0, alignedLength);
     if (trailing.length) {
       if (enqueuePcmWindow(new Uint8Array(trailing), receivedSampleCount))
-        receivedSampleCount += BigInt(trailing.byteLength / 2);
+        receivedSampleCount += BigInt(trailing.byteLength / frameBytes);
     }
   }
+  flushInferenceWindow();
   flushArchiveCheckpoint();
-  if (pending.length % 2 !== 0 && !stopError) {
-    stopError = `${processName} returned an incomplete PCM sample; the recording is partial.`;
+  if (pending.length % frameBytes !== 0 && !stopError) {
+    stopError = `${processName} returned an incomplete PCM frame; the recording is partial.`;
   }
   await closePromise;
   clearTimeout(startupTimer);
@@ -856,6 +1094,10 @@ export async function recordLiveSource(
   await archiveQueue;
   await transcriptionQueue;
   await archiveQueue;
+  if (liveWhisperSession) {
+    await liveWhisperSession.close().catch(() => undefined);
+    liveWhisperSession = undefined;
+  }
 
   if (sampleCount === 0n)
     stopError ||= `The selected ${sourceLabel(source)} input did not provide any audio samples.`;
@@ -902,11 +1144,13 @@ export async function recordLiveSource(
     deviceId: device.id,
     deviceName: device.name,
     inputBackend: helperCapture ? device.backend : backend.name,
-    sampleRateHz: SAMPLE_RATE_HZ,
+    sampleFormat: captureFormat.sampleFormat,
+    sampleRateHz: captureFormat.sampleRateHz,
+    channelCount: captureFormat.channelCount,
     sampleCount: sampleCount.toString(),
     chunkCount,
     byteCount,
-    durationUs: ((sampleCount * 1_000_000n) / BigInt(SAMPLE_RATE_HZ)).toString(),
+    durationUs: ((sampleCount * 1_000_000n) / BigInt(captureFormat.sampleRateHz)).toString(),
     state,
     liveTranscriptSegmentCount: transcriptSegmentCount,
     liveSpeakerTurnBoundaryCount: speakerTurnBoundaryCount,
@@ -957,11 +1201,30 @@ export async function recordLiveSynchronized(
       }
     : (systemAudioCapture?.device ??
       (await selectSystemAudioDevice(options.ffmpeg, backend, options.systemAudioDevice)));
+  const microphoneFormat = microphoneCapture
+    ? captureFormatFromNativeDevice(microphoneCapture.device)
+    : FFMPEG_CAPTURE_FORMAT;
+  if (!microphoneFormat) {
+    throw new Error(
+      "The native audio helper did not report the microphone sample format. Rebuild the audio helper and retry.",
+    );
+  }
+  const secondaryFormat = applicationCapture
+    ? APPLICATION_CAPTURE_FORMAT
+    : systemAudioCapture
+      ? captureFormatFromNativeDevice(systemAudioCapture.device)
+      : FFMPEG_CAPTURE_FORMAT;
+  if (!secondaryFormat) {
+    throw new Error(
+      "The native audio helper did not report the system-audio sample format. Rebuild the audio helper and retry.",
+    );
+  }
   const sources: Array<{
     source: MicrophoneArchiveSource;
     device: FfmpegAudioDevice | NativeCaptureDevice | NativeApplicationAudioDevice;
     trackId: string;
     helperCapture: boolean;
+    format: LiveCaptureFormat;
     sourceDeviceId?: string;
     sourceBackend?: string;
     applicationName?: string;
@@ -973,6 +1236,7 @@ export async function recordLiveSynchronized(
       device: microphone,
       trackId: randomUUID(),
       helperCapture: Boolean(microphoneCapture),
+      format: microphoneFormat,
       ...(microphoneCapture
         ? {
             sourceDeviceId: microphoneCapture.device.id,
@@ -985,6 +1249,7 @@ export async function recordLiveSynchronized(
       device: secondary,
       trackId: randomUUID(),
       helperCapture: Boolean(applicationCapture || systemAudioCapture),
+      format: secondaryFormat,
       ...(applicationCapture
         ? {
             sourceBackend: applicationCapture.device.backend,
@@ -1024,10 +1289,12 @@ export async function recordLiveSynchronized(
   const startRecords = makeSynchronizedCaptureStartRecords({
     session,
     takeId,
-    tracks: sources.map(({ source, trackId, sourceDeviceId, sourceBackend }) => ({
+    tracks: sources.map(({ source, trackId, format, sourceDeviceId, sourceBackend }) => ({
       source,
       trackId,
-      sampleRateHz: SAMPLE_RATE_HZ,
+      sampleFormat: format.sampleFormat,
+      sampleRateHz: format.sampleRateHz,
+      channelCount: format.channelCount,
       ...(sourceDeviceId === undefined ? {} : { sourceDeviceId }),
       ...(sourceBackend === undefined ? {} : { sourceBackend }),
       ...(applicationCapture && source === "application-audio"
@@ -1045,6 +1312,7 @@ export async function recordLiveSynchronized(
     knownTrackIds: options.knownTrackIds,
     startedAtUs,
     consentAtUs: startedAtUs,
+    ...(options.durability === undefined ? {} : { durability: options.durability }),
     captureSourceBackend,
     consentConfirmedBy: options.consentConfirmedBy,
   });
@@ -1120,6 +1388,13 @@ export async function recordLiveSynchronized(
     ...source,
     stream: streams[index]!,
     track: tracks[index]!,
+    frameBytes: captureBytesPerSample(source.format.sampleFormat) * source.format.channelCount,
+    checkpointBytes: recordingCheckpointBytes(
+      options.durability,
+      source.format.sampleFormat,
+      source.format.sampleRateHz,
+      source.format.channelCount,
+    ),
     pending: Buffer.alloc(0),
     pendingParts: [] as Uint8Array[],
     pendingBytes: 0,
@@ -1236,7 +1511,6 @@ export async function recordLiveSynchronized(
     if (forceStopTimer) clearTimeout(forceStopTimer);
   });
 
-  const checkpointBytes = Math.min(27 * SAMPLE_RATE_HZ * 2, MAX_MICROPHONE_ARCHIVE_CHUNK_BYTES);
   let queuedPcmBytes = 0;
   let archiveFailure = "";
   let archiveQueue = Promise.resolve();
@@ -1273,6 +1547,8 @@ export async function recordLiveSynchronized(
           sequence: capture.chunkCount,
           firstSampleIndex: firstSampleIndex.toString(),
           samples: pcm,
+          sampleFormat: capture.format.sampleFormat,
+          channelCount: capture.format.channelCount,
         },
         source: capture.source,
       });
@@ -1280,12 +1556,12 @@ export async function recordLiveSynchronized(
       generation += 1n;
       capture.track = requiredSaved(saved, RecordType.assetMetadata, capture.trackId);
       session = requiredSaved(saved, RecordType.session, options.sessionId);
-      capture.sampleCount += BigInt(pcm.byteLength / 2);
+      capture.sampleCount += BigInt(pcm.byteLength / capture.frameBytes);
       capture.chunkCount += 1;
       capture.byteCount += pcm.byteLength;
       queuedPcmBytes -= pcm.byteLength;
       options.progress(
-        `Saved ${sourceLabel(capture.source)} checkpoint ${capture.chunkCount} (${formatDuration(capture.sampleCount)}).`,
+        `Saved ${sourceLabel(capture.source)} checkpoint ${capture.chunkCount} (${formatDuration(capture.sampleCount, capture.format.sampleRateHz)}).`,
       );
     });
   };
@@ -1297,16 +1573,16 @@ export async function recordLiveSynchronized(
       );
       return false;
     }
-    if (capture.pendingBytes && capture.pendingBytes + pcm.byteLength > checkpointBytes) {
+    if (capture.pendingBytes && capture.pendingBytes + pcm.byteLength > capture.checkpointBytes) {
       flushCheckpoint(capture);
     }
     const audio = new Uint8Array(pcm);
     if (capture.pendingStart === undefined) capture.pendingStart = capture.receivedSamples;
     capture.pendingParts.push(audio);
     capture.pendingBytes += audio.byteLength;
-    capture.receivedSamples += BigInt(audio.byteLength / 2);
+    capture.receivedSamples += BigInt(audio.byteLength / capture.frameBytes);
     queuedPcmBytes += audio.byteLength;
-    if (capture.pendingBytes >= checkpointBytes) flushCheckpoint(capture);
+    if (capture.pendingBytes >= capture.checkpointBytes) flushCheckpoint(capture);
     return true;
   };
 
@@ -1326,7 +1602,8 @@ export async function recordLiveSynchronized(
         if (shouldPause === isPaused || stopRequested) return;
         if (shouldPause) {
           for (const capture of captureTracks) {
-            const alignedLength = capture.pending.length - (capture.pending.length % 2);
+            const alignedLength =
+              capture.pending.length - (capture.pending.length % capture.frameBytes);
             if (alignedLength)
               enqueuePcm(capture, new Uint8Array(capture.pending.subarray(0, alignedLength)));
             capture.pending = Buffer.alloc(0);
@@ -1423,9 +1700,9 @@ export async function recordLiveSynchronized(
         capture.pending = capture.pending.length
           ? Buffer.concat([capture.pending, Buffer.from(bytes)])
           : Buffer.from(bytes);
-        while (capture.pending.length >= checkpointBytes) {
-          const pcm = capture.pending.subarray(0, checkpointBytes);
-          capture.pending = capture.pending.subarray(checkpointBytes);
+        while (capture.pending.length >= capture.checkpointBytes) {
+          const pcm = capture.pending.subarray(0, capture.checkpointBytes);
+          capture.pending = capture.pending.subarray(capture.checkpointBytes);
           if (!enqueuePcm(capture, pcm)) break;
         }
       }
@@ -1435,11 +1712,11 @@ export async function recordLiveSynchronized(
       requestStop(capture.failure);
     }
     if (!forceStop && capture.pending.length) {
-      const alignedLength = capture.pending.length - (capture.pending.length % 2);
+      const alignedLength = capture.pending.length - (capture.pending.length % capture.frameBytes);
       if (alignedLength) enqueuePcm(capture, capture.pending.subarray(0, alignedLength));
-      if (capture.pending.length % 2) {
+      if (capture.pending.length % capture.frameBytes) {
         capture.failure ||=
-          "The capture process returned an incomplete PCM sample; this track is partial.";
+          "The capture process returned an incomplete PCM frame; this track is partial.";
         requestStop(capture.failure);
       }
     }
@@ -1521,11 +1798,16 @@ export async function recordLiveSynchronized(
     trackId: capture.trackId,
     deviceId: capture.device.id,
     deviceName: capture.device.name,
-    sampleRateHz: SAMPLE_RATE_HZ,
+    sampleFormat: capture.format.sampleFormat,
+    sampleRateHz: capture.format.sampleRateHz,
+    channelCount: capture.format.channelCount,
     sampleCount: capture.sampleCount.toString(),
     chunkCount: capture.chunkCount,
     byteCount: capture.byteCount,
-    durationUs: ((capture.sampleCount * 1_000_000n) / BigInt(SAMPLE_RATE_HZ)).toString(),
+    durationUs: (
+      (capture.sampleCount * 1_000_000n) /
+      BigInt(capture.format.sampleRateHz)
+    ).toString(),
     state: capture.failure ? (capture.sampleCount > 0n ? "interrupted" : "failed") : "completed",
     error: capture.failure,
   }));
@@ -1719,7 +2001,7 @@ function ffmpegCaptureArguments(
     "-ac",
     "1",
     "-ar",
-    String(SAMPLE_RATE_HZ),
+    String(FFMPEG_CAPTURE_FORMAT.sampleRateHz),
     "-c:a",
     "pcm_s16le",
     "-f",
@@ -1763,7 +2045,7 @@ function ffmpegSynchronizedCaptureArguments(
       "-ac",
       "1",
       "-ar",
-      String(SAMPLE_RATE_HZ),
+      String(FFMPEG_CAPTURE_FORMAT.sampleRateHz),
       "-c:a",
       "pcm_s16le",
       "-f",
@@ -1783,6 +2065,20 @@ function ffmpegInputName(
     : backend.format === "avfoundation"
       ? `:${device.id}`
       : device.id;
+}
+
+/** Legacy durability policy: maximum snapshots every 100 ms, reduced-write every 2 s. */
+function recordingCheckpointBytes(
+  policy: RecordingDurability | undefined,
+  sampleFormat: CaptureSampleFormat,
+  sampleRateHz: number,
+  channelCount: number,
+): number {
+  const intervalMs = policy === "maximum" ? 100 : policy === "reduced-write" ? 2_000 : 500;
+  const frameBytes = captureBytesPerSample(sampleFormat) * channelCount;
+  const bytes = Math.floor((sampleRateHz * frameBytes * intervalMs) / 1_000);
+  const aligned = bytes - (bytes % frameBytes);
+  return Math.max(frameBytes, Math.min(MAX_MICROPHONE_ARCHIVE_CHUNK_BYTES, aligned));
 }
 
 async function validateWhisperConfiguration(
@@ -1806,33 +2102,78 @@ async function validateWhisperConfiguration(
   }
 }
 
-function makePreview(pcm: Uint8Array, firstSampleIndex: bigint): AudioPreview {
-  if (!pcm.byteLength || pcm.byteLength % 2)
+/**
+ * Build a native-rate, native-channel preview for Whisper. `whisperAudio` then downmixes and
+ * resamples the preview to 16 kHz mono without writing that converted audio to the archive.
+ */
+export function buildCapturePreview(
+  pcm: Uint8Array,
+  firstSampleIndex: bigint,
+  format: LiveCaptureFormat,
+): AudioPreview {
+  const bytesPerSample = captureBytesPerSample(format.sampleFormat);
+  const frameBytes = bytesPerSample * format.channelCount;
+  if (!pcm.byteLength || pcm.byteLength % frameBytes)
     throw new Error("Live Whisper received unaligned PCM audio.");
-  const frames = pcm.byteLength / 2;
-  const wav = new Uint8Array(44 + pcm.byteLength);
+  const frames = pcm.byteLength / frameBytes;
+  const source = new DataView(pcm.buffer, pcm.byteOffset, pcm.byteLength);
+  const pcm16 = new Uint8Array(frames * format.channelCount * 2);
+  const output = new DataView(pcm16.buffer);
+  for (let offset = 0, target = 0; offset < pcm.byteLength; offset += bytesPerSample, target += 2) {
+    output.setInt16(target, decodeCaptureSample(source, offset, format.sampleFormat), true);
+  }
+
+  const wav = new Uint8Array(44 + pcm16.byteLength);
   const view = new DataView(wav.buffer);
   writeAscii(wav, 0, "RIFF");
   view.setUint32(4, wav.length - 8, true);
   writeAscii(wav, 8, "WAVEfmt ");
   view.setUint32(16, 16, true);
   view.setUint16(20, 1, true);
-  view.setUint16(22, 1, true);
-  view.setUint32(24, SAMPLE_RATE_HZ, true);
-  view.setUint32(28, SAMPLE_RATE_HZ * 2, true);
-  view.setUint16(32, 2, true);
+  view.setUint16(22, format.channelCount, true);
+  view.setUint32(24, format.sampleRateHz, true);
+  view.setUint32(28, format.sampleRateHz * frameBytes, true);
+  view.setUint16(32, frameBytes, true);
   view.setUint16(34, 16, true);
   writeAscii(wav, 36, "data");
-  view.setUint32(40, pcm.byteLength, true);
-  wav.set(pcm, 44);
+  view.setUint32(40, pcm16.byteLength, true);
+  wav.set(pcm16, 44);
   return {
     wav,
-    sampleRateHz: SAMPLE_RATE_HZ,
-    channelCount: 1,
+    sampleRateHz: format.sampleRateHz,
+    channelCount: format.channelCount,
     frameCount: frames,
     startFrame: firstSampleIndex,
-    durationUs: (BigInt(frames) * 1_000_000n) / BigInt(SAMPLE_RATE_HZ),
+    durationUs: (BigInt(frames) * 1_000_000n) / BigInt(format.sampleRateHz),
   };
+}
+
+function decodeCaptureSample(
+  source: DataView,
+  offset: number,
+  sampleFormat: CaptureSampleFormat,
+): number {
+  switch (sampleFormat) {
+    case "pcm_u8":
+      return (source.getUint8(offset) - 128) << 8;
+    case "pcm_s16le":
+      return source.getInt16(offset, true);
+    case "pcm_s24le": {
+      const raw =
+        source.getUint8(offset) |
+        (source.getUint8(offset + 1) << 8) |
+        (source.getUint8(offset + 2) << 16);
+      const signed = raw & 0x80_0000 ? raw | 0xff_000000 : raw;
+      return signed >> 8;
+    }
+    case "pcm_s32le":
+      return source.getInt32(offset, true) >> 16;
+    case "pcm_f32le": {
+      const value = source.getFloat32(offset, true);
+      if (!Number.isFinite(value)) return 0;
+      return Math.max(-32_768, Math.min(32_767, Math.round(value * 32_768)));
+    }
+  }
 }
 
 function writeAscii(bytes: Uint8Array, offset: number, value: string): void {
@@ -1951,8 +2292,8 @@ function nowUs(): string {
   return (BigInt(Date.now()) * 1000n).toString();
 }
 
-function formatDuration(samples: bigint): string {
-  const totalSeconds = samples / BigInt(SAMPLE_RATE_HZ);
+function formatDuration(samples: bigint, sampleRateHz: number): string {
+  const totalSeconds = samples / BigInt(sampleRateHz);
   const minutes = totalSeconds / 60n;
   const seconds = totalSeconds % 60n;
   return `${minutes}m ${seconds}s`;
