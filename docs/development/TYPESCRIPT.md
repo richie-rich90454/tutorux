@@ -58,8 +58,7 @@ pnpm run cli -- --archive Lesson.tux student create --name "Maya Ortiz"
 pnpm run cli -- --archive Lesson.tux session list --json
 ```
 
-For encrypted creation, set a passphrase in the process environment and name that variable on the
-CLI. In PowerShell:
+For encrypted creation, set a passphrase in the process environment and name that variable on the CLI. In PowerShell:
 
 ```powershell
 # Populate this variable from a secret manager or secure prompt; do not type the secret into a command.
@@ -71,19 +70,11 @@ Remove-Item Env:TUTORUX_NEW_ARCHIVE_PASSPHRASE
 Remove-Item Env:TUTORUX_ROTATED_ARCHIVE_PASSPHRASE
 ```
 
-On macOS or Linux, inject the variable from a secret manager or secure prompt for the command
-session, then unset it when finished. Do not put the passphrase in an inline command or shell
-assignment that may be saved in history.
+On macOS or Linux, inject the variable from a secret manager or secure prompt for the command session, then unset it when finished. Do not put the passphrase in an inline command or shell assignment that may be saved in history.
 
 The CLI imports the same archive and domain modules as the UI. File paths are resolved by Node; archive reads are positional and bounded. `archive init` can create an encrypted archive with `--new-passphrase-env NAME`; encrypted access uses `--passphrase-env NAME`. `archive change-passphrase FILE --new-passphrase-env NAME` re-keys the archive after verifying the current passphrase. Passphrases stay out of command arguments and are not included in CLI output. Recovery inspects by default; `--recover-unpublished` or `--apply` publishes only a complete next generation after full record verification, and `--discard-tail` removes uncommitted bytes. Compaction applies by default, previews with `--preview`, rebuilds secondary indexes, preserves indexed history and stored payloads, optionally prunes unreferenced asset chunks, and supports unlocked encrypted archives. Recovery, repair, and compaction are available for encrypted archives after unlock. Repair creates a separate `.tux` copy from the newest fully verified published generation, may fall back to an earlier generation, and requires `--confirm-sensitive` because it can contain private student records and recordings. Sanitization first reports included record counts, encryption status, and a selection fingerprint; confirmation must repeat the same generation, selection, and output path. Encrypted sources always produce encrypted output, and `--new-passphrase-env NAME` can also encrypt output from an unencrypted source. Student/session and recording-track filters are supported, private annotations and generation logs are opt-in, and credentials are excluded unless `--include-credentials` is selected. Credential-inclusive copies require an encrypted source and destination; use `--new-passphrase-env NAME` for the destination phrase. Credential-looking values outside credential records are rejected when inclusion is requested. The CLI checkpoints bounded copy batches to a private disk-backed staging file, verifies the finished archive there, then publishes it atomically. Do not add a second archive serializer for CLI convenience.
 
-CLI and desktop archive access share OS-level reader/writer locks, including across compaction,
-passphrase rotation, and atomic replacement. The CLI requires the `tutorux-audio-helper` native
-executable for this coordination; build it with `pnpm run build:audio-helper`, or run the CLI from
-an installed desktop bundle that includes the helper. If the helper cannot be found, archive
-commands stop with an explicit setup error rather than proceeding without a lock. You can set
-`TUTORUX_ARCHIVE_LOCK_HELPER` to the helper executable's path when running from a custom build
-location.
+CLI and desktop archive access share OS-level reader/writer locks, including across compaction, passphrase rotation, and atomic replacement. The CLI requires the `tutorux-audio-helper` native executable for this coordination; build it with `pnpm run build:audio-helper`, or run the CLI from an installed desktop bundle that includes the helper. If the helper cannot be found, archive commands stop with an explicit setup error rather than proceeding without a lock. You can set `TUTORUX_ARCHIVE_LOCK_HELPER` to the helper executable's path when running from a custom build location.
 
 ## Encryption boundary
 
