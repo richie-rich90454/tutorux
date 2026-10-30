@@ -72,7 +72,7 @@ export async function prepareAudioImport(
   return {
     path: decodedPath,
     sourceFilename,
-    sourceCodec: extension.slice(1) as PreparedAudioImport["sourceCodec"],
+    sourceCodec: extension.slice(1) as NonNullable<PreparedAudioImport["sourceCodec"]>,
     validateSourceUnchanged,
     cleanup: async () => await rm(temporaryDirectory, { recursive: true, force: true }),
   };
@@ -116,16 +116,20 @@ async function decodeCompressedAudio(
   }, DECODER_TIMEOUT_MS);
   const forceKill = setTimeout(() => child.kill("SIGKILL"), DECODER_TIMEOUT_MS + 5_000);
   const outputLimitPoll = setInterval(() => {
-    void lstat(destinationPath).then((info) => {
-      if (info.size > MAX_DECODED_WAVE_BYTES) {
-        overflow = true;
-        child.kill();
-      }
-    }).catch(() => undefined);
+    void lstat(destinationPath)
+      .then((info) => {
+        if (info.size > MAX_DECODED_WAVE_BYTES) {
+          overflow = true;
+          child.kill();
+        }
+      })
+      .catch(() => undefined);
   }, 100);
-  const closed = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolveClose) => {
-    child.once("close", (code, signal) => resolveClose({ code, signal }));
-  });
+  const closed = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>(
+    (resolveClose) => {
+      child.once("close", (code, signal) => resolveClose({ code, signal }));
+    },
+  );
   child.once("error", (error: Error) => {
     spawnError = error;
     child.kill();
@@ -144,7 +148,9 @@ async function decodeCompressedAudio(
     if (timedOut) throw new Error("FFmpeg audio decoding exceeded the 10-minute time limit.");
     if (overflow) throw new Error("Decoded audio exceeds the 256 MiB import limit.");
     if (exit.code !== 0) {
-      throw new Error(stderr.trim() || `FFmpeg audio decoding exited with code ${String(exit.code)}.`);
+      throw new Error(
+        stderr.trim() || `FFmpeg audio decoding exited with code ${String(exit.code)}.`,
+      );
     }
     const decodedInfo = await lstat(destinationPath).catch(() => null);
     if (!decodedInfo?.isFile() || decodedInfo.isSymbolicLink() || decodedInfo.size < 12) {
