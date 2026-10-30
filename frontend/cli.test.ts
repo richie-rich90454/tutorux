@@ -243,9 +243,7 @@ describe("TypeScript CLI", () => {
         ),
       ).toBe(0);
       const reassigned = JSON.parse(stdout[4]!) as Record<string, string>;
-      expect(reassigned["collection_ids"]).toBe(
-        `${collection.id},${unavailableCollectionId}`,
-      );
+      expect(reassigned["collection_ids"]).toBe(`${collection.id},${unavailableCollectionId}`);
 
       expect(
         await executeCli(
@@ -254,10 +252,7 @@ describe("TypeScript CLI", () => {
         ),
       ).toBe(0);
       expect(
-        await executeCli(
-          ["--json", "--archive", archivePath, "journal", "show", entryId],
-          io,
-        ),
+        await executeCli(["--json", "--archive", archivePath, "journal", "show", entryId], io),
       ).toBe(0);
       const detached = JSON.parse(stdout[6]!) as Record<string, string>;
       expect(detached["collection_ids"]).toBe(unavailableCollectionId);
@@ -270,10 +265,7 @@ describe("TypeScript CLI", () => {
         ),
       ).toBe(0);
       expect(
-        await executeCli(
-          ["--json", "--archive", archivePath, "journal", "show", entryId],
-          io,
-        ),
+        await executeCli(["--json", "--archive", archivePath, "journal", "show", entryId], io),
       ).toBe(0);
       const restored = JSON.parse(stdout[8]!) as Record<string, string>;
       expect(restored["collection_ids"]).toBe(`${unavailableCollectionId},${collection.id}`);
