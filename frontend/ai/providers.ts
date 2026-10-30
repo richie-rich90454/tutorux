@@ -376,6 +376,39 @@ export function isOpenAiCompatibleProvider(providerId: string): boolean {
   return providerById(providerId)?.protocol.includes("OpenAI") ?? false;
 }
 
+/** Legacy `ai providers` status values kept for CLI compatibility. */
+export function aiProviderCatalogStatus(providerId: string): string {
+  switch (providerId) {
+    case "anthropic":
+      return "anthropic-messages-protocol";
+    case "google-gemini":
+      return "gemini-generate-content-protocol";
+    case "cohere":
+      return "cohere-chat-v2-protocol";
+    case "perplexity":
+      return "perplexity-agent-api";
+    case "replicate":
+      return "replicate-prediction-api";
+    case "ollama":
+      return "native-ollama-api";
+    case "lm-studio":
+    case "llama.cpp-server":
+      return "local-openai-compatible";
+    case "llama.cpp-embedded":
+    case "embedded-gguf":
+      return "embedded-gguf-runtime";
+    case "opencode-go":
+      return "coding-agent-use-restricted";
+    case "opencode-zen":
+      return "multi-protocol-model-routes";
+    case "ai21":
+    case "zai":
+      return "models-dev-chat-completions";
+    default:
+      return "openai-compatible-protocol";
+  }
+}
+
 export async function createProviderConfigurationRecord(
   input: AiProviderConfigurationInput,
   now = Date.now(),
