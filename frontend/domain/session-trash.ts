@@ -209,46 +209,94 @@ export async function planSessionRestore(
   const sessionId = session.id.toLowerCase();
   const timestamp = currentTimestampUs();
   const changes: ArchiveRecord[] = [];
+  const restoredIds = new Set<string>([sessionId]);
+  const restore = (record: ArchiveRecord): void => {
+    changes.push(restoreGroupedRecord(record, timestamp));
+    restoredIds.add(record.id.toLowerCase());
+  };
 
   for (const type of SESSION_RESTORE_TYPES) {
+    if (type === RecordType.evidenceEdge) continue;
     const records = await snapshot.listRecords(type, true);
     for (const record of records) {
-      if (
-        field(record, "_deleted") === "true" &&
-        field(record, "_trash_group_id").toLowerCase() === sessionId
-      ) {
-        changes.push(restoreGroupedRecord(record, timestamp));
-      }
+      if (record.id.toLowerCase() === sessionId || field(record, "_deleted") !== "true") continue;
+      const groupMatch = field(record, "_trash_group_id").toLowerCase() === sessionId;
+      const legacyMatch =
+        LEGACY_SESSION_CHILD_TYPES.has(type) &&
+        field(record, "session_id").toLowerCase() === sessionId;
+      if (groupMatch || legacyMatch) restore(record);
     }
   }
 
   for (const record of await getSessionAudioChunks(snapshot, session, true)) {
     if (
       field(record, "_deleted") === "true" &&
-      field(record, "_trash_group_id").toLowerCase() === sessionId
+      (field(record, "_trash_group_id").toLowerCase() === sessionId ||
+        field(record, "session_id").toLowerCase() === sessionId)
     ) {
-      changes.push(restoreGroupedRecord(record, timestamp));
+      restore(record);
+    }
+  }
+
+  // Older archives may not have recorded the edge group, so recovery follows
+  // both the session and the records this restore brought back.
+  for (const edge of await snapshot.listRecords(RecordType.evidenceEdge, true)) {
+    if (field(edge, "_deleted") !== "true" || changes.some((item) => sameRecord(item, edge))) {
+      continue;
+    }
+    if (
+      field(edge, "session_id").toLowerCase() === sessionId ||
+      restoredIds.has(field(edge, "from_id").toLowerCase()) ||
+      restoredIds.has(field(edge, "to_id").toLowerCase())
+    ) {
+      restore(edge);
     }
   }
 
   const settings = await snapshot.listRecords(RecordType.settings, true);
+  const entryId = field(session, "entry_id").toLowerCase();
   for (const entry of settings) {
-    if (field(entry, "_trash_session_group_id").toLowerCase() !== sessionId) continue;
+    if (
+      entry.type !== RecordType.settings ||
+      field(entry, "record_role") !== "journal-entry" ||
+      field(entry, "_deleted") === "true"
+    ) {
+      continue;
+    }
     const fields = new Map(entry.fields);
-    restoreReferences(fields, "session_ids", "_trash_restore_session_refs");
-    restoreReferences(fields, "study_guide_ids", "_trash_restore_guide_refs");
-    restoreReferences(fields, "attachment_ids", "_trash_restore_asset_refs");
-    fields.delete("_trash_session_group_id");
-    fields.delete("_trash_restore_session_refs");
-    fields.delete("_trash_restore_guide_refs");
-    fields.delete("_trash_restore_asset_refs");
-    fields.set("updated_at_us", timestamp);
-    changes.push({ ...entry, fields });
+    let changed = false;
+    if (field(entry, "_trash_session_group_id").toLowerCase() === sessionId) {
+      restoreReferences(fields, "session_ids", "_trash_restore_session_refs");
+      restoreReferences(fields, "study_guide_ids", "_trash_restore_guide_refs");
+      restoreReferences(fields, "attachment_ids", "_trash_restore_asset_refs");
+      fields.delete("_trash_session_group_id");
+      fields.delete("_trash_restore_session_refs");
+      fields.delete("_trash_restore_guide_refs");
+      fields.delete("_trash_restore_asset_refs");
+      changed = true;
+    } else if (
+      entryId &&
+      entry.id.toLowerCase() === entryId &&
+      !splitIds(fields.get("session_ids") ?? "").includes(sessionId)
+    ) {
+      // Best effort for session groups created before relation snapshots existed.
+      fields.set("session_ids", mergeReference(fields.get("session_ids") ?? "", sessionId));
+      changed = true;
+    }
+    if (changed) {
+      fields.set("updated_at_us", timestamp);
+      changes.push({ ...entry, fields });
+    }
   }
 
-  changes.push(restoreGroupedRecord(session, timestamp));
+  restore(session);
   return deduplicateRecords(changes);
 }
+
+const LEGACY_SESSION_CHILD_TYPES = new Set<number>([
+  ...SESSION_DEPENDENCY_TYPES,
+  RecordType.settings,
+]);
 
 async function getSessionAudioChunks(
   snapshot: ArchiveSnapshot,
@@ -439,6 +487,16 @@ function splitReferenceValues(value: string): string[] {
     .split(",")
     .map((id) => id.trim())
     .filter(Boolean);
+}
+
+function mergeReference(value: string, id: string): string {
+  const references = splitReferenceValues(value);
+  if (!references.some((item) => item.toLowerCase() === id.toLowerCase())) references.push(id);
+  return references.join(",");
+}
+
+function sameRecord(left: ArchiveRecord, right: ArchiveRecord): boolean {
+  return left.type === right.type && left.id.toLowerCase() === right.id.toLowerCase();
 }
 
 function deduplicateRecords(records: readonly ArchiveRecord[]): ArchiveRecord[] {
