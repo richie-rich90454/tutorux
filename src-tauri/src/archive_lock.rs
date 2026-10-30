@@ -14,7 +14,11 @@ pub(crate) struct ArchiveLockRegistry {
 }
 
 impl ArchiveLockRegistry {
-    pub(crate) fn for_path(&self, path: &Path, mode: LockMode) -> Result<SharedArchiveLock, String> {
+    pub(crate) fn for_path(
+        &self,
+        path: &Path,
+        mode: LockMode,
+    ) -> Result<SharedArchiveLock, String> {
         let key = archive_lock_key(path)?;
         let mut locks = self
             .locks
