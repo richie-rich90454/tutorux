@@ -126,11 +126,65 @@
   font-size: 10px;
   font-weight: 650;
 }
-.transcript-capture-copy > span:last-child,
+.transcript-capture-copy > p,
 .transcript-capture-note {
+  margin: 0;
   color: var(--muted);
   font-size: 8px;
   line-height: 1.5;
+}
+.transcript-capture-copy > label {
+  display: grid;
+  grid-template-columns: auto minmax(120px, 1fr);
+  align-items: center;
+  gap: 9px;
+  color: var(--ink-soft);
+  font-size: 9px;
+}
+.transcript-capture-copy select {
+  min-width: 0;
+  max-width: 100%;
+  padding: 6px 9px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+}
+.recording-capability-note {
+  margin: 0;
+  color: var(--muted);
+  font-size: 8px;
+  line-height: 1.5;
+}
+.transcript-capture-preflight {
+  display: grid;
+  grid-template-columns: auto minmax(80px, 1fr);
+  align-items: center;
+  gap: 7px 10px;
+  margin-top: 4px;
+}
+.transcript-capture-meter {
+  height: 8px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface-subtle);
+}
+.transcript-capture-meter > div {
+  height: 100%;
+  min-width: 2px;
+  border-radius: inherit;
+  background: var(--accent);
+  transition: width 90ms linear;
+}
+.transcript-capture-preflight-message {
+  grid-column: 1 / -1;
+  margin: 0;
+  color: var(--muted);
+  font-size: 8px;
+  line-height: 1.45;
+  font-variant-numeric: tabular-nums;
 }
 .transcript-capture-consent {
   display: inline-flex;
@@ -156,6 +210,8 @@
   display: flex;
   align-items: center;
   justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 .transcript-capture-live {
   display: inline-flex;
@@ -233,6 +289,20 @@
   color: var(--ink-soft);
   background: var(--surface);
   font-size: 9px;
+}
+.transcript-audio-export-actions {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.transcript-audio-export-note {
+  grid-column: 1 / -1;
+  margin: -6px 0 0;
+  color: var(--muted);
+  font-size: 8px;
+  line-height: 1.5;
 }
 .transcript-audio-panel audio {
   grid-column: 3 / 5;
@@ -346,6 +416,29 @@
   gap: 6px;
   padding-top: 8px;
   border-top: 1px solid var(--line-soft);
+}
+.transcript-take-trashed-tracks > strong {
+  color: var(--muted);
+  font-size: 8px;
+  font-weight: 650;
+}
+.transcript-take-trashed-track-row {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 7px 8px;
+  border: 1px solid var(--line-soft);
+  border-radius: 6px;
+  color: var(--muted);
+  background: var(--surface);
+  font-size: 8px;
+}
+.transcript-take-trashed-track-row > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .transcript-take-trash {
   color: var(--danger);
@@ -691,6 +784,10 @@
   }
   .transcript-take-card-trashed {
     grid-template-columns: minmax(0, 1fr);
+  }
+  .transcript-take-trashed-track-row {
+    align-items: flex-start;
+    flex-direction: column;
   }
   .transcript-takes-heading {
     align-items: flex-start;
