@@ -159,7 +159,7 @@ export async function enumerateFfmpegAudioDevices(
     const audioHeader = result.stderr.toLowerCase().indexOf("directshow audio devices");
     const audioSection = audioHeader < 0 ? result.stderr : result.stderr.slice(audioHeader);
     const names = [
-      ...audioSection.matchAll(/^\s*(?:\[[^\]]+\]\s*)?\"([^\"]+)\"(?:\s+\(audio\))?\s*$/gimu),
+      ...audioSection.matchAll(/^\s*(?:\[[^\]]+\]\s*)?"([^"]+)"(?:\s+\(audio\))?\s*$/gimu),
     ]
       .map((match) => match[1]!)
       .filter((name) => !name.startsWith("@device_"));
@@ -263,10 +263,13 @@ export async function probeFfmpegAudioDevice(options: {
     child.once("close", (code, signal) => resolveClose({ code, signal }));
   });
   clearTimeout(timeout);
-  if (spawnError) throw new Error("Could not start FFmpeg for the signal probe: " + spawnError.message);
+  if (spawnError)
+    throw new Error("Could not start FFmpeg for the signal probe: " + spawnError.message);
   if (overflow) throw new Error("The FFmpeg signal probe exceeded its bounded capture limit.");
   if (exit.code !== 0) {
-    throw new Error(stderr.trim() || `FFmpeg exited with code ${String(exit.code)} during the signal probe.`);
+    throw new Error(
+      stderr.trim() || `FFmpeg exited with code ${String(exit.code)} during the signal probe.`,
+    );
   }
   if (byteCount < 2 || byteCount % 2 !== 0) {
     throw new Error("The FFmpeg input opened but returned no complete PCM samples.");
@@ -342,10 +345,10 @@ export async function recordLiveSource(
             ? {}
             : { bundleId: applicationCapture!.device.bundleId }),
         }
-      : nativeCapture?.device ??
+      : (nativeCapture?.device ??
         (source === "system-audio"
           ? await selectSystemAudioDevice(options.ffmpeg, backend, options.device)
-          : await selectDevice(options.ffmpeg, backend, options.device));
+          : await selectDevice(options.ffmpeg, backend, options.device)));
   const checkpointBytes = Math.min(27 * SAMPLE_RATE_HZ * 2, MAX_MICROPHONE_ARCHIVE_CHUNK_BYTES);
   const windowSeconds = options.whisper?.windowSeconds ?? 27;
   const windowBytes = windowSeconds * SAMPLE_RATE_HZ * 2;
@@ -391,7 +394,8 @@ export async function recordLiveSource(
     knownTrackIds: options.knownTrackIds,
     startedAtUs,
     consentAtUs: startedAtUs,
-    captureSourceBackend: applicationCapture || nativeCapture ? "native-audio-helper" : "ffmpeg-cli",
+    captureSourceBackend:
+      applicationCapture || nativeCapture ? "native-audio-helper" : "ffmpeg-cli",
     consentConfirmedBy: options.consentConfirmedBy,
   });
   const savedStart = await options.commit(startRecords, generation);
@@ -418,7 +422,7 @@ export async function recordLiveSource(
   );
   const processName = helperCapture ? "The native audio helper" : "FFmpeg";
   let stderr = "";
-  child.stderr.on("data", (chunk: Buffer) => {
+  child.stderr!.on("data", (chunk: Buffer) => {
     if (stderr.length < STDERR_CAPTURE_LIMIT) {
       stderr += chunk.toString("utf8").slice(0, STDERR_CAPTURE_LIMIT - stderr.length);
     }
@@ -432,7 +436,10 @@ export async function recordLiveSource(
     if (reason && !stopError) stopError = reason;
     if (stopRequested && !force) return;
     stopRequested = true;
-    options.recordingControl?.stateChanged("finalizing", reason || "Saving the recording and closing the capture process.");
+    options.recordingControl?.stateChanged(
+      "finalizing",
+      reason || "Saving the recording and closing the capture process.",
+    );
     forceStop ||= force;
     if (child.exitCode === null && child.signalCode === null) {
       if (helperCapture && !forceStop && child.stdin?.writable) {
@@ -701,60 +708,65 @@ export async function recordLiveSource(
     if (!options.recordingControl || options.recordingControl.pauseRequested() === isPaused) {
       return pauseTransition;
     }
-    pauseTransition = pauseTransition.catch(() => {}).then(async () => {
-      const shouldPause = options.recordingControl!.pauseRequested();
-      if (shouldPause === isPaused || stopRequested) return;
-      if (shouldPause) {
-        const alignedLength = pending.length - (pending.length % 2);
-        if (alignedLength) {
-          const finalPcm = pending.subarray(0, alignedLength);
-          const firstSampleIndex = receivedSampleCount;
-          if (enqueuePcmWindow(new Uint8Array(finalPcm), firstSampleIndex)) {
-            receivedSampleCount += BigInt(finalPcm.byteLength / 2);
+    pauseTransition = pauseTransition
+      .catch(() => {})
+      .then(async () => {
+        const shouldPause = options.recordingControl!.pauseRequested();
+        if (shouldPause === isPaused || stopRequested) return;
+        if (shouldPause) {
+          const alignedLength = pending.length - (pending.length % 2);
+          if (alignedLength) {
+            const finalPcm = pending.subarray(0, alignedLength);
+            const firstSampleIndex = receivedSampleCount;
+            if (enqueuePcmWindow(new Uint8Array(finalPcm), firstSampleIndex)) {
+              receivedSampleCount += BigInt(finalPcm.byteLength / 2);
+            }
           }
+          pending = Buffer.alloc(0);
+          flushArchiveCheckpoint();
+          await archiveQueue;
+          if (stopRequested) return;
+          isPaused = true;
+          pauseCount += 1;
+          pausedStartedAt = Date.now();
+          pauseDurationTimer();
+          const stateRecords = makeSynchronizedCaptureStateRecords(
+            session,
+            [track],
+            take,
+            "paused",
+            { pauseCount, pausedDurationUs: String(Math.round(pausedDurationMs * 1_000)) },
+          );
+          const savedState = await options.commit(stateRecords, generation);
+          generation += 1n;
+          track = requiredSaved(savedState, RecordType.assetMetadata, trackId);
+          take = requiredSaved(savedState, RecordType.assetMetadata, takeId);
+          session = requiredSaved(savedState, RecordType.session, options.sessionId);
+          if (stopRequested) return;
+          options.recordingControl!.stateChanged(
+            "paused",
+            "Audio capture is paused; committed checkpoints are durable.",
+          );
+        } else {
+          pausedDurationMs += Date.now() - pausedStartedAt;
+          isPaused = false;
+          startDurationTimer();
+          const stateRecords = makeSynchronizedCaptureStateRecords(
+            session,
+            [track],
+            take,
+            "recording",
+            { pauseCount, pausedDurationUs: String(Math.round(pausedDurationMs * 1_000)) },
+          );
+          const savedState = await options.commit(stateRecords, generation);
+          generation += 1n;
+          track = requiredSaved(savedState, RecordType.assetMetadata, trackId);
+          take = requiredSaved(savedState, RecordType.assetMetadata, takeId);
+          session = requiredSaved(savedState, RecordType.session, options.sessionId);
+          if (stopRequested) return;
+          options.recordingControl!.stateChanged("recording", "Audio capture resumed.");
         }
-        pending = Buffer.alloc(0);
-        flushArchiveCheckpoint();
-        await archiveQueue;
-        if (stopRequested) return;
-        isPaused = true;
-        pauseCount += 1;
-        pausedStartedAt = Date.now();
-        pauseDurationTimer();
-        const stateRecords = makeSynchronizedCaptureStateRecords(
-          session,
-          [track],
-          take,
-          "paused",
-          { pauseCount, pausedDurationUs: String(Math.round(pausedDurationMs * 1_000)) },
-        );
-        const savedState = await options.commit(stateRecords, generation);
-        generation += 1n;
-        track = requiredSaved(savedState, RecordType.assetMetadata, trackId);
-        take = requiredSaved(savedState, RecordType.assetMetadata, takeId);
-        session = requiredSaved(savedState, RecordType.session, options.sessionId);
-        if (stopRequested) return;
-        options.recordingControl!.stateChanged("paused", "Audio capture is paused; committed checkpoints are durable.");
-      } else {
-        pausedDurationMs += Date.now() - pausedStartedAt;
-        isPaused = false;
-        startDurationTimer();
-        const stateRecords = makeSynchronizedCaptureStateRecords(
-          session,
-          [track],
-          take,
-          "recording",
-          { pauseCount, pausedDurationUs: String(Math.round(pausedDurationMs * 1_000)) },
-        );
-        const savedState = await options.commit(stateRecords, generation);
-        generation += 1n;
-        track = requiredSaved(savedState, RecordType.assetMetadata, trackId);
-        take = requiredSaved(savedState, RecordType.assetMetadata, takeId);
-        session = requiredSaved(savedState, RecordType.session, options.sessionId);
-        if (stopRequested) return;
-        options.recordingControl!.stateChanged("recording", "Audio capture resumed.");
-      }
-    });
+      });
     return pauseTransition;
   };
 
@@ -765,15 +777,15 @@ export async function recordLiveSource(
   }, 15_000);
   const controlTimer = setInterval(() => {
     if (options.recordingControl?.stopRequested() && !stopRequested) requestStop();
-    void synchronizePause().catch((error: unknown) => {
+    void synchronizePauseState().catch((error: unknown) => {
       requestStop(`The recording could not pause cleanly: ${errorMessage(error)}`);
     });
   }, 50);
   const streamTask = (async () => {
     try {
-      for await (const bytes of child.stdout) {
+      for await (const bytes of child.stdout!) {
         if (forceStop) break;
-        await synchronizePause();
+        await synchronizePauseState();
         if (stopRequested || forceStop) break;
         if (isPaused) {
           pending = Buffer.alloc(0);
@@ -879,7 +891,8 @@ export async function recordLiveSource(
   const state = stopError ? (sampleCount > 0n ? "interrupted" : "failed") : "completed";
   options.recordingControl?.stateChanged(
     state,
-    stopError || (state === "completed" ? "Recording is durably saved." : "Recording could not be completed."),
+    stopError ||
+      (state === "completed" ? "Recording is durably saved." : "Recording could not be completed."),
   );
   return {
     sessionId: options.sessionId,
@@ -942,8 +955,8 @@ export async function recordLiveSynchronized(
           ? {}
           : { bundleId: applicationCapture.device.bundleId }),
       }
-    : systemAudioCapture?.device ??
-      (await selectSystemAudioDevice(options.ffmpeg, backend, options.systemAudioDevice));
+    : (systemAudioCapture?.device ??
+      (await selectSystemAudioDevice(options.ffmpeg, backend, options.systemAudioDevice)));
   const sources: Array<{
     source: MicrophoneArchiveSource;
     device: FfmpegAudioDevice | NativeCaptureDevice | NativeApplicationAudioDevice;
@@ -961,7 +974,10 @@ export async function recordLiveSynchronized(
       trackId: randomUUID(),
       helperCapture: Boolean(microphoneCapture),
       ...(microphoneCapture
-        ? { sourceDeviceId: microphoneCapture.device.id, sourceBackend: microphoneCapture.device.backend }
+        ? {
+            sourceDeviceId: microphoneCapture.device.id,
+            sourceBackend: microphoneCapture.device.backend,
+          }
         : {}),
     },
     {
@@ -987,8 +1003,8 @@ export async function recordLiveSynchronized(
     },
   ];
   const takeId = randomUUID();
-  const nativeTrackCount = Number(Boolean(microphoneCapture)) +
-    Number(Boolean(applicationCapture || systemAudioCapture));
+  const nativeTrackCount =
+    Number(Boolean(microphoneCapture)) + Number(Boolean(applicationCapture || systemAudioCapture));
   const captureSourceBackend =
     nativeTrackCount === 2
       ? "native-audio-helper"
@@ -1003,7 +1019,6 @@ export async function recordLiveSynchronized(
         : `FFmpeg (${backend.name})`;
   let generation = options.expectedGeneration;
   let session = options.session;
-  let tracks: ArchiveRecord[];
   let take: ArchiveRecord;
   const startedAtUs = nowUs();
   const startRecords = makeSynchronizedCaptureStartRecords({
@@ -1035,7 +1050,7 @@ export async function recordLiveSynchronized(
   });
   const savedStart = await options.commit(startRecords, generation);
   generation += 1n;
-  tracks = sources.map(({ trackId }) =>
+  const tracks = sources.map(({ trackId }) =>
     requiredSaved(savedStart, RecordType.assetMetadata, trackId),
   );
   take = requiredSaved(savedStart, RecordType.assetMetadata, takeId);
@@ -1045,10 +1060,7 @@ export async function recordLiveSynchronized(
   const captureChildren: ChildProcess[] = [];
   const helperCaptureChildren = new Set<ChildProcess>();
   let streams: Readable[];
-  const spawnHelperCapture = (
-    helper: string,
-    args: string[],
-  ): ChildProcess => {
+  const spawnHelperCapture = (helper: string, args: string[]): ChildProcess => {
     const child = spawn(helper, args, {
       stdio: ["pipe", "pipe", "pipe"],
       windowsHide: true,
@@ -1062,7 +1074,9 @@ export async function recordLiveSynchronized(
       stdio: ["ignore", "pipe", "pipe"],
       windowsHide: true,
     });
-  const needsSeparateInputs = Boolean(applicationCapture || microphoneCapture || systemAudioCapture);
+  const needsSeparateInputs = Boolean(
+    applicationCapture || microphoneCapture || systemAudioCapture,
+  );
   if (needsSeparateInputs) {
     const microphoneChild = microphoneCapture
       ? spawnHelperCapture(microphoneCapture.helper, [
@@ -1134,7 +1148,10 @@ export async function recordLiveSynchronized(
     if (reason && !stopError) stopError = reason;
     if (stopRequested && !force) return;
     stopRequested = true;
-    options.recordingControl?.stateChanged("finalizing", reason || "Saving synchronized tracks and closing capture processes.");
+    options.recordingControl?.stateChanged(
+      "finalizing",
+      reason || "Saving synchronized tracks and closing capture processes.",
+    );
     forceStop ||= force;
     for (const captureChild of captureChildren) {
       if (captureChild.exitCode !== null || captureChild.signalCode !== null) continue;
@@ -1302,60 +1319,69 @@ export async function recordLiveSynchronized(
     if (!options.recordingControl || options.recordingControl.pauseRequested() === isPaused) {
       return pauseTransition;
     }
-    pauseTransition = pauseTransition.catch(() => {}).then(async () => {
-      const shouldPause = options.recordingControl!.pauseRequested();
-      if (shouldPause === isPaused || stopRequested) return;
-      if (shouldPause) {
-        for (const capture of captureTracks) {
-          const alignedLength = capture.pending.length - (capture.pending.length % 2);
-          if (alignedLength) enqueuePcm(capture, new Uint8Array(capture.pending.subarray(0, alignedLength)));
-          capture.pending = Buffer.alloc(0);
-          flushCheckpoint(capture);
+    pauseTransition = pauseTransition
+      .catch(() => {})
+      .then(async () => {
+        const shouldPause = options.recordingControl!.pauseRequested();
+        if (shouldPause === isPaused || stopRequested) return;
+        if (shouldPause) {
+          for (const capture of captureTracks) {
+            const alignedLength = capture.pending.length - (capture.pending.length % 2);
+            if (alignedLength)
+              enqueuePcm(capture, new Uint8Array(capture.pending.subarray(0, alignedLength)));
+            capture.pending = Buffer.alloc(0);
+            flushCheckpoint(capture);
+          }
+          await archiveQueue;
+          if (stopRequested) return;
+          isPaused = true;
+          pauseCount += 1;
+          pausedStartedAt = Date.now();
+          pauseDurationTimer();
+          const stateRecords = makeSynchronizedCaptureStateRecords(
+            session,
+            captureTracks.map((capture) => capture.track),
+            take,
+            "paused",
+            { pauseCount, pausedDurationUs: String(Math.round(pausedDurationMs * 1_000)) },
+          );
+          const savedState = await options.commit(stateRecords, generation);
+          generation += 1n;
+          for (const capture of captureTracks) {
+            capture.track = requiredSaved(savedState, RecordType.assetMetadata, capture.trackId);
+          }
+          take = requiredSaved(savedState, RecordType.assetMetadata, takeId);
+          session = requiredSaved(savedState, RecordType.session, options.sessionId);
+          if (stopRequested) return;
+          options.recordingControl!.stateChanged(
+            "paused",
+            "Synchronized capture is paused; committed checkpoints are durable.",
+          );
+        } else {
+          pausedDurationMs += Date.now() - pausedStartedAt;
+          isPaused = false;
+          startDurationTimer();
+          const stateRecords = makeSynchronizedCaptureStateRecords(
+            session,
+            captureTracks.map((capture) => capture.track),
+            take,
+            "recording",
+            { pauseCount, pausedDurationUs: String(Math.round(pausedDurationMs * 1_000)) },
+          );
+          const savedState = await options.commit(stateRecords, generation);
+          generation += 1n;
+          for (const capture of captureTracks) {
+            capture.track = requiredSaved(savedState, RecordType.assetMetadata, capture.trackId);
+          }
+          take = requiredSaved(savedState, RecordType.assetMetadata, takeId);
+          session = requiredSaved(savedState, RecordType.session, options.sessionId);
+          if (stopRequested) return;
+          options.recordingControl!.stateChanged(
+            "recording",
+            "Synchronized audio capture resumed.",
+          );
         }
-        await archiveQueue;
-        if (stopRequested) return;
-        isPaused = true;
-        pauseCount += 1;
-        pausedStartedAt = Date.now();
-        pauseDurationTimer();
-        const stateRecords = makeSynchronizedCaptureStateRecords(
-          session,
-          captureTracks.map((capture) => capture.track),
-          take,
-          "paused",
-          { pauseCount, pausedDurationUs: String(Math.round(pausedDurationMs * 1_000)) },
-        );
-        const savedState = await options.commit(stateRecords, generation);
-        generation += 1n;
-        for (const capture of captureTracks) {
-          capture.track = requiredSaved(savedState, RecordType.assetMetadata, capture.trackId);
-        }
-        take = requiredSaved(savedState, RecordType.assetMetadata, takeId);
-        session = requiredSaved(savedState, RecordType.session, options.sessionId);
-        if (stopRequested) return;
-        options.recordingControl!.stateChanged("paused", "Synchronized capture is paused; committed checkpoints are durable.");
-      } else {
-        pausedDurationMs += Date.now() - pausedStartedAt;
-        isPaused = false;
-        startDurationTimer();
-        const stateRecords = makeSynchronizedCaptureStateRecords(
-          session,
-          captureTracks.map((capture) => capture.track),
-          take,
-          "recording",
-          { pauseCount, pausedDurationUs: String(Math.round(pausedDurationMs * 1_000)) },
-        );
-        const savedState = await options.commit(stateRecords, generation);
-        generation += 1n;
-        for (const capture of captureTracks) {
-          capture.track = requiredSaved(savedState, RecordType.assetMetadata, capture.trackId);
-        }
-        take = requiredSaved(savedState, RecordType.assetMetadata, takeId);
-        session = requiredSaved(savedState, RecordType.session, options.sessionId);
-        if (stopRequested) return;
-        options.recordingControl!.stateChanged("recording", "Synchronized audio capture resumed.");
-      }
-    });
+      });
     return pauseTransition;
   };
 
@@ -1388,7 +1414,10 @@ export async function recordLiveSynchronized(
           if (captureTracks.every((candidate) => candidate.firstSampleSeen))
             clearTimeout(startupTimer);
           if (options.recordingControl?.state() === "initializing") {
-            options.recordingControl.stateChanged("recording", "Synchronized audio capture is active.");
+            options.recordingControl.stateChanged(
+              "recording",
+              "Synchronized audio capture is active.",
+            );
           }
         }
         capture.pending = capture.pending.length
@@ -1484,9 +1513,10 @@ export async function recordLiveSynchronized(
     : "completed";
   options.recordingControl?.stateChanged(
     state,
-    stopError || (state === "completed" ? "Recording is durably saved." : "Recording could not be completed."),
+    stopError ||
+      (state === "completed" ? "Recording is durably saved." : "Recording could not be completed."),
   );
-  const resultTracks = captureTracks.map((capture) => ({
+  const resultTracks: LiveSynchronizedRecordingResult["tracks"] = captureTracks.map((capture) => ({
     source: capture.source,
     trackId: capture.trackId,
     deviceId: capture.device.id,
