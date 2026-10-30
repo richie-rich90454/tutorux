@@ -25,6 +25,11 @@ export interface WaveImportResult {
   byteCount: number;
 }
 
+export interface WaveImportSourceMetadata {
+  sourceFilename?: string;
+  sourceCodec?: string;
+}
+
 interface DataRange {
   offset: number;
   length: number;
@@ -48,6 +53,7 @@ export async function makeWaveImportRecords(
   file: WaveFile,
   allowAdditionalTrack = false,
   knownTrackIds: readonly string[] = [],
+  sourceMetadata: WaveImportSourceMetadata = {},
 ): Promise<WaveImportResult> {
   if (session.type !== RecordType.session || session.fields.get("_deleted") === "true") {
     throw new Error("Choose an active tutoring session before importing audio.");
@@ -71,7 +77,8 @@ export async function makeWaveImportRecords(
   const format = await inspectWave(file);
   const sampleCount = BigInt(format.dataBytes / format.blockAlign);
   const durationUs = (sampleCount * 1_000_000n) / BigInt(format.sampleRateHz);
-  const filename = cleanFilename(file.name);
+  const filename = cleanFilename(sourceMetadata.sourceFilename ?? file.name);
+  const sourceCodec = sourceMetadata.sourceCodec ?? format.sourceCodec;
   const timestamp = (BigInt(Date.now()) * 1_000n).toString();
   const trackId = newUuid();
   const takeId = newUuid();
@@ -112,7 +119,7 @@ export async function makeWaveImportRecords(
         ["channel_count", String(format.channelCount)],
         ["channel_mask", String(format.channelMask)],
         ["codec", "none"],
-        ["source_codec", format.sourceCodec],
+        ["source_codec", sourceCodec],
         ["payload_checksum", String(crc32(raw))],
         ["source_filename", filename],
       ]);
@@ -229,7 +236,7 @@ export async function makeWaveImportRecords(
   sessionFields.set("audio_import_channel_count", String(format.channelCount));
   sessionFields.set("audio_import_channel_mask", String(format.channelMask));
   sessionFields.set("audio_import_sample_format", format.sampleFormat);
-  sessionFields.set("audio_import_source_codec", format.sourceCodec);
+  sessionFields.set("audio_import_source_codec", sourceCodec);
   sessionFields.set("audio_import_bytes", String(format.dataBytes));
   sessionFields.set("audio_chunks_imported", String(sequence));
   sessionFields.set("audio_samples_imported", sampleCount.toString());
