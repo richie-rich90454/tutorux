@@ -4,7 +4,7 @@ import { buildAudioTrackWavStream } from "./audio";
 import { buildWaveformIndexFromChunks } from "./waveform-index";
 
 const BLOCK_FRAMES = 2048;
-const MAX_MIX_BYTES = 256 * 1024 * 1024;
+const CHUNKS_PER_COMMIT = 16;
 
 interface Source {
   rate: number;
@@ -29,6 +29,20 @@ export interface AudioMixResult {
   chunkCount: number;
 }
 
+export interface IncrementalAudioMixOptions {
+  snapshot: ArchiveSnapshot;
+  sessionId: string;
+  takeId: string;
+  trackIds: readonly string[];
+  label?: string;
+  expectedGeneration: bigint;
+  commit: (
+    records: readonly ArchiveRecord[],
+    expectedGeneration: bigint,
+  ) => Promise<ArchiveRecord[]>;
+  chunksPerCommit?: number;
+}
+
 /** Mix two to eight tracks from one take into a stereo, archive-backed track. */
 export async function mixRecordingTracks(
   snapshot: ArchiveSnapshot,
@@ -37,14 +51,44 @@ export async function mixRecordingTracks(
   trackIds: readonly string[],
   label = "Mixdown",
 ): Promise<AudioMixResult> {
-  sessionId = sessionId.toLowerCase();
-  takeId = takeId.toLowerCase();
-  const ids = trackIds.map((id) => id.toLowerCase());
+  return mixTracksCore({
+    snapshot,
+    sessionId,
+    takeId,
+    trackIds,
+    label,
+  });
+}
+
+/**
+ * Mix a take while committing completed chunk batches incrementally. Long sessions
+ * never need to hold the complete output in memory.
+ */
+export async function mixRecordingTracksIncremental(
+  options: IncrementalAudioMixOptions,
+): Promise<AudioMixResult> {
+  return mixTracksCore(options);
+}
+
+async function mixTracksCore(options: {
+  snapshot: ArchiveSnapshot;
+  sessionId: string;
+  takeId: string;
+  trackIds: readonly string[];
+  label?: string;
+  expectedGeneration?: bigint;
+  commit?: IncrementalAudioMixOptions["commit"];
+  chunksPerCommit?: number;
+}): Promise<AudioMixResult> {
+  const sessionId = options.sessionId.toLowerCase();
+  const takeId = options.takeId.toLowerCase();
+  const ids = options.trackIds.map((id) => id.toLowerCase());
   if (ids.length < 2 || ids.length > 8 || new Set(ids).size !== ids.length)
     throw new Error("Select between two and eight distinct tracks.");
-  label = label.trim() || "Mixdown";
+  const label = (options.label ?? "Mixdown").trim() || "Mixdown";
   if (new TextEncoder().encode(label).length > 120 || /[\r\n\0]/u.test(label))
     throw new Error("Mix name must fit on one line and contain at most 120 bytes.");
+  const snapshot = options.snapshot;
   const session = await snapshot.getRecord(RecordType.session, sessionId);
   const take = await snapshot.getRecord(RecordType.assetMetadata, takeId);
   if (!session || session.fields.get("_deleted") === "true")
@@ -114,23 +158,62 @@ export async function mixRecordingTracks(
       ...sources.map((source) => Math.floor((source.totalFrames * 1_000_000) / source.rate)),
     );
     const frames = Math.floor((durationUs * targetRate) / 1_000_000);
-    if (!Number.isSafeInteger(frames) || frames < 1 || frames * 4 > MAX_MIX_BYTES)
-      throw new Error("Mix output must be no larger than 256 MiB.");
+    if (!Number.isSafeInteger(frames) || frames < 1)
+      throw new Error("The selected audio is too long to mix.");
     const trackId = newUuid();
     const now = (BigInt(Date.now()) * 1000n).toString();
-    const records: ArchiveRecord[] = [];
     let active: number[] = [];
     let activeStart = 0;
     let activeGap = 0;
     let pendingGap = 0;
     let sequence = 0;
-    const flush = () => {
+    let generation = options.expectedGeneration ?? 0n;
+    const incremental = options.commit !== undefined;
+    const chunksPerCommit = Math.max(
+      1,
+      Math.min(256, options.chunksPerCommit ?? CHUNKS_PER_COMMIT),
+    );
+    let batch: ArchiveRecord[] = [];
+    const records: ArchiveRecord[] = [];
+    const commit = async (batchRecords: readonly ArchiveRecord[]): Promise<ArchiveRecord[]> => {
+      if (!options.commit) throw new Error("Mix commit callback is unavailable.");
+      const saved = await options.commit(batchRecords, generation);
+      generation += 1n;
+      return saved;
+    };
+    const commitBatch = async (force = false): Promise<void> => {
+      if (!incremental || !batch.length) return;
+      if (!force && batch.length < chunksPerCommit) return;
+      await commit(batch);
+      batch = [];
+    };
+    const startFields = makeTrackFields({
+      sessionId,
+      trackId,
+      takeId,
+      sourceTrackIds: ids,
+      label,
+      targetRate,
+      now,
+      state: incremental ? "mixing" : "completed",
+      frames: incremental ? 0 : frames,
+      durationUs: incremental ? 0 : durationUs,
+      chunkCount: incremental ? 0 : sequence,
+    });
+    if (incremental) {
+      await commit([
+        makeTrackRecord(trackId, startFields),
+        makeTakeRecord(take, linked, trackId, now),
+        makeSessionRecord(session, trackId, now),
+      ]);
+    }
+    const flush = async (): Promise<void> => {
       if (!active.length) return;
       const bytes = new Uint8Array(active.length * 2);
       const view = new DataView(bytes.buffer);
       active.forEach((sample, index) => view.setInt16(index * 2, sample, true));
       const count = active.length / 2;
-      records.push({
+      const chunk: ArchiveRecord = {
         type: RecordType.audioChunk,
         id: newUuid(),
         revision: 0n,
@@ -153,116 +236,228 @@ export async function mixRecordingTracks(
           ["payload_checksum", String(crc32(bytes))],
         ]),
         blob: bytes,
-      });
+      };
+      if (incremental) {
+        batch.push(chunk);
+        await commitBatch();
+      } else {
+        records.push(chunk);
+      }
       active = [];
       activeGap = 0;
     };
-    for (let frame = 0; frame < frames; frame++) {
-      let left = 0;
-      let right = 0;
-      let contributors = 0;
-      for (const source of sources) {
-        const sourceFrame = Math.floor((frame * source.rate) / targetRate);
-        if (sourceFrame >= source.totalFrames) continue;
-        while (source.frame < sourceFrame) await advance(source);
-        if (source.gaps.some((gap) => sourceFrame >= gap.start && sourceFrame < gap.end)) continue;
-        let l = source.current[0]!;
-        let r = source.channels === 1 ? l : source.current[1]!;
-        if (source.channels > 2) {
-          const extra = Math.trunc(
-            source.current.slice(2).reduce((sum, sample) => sum + sample, 0) /
-              (source.channels - 2),
-          );
-          l = Math.trunc((l + extra) / 2);
-          r = Math.trunc((r + extra) / 2);
+    try {
+      for (let frame = 0; frame < frames; frame++) {
+        let left = 0;
+        let right = 0;
+        let contributors = 0;
+        for (const source of sources) {
+          const sourceFrame = Math.floor((frame * source.rate) / targetRate);
+          if (sourceFrame >= source.totalFrames) continue;
+          while (source.frame < sourceFrame) await advance(source);
+          if (source.gaps.some((gap) => sourceFrame >= gap.start && sourceFrame < gap.end))
+            continue;
+          let l = source.current[0]!;
+          let r = source.channels === 1 ? l : source.current[1]!;
+          if (source.channels > 2) {
+            const extra = Math.trunc(
+              source.current.slice(2).reduce((sum, sample) => sum + sample, 0) /
+                (source.channels - 2),
+            );
+            l = Math.trunc((l + extra) / 2);
+            r = Math.trunc((r + extra) / 2);
+          }
+          left += l;
+          right += r;
+          contributors++;
         }
-        left += l;
-        right += r;
-        contributors++;
+        if (!contributors) {
+          await flush();
+          pendingGap++;
+          continue;
+        }
+        if (!active.length) {
+          activeStart = frame;
+          activeGap = pendingGap;
+          pendingGap = 0;
+        }
+        active.push(Math.trunc(left / contributors), Math.trunc(right / contributors));
+        if (active.length >= BLOCK_FRAMES * 2) await flush();
       }
-      if (!contributors) {
-        flush();
-        pendingGap++;
-        continue;
+      await flush();
+      if (!sequence) throw new Error("The chosen tracks have no overlapping saved audio.");
+      if (incremental) {
+        await commitBatch(true);
+        await commit([
+          makeTrackRecord(
+            trackId,
+            makeTrackFields({
+              sessionId,
+              trackId,
+              takeId,
+              sourceTrackIds: ids,
+              label,
+              targetRate,
+              now,
+              state: "completed",
+              frames,
+              durationUs,
+              chunkCount: sequence,
+            }),
+          ),
+        ]);
+        return {
+          records: [],
+          trackId,
+          sampleRateHz: targetRate,
+          frameCount: frames,
+          durationUs: String(durationUs),
+          chunkCount: sequence,
+        };
       }
-      if (!active.length) {
-        activeStart = frame;
-        activeGap = pendingGap;
-        pendingGap = 0;
+      const track: ArchiveRecord = makeTrackRecord(
+        trackId,
+        makeTrackFields({
+          sessionId,
+          trackId,
+          takeId,
+          sourceTrackIds: ids,
+          label,
+          targetRate,
+          now,
+          state: "completed",
+          frames,
+          durationUs,
+          chunkCount: sequence,
+        }),
+      );
+      const waveform = await buildWaveformIndexFromChunks(
+        records.filter((record) => record.type === RecordType.audioChunk),
+        sessionId,
+        trackId,
+      );
+      records.push(
+        waveform,
+        track,
+        makeTakeRecord(take, linked, trackId, now),
+        makeSessionRecord(session, trackId, now),
+      );
+      return {
+        records,
+        trackId,
+        sampleRateHz: targetRate,
+        frameCount: frames,
+        durationUs: String(durationUs),
+        chunkCount: sequence,
+      };
+    } catch (error) {
+      if (incremental) {
+        try {
+          await commit([
+            makeTrackRecord(
+              trackId,
+              makeTrackFields({
+                sessionId,
+                trackId,
+                takeId,
+                sourceTrackIds: ids,
+                label,
+                targetRate,
+                now,
+                state: sequence ? "partial" : "failed",
+                frames,
+                durationUs,
+                chunkCount: sequence,
+              }),
+            ),
+          ]);
+        } catch {
+          // Keep the original failure; partial chunks are already durable.
+        }
       }
-      active.push(Math.trunc(left / contributors), Math.trunc(right / contributors));
-      if (active.length >= BLOCK_FRAMES * 2) flush();
+      throw error;
     }
-    flush();
-    if (!sequence) throw new Error("The chosen tracks have no overlapping saved audio.");
-    const track: ArchiveRecord = {
-      type: RecordType.assetMetadata,
-      id: trackId,
-      revision: 0n,
-      previousOffset: 0n,
-      fields: new Map([
-        ["record_role", "audio-track"],
-        ["session_id", sessionId],
-        ["track_id", trackId],
-        ["recording_take_id", takeId],
-        ["source", "mixdown"],
-        ["source_track_ids", ids.join(",")],
-        ["label", label],
-        ["state", "completed"],
-        ["sample_rate_hz", String(targetRate)],
-        ["sample_format", "pcm_s16le"],
-        ["channel_count", "2"],
-        ["channel_mask", "3"],
-        ["sample_count", String(frames)],
-        ["timeline_sample_count", String(frames)],
-        ["chunk_count", String(sequence)],
-        ["duration_us", String(durationUs)],
-        ["updated_at_us", now],
-      ]),
-      blob: new Uint8Array(),
-    };
-    const waveform = await buildWaveformIndexFromChunks(
-      records.filter((record) => record.type === RecordType.audioChunk),
-      sessionId,
-      trackId,
-    );
-    const sessionTracks = [
-      ...new Set(
-        ["recording_track_ids", "recording_track_id", "audio_import_track_id"].flatMap((key) =>
-          (session.fields.get(key) ?? "")
-            .split(",")
-            .map((id) => id.trim())
-            .filter(Boolean),
-        ),
-      ),
-    ];
-    const sessionFields = new Map(session.fields)
-      .set("recording_track_ids", [...sessionTracks, trackId].join(","))
-      .set("recording_track_count", String(sessionTracks.length + 1))
-      .set("updated_at_us", now);
-    const takeFields = new Map(take.fields)
-      .set("track_ids", [...linked, trackId].join(","))
-      .set("updated_at_us", now);
-    records.push(
-      waveform,
-      track,
-      { ...take, fields: takeFields },
-      { ...session, fields: sessionFields },
-    );
-    return {
-      records,
-      trackId,
-      sampleRateHz: targetRate,
-      frameCount: frames,
-      durationUs: String(durationUs),
-      chunkCount: sequence,
-    };
   } finally {
     for (const source of sources) {
       await source.reader.cancel().catch(() => {});
       source.reader.releaseLock();
     }
   }
+}
+
+function makeTrackFields(options: {
+  sessionId: string;
+  trackId: string;
+  takeId: string;
+  sourceTrackIds: readonly string[];
+  label: string;
+  targetRate: number;
+  now: string;
+  state: string;
+  frames: number;
+  durationUs: number;
+  chunkCount: number;
+}): Map<string, string> {
+  return new Map<string, string>([
+    ["record_role", "audio-track"],
+    ["session_id", options.sessionId],
+    ["track_id", options.trackId],
+    ["recording_take_id", options.takeId],
+    ["source", "mixdown"],
+    ["source_track_ids", options.sourceTrackIds.join(",")],
+    ["label", options.label],
+    ["state", options.state],
+    ["sample_rate_hz", String(options.targetRate)],
+    ["sample_format", "pcm_s16le"],
+    ["channel_count", "2"],
+    ["channel_mask", "3"],
+    ["sample_count", String(options.frames)],
+    ["timeline_sample_count", String(options.frames)],
+    ["chunk_count", String(options.chunkCount)],
+    ["duration_us", String(options.durationUs)],
+    ["updated_at_us", options.now],
+  ]);
+}
+
+function makeTrackRecord(trackId: string, fields: ReadonlyMap<string, string>): ArchiveRecord {
+  return {
+    type: RecordType.assetMetadata,
+    id: trackId,
+    revision: 0n,
+    previousOffset: 0n,
+    fields,
+    blob: new Uint8Array(),
+  };
+}
+
+function makeTakeRecord(
+  take: ArchiveRecord,
+  linked: readonly string[],
+  trackId: string,
+  now: string,
+): ArchiveRecord {
+  const takeFields = new Map(take.fields)
+    .set("track_ids", [...linked, trackId].join(","))
+    .set("updated_at_us", now);
+  return { ...take, fields: takeFields };
+}
+
+function makeSessionRecord(session: ArchiveRecord, trackId: string, now: string): ArchiveRecord {
+  const sessionTracks = [
+    ...new Set(
+      ["recording_track_ids", "recording_track_id", "audio_import_track_id"].flatMap((key) =>
+        (session.fields.get(key) ?? "")
+          .split(",")
+          .map((id) => id.trim())
+          .filter(Boolean),
+      ),
+    ),
+  ];
+  const sessionFields = new Map(session.fields)
+    .set("recording_track_ids", [...sessionTracks, trackId].join(","))
+    .set("recording_track_count", String(sessionTracks.length + 1))
+    .set("updated_at_us", now);
+  return { ...session, fields: sessionFields };
 }
 
 async function advance(source: Source): Promise<void> {
