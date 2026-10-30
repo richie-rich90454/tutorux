@@ -775,10 +775,7 @@ export function readRemovedNoteBlocks(document: ArchiveRecord): RemovedNoteBlock
 }
 
 /** Restore a removed note block to its saved position in the notes document. */
-export function restoreRemovedNoteBlock(
-  document: ArchiveRecord,
-  blockId: string,
-): ArchiveRecord {
+export function restoreRemovedNoteBlock(document: ArchiveRecord, blockId: string): ArchiveRecord {
   if (
     document.type !== RecordType.settings ||
     document.fields.get("record_role") !== "journal-notes" ||
@@ -924,15 +921,14 @@ function recordRemovedNoteBlocks(
   }
   if (merged.length === recovered.length && removed.length === 0) return;
   if (merged.length > MAX_RECOVERABLE_NOTE_BLOCKS) {
-    throw new Error("Trash can hold 256 removed note blocks. Restore or purge one before removing another.");
+    throw new Error(
+      "Trash can hold 256 removed note blocks. Restore or purge one before removing another.",
+    );
   }
   writeRemovedNoteBlocks(fields, merged);
 }
 
-function writeNoteBlocks(
-  fields: Map<string, string>,
-  blocks: readonly JournalNoteBlock[],
-): void {
+function writeNoteBlocks(fields: Map<string, string>, blocks: readonly JournalNoteBlock[]): void {
   for (const key of [...fields.keys()]) {
     if (/^block\.\d+\.(?:id|kind|text)$/u.test(key)) fields.delete(key);
   }
