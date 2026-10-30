@@ -8,8 +8,11 @@ import {
   type AiPackageSummary,
 } from "./ai/package";
 import { createAiMultipartHandoff } from "./ai/multipart";
+import { hasAiModelCatalog, loadAiModelCatalog, type AiCatalogModel } from "./ai/model-catalog";
 import type { AiRequestPreview } from "./ai/request";
+import type { ReplicateModelInputSchema } from "./ai/replicate-schema";
 import { AI_RESPONSE_PREVIEW_CHARACTER_LIMIT, type AiExecutionSummary } from "./ai/response";
+import { cancelReplicatePrediction } from "./ai/replicate";
 import {
   AI_PROVIDERS,
   isEmbeddedGgufProvider,
@@ -53,7 +56,13 @@ interface AiPageProps {
     packageJob: ArchiveRecord,
     providerId: string,
     credentialStorage: AiCredentialStorage,
+    replicateInputSchema?: ReplicateModelInputSchema,
   ) => Promise<AiRequestPreview>;
+  onInspectReplicateModel: (
+    providerId: string,
+    model: string,
+    credentialStorage: AiCredentialStorage,
+  ) => Promise<ReplicateModelInputSchema>;
   onSave: (summary: AiPackageSummary) => Promise<boolean>;
   onLoad: (jobId: string) => Promise<ArchiveRecord | null>;
   onExportTextFile: (
@@ -93,8 +102,11 @@ export function AiPage(props: AiPageProps): JSX.Element {
   const [review, setReview] = createSignal<AiPackageSummary | null>(null);
   const [requestPreview, setRequestPreview] = createSignal<AiRequestPreview | null>(null);
   const [requestPreviewMessage, setRequestPreviewMessage] = createSignal("");
+  const [replicateSchemaInspecting, setReplicateSchemaInspecting] = createSignal(false);
   const [sendConfirmed, setSendConfirmed] = createSignal(false);
   const [sendProgressBytes, setSendProgressBytes] = createSignal(0);
+  const [sending, setSending] = createSignal(false);
+  const [cancelRequested, setCancelRequested] = createSignal(false);
   const [showResponse, setShowResponse] = createSignal(false);
   const [reviewed, setReviewed] = createSignal(false);
   const [showJson, setShowJson] = createSignal(false);
@@ -102,6 +114,14 @@ export function AiPage(props: AiPageProps): JSX.Element {
   const [providerId, setProviderId] = createSignal(AI_PROVIDERS[0]!.id);
   const [providerEndpoint, setProviderEndpoint] = createSignal(AI_PROVIDERS[0]!.defaultEndpoint);
   const [providerModel, setProviderModel] = createSignal("");
+  const [catalogVisible, setCatalogVisible] = createSignal(false);
+  const [catalogLoading, setCatalogLoading] = createSignal(false);
+  const [catalogModels, setCatalogModels] = createSignal<readonly AiCatalogModel[]>([]);
+  const [catalogMessage, setCatalogMessage] = createSignal("");
+  const [catalogQuery, setCatalogQuery] = createSignal("");
+  const [catalogCapability, setCatalogCapability] = createSignal<"all" | "vision" | "tools">("all");
+  let catalogRequestVersion = 0;
+  let catalogController: AbortController | undefined;
   const [providerMessage, setProviderMessage] = createSignal("");
   const [credentialInput, setCredentialInput] = createSignal("");
   const [credentialConfirmed, setCredentialConfirmed] = createSignal(false);
@@ -116,9 +136,8 @@ export function AiPage(props: AiPageProps): JSX.Element {
   const [embeddedMessage, setEmbeddedMessage] = createSignal("");
   const embeddedAvailable = embeddedModelRuntimeAvailable();
   let credentialStorageTouched = false;
-  const currentProvider = createMemo(
-    () => providerById(providerId()) ?? AI_PROVIDERS[0]!,
-  );
+  onCleanup(() => catalogController?.abort());
+  const currentProvider = createMemo(() => providerById(providerId()) ?? AI_PROVIDERS[0]!);
   const savedCredential = createMemo(() =>
     props.credentials.find(
       (record) =>
@@ -162,6 +181,27 @@ export function AiPage(props: AiPageProps): JSX.Element {
         previous.model === next.model,
     },
   );
+  const visibleCatalogModels = createMemo(() => {
+    const query = catalogQuery().trim().toLocaleLowerCase();
+    const capability = catalogCapability();
+    return catalogModels()
+      .filter((model) => {
+        if (
+          capability === "vision" &&
+          !model.inputModalities.some((modality) => modality === "image" || modality === "video")
+        ) {
+          return false;
+        }
+        if (capability === "tools" && model.toolSupport !== true) return false;
+        return (
+          !query ||
+          model.id.toLocaleLowerCase().includes(query) ||
+          model.owner.toLocaleLowerCase().includes(query) ||
+          (model.tokenizer?.toLocaleLowerCase().includes(query) ?? false)
+        );
+      })
+      .slice(0, 100);
+  });
   createEffect(() => {
     if (props.systemCredentialStoreAvailable && !credentialStorageTouched) {
       setCredentialStorage("system-keychain");
@@ -198,6 +238,15 @@ export function AiPage(props: AiPageProps): JSX.Element {
     setRequestPreviewMessage("");
     setSendConfirmed(false);
     setSendProgressBytes(0);
+    catalogRequestVersion += 1;
+    catalogController?.abort();
+    catalogController = undefined;
+    setCatalogVisible(false);
+    setCatalogLoading(false);
+    setCatalogModels([]);
+    setCatalogMessage("");
+    setCatalogQuery("");
+    setCatalogCapability("all");
   });
   createEffect(() => {
     if (!embeddedAvailable) return;
@@ -300,11 +349,7 @@ export function AiPage(props: AiPageProps): JSX.Element {
       const filename = `Tutorux-AI-${job.fields.get("session_id") ?? job.id}.${isPackage ? "json" : "txt"}`;
       const location = text
         ? await props.onExportTextFile(filename, text, "application/json")
-        : await props.onExportBinaryFile(
-            filename,
-            job.blob.slice(),
-            "application/octet-stream",
-          );
+        : await props.onExportBinaryFile(filename, job.blob.slice(), "application/octet-stream");
       if (location) setMessage(`Exported AI ${isPackage ? "package" : "response"} to ${location}.`);
     } catch (cause) {
       setMessage(cause instanceof Error ? cause.message : "The package could not be exported.");
@@ -326,7 +371,9 @@ export function AiPage(props: AiPageProps): JSX.Element {
         );
       }
     } catch (cause) {
-      setMessage(cause instanceof Error ? cause.message : "The multipart handoff could not be exported.");
+      setMessage(
+        cause instanceof Error ? cause.message : "The multipart handoff could not be exported.",
+      );
     }
   }
 
@@ -346,6 +393,55 @@ export function AiPage(props: AiPageProps): JSX.Element {
         cause instanceof Error ? cause.message : "Provider settings could not be saved.",
       );
     }
+  }
+
+  async function openModelCatalog(refresh = false): Promise<void> {
+    setCatalogVisible(true);
+    setCatalogMessage("");
+    if (!hasAiModelCatalog(currentProvider().id)) {
+      setCatalogMessage(
+        "This provider does not publish a public catalog here. You can still enter its model ID manually.",
+      );
+      return;
+    }
+    const requestVersion = ++catalogRequestVersion;
+    const requestedProvider = currentProvider().id;
+    const controller = new AbortController();
+    catalogController?.abort();
+    catalogController = controller;
+    setCatalogLoading(true);
+    try {
+      const result = await loadAiModelCatalog(requestedProvider, {
+        refresh,
+        signal: controller.signal,
+      });
+      if (requestVersion !== catalogRequestVersion) return;
+      setCatalogModels(result.models);
+      setCatalogMessage(
+        result.freshness === "stale-cache-fallback"
+          ? `${result.models.length.toLocaleString()} cached model records are shown because the catalog could not be reached. Metadata may be stale; verify availability and capabilities with your provider.`
+          : `${result.models.length.toLocaleString()} public model records loaded. Catalog metadata is informational and may be out of date; verify availability and capabilities with your provider.`,
+      );
+    } catch (cause) {
+      if (requestVersion !== catalogRequestVersion) return;
+      setCatalogMessage(
+        cause instanceof Error
+          ? `${cause.message} Manual model ID entry remains available.`
+          : "The public catalog is unavailable. Manual model ID entry remains available.",
+      );
+    } finally {
+      if (catalogController === controller) catalogController = undefined;
+      if (requestVersion === catalogRequestVersion) setCatalogLoading(false);
+    }
+  }
+
+  function chooseCatalogModel(model: AiCatalogModel): void {
+    setProviderModel(model.id);
+    setRequestPreview(null);
+    setRequestPreviewMessage("");
+    setSendConfirmed(false);
+    props.onClearExecution();
+    setCatalogMessage(`${model.id} selected. Save provider settings to use this model.`);
   }
 
   async function saveCredential(): Promise<void> {
@@ -407,7 +503,9 @@ export function AiPage(props: AiPageProps): JSX.Element {
       setEmbeddedModel(selected);
       setEmbeddedContextTokens(String(selected.contextTokens));
       setEmbeddedCpuThreads(String(Math.min(8, selected.maximumCpuThreads)));
-      setEmbeddedMessage("GGUF metadata checked. The model has not been loaded and nothing was downloaded.");
+      setEmbeddedMessage(
+        "GGUF metadata checked. The model has not been loaded and nothing was downloaded.",
+      );
     } catch (cause) {
       setEmbeddedMessage(
         cause instanceof Error ? cause.message : "The selected GGUF model could not be inspected.",
@@ -429,7 +527,11 @@ export function AiPage(props: AiPageProps): JSX.Element {
     setEmbeddedBusy(true);
     setEmbeddedMessage("Loading the selected model into the local runtime…");
     try {
-      const status = await loadEmbeddedModel(selected.authorizationToken, contextTokens, cpuThreads);
+      const status = await loadEmbeddedModel(
+        selected.authorizationToken,
+        contextTokens,
+        cpuThreads,
+      );
       setEmbeddedStatus(status);
       setEmbeddedMessage(
         `${status.name ?? selected.name} is loaded in this app. Prompts stay on this device.`,
@@ -457,11 +559,15 @@ export function AiPage(props: AiPageProps): JSX.Element {
         setProviderId("embedded-gguf");
         setProviderEndpoint("tutorux://embedded/generate");
         setProviderModel(status.modelId);
-        setEmbeddedMessage("Saved this offline model as the AI provider for the reviewed generation flow.");
+        setEmbeddedMessage(
+          "Saved this offline model as the AI provider for the reviewed generation flow.",
+        );
       }
     } catch (cause) {
       setEmbeddedMessage(
-        cause instanceof Error ? cause.message : "The local model could not be saved as the AI provider.",
+        cause instanceof Error
+          ? cause.message
+          : "The local model could not be saved as the AI provider.",
       );
     }
   }
@@ -473,7 +579,9 @@ export function AiPage(props: AiPageProps): JSX.Element {
       setEmbeddedStatus(await unloadEmbeddedModel());
       setEmbeddedMessage("The local model was unloaded from memory.");
     } catch (cause) {
-      setEmbeddedMessage(cause instanceof Error ? cause.message : "The local model could not be unloaded.");
+      setEmbeddedMessage(
+        cause instanceof Error ? cause.message : "The local model could not be unloaded.",
+      );
     } finally {
       setEmbeddedBusy(false);
     }
@@ -510,19 +618,33 @@ export function AiPage(props: AiPageProps): JSX.Element {
       setRequestPreviewMessage("Save provider settings and a model before reviewing a request.");
       return;
     }
+    const storage = credentialStorage();
+    let replicateInputSchema: ReplicateModelInputSchema | undefined;
     try {
-      const storage = credentialStorage();
+      if (currentProvider().id === "replicate") {
+        setReplicateSchemaInspecting(true);
+        setRequestPreviewMessage("Checking the selected model’s supported inputs…");
+        replicateInputSchema = await props.onInspectReplicateModel(
+          currentProvider().id,
+          configuration.fields.get("selected_model") ?? "",
+          storage,
+        );
+      }
       const preview = await props.onCreateRequestPreview(
         summary.job,
         currentProvider().id,
         storage,
+        replicateInputSchema,
       );
       setSystemCredentialSaved(storage === "system-keychain" && preview.credentialAvailable);
       setRequestPreview(preview);
+      setRequestPreviewMessage("");
     } catch (cause) {
       setRequestPreviewMessage(
         cause instanceof Error ? cause.message : "The provider request preview could not be built.",
       );
+    } finally {
+      setReplicateSchemaInspecting(false);
     }
   }
 
@@ -537,6 +659,8 @@ export function AiPage(props: AiPageProps): JSX.Element {
     setRequestPreviewMessage("");
     props.onClearExecution();
     setSendProgressBytes(0);
+    setSending(true);
+    setCancelRequested(false);
     setShowResponse(false);
     try {
       await props.onSend(
@@ -554,6 +678,8 @@ export function AiPage(props: AiPageProps): JSX.Element {
         cause instanceof Error ? cause.message : "The provider request could not be completed.",
       );
     } finally {
+      setSending(false);
+      setCancelRequested(false);
       if (preview.attachedImages.length > 0) {
         setRequestPreview(null);
         setSendConfirmed(false);
@@ -576,7 +702,7 @@ export function AiPage(props: AiPageProps): JSX.Element {
           <span />
           {props.execution
             ? "Response saved"
-        : props.busy && isEmbeddedGgufProvider(currentProvider().id)
+            : props.busy && isEmbeddedGgufProvider(currentProvider().id)
               ? "Generating offline"
               : props.busy
                 ? "Sending request"
@@ -624,7 +750,11 @@ export function AiPage(props: AiPageProps): JSX.Element {
                 setProviderId(event.currentTarget.value);
               }}
             >
-              <For each={AI_PROVIDERS.filter((provider) => embeddedAvailable || !isEmbeddedGgufProvider(provider.id))}>
+              <For
+                each={AI_PROVIDERS.filter(
+                  (provider) => embeddedAvailable || !isEmbeddedGgufProvider(provider.id),
+                )}
+              >
                 {(provider) => <option value={provider.id}>{provider.name}</option>}
               </For>
             </select>
@@ -635,9 +765,15 @@ export function AiPage(props: AiPageProps): JSX.Element {
               aria-label="AI model ID"
               type="text"
               value={providerModel()}
-              maxlength={256}
-              placeholder={isEmbeddedGgufProvider(currentProvider().id) ? "Load a model below" : "Enter the model ID provided by the service"}
-              disabled={props.disabled || props.busy || isEmbeddedGgufProvider(currentProvider().id)}
+              maxlength={1024}
+              placeholder={
+                isEmbeddedGgufProvider(currentProvider().id)
+                  ? "Load a model below"
+                  : "Enter the model ID provided by the service"
+              }
+              disabled={
+                props.disabled || props.busy || isEmbeddedGgufProvider(currentProvider().id)
+              }
               onInput={(event) => {
                 setProviderModel(event.currentTarget.value);
                 setRequestPreview(null);
@@ -654,8 +790,14 @@ export function AiPage(props: AiPageProps): JSX.Element {
               type="url"
               value={providerEndpoint()}
               maxlength={2048}
-              placeholder={currentProvider().defaultEndpoint || "https://provider.example/v1"}
-              disabled={props.disabled || props.busy || isEmbeddedGgufProvider(currentProvider().id)}
+              placeholder={
+                currentProvider().endpointPlaceholder ||
+                currentProvider().defaultEndpoint ||
+                "https://provider.example/v1"
+              }
+              disabled={
+                props.disabled || props.busy || isEmbeddedGgufProvider(currentProvider().id)
+              }
               onInput={(event) => {
                 setProviderEndpoint(event.currentTarget.value);
                 setRequestPreview(null);
@@ -666,6 +808,156 @@ export function AiPage(props: AiPageProps): JSX.Element {
             />
           </label>
         </div>
+        <section class="ai-model-catalog" aria-labelledby="ai-model-catalog-title">
+          <div class="ai-model-catalog-heading">
+            <div>
+              <span class="eyebrow">OPTIONAL · PUBLIC METADATA ONLY</span>
+              <h3 id="ai-model-catalog-title">Model catalog</h3>
+            </div>
+            <button
+              class="button button-outline"
+              type="button"
+              aria-expanded={catalogVisible()}
+              aria-controls="ai-model-catalog-browser"
+              disabled={props.disabled || props.busy}
+              onClick={() => {
+                if (catalogVisible()) {
+                  catalogRequestVersion += 1;
+                  catalogController?.abort();
+                  catalogController = undefined;
+                  setCatalogLoading(false);
+                  setCatalogVisible(false);
+                } else {
+                  void openModelCatalog();
+                }
+              }}
+            >
+              {catalogVisible()
+                ? "Close catalog"
+                : hasAiModelCatalog(currentProvider().id)
+                  ? "Browse models"
+                  : "Catalog unavailable"}
+            </button>
+          </div>
+          <p class="ai-model-catalog-intro">
+            Browse public model metadata from models.dev. This sends only a fixed catalog request:
+            no archive data, session text, endpoint, or API key. You can always enter a model ID
+            above.
+          </p>
+          <Show when={catalogVisible()}>
+            <div id="ai-model-catalog-browser" class="ai-model-catalog-browser">
+              <div class="ai-model-catalog-tools">
+                <label class="ai-field ai-model-catalog-search">
+                  <span>Filter models</span>
+                  <input
+                    type="search"
+                    value={catalogQuery()}
+                    placeholder="Search model, publisher, or tokenizer"
+                    onInput={(event) => setCatalogQuery(event.currentTarget.value)}
+                    disabled={catalogLoading() || catalogModels().length === 0}
+                  />
+                </label>
+                <label class="ai-field ai-model-catalog-filter">
+                  <span>Capability</span>
+                  <select
+                    value={catalogCapability()}
+                    disabled={catalogLoading() || catalogModels().length === 0}
+                    onChange={(event) =>
+                      setCatalogCapability(event.currentTarget.value as "all" | "vision" | "tools")
+                    }
+                  >
+                    <option value="all">All listed models</option>
+                    <option value="vision">Image or video input</option>
+                    <option value="tools">Tool calling</option>
+                  </select>
+                </label>
+                <button
+                  class="button button-quiet ai-model-catalog-refresh"
+                  type="button"
+                  disabled={catalogLoading() || !hasAiModelCatalog(currentProvider().id)}
+                  onClick={() => void openModelCatalog(true)}
+                >
+                  {catalogLoading() ? "Loading…" : "Refresh catalog"}
+                </button>
+              </div>
+              <Show when={catalogLoading()}>
+                <p class="ai-model-catalog-status" role="status">
+                  Loading public model metadata…
+                </p>
+              </Show>
+              <Show when={catalogMessage()}>
+                <p class="ai-model-catalog-status" role="status">
+                  {catalogMessage()}
+                </p>
+              </Show>
+              <Show when={catalogModels().length > 0}>
+                <div class="ai-model-catalog-results">
+                  <div class="ai-model-catalog-count" aria-live="polite">
+                    Showing {visibleCatalogModels().length.toLocaleString()} of{" "}
+                    {catalogModels().length.toLocaleString()} listed models
+                    {visibleCatalogModels().length === 100
+                      ? " · refine the search to see more"
+                      : ""}
+                  </div>
+                  <div
+                    class="ai-model-catalog-list"
+                    role="listbox"
+                    aria-label="Public provider models"
+                  >
+                    <For each={visibleCatalogModels()}>
+                      {(model) => (
+                        <button
+                          class="ai-model-catalog-option"
+                          type="button"
+                          role="option"
+                          aria-selected={providerModel() === model.id}
+                          onClick={() => chooseCatalogModel(model)}
+                        >
+                          <span class="ai-model-catalog-option-heading">
+                            <strong>{model.id}</strong>
+                            <span>{model.owner}</span>
+                          </span>
+                          <span class="ai-model-catalog-tags">
+                            <span>{model.status}</span>
+                            <Show when={model.contextWindow}>
+                              {(tokens) => <span>{tokens().toLocaleString()} context</span>}
+                            </Show>
+                            <Show when={model.maximumOutputTokens}>
+                              {(tokens) => <span>{tokens().toLocaleString()} max output</span>}
+                            </Show>
+                            <Show when={model.inputModalities.length > 0}>
+                              <span>in: {model.inputModalities.join(", ")}</span>
+                            </Show>
+                            <Show when={model.outputModalities.length > 0}>
+                              <span>out: {model.outputModalities.join(", ")}</span>
+                            </Show>
+                            <Show when={model.toolSupport === true}>
+                              <span>tool calling</span>
+                            </Show>
+                            <Show when={model.inputCost !== null || model.outputCost !== null}>
+                              <span>
+                                Catalog pricing values · in {formatCatalogPrice(model.inputCost)} ·
+                                out {formatCatalogPrice(model.outputCost)}
+                              </span>
+                            </Show>
+                          </span>
+                          <span class="ai-model-catalog-source">
+                            Metadata by models.dev · availability is not verified
+                          </span>
+                        </button>
+                      )}
+                    </For>
+                  </div>
+                  <Show when={visibleCatalogModels().length === 0}>
+                    <p class="ai-model-catalog-empty">
+                      No models match these filters. Try a broader search.
+                    </p>
+                  </Show>
+                </div>
+              </Show>
+            </div>
+          </Show>
+        </section>
         <div class="ai-provider-protocol">
           <span>{currentProvider().protocol}</span>
           <span>
@@ -830,7 +1122,8 @@ export function AiPage(props: AiPageProps): JSX.Element {
                       {model().tensorCount.toLocaleString()} tensors
                     </span>
                     <span>
-                      Estimated memory at 4,096 context tokens: {formatBytes(model().estimatedMemoryBytes)}
+                      Estimated memory at 4,096 context tokens:{" "}
+                      {formatBytes(model().estimatedMemoryBytes)}
                     </span>
                   </div>
                 )}
@@ -875,8 +1168,8 @@ export function AiPage(props: AiPageProps): JSX.Element {
             <Show when={embeddedStatus()?.loaded}>
               <div class="ai-embedded-model-active">
                 <span>
-                  {embeddedStatus()?.name} · {embeddedStatus()?.contextTokens?.toLocaleString()} context ·{" "}
-                  {embeddedStatus()?.cpuThreads} CPU threads ·{" "}
+                  {embeddedStatus()?.name} · {embeddedStatus()?.contextTokens?.toLocaleString()}{" "}
+                  context · {embeddedStatus()?.cpuThreads} CPU threads ·{" "}
                   {formatBytes(embeddedStatus()?.memoryEstimateBytes ?? 0)} estimated
                 </span>
                 <button
@@ -907,7 +1200,9 @@ export function AiPage(props: AiPageProps): JSX.Element {
               </button>
             </Show>
             <Show when={embeddedMessage()}>
-              <p class="ai-message" role="status">{embeddedMessage()}</p>
+              <p class="ai-message" role="status">
+                {embeddedMessage()}
+              </p>
             </Show>
           </section>
         </Show>
@@ -1088,7 +1383,9 @@ export function AiPage(props: AiPageProps): JSX.Element {
                 <strong>Provider request review</strong>
                 <p>
                   Build the exact request for the saved provider, including selected image payloads
-                  when present. This preview does not read your API key or send anything.
+                  when present. For Replicate, schema inspection sends only the saved model ID and
+                  API key to Replicate; the study package stays local until you authorize its
+                  prediction request. Browser builds may be blocked by provider CORS settings.
                 </p>
               </div>
               <button
@@ -1097,12 +1394,18 @@ export function AiPage(props: AiPageProps): JSX.Element {
                 disabled={
                   props.disabled ||
                   props.busy ||
+                  sending() ||
+                  replicateSchemaInspecting() ||
                   !savedProvider() ||
                   !savedProvider()?.fields.get("selected_model")
                 }
                 onClick={() => void previewProviderRequest()}
               >
-                Preview exact request
+                {replicateSchemaInspecting()
+                  ? "Inspecting model inputs…"
+                  : currentProvider().id === "replicate"
+                    ? "Inspect inputs and preview"
+                    : "Preview exact request"}
               </button>
             </div>
             <Show when={requestPreview()}>
@@ -1110,7 +1413,11 @@ export function AiPage(props: AiPageProps): JSX.Element {
                 <section class="ai-request-preview" aria-labelledby="ai-request-preview-title">
                   <div class="ai-request-preview-heading">
                     <div>
-                      <span class="eyebrow">NO REQUEST SENT</span>
+                      <span class="eyebrow">
+                        {preview().providerId === "replicate"
+                          ? "SCHEMA CHECK COMPLETE · PREDICTION NOT SENT"
+                          : "NO REQUEST SENT"}
+                      </span>
                       <h3 id="ai-request-preview-title">Request ready for review</h3>
                     </div>
                     <span class="ai-request-protocol">{preview().providerName}</span>
@@ -1194,9 +1501,30 @@ export function AiPage(props: AiPageProps): JSX.Element {
                   <p class="ai-request-privacy-note">
                     The request body contains the reviewed package text
                     {preview().attachedImages.length > 0 ? " and selected image bytes" : ""}.
-                    Authentication secrets stay out of this preview and are not read during
-                    preparation.
+                    Authentication secrets stay out of this preview.{" "}
+                    {preview().providerId === "replicate"
+                      ? "The saved key was used only for model-schema inspection; no package was sent."
+                      : "The key is not read during preparation."}
                   </p>
+                  <Show when={preview().providerId === "replicate"}>
+                    <p class="ai-request-privacy-note">
+                      The selected input schema is version {preview().replicateInputSchema?.version}
+                      . The prediction is pinned to this inspected version.
+                      {preview().replicateInputSchema?.hasSystemPrompt
+                        ? " Tutorux sends the package and system instructions in separate supported fields."
+                        : " Tutorux combines the system instructions with the package in the prompt."}
+                      {preview().replicateInputSchema?.tokenInput
+                        ? ` The reviewed request sets ${preview().replicateInputSchema.tokenInput} to ${preview().maxOutputTokens.toLocaleString()}.`
+                        : " This model does not expose a supported output-token limit input."}
+                    </p>
+                    <p class="ai-request-privacy-note">
+                      Replicate receives one prediction request followed by status checks until it
+                      finishes. You can cancel an active prediction; Tutorux then sends Replicate a
+                      cancellation request. Before sending, Tutorux checks that the model schema has
+                      not changed. Static browser builds also depend on the provider allowing
+                      requests from this app’s origin.
+                    </p>
+                  </Show>
                   <label class="ai-review-consent ai-send-consent">
                     <input
                       type="checkbox"
@@ -1209,10 +1537,23 @@ export function AiPage(props: AiPageProps): JSX.Element {
                       onChange={(event) => setSendConfirmed(event.currentTarget.checked)}
                     />
                     <span>
-                      I authorize one POST containing the reviewed package to{" "}
-                      {preview().providerName} at <code>{preview().endpoint}</code>. The exact
-                      request body hash is <code>{preview().requestBodyHash}</code>. The complete
-                      response, including error or partial bytes, will be saved in this archive.
+                      {preview().providerId === "replicate" ? (
+                        <>
+                          I authorize a Replicate prediction request containing the reviewed
+                          package, bounded status checks, and a cancellation request if I cancel it.
+                          Tutorux will recheck the model schema before sending and stop for a fresh
+                          review if it changed. The initial request is sent to{" "}
+                          <code>{preview().endpoint}</code>.
+                        </>
+                      ) : (
+                        <>
+                          I authorize one POST containing the reviewed package to{" "}
+                          {preview().providerName} at <code>{preview().endpoint}</code>.
+                        </>
+                      )}{" "}
+                      The exact request body hash is <code>{preview().requestBodyHash}</code>. The
+                      complete response, including error or partial bytes, will be saved in this
+                      archive.
                       {preview().attachedImages.length > 0
                         ? ` This request also includes ${preview().attachedImages.length} selected session image${preview().attachedImages.length === 1 ? "" : "s"}; their names and content hashes are listed above.`
                         : ""}
@@ -1228,6 +1569,7 @@ export function AiPage(props: AiPageProps): JSX.Element {
                       disabled={
                         props.disabled ||
                         props.busy ||
+                        sending() ||
                         !sendConfirmed() ||
                         !reviewed() ||
                         (!preview().localOnly && !preview().credentialAvailable)
@@ -1237,12 +1579,34 @@ export function AiPage(props: AiPageProps): JSX.Element {
                       {props.busy ? "Sending and saving…" : "Send exact reviewed request"}
                     </button>
                     <span aria-live="polite">
-                      {sendProgressBytes() > 0
-                        ? `${formatBytes(sendProgressBytes())} received`
-                        : !reviewed()
-                          ? "Review and allow package storage below before sending."
-                          : "No request is sent until you select this checkbox and button."}
+                      {cancelRequested()
+                        ? "Cancellation requested. Waiting for Replicate to confirm the prediction is stopped…"
+                        : sendProgressBytes() > 0
+                          ? `${formatBytes(sendProgressBytes())} received`
+                          : !reviewed()
+                            ? "Review and allow package storage below before sending."
+                            : "No request is sent until you select this checkbox and button."}
                     </span>
+                    <Show when={sending() && props.busy && preview().providerId === "replicate"}>
+                      <button
+                        class="button button-quiet"
+                        type="button"
+                        disabled={cancelRequested()}
+                        onClick={() => {
+                          setCancelRequested(true);
+                          void cancelReplicatePrediction().catch((cause) => {
+                            setCancelRequested(false);
+                            setRequestPreviewMessage(
+                              cause instanceof Error
+                                ? cause.message
+                                : "Replicate cancellation could not be requested.",
+                            );
+                          });
+                        }}
+                      >
+                        {cancelRequested() ? "Cancellation requested…" : "Cancel prediction"}
+                      </button>
+                    </Show>
                   </div>
                 </section>
               )}
@@ -1516,6 +1880,12 @@ function formatBytes(size: number): string {
   if (size < 1024) return `${size} B`;
   const megabytes = size / (1024 * 1024);
   return megabytes >= 1 ? `${megabytes.toFixed(1)} MB` : `${(size / 1024).toFixed(1)} KB`;
+}
+
+function formatCatalogPrice(value: number | null): string {
+  return value === null
+    ? "not listed"
+    : `$${new Intl.NumberFormat(undefined, { maximumFractionDigits: 6 }).format(value)}`;
 }
 
 function jobSize(job: ArchiveRecord): number {
