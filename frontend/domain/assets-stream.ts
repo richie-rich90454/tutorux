@@ -11,6 +11,12 @@ import { extractDocumentText } from "./document-text";
 
 const CHUNK_BYTES = 8 * 1024 * 1024;
 const EXTRACT_LIMIT = 16 * 1024 * 1024;
+export const MAX_ASSET_BATCH_FILES = 10_000;
+
+interface ReusableAssetBlob {
+  readonly id: string;
+  readonly chunkCount: number;
+}
 
 /** A stable, repeatably readable material source. */
 export interface AssetReadSource {
@@ -37,11 +43,27 @@ export interface StreamingAssetImport {
   records(): AsyncGenerator<ArchiveRecord>;
 }
 
+export interface StreamingAssetBatchImport {
+  readonly items: readonly StreamingAssetImport[];
+  readonly metadata: readonly ArchiveRecord[];
+  readonly totalBytes: number;
+  readonly deduplicatedCount: number;
+  /** Stage every verified item in one private transaction before publishing any of them. */
+  records(): AsyncGenerator<ArchiveRecord>;
+}
+
+export type AssetBatchProgress = (
+  phase: "checking" | "staging",
+  completed: number,
+  total: number,
+) => void;
+
 /** Prepare a material without retaining its full content; reading must be repeatable. */
 export async function prepareStreamingAssetImport(
   snapshot: ArchiveSnapshot,
   source: AssetReadSource,
   sessionId = "",
+  reusedBlobs?: Map<string, ReusableAssetBlob>,
 ): Promise<StreamingAssetImport> {
   if (!Number.isSafeInteger(source.size) || source.size < 0 || source.size > MAX_ASSET_BYTES) {
     throw new Error("Materials are limited to 256 MiB per file in this version.");
@@ -74,10 +96,12 @@ export async function prepareStreamingAssetImport(
         mimeType === "application/xml")
     )
       mimeType = "application/octet-stream";
-    const existing = await snapshot.getRecordByIndexKey(`BLOB:${contentHash}`);
-    const deduplicated = Boolean(existing && existing.fields.get("_deleted") !== "true");
+    const batchReuse = reusedBlobs?.get(contentHash);
+    const existing = batchReuse ? null : await snapshot.getRecordByIndexKey(`BLOB:${contentHash}`);
+    const archiveReuse = Boolean(existing && existing.fields.get("_deleted") !== "true");
+    const deduplicated = Boolean(batchReuse || archiveReuse);
     if (
-      deduplicated &&
+      archiveReuse &&
       (existing!.type !== RecordType.assetBlob ||
         existing!.fields.get("content_hash")?.toLowerCase() !== contentHash)
     ) {
@@ -86,12 +110,14 @@ export async function prepareStreamingAssetImport(
         "The archive content hash index points to an invalid asset blob.",
       );
     }
-    const blobId = deduplicated ? existing!.id : newUuid();
-    const chunkCount = deduplicated
-      ? existing!.fields.get("record_role") === "asset-blob-manifest"
-        ? Number(existing!.fields.get("chunk_count"))
-        : 1
-      : Math.ceil(source.size / CHUNK_BYTES);
+    const blobId = batchReuse?.id ?? (archiveReuse ? existing!.id : newUuid());
+    const chunkCount =
+      batchReuse?.chunkCount ??
+      (archiveReuse
+        ? existing!.fields.get("record_role") === "asset-blob-manifest"
+          ? Number(existing!.fields.get("chunk_count"))
+          : 1
+        : Math.ceil(source.size / CHUNK_BYTES));
     if (
       !Number.isSafeInteger(chunkCount) ||
       chunkCount < 0 ||
@@ -138,12 +164,13 @@ export async function prepareStreamingAssetImport(
       fields,
       blob: new Uint8Array(),
     };
-    if (deduplicated) {
+    if (archiveReuse) {
       const verification = iterateVerifiedAssetChunks(snapshot, metadata);
       while (!(await verification.next()).done) {
         // Read the full existing blob to verify its digest before reuse.
       }
     }
+    reusedBlobs?.set(contentHash, { id: blobId, chunkCount });
     return {
       metadata,
       deduplicated,
@@ -200,4 +227,48 @@ export async function prepareStreamingAssetImport(
   } finally {
     if (!firstFinalized) sodium.crypto_hash_sha256_final(firstHash);
   }
+}
+
+/** Prepare a file selection for one atomic archive write, sharing blobs within the selection. */
+export async function prepareStreamingAssetBatchImport(
+  snapshot: ArchiveSnapshot,
+  sources: Iterable<AssetReadSource>,
+  sessionId = "",
+  onProgress?: AssetBatchProgress,
+): Promise<StreamingAssetBatchImport> {
+  const selected = Array.from(sources);
+  if (selected.length === 0) throw new Error("Choose at least one material to import.");
+  if (selected.length > MAX_ASSET_BATCH_FILES) {
+    throw new Error(
+      `Folder imports are limited to ${MAX_ASSET_BATCH_FILES.toLocaleString()} files.`,
+    );
+  }
+
+  const reusableBlobs = new Map<string, ReusableAssetBlob>();
+  const items: StreamingAssetImport[] = [];
+  let totalBytes = 0;
+  for (const [index, source] of selected.entries()) {
+    if (!Number.isSafeInteger(source.size) || source.size < 0 || source.size > MAX_ASSET_BYTES) {
+      throw new Error(`${cleanFilename(source.name)} exceeds the 256 MiB per-file limit.`);
+    }
+    if (source.size > Number.MAX_SAFE_INTEGER - totalBytes) {
+      throw new Error("The selected materials are too large to import as one batch.");
+    }
+    items.push(await prepareStreamingAssetImport(snapshot, source, sessionId, reusableBlobs));
+    totalBytes += source.size;
+    onProgress?.("checking", index + 1, selected.length);
+  }
+
+  return {
+    items,
+    metadata: items.map((item) => item.metadata),
+    totalBytes,
+    deduplicatedCount: items.filter((item) => item.deduplicated).length,
+    async *records() {
+      for (const [index, item] of items.entries()) {
+        yield* item.records();
+        onProgress?.("staging", index + 1, items.length);
+      }
+    },
+  };
 }
