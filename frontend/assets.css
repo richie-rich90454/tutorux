@@ -1,7 +1,43 @@
 .material-page {
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: 27px;
+}
+
+.material-file-drop-overlay {
+  position: fixed;
+  z-index: 1000;
+  inset: 18px;
+  display: grid;
+  align-content: center;
+  justify-items: center;
+  gap: 9px;
+  border: 2px dashed var(--accent);
+  border-radius: 18px;
+  color: var(--ink);
+  background: color-mix(in srgb, var(--surface) 94%, transparent);
+  box-shadow: 0 0 0 18px color-mix(in srgb, var(--accent) 16%, transparent);
+  pointer-events: none;
+}
+
+.material-file-drop-overlay strong {
+  font-size: 1.3rem;
+}
+
+.material-file-drop-overlay span {
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.material-drop-status {
+  align-self: flex-end;
+  max-width: min(680px, 100%);
+  margin: -16px 0 -12px;
+  color: var(--muted);
+  font-size: 0.78rem;
+  line-height: 1.5;
+  text-align: right;
 }
 
 .material-heading {
@@ -378,6 +414,17 @@
 }
 
 @media (max-width: 700px) {
+  .material-file-drop-overlay {
+    inset: 10px;
+    padding: 18px;
+    text-align: center;
+  }
+
+  .material-drop-status {
+    align-self: stretch;
+    text-align: left;
+  }
+
   .material-heading {
     align-items: flex-start;
   }
