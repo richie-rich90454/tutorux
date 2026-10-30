@@ -18,6 +18,13 @@ The browser microphone recorder requires a separate checked permission confirmat
 audio import records the `browser-microphone` source, confirmation time, and policy version `1` on
 the session record.
 
+In the current TypeScript CLI, `record start` requires `--consent` and stores the confirmation time,
+microphone source, `ffmpeg-cli` backend, and policy version `1` in the archive. Its confirmation
+label defaults to `CLI user` and can be set with `--confirmed-by`. Live local Whisper processing
+requires the additional `--consent-local-audio` flag; Tutorux stages bounded audio windows in a
+temporary directory for the user-selected executable and removes them after each invocation. See
+[CLI live microphone recording](../audio/CLI-LIVE-RECORDING.md) for backend requirements and details.
+
 ## Full archive copies
 
 `archive backup` and `archive copy` duplicate the complete archive. They refuse to write unless the
