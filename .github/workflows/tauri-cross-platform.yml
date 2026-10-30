@@ -35,10 +35,14 @@ jobs:
             libasound2-dev libpipewire-0.3-dev librsvg2-dev libwebkit2gtk-4.1-dev \
             libxdo-dev patchelf xdg-utils
 
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 12
+
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-          cache: npm
+          cache: pnpm
 
       - uses: dtolnay/rust-toolchain@stable
 
@@ -48,37 +52,37 @@ jobs:
             src-tauri -> target
             native-audio-helper -> target
 
-      - name: Install npm dependencies
-        run: npm ci
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
 
       - name: Install Playwright Chromium on Linux
         if: runner.os == 'Linux'
-        run: npx playwright install --with-deps chromium
+        run: pnpm exec playwright install --with-deps chromium
 
       - name: Install Playwright Chromium
         if: runner.os != 'Linux'
-        run: npx playwright install chromium
+        run: pnpm exec playwright install chromium
 
       - name: Type check
-        run: npm run typecheck
+        run: pnpm run typecheck
 
       - name: Lint
-        run: npm run lint
+        run: pnpm run lint
 
       - name: Check formatting
-        run: npm run format:check
+        run: pnpm run format:check
 
       - name: Unit and archive compatibility tests
-        run: npm run test
+        run: pnpm run test
 
       - name: Browser workflow
-        run: npm run test:e2e
+        run: pnpm run test:e2e
 
       - name: Build static browser application
-        run: npm run build
+        run: pnpm run build
 
       - name: Build native desktop package
-        run: npm run desktop:build
+        run: pnpm run desktop:build
 
       - name: Upload desktop bundles
         uses: actions/upload-artifact@v4
