@@ -54,7 +54,8 @@ export async function runJournalRecordCommand(
         )
           throw new CliError("The entry's notes document points to a different journal entry.");
         const state = notesEditState(document);
-        if (!state.editable) throw new CliError("This notes document uses unsupported structured notes.");
+        if (!state.editable)
+          throw new CliError("This notes document uses unsupported structured notes.");
         notesText = state.blocks.map((block) => block.text).join("\n");
       }
       const fields = new Map(entry.fields);
@@ -89,7 +90,9 @@ export async function runJournalRecordCommand(
             : await restoreJournalEntryGroup(snapshot, id);
       } catch (error) {
         throw new CliError(
-          error instanceof Error ? error.message : "Unable to update the journal entry Trash group.",
+          error instanceof Error
+            ? error.message
+            : "Unable to update the journal entry Trash group.",
         );
       }
     } finally {
