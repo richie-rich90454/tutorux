@@ -34,7 +34,72 @@
   color: var(--muted);
   margin: 0;
 }
+.archive-maintenance-prune-preview {
+  display: grid;
+  gap: 10px;
+  margin-top: 12px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+.archive-maintenance-prune-preview strong {
+  color: var(--ink);
+}
+.archive-maintenance-prune-confirm {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  color: var(--ink);
+  cursor: pointer;
+}
+.archive-maintenance-prune-confirm input {
+  flex: 0 0 auto;
+  margin-top: 3px;
+}
 .archive-maintenance-review .archive-maintenance-error {
   color: var(--danger);
   margin-top: 8px;
+}
+.archive-maintenance-repair-copy > .eyebrow {
+  display: block;
+  margin-bottom: 7px;
+}
+.archive-maintenance-repair-copy > p strong {
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+.archive-maintenance-repair-details {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 10px;
+  margin: 14px 0;
+}
+.archive-maintenance-repair-details div {
+  min-width: 0;
+  padding: 11px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+.archive-maintenance-repair-details dt {
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+.archive-maintenance-repair-details dd {
+  margin: 5px 0 0;
+  color: var(--ink);
+  font-weight: 650;
+  overflow-wrap: anywhere;
+}
+.archive-maintenance-repair-confirm {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  margin-top: 14px;
+  color: var(--ink);
+  cursor: pointer;
+}
+.archive-maintenance-repair-confirm input {
+  flex: 0 0 auto;
+  margin-top: 3px;
 }
