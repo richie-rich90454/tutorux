@@ -1,4 +1,4 @@
-import { For, Show, createSignal, type JSX } from "solid-js";
+import { For, Show, createEffect, createSignal, type JSX } from "solid-js";
 import { deterministicUuid } from "./ai/providers";
 import { hasSensitiveCredentialMaterial, sensitiveSettingKey } from "./archive/sanitized-copy";
 import { RecordType, type ArchiveRecord } from "./archive/format";
@@ -7,9 +7,13 @@ import { platform } from "@platform";
 import "./archive-settings.css";
 
 interface ArchiveSettingsProps {
+  displayName: string;
+  encrypted: boolean;
   records: ArchiveRecord[];
   disabled: boolean;
   onSave: (records: ArchiveRecord[], message: string) => Promise<boolean>;
+  onRename: (displayName: string) => Promise<boolean>;
+  onEnableEncryption: (passphrase: string) => Promise<void>;
 }
 
 const field = (record: ArchiveRecord, key: string): string => record.fields.get(key) ?? "";
@@ -59,11 +63,18 @@ async function makeSetting(
 
 /** A graphical editor for ordinary archive settings; credentials remain in the AI workspace. */
 export function ArchiveSettings(props: ArchiveSettingsProps): JSX.Element {
+  const [archiveName, setArchiveName] = createSignal(props.displayName);
+  const [renameError, setRenameError] = createSignal("");
+  const [renameStatus, setRenameStatus] = createSignal("");
+  const [renameBusy, setRenameBusy] = createSignal(false);
+  const [encryptionBusy, setEncryptionBusy] = createSignal(false);
+  const [encryptionError, setEncryptionError] = createSignal("");
   const [key, setKey] = createSignal("");
   const [value, setValue] = createSignal("");
   const [editing, setEditing] = createSignal<ArchiveRecord | null>(null);
   const [error, setError] = createSignal("");
   const [confirmReset, setConfirmReset] = createSignal(false);
+  createEffect(() => setArchiveName(props.displayName));
   const visible = () =>
     props.records
       .filter(
@@ -74,6 +85,81 @@ export function ArchiveSettings(props: ArchiveSettingsProps): JSX.Element {
       )
       .slice()
       .sort((a, b) => field(a, "key").localeCompare(field(b, "key")));
+
+  async function renameArchive(event: SubmitEvent): Promise<void> {
+    event.preventDefault();
+    setRenameError("");
+    setRenameStatus("");
+    const name = archiveName().trim();
+    if (!name) {
+      setRenameError("Archive name must not be empty.");
+      return;
+    }
+    if (name.length > 200) {
+      setRenameError("Archive names must be 200 characters or fewer.");
+      return;
+    }
+    if (name === props.displayName) {
+      setArchiveName(name);
+      setRenameStatus("The archive name is unchanged.");
+      return;
+    }
+
+    setRenameBusy(true);
+    try {
+      if (await props.onRename(name)) {
+        setArchiveName(name);
+        setRenameStatus(
+          "Archive name updated in the workspace. Save the workspace to write it to disk.",
+        );
+      } else {
+        setRenameError(
+          "The archive name could not be updated. Review the notification for details.",
+        );
+      }
+    } catch (cause) {
+      setRenameError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setRenameBusy(false);
+    }
+  }
+
+  async function enableEncryption(event: SubmitEvent): Promise<void> {
+    event.preventDefault();
+    setEncryptionError("");
+    const form = event.currentTarget as HTMLFormElement;
+    const formData = new FormData(form);
+    const passphrase = String(formData.get("archivePassphrase") ?? "");
+    const confirmation = String(formData.get("archivePassphraseConfirmation") ?? "");
+    const passphraseBytes = new TextEncoder().encode(passphrase);
+    const byteLength = passphraseBytes.byteLength;
+    const validUnicode = new TextDecoder().decode(passphraseBytes) === passphrase;
+    passphraseBytes.fill(0);
+    if (!validUnicode) {
+      setEncryptionError("Enter a passphrase using valid Unicode text.");
+      return;
+    }
+    if (byteLength < 12 || byteLength > 4096) {
+      setEncryptionError("Use a passphrase between 12 and 4096 UTF-8 bytes long.");
+      return;
+    }
+    if (passphrase !== confirmation) {
+      setEncryptionError("The passphrases do not match.");
+      return;
+    }
+
+    setEncryptionBusy(true);
+    const inputs = form.querySelectorAll<HTMLInputElement>('input[type="password"]');
+    try {
+      await props.onEnableEncryption(passphrase);
+      form.reset();
+    } catch (cause) {
+      setEncryptionError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      for (const input of inputs) input.value = "";
+      setEncryptionBusy(false);
+    }
+  }
 
   function clear(): void {
     setKey("");
@@ -163,6 +249,101 @@ export function ArchiveSettings(props: ArchiveSettingsProps): JSX.Element {
           AI workspace.
         </p>
       </div>
+      <form
+        class="archive-setting-form archive-name-form"
+        onSubmit={(event) => void renameArchive(event)}
+      >
+        <h3>Archive name</h3>
+        <label class="form-field" for="archive-display-name">
+          Display name
+          <input
+            id="archive-display-name"
+            value={archiveName()}
+            maxlength="200"
+            required
+            disabled={props.disabled || renameBusy()}
+            aria-invalid={Boolean(renameError())}
+            aria-describedby="archive-display-name-help"
+            onInput={(event) => {
+              setArchiveName(event.currentTarget.value);
+              setRenameError("");
+              setRenameStatus("");
+            }}
+          />
+        </label>
+        <p id="archive-display-name-help">
+          Use up to 200 characters. The name is stored in this archive.
+        </p>
+        <Show when={renameError()}>
+          <p class="archive-settings-error" role="alert">
+            {renameError()}
+          </p>
+        </Show>
+        <Show when={renameStatus()}>
+          <p role="status" aria-live="polite">
+            {renameStatus()}
+          </p>
+        </Show>
+        <div class="archive-setting-actions">
+          <button
+            class="button button-primary"
+            type="submit"
+            disabled={props.disabled || renameBusy()}
+          >
+            {renameBusy() ? "Saving name…" : "Save archive name"}
+          </button>
+        </div>
+      </form>
+      <Show when={!props.encrypted}>
+        <form class="archive-setting-form archive-encryption-form" onSubmit={enableEncryption}>
+          <h3>Protect this archive</h3>
+          <p>
+            Encrypt every retained revision with a new key. Save the workspace after this finishes
+            to replace the archive file with its encrypted version.
+          </p>
+          <label class="form-field" for="archive-encryption-passphrase">
+            New passphrase
+            <input
+              id="archive-encryption-passphrase"
+              name="archivePassphrase"
+              type="password"
+              autocomplete="new-password"
+              minlength="12"
+              maxlength="4096"
+              required
+              disabled={props.disabled || encryptionBusy()}
+            />
+          </label>
+          <label class="form-field" for="archive-encryption-confirmation">
+            Confirm passphrase
+            <input
+              id="archive-encryption-confirmation"
+              name="archivePassphraseConfirmation"
+              type="password"
+              autocomplete="new-password"
+              minlength="12"
+              maxlength="4096"
+              required
+              disabled={props.disabled || encryptionBusy()}
+            />
+          </label>
+          <p>Use 12–4096 UTF-8 bytes. Tutorux cannot recover a lost passphrase.</p>
+          <Show when={encryptionError()}>
+            <p class="archive-settings-error" role="alert">
+              {encryptionError()}
+            </p>
+          </Show>
+          <div class="archive-setting-actions">
+            <button
+              class="button button-primary"
+              type="submit"
+              disabled={props.disabled || encryptionBusy()}
+            >
+              {encryptionBusy() ? "Encrypting archive…" : "Enable encryption"}
+            </button>
+          </div>
+        </form>
+      </Show>
       <Show when={error()}>
         <p class="archive-settings-error" role="alert">
           {error()}
