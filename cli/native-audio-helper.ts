@@ -21,6 +21,9 @@ export interface NativeCaptureDevice {
   backend: string;
   source: NativeCaptureSource;
   isDefault: boolean;
+  sampleFormat?: string;
+  sampleRateHz?: number;
+  channelCount?: number;
 }
 
 export interface NativeCaptureProbe {
@@ -116,24 +119,25 @@ export async function listNativeApplicationAudioDevices(
   const devices = parsed.map((item): NativeApplicationAudioDevice => {
     if (
       !isRecord(item) ||
-      typeof item.id !== "string" ||
-      !item.id.trim() ||
-      typeof item.name !== "string" ||
-      !item.name.trim() ||
-      typeof item.backend !== "string" ||
-      !item.backend.trim() ||
-      !Number.isSafeInteger(item.processId) ||
-      item.processId < 1 ||
-      (item.bundleId !== undefined && typeof item.bundleId !== "string")
+      typeof item["id"] !== "string" ||
+      !item["id"].trim() ||
+      typeof item["name"] !== "string" ||
+      !item["name"].trim() ||
+      typeof item["backend"] !== "string" ||
+      !item["backend"].trim() ||
+      typeof item["processId"] !== "number" ||
+      !Number.isSafeInteger(item["processId"]) ||
+      item["processId"] < 1 ||
+      (item["bundleId"] !== undefined && typeof item["bundleId"] !== "string")
     ) {
       throw new Error("The native audio helper returned an invalid application entry.");
     }
     return {
-      id: item.id,
-      name: item.name,
-      backend: item.backend,
-      processId: item.processId,
-      ...(item.bundleId === undefined ? {} : { bundleId: item.bundleId }),
+      id: item["id"],
+      name: item["name"],
+      backend: item["backend"],
+      processId: item["processId"],
+      ...(item["bundleId"] === undefined ? {} : { bundleId: item["bundleId"] }),
     };
   });
   return { helper: executable, devices };
@@ -182,7 +186,9 @@ export async function listNativeCaptureDevices(
   if (result.code !== 0) {
     throw new Error(
       result.stderr.trim() ||
-        "Native microphone and system-audio discovery exited with code " + String(result.code) + ".",
+        "Native microphone and system-audio discovery exited with code " +
+          String(result.code) +
+          ".",
     );
   }
   let parsed: unknown;
@@ -197,23 +203,36 @@ export async function listNativeCaptureDevices(
   const devices = parsed.map((item): NativeCaptureDevice => {
     if (
       !isRecord(item) ||
-      typeof item.id !== "string" ||
-      !item.id.trim() ||
-      typeof item.name !== "string" ||
-      !item.name.trim() ||
-      typeof item.backend !== "string" ||
-      !item.backend.trim() ||
-      (item.source !== "microphone" && item.source !== "system-audio") ||
-      typeof item.isDefault !== "boolean"
+      typeof item["id"] !== "string" ||
+      !item["id"].trim() ||
+      typeof item["name"] !== "string" ||
+      !item["name"].trim() ||
+      typeof item["backend"] !== "string" ||
+      !item["backend"].trim() ||
+      (item["source"] !== "microphone" && item["source"] !== "system-audio") ||
+      typeof item["isDefault"] !== "boolean" ||
+      (item["sampleFormat"] !== undefined &&
+        (typeof item["sampleFormat"] !== "string" || !item["sampleFormat"].trim())) ||
+      (item["sampleRateHz"] !== undefined &&
+        (typeof item["sampleRateHz"] !== "number" ||
+          !Number.isSafeInteger(item["sampleRateHz"]) ||
+          item["sampleRateHz"] < 1)) ||
+      (item["channelCount"] !== undefined &&
+        (typeof item["channelCount"] !== "number" ||
+          !Number.isSafeInteger(item["channelCount"]) ||
+          item["channelCount"] < 1))
     ) {
       throw new Error("The native audio helper returned an invalid input entry.");
     }
     return {
-      id: item.id,
-      name: item.name,
-      backend: item.backend,
-      source: item.source,
-      isDefault: item.isDefault,
+      id: item["id"],
+      name: item["name"],
+      backend: item["backend"],
+      source: item["source"],
+      isDefault: item["isDefault"],
+      ...(item["sampleFormat"] === undefined ? {} : { sampleFormat: item["sampleFormat"] }),
+      ...(item["sampleRateHz"] === undefined ? {} : { sampleRateHz: item["sampleRateHz"] }),
+      ...(item["channelCount"] === undefined ? {} : { channelCount: item["channelCount"] }),
     };
   });
   return { helper: executable, devices };
@@ -291,15 +310,18 @@ export async function probeNativeApplicationAudioDevice(
     byteCount += chunk.length;
   });
   child.stderr.on("data", (chunk: Buffer) => {
-    if (stderr.length < 32 * 1024) stderr += chunk.toString("utf8").slice(0, 32 * 1024 - stderr.length);
+    if (stderr.length < 32 * 1024)
+      stderr += chunk.toString("utf8").slice(0, 32 * 1024 - stderr.length);
   });
   let spawnError: Error | undefined;
   child.once("error", (error: Error) => {
     spawnError = error;
   });
-  const closed = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolveClose) => {
-    child.once("close", (code, signal) => resolveClose({ code, signal }));
-  });
+  const closed = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>(
+    (resolveClose) => {
+      child.once("close", (code, signal) => resolveClose({ code, signal }));
+    },
+  );
   await Promise.race([delay(1_800), closed]);
   if (child.exitCode === null && child.signalCode === null && child.stdin?.writable) {
     child.stdin.end("stop\n");
@@ -313,9 +335,12 @@ export async function probeNativeApplicationAudioDevice(
   ]);
   clearTimeout(timeout);
   if (spawnError) throw new Error("Could not start the native audio helper: " + spawnError.message);
-  if (overflow) throw new Error("The application-audio signal probe exceeded its bounded capture limit.");
+  if (overflow)
+    throw new Error("The application-audio signal probe exceeded its bounded capture limit.");
   if (exit.code !== 0) {
-    throw new Error(stderr.trim() || `The application-audio signal probe exited with code ${String(exit.code)}.`);
+    throw new Error(
+      stderr.trim() || `The application-audio signal probe exited with code ${String(exit.code)}.`,
+    );
   }
   if (byteCount < 2 || byteCount % 2 !== 0) {
     throw new Error("The application-audio stream opened but returned no complete PCM samples.");
@@ -358,23 +383,23 @@ function parseNativeProbe(value: string, source: NativeCaptureSource): NativeCap
   }
   if (
     !isRecord(parsed) ||
-    typeof parsed.id !== "string" ||
-    typeof parsed.name !== "string" ||
-    typeof parsed.backend !== "string" ||
-    parsed.source !== source ||
-    typeof parsed.sampleFormat !== "string" ||
-    !Number.isSafeInteger(parsed.sampleRateHz) ||
-    !Number.isSafeInteger(parsed.channelCount) ||
-    !Number.isSafeInteger(parsed.sampleCount) ||
-    !Number.isSafeInteger(parsed.durationMs) ||
-    typeof parsed.rms !== "number" ||
-    !Number.isFinite(parsed.rms) ||
-    typeof parsed.peak !== "number" ||
-    !Number.isFinite(parsed.peak) ||
-    typeof parsed.dbfs !== "number" ||
-    !Number.isFinite(parsed.dbfs) ||
-    typeof parsed.signalDetected !== "boolean" ||
-    parsed.probe !== "native-stream-opened-and-signal-measured"
+    typeof parsed["id"] !== "string" ||
+    typeof parsed["name"] !== "string" ||
+    typeof parsed["backend"] !== "string" ||
+    parsed["source"] !== source ||
+    typeof parsed["sampleFormat"] !== "string" ||
+    !Number.isSafeInteger(parsed["sampleRateHz"]) ||
+    !Number.isSafeInteger(parsed["channelCount"]) ||
+    !Number.isSafeInteger(parsed["sampleCount"]) ||
+    !Number.isSafeInteger(parsed["durationMs"]) ||
+    typeof parsed["rms"] !== "number" ||
+    !Number.isFinite(parsed["rms"]) ||
+    typeof parsed["peak"] !== "number" ||
+    !Number.isFinite(parsed["peak"]) ||
+    typeof parsed["dbfs"] !== "number" ||
+    !Number.isFinite(parsed["dbfs"]) ||
+    typeof parsed["signalDetected"] !== "boolean" ||
+    parsed["probe"] !== "native-stream-opened-and-signal-measured"
   ) {
     throw new Error("The native audio helper returned an invalid signal-probe result.");
   }
