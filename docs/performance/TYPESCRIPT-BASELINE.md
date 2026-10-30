@@ -7,8 +7,8 @@ These measurements describe the current TypeScript application and its toolchain
 Run:
 
 ```sh
-npm run benchmark:archive
-npm run build
+pnpm run benchmark:archive
+pnpm run build
 ```
 
 The archive benchmark builds an in-memory v1 archive with 10,000 student records in one append-only generation, then lists and decodes those records. It prints the Node/V8 version, elapsed times, final archive bytes, and resident memory delta. It is a smoke baseline for repeatable local comparison.
@@ -17,7 +17,7 @@ The Vite production build reports uncompressed and gzip JavaScript/CSS sizes. Th
 
 ## Baseline evidence
 
-The first recorded build emitted roughly 103 kB of web JavaScript before gzip. The exact size changes with the current source and dependency lockfile; rerun `npm run build` for the current number.
+The first recorded build emitted roughly 103 kB of web JavaScript before gzip. The exact size changes with the current source and dependency lockfile; rerun `pnpm run build` for the current number.
 
 One Windows run on 2026-10-26 with Node v24.13.0 / V8 13.6.233.17-node.37 produced:
 
