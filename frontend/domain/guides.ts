@@ -32,8 +32,8 @@ export const GUIDE_BLOCK_ORIGINS = [
   "unknown",
 ] as const;
 
-export type GuideBlockKind = (typeof GUIDE_BLOCK_KINDS)[number];
-export type GuideBlockOrigin = (typeof GUIDE_BLOCK_ORIGINS)[number];
+export type GuideBlockKind = (typeof GUIDE_BLOCK_KINDS)[number] | (string & {});
+export type GuideBlockOrigin = (typeof GUIDE_BLOCK_ORIGINS)[number] | (string & {});
 
 export interface GuideBlockDraft {
   kind: GuideBlockKind;
@@ -225,17 +225,22 @@ export const GUIDE_TEMPLATES: readonly GuideTemplate[] = [
     id: "general",
     name: "General tutoring",
     subject: "general",
-    description: "Concepts, explanations, corrections, examples, and thoughtful next steps.",
+    description: "Concepts, explanations, corrections, instructions, examples, and next steps.",
     body: "Explain important concepts clearly, preserve corrections and explicit tutor instructions, and end with evidence-based next steps.",
     sections: [
       "Session overview",
       "Learning objectives",
       "Key concepts",
       "Detailed explanations",
+      "Terminology",
       "Student misconceptions",
       "Errors and corrections",
+      "Tutor instructions",
       "Worked examples",
+      "Important notices",
+      "Supporting materials",
       "Practice recommendations",
+      "Progress since previous lessons",
       "Next-session priorities",
       "Sources",
     ],
@@ -244,17 +249,20 @@ export const GUIDE_TEMPLATES: readonly GuideTemplate[] = [
     id: "english",
     name: "English",
     subject: "English",
-    description: "Writing, rhetorical choices, grammar, evidence, and revision.",
+    description:
+      "Argumentative writing, rhetorical analysis, commentary, grammar, evidence, and revision.",
     body: "For writing, connect rhetorical choices to audience and purpose. Distinguish a claim from its evidence and commentary. Preserve grammar corrections and show revision examples only when supported by the session.",
     sections: [
       "Session overview",
       "Learning objectives",
       "Argumentative writing",
       "Rhetorical analysis",
+      "Commentary",
       "Grammar",
       "Evidence integration",
       "Revision examples",
       "Student misconceptions",
+      "Errors and corrections",
       "Tutor instructions",
       "Practice recommendations",
       "Next-session priorities",
@@ -265,15 +273,18 @@ export const GUIDE_TEMPLATES: readonly GuideTemplate[] = [
     id: "mathematics",
     name: "Mathematics",
     subject: "mathematics",
-    description: "Formulas, derivations, worked solutions, misconceptions, and practice.",
+    description:
+      "Concepts, formulas, derivations, step-by-step solutions, misconceptions, and practice.",
     body: "Preserve formulas and notation. Explain each solution step and why it is valid. Separate verified session examples from newly suggested practice.",
     sections: [
       "Session overview",
       "Learning objectives",
-      "Concepts and formulas",
+      "Concepts",
+      "Formulas",
       "Derivations",
       "Step-by-step solutions",
       "Student misconceptions",
+      "Errors and corrections",
       "Worked examples",
       "Practice recommendations",
       "Next-session priorities",
@@ -284,17 +295,20 @@ export const GUIDE_TEMPLATES: readonly GuideTemplate[] = [
     id: "science",
     name: "Science",
     subject: "science",
-    description: "Definitions, experiments, reasoning, calculations, and limitations.",
+    description:
+      "Definitions, relationships, experiments, reasoning, calculations, and limitations.",
     body: "State definitions and relationships precisely. Preserve experimental conditions, calculation steps, uncertainty, and scientific limitations present in the evidence.",
     sections: [
       "Session overview",
       "Learning objectives",
-      "Definitions and relationships",
+      "Definitions",
+      "Relationships",
       "Experiments",
       "Scientific reasoning",
       "Calculations",
       "Limitations",
       "Student misconceptions",
+      "Errors and corrections",
       "Practice recommendations",
       "Next-session priorities",
       "Sources",
@@ -304,17 +318,19 @@ export const GUIDE_TEMPLATES: readonly GuideTemplate[] = [
     id: "programming",
     name: "Programming",
     subject: "programming",
-    description: "Errors, debugging, algorithms, examples, alternatives, and complexity.",
+    description: "Errors, debugging, algorithms, code, alternatives, and complexity.",
     body: "Explain observed errors and the debugging process. Keep code examples tied to session evidence; identify generated examples as new examples. Discuss complexity only when the session supports it.",
     sections: [
       "Session overview",
       "Learning objectives",
-      "Errors and debugging",
+      "Errors",
+      "Debugging steps",
       "Algorithm explanations",
       "Code examples",
       "Alternative implementations",
       "Complexity",
       "Student misconceptions",
+      "Corrections",
       "Practice recommendations",
       "Next-session priorities",
       "Sources",
@@ -331,7 +347,8 @@ export const GUIDE_TEMPLATES: readonly GuideTemplate[] = [
       "Learning objectives",
       "Vocabulary",
       "Pronunciation",
-      "Grammar and usage",
+      "Grammar",
+      "Usage",
       "Corrections",
       "Worked examples",
       "Practice recommendations",
@@ -345,6 +362,75 @@ const UUID_PATTERN = /^[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}$/
 const INLINE_SOURCE_PATTERN = /\[\[source:([^\]]+)\]\]/gu;
 const guideFieldPattern = /^section\.\d+(?:\.block\.\d+)?\./u;
 const nowUs = (): string => (BigInt(Date.now()) * 1000n).toString();
+
+function storedGuideTemplateSections(value: string): string[] {
+  return value
+    .split(/\r\n|\r|\n/u)
+    .map((section) => section.trim())
+    .filter(Boolean);
+}
+
+/** Replace a built-in definition with the archive override when one is stored. */
+export function applyGuideTemplateOverride(
+  template: GuideTemplate,
+  records: readonly ArchiveRecord[],
+): GuideTemplate {
+  const override = records.find(
+    (record) =>
+      record.type === RecordType.settings &&
+      field(record, "_deleted") !== "true" &&
+      field(record, "record_role") === "guide-template" &&
+      field(record, "builtin_template_id") === template.id,
+  );
+  if (!override) return template;
+  const sections = storedGuideTemplateSections(field(override, "sections"));
+  return {
+    ...template,
+    name: field(override, "name") || template.name,
+    subject: field(override, "subject") || template.subject,
+    description: field(override, "description") || template.description,
+    sections: sections.length ? sections : template.sections,
+    body: field(override, "body") || template.body,
+  };
+}
+
+export function builtInGuideTemplates(records: readonly ArchiveRecord[]): GuideTemplate[] {
+  return GUIDE_TEMPLATES.map((template) => applyGuideTemplateOverride(template, records));
+}
+
+export function customGuideTemplates(records: readonly ArchiveRecord[]): GuideTemplate[] {
+  return records
+    .filter(
+      (record) =>
+        record.type === RecordType.settings &&
+        field(record, "_deleted") !== "true" &&
+        field(record, "record_role") === "guide-template" &&
+        !field(record, "builtin_template_id"),
+    )
+    .map((record) => ({
+      id: record.id,
+      name: field(record, "name", "Untitled template"),
+      subject: field(record, "subject", "general"),
+      description: field(record, "description"),
+      sections: storedGuideTemplateSections(field(record, "sections")),
+      body: field(record, "body"),
+    }));
+}
+
+/** Resolve the full catalog, applying archive-built-in overrides and adding saved custom templates. */
+export function resolveGuideTemplates(
+  records: readonly ArchiveRecord[],
+  templates: readonly GuideTemplate[] = GUIDE_TEMPLATES,
+): GuideTemplate[] {
+  const resolved = templates.map((template) => applyGuideTemplateOverride(template, records));
+  const known = new Set(resolved.map((template) => template.id.toLocaleLowerCase()));
+  for (const custom of customGuideTemplates(records)) {
+    if (known.has(custom.id.toLocaleLowerCase())) continue;
+    known.add(custom.id.toLocaleLowerCase());
+    resolved.push(custom);
+  }
+  return resolved;
+}
 
 export function createGuideDraft(
   session: ArchiveRecord,
@@ -394,17 +480,24 @@ export function generateGuideDraftFromSession(
       : undefined;
   const inferredTemplateId = inferGuideTemplateId(field(session, "subject"));
   const preferredTemplateId = student ? field(student, "preferred_guide_template") : "";
+  const sessionTemplateId = field(session, "guide_template_id").trim();
   const resolvedTemplateId = automatic
-    ? preferredTemplateId || inferredTemplateId
+    ? sessionTemplateId || preferredTemplateId || inferredTemplateId
     : requestedTemplate;
   const normalizedTemplateId = resolvedTemplateId.toLocaleLowerCase();
+  const catalog = resolveGuideTemplates(records, templates);
   const template =
-    templates.find(
+    catalog.find(
       (candidate) =>
         candidate.id.toLocaleLowerCase() === normalizedTemplateId ||
-        (automatic && candidate.name.toLocaleLowerCase() === normalizedTemplateId),
+        candidate.name.toLocaleLowerCase() === normalizedTemplateId,
     ) ??
-    (automatic ? templates.find((candidate) => candidate.id === inferredTemplateId) : undefined);
+    (automatic && !sessionTemplateId
+      ? catalog.find(
+          (candidate) =>
+            candidate.id.toLocaleLowerCase() === inferredTemplateId.toLocaleLowerCase(),
+        )
+      : undefined);
   if (!template) throw new Error("Choose a study guide template available in this archive.");
 
   const draft = createGuideDraftFromSections(session, template.id, template.sections);
@@ -536,7 +629,7 @@ export function generateGuideDraftFromSession(
       continue;
     }
     const decoded = notesEditState(notes, {
-      entryId: entryId || notesEntryId,
+      entryId: notesEntryId,
       sessionId: notesSessionId,
     });
     if (!decoded.editable) continue;
@@ -561,6 +654,7 @@ export function generateGuideDraftFromSession(
     if (blocks.length) draft.sections.push({ id: newUuid(), heading, blocks });
   }
 
+  draft.sections = draft.sections.filter((section) => section.blocks.length > 0);
   if (draft.sections.length === 1) {
     draft.sections.push({
       id: newUuid(),
@@ -632,11 +726,11 @@ export function generateGuideDraftFromEntry(
     (() => {
       const automatic = requestedTemplate.toLocaleLowerCase() === "auto" || !requestedTemplate;
       const inferred = inferGuideTemplateId(field(entry, "subject"));
-      const desired = automatic ? inferred : requestedTemplate.toLocaleLowerCase();
-      const found = templates.find(
+      const desired = (automatic ? inferred : requestedTemplate).toLocaleLowerCase();
+      const found = resolveGuideTemplates(records, templates).find(
         (candidate) =>
           candidate.id.toLocaleLowerCase() === desired ||
-          (automatic && candidate.name.toLocaleLowerCase() === desired),
+          candidate.name.toLocaleLowerCase() === desired,
       );
       if (!found) throw new Error("Choose a study guide template available in this archive.");
       return found.id;
@@ -709,6 +803,120 @@ export function generateGuideDraftFromEntry(
     templateId: selectedTemplateId,
     sections,
   };
+}
+
+/** Approved guides stay untouched when regenerated; the result is saved as a new draft record. */
+export function guideRegenerationTarget(record: ArchiveRecord | null): ArchiveRecord | null {
+  if (!record) return null;
+  if (record.type !== RecordType.guide) throw new Error("Only a study guide can be regenerated.");
+  return field(record, "approval_state") === "approved" ? null : record;
+}
+
+/** Replace one section's blocks with freshly generated evidence, preserving every other section. */
+export function replaceGuideSectionFromGenerated(
+  draft: GuideDraft,
+  sectionIndex: number,
+  generated: GuideDraft,
+): GuideDraft {
+  const selected = draft.sections[sectionIndex];
+  if (!selected) throw new Error("Choose a guide section to regenerate.");
+  const heading = selected.heading.trim().toLocaleLowerCase();
+  const matching = generated.sections.find(
+    (section) => section.heading.trim().toLocaleLowerCase() === heading,
+  );
+  if (!matching) throw new Error("No current evidence maps to the selected guide section.");
+  return {
+    ...draft,
+    sections: draft.sections.map((section, index) =>
+      index === sectionIndex
+        ? { ...section, blocks: matching.blocks.map((block) => ({ ...block })) }
+        : section,
+    ),
+  };
+}
+
+/** Insert one archive image as a cited image block in the selected section. */
+export function insertGuideImageBlock(
+  draft: GuideDraft,
+  sectionIndex: number,
+  asset: ArchiveRecord,
+): GuideDraft {
+  const section = draft.sections[sectionIndex];
+  if (!section) throw new Error("Choose a guide section for this image.");
+  if (asset.type !== RecordType.assetMetadata || field(asset, "_deleted") === "true") {
+    throw new Error("Choose an image from this archive.");
+  }
+  if (!/^image\//u.test(field(asset, "mime_type"))) {
+    throw new Error("Choose an image asset for this guide block.");
+  }
+  const alternativeText = field(asset, "title", "Guide image").replace(/[\\\]]/gu, "\\$&");
+  return {
+    ...draft,
+    sections: draft.sections.map((current, index) =>
+      index === sectionIndex
+        ? {
+            ...current,
+            blocks: [
+              ...current.blocks,
+              {
+                kind: "image",
+                text: `![${alternativeText}](asset:${asset.id})`,
+                sourceIds: asset.id,
+                stale: false,
+                origin: "tutor-authored",
+              },
+            ],
+          }
+        : current,
+    ),
+  };
+}
+
+/** Refuse structurally invalid or out-of-scope guides before any export format is written. */
+export function validateGuideForExport(record: ArchiveRecord, scope?: GuideSourceScope): void {
+  if (record.type !== RecordType.guide) throw new Error("Only a study guide can be exported.");
+  const draft = guideDraftFromRecord(record);
+  const title = cleanText(draft.title, "Guide title", 240).trim();
+  if (!title) throw new Error("Cannot export a guide without a title.");
+  if (!draft.sections.length) throw new Error("A guide must contain at least one section.");
+  draft.sections.forEach((section, sectionIndex) => {
+    const heading = cleanText(section.heading, `Section ${sectionIndex + 1} heading`, 256).trim();
+    if (!heading) throw new Error("Every guide section needs a heading.");
+    section.blocks.forEach((block, blockIndex) => {
+      const kind = block.kind.trim();
+      if (!(GUIDE_BLOCK_KINDS as readonly string[]).includes(kind)) {
+        throw new Error(`Guide block kind “${block.kind}” is not supported for export.`);
+      }
+      cleanText(block.text, `Block ${blockIndex + 1} text`, 16 * 1024 * 1024, true);
+      const origin = block.origin || "unknown";
+      if (!(GUIDE_BLOCK_ORIGINS as readonly string[]).includes(origin)) {
+        throw new Error(`Guide block provenance “${block.origin}” is not supported for export.`);
+      }
+      const sourceIds = parseSourceIds(block.sourceIds, block.text, kind as GuideBlockKind);
+      if (!scope) return;
+      const image =
+        kind === "image" || kind === "figure" || block.text.startsWith("![")
+          ? parseGuideImageReference(block.text)
+          : null;
+      if (image) {
+        const asset = scope.records.find(
+          (record) =>
+            record.id.toLowerCase() === image.assetId &&
+            record.type === RecordType.assetMetadata &&
+            field(record, "_deleted") !== "true" &&
+            /^image\/(?:png|jpeg|jpg|gif|webp)$/u.test(field(record, "mime_type")),
+        );
+        if (!asset) {
+          throw new Error(`Guide image ${image.assetId} is missing or not a supported image.`);
+        }
+      }
+      for (const sourceId of sourceIds) {
+        if (!isGuideSourceInScope(sourceId, scope)) {
+          throw new Error(`Source ${sourceId} is missing or does not belong to this guide.`);
+        }
+      }
+    });
+  });
 }
 
 function addTutorProfileContext(draft: GuideDraft, student: ArchiveRecord): void {
@@ -987,7 +1195,7 @@ export function guideDraftFromRecord(record: ArchiveRecord): GuideDraft {
     for (let blockIndex = 0; blockIndex < blockCount; blockIndex += 1) {
       const blockPrefix = `${prefix}block.${blockIndex}.`;
       blocks.push({
-        kind: validKind(field(record, `${blockPrefix}kind`)),
+        kind: field(record, `${blockPrefix}kind`),
         text: field(record, `${blockPrefix}text`),
         sourceIds: field(record, `${blockPrefix}source_ids`),
         stale: field(record, `${blockPrefix}stale`) === "true",
@@ -1047,13 +1255,38 @@ export function makeGuideRecord(
   if (draft.sections.length === 0) throw new Error("Add at least one section to the guide.");
   if (draft.sections.length > 250) throw new Error("A guide can contain at most 250 sections.");
 
+  const currentSectionIndexById = new Map<string, number>();
+  if (current) {
+    for (let index = 0; current.fields.has(`section.${index}.id`); index += 1) {
+      currentSectionIndexById.set(field(current, `section.${index}.id`), index);
+    }
+  }
   const sections = draft.sections.map((section, sectionIndex) => {
     const heading = cleanText(section.heading, `Section ${sectionIndex + 1} heading`, 256).trim();
     if (!heading) throw new Error("Every guide section needs a heading.");
     if (section.blocks.length > 1_000)
       throw new Error("A section can contain at most 1,000 blocks.");
+    const previousSectionIndex = currentSectionIndexById.get(section.id) ?? sectionIndex;
     const blocks = section.blocks.map((block, blockIndex) => {
-      const kind = validKind(block.kind);
+      const kind = validKind(block.kind, "Guide block kind");
+      const blockPrefix = `section.${previousSectionIndex}.block.${blockIndex}.`;
+      const previousKind = current?.fields.get(`${blockPrefix}kind`);
+      const previousUnknown =
+        previousKind !== undefined &&
+        !(GUIDE_BLOCK_KINDS as readonly string[]).includes(previousKind);
+      if (
+        current &&
+        ((!(GUIDE_BLOCK_KINDS as readonly string[]).includes(kind) && previousKind !== kind) ||
+          (previousUnknown &&
+            (kind !== previousKind ||
+              block.text !== (current.fields.get(`${blockPrefix}text`) ?? "") ||
+              block.sourceIds !== (current.fields.get(`${blockPrefix}source_ids`) ?? "") ||
+              block.stale !== (current.fields.get(`${blockPrefix}stale`) === "true") ||
+              validOrigin(block.origin) !==
+                validOrigin(current.fields.get(`${blockPrefix}origin`) ?? "unknown"))))
+      ) {
+        throw new Error(`Guide block kind “${kind}” is not supported.`);
+      }
       const text = cleanText(block.text, `Block ${blockIndex + 1} text`, 16 * 1024 * 1024, true);
       const origin = validOrigin(block.origin);
       const sourceIds = parseSourceIds(block.sourceIds, text, kind);
@@ -1478,13 +1711,7 @@ export function isGuideNotesSource(
   const entryId = field(session, "entry_id").toLowerCase();
   const notesEntryId = field(record, "entry_id").toLowerCase();
 
-  if (
-    notesSessionId === sessionId &&
-    field(session, "notes_document_id").toLowerCase() === noteId &&
-    notesEntryId === entryId
-  ) {
-    return true;
-  }
+  if (notesSessionId === sessionId) return true;
   if (!entryId || notesEntryId !== entryId) return false;
 
   if (!notesSessionId) {
@@ -1600,18 +1827,19 @@ function isGuideNotesSourceForEntry(
     return false;
   }
   const entryId = entry.id.toLowerCase();
-  if (field(record, "entry_id").toLowerCase() !== entryId) return false;
   const noteId = record.id.toLowerCase();
   const sessionId = field(record, "session_id").toLowerCase();
-  if (!sessionId) return field(entry, "notes_document_id").toLowerCase() === noteId;
-  return records.some(
-    (candidate) =>
-      candidate.type === RecordType.session &&
-      candidate.id.toLowerCase() === sessionId &&
-      field(candidate, "_deleted") !== "true" &&
-      field(candidate, "entry_id").toLowerCase() === entryId &&
-      field(candidate, "notes_document_id").toLowerCase() === noteId,
-  );
+  if (sessionId) {
+    return records.some(
+      (candidate) =>
+        candidate.type === RecordType.session &&
+        candidate.id.toLowerCase() === sessionId &&
+        field(candidate, "_deleted") !== "true" &&
+        field(candidate, "entry_id").toLowerCase() === entryId,
+    );
+  }
+  if (field(record, "entry_id").toLowerCase() !== entryId) return false;
+  return field(entry, "notes_document_id").toLowerCase() === noteId;
 }
 
 function validateGuideTable(value: string): void {
@@ -1640,14 +1868,13 @@ function validateGuideTable(value: string): void {
   }
 }
 
-function validKind(value: string): GuideBlockKind {
-  if ((GUIDE_BLOCK_KINDS as readonly string[]).includes(value)) return value as GuideBlockKind;
-  return "paragraph";
+function validKind(value: string, label: string): GuideBlockKind {
+  if (!value.trim()) throw new Error(`${label} is required.`);
+  return value;
 }
 
 function validOrigin(value: string): GuideBlockOrigin {
-  if ((GUIDE_BLOCK_ORIGINS as readonly string[]).includes(value)) return value as GuideBlockOrigin;
-  return "unknown";
+  return value || "unknown";
 }
 
 function boundedCount(raw: string, label: string): number {
