@@ -379,7 +379,11 @@ test("creates, updates, exports, and reopens a portable tutoring workspace", asy
   await expect(page.getByRole("heading", { name: "Reviewed sign change evidence" })).toHaveCount(0);
   await page.getByRole("button", { name: "Trash", exact: true }).click();
   await expect(page.getByText("Reviewed sign change evidence", { exact: true })).toBeVisible();
-  await page.getByRole("button", { name: "Restore", exact: true }).click();
+  await page
+    .locator(".trash-record")
+    .filter({ hasText: "Reviewed sign change evidence" })
+    .getByRole("button", { name: "Restore", exact: true })
+    .click();
   await page.getByRole("button", { name: "Evidence", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Reviewed sign change evidence" })).toBeVisible();
   await expect(page.locator(".evidence-contradiction-row")).toHaveCount(1);
@@ -608,7 +612,7 @@ test("creates and manages archive-backed study guide templates", async ({ page }
   expect(json).toContain('"format": "tutorux-guide-template-v1"');
   expect(json).toContain("Guiding questions");
   const importedTemplate = { ...JSON.parse(json), name: "Imported review" };
-  await page.getByLabel("Import a study guide template JSON file").setInputFiles({
+  await page.getByLabel("Import a study guide template JSON or Markdown file").setInputFiles({
     name: "imported-review.json",
     mimeType: "application/json",
     buffer: Buffer.from(JSON.stringify(importedTemplate), "utf8"),
@@ -627,7 +631,11 @@ test("creates and manages archive-backed study guide templates", async ({ page }
   await templateRow.getByRole("button", { name: "Move to Trash" }).click();
   await templateRow.getByRole("button", { name: "Confirm move" }).click();
   await expect(templateRow).toHaveCount(0);
-  await page.getByRole("button", { name: "Restore", exact: true }).click();
+  await page
+    .locator(".guide-template-trash-row")
+    .filter({ hasText: "Socratic review" })
+    .getByRole("button", { name: "Restore", exact: true })
+    .click();
   await expect(templateRow).toContainText("3 sections");
 });
 
