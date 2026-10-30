@@ -61,7 +61,7 @@ function responseChunk(sessionId: string, sourceId = sessionId): Uint8Array {
     ],
   });
   return encoder.encode(
-    `data: ${JSON.stringify({ choices: [{ delta: { content: guideText } }] })}\n\ndata: [DONE]\n\n`,
+    `data: ${JSON.stringify({ id: "chatcmpl-test", choices: [{ delta: { content: guideText } }] })}\n\ndata: [DONE]\n\n`,
   );
 }
 
@@ -124,6 +124,11 @@ describe("reviewed AI generation", () => {
     });
     expect(result.job.fields.get("outbound_consent_hash")).toBe(preview.requestBodyHash);
     expect(result.job.fields.get("response_sha256")).toMatch(/^[\da-f]{64}$/u);
+    expect(result.job.fields.get("provider_response_id")).toBe("chatcmpl-test");
+    expect(result.job.fields.get("max_output_tokens")).toBe("4096");
+    expect(result.job.fields.get("error_code")).toBe("");
+    expect(result.job.fields.get("error_message")).toBe("");
+    expect(result.job.fields.get("retry_after")).toBe("");
     expect(result.job.fields.has("value")).toBe(false);
     expect(result.job.blob).toEqual(chunk);
     expect(result.guide?.fields.get("approval_state")).toBe("draft");
@@ -185,10 +190,12 @@ describe("reviewed AI generation", () => {
     expect(send).not.toHaveBeenCalled();
   });
 
-  it("archives raw provider error responses without creating a guide", async () => {
+  it("archives raw provider error responses and records structured error metadata", async () => {
     const session = createSession();
     const preview = createPreview();
-    const rawError = encoder.encode('{"error":{"message":"rate limit"}}');
+    const rawError = encoder.encode(
+      '{"error":{"message":"rate limit","code":"rate_limit_exceeded","retry_after":12}}',
+    );
     const result = await executeAiGeneration({
       packageJob: createPackageJob(),
       expectedTemplateId: "general",
@@ -214,12 +221,13 @@ describe("reviewed AI generation", () => {
     expect(result.job.fields.get("http_status")).toBe("429");
     expect(result.job.fields.get("response_complete")).toBe("true");
     expect(result.job.fields.get("status")).toBe("provider-error");
-    expect(result.job.fields.get("error_message")).toBeUndefined();
+    expect(result.job.fields.get("error_code")).toBe("rate_limit_exceeded");
+    expect(result.job.fields.get("error_message")).toBe("rate limit");
+    expect(result.job.fields.get("retry_after")).toBe("12");
+    expect(result.job.fields.get("max_output_tokens")).toBe("4096");
     expect(result.guide).toBeNull();
     expect(result.summary.guideId).toBeNull();
-    expect(result.summary.warnings).toContain(
-      "The provider returned HTTP 429. Its raw response was saved for export.",
-    );
+    expect(result.summary.warnings).toContain("rate limit");
   });
 
   it("archives received raw bytes when a response stream is interrupted", async () => {
@@ -252,6 +260,65 @@ describe("reviewed AI generation", () => {
     expect(result.job.fields.get("status")).toBe("response-partial");
     expect(result.guide).toBeNull();
     expect(result.summary.responseBytes).toBe(partial.byteLength);
+  });
+
+  it("keeps decodable partial output as a draft when generation is cancelled", async () => {
+    const session = createSession();
+    const preview = createPreview();
+    const guideText = JSON.stringify({
+      title: "Partial guide",
+      template_id: "general",
+      sections: [
+        {
+          heading: "Partial section",
+          blocks: [
+            {
+              kind: "paragraph",
+              text: "A partial answer.",
+              source_ids: [session.id],
+            },
+          ],
+        },
+      ],
+    });
+    const partial = encoder.encode(
+      `data: ${JSON.stringify({ id: "chatcmpl-cancelled", choices: [{ delta: { content: guideText } }] })}\n\ndata: {"choices":[{"delta":{"content":"truncated`,
+    );
+    const result = await executeAiGeneration({
+      packageJob: createPackageJob(),
+      expectedTemplateId: "general",
+      preview,
+      confirmedEndpoint: preview.endpoint,
+      confirmedBodyHash: preview.requestBodyHash,
+      credential: "private-provider-key",
+      session,
+      sourceRecords: [session],
+      send: async (_request, onChunk) => {
+        onChunk(partial);
+        return {
+          status: 200,
+          contentType: "text/event-stream",
+          responseBytes: partial.byteLength,
+          complete: false,
+          cancelled: true,
+          errorMessage: "Generation was cancelled.",
+        };
+      },
+      onProgress: () => undefined,
+    });
+
+    expect(result.summary.status).toBe("cancelled-with-partial-output");
+    expect(result.guide).not.toBeNull();
+    expect(result.summary.guideId).toBe(result.guide?.id);
+    expect(result.summary.responseText).toContain("A partial answer.");
+    expect(result.job.fields.get("status")).toBe("cancelled-with-partial-output");
+    expect(result.job.fields.get("error_code")).toBe("operation_cancelled");
+    expect(result.job.fields.get("error_message")).toBe("Generation was cancelled.");
+    expect(result.job.fields.get("max_output_tokens")).toBe("4096");
+    expect(result.job.fields.get("provider_response_id")).toBe("chatcmpl-cancelled");
+    expect(result.summary.warnings).toContain(
+      "Generation was cancelled; the partial response is an unapproved draft that needs review.",
+    );
   });
 
   it("keeps an off-session citation as an editable response that needs correction", async () => {
