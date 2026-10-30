@@ -518,6 +518,170 @@
   grid-column: 1 / -1;
 }
 
+.ai-model-catalog {
+  display: grid;
+  gap: 10px;
+  margin-top: 17px;
+  padding: 15px;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--surface-subtle) 68%, var(--surface));
+}
+
+.ai-model-catalog-heading,
+.ai-model-catalog-option-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.ai-model-catalog-heading h3 {
+  margin: 4px 0 0;
+  color: var(--ink);
+  font-size: 14px;
+  font-weight: 650;
+  letter-spacing: -0.025em;
+}
+
+.ai-model-catalog-heading .button {
+  min-height: 34px;
+  flex: 0 0 auto;
+  font-size: 10px;
+}
+
+.ai-model-catalog-intro,
+.ai-model-catalog-status,
+.ai-model-catalog-empty {
+  margin: 0;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.55;
+}
+
+.ai-model-catalog-browser {
+  display: grid;
+  gap: 11px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line-soft);
+}
+
+.ai-model-catalog-tools {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(170px, 0.55fr) auto;
+  align-items: end;
+  gap: 10px;
+}
+
+.ai-model-catalog-search,
+.ai-model-catalog-filter {
+  gap: 5px;
+}
+
+.ai-model-catalog-search input,
+.ai-model-catalog-filter select {
+  width: 100%;
+  min-height: 37px;
+  padding: 0 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  font-size: 10px;
+  font-weight: 450;
+}
+
+.ai-model-catalog-search input:focus-visible,
+.ai-model-catalog-filter select:focus-visible,
+.ai-model-catalog-option:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 65%, transparent);
+  outline-offset: 2px;
+}
+
+.ai-model-catalog-refresh {
+  min-height: 37px;
+  font-size: 10px;
+}
+
+.ai-model-catalog-results {
+  display: grid;
+  gap: 7px;
+}
+
+.ai-model-catalog-count {
+  color: var(--faint);
+  font-size: 9px;
+  font-variant-numeric: tabular-nums;
+}
+
+.ai-model-catalog-list {
+  display: grid;
+  gap: 6px;
+  max-height: 380px;
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding: 2px;
+}
+
+.ai-model-catalog-option {
+  display: grid;
+  gap: 7px;
+  width: 100%;
+  padding: 11px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--ink-soft);
+  text-align: left;
+  cursor: pointer;
+}
+
+.ai-model-catalog-option:hover,
+.ai-model-catalog-option[aria-selected="true"] {
+  border-color: color-mix(in srgb, var(--accent) 52%, var(--line));
+  background: color-mix(in srgb, var(--accent-soft) 32%, var(--surface));
+}
+
+.ai-model-catalog-option-heading {
+  min-width: 0;
+  align-items: flex-start;
+}
+
+.ai-model-catalog-option-heading strong {
+  overflow-wrap: anywhere;
+  color: var(--ink);
+  font-size: 10px;
+  font-weight: 680;
+}
+
+.ai-model-catalog-option-heading > span {
+  flex: 0 0 auto;
+  color: var(--muted);
+  font-size: 9px;
+}
+
+.ai-model-catalog-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.ai-model-catalog-tags > span {
+  padding: 3px 6px;
+  border: 1px solid var(--line-soft);
+  border-radius: 999px;
+  color: var(--muted);
+  background: var(--surface-subtle);
+  font-size: 8px;
+  line-height: 1.25;
+}
+
+.ai-model-catalog-source {
+  color: var(--faint);
+  font-size: 8px;
+}
+
 .ai-provider-protocol {
   display: flex;
   justify-content: space-between;
@@ -1020,6 +1184,15 @@
     grid-column: auto;
   }
 
+  .ai-model-catalog-tools {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 0.8fr);
+  }
+
+  .ai-model-catalog-refresh {
+    grid-column: 1 / -1;
+    justify-self: start;
+  }
+
   .ai-embedded-limits {
     grid-template-columns: 1fr;
   }
@@ -1084,6 +1257,33 @@
   .ai-request-review-callout {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .ai-model-catalog-heading,
+  .ai-model-catalog-option-heading {
+    align-items: flex-start;
+  }
+
+  .ai-model-catalog-heading {
+    flex-direction: column;
+  }
+
+  .ai-model-catalog-heading .button {
+    width: 100%;
+  }
+
+  .ai-model-catalog-tools {
+    grid-template-columns: 1fr;
+  }
+
+  .ai-model-catalog-refresh {
+    grid-column: auto;
+    justify-self: stretch;
+  }
+
+  .ai-model-catalog-option-heading {
+    flex-direction: column;
+    gap: 4px;
   }
 
   .ai-credential-storage,
