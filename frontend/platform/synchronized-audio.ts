@@ -61,6 +61,12 @@ export interface NativeSynchronizedAudioStarted {
   microphoneSampleRateHz: number;
   systemAudioSampleRateHz: number;
   applicationAudioSampleRateHz: number;
+  microphoneChannelCount?: number;
+  microphoneSampleFormat?: string;
+  systemAudioChannelCount?: number;
+  systemAudioSampleFormat?: string;
+  applicationAudioChannelCount?: number;
+  applicationAudioSampleFormat?: string;
   applicationAudioDeviceId?: string | null;
   applicationAudioName?: string | null;
   applicationAudioProcessId?: number | null;
@@ -69,10 +75,21 @@ export interface NativeSynchronizedAudioStarted {
   backend: string;
 }
 
+export type NativeAudioSampleFormat =
+  | "pcm_u8"
+  | "pcm_s16le"
+  | "pcm_s24le"
+  | "pcm_s32le"
+  | "pcm_f32le";
+
 export interface NativeSynchronizedAudioArchiveChunk {
   sequence: number;
   firstSampleIndex: string;
   samples: Uint8Array<ArrayBuffer>;
+  sampleFormat: NativeAudioSampleFormat;
+  channelCount: number;
+  gapBeforeSamples: string;
+  containsDeviceDiscontinuity: boolean;
 }
 
 export interface NativeSynchronizedAudioArchiveHooks {
@@ -108,7 +125,13 @@ interface NativeChunkEvent {
   sequence: number;
   firstSampleIndex: string;
   sampleRateHz: number;
-  pcmS16leBase64: string;
+  frameCount?: string;
+  channelCount?: number;
+  sampleFormat?: string;
+  gapBeforeSamples?: string;
+  containsDeviceDiscontinuity?: boolean;
+  pcmBase64?: string;
+  pcmS16leBase64?: string;
 }
 
 interface NativeFailureEvent {
@@ -127,6 +150,9 @@ interface NativeFinishedTrack {
   sampleCount: string;
   byteCount: string;
   chunkCount: number;
+  channelCount?: number;
+  sampleFormat?: string;
+  discontinuityCount?: number;
   failure?: string | null;
 }
 
@@ -138,6 +164,9 @@ interface NativeFinished {
 
 interface TrackQueue {
   sampleRateHz: number;
+  sampleFormat: NativeAudioSampleFormat;
+  channelCount: number;
+  frameBytes: number;
   expectedNativeSequence: number;
   expectedNativeSampleIndex: bigint;
   archiveSequence: number;
@@ -146,6 +175,8 @@ interface TrackQueue {
   staged: Uint8Array<ArrayBuffer>[];
   stagedBytes: number;
   stagedFirstSampleIndex: bigint | undefined;
+  stagedGapBeforeSamples: string;
+  stagedDiscontinuity: boolean;
   chain: Promise<void>;
   failure: string | undefined;
   persistenceFailed: boolean;
@@ -233,7 +264,9 @@ export async function startNativeSynchronizedAudioCapture(options: {
   const flushTrack = (track: SynchronizedAudioTrack, requestedBytes = Number.POSITIVE_INFINITY) => {
     const queue = queues[track];
     if (queue.stagedBytes === 0 || queue.stagedFirstSampleIndex === undefined) return;
-    const size = Math.min(queue.stagedBytes, requestedBytes);
+    const frameAligned = Math.floor(Math.min(queue.stagedBytes, requestedBytes) / queue.frameBytes);
+    const size = frameAligned * queue.frameBytes;
+    if (size <= 0) return;
     const bytes = new Uint8Array(size);
     let offset = 0;
     let remaining = size;
@@ -252,16 +285,27 @@ export async function startNativeSynchronizedAudioCapture(options: {
       }
     }
     const firstSampleIndex = queue.stagedFirstSampleIndex.toString();
+    const gapBeforeSamples = queue.stagedGapBeforeSamples;
+    const containsDeviceDiscontinuity = queue.stagedDiscontinuity;
     queue.staged = rest;
     queue.stagedBytes -= size;
-    queue.stagedFirstSampleIndex =
-      queue.stagedBytes > 0 ? BigInt(firstSampleIndex) + BigInt(size / 2) : undefined;
+    queue.stagedFirstSampleIndex = queue.stagedBytes > 0 ? BigInt(firstSampleIndex) + BigInt(frameAligned) : undefined;
+    queue.stagedGapBeforeSamples = "0";
+    queue.stagedDiscontinuity = rest.length > 0 ? false : queue.stagedDiscontinuity;
     const sequence = queue.archiveSequence++;
     const operation = queue.chain.then(async () => {
       if (queue.persistenceFailed) return;
       try {
-        await options.archive.onChunk(track, { sequence, firstSampleIndex, samples: bytes });
-        queue.committedSamples += BigInt(bytes.byteLength / 2);
+        await options.archive.onChunk(track, {
+          sequence,
+          firstSampleIndex,
+          samples: bytes,
+          sampleFormat: queue.sampleFormat,
+          channelCount: queue.channelCount,
+          gapBeforeSamples,
+          containsDeviceDiscontinuity,
+        });
+        queue.committedSamples += BigInt(frameAligned);
       } catch (cause) {
         queue.persistenceFailed = true;
         stopSource(track, `Archive checkpoint failed: ${errorMessage(cause)}`);
@@ -289,28 +333,42 @@ export async function startNativeSynchronizedAudioCapture(options: {
       if (event.sampleRateHz !== queue.sampleRateHz) {
         throw new Error("The audio source changed sample rate while recording.");
       }
-      if (
-        !/^\d+$/u.test(event.firstSampleIndex) ||
-        BigInt(event.firstSampleIndex) !== queue.expectedNativeSampleIndex
-      ) {
+      const sampleFormat = parseSampleFormat(event.sampleFormat);
+      const channelCount = event.channelCount ?? 1;
+      if (sampleFormat !== queue.sampleFormat || channelCount !== queue.channelCount) {
+        throw new Error("The audio source changed format while recording.");
+      }
+      const gapBeforeSamples = event.gapBeforeSamples ?? "0";
+      if (!/^\d+$/u.test(event.firstSampleIndex) || !/^\d+$/u.test(gapBeforeSamples)) {
+        throw new Error("The audio source returned an invalid sample timeline.");
+      }
+      const firstSampleIndex = BigInt(event.firstSampleIndex);
+      if (firstSampleIndex !== queue.expectedNativeSampleIndex + BigInt(gapBeforeSamples)) {
         throw new Error("The audio source returned a discontinuous sample timeline.");
       }
-      const bytes = decodePcm(event.pcmS16leBase64);
-      if (bytes.byteLength === 0 || bytes.byteLength % 2 !== 0) {
+      const bytes = decodePcm(event.pcmBase64 ?? event.pcmS16leBase64 ?? "");
+      if (bytes.byteLength === 0 || bytes.byteLength % queue.frameBytes !== 0) {
         throw new Error("The audio source returned an invalid PCM chunk.");
+      }
+      const frames = BigInt(bytes.byteLength / queue.frameBytes);
+      if (event.frameCount !== undefined && BigInt(event.frameCount) !== frames) {
+        throw new Error("The audio source returned an inconsistent PCM frame count.");
       }
       if (queue.pendingBytes + bytes.byteLength > MAX_PENDING_BYTES_PER_TRACK) {
         throw new Error("Archive writing fell behind the bounded audio queue.");
       }
+      if (gapBeforeSamples !== "0" && queue.stagedBytes > 0) flushTrack(track);
       queue.expectedNativeSequence++;
-      queue.expectedNativeSampleIndex += BigInt(bytes.byteLength / 2);
-      queue.receivedSamples += BigInt(bytes.byteLength / 2);
+      queue.expectedNativeSampleIndex = firstSampleIndex + frames;
+      queue.receivedSamples += frames;
       queue.receivedNativeChunks++;
       queue.pendingBytes += bytes.byteLength;
       if (queue.stagedFirstSampleIndex === undefined) {
-        queue.stagedFirstSampleIndex = queue.archiveSampleIndex;
+        queue.stagedFirstSampleIndex = firstSampleIndex;
+        queue.stagedGapBeforeSamples = gapBeforeSamples;
+        queue.stagedDiscontinuity = event.containsDeviceDiscontinuity === true;
       }
-      queue.archiveSampleIndex += BigInt(bytes.byteLength / 2);
+      queue.archiveSampleIndex = firstSampleIndex + frames;
       queue.staged.push(bytes);
       queue.stagedBytes += bytes.byteLength;
       while (queue.stagedBytes >= ARCHIVE_BATCH_BYTES) flushTrack(track, ARCHIVE_BATCH_BYTES);
@@ -369,9 +427,24 @@ export async function startNativeSynchronizedAudioCapture(options: {
       const source = parseTrack(track);
       if (source && message) addFailure(source, message);
     }
-    queues.microphone.sampleRateHz = nativeStarted.microphoneSampleRateHz;
-    queues["system-audio"].sampleRateHz = nativeStarted.systemAudioSampleRateHz;
-    queues["application-audio"].sampleRateHz = nativeStarted.applicationAudioSampleRateHz;
+    configureQueue(
+      queues.microphone,
+      nativeStarted.microphoneSampleRateHz,
+      nativeStarted.microphoneSampleFormat,
+      nativeStarted.microphoneChannelCount,
+    );
+    configureQueue(
+      queues["system-audio"],
+      nativeStarted.systemAudioSampleRateHz,
+      nativeStarted.systemAudioSampleFormat,
+      nativeStarted.systemAudioChannelCount,
+    );
+    configureQueue(
+      queues["application-audio"],
+      nativeStarted.applicationAudioSampleRateHz,
+      nativeStarted.applicationAudioSampleFormat,
+      nativeStarted.applicationAudioChannelCount,
+    );
     await options.archive.onStarted(nativeStarted);
     startMetadataCommitted = true;
     await invoke("activate_synchronized_audio_capture", { captureId: nativeStarted.captureId });
@@ -574,6 +647,9 @@ export async function startNativeSynchronizedAudioCapture(options: {
 function createTrackQueue(): TrackQueue {
   return {
     sampleRateHz: 0,
+    sampleFormat: "pcm_s16le",
+    channelCount: 1,
+    frameBytes: 2,
     expectedNativeSequence: 0,
     expectedNativeSampleIndex: 0n,
     archiveSequence: 0,
@@ -582,6 +658,8 @@ function createTrackQueue(): TrackQueue {
     staged: [],
     stagedBytes: 0,
     stagedFirstSampleIndex: undefined,
+    stagedGapBeforeSamples: "0",
+    stagedDiscontinuity: false,
     chain: Promise.resolve(),
     failure: undefined,
     persistenceFailed: false,
@@ -589,6 +667,45 @@ function createTrackQueue(): TrackQueue {
     committedSamples: 0n,
     receivedNativeChunks: 0,
   };
+}
+
+function configureQueue(
+  queue: TrackQueue,
+  sampleRateHz: number,
+  sampleFormatValue: string | undefined,
+  channelCountValue: number | undefined,
+): void {
+  queue.sampleRateHz = sampleRateHz;
+  queue.sampleFormat = parseSampleFormat(sampleFormatValue);
+  queue.channelCount = channelCountValue ?? 1;
+  queue.frameBytes = bytesPerSample(queue.sampleFormat) * queue.channelCount;
+}
+
+function parseSampleFormat(value: string | undefined): NativeAudioSampleFormat {
+  switch (value) {
+    case "pcm_u8":
+    case "pcm_s16le":
+    case "pcm_s24le":
+    case "pcm_s32le":
+    case "pcm_f32le":
+      return value;
+    default:
+      return "pcm_s16le";
+  }
+}
+
+function bytesPerSample(format: NativeAudioSampleFormat): number {
+  switch (format) {
+    case "pcm_u8":
+      return 1;
+    case "pcm_s16le":
+      return 2;
+    case "pcm_s24le":
+      return 3;
+    case "pcm_s32le":
+    case "pcm_f32le":
+      return 4;
+  }
 }
 
 function releaseQueuedChunks(queue: TrackQueue): void {
@@ -633,8 +750,17 @@ function validateStarted(
     started.systemAudioSampleRateHz,
     started.applicationAudioSampleRateHz,
   ]) {
-    if (rate !== 0 && (!Number.isSafeInteger(rate) || rate < 8_000 || rate > 192_000)) {
+    if (rate !== 0 && (!Number.isSafeInteger(rate) || rate < 8_000 || rate > 384_000)) {
       throw new Error("A native audio source returned an unsupported sample rate.");
+    }
+  }
+  for (const channels of [
+    started.microphoneChannelCount,
+    started.systemAudioChannelCount,
+    started.applicationAudioChannelCount,
+  ]) {
+    if (channels !== undefined && (!Number.isInteger(channels) || channels < 1 || channels > 8)) {
+      throw new Error("A native audio source returned an unsupported channel count.");
     }
   }
   if (
@@ -678,6 +804,20 @@ function reconcileSummary(
   failures: Partial<Record<SynchronizedAudioTrack, string>>,
 ): void {
   if (summary.failure && !failures[track]) failures[track] = summary.failure;
+  if (
+    summary.channelCount !== undefined &&
+    summary.channelCount !== queue.channelCount &&
+    !failures[track]
+  ) {
+    failures[track] = "The native audio summary reported a different channel count.";
+  }
+  if (
+    summary.sampleFormat !== undefined &&
+    parseSampleFormat(summary.sampleFormat) !== queue.sampleFormat &&
+    !failures[track]
+  ) {
+    failures[track] = "The native audio summary reported a different sample format.";
+  }
   if (summary.sampleCount === "0" && !failures[track]) {
     failures[track] = "The selected audio source did not provide any samples.";
   }
