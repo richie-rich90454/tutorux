@@ -1,55 +1,55 @@
 .audio-mixer {
-  border: 1px solid var(--line);
-  border-radius: var(--radius-large);
-  padding: 20px;
-  margin-top: 18px;
-  background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-large);
+    padding: 20px;
+    margin-top: 18px;
+    background: var(--surface);
 }
 .audio-mixer h3 {
-  margin: 5px 0;
+    margin: 5px 0;
 }
 .audio-mixer p {
-  color: var(--muted);
+    color: var(--muted);
 }
 .audio-mixer fieldset {
-  border: 0;
-  padding: 0;
-  margin: 18px 0;
+    border: 0;
+    padding: 0;
+    margin: 18px 0;
 }
 .audio-mixer legend {
-  font-weight: 600;
-  margin-bottom: 8px;
+    font-weight: 600;
+    margin-bottom: 8px;
 }
 .audio-mixer-tracks {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px 18px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px 18px;
 }
 .audio-mixer-tracks label {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
 }
 .audio-mixer-controls {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: end;
-  gap: 12px;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: end;
+    gap: 12px;
 }
 .audio-mixer-controls label {
-  flex: 1 1 150px;
+    flex: 1 1 150px;
 }
 .audio-mixer .audio-mixer-error {
-  color: var(--danger);
+    color: var(--danger);
 }
 .audio-mixer-result {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  flex-wrap: wrap;
-  margin-top: 16px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-top: 16px;
 }
 .audio-mixer-result audio {
-  flex: 1 1 240px;
-  max-width: 100%;
+    flex: 1 1 240px;
+    max-width: 100%;
 }
