@@ -1,6 +1,7 @@
 import { BrowserFileArchiveSource, sourceStream, type ArchiveByteSource } from "../archive/source";
 import { isEmbeddedGgufProvider } from "../ai/providers";
 import type {
+  AiModelInspectionRequest,
   ArchivePlatform,
   AiTransportRequest,
   AiTransportResult,
@@ -8,7 +9,15 @@ import type {
   BinaryExportSource,
   OpenedArchive,
   BrowserArchiveAutosave,
+  SanitizedCopyDestination,
 } from "./types";
+import { providerAuthenticationHeaderName, usesAnthropicVersionHeader } from "../ai/providers";
+import {
+  cancelBrowserReplicatePrediction,
+  inspectReplicateModel as inspectReplicateModelInBrowser,
+  registerReplicateCancellationHandler,
+  sendReplicateAiRequest,
+} from "../ai/replicate";
 
 interface FilePickerType {
   description: string;
@@ -20,6 +29,8 @@ const MAX_AI_RESPONSE_BYTES = 16 * 1024 * 1024;
 const archiveFilter: FilePickerType[] = [
   { description: "Tutorux archive", accept: { "application/x-tutorux": [".tux"] } },
 ];
+
+registerReplicateCancellationHandler(cancelBrowserReplicatePrediction);
 interface BrowserArchiveHandle {
   readonly name: string;
   getFile(): Promise<File>;
@@ -240,6 +251,7 @@ export const platform: ArchivePlatform = {
     request: AiTransportRequest,
     onChunk: (chunk: Uint8Array) => void,
   ): Promise<AiTransportResult> {
+    if (request.providerId === "replicate") return sendReplicateAiRequest(request, onChunk);
     if (isEmbeddedGgufProvider(request.providerId)) {
       throw new Error("In-process GGUF inference is available in the Tutorux desktop app.");
     }
@@ -247,21 +259,21 @@ export const platform: ArchivePlatform = {
       "Content-Type": "application/json",
       Accept: request.accept,
     });
-    if (request.credential) {
-      const header =
-        request.providerId === "anthropic"
-          ? "x-api-key"
-          : request.providerId === "google-gemini"
-            ? "x-goog-api-key"
-            : "Authorization";
+    const authenticationHeader = providerAuthenticationHeaderName(
+      request.providerId,
+      request.model,
+    );
+    if (request.credential && authenticationHeader) {
       headers.set(
-        header,
-        request.providerId === "anthropic" || request.providerId === "google-gemini"
-          ? request.credential
-          : `Bearer ${request.credential}`,
+        authenticationHeader,
+        authenticationHeader === "Authorization"
+          ? `Bearer ${request.credential}`
+          : request.credential,
       );
     }
-    if (request.providerId === "anthropic") headers.set("anthropic-version", "2023-06-01");
+    if (usesAnthropicVersionHeader(request.providerId, request.model)) {
+      headers.set("anthropic-version", "2023-06-01");
+    }
     const timeout = new AbortController();
     const timeoutId = window.setTimeout(() => timeout.abort(), 600_000);
     let response: Response;
@@ -273,6 +285,7 @@ export const platform: ArchivePlatform = {
         cache: "no-store",
         credentials: "omit",
         redirect: "error",
+        referrerPolicy: "no-referrer",
         signal: timeout.signal,
       });
     } catch {
@@ -326,6 +339,13 @@ export const platform: ArchivePlatform = {
     };
   },
 
+  async inspectReplicateModel(
+    request: AiModelInspectionRequest,
+    onChunk: (chunk: Uint8Array) => void,
+  ): Promise<AiTransportResult> {
+    return inspectReplicateModelInBrowser(request, onChunk);
+  },
+
   async aiCredentialStoreAvailable(): Promise<boolean> {
     return false;
   },
@@ -344,6 +364,40 @@ export const platform: ArchivePlatform = {
 
   async createArchiveLocation(suggestedName: string): Promise<string | null> {
     return suggestedName;
+  },
+
+  async chooseSanitizedCopyDestination(suggestedName: string): Promise<SanitizedCopyDestination> {
+    let canceled = false;
+    let published = false;
+    return {
+      label: `${suggestedName} · browser download`,
+      async checkpoint() {
+        if (canceled || published) throw new Error("This copy destination is no longer available.");
+      },
+      async publish(source) {
+        if (canceled || published) throw new Error("This copy destination is no longer available.");
+        if (source.size > 512n * 1024n * 1024n) {
+          throw new Error(
+            "This browser cannot safely download a sanitized archive larger than 512 MiB. Use Tutorux for desktop to create large copies.",
+          );
+        }
+        const blob = await new Response(sourceStream(source), {
+          headers: { "Content-Type": "application/x-tutorux" },
+        }).blob();
+        if (canceled) throw new Error("Sanitized-copy creation was canceled.");
+        const url = URL.createObjectURL(blob);
+        const anchor = document.createElement("a");
+        anchor.href = url;
+        anchor.download = suggestedName;
+        anchor.click();
+        window.setTimeout(() => URL.revokeObjectURL(url), 30_000);
+        published = true;
+        return suggestedName;
+      },
+      async cancel() {
+        canceled = true;
+      },
+    };
   },
 
   notify(message: string, tone = "info"): void {
