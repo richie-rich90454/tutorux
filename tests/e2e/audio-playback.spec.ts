@@ -109,6 +109,7 @@ test("manages recording take and track names and restores trashed audio", async 
   await expect(page.getByRole("region", { name: "Recording takes" })).toBeVisible();
   await page.getByLabel("Recording take name").fill("Review take");
   await page.getByRole("button", { name: "Save name" }).click();
+  await expect(page.getByText("Recording take renamed.")).toBeVisible();
   await expect(page.getByLabel("Recording take name")).toHaveValue("Review take");
   const trackName = page.getByLabel("Track name: Microphone");
   await trackName.fill("Tutor mic");
