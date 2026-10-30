@@ -54,6 +54,20 @@ export type JournalInput = {
   tagIds?: readonly string[];
 } & NotesInput;
 
+export interface JournalCreateOptions {
+  ensureJournalRoot?: boolean;
+}
+
+export interface RemovedNoteBlock {
+  documentId: string;
+  entryId: string;
+  sessionId: string;
+  id: string;
+  kind: JournalNoteBlockKind;
+  text: string;
+  index: number;
+}
+
 export interface JournalCollectionInput {
   name: string;
   description: string;
@@ -71,6 +85,7 @@ export interface NotesEditState {
 }
 
 export const MAX_JOURNAL_NOTE_BLOCKS = 10_000;
+export const MAX_RECOVERABLE_NOTE_BLOCKS = 256;
 
 export const JOURNAL_NOTE_BLOCK_KINDS = [
   "paragraph",
@@ -494,12 +509,15 @@ export function makeSessionRecords(
   return records;
 }
 
-export function makeJournalRecords(input: JournalInput): ArchiveRecord[] {
+export function makeJournalRecords(
+  input: JournalInput,
+  options: JournalCreateOptions = {},
+): ArchiveRecord[] {
   const timestamp = nowUs();
   const entryId = crypto.randomUUID();
   const notesId = crypto.randomUUID();
   validateJournalDate(input.date);
-  return [
+  const records = [
     record(RecordType.settings, entryId, {
       record_role: "journal-entry",
       title: requiredText(input.title, "Entry title", 240),
@@ -515,9 +533,20 @@ export function makeJournalRecords(input: JournalInput): ArchiveRecord[] {
     }),
     makeNotesDocument(notesId, entryId, "", timestamp, input),
   ];
+  if (options.ensureJournalRoot ?? true) records.push(makeJournalRootRecord(timestamp));
+  return records;
 }
 
-/** Create a C++/Slint-compatible journal collection settings record. */
+function makeJournalRootRecord(timestamp: string): ArchiveRecord {
+  return record(RecordType.settings, crypto.randomUUID(), {
+    record_role: "journal",
+    title: "Tutorux journal",
+    created_at_us: timestamp,
+    updated_at_us: timestamp,
+  });
+}
+
+/** Create a v1-compatible journal collection settings record. */
 export function makeJournalCollectionRecord(input: JournalCollectionInput): ArchiveRecord {
   const timestamp = nowUs();
   return record(RecordType.settings, crypto.randomUUID(), {
@@ -530,7 +559,7 @@ export function makeJournalCollectionRecord(input: JournalCollectionInput): Arch
   });
 }
 
-/** Create a C++/Slint-compatible journal tag settings record. */
+/** Create a v1-compatible journal tag settings record. */
 export function makeJournalTagRecord(input: JournalTagInput): ArchiveRecord {
   const timestamp = nowUs();
   return record(RecordType.settings, crypto.randomUUID(), {
@@ -724,6 +753,191 @@ export function notesEditState(
     }
   }
   return { blocks, editable: true };
+}
+
+/** Read blocks removed from a notes document so Trash can list and restore them. */
+export function readRemovedNoteBlocks(document: ArchiveRecord): RemovedNoteBlock[] | null {
+  if (
+    document.type !== RecordType.settings ||
+    document.fields.get("record_role") !== "journal-notes" ||
+    document.fields.get("_deleted") === "true"
+  ) {
+    return [];
+  }
+  const blocks = parseRemovedNoteBlocks(document.fields);
+  if (!blocks) return null;
+  return blocks.map((block) => ({
+    documentId: document.id,
+    entryId: document.fields.get("entry_id") ?? "",
+    sessionId: document.fields.get("session_id") ?? "",
+    ...block,
+  }));
+}
+
+/** Restore a removed note block to its saved position in the notes document. */
+export function restoreRemovedNoteBlock(
+  document: ArchiveRecord,
+  blockId: string,
+): ArchiveRecord {
+  if (
+    document.type !== RecordType.settings ||
+    document.fields.get("record_role") !== "journal-notes" ||
+    document.fields.get("_deleted") === "true"
+  ) {
+    throw new Error("The session notes containing this block are unavailable.");
+  }
+  const state = notesEditState(document);
+  if (!state.editable) {
+    throw new Error("The saved note block recovery data is invalid.");
+  }
+  const blocks = parseRemovedNoteBlocks(document.fields);
+  if (!blocks) throw new Error("The saved note block recovery data is invalid.");
+  const removedIndex = blocks.findIndex((block) => block.id === blockId);
+  if (removedIndex < 0) throw new Error("This note block is no longer in Trash.");
+  if (state.blocks.some((block) => block.id === blockId)) {
+    throw new Error("A note block with this identifier is already active.");
+  }
+  const [saved] = blocks.splice(removedIndex, 1);
+  if (!saved) throw new Error("This note block is no longer in Trash.");
+  for (const block of blocks.slice(removedIndex)) {
+    if (block.index >= saved.index) block.index += 1;
+  }
+  const restored = [...state.blocks];
+  restored.splice(Math.min(saved.index, restored.length), 0, {
+    id: saved.id,
+    kind: saved.kind,
+    text: saved.text,
+  });
+  const fields = new Map(document.fields);
+  writeNoteBlocks(fields, restored);
+  writeRemovedNoteBlocks(fields, blocks);
+  fields.set("updated_at_us", nowUs());
+  validateRecordPayloadSize(fields, document.blob.byteLength);
+  return { ...document, fields };
+}
+
+interface RecoverableNoteBlock {
+  id: string;
+  kind: JournalNoteBlockKind;
+  text: string;
+  index: number;
+}
+
+function parseRemovedNoteBlocks(
+  fields: ReadonlyMap<string, string>,
+): RecoverableNoteBlock[] | null {
+  const countText = fields.get("removed_block_count") ?? "";
+  if (countText !== "") {
+    if (!/^\d+$/u.test(countText)) return null;
+    const count = Number(countText);
+    if (!Number.isSafeInteger(count) || count > MAX_RECOVERABLE_NOTE_BLOCKS) return null;
+    const blocks: RecoverableNoteBlock[] = [];
+    for (let index = 0; index < count; index += 1) {
+      const prefix = `removed_block_${index}_`;
+      const id = fields.get(`${prefix}id`) ?? "";
+      const kind = fields.get(`${prefix}kind`) ?? "";
+      const text = fields.get(`${prefix}text`) ?? "";
+      const indexText = fields.get(`${prefix}index`) ?? "";
+      if (
+        !id ||
+        !isJournalNoteBlockKind(kind) ||
+        !isWellFormedUnicode(id) ||
+        !isWellFormedUnicode(text) ||
+        containsUnsupportedControl(text, true) ||
+        !/^\d+$/u.test(indexText)
+      ) {
+        return null;
+      }
+      const savedIndex = Number(indexText);
+      if (!Number.isSafeInteger(savedIndex)) return null;
+      blocks.push({ id, kind, text, index: savedIndex });
+    }
+    if (blocks.length > 0) return blocks;
+  }
+
+  const id = fields.get("last_removed_block_id") ?? "";
+  const kind = fields.get("last_removed_block_kind") ?? "";
+  const text = fields.get("last_removed_block_text") ?? "";
+  const indexText = fields.get("last_removed_block_index") ?? "";
+  if (!id && !kind && !text && !indexText) return [];
+  if (
+    !id ||
+    !isJournalNoteBlockKind(kind) ||
+    !isWellFormedUnicode(id) ||
+    !isWellFormedUnicode(text) ||
+    containsUnsupportedControl(text, true) ||
+    !/^\d+$/u.test(indexText)
+  ) {
+    return null;
+  }
+  const index = Number(indexText);
+  if (!Number.isSafeInteger(index)) return null;
+  return [{ id, kind, text, index }];
+}
+
+function writeRemovedNoteBlocks(
+  fields: Map<string, string>,
+  blocks: readonly RecoverableNoteBlock[],
+): void {
+  for (const key of [...fields.keys()]) {
+    if (key.startsWith("removed_block_") || key.startsWith("last_removed_block_")) {
+      fields.delete(key);
+    }
+  }
+  fields.set("removed_block_count", String(blocks.length));
+  blocks.forEach((block, index) => {
+    const prefix = `removed_block_${index}_`;
+    fields.set(`${prefix}id`, block.id);
+    fields.set(`${prefix}kind`, block.kind);
+    fields.set(`${prefix}text`, block.text);
+    fields.set(`${prefix}index`, String(block.index));
+  });
+  const newest = blocks.at(-1);
+  if (newest) {
+    fields.set("last_removed_block_id", newest.id);
+    fields.set("last_removed_block_kind", newest.kind);
+    fields.set("last_removed_block_text", newest.text);
+    fields.set("last_removed_block_index", String(newest.index));
+  }
+}
+
+function recordRemovedNoteBlocks(
+  fields: Map<string, string>,
+  previous: readonly JournalNoteBlock[],
+  next: readonly JournalNoteBlock[],
+): void {
+  const nextIds = new Set(next.map((block) => block.id));
+  const removed = previous.flatMap((block, index) =>
+    nextIds.has(block.id) ? [] : [{ id: block.id, kind: block.kind, text: block.text, index }],
+  );
+  const recovered = parseRemovedNoteBlocks(fields);
+  if (!recovered) {
+    throw new Error("The saved note block recovery data is invalid.");
+  }
+  const merged = recovered.filter((block) => !nextIds.has(block.id));
+  const known = new Set(merged.map((block) => block.id));
+  for (const block of removed) {
+    if (!known.has(block.id)) {
+      merged.push(block);
+      known.add(block.id);
+    }
+  }
+  if (merged.length === recovered.length && removed.length === 0) return;
+  if (merged.length > MAX_RECOVERABLE_NOTE_BLOCKS) {
+    throw new Error("Trash can hold 256 removed note blocks. Restore or purge one before removing another.");
+  }
+  writeRemovedNoteBlocks(fields, merged);
+}
+
+function writeNoteBlocks(
+  fields: Map<string, string>,
+  blocks: readonly JournalNoteBlock[],
+): void {
+  for (const key of [...fields.keys()]) {
+    if (/^block\.\d+\.(?:id|kind|text)$/u.test(key)) fields.delete(key);
+  }
+  fields.set("block_count", String(blocks.length));
+  appendNoteBlocks(fields, blocks);
 }
 
 /** Update a session while preserving its recording, transcript, timing, and extension fields. */
@@ -949,14 +1163,11 @@ function updateNotesDocument(
         : []
       : normalizeJournalNoteBlocks(notes);
   const fields = new Map(current.fields);
-  for (const key of fields.keys()) {
-    if (/^block\.\d+\.(?:id|kind|text)$/u.test(key)) fields.delete(key);
-  }
+  recordRemovedNoteBlocks(fields, state.blocks, blocks);
+  writeNoteBlocks(fields, blocks);
   fields.set("entry_id", entryId);
   fields.set("session_id", sessionId);
   fields.set("updated_at_us", timestamp);
-  fields.set("block_count", String(blocks.length));
-  appendNoteBlocks(fields, blocks);
   validateRecordPayloadSize(fields, current.blob.byteLength);
   return { ...current, fields };
 }
@@ -1035,6 +1246,7 @@ function isJournalNoteBlockKind(value: string): value is JournalNoteBlockKind {
 }
 
 function validateJournalDate(value: string): void {
+  if (!value) return;
   const match = /^(\d{4})-(\d{2})-(\d{2})$/u.exec(value);
   if (!match) throw new Error("Choose a valid journal date.");
   const year = Number(match[1]);
