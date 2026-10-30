@@ -1,21 +1,19 @@
 import { RecordType, type ArchiveRecord } from "../../frontend/archive/format";
 import {
-  GUIDE_TEMPLATES,
   createGuideDraft,
   createGuideDraftFromSections,
   generateGuideDraftFromEntry,
   generateGuideDraftFromSession,
   guideRecordsWithEntryLinks,
   makeGuideRecord,
+  resolveGuideTemplates,
   type GuideDraft,
 } from "../../frontend/domain/guides";
-import { guideTemplateFromRecord } from "../../frontend/domain/templates";
 import { closeSnapshot, mutateArchive, openForCommand } from "./archive-io";
 import { readGuideEntryScope, readGuideScope } from "./guide-helpers";
 import { CliError, emit, field, requiredOption } from "./shared";
 import { toPlainRecord } from "./record-helpers";
 import type { CliIo, ParsedArguments } from "./shared";
-import { decodeStoredTemplateSections } from "./templates";
 
 export async function guideListAction(
   path: string,
@@ -74,23 +72,14 @@ export async function guideCreateAction(
     let draft: GuideDraft;
     if (!requestedTemplate) draft = createGuideDraft(scope.session);
     else {
-      const builtin = GUIDE_TEMPLATES.find((template) => template.id === requestedTemplate);
-      if (builtin) draft = createGuideDraft(scope.session, builtin.id);
-      else {
-        const settings = await snapshot.listRecords(RecordType.settings);
-        const custom = settings.find(
-          (entry) =>
-            field(entry, "record_role") === "guide-template" &&
-            (entry.id.toLowerCase() === requestedTemplate.toLowerCase() ||
-              field(entry, "name").toLocaleLowerCase() === requestedTemplate.toLocaleLowerCase()),
-        );
-        if (!custom) throw new CliError(`Template “${requestedTemplate}” was not found.`);
-        draft = createGuideDraftFromSections(
-          scope.session,
-          custom.id,
-          decodeStoredTemplateSections(field(custom, "sections")),
-        );
-      }
+      const templates = resolveGuideTemplates(scope.records);
+      const template = templates.find(
+        (candidate) =>
+          candidate.id.toLocaleLowerCase() === requestedTemplate.toLocaleLowerCase() ||
+          candidate.name.toLocaleLowerCase() === requestedTemplate.toLocaleLowerCase(),
+      );
+      if (!template) throw new CliError(`Template “${requestedTemplate}” was not found.`);
+      draft = createGuideDraftFromSections(scope.session, template.id, template.sections);
     }
     if (args.options.has("title")) draft.title = args.options.get("title")!;
     record = makeGuideRecord(draft, scope);
@@ -127,15 +116,7 @@ export async function guideGenerateAction(
       ? await readGuideScope(snapshot, sessionId)
       : await readGuideEntryScope(snapshot, entryId!);
     const students = scope.records.filter((item) => item.type === RecordType.student);
-    const customTemplates = scope.records
-      .filter(
-        (item) =>
-          item.type === RecordType.settings &&
-          field(item, "record_role") === "guide-template" &&
-          !field(item, "builtin_template_id"),
-      )
-      .map(guideTemplateFromRecord);
-    const templates = [...GUIDE_TEMPLATES, ...customTemplates];
+    const templates = resolveGuideTemplates(scope.records);
     const draft = scope.session
       ? generateGuideDraftFromSession(
           scope.session,
