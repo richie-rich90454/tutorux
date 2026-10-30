@@ -6,11 +6,11 @@ The active interface is a static Vite application built with SolidJS and TypeScr
 
 ## Migration status
 
-This repository is in the middle of a full rewrite. The SolidJS interface can create, open, search, save, and verify unencrypted v1 archives. It can also unlock encrypted v1 archives and verify their authenticated records; unlocked encrypted archives accept authenticated edits as new generations. Its current record workflows cover students and their session/progress history, sessions, journal entries with collections and tags, session-linked observations, transcript import/review/history/restore/export, timestamped playback from archive-backed audio tracks, archive-backed materials, source-checked evidence review with tutor-authored transcript evidence, linked material provenance, a session graph map, and contradiction summaries, and study-guide drafts from built-in or archive-backed custom templates. Transcript playback reads only the selected audio chunks and loads a bounded excerpt, while retaining support for existing PCM WAV sample formats. WAV files up to 256 MiB can be imported as checksummed archive tracks; adding audio to a session that already contains a track requires an explicit separate-track choice. The Transcripts view can rename takes and tracks, move a take with its audio into recoverable Trash, and restore the group. Full-track WAV exports stream verified PCM chunks and preserve timeline gaps. The transcript view can also capture microphone audio after explicit consent and save it as a session-linked material. Custom guide templates can be created, edited, imported, exported, and restored from Trash in the desktop and browser interfaces. Guide blocks are marked stale automatically when their cited archive sources change. Guides export as Markdown or print-ready HTML. The TypeScript CLI shares the archive engine and supports archive init/info/verify/recover/compact/repair and reviewed sanitize copies, the student/session/journal lifecycle and progress review, journal collection/tag management and entry links, session note edits, duplication, lifecycle transitions, and scope-confirmed grouped Trash/restore, annotation CRUD and prioritization, transcript import/search/correction/history/restore/split/merge/review/export, asset import/import-folder/list/show/verify/export/remove/restore and annotation/transcript links, evidence extraction/review/relationships, guide create/edit/review/Markdown export, template management with import/export, and recording take list/rename/Trash/restore plus track renaming, and session-package import/export.
+The TypeScript and SolidJS frontend with a Tauri 2 desktop host is the active rewrite target. The feature inventory is the source of truth for ported workflows, known gaps, and verification status. The current application covers broad archive, learner, session, journal, notes, transcript, audio, materials, evidence, guide, AI, settings, and CLI workflows, while some legacy behaviors and cross-platform checks remain open.
 
-The Solid interface and CLI can export a single-session `.tux` package with linked records and omitted student profiles and anonymized session student links, then import it with fresh record IDs and an optional destination learner link. The TypeScript implementation is **not yet a feature-complete replacement** for the former C++ application. Student profiles, session observations, study guides, and journal collections/tags can be moved to recoverable Trash. Session and journal notes use a shared archive-backed editor for typed blocks, retaining stable IDs; unknown legacy block types remain protected. The CLI requires a revision-bound scope token before deleting a session, moves its linked records into recoverable Trash, and restores the full group later. The desktop app previews the related-record counts before moving a session to Trash and restores the group from the shared Trash view. Journal labels can be assigned and filtered, and restoring an archived label restores its prior entry links. Session observations support timestamps, types, priorities, editing, revision history, and restoring an earlier version; the CLI also supports linking, splitting, and merging annotations. Materials can be imported in 8 MiB chunks, linked to a session, deduplicated, previewed for common image/audio/video/text formats, and exported after integrity checks. Transcript cues can link those materials, inspect and restore earlier versions, and be split or merged while preserving their text, time ranges, and links. PDF/DOCX text extraction is available for materials up to 16 MiB, with extracted text capped at 2 MiB; large-file streaming and broader asset operations remain. Evidence extraction, source review, approval, graph links and removal, tutor-authored evidence from selected transcript revisions, linked material provenance, Solid evidence editing, recoverable node-plus-edge Trash, a session evidence map, and deduplicated contradiction summaries are available; broader evidence workflows remain. Solid study guides export Markdown, JSON, standalone HTML with embedded images, Word documents with tables and images, and PDF through the system print dialog. Guide generation from session evidence remains. Local Whisper generation/refinement, transcript structural editing, native multitrack/system-audio recording, waveform and mixing tools, the AI CLI, remaining guide generation features and CLI guide export formats, header repair, encrypted recovery/repair/compaction, and full asset-pruning compaction semantics, most CLI commands, and related desktop workflows remain to be ported. Encrypted CLI commands accept `--passphrase-env NAME` to keep the passphrase out of Tutorux command arguments. The CLI has a preview/apply compactor for unencrypted archives that preserves indexed revisions and payload bytes. The Solid UI can create and unlock encrypted v1 archives using worker-backed Argon2id, authenticates the commit, every index page, and the manifest, verifies encrypted records when read or during full verification, and appends edits as authenticated encrypted generations. Passphrase changes rebuild the archive with a fresh data key, re-encrypt every retained record revision, and remove earlier key envelopes from the new file. They are available in Preferences and the CLI; save the updated workspace to make the new passphrase active on disk. Reviewed sanitized copies can preserve archive encryption and may include existing encrypted credential records after an explicit opt-in. The desktop app can store API keys in the operating system credential store; browser use continues to store keys in encrypted archives. The native transport reads desktop keychain values directly in Rust without returning them to Solid. The original C++/Slint implementation is retained as a migration reference while those capabilities are unfinished. Do not use the new application as a replacement for existing production workflows that depend on those features.
+The C++/Slint implementation remains in the repository as the migration reference until the inventory and cross-platform acceptance gates are complete. Legacy design and format documents describe original behavior; they do not establish that the replacement has parity.
 
-See the [feature inventory](docs/migration/feature-inventory.md) for exact coverage and [architecture](docs/ARCHITECTURE.md) for the current module boundaries.
+See the [feature inventory](docs/migration/feature-inventory.md) for exact coverage and [architecture](docs/ARCHITECTURE.md) for current module boundaries.
 
 ## Platforms
 
@@ -52,7 +52,11 @@ The retained CLI can be run locally with:
 
 ```sh
 npm run cli -- --help
+npm run cli -- archive discover --directory ./archives --json
 npm run cli -- archive init Lesson.tux --name "Algebra"
+npm run cli -- archive encrypt Lesson.tux --new-passphrase-env TUTORUX_NEW_ARCHIVE_PASSPHRASE
+npm run cli -- archive rename Lesson.tux --name "Algebra foundations"
+npm run cli -- --passphrase-env TUTORUX_ARCHIVE_PASSPHRASE archive rename Lesson.tux --name "Algebra foundations"
 npm run cli -- --archive Lesson.tux student create --name "Maya Ortiz" --grade 10
 npm run cli -- --archive Lesson.tux student list
 npm run cli -- --archive Lesson.tux student list --json
@@ -84,9 +88,15 @@ npm run cli -- archive compact Lesson.tux --json
 npm run cli -- archive compact Lesson.tux --apply --json
 npm run cli -- archive repair Lesson.tux --output Lesson-repaired.tux --confirm-sensitive --json
 npm run cli -- --archive Lesson.tux transcript import --session <uuid> --input lesson.srt
+npm run cli -- --archive Lesson.tux transcript search --session <uuid> --query "quadratic formula"
+npm run cli -- --archive Lesson.tux transcript generate --session <uuid> --track <track-uuid> --whisper <executable> --model <model-file> --consent-local-audio
 npm run cli -- --archive Lesson.tux session export <session-uuid> --output session.tux
 npm run cli -- --archive Destination.tux session import session.tux --student-id <student-uuid>
 npm run cli -- --archive Lesson.tux transcript export --session <uuid> --output lesson.vtt --format vtt
+npm run cli -- --archive Lesson.tux transcript split <cue-uuid> --before "Hello" --after ", world." --at 00:00:02
+npm run cli -- --archive Lesson.tux transcript merge <first-cue-uuid> <second-cue-uuid> --separator " "
+npm run cli -- --archive Lesson.tux transcript speaker <cue-uuid> --speaker "Tutor"
+npm run cli -- --archive Lesson.tux transcript history <cue-uuid> --limit 100
 npm run cli -- --archive Lesson.tux annotation add --session <uuid> --type important-concept --at 00:01:20 --text "Scale both parts by the same factor"
 npm run cli -- --archive Lesson.tux asset import --input worksheet.pdf --session <uuid>
 npm run cli -- --archive Lesson.tux asset import --input recording.webm --session <uuid> --capture-source browser-microphone --consent
@@ -101,10 +111,16 @@ npm run cli -- --archive Lesson.tux asset list --include-deleted --json
 npm run cli -- --archive Lesson.tux asset restore <material-uuid>
 npm run cli -- --archive Lesson.tux asset link <material-uuid> --to annotation --target-id <annotation-uuid>
 npm run cli -- --archive Lesson.tux asset unlink <material-uuid> --to transcript --target-id <transcript-segment-uuid>
+npm run cli -- --archive Lesson.tux record configure --microphone default --playback default --durability maximum
+npm run cli -- --archive Lesson.tux record configure
 npm run cli -- --archive Lesson.tux evidence extract --session <uuid>
 npm run cli -- --archive Lesson.tux evidence review --session <uuid> --json
+npm run cli -- --archive Lesson.tux ai estimate --provider ollama --job <package-job-uuid> --model <model-id> --json
+npm run cli -- archive backup Lesson.tux --output Lesson-backup.tux --confirm-sensitive
 npm run cli -- archive verify Lesson.tux --json
 ```
+
+For an encrypted archive, provide its current passphrase with `--passphrase-env NAME`; `archive rename` changes only the archive's display name. `transcript generate` is an alias for `transcript transcribe` and follows the same local executable and audio-consent requirements.
 
 Session deletion first reports a revision-bound scope token, what will move to Trash, and which journal links will be detached. Copy that token into the confirmation command; restore brings the session group and its journal links back together.
 
@@ -112,17 +128,40 @@ New sessions start active and automatically create a dated journal entry. Use `-
 
 Session lists are ordered newest first. Plain output shows each session; `--json` includes its lifecycle state, journal links, recording totals, and transcript cue count.
 
+### CLI live audio recording
+
+The TypeScript CLI records microphone audio and supported system-loopback inputs into an existing session. It runs in the foreground; press Ctrl+C to stop and save. `record configure` stores microphone, playback, and durability preferences in the selected archive. Use `--source both` to save microphone and system audio as separate synchronized tracks. The FFmpeg CLI cannot isolate one application's audio; macOS system loopback is also unavailable on this CLI path. Device selection, platform backends, explicit recording consent, optional local Whisper transcription, and the host-installed FFmpeg requirement are covered in [the recording guide](docs/audio/CLI-LIVE-RECORDING.md).
+
+```sh
+npm run cli -- --archive Lesson.tux record start --session <session-uuid> --consent --source microphone
+npm run cli -- --archive Lesson.tux record start --session <session-uuid> --consent --source system-audio --playback <loopback-id>
+npm run cli -- --archive Lesson.tux record start --session <session-uuid> --consent --source both --microphone <microphone-id> --playback <loopback-id>
+```
+
+Inspect FFmpeg-visible audio input candidates without opening an audio stream, and play an archived track through the host's `ffplay` audio output:
+
+```sh
+npm run cli -- record test --source microphone
+npm run cli -- record test --source both --microphone default --playback default
+npm run cli -- --archive Lesson.tux record play --session <session-uuid> --track <track-uuid>
+npm run cli -- --archive Lesson.tux record play --session <session-uuid> --start-us 30000000 --duration-us 10000000
+```
+
+`record test` is enumeration-only: it never starts capture and does not prove that a stream opens or that playback is routed to a virtual loopback input. `record start` attempts the selected microphone or listed system-loopback source and checkpoints samples in order. `record play` requires the host's FFmpeg distribution to include `ffplay`; it streams the selected archive range directly to the player and leaves the archive unchanged. When a session contains multiple tracks, pass `--track` explicitly.
+
 After installing the npm package, the `tutorux` executable points to the same TypeScript CLI entry point.
 
 ## Archive compatibility
 
-The TypeScript archive layer reads and writes the existing v1 header, record frames, primary B+ tree, commit, and locator. It validates lengths and checksums before decoding. A Windows interoperability check has opened a `.tux` file created by the existing C++ binary, and the C++ CLI fully verifies TypeScript-appended, rotated, and sanitized encrypted generations, including credential-inclusive copies. The Solid UI can create and unlock encrypted v1 archives, authenticate their commit, index pages, and manifest, verify encrypted records on read, and append edits as authenticated generations. Encrypted archive creation is available in the UI and CLI; use `--new-passphrase-env NAME` with `archive init` to read a new archive passphrase from an environment variable. Encrypted recovery, repair, and compaction remain unsupported. The CLI accepts `--passphrase-env NAME` for encrypted verification and supported record commands. `archive change-passphrase <file.tux> --new-passphrase-env NAME` re-keys the archive after unlocking with the current `--passphrase-env`; it verifies every retained record revision with the fresh data key before atomically replacing the file. Previously saved backup files keep their original passphrase.
+The TypeScript archive layer reads and writes the existing v1 header, record frames, primary B+ tree, commit, and locator. It validates lengths and checksums before decoding. A Windows interoperability check has opened a `.tux` file created by the existing C++ binary, and the C++ CLI fully verifies TypeScript-appended, rotated, and sanitized encrypted generations, including credential-inclusive copies. The Solid UI can create and unlock encrypted v1 archives, authenticate their commit, index pages, and manifest, verify encrypted records on read, and append edits as authenticated generations. It can also enable encryption on an open, fully published plaintext archive while preserving its ID and retained record history; save the workspace to write that verified encrypted replacement to disk. Encrypted archive creation is available in the UI and CLI; use `--new-passphrase-env NAME` with `archive init` to create an encrypted archive or `archive encrypt <file.tux>` to encrypt an existing, fully published plaintext archive in place. The CLI stages a replacement, reopens it with the new passphrase, verifies the complete record and revision history, and preserves the archive ID before replacing the source. Encrypted recovery, repair, and compaction are available after unlocking and authenticating the archive. Compaction buffers protected frames, and repair requires a structurally openable archive with a key that authenticates the selected generation. The CLI accepts `--passphrase-env NAME` for encrypted verification and supported record commands. `archive change-passphrase <file.tux> --new-passphrase-env NAME` re-keys the archive after unlocking with the current `--passphrase-env`; it verifies every retained record revision with the fresh data key before atomically replacing the file. Previously saved backup files keep their original passphrase.
 
 `archive recover` first previews a complete unpublished generation after checking its commit chain, index, manifest, and current records. Add `--apply` to atomically publish that generation; incomplete trailing bytes are discarded only after the validation succeeds.
 
-`archive compact` previews a verified, unencrypted archive rewrite that collapses old generations and rebuilds its index while preserving every indexed record revision and stored payload byte. Add `--apply` to atomically replace the archive after checking that its file identity has not changed. It currently keeps all indexed asset blobs, including chunks that the C++ compactor can prune, and is available through the CLI only.
+`archive compact` previews and applies an archive rewrite that collapses old generations and rebuilds its index while preserving retained revision history. It supports unlocked encrypted archives and can optionally prune unreferenced asset blobs; the rewritten archive is verified before publication.
 
-`archive repair` creates a separate `.tux` copy from the newest generation that passes full record verification. It can fall back to an earlier published generation when the latest generation has damaged records, compacts the copy, verifies it, and leaves the source untouched. Because the copy contains private student and recording data, the CLI requires `--confirm-sensitive`. Header repair and repair of encrypted archives remain unsupported.
+`archive repair` creates a separate `.tux` copy from the newest generation that passes full record verification. It can fall back to an earlier published generation when the latest generation has damaged records, compacts the copy, verifies it, and leaves the source untouched. Because the copy contains private student and recording data, the CLI requires `--confirm-sensitive`. Header repair handles supported checksum or magic corruption, and encrypted repair requires unlocking and authenticating the selected generation.
+
+`archive backup` (also available as `archive copy`) writes a byte-for-byte copy of a structurally openable archive, including encrypted archives, to a new destination. It requires `--confirm-sensitive`, preserves the original passphrase and all archive bytes, and refuses to overwrite the source or an existing destination.
 
 `archive sanitize` previews a new `.tux` copy, then requires `--confirm-sensitive` plus the preview's generation, selection fingerprint, output path, and encryption choice before creating it. Student, session, and recording-track filters are supported. Private annotations and generation logs are excluded by default. An encrypted source always produces an encrypted copy; `--include-credentials` can retain existing credential records only from an encrypted source, and credential-inclusive copies also require encrypted output. Supply the destination phrase with `--new-passphrase-env NAME` when confirming; the same option can encrypt a copy of an unencrypted source. Credential-looking values outside credential records are rejected when credential inclusion is requested. The CLI writes bounded archive batches to a private staging file, fully verifies the staged copy, then atomically publishes it. The source stays unchanged, the destination must be new, and unknown extension record types are omitted.
 
