@@ -258,49 +258,45 @@ export function makeSynchronizedCaptureStartRecords(options: {
   const source = options.tracks.map((track) => track.source).join("+");
   const tracks = options.tracks.map((identity) => {
     const trackId = identity.trackId.toLowerCase();
-    return makeRecord(
-      RecordType.assetMetadata,
-      trackId,
-      new Map([
-        ["record_role", "audio-track"],
-        ["session_id", options.session.id.toLowerCase()],
-        ["track_id", trackId],
-        ["recording_take_id", takeId],
-        ["label", identity.label ?? defaultCaptureTrackLabel(identity.source)],
-        ["source", identity.source],
-        ["capture_source_backend", identity.sourceBackend ?? options.captureSourceBackend],
-        ["capture_consent_at_us", options.consentAtUs],
-        ["capture_consent_policy", "1"],
-        ["consent_confirmed_by", options.consentConfirmedBy],
-        ["state", "recording"],
-        ["sample_format", "pcm_s16le"],
-        ["sample_rate_hz", String(identity.sampleRateHz)],
-        ["channel_count", "1"],
-        ["channel_mask", "0"],
-        ["sample_count", "0"],
-        ["timeline_sample_count", "0"],
-        ["duration_us", "0"],
-        ["chunk_count", "0"],
-        ["byte_count", "0"],
-        ["capture_pause_count", "0"],
-        ["capture_paused_duration_us", "0"],
-        ["started_at_us", timestamp],
-        ["updated_at_us", timestamp],
-      ]),
-    );
+    const trackFields = new Map([
+      ["record_role", "audio-track"],
+      ["session_id", options.session.id.toLowerCase()],
+      ["track_id", trackId],
+      ["recording_take_id", takeId],
+      ["label", identity.label ?? defaultCaptureTrackLabel(identity.source)],
+      ["source", identity.source],
+      ["capture_source_backend", identity.sourceBackend ?? options.captureSourceBackend],
+      ["capture_consent_at_us", options.consentAtUs],
+      ["capture_consent_policy", "1"],
+      ["consent_confirmed_by", options.consentConfirmedBy],
+      ["state", "recording"],
+      ["sample_format", "pcm_s16le"],
+      ["sample_rate_hz", String(identity.sampleRateHz)],
+      ["channel_count", "1"],
+      ["channel_mask", "0"],
+      ["sample_count", "0"],
+      ["timeline_sample_count", "0"],
+      ["duration_us", "0"],
+      ["chunk_count", "0"],
+      ["byte_count", "0"],
+      ["capture_pause_count", "0"],
+      ["capture_paused_duration_us", "0"],
+      ["started_at_us", timestamp],
+      ["updated_at_us", timestamp],
+    ]);
     if (identity.sourceDeviceId) {
-      track.fields.set("source_device_id", identity.sourceDeviceId);
+      trackFields.set("source_device_id", identity.sourceDeviceId);
     }
     if (identity.applicationName) {
-      track.fields.set("application_name", identity.applicationName);
+      trackFields.set("application_name", identity.applicationName);
     }
     if (identity.applicationProcessId !== undefined) {
-      track.fields.set("application_process_id", String(identity.applicationProcessId));
+      trackFields.set("application_process_id", String(identity.applicationProcessId));
     }
     if (identity.applicationBundleId) {
-      track.fields.set("application_bundle_id", identity.applicationBundleId);
+      trackFields.set("application_bundle_id", identity.applicationBundleId);
     }
-    return track;
+    return makeRecord(RecordType.assetMetadata, trackId, trackFields);
   });
   const take = makeRecord(
     RecordType.assetMetadata,
@@ -443,7 +439,8 @@ export function makeSynchronizedCaptureFinishRecords(options: {
   sessionFields.set("recording_error", errors.join("\n"));
   sessionFields.set("recording_capture_pause_count", String(options.pauseCount));
   sessionFields.set("recording_capture_paused_duration_us", options.pausedDurationUs);
-  const previousDuration = parseArchiveCounter(session.fields.get("recording_duration_us")) ?? 0n;
+  const previousDuration =
+    parseArchiveCounter(options.session.fields.get("recording_duration_us")) ?? 0n;
   sessionFields.set(
     "recording_duration_us",
     (previousDuration > duration ? previousDuration : duration).toString(),
