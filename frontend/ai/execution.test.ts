@@ -126,9 +126,9 @@ describe("reviewed AI generation", () => {
     expect(result.job.fields.get("response_sha256")).toMatch(/^[\da-f]{64}$/u);
     expect(result.job.fields.get("provider_response_id")).toBe("chatcmpl-test");
     expect(result.job.fields.get("max_output_tokens")).toBe("4096");
-    expect(result.job.fields.get("error_code")).toBe("");
-    expect(result.job.fields.get("error_message")).toBe("");
-    expect(result.job.fields.get("retry_after")).toBe("");
+    expect(result.job.fields.get("error_code")).toBeUndefined();
+    expect(result.job.fields.get("error_message")).toBeUndefined();
+    expect(result.job.fields.get("retry_after")).toBeUndefined();
     expect(result.job.fields.has("value")).toBe(false);
     expect(result.job.blob).toEqual(chunk);
     expect(result.guide?.fields.get("approval_state")).toBe("draft");
