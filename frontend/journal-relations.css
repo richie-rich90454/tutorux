@@ -1,6 +1,25 @@
 .journal-relations {
   margin-top: 8px;
 }
+.journal-entry-delete {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 8px;
+}
+.journal-entry-delete label {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+.journal-entry-delete p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
 .journal-relations-content {
   display: grid;
   gap: 10px;
@@ -28,6 +47,11 @@
 .journal-relations-content ul {
   padding-left: 20px;
 }
+.journal-relations-content li small {
+  display: block;
+  margin-top: 2px;
+  color: var(--muted);
+}
 .journal-relations-action {
   display: flex;
   align-items: end;
@@ -37,6 +61,24 @@
 .journal-relations-action label {
   display: grid;
   gap: 5px;
+}
+.journal-session-create {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+.journal-session-create h4 {
+  margin: 0;
+  color: var(--ink);
+  font-size: 0.82rem;
+}
+.journal-session-create-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 190px), 1fr));
+  gap: 10px;
 }
 .journal-relations-materials {
   display: grid;
