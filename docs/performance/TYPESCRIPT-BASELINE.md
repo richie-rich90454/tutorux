@@ -1,6 +1,6 @@
 # TypeScript performance baseline
 
-The old executable size/startup budgets measured a different product and toolchain. They remain historical C++ release data and are not performance claims for the TypeScript application.
+These measurements describe the current TypeScript application and its toolchain.
 
 ## Current reproducible workloads
 
@@ -11,13 +11,13 @@ npm run benchmark:archive
 npm run build
 ```
 
-The archive benchmark builds an in-memory v1 archive with 10,000 student records in one append-only generation, then lists and decodes those records. It prints the Node/V8 version, elapsed times, final archive bytes, and resident memory delta. It is a smoke baseline, not a claim of parity with the C++ implementation.
+The archive benchmark builds an in-memory v1 archive with 10,000 student records in one append-only generation, then lists and decodes those records. It prints the Node/V8 version, elapsed times, final archive bytes, and resident memory delta. It is a smoke baseline for repeatable local comparison.
 
 The Vite production build reports uncompressed and gzip JavaScript/CSS sizes. Those are build artifact measurements, not runtime startup or RSS. Browser and desktop startup measurements are not yet established.
 
 ## Baseline evidence
 
-The first recorded build in this migration emitted roughly 103 kB of web JavaScript before gzip. The exact size changes with the current source and dependency lockfile; rerun `npm run build` for the current number.
+The first recorded build emitted roughly 103 kB of web JavaScript before gzip. The exact size changes with the current source and dependency lockfile; rerun `npm run build` for the current number.
 
 One Windows run on 2026-10-26 with Node v24.13.0 / V8 13.6.233.17-node.37 produced:
 
@@ -46,7 +46,6 @@ This single non-warmed sample produced an archive 320,000 bytes smaller than the
 ## Limits and next gates
 
 - Benchmarking is currently on Windows only.
-- There is no comparable C++ versus TypeScript workload suite yet.
-- Encryption, media, guide export, and large asset workloads are not ported, so they cannot be measured.
+- Encryption, media, guide export, and large asset workloads still need repeatable benchmarks.
 - Browser fallback export materializes a Blob and is capped at 512 MiB.
 - Desktop/CLI archive reads and writes use bounded chunks; memory budgets still need measurements on Windows, macOS, and Linux.
