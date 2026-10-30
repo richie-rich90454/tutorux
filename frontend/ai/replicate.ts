@@ -110,7 +110,7 @@ export async function sendReplicateAiRequest(
           const canceled = await cancelRemotePrediction(prediction.id, request.credential);
           return finishCancellation(canceled, latest, onChunk);
         }
-        return finish(poll, onChunk, false, poll.transportError);
+        return finish(poll, onChunk, false, poll.transportError ?? undefined);
       }
       let current: { id: string; status: string };
       try {
@@ -226,7 +226,7 @@ export async function assertReviewedReplicateRequest(request: AiTransportRequest
     typeof body["version"] !== "string" ||
     !body["version"].trim() ||
     body["version"].length > 256 ||
-    /[\u0000-\u001f\u007f]/u.test(body["version"])
+    /\p{Cc}/u.test(body["version"])
   ) {
     throw new Error("The reviewed Replicate request has an unsupported input shape.");
   }
