@@ -8188,35 +8188,32 @@ function RecordingTrackName(props: {
   onRename: (track: AudioTrackDescriptor, label: string) => void;
   onTrash: (track: AudioTrackDescriptor) => void;
 }): JSX.Element {
-  const [editVersion, setEditVersion] = createSignal(0);
-  let input: HTMLInputElement | undefined;
-
-  function hasChanges(): boolean {
-    editVersion();
-    const currentInput = input;
-    return currentInput !== undefined && currentInput.value.trim() !== props.track.label;
-  }
+  const [draft, setDraft] = createSignal(props.track.label);
+  const changed = () => draft().trim() !== props.track.label;
+  let lastLabel = props.track.label;
+  createEffect(() => {
+    const label = props.track.label;
+    if (label === lastLabel) return;
+    lastLabel = label;
+    setDraft(label);
+  });
 
   return (
     <div class="transcript-take-track-row">
       <label>
         <span>Track name</span>
         <input
-          ref={(element) => (input = element)}
-          value={props.track.label}
+          value={draft()}
           maxLength={120}
-          onInput={(event) => {
-            input = event.currentTarget;
-            setEditVersion((version) => version + 1);
-          }}
+          onInput={(event) => setDraft(event.currentTarget.value)}
           aria-label={`Track name: ${props.track.label}`}
         />
       </label>
       <button
         class="button button-outline"
         type="button"
-        disabled={props.disabled || !hasChanges()}
-        onClick={() => props.onRename(props.track, input?.value ?? props.track.label)}
+        disabled={props.disabled || !changed()}
+        onClick={() => props.onRename(props.track, draft().trim() || props.track.label)}
       >
         Save track name
       </button>
