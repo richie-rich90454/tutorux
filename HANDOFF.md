@@ -2,7 +2,7 @@
 
 ## Current state
 
-The migration is feature-complete for the confirmed gaps in the previous handoff, and the TypeScript CLI has been modularized. The work was committed as one file per commit; the working tree is clean.
+The migration is feature-complete for the confirmed gaps in the previous handoff, and the TypeScript CLI has been modularized. All changed files are committed one per commit; the working tree is clean; the last code commit is `d0ebd04`.
 
 - Branch: `tauri-rewrite`
 - Legacy parity baseline: `7c78774`
@@ -76,27 +76,30 @@ Resolution:
 
 Current validation on Windows: `cargo check` and `npm run build:audio-helper` pass. The vendored patch still needs a Linux and macOS build in CI or on real hardware.
 
+`src-tauri` applies the same `[patch.crates-io]` entry so the desktop host and helper resolve one `flexaudio-mic` copy. `flexaudio-os-macos 0.8.1` requires `libc =0.2.186` exactly, so `src-tauri/Cargo.toml` pins that version. `cargo tree` resolves the patched graph; a full `cargo check` stops later in `llama-cpp-sys-2` (see below).
+
 ## Verification already run
 
 Do not repeat these without a relevant code change.
 
-- `npm run typecheck` — passed both TypeScript projects.
+- `npm run typecheck` — passed both TypeScript projects after the final edits.
 - `npx vitest run` — 27 files, 175 tests passed.
-- `npm run lint` — 0 errors; 40 pre-existing Solid reactivity warnings remain.
+- `npm run lint` — 0 errors; 42 pre-existing Solid reactivity warnings remain.
 - `npm run format:check` — passed.
+- `npx playwright test` — 12/12 passed against the built web app, including the updated workspace, audio, AI, session-package, and encrypted-archive flows.
 - `cargo check` in `native-audio-helper` — passed with no warnings.
 - `npm run build:audio-helper` — release helper built and copied to `src-tauri/binaries`.
 - `npm run cli -- diagnostics audio --json` — native probing verified on this Windows host.
+- Differential runs against the legacy `build/dev/tutorux.exe` baseline passed: legacy archive init/student/journal/session, TypeScript archive verify with history, TypeScript student update followed by a legacy `student show`, TypeScript compaction followed by a legacy `archive verify --full`, reviewed sanitized copy verified by the legacy binary, session package export/import and legacy `session list`, and FLAC import plus WAV export verified by the legacy binary.
 
 ## Still outstanding
 
 These are qualification and differential items, not confirmed feature ports:
 
-- Cross-platform CI/package builds and real permission/device qualification on macOS and Linux, especially ScreenCaptureKit, PipeWire, and the vendored `flexaudio-mic` patch.
-- Playwright E2E was not rerun after the CLI/UI refactor. Unit, CLI, and type checks passed; the E2E surface still needs one run.
-- Real legacy archives from baseline `7c78774` for recovery, compaction, sanitized copies, session packages, and compressed audio.
-- File association/open-with, single-instance behavior, desktop DPI, keyboard/screen-reader review.
-- npm advisory review; preserve TypeScript `6.0.3`.
+- Cross-platform CI/package builds and real permission/device qualification on macOS and Linux, especially ScreenCaptureKit, PipeWire, and the vendored `flexaudio-mic` patch. The GitHub workflow matrix covers `windows-2025`, `macos-15`, and `ubuntu-24.04`; it has not run for this branch.
+- Full `cargo check`/`npm run desktop:build` on this Windows host stops in `llama-cpp-sys-2` when its CMake build invokes the Visual Studio 18 2026 generator from the MSYS2 CMake install. This is a local toolchain mismatch, not a source error. Packaging, file association/open-with, single-instance behavior, DPI, and keyboard/screen-reader review remain unexercised until that build runs.
+- Differential coverage used archives generated for the test. Importing a pre-existing user archive from the legacy baseline is still recommended before release.
+- `npm audit` reports 3 advisories (1 high, 2 critical) through `node-llama-cpp@3.22.2` -> `simple-git@3.36.0` / `@simple-git/argv-parser`. The suggested fix downgrades to `node-llama-cpp@2.0.0`, which is not acceptable; `simple-git` 4.x has no compatible upstream adoption in `node-llama-cpp` 3.x. Track an upstream release instead of forcing an override. TypeScript must remain `6.0.3`.
 
 ## Commit requirements
 
