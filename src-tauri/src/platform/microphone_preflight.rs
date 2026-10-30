@@ -86,7 +86,9 @@ pub async fn preflight_microphone(
     probe_id: String,
 ) -> Result<MicrophonePreflightSummary, String> {
     if window.label() != "main" {
-        return Err("Microphone preflight is only available from the main application window.".into());
+        return Err(
+            "Microphone preflight is only available from the main application window.".into(),
+        );
     }
     if Uuid::parse_str(&probe_id).is_err() {
         return Err("The microphone preflight identifier is invalid.".into());
@@ -186,7 +188,9 @@ fn preflight_microphone_inner(
                     rms_dbfs: level_to_dbfs(rms),
                 },
             )
-            .map_err(|error| format!("Microphone level updates could not reach the application: {error}"))?;
+            .map_err(|error| {
+                format!("Microphone level updates could not reach the application: {error}")
+            })?;
     }
 
     drop(stream);
@@ -202,7 +206,9 @@ fn preflight_microphone_inner(
         .map_err(|_| "Microphone preflight state is unavailable.".to_owned())?
         .summary();
     if sample_count == 0 {
-        return Err("The selected microphone opened but produced no samples during the check.".into());
+        return Err(
+            "The selected microphone opened but produced no samples during the check.".into(),
+        );
     }
 
     Ok(MicrophonePreflightSummary {
@@ -227,22 +233,42 @@ fn level_to_dbfs(level: f64) -> f64 {
 
 fn accumulate_data(levels: &mut LevelAccumulator, data: &Data) -> bool {
     match data.sample_format() {
-        SampleFormat::F32 => data.as_slice::<f32>().is_some_and(|samples| levels.add(samples)),
-        SampleFormat::F64 => data.as_slice::<f64>().is_some_and(|samples| levels.add(samples)),
-        SampleFormat::I8 => data.as_slice::<i8>().is_some_and(|samples| levels.add(samples)),
-        SampleFormat::I16 => data.as_slice::<i16>().is_some_and(|samples| levels.add(samples)),
+        SampleFormat::F32 => data
+            .as_slice::<f32>()
+            .is_some_and(|samples| levels.add(samples)),
+        SampleFormat::F64 => data
+            .as_slice::<f64>()
+            .is_some_and(|samples| levels.add(samples)),
+        SampleFormat::I8 => data
+            .as_slice::<i8>()
+            .is_some_and(|samples| levels.add(samples)),
+        SampleFormat::I16 => data
+            .as_slice::<i16>()
+            .is_some_and(|samples| levels.add(samples)),
         SampleFormat::I24 => data
             .as_slice::<cpal::I24>()
             .is_some_and(|samples| levels.add(samples)),
-        SampleFormat::I32 => data.as_slice::<i32>().is_some_and(|samples| levels.add(samples)),
-        SampleFormat::I64 => data.as_slice::<i64>().is_some_and(|samples| levels.add(samples)),
-        SampleFormat::U8 => data.as_slice::<u8>().is_some_and(|samples| levels.add(samples)),
-        SampleFormat::U16 => data.as_slice::<u16>().is_some_and(|samples| levels.add(samples)),
+        SampleFormat::I32 => data
+            .as_slice::<i32>()
+            .is_some_and(|samples| levels.add(samples)),
+        SampleFormat::I64 => data
+            .as_slice::<i64>()
+            .is_some_and(|samples| levels.add(samples)),
+        SampleFormat::U8 => data
+            .as_slice::<u8>()
+            .is_some_and(|samples| levels.add(samples)),
+        SampleFormat::U16 => data
+            .as_slice::<u16>()
+            .is_some_and(|samples| levels.add(samples)),
         SampleFormat::U24 => data
             .as_slice::<cpal::U24>()
             .is_some_and(|samples| levels.add(samples)),
-        SampleFormat::U32 => data.as_slice::<u32>().is_some_and(|samples| levels.add(samples)),
-        SampleFormat::U64 => data.as_slice::<u64>().is_some_and(|samples| levels.add(samples)),
+        SampleFormat::U32 => data
+            .as_slice::<u32>()
+            .is_some_and(|samples| levels.add(samples)),
+        SampleFormat::U64 => data
+            .as_slice::<u64>()
+            .is_some_and(|samples| levels.add(samples)),
         SampleFormat::DsdU8 | SampleFormat::DsdU16 | SampleFormat::DsdU32 => false,
         _ => false,
     }
