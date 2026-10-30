@@ -645,7 +645,8 @@ describe("student profile lifecycle", () => {
     expect(notesEditState(restoredC).blocks.map((block) => block.id)).toEqual(["a", "b", "c"]);
   });
 
-  it("reads legacy last-removed-block recovery fields", () => {    const created = makeJournalRecords({ title: "Reflection", date: "", notes: "Intro" });
+  it("reads legacy last-removed-block recovery fields", () => {
+    const created = makeJournalRecords({ title: "Reflection", date: "", notes: "Intro" });
     const fields = new Map(created[1]!.fields);
     fields.set("last_removed_block_id", "legacy-block");
     fields.set("last_removed_block_kind", "quote");
