@@ -1514,7 +1514,7 @@ export function AiPage(props: AiPageProps): JSX.Element {
                         ? " Tutorux sends the package and system instructions in separate supported fields."
                         : " Tutorux combines the system instructions with the package in the prompt."}
                       {preview().replicateInputSchema?.tokenInput
-                        ? ` The reviewed request sets ${preview().replicateInputSchema.tokenInput} to ${preview().maxOutputTokens.toLocaleString()}.`
+                        ? ` The reviewed request sets ${preview().replicateInputSchema?.tokenInput} to ${preview().maxOutputTokens.toLocaleString()}.`
                         : " This model does not expose a supported output-token limit input."}
                     </p>
                     <p class="ai-request-privacy-note">
