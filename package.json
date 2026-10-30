@@ -12,15 +12,15 @@
   },
   "scripts": {
     "dev": "vite --host 127.0.0.1 --port 1420 --strictPort",
-    "build": "npm run typecheck && vite build --mode web",
-    "build:desktop": "npm run typecheck && vite build --mode desktop",
+    "build": "pnpm run typecheck && vite build --mode web",
+    "build:desktop": "pnpm run typecheck && vite build --mode desktop",
     "build:audio-helper": "node scripts/build-audio-helper.mjs",
     "build:console-runtime": "node scripts/build-console-runtime.mjs",
     "preview": "vite preview --host 127.0.0.1 --port 1420 --strictPort",
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.node.json",
     "lint": "eslint frontend cli scripts tests/e2e vite.config.ts playwright.config.ts eslint.config.js",
-    "format:check": "prettier --check frontend cli scripts tests/e2e tests/fixtures/README.md README.md docs index.html vite.config.ts playwright.config.ts eslint.config.js package.json tsconfig.json tsconfig.node.json",
-    "format": "prettier --write frontend cli scripts tests/e2e tests/fixtures/README.md README.md docs index.html vite.config.ts playwright.config.ts eslint.config.js package.json tsconfig.json tsconfig.node.json",
+    "format:check": "oxfmt --check frontend cli scripts tests/e2e tests/fixtures/README.md README.md docs index.html vite.config.ts playwright.config.ts eslint.config.js package.json tsconfig.json tsconfig.node.json --ignore-path .gitignore",
+    "format": "oxfmt --write frontend cli scripts tests/e2e tests/fixtures/README.md README.md docs index.html vite.config.ts playwright.config.ts eslint.config.js package.json tsconfig.json tsconfig.node.json --ignore-path .gitignore",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
@@ -50,11 +50,12 @@
     "@types/node": "26.6.6",
     "eslint": "10.13.0",
     "eslint-plugin-solid": "0.18.1",
-    "prettier": "3.9.10",
+    "oxfmt": "0.75.0",
     "typescript": "6.0.3",
     "typescript-eslint": "8.72.1",
     "vite": "8.3.5",
     "vite-plugin-solid": "2.11.15",
     "vitest": "5.0.5"
-  }
+  },
+  "packageManager": "pnpm@12.14.0"
 }
