@@ -5,7 +5,7 @@ session in a `.tux` archive. It prefers Tutorux's native audio helper for microp
 then falls back to FFmpeg when the helper or selected native endpoint is unavailable. Capture appends
 ordered audio checkpoints while recording. Stop a foreground capture with Ctrl+C; detached captures
 also support `record status`, `record pause`, `record resume`, and `record stop`. An optional duration
-limit is available. Tracks are saved as mono, signed 16-bit PCM at 16 kHz.
+limit is available. Tracks are saved at the source's native sample rate, channel count, and sample format.
 
 `archive unlock <file.tux>` checks an encrypted archive with the passphrase named by
 `--passphrase-env`; the CLI verifies it for that command and does not persist an unlocked state.
@@ -15,7 +15,7 @@ limit is available. Tracks are saved as mono, signed 16-bit PCM at 16 kHz.
 The desktop bundle includes Tutorux's native audio helper. For a standalone CLI, build it with
 `npm run build:audio-helper` or set `TUTORUX_AUDIO_HELPER` to its executable path. The helper uses
 Windows WASAPI, macOS CoreAudio, and Linux PipeWire for native microphone and system-audio capture.
-It converts supported input formats to mono 16 kHz PCM for the archive.
+It preserves the selected endpoint's sample rate, channel count, and supported sample format for the archive. Whisper windows are downmixed and resampled to 16 kHz mono only for transcription.
 
 Install FFmpeg for fallback microphone/system-audio capture and for playback. The CLI invokes the
 host's FFmpeg executable directly and does not bundle it. The default executable name is `ffmpeg`,
@@ -23,8 +23,7 @@ resolved through `PATH`. Use `--ffmpeg <executable>` to select another command o
 The FFmpeg build must include the selected operating system's input backend.
 
 `record import` accepts PCM WAV directly and can decode FLAC, MP3, and M4A with FFmpeg. Decoded
-audio is staged in a private temporary directory, bounded by the same 256 MiB audio-data import
-limit, and removed after the archive import completes. Choose another FFmpeg executable with
+audio is staged in a private temporary directory and removed after the archive import completes. Choose another FFmpeg executable with
 `--ffmpeg` when it is not available through `PATH`.
 
 List native inputs, FFmpeg endpoints, and active application audio targets:
