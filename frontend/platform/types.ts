@@ -1,8 +1,5 @@
 import type { ArchiveByteSource } from "../archive/source";
-import type {
-  CommandConsoleAvailability,
-  CommandConsoleRun,
-} from "./command-console";
+import type { CommandConsoleAvailability, CommandConsoleRun } from "./command-console";
 
 /** Session-only capability tied to the file chosen by the user. */
 export interface BrowserArchiveAutosave {
