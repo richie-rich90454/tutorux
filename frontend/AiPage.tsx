@@ -949,7 +949,9 @@ export function AiPage(props: AiPageProps): JSX.Element {
                       setProviderModel(model.name);
                       setRequestPreview(null);
                       setSendConfirmed(false);
-                      setProviderMessage(`${model.name} selected. Save provider settings to use it.`);
+                      setProviderMessage(
+                        `${model.name} selected. Save provider settings to use it.`,
+                      );
                     }}
                   >
                     <span class="ai-model-catalog-option-heading">
@@ -1668,8 +1670,8 @@ export function AiPage(props: AiPageProps): JSX.Element {
                     The request body contains the reviewed package text
                     {(preview().attachedAssets ?? preview().attachedImages).length > 0
                       ? " and attached material bytes"
-                      : ""}.
-                    Authentication secrets stay out of this preview.{" "}
+                      : ""}
+                    . Authentication secrets stay out of this preview.{" "}
                     {preview().providerId === "replicate"
                       ? "The saved key was used only for model-schema inspection; no package was sent."
                       : "The key is not read during preparation."}
