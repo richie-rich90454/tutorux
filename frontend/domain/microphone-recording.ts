@@ -10,6 +10,8 @@ export interface MicrophoneCaptureIdentity {
   startedAtUs: string;
   consentAtUs: string;
   sampleRateHz: number;
+  captureSourceBackend?: string;
+  consentConfirmedBy?: string;
 }
 
 export interface MicrophoneCaptureChunk {
@@ -17,6 +19,8 @@ export interface MicrophoneCaptureChunk {
   firstSampleIndex: string;
   samples: Uint8Array<ArrayBuffer>;
 }
+
+export type MicrophoneArchiveSource = "microphone" | "system-audio" | "application-audio";
 
 /** Allocate stable archive IDs and create discoverable in-progress capture metadata. */
 export function makeMicrophoneCaptureStartRecords(
@@ -28,6 +32,8 @@ export function makeMicrophoneCaptureStartRecords(
   assertUuid(identity.trackId, "track");
   assertUuid(identity.takeId, "take");
   const timestamp = identity.startedAtUs;
+  const captureSourceBackend = identity.captureSourceBackend ?? "web-audio";
+  const consentConfirmedBy = identity.consentConfirmedBy ?? "";
   const linkedTrackIds = mergedTrackIds(session, knownTrackIds);
   if (!linkedTrackIds.includes(identity.trackId.toLowerCase()))
     linkedTrackIds.push(identity.trackId.toLowerCase());
@@ -42,9 +48,10 @@ export function makeMicrophoneCaptureStartRecords(
       ["recording_take_id", identity.takeId.toLowerCase()],
       ["label", "Microphone recording"],
       ["source", "microphone"],
-      ["capture_source_backend", "web-audio"],
+      ["capture_source_backend", captureSourceBackend],
       ["capture_consent_at_us", identity.consentAtUs],
       ["capture_consent_policy", "1"],
+      ["consent_confirmed_by", consentConfirmedBy],
       ["state", "recording"],
       ["sample_format", "pcm_s16le"],
       ["sample_rate_hz", String(identity.sampleRateHz)],
@@ -67,9 +74,10 @@ export function makeMicrophoneCaptureStartRecords(
       ["session_id", session.id.toLowerCase()],
       ["label", "Microphone recording"],
       ["source", "microphone"],
-      ["capture_source_backend", "web-audio"],
+      ["capture_source_backend", captureSourceBackend],
       ["capture_consent_at_us", identity.consentAtUs],
       ["capture_consent_policy", "1"],
+      ["consent_confirmed_by", consentConfirmedBy],
       ["state", "recording"],
       ["track_ids", identity.trackId.toLowerCase()],
       ["started_at_us", timestamp],
@@ -84,7 +92,7 @@ export function makeMicrophoneCaptureStartRecords(
   fields.set("recording_track_count", String(linkedTrackIds.length));
   if (!fields.get("recording_track_id")) fields.set("recording_track_id", identity.trackId);
   fields.set("recording_source", "microphone");
-  fields.set("recording_source_backend", "web-audio");
+  fields.set("recording_source_backend", captureSourceBackend);
   fields.set("recording_sample_format", "pcm_s16le");
   fields.set("recording_sample_rate_hz", String(identity.sampleRateHz));
   fields.set("recording_channel_count", "1");
@@ -92,6 +100,7 @@ export function makeMicrophoneCaptureStartRecords(
   fields.set("recording_started_at_us", timestamp);
   fields.set("recording_consent_at_us", identity.consentAtUs);
   fields.set("recording_consent_policy", "1");
+  fields.set("recording_consent_confirmed_by", consentConfirmedBy);
   if (!fields.has("recording_audio_chunks")) fields.set("recording_audio_chunks", "0");
   if (!fields.has("recording_samples")) fields.set("recording_samples", "0");
   if (!fields.has("recording_timeline_samples")) fields.set("recording_timeline_samples", "0");
@@ -108,14 +117,17 @@ export function makeMicrophoneCaptureChunkRecords(options: {
   track: ArchiveRecord;
   chunk: MicrophoneCaptureChunk;
   sampleRateHz: number;
+  source?: MicrophoneArchiveSource;
 }): ArchiveRecord[] {
   const { session, track, chunk, sampleRateHz } = options;
+  const source = options.source ?? "microphone";
   assertCaptureSession(session, sampleRateHz, true);
   if (
     track.type !== RecordType.assetMetadata ||
     track.fields.get("record_role") !== "audio-track" ||
     track.fields.get("session_id")?.toLowerCase() !== session.id.toLowerCase() ||
-    track.fields.get("source") !== "microphone" ||
+    track.fields.get("source") !== source ||
+    track.fields.get("sample_rate_hz") !== String(sampleRateHz) ||
     track.fields.get("state") !== "recording"
   ) {
     throw new Error("The microphone recovery track is no longer active.");
@@ -139,6 +151,7 @@ export function makeMicrophoneCaptureChunkRecords(options: {
     sampleCount === undefined ||
     timelineSamples === undefined ||
     byteCount === undefined ||
+    !/^\d+$/u.test(chunk.firstSampleIndex) ||
     BigInt(chunk.firstSampleIndex) !== timelineSamples
   ) {
     throw new Error("Microphone recovery chunks must be committed once in sequence.");
@@ -175,7 +188,7 @@ export function makeMicrophoneCaptureChunkRecords(options: {
       ["channel_count", "1"],
       ["channel_mask", "0"],
       ["codec", "none"],
-      ["source", "microphone"],
+      ["source", source],
       ["contains_device_discontinuity", "false"],
       ["payload_checksum", String(crc32(chunk.samples))],
     ]),
@@ -191,13 +204,27 @@ export function makeMicrophoneCaptureChunkRecords(options: {
     ((parseCounter(session.fields.get("recording_samples")) ?? 0n) + frames).toString(),
   );
   const priorTimeline = parseCounter(session.fields.get("recording_timeline_samples")) ?? 0n;
+  const timelineRate =
+    parseCounter(session.fields.get("recording_sample_rate_hz")) ?? BigInt(sampleRateHz);
+  const nextTimelineDurationUs = samplesToMicroseconds(nextTimeline, sampleRateHz);
+  const nextSessionTimeline = (nextTimelineDurationUs * timelineRate) / 1_000_000n;
   sessionFields.set(
     "recording_timeline_samples",
-    (priorTimeline > nextTimeline ? priorTimeline : nextTimeline).toString(),
+    (priorTimeline > nextSessionTimeline ? priorTimeline : nextSessionTimeline).toString(),
+  );
+  const previousDuration = parseCounter(session.fields.get("recording_duration_us")) ?? 0n;
+  sessionFields.set(
+    "recording_duration_us",
+    (previousDuration > nextTimelineDurationUs
+      ? previousDuration
+      : nextTimelineDurationUs
+    ).toString(),
   );
   sessionFields.set(
     "recording_bytes",
-    ((parseCounter(session.fields.get("recording_bytes")) ?? 0n) + BigInt(chunk.samples.byteLength)).toString(),
+    (
+      (parseCounter(session.fields.get("recording_bytes")) ?? 0n) + BigInt(chunk.samples.byteLength)
+    ).toString(),
   );
   sessionFields.set("recording_started_at_us", startedAtUs);
   sessionFields.set("recording_state", "recording");
@@ -291,7 +318,12 @@ export async function makeMicrophoneRecordingRecords(options: {
   consentAtUs: string;
   pauseCount: number;
   pausedDurationUs: string;
+  source?: MicrophoneArchiveSource;
+  captureSourceBackend?: string;
+  consentConfirmedBy?: string;
 }): Promise<WaveImportResult> {
+  const source = options.source ?? "microphone";
+  const captureSourceBackend = options.captureSourceBackend ?? "web-audio";
   const result = await makeWaveImportRecords(
     options.session,
     options.file,
@@ -310,10 +342,11 @@ export async function makeMicrophoneRecordingRecords(options: {
       (record.id === result.trackId || record.id === result.takeId)
     ) {
       const fields = new Map(record.fields);
-      fields.set("source", "microphone");
-      fields.set("capture_source_backend", "web-audio");
+      fields.set("source", source);
+      fields.set("capture_source_backend", captureSourceBackend);
       fields.set("capture_consent_at_us", options.consentAtUs);
       fields.set("capture_consent_policy", "1");
+      fields.set("consent_confirmed_by", options.consentConfirmedBy ?? "");
       fields.set("capture_pause_count", String(options.pauseCount));
       fields.set("capture_paused_duration_us", options.pausedDurationUs);
       fields.delete("source_filename");
@@ -337,13 +370,14 @@ export async function makeMicrophoneRecordingRecords(options: {
         }
       }
       if (fields.get("recording_track_id") === result.trackId) {
-        fields.set("recording_source", "microphone");
-        fields.set("recording_source_backend", "web-audio");
+        fields.set("recording_source", source);
+        fields.set("recording_source_backend", captureSourceBackend);
         fields.set("recording_started_at_us", options.startedAtUs);
       }
       fields.set("recording_ended_at_us", endedAtUs);
       fields.set("capture_consent_at_us", options.consentAtUs);
       fields.set("capture_consent_policy", "1");
+      fields.set("recording_consent_confirmed_by", options.consentConfirmedBy ?? "");
       return { ...record, fields };
     }
     return record;
@@ -371,15 +405,21 @@ function assertCaptureSession(
 
 function mergedTrackIds(session: ArchiveRecord, knownTrackIds: readonly string[]): string[] {
   const ids = new Set<string>();
-  for (const value of [session.fields.get("recording_track_ids"), session.fields.get("recording_track_id")]) {
+  for (const value of [
+    session.fields.get("recording_track_ids"),
+    session.fields.get("recording_track_id"),
+    session.fields.get("audio_import_track_id"),
+  ]) {
     for (const id of (value ?? "").split(",")) {
       const normalized = id.trim().toLowerCase();
-      if (/^[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}$/u.test(normalized)) ids.add(normalized);
+      if (/^[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}$/u.test(normalized))
+        ids.add(normalized);
     }
   }
   for (const value of knownTrackIds) {
     const normalized = value.toLowerCase();
-    if (/^[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}$/u.test(normalized)) ids.add(normalized);
+    if (/^[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}$/u.test(normalized))
+      ids.add(normalized);
   }
   return [...ids];
 }
