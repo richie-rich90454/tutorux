@@ -35,11 +35,124 @@ export interface AiExecutionSummary {
   warnings: string[];
 }
 
+export interface AiResponseMetadata {
+  providerResponseId: string;
+  errorCode: string;
+  errorMessage: string;
+  retryAfter: string;
+}
+
+const EMPTY_RESPONSE_METADATA: AiResponseMetadata = {
+  providerResponseId: "",
+  errorCode: "",
+  errorMessage: "",
+  retryAfter: "",
+};
+
+/** Read provider identifiers and error metadata without requiring a complete response. */
+export function extractAiResponseMetadata(
+  providerId: string,
+  responseBytes: Uint8Array,
+): AiResponseMetadata {
+  let raw: string;
+  try {
+    raw = utf8.decode(responseBytes);
+  } catch {
+    return { ...EMPTY_RESPONSE_METADATA };
+  }
+  const metadata: AiResponseMetadata = { ...EMPTY_RESPONSE_METADATA };
+  const visit = (value: unknown): void => {
+    if (!isObject(value)) return;
+    mergeResponseMetadata(metadata, value);
+  };
+  if (providerId === "ollama") {
+    for (const line of raw.split(/\r?\n/u)) {
+      if (!line.trim()) continue;
+      visit(parseJsonSafely(line));
+    }
+    return metadata;
+  }
+  if (/^(?:event|data|id|retry|:)/mu.test(raw.trim())) {
+    for (const block of raw.replaceAll("\r\n", "\n").split("\n\n")) {
+      const payload = block
+        .split("\n")
+        .filter((line) => line.startsWith("data:"))
+        .map((line) => line.slice("data:".length).replace(/^ /u, ""))
+        .join("\n");
+      if (!payload || payload === "[DONE]") continue;
+      visit(parseJsonSafely(payload));
+    }
+    return metadata;
+  }
+  visit(parseJsonSafely(raw));
+  return metadata;
+}
+
+function parseJsonSafely(value: string): unknown {
+  try {
+    return JSON.parse(value) as unknown;
+  } catch {
+    return null;
+  }
+}
+
+function mergeResponseMetadata(target: AiResponseMetadata, value: Record<string, unknown>): void {
+  if (!target.providerResponseId) {
+    for (const candidate of [value["id"], value["responseId"], value["response_id"]]) {
+      if (typeof candidate === "string" && candidate.trim()) {
+        target.providerResponseId = candidate.trim();
+        break;
+      }
+    }
+  }
+  if (!target.providerResponseId && isObject(value["response"])) {
+    const nested = value["response"]["id"];
+    if (typeof nested === "string" && nested.trim()) target.providerResponseId = nested.trim();
+  }
+  if (!target.providerResponseId && isObject(value["message"])) {
+    const nested = value["message"]["id"];
+    if (typeof nested === "string" && nested.trim()) target.providerResponseId = nested.trim();
+  }
+  const error = value["error"];
+  if (isObject(error)) {
+    if (!target.errorCode) {
+      const code = error["code"] ?? error["type"] ?? error["status"];
+      if (typeof code === "string" || typeof code === "number") {
+        target.errorCode = String(code);
+      }
+    }
+    if (!target.errorMessage && typeof error["message"] === "string") {
+      target.errorMessage = error["message"];
+    }
+    if (!target.retryAfter) {
+      const retry = error["retry_after"] ?? error["retryAfter"];
+      if (typeof retry === "string" || typeof retry === "number") {
+        target.retryAfter = String(retry);
+      }
+    }
+  } else if (typeof error === "string" && error) {
+    if (!target.errorMessage) target.errorMessage = error;
+  }
+  if (!target.errorCode && value["type"] === "error" && typeof value["code"] === "string") {
+    target.errorCode = value["code"];
+  }
+  if (!target.errorMessage && value["type"] === "error" && typeof value["message"] === "string") {
+    target.errorMessage = value["message"];
+  }
+  if (!target.retryAfter) {
+    const retry = value["retry_after"] ?? value["retryAfter"];
+    if (typeof retry === "string" || typeof retry === "number") {
+      target.retryAfter = String(retry);
+    }
+  }
+}
+
 /** Extract generated text from the provider's bounded streaming response bytes. */
 export function extractAiResponseText(
   providerId: string,
   responseBytes: Uint8Array,
   model = "",
+  allowPartial = false,
 ): string {
   if (responseBytes.byteLength === 0 || responseBytes.byteLength > MAX_RESPONSE_TEXT_BYTES) {
     throw new Error("The provider returned an empty or oversized response.");
@@ -53,9 +166,9 @@ export function extractAiResponseText(
   const trimmed = raw.trim();
   if (!trimmed) throw new Error("The provider returned no generated text.");
   if (providerId === "replicate") return collectReplicatePrediction(raw);
-  if (providerId === "ollama") return collectOllama(raw);
+  if (providerId === "ollama") return collectOllama(raw, allowPartial);
   if (/^(?:event|data|id|retry|:)/mu.test(trimmed)) {
-    return collectEventStream(providerId, raw, model);
+    return collectEventStream(providerId, raw, model, allowPartial);
   }
   return collectJsonResponse(providerId, parseJson(raw), model);
 }
@@ -215,7 +328,12 @@ export function createAiGuideProposal(
   };
 }
 
-function collectEventStream(providerId: string, raw: string, model: string): string {
+function collectEventStream(
+  providerId: string,
+  raw: string,
+  model: string,
+  allowPartial: boolean,
+): string {
   const collected: string[] = [];
   let totalTextBytes = 0;
   for (const block of raw.replaceAll("\r\n", "\n").split("\n\n")) {
@@ -229,7 +347,13 @@ function collectEventStream(providerId: string, raw: string, model: string): str
       .map((line) => line.slice("data:".length).replace(/^ /u, ""))
       .join("\n");
     if (!payload || payload === "[DONE]") continue;
-    const event = parseJson(payload);
+    let event: Record<string, unknown>;
+    try {
+      event = parseJson(payload);
+    } catch (cause) {
+      if (allowPartial) continue;
+      throw cause;
+    }
     const eventType = typeof event["type"] === "string" ? event["type"] : eventName;
     if (
       (event["error"] !== undefined && event["error"] !== null) ||
@@ -252,11 +376,17 @@ function collectEventStream(providerId: string, raw: string, model: string): str
   return result;
 }
 
-function collectOllama(raw: string): string {
+function collectOllama(raw: string, allowPartial = false): string {
   const collected: string[] = [];
   for (const line of raw.split(/\r?\n/u)) {
     if (!line.trim()) continue;
-    const event = parseJson(line);
+    let event: Record<string, unknown>;
+    try {
+      event = parseJson(line);
+    } catch (cause) {
+      if (allowPartial) continue;
+      throw cause;
+    }
     if (event["error"] !== undefined && event["error"] !== null) {
       throw new Error("The local model reported an error while generating the response.");
     }
