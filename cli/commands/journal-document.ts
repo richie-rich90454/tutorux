@@ -20,7 +20,7 @@ export function reconcileJournalNoteBlocks(
   const paragraphs: string[] = [];
   if (text) {
     let paragraphStart = 0;
-    for (let index = 0; index < text.length; ) {
+    for (let index = 0; index < text.length;) {
       if (text[index] !== "\n") {
         index += 1;
         continue;
@@ -208,7 +208,11 @@ export async function runJournalDocumentAction(
       block.text = requiredOption(args, "text");
       if (args.options.has("kind")) block.kind = readKind();
     } else if (args.options.has("text")) {
-      blocks.splice(0, blocks.length, ...reconcileJournalNoteBlocks(blocks, args.options.get("text")!));
+      blocks.splice(
+        0,
+        blocks.length,
+        ...reconcileJournalNoteBlocks(blocks, args.options.get("text")!),
+      );
     } else {
       throw new CliError("Provide --text TEXT, optionally with --block-id ID.");
     }
