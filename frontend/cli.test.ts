@@ -440,6 +440,7 @@ describe("TypeScript CLI", () => {
         path: archivePath,
         previousGeneration: "1",
         recoveredGeneration: "2",
+        recoveredGenerations: 1,
         discardedTrailingBytes: "0",
         recoverable: true,
         applied: false,
