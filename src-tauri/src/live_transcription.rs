@@ -18,7 +18,7 @@ use zeroize::Zeroizing;
 
 const SAMPLE_RATE_HZ: u32 = 16_000;
 const MIN_SOURCE_RATE_HZ: u32 = 8_000;
-const MAX_SOURCE_RATE_HZ: u32 = 192_000;
+const MAX_SOURCE_RATE_HZ: u32 = 384_000;
 const MAX_WINDOW_SECONDS: u32 = 27;
 const MAX_THREADS: u32 = 64;
 const MAX_AUDIO_CHUNK_BYTES: usize = 32 * 1024;
