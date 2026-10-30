@@ -2,13 +2,14 @@
 //!
 //! Each source owns its stream, bounded callback queue, counters, and failure state. A failure or
 //! a slow consumer on one source therefore does not stop the other source. Samples cross the
-//! webview boundary as bounded, base64-encoded mono PCM chunks; the archive remains owned by the
+//! webview boundary as bounded, base64-encoded interleaved PCM chunks that keep the device's
+//! channel count and a legacy-compatible sample-format label; the archive remains owned by the
 //! frontend.
 
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use cpal::{
     traits::{DeviceTrait, HostTrait, StreamTrait},
-    Data, Sample, SampleFormat, SizedSample,
+    Data, Sample, SampleFormat, SizedSample, StreamInstant,
 };
 use serde::Serialize;
 use std::{
@@ -26,9 +27,12 @@ use tauri::{Emitter, State, WebviewWindow};
 use uuid::Uuid;
 
 const MAX_QUEUED_CHUNKS_PER_TRACK: usize = 8;
-const MAX_CAPTURE_CALLBACK_SAMPLES: usize = 128 * 1024;
-const MAX_SAMPLE_RATE_HZ: u32 = 192_000;
+const MAX_CAPTURE_CALLBACK_BYTES: usize = 256 * 1024;
+const MAX_SAMPLE_RATE_HZ: u32 = 384_000;
 const MIN_SAMPLE_RATE_HZ: u32 = 8_000;
+const MAX_CHANNELS: u16 = 8;
+const MAX_DISCONTINUITY_SECONDS: u64 = 10;
+const DISCONTINUITY_TOLERANCE_DIVISOR: u32 = 200;
 const CHUNK_EVENT: &str = "synchronized-audio-chunk";
 const FAILURE_EVENT: &str = "synchronized-audio-source-failed";
 const PAUSE_DRAINED_EVENT: &str = "synchronized-audio-pause-drained";
@@ -65,6 +69,7 @@ struct TrackSignal {
     accepting: AtomicBool,
     failure_sent: AtomicBool,
     failure: Mutex<Option<String>>,
+    stream_epoch: AtomicU64,
 }
 
 impl TrackSignal {
@@ -73,6 +78,7 @@ impl TrackSignal {
             accepting: AtomicBool::new(false),
             failure_sent: AtomicBool::new(false),
             failure: Mutex::new(None),
+            stream_epoch: AtomicU64::new(0),
         }
     }
 
@@ -93,6 +99,12 @@ impl TrackSignal {
         if self.failure_message().is_none() {
             self.accepting.store(true, Ordering::Release);
         }
+    }
+
+    fn advance_stream_epoch(&self) -> u64 {
+        self.stream_epoch
+            .fetch_add(1, Ordering::AcqRel)
+            .saturating_add(1)
     }
 }
 
@@ -117,8 +129,13 @@ struct PcmChunk {
     track: TrackKind,
     sequence: u64,
     first_sample_index: u64,
+    frame_count: u64,
     sample_rate_hz: u32,
-    samples: Vec<i16>,
+    channel_count: u16,
+    sample_format: &'static str,
+    gap_before_samples: u64,
+    contains_device_discontinuity: bool,
+    pcm: Vec<u8>,
 }
 
 #[derive(Clone)]
@@ -142,15 +159,17 @@ impl ApplicationAudioCounters {
         }
     }
 
-    fn next(&self, sample_count: usize) -> Option<(u64, u64)> {
+    fn next(&self, frame_count: u64) -> Option<(u64, u64)> {
         let sequence = self
             .sequence
-            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |value| value.checked_add(1))
+            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |value| {
+                value.checked_add(1)
+            })
             .ok()?;
         let first_sample_index = self
             .first_sample_index
             .fetch_update(Ordering::AcqRel, Ordering::Acquire, |value| {
-                value.checked_add(sample_count as u64)
+                value.checked_add(frame_count)
             })
             .ok()?;
         Some((sequence, first_sample_index))
@@ -293,7 +312,7 @@ fn run_application_audio_capture(
             match commands.try_recv() {
                 Ok(ApplicationAudioCommand::Start(reply)) => {
                     let _ = reply.send(Err(
-                        "The application-audio source has already started.".to_owned(),
+                        "The application-audio source has already started.".to_owned()
                     ));
                 }
                 Ok(ApplicationAudioCommand::Pause(reply)) => {
@@ -307,7 +326,7 @@ fn run_application_audio_capture(
                 }
                 Ok(ApplicationAudioCommand::Resume(reply)) => {
                     let _ = reply.send(Err(
-                        "The application-audio source is already recording.".to_owned(),
+                        "The application-audio source is already recording.".to_owned()
                     ));
                 }
                 Ok(ApplicationAudioCommand::Stop(reply)) => {
@@ -395,10 +414,6 @@ fn poll_process_audio(
             signal.fail("The application-audio backend returned an incomplete PCM frame.");
             continue;
         }
-        if expected_backend_frame_index.is_some_and(|expected| expected != chunk.frame_index) {
-            signal.fail("The application-audio backend dropped frames from its source timeline.");
-            continue;
-        }
         let Ok(frame_count_u64) = u64::try_from(frame_count) else {
             signal.fail("The application-audio backend exceeded its supported frame count.");
             continue;
@@ -407,17 +422,38 @@ fn poll_process_audio(
             signal.fail("The application-audio backend exceeded its supported frame timeline.");
             continue;
         };
+        let (gap_before_samples, contains_device_discontinuity) =
+            match *expected_backend_frame_index {
+                Some(expected) if chunk.frame_index > expected => {
+                    (chunk.frame_index - expected, true)
+                }
+                Some(expected) => (0, chunk.frame_index != expected),
+                None => (0, false),
+            };
+        if gap_before_samples
+            > u64::from(APPLICATION_AUDIO_SAMPLE_RATE_HZ) * MAX_DISCONTINUITY_SECONDS
+        {
+            signal.fail(
+                "The application-audio backend dropped more than the supported 10-second audio gap.",
+            );
+            continue;
+        }
         *expected_backend_frame_index = Some(next_backend_frame_index);
-        let samples: Vec<i16> = chunk
-            .data
-            .chunks_exact(channels)
-            .map(|frame| float_to_i16((frame[0] + frame[1]) * 0.5))
-            .collect();
-        if samples.len() > MAX_CAPTURE_CALLBACK_SAMPLES {
+        let mut pcm = Vec::with_capacity(chunk.data.len().saturating_mul(4));
+        for sample in &chunk.data {
+            pcm.extend_from_slice(&sample.to_le_bytes());
+        }
+        if pcm.len() > MAX_CAPTURE_CALLBACK_BYTES {
             signal.fail("The application-audio backend returned a chunk larger than the bounded queue supports.");
             continue;
         }
-        let Some((sequence, first_sample_index)) = counters.next(samples.len()) else {
+        let Some((sequence, previous_sample_index)) =
+            counters.next(frame_count_u64.saturating_add(gap_before_samples))
+        else {
+            signal.fail("The application-audio track exceeded its supported sample timeline.");
+            continue;
+        };
+        let Some(first_sample_index) = previous_sample_index.checked_add(gap_before_samples) else {
             signal.fail("The application-audio track exceeded its supported sample timeline.");
             continue;
         };
@@ -425,12 +461,19 @@ fn poll_process_audio(
             track: TrackKind::ApplicationAudio,
             sequence,
             first_sample_index,
+            frame_count: frame_count_u64,
             sample_rate_hz: APPLICATION_AUDIO_SAMPLE_RATE_HZ,
-            samples,
+            channel_count: APPLICATION_AUDIO_CHANNELS,
+            sample_format: "pcm_f32le",
+            gap_before_samples,
+            contains_device_discontinuity,
+            pcm,
         };
         if let Err(error) = sender.try_send(pcm) {
             signal.fail(match error {
-                TrySendError::Full(_) => "Application-audio delivery fell behind the bounded capture queue.",
+                TrySendError::Full(_) => {
+                    "Application-audio delivery fell behind the bounded capture queue."
+                }
                 TrySendError::Disconnected(_) => "Application-audio delivery has ended.",
             });
             break;
@@ -466,8 +509,8 @@ fn start_application_audio_stream(
     signal: Arc<TrackSignal>,
     counters: Arc<ApplicationAudioCounters>,
 ) -> Result<NativeApplicationAudioStream, String> {
-    use screencapturekit::stream::delegate_trait::StreamCallbacks;
     use screencapturekit::prelude::*;
+    use screencapturekit::stream::delegate_trait::StreamCallbacks;
 
     let content = SCShareableContent::get().map_err(|error| {
         format!(
@@ -479,11 +522,9 @@ fn start_application_audio_stream(
         .iter()
         .find(|application| application.process_id() == target.process_id as i32)
         .ok_or_else(|| "The selected application is no longer running.".to_owned())?;
-    let display = content
-        .displays()
-        .into_iter()
-        .next()
-        .ok_or_else(|| "ScreenCaptureKit could not find a display for application audio capture.".to_owned())?;
+    let display = content.displays().into_iter().next().ok_or_else(|| {
+        "ScreenCaptureKit could not find a display for application audio capture.".to_owned()
+    })?;
     let filter = SCContentFilter::create()
         .with_display(&display)
         .with_including_applications(&[application], &[])
@@ -498,7 +539,9 @@ fn start_application_audio_stream(
     let stop_signal = Arc::clone(&signal);
     let delegate = StreamCallbacks::new().on_stop(move |error| {
         if let Some(error) = error {
-            stop_signal.fail(format!("ScreenCaptureKit stopped application audio: {error}"));
+            stop_signal.fail(format!(
+                "ScreenCaptureKit stopped application audio: {error}"
+            ));
         }
     });
     let mut stream = SCStream::new_with_delegate(&filter, &configuration, delegate)
@@ -510,7 +553,9 @@ fn start_application_audio_stream(
             },
             SCStreamOutputType::Audio,
         )
-        .map_err(|error| format!("The application-audio handler could not be installed: {error}"))?;
+        .map_err(|error| {
+            format!("The application-audio handler could not be installed: {error}")
+        })?;
     stream
         .start_capture()
         .map_err(|error| format!("The selected application audio could not be started: {error}"))?;
@@ -535,6 +580,7 @@ fn receive_screen_capture_audio(
         }
     };
     let mut channels = Vec::new();
+    let mut channel_total = 0usize;
     for buffer in buffers.iter() {
         let channel_count = buffer.number_channels as usize;
         if channel_count == 0 || buffer.data().len() % 4 != 0 {
@@ -546,8 +592,9 @@ fn receive_screen_capture_audio(
             .chunks_exact(4)
             .map(|bytes| f32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]))
             .collect();
-        if samples.len() > MAX_CAPTURE_CALLBACK_SAMPLES * 8 {
-            signal.fail("ScreenCaptureKit returned an audio buffer larger than the bounded queue supports.");
+        channel_total = channel_total.saturating_add(channel_count);
+        if channel_total > usize::from(MAX_CHANNELS) {
+            signal.fail("ScreenCaptureKit returned more application-audio channels than the archive supports.");
             return;
         }
         channels.push((channel_count, samples));
@@ -557,33 +604,34 @@ fn receive_screen_capture_audio(
         .map(|(channel_count, samples)| samples.len() / channel_count)
         .min()
         .unwrap_or_default();
-    if frame_count == 0 || frame_count > MAX_CAPTURE_CALLBACK_SAMPLES {
-        if frame_count > MAX_CAPTURE_CALLBACK_SAMPLES {
-            signal.fail("ScreenCaptureKit returned a chunk larger than the bounded queue supports.");
+    if frame_count == 0 || channel_total == 0 {
+        if channel_total == 0 {
+            signal.fail("ScreenCaptureKit returned no application-audio channels.");
         }
         return;
     }
-    let channel_total: usize = channels.iter().map(|(count, _)| *count).sum();
-    if channel_total == 0 {
-        signal.fail("ScreenCaptureKit returned no application-audio channels.");
+    let Some(sample_value_count) = frame_count.checked_mul(channel_total) else {
+        signal.fail("ScreenCaptureKit returned an application-audio buffer larger than the bounded queue supports.");
+        return;
+    };
+    if sample_value_count > MAX_CAPTURE_CALLBACK_BYTES / 4 {
+        signal.fail("ScreenCaptureKit returned a chunk larger than the bounded queue supports.");
         return;
     }
-    let samples: Vec<i16> = (0..frame_count)
-        .map(|frame| {
-            let sum = channels
-                .iter()
-                .map(|(channel_count, samples)| {
-                    let start = frame * channel_count;
-                    samples[start..start + channel_count]
-                        .iter()
-                        .copied()
-                        .sum::<f32>()
-                })
-                .sum::<f32>();
-            float_to_i16(sum / channel_total as f32)
-        })
-        .collect();
-    let Some((sequence, first_sample_index)) = counters.next(samples.len()) else {
+    let mut pcm = Vec::with_capacity(sample_value_count * 4);
+    for frame in 0..frame_count {
+        for (channel_count, samples) in &channels {
+            let start = frame * channel_count;
+            for sample in &samples[start..start + channel_count] {
+                pcm.extend_from_slice(&sample.to_le_bytes());
+            }
+        }
+    }
+    let Ok(frame_count) = u64::try_from(frame_count) else {
+        signal.fail("The application-audio track exceeded its supported frame count.");
+        return;
+    };
+    let Some((sequence, first_sample_index)) = counters.next(frame_count) else {
         signal.fail("The application-audio track exceeded its supported sample timeline.");
         return;
     };
@@ -591,12 +639,19 @@ fn receive_screen_capture_audio(
         track: TrackKind::ApplicationAudio,
         sequence,
         first_sample_index,
+        frame_count,
         sample_rate_hz: APPLICATION_AUDIO_SAMPLE_RATE_HZ,
-        samples,
+        channel_count: u16::try_from(channel_total).unwrap_or(APPLICATION_AUDIO_CHANNELS),
+        sample_format: "pcm_f32le",
+        gap_before_samples: 0,
+        contains_device_discontinuity: false,
+        pcm,
     };
     if let Err(error) = sender.try_send(chunk) {
         signal.fail(match error {
-            TrySendError::Full(_) => "Application-audio delivery fell behind the bounded capture queue.",
+            TrySendError::Full(_) => {
+                "Application-audio delivery fell behind the bounded capture queue."
+            }
             TrySendError::Disconnected(_) => "Application-audio delivery has ended.",
         });
     }
@@ -610,25 +665,15 @@ fn stop_application_audio_stream(stream: &mut NativeApplicationAudioStream) {
     }
 }
 
-fn float_to_i16(value: f32) -> i16 {
-    if value.is_finite() {
-        let clipped = value.clamp(-1.0, 1.0);
-        if clipped <= -1.0 {
-            i16::MIN
-        } else {
-            (clipped * i16::MAX as f32).round() as i16
-        }
-    } else {
-        0
-    }
-}
-
 #[derive(Default)]
 struct TrackSummary {
     sample_rate_hz: u32,
     sample_count: u64,
     byte_count: u64,
     chunk_count: u64,
+    channel_count: u16,
+    sample_format: &'static str,
+    discontinuity_count: u64,
 }
 
 #[derive(Default)]
@@ -669,8 +714,14 @@ pub struct SynchronizedAudioStarted {
     started_at_us: String,
     consent_at_us: String,
     microphone_sample_rate_hz: u32,
+    microphone_channel_count: u16,
+    microphone_sample_format: String,
     system_audio_sample_rate_hz: u32,
+    system_audio_channel_count: u16,
+    system_audio_sample_format: String,
     application_audio_sample_rate_hz: u32,
+    application_audio_channel_count: u16,
+    application_audio_sample_format: String,
     application_audio_device_id: Option<String>,
     application_audio_name: Option<String>,
     application_audio_process_id: Option<u32>,
@@ -686,8 +737,13 @@ struct SynchronizedAudioChunkEvent {
     track: String,
     sequence: u64,
     first_sample_index: String,
+    frame_count: String,
     sample_rate_hz: u32,
-    pcm_s16le_base64: String,
+    channel_count: u16,
+    sample_format: &'static str,
+    gap_before_samples: String,
+    contains_device_discontinuity: bool,
+    pcm_base64: String,
 }
 
 #[derive(Serialize)]
@@ -709,9 +765,12 @@ struct SynchronizedAudioPauseDrainedEvent {
 #[serde(rename_all = "camelCase")]
 struct FinishedTrack {
     sample_rate_hz: u32,
+    channel_count: u16,
+    sample_format: String,
     sample_count: String,
     byte_count: String,
     chunk_count: u64,
+    discontinuity_count: u64,
     failure: Option<String>,
 }
 
@@ -761,10 +820,10 @@ pub fn begin_synchronized_audio_capture(
     {
         return Err("The selected microphone is no longer available.".into());
     }
-    let system_audio_device_id = system_audio_device_id
-        .filter(|device_id| !device_id.trim().is_empty());
-    let application_audio_device_id = application_audio_device_id
-        .filter(|device_id| !device_id.trim().is_empty());
+    let system_audio_device_id =
+        system_audio_device_id.filter(|device_id| !device_id.trim().is_empty());
+    let application_audio_device_id =
+        application_audio_device_id.filter(|device_id| !device_id.trim().is_empty());
     if system_audio_device_id.is_some() && application_audio_device_id.is_some() {
         return Err("Choose either shared system audio or one application-audio source.".into());
     }
@@ -806,66 +865,80 @@ pub fn begin_synchronized_audio_capture(
             let sample_rate_hz = config.sample_rate().0;
             let stream = build_capture_stream(
                 &device,
-                config,
+                config.clone(),
                 TrackKind::Microphone,
                 microphone_sender,
                 Arc::clone(&signals[0]),
             )?;
-            Ok((stream, sample_rate_hz))
+            Ok((
+                stream,
+                sample_rate_hz,
+                config.channels(),
+                sample_format_name(config.sample_format()),
+            ))
         }) {
-        Ok((stream, sample_rate_hz)) => (Some(stream), sample_rate_hz),
+        Ok((stream, sample_rate_hz, channel_count, sample_format)) => {
+            (Some(stream), sample_rate_hz, channel_count, sample_format)
+        }
         Err(error) => {
             signals[0].fail(error);
-            (None, 0)
+            (None, 0, 0, "")
         }
     };
-    let (system_stream, system_sample_rate_hz) = match system_audio_device_id {
-        Some(device_id) => match enumerate_devices()
-            .and_then(|devices| {
-                if !devices
-                    .system_audio
-                    .iter()
-                    .any(|device| device.device_id == device_id)
-                {
-                    return Err("The selected system-audio source is no longer available.".into());
+    let (system_stream, system_sample_rate_hz, system_channel_count, system_sample_format) =
+        match system_audio_device_id {
+            Some(device_id) => match enumerate_devices()
+                .and_then(|devices| {
+                    if !devices
+                        .system_audio
+                        .iter()
+                        .any(|device| device.device_id == device_id)
+                    {
+                        return Err(
+                            "The selected system-audio source is no longer available.".into()
+                        );
+                    }
+                    resolve_device(&device_id)
+                })
+                .and_then(|device| {
+                    // WASAPI and CoreAudio expose system loopback by opening a render endpoint as an
+                    // input stream. PipeWire exposes the monitor as an ordinary input device instead.
+                    let config = system_audio_config(&device)?;
+                    validate_config(&config, "system audio")?;
+                    let sample_rate_hz = config.sample_rate().0;
+                    let stream = build_capture_stream(
+                        &device,
+                        config.clone(),
+                        TrackKind::SystemAudio,
+                        system_sender,
+                        Arc::clone(&signals[1]),
+                    )?;
+                    Ok((
+                        stream,
+                        sample_rate_hz,
+                        config.channels(),
+                        sample_format_name(config.sample_format()),
+                    ))
+                }) {
+                Ok((stream, sample_rate_hz, channel_count, sample_format)) => {
+                    (Some(stream), sample_rate_hz, channel_count, sample_format)
                 }
-                resolve_device(&device_id)
-            })
-            .and_then(|device| {
-                // WASAPI and CoreAudio expose system loopback by opening a render endpoint as an
-                // input stream. PipeWire exposes the monitor as an ordinary input device instead.
-                let config = system_audio_config(&device)?;
-                validate_config(&config, "system audio")?;
-                let sample_rate_hz = config.sample_rate().0;
-                let stream = build_capture_stream(
-                    &device,
-                    config,
-                    TrackKind::SystemAudio,
-                    system_sender,
-                    Arc::clone(&signals[1]),
-                )?;
-                Ok((stream, sample_rate_hz))
-            }) {
-            Ok((stream, sample_rate_hz)) => (Some(stream), sample_rate_hz),
-            Err(error) => {
-                signals[1].fail(error);
-                (None, 0)
+                Err(error) => {
+                    signals[1].fail(error);
+                    (None, 0, 0, "")
+                }
+            },
+            None => {
+                drop(system_sender);
+                signals[1].fail(system_audio_unavailable_message());
+                (None, 0, 0, "")
             }
-        },
-        None => {
-            drop(system_sender);
-            signals[1].fail(system_audio_unavailable_message());
-            (None, 0)
-        }
-    };
+        };
 
     let (application_capture, application_audio_sample_rate_hz) =
         if let Some(target) = application_audio_target.clone() {
-            let capture = ApplicationAudioCapture::new(
-                target,
-                application_sender,
-                Arc::clone(&signals[2]),
-            )?;
+            let capture =
+                ApplicationAudioCapture::new(target, application_sender, Arc::clone(&signals[2]))?;
             (Some(capture), APPLICATION_AUDIO_SAMPLE_RATE_HZ)
         } else {
             drop(application_sender);
@@ -917,8 +990,22 @@ pub fn begin_synchronized_audio_capture(
         started_at_us: started_at_us.to_string(),
         consent_at_us: consent_at_us.clone(),
         microphone_sample_rate_hz,
+        microphone_channel_count,
+        microphone_sample_format: microphone_sample_format.to_owned(),
         system_audio_sample_rate_hz: system_sample_rate_hz,
+        system_audio_channel_count: system_channel_count,
+        system_audio_sample_format: system_sample_format.to_owned(),
         application_audio_sample_rate_hz,
+        application_audio_channel_count: if application_audio_target.is_some() {
+            APPLICATION_AUDIO_CHANNELS
+        } else {
+            0
+        },
+        application_audio_sample_format: if application_audio_target.is_some() {
+            "pcm_f32le".to_owned()
+        } else {
+            String::new()
+        },
         application_audio_device_id: application_audio_device_id.clone(),
         application_audio_name: application_audio_target
             .as_ref()
@@ -1041,8 +1128,8 @@ pub fn pause_synchronized_audio_capture(
             return Err(device_error("system audio", error));
         }
     }
-    let app_was_running = application_capture.is_some()
-        && session.signals[2].failure_message().is_none();
+    let app_was_running =
+        application_capture.is_some() && session.signals[2].failure_message().is_none();
     if app_was_running {
         if let Some(capture) = application_capture.as_ref() {
             if let Err(error) = capture.pause() {
@@ -1064,7 +1151,8 @@ pub fn pause_synchronized_audio_capture(
             }
         }
     }
-    let system_was_running = system_audio.is_some() && session.signals[1].failure_message().is_none();
+    let system_was_running =
+        system_audio.is_some() && session.signals[1].failure_message().is_none();
     if !paused_microphone && !system_was_running && !app_was_running {
         return Err("The synchronized capture has ended.".into());
     }
@@ -1091,6 +1179,7 @@ pub fn resume_synchronized_audio_capture(
         .as_ref()
         .filter(|_| session.signals[0].failure_message().is_none())
     {
+        session.signals[0].advance_stream_epoch();
         stream
             .play()
             .map_err(|error| device_error("microphone", error))?;
@@ -1100,6 +1189,7 @@ pub fn resume_synchronized_audio_capture(
         .as_ref()
         .filter(|_| session.signals[1].failure_message().is_none())
     {
+        session.signals[1].advance_stream_epoch();
         if let Err(error) = stream.play() {
             if resumed_microphone {
                 if let Some(stream) = microphone.as_ref() {
@@ -1181,7 +1271,8 @@ pub fn stop_synchronized_audio_source(
         }
         "application-audio" => {
             session.signals[2].fail(reason);
-            if let Some(mut capture) = lock_application_capture(&session.application_capture)?.take()
+            if let Some(mut capture) =
+                lock_application_capture(&session.application_capture)?.take()
             {
                 capture.stop();
             }
@@ -1239,9 +1330,8 @@ fn close_session(session: &CaptureSession, discard: bool) -> Result<WorkerSummar
     drop(system_audio);
     if let Some(mut capture) = application_audio {
         if !capture.stop() && !discard {
-            session.signals[2].fail(
-                "The application-audio source did not stop within the supported timeout.",
-            );
+            session.signals[2]
+                .fail("The application-audio source did not stop within the supported timeout.");
         }
     }
     let worker = session
@@ -1269,9 +1359,12 @@ fn finished_result(session: &CaptureSession, summary: WorkerSummary) -> Synchron
             } else {
                 microphone.sample_rate_hz
             },
+            channel_count: microphone.channel_count,
+            sample_format: microphone.sample_format.to_owned(),
             sample_count: microphone.sample_count.to_string(),
             byte_count: microphone.byte_count.to_string(),
             chunk_count: microphone.chunk_count,
+            discontinuity_count: microphone.discontinuity_count,
             failure: microphone_failure,
         },
         system_audio: FinishedTrack {
@@ -1280,9 +1373,12 @@ fn finished_result(session: &CaptureSession, summary: WorkerSummary) -> Synchron
             } else {
                 system_audio.sample_rate_hz
             },
+            channel_count: system_audio.channel_count,
+            sample_format: system_audio.sample_format.to_owned(),
             sample_count: system_audio.sample_count.to_string(),
             byte_count: system_audio.byte_count.to_string(),
             chunk_count: system_audio.chunk_count,
+            discontinuity_count: system_audio.discontinuity_count,
             failure: system_failure,
         },
         application_audio: FinishedTrack {
@@ -1291,9 +1387,12 @@ fn finished_result(session: &CaptureSession, summary: WorkerSummary) -> Synchron
             } else {
                 application_audio.sample_rate_hz
             },
+            channel_count: application_audio.channel_count,
+            sample_format: application_audio.sample_format.to_owned(),
             sample_count: application_audio.sample_count.to_string(),
             byte_count: application_audio.byte_count.to_string(),
             chunk_count: application_audio.chunk_count,
+            discontinuity_count: application_audio.discontinuity_count,
             failure: application_audio_failure,
         },
     }
@@ -1301,7 +1400,10 @@ fn finished_result(session: &CaptureSession, summary: WorkerSummary) -> Synchron
 
 fn start_stream(stream: &mut Option<cpal::Stream>, track: TrackKind, signal: &TrackSignal) -> bool {
     let result = match stream.as_ref() {
-        Some(stream) => stream.play(),
+        Some(stream) => {
+            signal.advance_stream_epoch();
+            stream.play()
+        }
         None => return false,
     };
     match result {
@@ -1341,18 +1443,19 @@ fn emit_audio_chunks(
                             break;
                         }
                         let track_summary = &mut summary.tracks[index];
-                        let byte_count = chunk.samples.len().saturating_mul(2);
-                        let mut bytes = Vec::with_capacity(byte_count);
-                        for sample in &chunk.samples {
-                            bytes.extend_from_slice(&sample.to_le_bytes());
-                        }
+                        let byte_count = chunk.pcm.len();
                         let event = SynchronizedAudioChunkEvent {
                             capture_id: capture_id.clone(),
                             track: chunk.track.as_str().to_owned(),
                             sequence: chunk.sequence,
                             first_sample_index: chunk.first_sample_index.to_string(),
+                            frame_count: chunk.frame_count.to_string(),
                             sample_rate_hz: chunk.sample_rate_hz,
-                            pcm_s16le_base64: BASE64.encode(bytes),
+                            channel_count: chunk.channel_count,
+                            sample_format: chunk.sample_format,
+                            gap_before_samples: chunk.gap_before_samples.to_string(),
+                            contains_device_discontinuity: chunk.contains_device_discontinuity,
+                            pcm_base64: BASE64.encode(&chunk.pcm),
                         };
                         if let Err(error) = window.emit(CHUNK_EVENT, event) {
                             signals[index].fail(format!(
@@ -1361,12 +1464,17 @@ fn emit_audio_chunks(
                             continue;
                         }
                         track_summary.sample_rate_hz = chunk.sample_rate_hz;
-                        track_summary.sample_count = track_summary
-                            .sample_count
-                            .saturating_add(chunk.samples.len() as u64);
+                        track_summary.channel_count = chunk.channel_count;
+                        track_summary.sample_format = chunk.sample_format;
+                        track_summary.sample_count =
+                            track_summary.sample_count.saturating_add(chunk.frame_count);
                         track_summary.byte_count =
                             track_summary.byte_count.saturating_add(byte_count as u64);
                         track_summary.chunk_count = track_summary.chunk_count.saturating_add(1);
+                        if chunk.contains_device_discontinuity {
+                            track_summary.discontinuity_count =
+                                track_summary.discontinuity_count.saturating_add(1);
+                        }
                     }
                     Err(TryRecvError::Empty) => {
                         queue_empty = true;
@@ -1439,31 +1547,58 @@ fn build_capture_stream(
     let sample_format = config.sample_format();
     let mut sequence = 0u64;
     let mut first_sample_index = 0u64;
+    let mut discontinuity = DiscontinuityTracker::new(sample_rate_hz);
     let callback_signal = Arc::clone(&signal);
     let error_signal = Arc::clone(&signal);
     device
         .build_input_stream_raw(
             config.config(),
             sample_format,
-            move |data: &Data, _info| {
+            move |data: &Data, info: &cpal::InputCallbackInfo| {
                 if !callback_signal.accepting.load(Ordering::Acquire) {
                     return;
                 }
-                let Some(samples) = data_to_mono_pcm(data, channels) else {
+                let Some((pcm, sample_format)) = encode_pcm(data, channels) else {
                     callback_signal
                         .fail("The audio device returned a sample format that cannot be recorded.");
                     return;
                 };
-                if samples.is_empty() {
+                let bytes_per_frame = data
+                    .sample_format()
+                    .sample_size()
+                    .saturating_mul(channels);
+                if bytes_per_frame == 0 || data.bytes().len() % bytes_per_frame != 0 {
+                    callback_signal.fail("The audio device returned an incomplete PCM frame.");
                     return;
                 }
-                if samples.len() > MAX_CAPTURE_CALLBACK_SAMPLES {
+                let frame_count = (data.bytes().len() / bytes_per_frame) as u64;
+                if frame_count == 0 {
+                    return;
+                }
+                if pcm.len() > MAX_CAPTURE_CALLBACK_BYTES {
                     callback_signal.fail(
                         "The audio device returned a callback larger than the bounded capture queue supports.",
                     );
                     return;
                 }
-                let Some(next_sample_index) = first_sample_index.checked_add(samples.len() as u64)
+                let epoch = callback_signal.stream_epoch.load(Ordering::Acquire);
+                let Some((gap_before_samples, contains_device_discontinuity)) =
+                    discontinuity.observe(info.timestamp().callback, frame_count, epoch)
+                else {
+                    callback_signal.fail(
+                        "The audio device dropped more than the supported 10-second audio gap.",
+                    );
+                    return;
+                };
+                let Some(next_sample_index) = first_sample_index
+                    .checked_add(gap_before_samples)
+                    .and_then(|start| start.checked_add(frame_count))
+                else {
+                    callback_signal.fail("The audio track exceeded its supported sample timeline.");
+                    return;
+                };
+                let Some(chunk_first_sample_index) =
+                    first_sample_index.checked_add(gap_before_samples)
                 else {
                     callback_signal.fail("The audio track exceeded its supported sample timeline.");
                     return;
@@ -1475,9 +1610,14 @@ fn build_capture_stream(
                 let chunk = PcmChunk {
                     track,
                     sequence,
-                    first_sample_index,
+                    first_sample_index: chunk_first_sample_index,
+                    frame_count,
                     sample_rate_hz,
-                    samples,
+                    channel_count: config.channels(),
+                    sample_format,
+                    gap_before_samples,
+                    contains_device_discontinuity,
+                    pcm,
                 };
                 match sender.try_send(chunk) {
                     Ok(()) => {
@@ -1509,45 +1649,170 @@ fn build_capture_stream(
         .map_err(|error| device_error(track.as_str(), error))
 }
 
-fn data_to_mono_pcm(data: &Data, channels: usize) -> Option<Vec<i16>> {
+struct DiscontinuityTracker {
+    sample_rate_hz: u32,
+    epoch: u64,
+    anchor: Option<StreamInstant>,
+    frames_seen: u64,
+}
+
+impl DiscontinuityTracker {
+    fn new(sample_rate_hz: u32) -> Self {
+        Self {
+            sample_rate_hz,
+            epoch: 0,
+            anchor: None,
+            frames_seen: 0,
+        }
+    }
+
+    /// Returns the missing frames before this callback and whether the callback timeline jumped.
+    /// `None` when the gap exceeds the bounded recovery window.
+    fn observe(&mut self, at: StreamInstant, frames: u64, epoch: u64) -> Option<(u64, bool)> {
+        if self.anchor.is_none() || self.epoch != epoch {
+            self.epoch = epoch;
+            self.anchor = Some(at);
+            self.frames_seen = frames;
+            return Some((0, false));
+        }
+        let Some(anchor) = self.anchor else {
+            return Some((0, false));
+        };
+        let Some(elapsed) = at.checked_duration_since(anchor) else {
+            self.anchor = Some(at);
+            self.frames_seen = frames;
+            return Some((0, false));
+        };
+        let projected = elapsed.as_secs_f64() * f64::from(self.sample_rate_hz);
+        let lag = projected - self.frames_seen as f64;
+        let tolerance = f64::from((self.sample_rate_hz / DISCONTINUITY_TOLERANCE_DIVISOR).max(1));
+        let gap = if lag > tolerance {
+            lag.round() as u64
+        } else {
+            0
+        };
+        if gap > u64::from(self.sample_rate_hz) * MAX_DISCONTINUITY_SECONDS {
+            return None;
+        }
+        self.frames_seen = self.frames_seen.saturating_add(frames).saturating_add(gap);
+        Some((gap, gap > 0))
+    }
+}
+
+fn encode_pcm(data: &Data, channels: usize) -> Option<(Vec<u8>, &'static str)> {
     if channels == 0 {
         return None;
     }
     match data.sample_format() {
-        SampleFormat::F32 => data.as_slice::<f32>().map(convert_samples),
-        SampleFormat::F64 => data.as_slice::<f64>().map(convert_samples),
-        SampleFormat::I8 => data.as_slice::<i8>().map(convert_samples),
-        SampleFormat::I16 => data.as_slice::<i16>().map(convert_samples),
-        SampleFormat::I24 => data.as_slice::<cpal::I24>().map(convert_samples),
-        SampleFormat::I32 => data.as_slice::<i32>().map(convert_samples),
-        SampleFormat::I64 => data.as_slice::<i64>().map(convert_samples),
-        SampleFormat::U8 => data.as_slice::<u8>().map(convert_samples),
-        SampleFormat::U16 => data.as_slice::<u16>().map(convert_samples),
-        SampleFormat::U24 => data.as_slice::<cpal::U24>().map(convert_samples),
-        SampleFormat::U32 => data.as_slice::<u32>().map(convert_samples),
-        SampleFormat::U64 => data.as_slice::<u64>().map(convert_samples),
+        SampleFormat::F32 => Some((encode_f32(data.as_slice::<f32>()?), "pcm_f32le")),
+        SampleFormat::F64 => Some((
+            encode_f32(&convert_to_f32(data.as_slice::<f64>()?)),
+            "pcm_f32le",
+        )),
+        SampleFormat::I16 => Some((encode_i16(data.as_slice::<i16>()?), "pcm_s16le")),
+        SampleFormat::I8 => Some((
+            encode_i16(&convert_to_i16(data.as_slice::<i8>()?)),
+            "pcm_s16le",
+        )),
+        SampleFormat::U16 => Some((
+            encode_i16(&convert_to_i16(data.as_slice::<u16>()?)),
+            "pcm_s16le",
+        )),
+        SampleFormat::I32 => Some((encode_i32(data.as_slice::<i32>()?), "pcm_s32le")),
+        SampleFormat::I24 => Some((
+            encode_i32(&convert_to_i32(data.as_slice::<cpal::I24>()?)),
+            "pcm_s32le",
+        )),
+        SampleFormat::U24 => Some((
+            encode_i32(&convert_to_i32(data.as_slice::<cpal::U24>()?)),
+            "pcm_s32le",
+        )),
+        SampleFormat::I64 => Some((
+            encode_i32(&convert_to_i32(data.as_slice::<i64>()?)),
+            "pcm_s32le",
+        )),
+        SampleFormat::U32 => Some((
+            encode_i32(&convert_to_i32(data.as_slice::<u32>()?)),
+            "pcm_s32le",
+        )),
+        SampleFormat::U64 => Some((
+            encode_i32(&convert_to_i32(data.as_slice::<u64>()?)),
+            "pcm_s32le",
+        )),
+        SampleFormat::U8 => Some((data.as_slice::<u8>()?.to_vec(), "pcm_u8")),
         SampleFormat::DsdU8 | SampleFormat::DsdU16 | SampleFormat::DsdU32 => None,
         _ => None,
     }
 }
 
-fn convert_samples<T: Sample + SizedSample>(interleaved: &[T], channels: usize) -> Vec<i16> {
-    interleaved
-        .chunks_exact(channels)
-        .map(|frame| {
-            let average = frame
-                .iter()
-                .map(|sample| sample.to_sample::<f64>())
-                .sum::<f64>()
-                / channels as f64;
-            let clipped = average.clamp(-1.0, 1.0);
-            if clipped <= -1.0 {
-                i16::MIN
-            } else {
-                (clipped * f64::from(i16::MAX)).round() as i16
-            }
-        })
+fn encode_f32(samples: &[f32]) -> Vec<u8> {
+    let mut bytes = Vec::with_capacity(samples.len().saturating_mul(4));
+    for sample in samples {
+        bytes.extend_from_slice(&sample.to_le_bytes());
+    }
+    bytes
+}
+
+fn encode_i16(samples: &[i16]) -> Vec<u8> {
+    let mut bytes = Vec::with_capacity(samples.len().saturating_mul(2));
+    for sample in samples {
+        bytes.extend_from_slice(&sample.to_le_bytes());
+    }
+    bytes
+}
+
+fn encode_i32(samples: &[i32]) -> Vec<u8> {
+    let mut bytes = Vec::with_capacity(samples.len().saturating_mul(4));
+    for sample in samples {
+        bytes.extend_from_slice(&sample.to_le_bytes());
+    }
+    bytes
+}
+
+fn convert_to_f32<T: Sample + SizedSample>(samples: &[T]) -> Vec<f32>
+where
+    f32: cpal::FromSample<T>,
+{
+    samples
+        .iter()
+        .map(|sample| sample.to_sample::<f32>())
         .collect()
+}
+
+fn convert_to_i16<T: Sample + SizedSample>(samples: &[T]) -> Vec<i16>
+where
+    i16: cpal::FromSample<T>,
+{
+    samples
+        .iter()
+        .map(|sample| sample.to_sample::<i16>())
+        .collect()
+}
+
+fn convert_to_i32<T: Sample + SizedSample>(samples: &[T]) -> Vec<i32>
+where
+    i32: cpal::FromSample<T>,
+{
+    samples
+        .iter()
+        .map(|sample| sample.to_sample::<i32>())
+        .collect()
+}
+
+fn sample_format_name(format: SampleFormat) -> &'static str {
+    match format {
+        SampleFormat::F32 | SampleFormat::F64 => "pcm_f32le",
+        SampleFormat::I16 | SampleFormat::I8 | SampleFormat::U16 => "pcm_s16le",
+        SampleFormat::I32
+        | SampleFormat::I24
+        | SampleFormat::U24
+        | SampleFormat::I64
+        | SampleFormat::U32
+        | SampleFormat::U64 => "pcm_s32le",
+        SampleFormat::U8 => "pcm_u8",
+        SampleFormat::DsdU8 | SampleFormat::DsdU16 | SampleFormat::DsdU32 => "unsupported",
+        _ => "pcm_s16le",
+    }
 }
 
 fn validate_config(config: &cpal::SupportedStreamConfig, source: &str) -> Result<(), String> {
@@ -1557,7 +1822,7 @@ fn validate_config(config: &cpal::SupportedStreamConfig, source: &str) -> Result
             "The {source} device selected an unsupported sample rate."
         ));
     }
-    if config.channels() == 0 || config.channels() > 32 {
+    if config.channels() == 0 || config.channels() > MAX_CHANNELS {
         return Err(format!(
             "The {source} device selected an unsupported channel count."
         ));
@@ -1667,9 +1932,8 @@ fn enumerate_devices() -> Result<SynchronizedAudioDevices, String> {
         application_audio_unavailable_reason: if application_audio_available {
             None
         } else {
-            application_audio_unavailable_reason.or_else(|| {
-                Some(application_audio_unavailable_message().to_owned())
-            })
+            application_audio_unavailable_reason
+                .or_else(|| Some(application_audio_unavailable_message().to_owned()))
         },
     })
 }
@@ -1681,7 +1945,10 @@ fn enumerate_application_audio_devices() -> (Vec<SynchronizedAudioDevice>, Optio
     {
         return (
             Vec::new(),
-            Some("A previous application-audio discovery is still running; try again shortly.".to_owned()),
+            Some(
+                "A previous application-audio discovery is still running; try again shortly."
+                    .to_owned(),
+            ),
         );
     }
     let (sender, receiver) = mpsc::sync_channel(1);
@@ -1702,7 +1969,10 @@ fn enumerate_application_audio_devices() -> (Vec<SynchronizedAudioDevice>, Optio
         Ok(result) => result,
         Err(_) => (
             Vec::new(),
-            Some("Application-audio discovery did not respond in time; refresh and try again.".to_owned()),
+            Some(
+                "Application-audio discovery did not respond in time; refresh and try again."
+                    .to_owned(),
+            ),
         ),
     }
 }
@@ -1790,10 +2060,12 @@ fn probe_application_audio_stream(
         silence_probe: false,
         ..Default::default()
     })
-    .map_err(|_| "The native per-application audio backend could not open this endpoint.".to_owned())?;
-    stream
-        .start()
-        .map_err(|_| "The native per-application audio backend could not start this endpoint.".to_owned())?;
+    .map_err(|_| {
+        "The native per-application audio backend could not open this endpoint.".to_owned()
+    })?;
+    stream.start().map_err(|_| {
+        "The native per-application audio backend could not start this endpoint.".to_owned()
+    })?;
 
     let deadline = std::time::Instant::now() + duration;
     while std::time::Instant::now() < deadline {
@@ -1813,8 +2085,8 @@ fn probe_application_audio_stream(
     target: &ApplicationAudioTarget,
     duration: Duration,
 ) -> Result<(), String> {
-    use screencapturekit::stream::delegate_trait::StreamCallbacks;
     use screencapturekit::prelude::*;
+    use screencapturekit::stream::delegate_trait::StreamCallbacks;
 
     let content = SCShareableContent::get().map_err(|_| {
         "ScreenCaptureKit could not inspect application audio. Check macOS 14+ and Screen & System Audio Recording permission."
@@ -1824,17 +2096,19 @@ fn probe_application_audio_stream(
         .applications()
         .iter()
         .find(|application| application.process_id() == target.process_id as i32)
-        .ok_or_else(|| "The selected application is no longer available for audio capture.".to_owned())?;
-    let display = content
-        .displays()
-        .into_iter()
-        .next()
-        .ok_or_else(|| "ScreenCaptureKit did not expose a display for application audio.".to_owned())?;
+        .ok_or_else(|| {
+            "The selected application is no longer available for audio capture.".to_owned()
+        })?;
+    let display = content.displays().into_iter().next().ok_or_else(|| {
+        "ScreenCaptureKit did not expose a display for application audio.".to_owned()
+    })?;
     let filter = SCContentFilter::create()
         .with_display(&display)
         .with_including_applications(&[application], &[])
         .build()
-        .map_err(|_| "ScreenCaptureKit could not create an application-audio probe filter.".to_owned())?;
+        .map_err(|_| {
+            "ScreenCaptureKit could not create an application-audio probe filter.".to_owned()
+        })?;
     let configuration = SCStreamConfiguration::new()
         .with_width(2)
         .with_height(2)
@@ -1842,21 +2116,25 @@ fn probe_application_audio_stream(
         .with_sample_rate(APPLICATION_AUDIO_SAMPLE_RATE_HZ)
         .with_channel_count(u32::from(APPLICATION_AUDIO_CHANNELS));
     let delegate = StreamCallbacks::new().on_stop(|_| {});
-    let mut stream = SCStream::new_with_delegate(&filter, &configuration, delegate)
-        .map_err(|_| "ScreenCaptureKit could not create an application-audio probe stream.".to_owned())?;
+    let mut stream =
+        SCStream::new_with_delegate(&filter, &configuration, delegate).map_err(|_| {
+            "ScreenCaptureKit could not create an application-audio probe stream.".to_owned()
+        })?;
     stream
         .add_output_handler(
             |_sample: CMSampleBuffer, _output_type: SCStreamOutputType| {},
             SCStreamOutputType::Audio,
         )
-        .map_err(|_| "ScreenCaptureKit could not install the discard-only audio probe.".to_owned())?;
+        .map_err(|_| {
+            "ScreenCaptureKit could not install the discard-only audio probe.".to_owned()
+        })?;
     stream
         .start_capture()
         .map_err(|_| "ScreenCaptureKit could not start the application-audio probe.".to_owned())?;
     thread::sleep(duration);
-    stream
-        .stop_capture()
-        .map_err(|_| "ScreenCaptureKit could not stop the application-audio probe cleanly.".to_owned())
+    stream.stop_capture().map_err(|_| {
+        "ScreenCaptureKit could not stop the application-audio probe cleanly.".to_owned()
+    })
 }
 
 #[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
@@ -1874,7 +2152,10 @@ fn enumerate_application_audio_devices_inner() -> (Vec<SynchronizedAudioDevice>,
         Err(error) => {
             return (
                 Vec::new(),
-                Some(format!("{} Details: {error}", application_audio_unavailable_message())),
+                Some(format!(
+                    "{} Details: {error}",
+                    application_audio_unavailable_message()
+                )),
             );
         }
     };
@@ -1980,10 +2261,12 @@ fn resolve_application_audio_target(
     let device = devices
         .iter()
         .find(|device| device.device_id == device_id && device.source == "application-audio")
-        .ok_or_else(|| "The selected application-audio source is no longer available.".to_owned())?;
-    let process_id = device
-        .process_id
-        .ok_or_else(|| "The selected application has no available process identifier.".to_owned())?;
+        .ok_or_else(|| {
+            "The selected application-audio source is no longer available.".to_owned()
+        })?;
+    let process_id = device.process_id.ok_or_else(|| {
+        "The selected application has no available process identifier.".to_owned()
+    })?;
     let backend = match device.backend.as_str() {
         "wasapi-process-loopback" => "wasapi-process-loopback",
         "pipewire-process-loopback" => "pipewire-process-loopback",
@@ -2152,5 +2435,52 @@ fn application_audio_unavailable_message() -> &'static str {
     #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
     {
         "Per-application audio capture is not supported on this operating system."
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn instant(milliseconds: u64) -> StreamInstant {
+        StreamInstant::ZERO
+            .checked_add(Duration::from_millis(milliseconds))
+            .expect("test timestamps fit the stream clock")
+    }
+
+    #[test]
+    fn discontinuity_tracker_marks_a_missing_callback_and_keeps_the_timeline() {
+        let mut tracker = DiscontinuityTracker::new(48_000);
+        assert_eq!(tracker.observe(instant(0), 480, 0), Some((0, false)));
+        assert_eq!(tracker.observe(instant(10), 480, 0), Some((0, false)));
+        assert_eq!(tracker.observe(instant(30), 480, 0), Some((480, true)));
+        assert_eq!(tracker.observe(instant(40), 480, 0), Some((0, false)));
+    }
+
+    #[test]
+    fn discontinuity_tracker_resets_after_a_resume_epoch() {
+        let mut tracker = DiscontinuityTracker::new(48_000);
+        assert_eq!(tracker.observe(instant(0), 480, 0), Some((0, false)));
+        assert_eq!(tracker.observe(instant(2_000), 480, 1), Some((0, false)));
+        assert_eq!(tracker.observe(instant(2_010), 480, 1), Some((0, false)));
+    }
+
+    #[test]
+    fn discontinuity_tracker_rejects_a_gap_beyond_the_recovery_window() {
+        let mut tracker = DiscontinuityTracker::new(48_000);
+        assert_eq!(tracker.observe(instant(0), 480, 0), Some((0, false)));
+        assert_eq!(tracker.observe(instant(11_000), 480, 0), None);
+    }
+
+    #[test]
+    fn pcm_encoders_keep_every_interleaved_channel() {
+        assert_eq!(
+            encode_i16(&[1, -1, 2, -2]),
+            vec![1, 0, 255, 255, 2, 0, 254, 255]
+        );
+        let stereo = encode_f32(&[0.5, -0.5]);
+        assert_eq!(stereo.len(), 8);
+        assert_eq!(f32::from_le_bytes(stereo[0..4].try_into().unwrap()), 0.5);
+        assert_eq!(f32::from_le_bytes(stereo[4..8].try_into().unwrap()), -0.5);
     }
 }
