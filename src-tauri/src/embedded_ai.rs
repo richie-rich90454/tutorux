@@ -135,11 +135,14 @@ pub(crate) struct EmbeddedModelLoadRequest {
     authorization_token: String,
     context_tokens: u32,
     cpu_threads: u32,
+    #[serde(default)]
+    allow_memory_overcommit: bool,
 }
 
 #[tauri::command]
 pub(crate) fn authorize_embedded_model(
     path: String,
+    allow_memory_overcommit: Option<bool>,
     state: State<'_, EmbeddedAiState>,
 ) -> Result<EmbeddedModelInfo, String> {
     let selected = validate_selected_path(Path::new(&path))?;
@@ -147,6 +150,10 @@ pub(crate) fn authorize_embedded_model(
     let (architecture, name, tensor_count) = inspect_gguf(&selected)?;
     let model_id = stable_model_id(&selected, &identity);
     let estimated_memory_bytes = estimate_memory(identity.size, 4096)?;
+    ensure_memory_fits(
+        estimated_memory_bytes,
+        allow_memory_overcommit.unwrap_or(false),
+    )?;
     let token = Uuid::new_v4().to_string();
     let info = EmbeddedModelInfo {
         authorization_token: token.clone(),
@@ -207,6 +214,7 @@ pub(crate) fn load_embedded_model(
         );
     }
     let memory_estimate_bytes = estimate_memory(actual_identity.size, request.context_tokens)?;
+    ensure_memory_fits(memory_estimate_bytes, request.allow_memory_overcommit)?;
     let mut runtime = state.runtime.try_lock().map_err(|_| {
         "The local model runtime is busy. Wait for it to finish and try again.".to_owned()
     })?;
@@ -667,6 +675,29 @@ fn estimate_memory(model_bytes: u64, context_tokens: u32) -> Result<u64, String>
     Ok(estimate)
 }
 
+fn ensure_memory_fits(estimate_bytes: u64, allow_memory_overcommit: bool) -> Result<(), String> {
+    if allow_memory_overcommit {
+        return Ok(());
+    }
+    let available_bytes = crate::diagnostics::available_system_memory_bytes().map_err(|reason| {
+        format!(
+            "The available system memory could not be checked before loading the local model: {reason}. Enable explicit memory overcommit to load the model anyway."
+        )
+    })?;
+    ensure_memory_fits_with(estimate_bytes, available_bytes)
+}
+
+fn ensure_memory_fits_with(estimate_bytes: u64, available_bytes: u64) -> Result<(), String> {
+    if estimate_bytes <= available_bytes {
+        return Ok(());
+    }
+    Err(format!(
+        "The model and requested context need about {:.1} GiB, but only {:.1} GiB of system memory is available. Choose a smaller model or shorter context, or explicitly allow memory overcommit.",
+        estimate_bytes as f64 / 1_073_741_824.0,
+        available_bytes as f64 / 1_073_741_824.0,
+    ))
+}
+
 fn status_from_runtime(runtime: Option<&LoadedModel>) -> EmbeddedModelStatus {
     match runtime {
         Some(model) => EmbeddedModelStatus {
@@ -691,5 +722,29 @@ fn status_from_runtime(runtime: Option<&LoadedModel>) -> EmbeddedModelStatus {
             cpu_threads: None,
             memory_estimate_bytes: None,
         },
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn memory_check_refuses_an_estimate_above_available_memory() {
+        let error = ensure_memory_fits_with(8 * 1024 * 1024 * 1024, 4 * 1024 * 1024 * 1024)
+            .expect_err("a model larger than available memory must be refused");
+        assert!(error.contains("system memory"));
+    }
+
+    #[test]
+    fn memory_check_accepts_a_fitting_estimate() {
+        assert!(ensure_memory_fits_with(2 * 1024 * 1024 * 1024, 4 * 1024 * 1024 * 1024).is_ok());
+    }
+
+    #[test]
+    fn memory_ceiling_still_rejects_an_oversized_estimate() {
+        let error = estimate_memory(MAX_MODEL_FILE_BYTES, 32_768)
+            .expect_err("the 64 GiB estimate ceiling must remain enforced");
+        assert!(error.contains("64 GiB"));
     }
 }
