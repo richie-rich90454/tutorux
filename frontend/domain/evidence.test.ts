@@ -3,6 +3,7 @@ import type { ArchiveSnapshot } from "../archive/archive";
 import { RecordType, type ArchiveRecord } from "../archive/format";
 import {
   makeEvidenceRecord,
+  restoreEvidenceEdge,
   restoreEvidenceRecordGroup,
   trashEvidenceEdge,
   trashEvidenceRecord,
@@ -224,5 +225,39 @@ describe("evidence editing and recoverable relationships", () => {
     expect(trashed.fields.get("_trash_group_id")).toBe(edge.id);
     expect(edge.fields.get("_deleted")).toBeUndefined();
     expect(() => trashEvidenceEdge(trashed)).toThrow("active evidence relationship");
+  });
+
+  it("restores a removed relationship only when both endpoints are active", async () => {
+    const fromId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+    const toId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+    const edge = trashEvidenceEdge(
+      evidenceEdge(fromId, toId, "cccccccc-cccc-4ccc-8ccc-cccccccccccc"),
+    );
+    const from = { ...evidenceRecord(), id: fromId };
+    const to = { ...evidenceRecord(), id: toId };
+    const snapshot = {
+      getRecord: vi.fn(async (_type: number, id: string) =>
+        id === fromId ? from : id === toId ? to : null,
+      ),
+    } as unknown as ArchiveSnapshot;
+
+    const restored = await restoreEvidenceEdge(snapshot, edge);
+    expect(restored.fields.get("_deleted")).toBeUndefined();
+    expect(restored.fields.get("from_id")).toBe(fromId);
+    expect(restored.fields.get("to_id")).toBe(toId);
+
+    await expect(
+      restoreEvidenceEdge(
+        {
+          ...snapshot,
+          getRecord: vi.fn(async (_type: number, id: string) =>
+            id === fromId
+              ? from
+              : { ...to, fields: new Map([...to.fields, ["_deleted", "true"]]) },
+          ),
+        } as unknown as ArchiveSnapshot,
+        edge,
+      ),
+    ).rejects.toThrow("Restore both linked evidence items");
   });
 });
