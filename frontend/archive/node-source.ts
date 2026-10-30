@@ -1,10 +1,21 @@
 import { open, type FileHandle } from "node:fs/promises";
 import { realpath, stat } from "node:fs/promises";
 import type { BigIntStats } from "node:fs";
-import { acquireArchiveLock, type ArchiveLockHandle, type ArchiveLockMode } from "../../cli/archive-lock";
+import {
+  acquireArchiveLock,
+  type ArchiveLockHandle,
+  type ArchiveLockMode,
+} from "../../cli/archive-lock";
 import type { ArchiveByteSource } from "./source";
 
 /** A bounded, positional archive reader for the Node CLI. */
+const activeSourcesByPath = new Map<string, Set<NodeFileArchiveSource>>();
+
+export function findActiveNodeArchiveSource(path: string): NodeFileArchiveSource | undefined {
+  const sources = activeSourcesByPath.get(normalizePath(path));
+  return sources ? [...sources].at(-1) : undefined;
+}
+
 export class NodeFileArchiveSource implements ArchiveByteSource {
   private closed = false;
   private readHandleClosed = false;
@@ -15,9 +26,17 @@ export class NodeFileArchiveSource implements ArchiveByteSource {
     readonly path: string,
     private readonly initialVersion: FileVersion,
     readonly size: bigint,
-  ) {}
+  ) {
+    const key = normalizePath(path);
+    const sources = activeSourcesByPath.get(key) ?? new Set();
+    sources.add(this);
+    activeSourcesByPath.set(key, sources);
+  }
 
-  static async open(path: string, lockMode: ArchiveLockMode = "shared"): Promise<NodeFileArchiveSource> {
+  static async open(
+    path: string,
+    lockMode: ArchiveLockMode = "shared",
+  ): Promise<NodeFileArchiveSource> {
     const canonicalPath = await realpath(path);
     const lock = await acquireArchiveLock(canonicalPath, lockMode);
     let handle: FileHandle | undefined;
@@ -29,7 +48,13 @@ export class NodeFileArchiveSource implements ArchiveByteSource {
       const info = await handle.stat();
       if (!info.isFile()) throw new Error("The selected archive is not a regular file.");
       const initialVersion = await getFileVersion(handle);
-      return new NodeFileArchiveSource(handle, lock, canonicalPath, initialVersion, initialVersion.size);
+      return new NodeFileArchiveSource(
+        handle,
+        lock,
+        canonicalPath,
+        initialVersion,
+        initialVersion.size,
+      );
     } catch (error) {
       await handle?.close();
       await lock.close();
@@ -61,7 +86,10 @@ export class NodeFileArchiveSource implements ArchiveByteSource {
         getFileVersion(this.handle),
         stat(this.path, { bigint: true }),
       ]);
-      return sameFileVersion(opened, this.initialVersion) && sameFileVersion(current, this.initialVersion);
+      return (
+        sameFileVersion(opened, this.initialVersion) &&
+        sameFileVersion(current, this.initialVersion)
+      );
     } catch {
       return false;
     }
@@ -98,6 +126,10 @@ export class NodeFileArchiveSource implements ArchiveByteSource {
   async close(): Promise<void> {
     if (this.closed) return;
     this.closed = true;
+    const key = normalizePath(this.path);
+    const sources = activeSourcesByPath.get(key);
+    sources?.delete(this);
+    if (sources?.size === 0) activeSourcesByPath.delete(key);
     try {
       await this.closeReadHandle();
     } finally {
