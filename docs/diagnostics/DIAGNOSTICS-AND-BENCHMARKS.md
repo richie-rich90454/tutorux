@@ -15,11 +15,14 @@ tutorux --archive Tutorux.tux diagnostics network --provider openai
 tutorux --archive Tutorux.tux diagnostics report --output diagnostics.json --full
 ```
 
-Archive checks use the archive verifier. Audio checks enumerate active endpoints and initialize
-shared-mode probes without starting a recording stream. Provider checks list compiled adapters;
-network checks require an explicitly selected provider and reuse the provider's model-list request.
-The report includes process metrics, archive integrity summary, and audio endpoint count. It does
-not include archive contents, file paths, API keys, or transcripts.
+Archive checks use the archive verifier. Audio checks enumerate native endpoints and inspect their
+format, sample rate, and channel count without starting a recording stream. When the native audio
+helper is unavailable, the CLI falls back to host enumeration and reports per-endpoint why the
+configuration could not be inspected. Provider checks list compiled adapters; network checks require
+an explicitly selected provider and reuse the provider's model-list request. The report includes
+process metrics, archive integrity summary, and audio endpoint count. It does not include archive
+contents, file paths, API keys, transcripts, endpoint names, process identifiers, or device
+identifiers.
 
 ```text
 tutorux benchmark startup
