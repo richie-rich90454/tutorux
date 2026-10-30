@@ -10,7 +10,8 @@ import {
 } from "./domain/journal-trash";
 import "./journal-relations.css";
 
-const field = (record: ArchiveRecord, key: string) => record.fields.get(key) ?? "";
+const field = (record: ArchiveRecord, key: string, fallback = "") =>
+  record.fields.get(key) ?? fallback;
 const same = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
 const ids = (value: string) =>
   value
@@ -495,7 +496,9 @@ export function JournalRelations(props: {
                   <option value="">Independent session</option>
                   <For each={props.students}>
                     {(student) => (
-                      <option value={student.id}>{field(student, "display_name", "Student")}</option>
+                      <option value={student.id}>
+                        {field(student, "display_name", "Student")}
+                      </option>
                     )}
                   </For>
                   <option value="__new_student__">Create a new student</option>
@@ -527,7 +530,9 @@ export function JournalRelations(props: {
                     )}
                   >
                     {(template) => (
-                      <option value={template.id}>{field(template, "name", "Custom template")}</option>
+                      <option value={template.id}>
+                        {field(template, "name", "Custom template")}
+                      </option>
                     )}
                   </For>
                 </select>
