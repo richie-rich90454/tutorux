@@ -21,7 +21,7 @@ tauri-plugin-dialog = "2"
 tauri-plugin-fs = "2"
 tauri-plugin-single-instance = "2.5.4"
 keyring = "4.2.0"
-libc = "0.2.191"
+libc = "0.2.186"
 llama-cpp-2 = "=0.1.160"
 uuid = { version = "1", features = ["v4"] }
 zeroize = "1.8"
@@ -43,6 +43,10 @@ screencapturekit = { version = "11.1.1", features = ["macos_14_0"] }
 
 [target.'cfg(not(target_os = "linux"))'.dependencies]
 cpal = "0.18.2"
+
+[patch.crates-io]
+# Match the helper's patched microphone backend so Linux resolves one ALSA sys crate.
+flexaudio-mic = { path = "../native-audio-helper/vendor/flexaudio-mic" }
 
 [features]
 custom-protocol = ["tauri/custom-protocol"]
