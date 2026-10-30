@@ -106,12 +106,8 @@ export async function executeAiGeneration(input: AiExecutionInput): Promise<AiEx
     errorCode = "",
     errorMessage = "",
     retryAfter = "",
-  ): ArchiveRecord => ({
-    type: RecordType.aiJob,
-    id: jobId,
-    revision: 0n,
-    previousOffset: 0n,
-    fields: new Map<string, string>([
+  ): ArchiveRecord => {
+    const fields = new Map<string, string>([
       ["session_id", input.session.id],
       ["mode", preview.localOnly ? "local" : "byok"],
       ["status", status],
@@ -144,9 +140,19 @@ export async function executeAiGeneration(input: AiExecutionInput): Promise<AiEx
       ["created_at_us", nowUs],
       ...consentFields,
       ...replicateSchemaFields,
-    ]),
-    blob: responseBytes,
-  });
+    ]);
+    for (const key of ["error_code", "error_message", "retry_after", "provider_response_id"]) {
+      if (!fields.get(key)) fields.delete(key);
+    }
+    return {
+      type: RecordType.aiJob,
+      id: jobId,
+      revision: 0n,
+      previousOffset: 0n,
+      fields,
+      blob: responseBytes,
+    };
+  };
   const createSummary = (
     status: string,
     guideId: string | null,
@@ -200,7 +206,11 @@ export async function executeAiGeneration(input: AiExecutionInput): Promise<AiEx
     sourceValidation: AiExecutionSummary["sourceValidation"];
     warnings: string[];
   } => {
-    const proposal = createAiGuideProposal(responseText, input.session.id, input.expectedTemplateId);
+    const proposal = createAiGuideProposal(
+      responseText,
+      input.session.id,
+      input.expectedTemplateId,
+    );
     const warnings = [...proposal.warnings];
     let sourceValidation: AiExecutionSummary["sourceValidation"];
     let guide: ArchiveRecord;
