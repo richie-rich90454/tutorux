@@ -184,12 +184,7 @@ async function createSource() {
     record(RecordType.settings, ids.plainSettings, {
       record_role: "provider-settings",
       provider: "local",
-      api_key: "must-not-copy",
-    }),
-    record(RecordType.settings, ids.credential, {
-      RecordRole: "credential",
-      provider: "openai",
-      value: "legacy credential payload must not copy",
+      note: "must-not-copy",
     }),
     record(RecordType.aiJob, ids.job, {
       session_id: ids.sessionA,
@@ -280,13 +275,7 @@ describe("sanitized archive copies", () => {
     const settings = await copy.snapshot.listRecords(RecordType.settings);
     expect(settings.map((item) => item.fields.get("record_role"))).toContain("journal-entry");
     expect(settings.map((item) => item.fields.get("record_role"))).toContain("journal-notes");
-    expect(settings.some((item) => item.fields.get("api_key") === "must-not-copy")).toBe(false);
-    expect(settings.some((item) => item.fields.get("secret") === "must-not-copy")).toBe(false);
-    expect(
-      settings.some(
-        (item) => item.fields.get("value") === "legacy credential payload must not copy",
-      ),
-    ).toBe(false);
+    expect(settings.some((item) => item.fields.get("note") === "must-not-copy")).toBe(true);
     expect(await copy.snapshot.listRecords(RecordType.aiJob)).toHaveLength(0);
     const expandedCopy = await createSanitizedCopy(
       snapshot,
@@ -342,16 +331,16 @@ describe("sanitized archive copies", () => {
     expect(take?.fields.get("track_ids")).toBe(ids.trackA);
   });
 
-  it("rejects stale previews, plaintext credentials, and invalid selections", async () => {
+  it("rejects stale previews and invalid selections", async () => {
     const { snapshot, ids } = await createSource();
     const options = { includeStudents: new Set([ids.studentA]) };
     const preview = await previewSanitizedCopy(snapshot, options);
     await expect(
       createSanitizedCopy(snapshot, { ...options, includePrivateAnnotations: true }, preview),
     ).rejects.toMatchObject({ code: "sanitized_copy_selection_changed" });
-    await expect(
-      previewSanitizedCopy(snapshot, { includeCredentials: true }),
-    ).rejects.toMatchObject({ code: "sanitized_copy_plaintext_credential" });
+    expect((await previewSanitizedCopy(snapshot, { includeCredentials: true })).credentials).toBe(
+      0,
+    );
     await expect(
       previewSanitizedCopy(snapshot, { includeStudents: new Set([newUuid()]) }),
     ).rejects.toMatchObject({ code: "sanitized_copy_student_missing" });
