@@ -94,10 +94,7 @@ export async function setRecordingTrackDeleted(
       "_trash_restore_session_track_index",
       String(sessionPosition < 0 ? sessionTrackIds.length : sessionPosition),
     );
-    takeFields.set(
-      "track_ids",
-      takeTrackIds.filter((id) => id !== trackRecordId).join(","),
-    );
+    takeFields.set("track_ids", takeTrackIds.filter((id) => id !== trackRecordId).join(","));
     sessionTrackIds.splice(
       0,
       sessionTrackIds.length,
@@ -138,7 +135,10 @@ export async function setRecordingTrackDeleted(
     const fallbackPrimary =
       trackFields.get("_trash_restore_fallback_primary_id")?.toLowerCase() ?? "";
     const wasPrimary = trackFields.get("_trash_restore_was_primary") === "true";
-    if (wasPrimary && (!currentPrimary || (fallbackPrimary && currentPrimary === fallbackPrimary))) {
+    if (
+      wasPrimary &&
+      (!currentPrimary || (fallbackPrimary && currentPrimary === fallbackPrimary))
+    ) {
       sessionFields.set("recording_track_id", trackRecordId);
     }
 
@@ -173,14 +173,16 @@ export async function setRecordingTrackDeleted(
       continue;
     }
     const record = await snapshot.getRecord(RecordType.waveformIndex, metadata.id);
-    if (record) records.set(recordKey(record), changedTrashState(record, deleted, trackRecordId, time));
+    if (record)
+      records.set(recordKey(record), changedTrashState(record, deleted, trackRecordId, time));
   }
 
   const chunks = await snapshot.listAudioChunkMetadata(sessionId, trackRecordId, true);
   for (const metadata of chunks) {
     if (!shouldChangeTrashState(metadata, deleted, trackRecordId)) continue;
     const record = await snapshot.getRecord(RecordType.audioChunk, metadata.id);
-    if (record) records.set(recordKey(record), changedTrashState(record, deleted, trackRecordId, time));
+    if (record)
+      records.set(recordKey(record), changedTrashState(record, deleted, trackRecordId, time));
   }
 
   return [...records.values()];
