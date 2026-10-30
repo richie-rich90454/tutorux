@@ -1,427 +1,434 @@
 import { BrowserFileArchiveSource, sourceStream, type ArchiveByteSource } from "../archive/source";
 import { isEmbeddedGgufProvider } from "../ai/providers";
 import type {
-  AiModelInspectionRequest,
-  ArchivePlatform,
-  AiTransportRequest,
-  AiTransportResult,
-  BinaryExportPayload,
-  BinaryExportSource,
-  OpenedArchive,
-  BrowserArchiveAutosave,
-  SanitizedCopyDestination,
+    AiModelInspectionRequest,
+    ArchivePlatform,
+    AiTransportRequest,
+    AiTransportResult,
+    BinaryExportPayload,
+    BinaryExportSource,
+    OpenedArchive,
+    BrowserArchiveAutosave,
+    SanitizedCopyDestination,
 } from "./types";
 import { providerAuthenticationHeaderName, usesAnthropicVersionHeader } from "../ai/providers";
 import {
-  cancelBrowserReplicatePrediction,
-  inspectReplicateModel as inspectReplicateModelInBrowser,
-  registerReplicateCancellationHandler,
-  sendReplicateAiRequest,
+    cancelBrowserReplicatePrediction,
+    inspectReplicateModel as inspectReplicateModelInBrowser,
+    registerReplicateCancellationHandler,
+    sendReplicateAiRequest,
 } from "../ai/replicate";
 
 interface FilePickerType {
-  description: string;
-  accept: Record<string, string[]>;
+    description: string;
+    accept: Record<string, string[]>;
 }
 
 const MAX_AI_RESPONSE_BYTES = 16 * 1024 * 1024;
 
 const archiveFilter: FilePickerType[] = [
-  { description: "Tutorux archive", accept: { "application/x-tutorux": [".tux"] } },
+    { description: "Tutorux archive", accept: { "application/x-tutorux": [".tux"] } },
 ];
 
 registerReplicateCancellationHandler(cancelBrowserReplicatePrediction);
 interface BrowserArchiveHandle {
-  readonly name: string;
-  getFile(): Promise<File>;
-  queryPermission?(options: { mode: "readwrite" }): Promise<PermissionState>;
-  requestPermission?(options: { mode: "readwrite" }): Promise<PermissionState>;
-  createWritable(): Promise<{
-    write(data: ReadableStream<Uint8Array>): Promise<void>;
-    close(): Promise<void>;
-    abort(reason?: unknown): Promise<void>;
-  }>;
+    readonly name: string;
+    getFile(): Promise<File>;
+    queryPermission?(options: { mode: "readwrite" }): Promise<PermissionState>;
+    requestPermission?(options: { mode: "readwrite" }): Promise<PermissionState>;
+    createWritable(): Promise<{
+        write(data: ReadableStream<Uint8Array>): Promise<void>;
+        close(): Promise<void>;
+        abort(reason?: unknown): Promise<void>;
+    }>;
 }
 type FileAccessWindow = Window & {
-  showOpenFilePicker?: (options: {
-    multiple: false;
-    types: typeof archiveFilter;
-  }) => Promise<BrowserArchiveHandle[]>;
-  showSaveFilePicker?: (options: {
-    suggestedName: string;
-    types: FilePickerType[];
-  }) => Promise<BrowserArchiveHandle>;
+    showOpenFilePicker?: (options: {
+        multiple: false;
+        types: typeof archiveFilter;
+    }) => Promise<BrowserArchiveHandle[]>;
+    showSaveFilePicker?: (options: {
+        suggestedName: string;
+        types: FilePickerType[];
+    }) => Promise<BrowserArchiveHandle>;
 };
 
 /** Compare the complete selected file, not only its easily reused timestamp or size. */
 async function sameArchiveFile(baseline: File, current: File): Promise<boolean> {
-  if (baseline.size !== current.size || baseline.lastModified !== current.lastModified)
-    return false;
-  const chunkSize = 1024 * 1024;
-  for (let offset = 0; offset < current.size; offset += chunkSize) {
-    const end = Math.min(offset + chunkSize, current.size);
-    const [before, after] = await Promise.all([
-      baseline.slice(offset, end).arrayBuffer(),
-      current.slice(offset, end).arrayBuffer(),
-    ]);
-    const left = new Uint8Array(before);
-    const right = new Uint8Array(after);
-    if (left.length !== right.length || left.some((byte, index) => byte !== right[index]))
-      return false;
-  }
-  return true;
+    if (baseline.size !== current.size || baseline.lastModified !== current.lastModified)
+        return false;
+    const chunkSize = 1024 * 1024;
+    for (let offset = 0; offset < current.size; offset += chunkSize) {
+        const end = Math.min(offset + chunkSize, current.size);
+        const [before, after] = await Promise.all([
+            baseline.slice(offset, end).arrayBuffer(),
+            current.slice(offset, end).arrayBuffer(),
+        ]);
+        const left = new Uint8Array(before);
+        const right = new Uint8Array(after);
+        if (left.length !== right.length || left.some((byte, index) => byte !== right[index]))
+            return false;
+    }
+    return true;
 }
 
 function makeArchiveAutosave(
-  handle: BrowserArchiveHandle,
-  initialFile: File,
+    handle: BrowserArchiveHandle,
+    initialFile: File,
 ): BrowserArchiveAutosave {
-  let baseline = initialFile;
-  let saving = false;
-  return {
-    async requestPermission(): Promise<boolean> {
-      if (!handle.requestPermission || !handle.queryPermission) return false;
-      return (await handle.requestPermission({ mode: "readwrite" })) === "granted";
-    },
-    async save(source: ArchiveByteSource): Promise<ArchiveByteSource> {
-      if (saving) throw new Error("An automatic archive save is already in progress.");
-      saving = true;
-      try {
-        if (
-          !handle.queryPermission ||
-          (await handle.queryPermission({ mode: "readwrite" })) !== "granted"
-        ) {
-          throw new Error(
-            "Archive write permission is not available. Enable autosave again to grant access.",
-          );
-        }
-        let current: File;
-        try {
-          current = await handle.getFile();
-          if (!(await sameArchiveFile(baseline, current))) {
-            throw new Error(
-              "The archive changed outside Tutorux. Reopen it before saving automatically.",
-            );
-          }
-        } catch (cause) {
-          if (cause instanceof Error && cause.message.startsWith("The archive changed"))
-            throw cause;
-          throw new Error(
-            "The original archive could not be checked. Reopen it before saving automatically.",
-            { cause },
-          );
-        }
-        const writable = await handle.createWritable();
-        try {
-          await writable.write(sourceStream(source));
-          await writable.close();
-        } catch (error) {
-          await writable.abort(error).catch(() => undefined);
-          throw error;
-        }
-        baseline = await handle.getFile();
-        return new BrowserFileArchiveSource(baseline);
-      } finally {
-        saving = false;
-      }
-    },
-  };
+    let baseline = initialFile;
+    let saving = false;
+    return {
+        async requestPermission(): Promise<boolean> {
+            if (!handle.requestPermission || !handle.queryPermission) return false;
+            return (await handle.requestPermission({ mode: "readwrite" })) === "granted";
+        },
+        async save(source: ArchiveByteSource): Promise<ArchiveByteSource> {
+            if (saving) throw new Error("An automatic archive save is already in progress.");
+            saving = true;
+            try {
+                if (
+                    !handle.queryPermission ||
+                    (await handle.queryPermission({ mode: "readwrite" })) !== "granted"
+                ) {
+                    throw new Error(
+                        "Archive write permission is not available. Enable autosave again to grant access.",
+                    );
+                }
+                let current: File;
+                try {
+                    current = await handle.getFile();
+                    if (!(await sameArchiveFile(baseline, current))) {
+                        throw new Error(
+                            "The archive changed outside Tutorux. Reopen it before saving automatically.",
+                        );
+                    }
+                } catch (cause) {
+                    if (cause instanceof Error && cause.message.startsWith("The archive changed"))
+                        throw cause;
+                    throw new Error(
+                        "The original archive could not be checked. Reopen it before saving automatically.",
+                        { cause },
+                    );
+                }
+                const writable = await handle.createWritable();
+                try {
+                    await writable.write(sourceStream(source));
+                    await writable.close();
+                } catch (error) {
+                    await writable.abort(error).catch(() => undefined);
+                    throw error;
+                }
+                baseline = await handle.getFile();
+                return new BrowserFileArchiveSource(baseline);
+            } finally {
+                saving = false;
+            }
+        },
+    };
 }
 
 export const platform: ArchivePlatform = {
-  kind: "browser",
+    kind: "browser",
 
-  async openArchive(): Promise<OpenedArchive | null> {
-    const accessWindow = window as FileAccessWindow;
-    if (accessWindow.showOpenFilePicker) {
-      const [handle] = await accessWindow.showOpenFilePicker({
-        multiple: false,
-        types: archiveFilter,
-      });
-      if (!handle) return null;
-      const file = await handle.getFile();
-      return {
-        source: new BrowserFileArchiveSource(file),
-        name: file.name,
-        location: null,
-        ...(handle.requestPermission && handle.queryPermission
-          ? { autosave: makeArchiveAutosave(handle, file) }
-          : {}),
-      };
-    }
-
-    const file = await chooseFile();
-    return file
-      ? { source: new BrowserFileArchiveSource(file), name: file.name, location: null }
-      : null;
-  },
-
-  async saveArchive(source: ArchiveByteSource, suggestedName: string): Promise<string | null> {
-    const accessWindow = window as FileAccessWindow;
-    if (accessWindow.showSaveFilePicker) {
-      const handle = await accessWindow.showSaveFilePicker({
-        suggestedName,
-        types: archiveFilter,
-      });
-      const writable = await handle.createWritable();
-      try {
-        await writable.write(sourceStream(source));
-        await writable.close();
-      } catch (error) {
-        await writable.abort(error).catch(() => undefined);
-        throw error;
-      }
-      return handle.name;
-    }
-
-    if (source.size > 512n * 1024n * 1024n) {
-      throw new Error(
-        "This browser cannot safely export an archive larger than 512 MiB. Use Tutorux for desktop to save large archives.",
-      );
-    }
-    const blob = await new Response(sourceStream(source), {
-      headers: { "Content-Type": "application/x-tutorux" },
-    }).blob();
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement("a");
-    anchor.href = url;
-    anchor.download = suggestedName;
-    anchor.click();
-    window.setTimeout(() => URL.revokeObjectURL(url), 30_000);
-    return suggestedName;
-  },
-
-  async exportTextFile(suggestedName: string, contents: string, mimeType: string): Promise<string> {
-    const blob = new Blob([contents], { type: mimeType });
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement("a");
-    anchor.href = url;
-    anchor.download = suggestedName;
-    anchor.click();
-    window.setTimeout(() => URL.revokeObjectURL(url), 30_000);
-    return suggestedName;
-  },
-
-  async exportBinaryFile(
-    suggestedName: string,
-    contents: BinaryExportSource,
-    mimeType: string,
-  ): Promise<string> {
-    const extension = suggestedName.split(".").at(-1) ?? "bin";
-    const isDocx =
-      mimeType === "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
-    const fileType = {
-      description:
-        mimeType === "audio/wav" ? "WAV audio" : isDocx ? "Word document" : "Exported file",
-      accept: { [mimeType]: [`.${extension}`] },
-    };
-    const accessWindow = window as FileAccessWindow;
-    if (accessWindow.showSaveFilePicker) {
-      const handle = await accessWindow.showSaveFilePicker({
-        suggestedName,
-        types: [fileType],
-      });
-      const writable = await handle.createWritable();
-      try {
-        const payload = await resolveExportPayload(contents);
-        await writable.write(toReadableStream(payload));
-        await writable.close();
-        return handle.name;
-      } catch (error) {
-        await writable.abort(error).catch(() => undefined);
-        throw error;
-      }
-    }
-
-    const payload = await resolveExportPayload(contents);
-    const blob =
-      payload instanceof Uint8Array
-        ? new Blob([payload.slice().buffer], { type: mimeType })
-        : await new Response(payload, { headers: { "Content-Type": mimeType } }).blob();
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement("a");
-    anchor.href = url;
-    anchor.download = suggestedName;
-    anchor.click();
-    window.setTimeout(() => URL.revokeObjectURL(url), 30_000);
-    return suggestedName;
-  },
-
-  async sendAiRequest(
-    request: AiTransportRequest,
-    onChunk: (chunk: Uint8Array) => void,
-  ): Promise<AiTransportResult> {
-    if (request.providerId === "replicate") return sendReplicateAiRequest(request, onChunk);
-    if (isEmbeddedGgufProvider(request.providerId)) {
-      throw new Error("In-process GGUF inference is available in the Tutorux desktop app.");
-    }
-    const headers = new Headers({
-      "Content-Type": "application/json",
-      Accept: request.accept,
-    });
-    const authenticationHeader = providerAuthenticationHeaderName(
-      request.providerId,
-      request.model,
-    );
-    if (request.credential && authenticationHeader) {
-      headers.set(
-        authenticationHeader,
-        authenticationHeader === "Authorization"
-          ? `Bearer ${request.credential}`
-          : request.credential,
-      );
-    }
-    if (usesAnthropicVersionHeader(request.providerId, request.model)) {
-      headers.set("anthropic-version", "2023-06-01");
-    }
-    const timeout = new AbortController();
-    const timeoutId = window.setTimeout(() => timeout.abort(), 600_000);
-    let response: Response;
-    try {
-      response = await fetch(request.endpoint, {
-        method: "POST",
-        headers,
-        body: request.requestBody,
-        cache: "no-store",
-        credentials: "omit",
-        redirect: "error",
-        referrerPolicy: "no-referrer",
-        signal: timeout.signal,
-      });
-    } catch {
-      window.clearTimeout(timeoutId);
-      throw new Error(
-        "The provider request could not be completed. Check the endpoint and browser CORS settings, then try the desktop app.",
-      );
-    }
-    window.clearTimeout(timeoutId);
-    const contentType =
-      (response.headers.get("content-type") ?? "").split(";").at(0)?.trim().toLowerCase() ?? "";
-    if (!response.body) {
-      return { status: response.status, contentType, responseBytes: 0, complete: true };
-    }
-    const reader = response.body.getReader();
-    const streamTimeoutId = window.setTimeout(() => timeout.abort(), 600_000);
-    let responseBytes = 0;
-    let complete = true;
-    try {
-      while (true) {
-        let result: ReadableStreamReadResult<Uint8Array>;
-        try {
-          result = await reader.read();
-        } catch {
-          complete = false;
-          break;
+    async openArchive(): Promise<OpenedArchive | null> {
+        const accessWindow = window as FileAccessWindow;
+        if (accessWindow.showOpenFilePicker) {
+            const [handle] = await accessWindow.showOpenFilePicker({
+                multiple: false,
+                types: archiveFilter,
+            });
+            if (!handle) return null;
+            const file = await handle.getFile();
+            return {
+                source: new BrowserFileArchiveSource(file),
+                name: file.name,
+                location: null,
+                ...(handle.requestPermission && handle.queryPermission
+                    ? { autosave: makeArchiveAutosave(handle, file) }
+                    : {}),
+            };
         }
-        if (result.done) break;
-        const remaining = MAX_AI_RESPONSE_BYTES - responseBytes;
-        if (result.value.byteLength > remaining) {
-          if (remaining > 0) {
-            onChunk(result.value.subarray(0, remaining));
-            responseBytes = MAX_AI_RESPONSE_BYTES;
-          }
-          complete = false;
-          await reader.cancel().catch(() => undefined);
-          break;
+
+        const file = await chooseFile();
+        return file
+            ? { source: new BrowserFileArchiveSource(file), name: file.name, location: null }
+            : null;
+    },
+
+    async saveArchive(source: ArchiveByteSource, suggestedName: string): Promise<string | null> {
+        const accessWindow = window as FileAccessWindow;
+        if (accessWindow.showSaveFilePicker) {
+            const handle = await accessWindow.showSaveFilePicker({
+                suggestedName,
+                types: archiveFilter,
+            });
+            const writable = await handle.createWritable();
+            try {
+                await writable.write(sourceStream(source));
+                await writable.close();
+            } catch (error) {
+                await writable.abort(error).catch(() => undefined);
+                throw error;
+            }
+            return handle.name;
         }
-        onChunk(result.value);
-        responseBytes += result.value.byteLength;
-      }
-    } finally {
-      reader.releaseLock();
-      window.clearTimeout(streamTimeoutId);
-    }
-    return {
-      status: response.status,
-      contentType,
-      responseBytes,
-      complete,
-    };
-  },
 
-  async inspectReplicateModel(
-    request: AiModelInspectionRequest,
-    onChunk: (chunk: Uint8Array) => void,
-  ): Promise<AiTransportResult> {
-    return inspectReplicateModelInBrowser(request, onChunk);
-  },
-
-  async aiCredentialStoreAvailable(): Promise<boolean> {
-    return false;
-  },
-
-  async hasAiCredential(): Promise<boolean> {
-    return false;
-  },
-
-  async saveAiCredential(): Promise<void> {
-    throw new Error("System keychain storage is available only in the Tutorux desktop app.");
-  },
-
-  async removeAiCredential(): Promise<void> {
-    throw new Error("System keychain storage is available only in the Tutorux desktop app.");
-  },
-
-  async createArchiveLocation(suggestedName: string): Promise<string | null> {
-    return suggestedName;
-  },
-
-  async chooseSanitizedCopyDestination(suggestedName: string): Promise<SanitizedCopyDestination> {
-    let canceled = false;
-    let published = false;
-    return {
-      label: `${suggestedName} · browser download`,
-      async checkpoint() {
-        if (canceled || published) throw new Error("This copy destination is no longer available.");
-      },
-      async publish(source) {
-        if (canceled || published) throw new Error("This copy destination is no longer available.");
         if (source.size > 512n * 1024n * 1024n) {
-          throw new Error(
-            "This browser cannot safely download a sanitized archive larger than 512 MiB. Use Tutorux for desktop to create large copies.",
-          );
+            throw new Error(
+                "This browser cannot safely export an archive larger than 512 MiB. Use Tutorux for desktop to save large archives.",
+            );
         }
         const blob = await new Response(sourceStream(source), {
-          headers: { "Content-Type": "application/x-tutorux" },
+            headers: { "Content-Type": "application/x-tutorux" },
         }).blob();
-        if (canceled) throw new Error("Sanitized-copy creation was canceled.");
         const url = URL.createObjectURL(blob);
         const anchor = document.createElement("a");
         anchor.href = url;
         anchor.download = suggestedName;
         anchor.click();
         window.setTimeout(() => URL.revokeObjectURL(url), 30_000);
-        published = true;
         return suggestedName;
-      },
-      async cancel() {
-        canceled = true;
-      },
-    };
-  },
+    },
 
-  notify(message: string, tone = "info"): void {
-    window.dispatchEvent(new CustomEvent("tutorux:notice", { detail: { message, tone } }));
-  },
+    async exportTextFile(
+        suggestedName: string,
+        contents: string,
+        mimeType: string,
+    ): Promise<string> {
+        const blob = new Blob([contents], { type: mimeType });
+        const url = URL.createObjectURL(blob);
+        const anchor = document.createElement("a");
+        anchor.href = url;
+        anchor.download = suggestedName;
+        anchor.click();
+        window.setTimeout(() => URL.revokeObjectURL(url), 30_000);
+        return suggestedName;
+    },
+
+    async exportBinaryFile(
+        suggestedName: string,
+        contents: BinaryExportSource,
+        mimeType: string,
+    ): Promise<string> {
+        const extension = suggestedName.split(".").at(-1) ?? "bin";
+        const isDocx =
+            mimeType === "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+        const fileType = {
+            description:
+                mimeType === "audio/wav" ? "WAV audio" : isDocx ? "Word document" : "Exported file",
+            accept: { [mimeType]: [`.${extension}`] },
+        };
+        const accessWindow = window as FileAccessWindow;
+        if (accessWindow.showSaveFilePicker) {
+            const handle = await accessWindow.showSaveFilePicker({
+                suggestedName,
+                types: [fileType],
+            });
+            const writable = await handle.createWritable();
+            try {
+                const payload = await resolveExportPayload(contents);
+                await writable.write(toReadableStream(payload));
+                await writable.close();
+                return handle.name;
+            } catch (error) {
+                await writable.abort(error).catch(() => undefined);
+                throw error;
+            }
+        }
+
+        const payload = await resolveExportPayload(contents);
+        const blob =
+            payload instanceof Uint8Array
+                ? new Blob([payload.slice().buffer], { type: mimeType })
+                : await new Response(payload, { headers: { "Content-Type": mimeType } }).blob();
+        const url = URL.createObjectURL(blob);
+        const anchor = document.createElement("a");
+        anchor.href = url;
+        anchor.download = suggestedName;
+        anchor.click();
+        window.setTimeout(() => URL.revokeObjectURL(url), 30_000);
+        return suggestedName;
+    },
+
+    async sendAiRequest(
+        request: AiTransportRequest,
+        onChunk: (chunk: Uint8Array) => void,
+    ): Promise<AiTransportResult> {
+        if (request.providerId === "replicate") return sendReplicateAiRequest(request, onChunk);
+        if (isEmbeddedGgufProvider(request.providerId)) {
+            throw new Error("In-process GGUF inference is available in the Tutorux desktop app.");
+        }
+        const headers = new Headers({
+            "Content-Type": "application/json",
+            Accept: request.accept,
+        });
+        const authenticationHeader = providerAuthenticationHeaderName(
+            request.providerId,
+            request.model,
+        );
+        if (request.credential && authenticationHeader) {
+            headers.set(
+                authenticationHeader,
+                authenticationHeader === "Authorization"
+                    ? `Bearer ${request.credential}`
+                    : request.credential,
+            );
+        }
+        if (usesAnthropicVersionHeader(request.providerId, request.model)) {
+            headers.set("anthropic-version", "2023-06-01");
+        }
+        const timeout = new AbortController();
+        const timeoutId = window.setTimeout(() => timeout.abort(), 600_000);
+        let response: Response;
+        try {
+            response = await fetch(request.endpoint, {
+                method: "POST",
+                headers,
+                body: request.requestBody,
+                cache: "no-store",
+                credentials: "omit",
+                redirect: "error",
+                referrerPolicy: "no-referrer",
+                signal: timeout.signal,
+            });
+        } catch {
+            window.clearTimeout(timeoutId);
+            throw new Error(
+                "The provider request could not be completed. Check the endpoint and browser CORS settings, then try the desktop app.",
+            );
+        }
+        window.clearTimeout(timeoutId);
+        const contentType =
+            (response.headers.get("content-type") ?? "").split(";").at(0)?.trim().toLowerCase() ??
+            "";
+        if (!response.body) {
+            return { status: response.status, contentType, responseBytes: 0, complete: true };
+        }
+        const reader = response.body.getReader();
+        const streamTimeoutId = window.setTimeout(() => timeout.abort(), 600_000);
+        let responseBytes = 0;
+        let complete = true;
+        try {
+            while (true) {
+                let result: ReadableStreamReadResult<Uint8Array>;
+                try {
+                    result = await reader.read();
+                } catch {
+                    complete = false;
+                    break;
+                }
+                if (result.done) break;
+                const remaining = MAX_AI_RESPONSE_BYTES - responseBytes;
+                if (result.value.byteLength > remaining) {
+                    if (remaining > 0) {
+                        onChunk(result.value.subarray(0, remaining));
+                        responseBytes = MAX_AI_RESPONSE_BYTES;
+                    }
+                    complete = false;
+                    await reader.cancel().catch(() => undefined);
+                    break;
+                }
+                onChunk(result.value);
+                responseBytes += result.value.byteLength;
+            }
+        } finally {
+            reader.releaseLock();
+            window.clearTimeout(streamTimeoutId);
+        }
+        return {
+            status: response.status,
+            contentType,
+            responseBytes,
+            complete,
+        };
+    },
+
+    async inspectReplicateModel(
+        request: AiModelInspectionRequest,
+        onChunk: (chunk: Uint8Array) => void,
+    ): Promise<AiTransportResult> {
+        return inspectReplicateModelInBrowser(request, onChunk);
+    },
+
+    async aiCredentialStoreAvailable(): Promise<boolean> {
+        return false;
+    },
+
+    async hasAiCredential(): Promise<boolean> {
+        return false;
+    },
+
+    async saveAiCredential(): Promise<void> {
+        throw new Error("System keychain storage is available only in the Tutorux desktop app.");
+    },
+
+    async removeAiCredential(): Promise<void> {
+        throw new Error("System keychain storage is available only in the Tutorux desktop app.");
+    },
+
+    async createArchiveLocation(suggestedName: string): Promise<string | null> {
+        return suggestedName;
+    },
+
+    async chooseSanitizedCopyDestination(suggestedName: string): Promise<SanitizedCopyDestination> {
+        let canceled = false;
+        let published = false;
+        return {
+            label: `${suggestedName} · browser download`,
+            async checkpoint() {
+                if (canceled || published)
+                    throw new Error("This copy destination is no longer available.");
+            },
+            async publish(source) {
+                if (canceled || published)
+                    throw new Error("This copy destination is no longer available.");
+                if (source.size > 512n * 1024n * 1024n) {
+                    throw new Error(
+                        "This browser cannot safely download a sanitized archive larger than 512 MiB. Use Tutorux for desktop to create large copies.",
+                    );
+                }
+                const blob = await new Response(sourceStream(source), {
+                    headers: { "Content-Type": "application/x-tutorux" },
+                }).blob();
+                if (canceled) throw new Error("Sanitized-copy creation was canceled.");
+                const url = URL.createObjectURL(blob);
+                const anchor = document.createElement("a");
+                anchor.href = url;
+                anchor.download = suggestedName;
+                anchor.click();
+                window.setTimeout(() => URL.revokeObjectURL(url), 30_000);
+                published = true;
+                return suggestedName;
+            },
+            async cancel() {
+                canceled = true;
+            },
+        };
+    },
+
+    notify(message: string, tone = "info"): void {
+        window.dispatchEvent(new CustomEvent("tutorux:notice", { detail: { message, tone } }));
+    },
 };
 
 async function resolveExportPayload(source: BinaryExportSource): Promise<BinaryExportPayload> {
-  return typeof source === "function" ? source() : source;
+    return typeof source === "function" ? source() : source;
 }
 
 function toReadableStream(payload: BinaryExportPayload): ReadableStream<Uint8Array> {
-  return payload instanceof Uint8Array
-    ? (new Blob([payload.slice().buffer]).stream() as ReadableStream<Uint8Array>)
-    : payload;
+    return payload instanceof Uint8Array
+        ? (new Blob([payload.slice().buffer]).stream() as ReadableStream<Uint8Array>)
+        : payload;
 }
 
 async function chooseFile(): Promise<File | null> {
-  return new Promise((resolve) => {
-    const input = document.createElement("input");
-    input.type = "file";
-    input.accept = ".tux,application/x-tutorux";
-    input.addEventListener("change", () => resolve(input.files?.[0] ?? null), { once: true });
-    input.addEventListener("cancel", () => resolve(null), { once: true });
-    input.click();
-  });
+    return new Promise((resolve) => {
+        const input = document.createElement("input");
+        input.type = "file";
+        input.accept = ".tux,application/x-tutorux";
+        input.addEventListener("change", () => resolve(input.files?.[0] ?? null), { once: true });
+        input.addEventListener("cancel", () => resolve(null), { once: true });
+        input.click();
+    });
 }
