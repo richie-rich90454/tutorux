@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { link, lstat, open, rm } from "node:fs/promises";
+import { lstat, open, rename, rm } from "node:fs/promises";
 import type { FileHandle } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
 import { appendStagedAssetRecords, type ArchiveSnapshot } from "../frontend/archive/archive";
@@ -60,17 +60,6 @@ export async function exportCliAssetAtomically(
   metadata: ArchiveRecord,
   destination: string,
 ): Promise<number> {
-  try {
-    await lstat(destination);
-    throw new Error(`Refusing to overwrite the existing file: ${destination}`);
-  } catch (error) {
-    if (isNotFound(error)) {
-      // The destination is available for a new export.
-    } else {
-      throw error;
-    }
-  }
-
   const temporary = join(dirname(destination), `.tutorux-${randomUUID()}.partial`);
   const output = await open(temporary, "wx", 0o600);
   let closed = false;
@@ -83,8 +72,7 @@ export async function exportCliAssetAtomically(
     await output.sync();
     await output.close();
     closed = true;
-    await link(temporary, destination);
-    await rm(temporary, { force: true }).catch(() => undefined);
+    await rename(temporary, destination);
     return byteCount;
   } catch (error) {
     if (!closed) await output.close().catch(() => undefined);
@@ -213,8 +201,4 @@ async function writeAll(output: FileHandle, bytes: Uint8Array): Promise<void> {
     if (result.bytesWritten === 0) throw new Error("File output stopped accepting bytes.");
     written += result.bytesWritten;
   }
-}
-
-function isNotFound(error: unknown): boolean {
-  return typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT";
 }
