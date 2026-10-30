@@ -33,7 +33,7 @@ test("reviews, saves, exports, and reopens a private manual AI package", async (
   await page
     .getByLabel("Session for imported material")
     .selectOption({ label: "Fractions review" });
-  await page.getByLabel("Choose a material to import").setInputFiles({
+  await page.getByLabel("Choose materials to import").setInputFiles({
     name: "leaf-cell.png",
     mimeType: "image/png",
     buffer: Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3]),
@@ -269,7 +269,7 @@ test("archives successful and HTTP-error responses after explicit request confir
   await page
     .getByLabel("Session for imported material")
     .selectOption({ label: "Fractions review" });
-  await page.getByLabel("Choose a material to import").setInputFiles({
+  await page.getByLabel("Choose materials to import").setInputFiles({
     name: "leaf-cell.png",
     mimeType: "image/png",
     buffer: Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3]),
