@@ -251,9 +251,7 @@ describe("evidence editing and recoverable relationships", () => {
         {
           ...snapshot,
           getRecord: vi.fn(async (_type: number, id: string) =>
-            id === fromId
-              ? from
-              : { ...to, fields: new Map([...to.fields, ["_deleted", "true"]]) },
+            id === fromId ? from : { ...to, fields: new Map([...to.fields, ["_deleted", "true"]]) },
           ),
         } as unknown as ArchiveSnapshot,
         edge,
