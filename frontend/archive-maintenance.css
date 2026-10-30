@@ -1,105 +1,105 @@
 .archive-maintenance {
-  padding: 24px;
-  margin-top: 18px;
+    padding: 24px;
+    margin-top: 18px;
 }
 .archive-maintenance-heading h2 {
-  margin: 5px 0 6px;
-  font-size: 1.15rem;
+    margin: 5px 0 6px;
+    font-size: 1.15rem;
 }
 .archive-maintenance-heading p,
 .archive-maintenance-note {
-  color: var(--muted);
+    color: var(--muted);
 }
 .archive-maintenance-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 9px;
-  margin-top: 16px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 9px;
+    margin-top: 16px;
 }
 .archive-maintenance-error {
-  color: var(--danger);
+    color: var(--danger);
 }
 .archive-maintenance-review {
-  background: var(--surface-inset);
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  margin-top: 18px;
-  padding: 16px;
+    background: var(--surface-inset);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    margin-top: 18px;
+    padding: 16px;
 }
 .archive-maintenance-review h3 {
-  font-size: 1rem;
-  margin: 0 0 6px;
+    font-size: 1rem;
+    margin: 0 0 6px;
 }
 .archive-maintenance-review p {
-  color: var(--muted);
-  margin: 0;
+    color: var(--muted);
+    margin: 0;
 }
 .archive-maintenance-prune-preview {
-  display: grid;
-  gap: 10px;
-  margin-top: 12px;
-  padding: 12px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
+    display: grid;
+    gap: 10px;
+    margin-top: 12px;
+    padding: 12px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
 }
 .archive-maintenance-prune-preview strong {
-  color: var(--ink);
+    color: var(--ink);
 }
 .archive-maintenance-prune-confirm {
-  display: flex;
-  align-items: flex-start;
-  gap: 9px;
-  color: var(--ink);
-  cursor: pointer;
+    display: flex;
+    align-items: flex-start;
+    gap: 9px;
+    color: var(--ink);
+    cursor: pointer;
 }
 .archive-maintenance-prune-confirm input {
-  flex: 0 0 auto;
-  margin-top: 3px;
+    flex: 0 0 auto;
+    margin-top: 3px;
 }
 .archive-maintenance-review .archive-maintenance-error {
-  color: var(--danger);
-  margin-top: 8px;
+    color: var(--danger);
+    margin-top: 8px;
 }
 .archive-maintenance-repair-copy > .eyebrow {
-  display: block;
-  margin-bottom: 7px;
+    display: block;
+    margin-bottom: 7px;
 }
 .archive-maintenance-repair-copy > p strong {
-  color: var(--ink);
-  overflow-wrap: anywhere;
+    color: var(--ink);
+    overflow-wrap: anywhere;
 }
 .archive-maintenance-repair-details {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
-  gap: 10px;
-  margin: 14px 0;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 10px;
+    margin: 14px 0;
 }
 .archive-maintenance-repair-details div {
-  min-width: 0;
-  padding: 11px;
-  background: var(--surface);
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
+    min-width: 0;
+    padding: 11px;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
 }
 .archive-maintenance-repair-details dt {
-  color: var(--muted);
-  font-size: 0.8rem;
+    color: var(--muted);
+    font-size: 0.8rem;
 }
 .archive-maintenance-repair-details dd {
-  margin: 5px 0 0;
-  color: var(--ink);
-  font-weight: 650;
-  overflow-wrap: anywhere;
+    margin: 5px 0 0;
+    color: var(--ink);
+    font-weight: 650;
+    overflow-wrap: anywhere;
 }
 .archive-maintenance-repair-confirm {
-  display: flex;
-  align-items: flex-start;
-  gap: 9px;
-  margin-top: 14px;
-  color: var(--ink);
-  cursor: pointer;
+    display: flex;
+    align-items: flex-start;
+    gap: 9px;
+    margin-top: 14px;
+    color: var(--ink);
+    cursor: pointer;
 }
 .archive-maintenance-repair-confirm input {
-  flex: 0 0 auto;
-  margin-top: 3px;
+    flex: 0 0 auto;
+    margin-top: 3px;
 }
