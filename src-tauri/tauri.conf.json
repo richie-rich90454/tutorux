@@ -4,9 +4,9 @@
   "version": "1.0.0",
   "identifier": "app.tutorux.desktop",
   "build": {
-    "beforeDevCommand": "npm run build:audio-helper && npm run build:console-runtime && npm run dev:desktop",
+    "beforeDevCommand": "pnpm run build:audio-helper && pnpm run build:console-runtime && pnpm run dev:desktop",
     "devUrl": "http://127.0.0.1:1420",
-    "beforeBuildCommand": "npm run build:desktop && npm run build:audio-helper && npm run build:console-runtime",
+    "beforeBuildCommand": "pnpm run build:desktop && pnpm run build:audio-helper && pnpm run build:console-runtime",
     "frontendDist": "../dist"
   },
   "app": {
