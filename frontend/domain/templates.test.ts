@@ -49,6 +49,54 @@ describe("custom guide templates", () => {
     expect(imported).toEqual(input);
   });
 
+  it("imports plain text and Markdown files as editorial guidance", () => {
+    const text = parseGuideTemplateImport("# Review\n\nAsk one question at a time.", "review.md");
+    expect(text).toMatchObject({
+      name: "review",
+      subject: "general",
+      description: "",
+      sections: [],
+      body: "# Review\n\nAsk one question at a time.",
+    });
+    const jsonBody = parseGuideTemplateImport('{"subject":"x"}', "notes.json");
+    expect(jsonBody.body).toBe('{"subject":"x"}');
+  });
+
+  it("creates and updates built-in overrides without touching custom templates", () => {
+    const created = makeCustomGuideTemplateRecord({
+      name: "General tutoring · local",
+      subject: "general",
+      description: "Local wording.",
+      sections: ["Session overview", "Key concepts"],
+      body: "Use local examples.",
+      builtinTemplateId: "general",
+    });
+    expect(created.fields.get("builtin_template_id")).toBe("general");
+    const updated = makeCustomGuideTemplateRecord(
+      {
+        name: "General tutoring · revised",
+        subject: "general",
+        description: "Revised wording.",
+        sections: ["Session overview", "Key concepts", "Sources"],
+        body: "Use local examples.",
+      },
+      created,
+    );
+    expect(updated.id).toBe(created.id);
+    expect(updated.fields.get("builtin_template_id")).toBe("general");
+  });
+
+  it("allows a plain-text template with no section catalog", () => {
+    const record = makeCustomGuideTemplateRecord({
+      name: "Plain guidance",
+      subject: "general",
+      description: "",
+      sections: [],
+      body: "Use this as writing guidance only.",
+    });
+    expect(guideTemplateFromRecord(record).sections).toEqual([]);
+  });
+
   it("preserves commas and semicolons within section headings", () => {
     const record = makeCustomGuideTemplateRecord({
       name: "Compare and connect",
@@ -92,11 +140,8 @@ describe("custom guide templates", () => {
         body: "",
       }),
     ).toThrow("cannot contain line breaks");
-    expect(() => parseGuideTemplateImport("not json")).toThrow("valid JSON");
-    expect(() =>
-      parseGuideTemplateImport(
-        JSON.stringify({ format: "wrong", name: "Example", sections: ["Overview"] }),
-      ),
-    ).toThrow("format must be tutorux-guide-template-v1");
+    expect(() => parseGuideTemplateImport('{"format":"wrong"}')).toThrow(
+      "format must be tutorux-guide-template-v1",
+    );
   });
 });
