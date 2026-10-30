@@ -171,26 +171,15 @@ export async function runAssetCommand(
         await closeSnapshot(base);
       }
     }
-    if (singleImport) {
-      const imported = importedAssets[0]!;
-      emit(
-        output,
-        {
-          material: toPlainRecord(imported.metadata),
-          deduplicated: imported.deduplicated,
-          chunk_count: String(imported.chunkCount),
-        },
-        `${field(imported.metadata, "filename") || "Material"} imported${imported.deduplicated ? " (content deduplicated)" : ""}.`,
-        json,
-      );
-    } else {
-      emit(
-        output,
-        importedAssets.map(({ metadata }) => toPlainRecord(metadata)),
-        `Imported ${importedAssets.length} asset${importedAssets.length === 1 ? "" : "s"} into the archive.`,
-        json,
-      );
-    }
+    const rows = importedAssets.map(({ metadata }) => toPlainRecord(metadata));
+    emit(
+      output,
+      rows,
+      singleImport
+        ? `${field(importedAssets[0]!.metadata, "filename") || "Material"} imported${importedAssets[0]!.deduplicated ? " (content deduplicated)" : ""}.`
+        : `Imported ${rows.length} asset${rows.length === 1 ? "" : "s"} into the archive.`,
+      json,
+    );
     return 0;
   }
 
