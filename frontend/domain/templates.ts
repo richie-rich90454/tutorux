@@ -7,6 +7,7 @@ export interface GuideTemplateInput {
   description: string;
   sections: readonly string[];
   body: string;
+  builtinTemplateId?: string | undefined;
 }
 
 const TEMPLATE_FORMAT = "tutorux-guide-template-v1";
@@ -24,8 +25,15 @@ export function makeCustomGuideTemplateRecord(
   ) {
     throw new Error("Only a custom guide template can be updated here.");
   }
-  if (current?.fields.get("builtin_template_id")) {
-    throw new Error("Built-in guide templates cannot be edited.");
+  const builtinTemplateId =
+    input.builtinTemplateId ?? current?.fields.get("builtin_template_id") ?? "";
+  const currentBuiltinTemplateId = current?.fields.get("builtin_template_id") ?? "";
+  if (
+    currentBuiltinTemplateId &&
+    builtinTemplateId &&
+    currentBuiltinTemplateId !== builtinTemplateId
+  ) {
+    throw new Error("A built-in template override cannot change its built-in template.");
   }
 
   const name = cleanField(input.name, "Template name", 240).trim();
@@ -33,7 +41,6 @@ export function makeCustomGuideTemplateRecord(
   const subject = cleanField(input.subject, "Template subject", 128);
   const description = cleanField(input.description, "Template description", 4_096);
   const body = cleanField(input.body, "Template guidance", 100_000);
-  if (input.sections.length === 0) throw new Error("A template must contain at least one section.");
   if (input.sections.length > 250) throw new Error("A template can contain at most 250 sections.");
   const sections = input.sections.map((section, index) => {
     const heading = cleanField(section, `Section ${index + 1}`, 256).trim();
@@ -52,6 +59,8 @@ export function makeCustomGuideTemplateRecord(
   fields.set("description", description);
   fields.set("sections", sections.join("\n"));
   fields.set("body", body);
+  if (builtinTemplateId) fields.set("builtin_template_id", builtinTemplateId);
+  else fields.delete("builtin_template_id");
   if (!current) fields.set("created_at_us", timestamp);
   fields.set("updated_at_us", timestamp);
   return {
@@ -84,7 +93,10 @@ export function guideTemplateFromRecord(record: ArchiveRecord): GuideTemplate {
   };
 }
 
-export function parseGuideTemplateImport(contents: string): GuideTemplateInput {
+export function parseGuideTemplateImport(
+  contents: string,
+  fileName = "Imported template",
+): GuideTemplateInput {
   if (new TextEncoder().encode(contents).byteLength > 1024 * 1024) {
     throw new Error("Template file exceeds the 1 MiB limit.");
   }
@@ -92,12 +104,21 @@ export function parseGuideTemplateImport(contents: string): GuideTemplateInput {
   try {
     parsed = JSON.parse(contents);
   } catch {
-    throw new Error("Template file must contain valid JSON.");
+    parsed = undefined;
   }
-  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-    throw new Error("Template JSON must be an object.");
+  const value =
+    parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : null;
+  if (!value || !("format" in value)) {
+    return {
+      name: templateNameFromFileName(fileName),
+      subject: "general",
+      description: "",
+      sections: [],
+      body: contents,
+    };
   }
-  const value = parsed as Record<string, unknown>;
   if (value["format"] !== TEMPLATE_FORMAT) {
     throw new Error(`Template format must be ${TEMPLATE_FORMAT}.`);
   }
@@ -117,6 +138,11 @@ export function parseGuideTemplateImport(contents: string): GuideTemplateInput {
     sections,
     body: value["body"],
   };
+}
+
+function templateNameFromFileName(fileName: string): string {
+  const name = fileName.split(/[\\/]/u).at(-1) ?? "";
+  return name.replace(/\.[^.]+$/u, "").trim() || "Imported template";
 }
 
 export function serializeGuideTemplate(template: GuideTemplate): string {
