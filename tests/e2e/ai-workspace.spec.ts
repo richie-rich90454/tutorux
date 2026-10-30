@@ -59,7 +59,7 @@ test("reviews, saves, exports, and reopens a private manual AI package", async (
   await expect(page.getByRole("heading", { name: "Request ready for review" })).toBeVisible();
   await expect(page.getByText(/No API key is saved for this provider/u)).toBeVisible();
   await expect(page.locator(".ai-request-images")).toContainText("leaf-cell.png");
-  await expect(page.locator(".ai-image-body-note")).toContainText("selected image bytes");
+  await expect(page.locator(".ai-image-body-note")).toContainText("attached material bytes");
   await expect(page.getByRole("heading", { name: "Request ready for review" })).toBeVisible();
 
   const inspector = page.getByLabel("Complete AI package JSON");
@@ -318,7 +318,7 @@ test("archives successful and HTTP-error responses after explicit request confir
   await expect(
     page.getByRole("heading", { name: "Provider response saved for review" }),
   ).toBeVisible();
-  await expect(page.locator("body")).not.toContainText("rate limit details");
+  await expect(page.locator("body")).not.toContainText(rawProviderError);
   expect(providerPosts).toBe(2);
   const rawResponseDownload = page.waitForEvent("download");
   await page.getByRole("button", { name: "Export raw response" }).click();
