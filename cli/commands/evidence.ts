@@ -6,6 +6,7 @@ import {
   extractSessionEvidence,
   makeEvidenceEdge,
   reviewEvidenceRecord,
+  restoreEvidenceEdge,
 } from "../../frontend/domain/evidence";
 import { closeSnapshot, mutateArchive, openForCommand } from "./archive-io";
 import { CliError, emit, field, requiredOption, requiredPosition, timestampNow } from "./shared";
@@ -256,14 +257,50 @@ export async function runEvidenceCommand(
     return 0;
   }
 
+  if (action === "restore") {
+    const id = requiredPosition(args, 0, "Evidence ID or relationship ID").toLowerCase();
+    const snapshot = await openForCommand(path);
+    let changes: ArchiveRecord[] = [];
+    try {
+      const node = await snapshot.getRecord(RecordType.evidenceNode, id);
+      if (node && field(node, "_deleted") === "true") {
+        const fields = new Map(node.fields);
+        fields.delete("_deleted");
+        fields.delete("_trash_group_id");
+        fields.set("restored_at_us", timestampNow());
+        changes.push({ ...node, fields });
+        const edges = await snapshot.listRecords(RecordType.evidenceEdge, true);
+        for (const edge of edges) {
+          if (field(edge, "_deleted") !== "true" || field(edge, "_trash_group_id") !== id) continue;
+          const edgeFields = new Map(edge.fields);
+          edgeFields.delete("_deleted");
+          edgeFields.delete("_trash_group_id");
+          edgeFields.set("restored_at_us", timestampNow());
+          changes.push({ ...edge, fields: edgeFields });
+        }
+      } else {
+        const edge = await snapshot.getRecord(RecordType.evidenceEdge, id);
+        if (!edge || field(edge, "_deleted") !== "true") {
+          throw new CliError(`Evidence ${id} was not found in Trash.`);
+        }
+        changes = [await restoreEvidenceEdge(snapshot, edge)];
+      }
+    } finally {
+      await closeSnapshot(snapshot);
+    }
+    const saved = await mutateArchive(path, changes);
+    const result = saved.find((record) => record.id.toLowerCase() === id) ?? changes[0]!;
+    emit(output, toPlainRecord(result), `Evidence restore complete.`, json);
+    return 0;
+  }
+
   if (
     action === "show" ||
     action === "update" ||
     action === "approve" ||
     action === "reject" ||
     action === "verify" ||
-    action === "delete" ||
-    action === "restore"
+    action === "delete"
   ) {
     const id = requiredPosition(args, 0, "Evidence ID").toLowerCase();
     const snapshot = await openForCommand(path);
@@ -271,7 +308,7 @@ export async function runEvidenceCommand(
     let changes: ArchiveRecord[] = [];
     try {
       const record = await snapshot.getRecord(RecordType.evidenceNode, id);
-      if (!record || (field(record, "_deleted") === "true" && action !== "restore")) {
+      if (!record || field(record, "_deleted") === "true") {
         throw new CliError(`Evidence ${id} was not found in this archive.`);
       }
       current = record;
@@ -335,22 +372,6 @@ export async function runEvidenceCommand(
           edgeFields.set("_deleted", "true");
           edgeFields.set("_trash_group_id", id);
           edgeFields.set("deleted_at_us", deletedAt);
-          changes.push({ ...edge, fields: edgeFields });
-        }
-      } else {
-        if (field(current, "_deleted") !== "true") throw new CliError("Evidence is not in Trash.");
-        const fields = new Map(current.fields);
-        fields.delete("_deleted");
-        fields.delete("_trash_group_id");
-        fields.set("restored_at_us", timestampNow());
-        changes.push({ ...current, fields });
-        const edges = await snapshot.listRecords(RecordType.evidenceEdge, true);
-        for (const edge of edges) {
-          if (field(edge, "_deleted") !== "true" || field(edge, "_trash_group_id") !== id) continue;
-          const edgeFields = new Map(edge.fields);
-          edgeFields.delete("_deleted");
-          edgeFields.delete("_trash_group_id");
-          edgeFields.set("restored_at_us", timestampNow());
           changes.push({ ...edge, fields: edgeFields });
         }
       }
