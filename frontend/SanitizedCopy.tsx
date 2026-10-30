@@ -74,7 +74,7 @@ function validFileName(value: string): string {
   const trimmed = value.trim();
   if (!trimmed) throw new Error("Enter a name for the separate archive file.");
   if (trimmed.length > 180) throw new Error("Archive file names must be 180 characters or fewer.");
-  if (/[<>:"/\\|?*\u0000-\u001f]/u.test(trimmed) || /[. ]$/u.test(trimmed)) {
+  if (/[<>:"/\\|?*\p{Cc}]/u.test(trimmed) || /[. ]$/u.test(trimmed)) {
     throw new Error("Use a file name without path separators or reserved characters.");
   }
   const stem = trimmed.replace(/\.tux$/iu, "");
@@ -408,7 +408,10 @@ export function SanitizedCopy(props: SanitizedCopyProps): JSX.Element {
       const options = currentOptions();
       output = await createSanitizedCopy(source, options, reviewed.summary, {
         ...(destinationPassphrase ? { destinationPassphrase } : {}),
-        checkpoint: (snapshot, previousSize) => target.checkpoint(snapshot.source, previousSize),
+        checkpoint: async (snapshot, previousSize) => {
+          await target.checkpoint(snapshot.source, previousSize);
+          return snapshot;
+        },
       });
       if (source !== props.snapshot || target !== destination() || key !== selectionKey()) {
         throw new Error(
@@ -765,7 +768,7 @@ export function SanitizedCopy(props: SanitizedCopyProps): JSX.Element {
             </p>
             <form
               class="sanitized-copy-finalize"
-              ref={securityForm}
+              ref={(element) => (securityForm = element)}
               onSubmit={(event) => void createCopy(event)}
             >
               <Show when={passphraseRequired()}>
