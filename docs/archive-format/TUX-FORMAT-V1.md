@@ -259,25 +259,23 @@ read/write access. Its probe must not write archive bytes or acquire the archive
 held by an active writer can still report filesystem write access. Lock, recovery, and compatibility
 conditions are reported independently through `healthStatus`.
 
-Cross-process coordination uses native locks on the archive file handle itself: readers hold shared
-locks and writers hold exclusive locks. Tutorux creates no sibling lock file. During compaction,
-Tutorux writes and locks a UUID-named `.partial` file, then atomically replaces the archive while
-both the source and replacement handles remain locked. The writer adopts the replacement handle
-before releasing the source handle, so another process cannot enter between publication and lock
-handoff. During compaction, the implementation removes only UUID-named temporary `.partial` files
-for that archive, and only after it has fully verified the source archive and established that
-each candidate is a regular file and is not currently locked. Other files, directories, and
-symbolic links are left alone.
+The legacy C++ implementation coordinates through native locks on the archive file handle itself:
+readers hold shared locks and writers hold exclusive locks. During compaction it locks a UUID-named
+replacement and adopts that handle before releasing the source handle. The TypeScript/Tauri port
+uses a stable lock file in the current user's application data/state directory instead. Its filename
+is a hash of the canonical archive path, so a rename-based replacement keeps the same lock identity.
+It also locks the opened archive file handle, which makes hard-link aliases coordinate by file
+identity. Readers hold shared locks and mutations hold exclusive locks through verification and
+publication; the CLI obtains these locks through the bundled `tutorux-audio-helper`, while Tauri
+uses the shared Rust lock crate directly. A staged replacement file is locked before publication
+and adopted afterward, keeping the file-identity lock continuous. The path lock files are
+deliberately retained: removing one while another process holds it could let a later process create
+a second lock for the same archive path.
 
-Targets without operating-system file locks, including the Emscripten build, cannot coordinate
-separate processes through these locks; archive access there must remain within one process. Locks
-are advisory, so external tools must not mutate archive files while Tutorux has them open. Hard-link
-names for the same file share the underlying file lock on supported native filesystems and must not
-be modified concurrently. Cross-process locking and atomic replacement depend on the filesystem
-honoring native locks and same-directory atomic rename semantics. On Windows, archive handles allow
-delete sharing so compaction can replace an open file; an external handle that denies delete
-sharing can prevent opening or replacing the archive, in which case compaction fails without
-releasing the existing writer lock.
+OS locks are advisory, so external tools must not mutate archive files while Tutorux has them
+open. Cross-process locking and atomic replacement depend on the filesystem honoring native locks
+and same-directory rename semantics. On Windows, an external handle that denies delete sharing can
+prevent replacement; publication then fails without bypassing the Tutorux lock.
 
 An implementation must never rewrite committed records in place. Compaction writes a verified
 replacement archive beside the source and publishes it atomically where the filesystem permits.
