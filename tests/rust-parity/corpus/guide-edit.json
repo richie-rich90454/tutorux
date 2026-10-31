@@ -1,0 +1,453 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "id": "guide.edit",
+      "family": "guide",
+      "capability": "guide.create",
+      "files": {
+        "guide-transcript.txt": "A fraction shows part of a whole.\nEquivalent fractions have the same value.\n"
+      },
+      "setup": [
+        {
+          "id": "student",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "student",
+            "create",
+            "--name",
+            "Guide Student",
+            "--preferred-guide-template",
+            "general"
+          ],
+          "capture": {
+            "student": "id"
+          }
+        },
+        {
+          "id": "journal",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "journal",
+            "create",
+            "--title",
+            "Guide journal",
+            "--date",
+            "2026-10-31"
+          ],
+          "capture": {
+            "entry": "id"
+          }
+        },
+        {
+          "id": "session",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "session",
+            "create",
+            "--student-id",
+            "{capture.student}",
+            "--entry-id",
+            "{capture.entry}",
+            "--title",
+            "Guide session",
+            "--subject",
+            "Mathematics",
+            "--notes",
+            "Session notes for guide generation."
+          ],
+          "capture": {
+            "session": "id"
+          }
+        },
+        {
+          "id": "entry notes",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "journal",
+            "update",
+            "{capture.entry}",
+            "--notes",
+            "Entry notes for guide generation."
+          ]
+        },
+        {
+          "id": "annotation",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "annotation",
+            "add",
+            "--session",
+            "{capture.session}",
+            "--type",
+            "important-concept",
+            "--at",
+            "00:00:01",
+            "--title",
+            "Equivalent fractions",
+            "--text",
+            "One half equals two quarters."
+          ]
+        }
+      ],
+      "steps": [
+        {
+          "id": "create",
+          "capability": "guide.create",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "guide",
+            "create",
+            "--session",
+            "{capture.session}",
+            "--template",
+            "general",
+            "--title",
+            "Study guide"
+          ],
+          "capture": {
+            "guide": "id"
+          },
+          "expect": {
+            "exitCode": 0,
+            "stdoutJsonIncludes": {
+              "type": "guide",
+              "title": "Study guide",
+              "session_id": "<uuid>",
+              "approval_state": "draft"
+            }
+          }
+        },
+        {
+          "id": "list",
+          "capability": "guide.list",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "guide",
+            "list",
+            "--session",
+            "{capture.session}"
+          ],
+          "unorderedJsonPaths": [
+            ""
+          ],
+          "expect": {
+            "exitCode": 0,
+            "stdoutContains": [
+              "Study guide"
+            ]
+          }
+        },
+        {
+          "id": "show",
+          "capability": "guide.show",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "guide",
+            "show",
+            "{capture.guide}"
+          ],
+          "expect": {
+            "exitCode": 0,
+            "stdoutJsonIncludes": {
+              "title": "Study guide"
+            }
+          }
+        },
+        {
+          "id": "add section",
+          "capability": "guide.add-section",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "guide",
+            "add-section",
+            "{capture.guide}",
+            "--heading",
+            "Practice",
+            "--text",
+            "Practice equivalent fractions."
+          ],
+          "expect": {
+            "exitCode": 0
+          }
+        },
+        {
+          "id": "add block first",
+          "capability": "guide.add-block",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "guide",
+            "add-block",
+            "{capture.guide}",
+            "--section-index",
+            "0",
+            "--kind",
+            "paragraph",
+            "--text",
+            "First added block."
+          ],
+          "expect": {
+            "exitCode": 0
+          }
+        },
+        {
+          "id": "add block second",
+          "capability": "guide.add-block",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "guide",
+            "add-block",
+            "{capture.guide}",
+            "--section-index",
+            "0",
+            "--kind",
+            "paragraph",
+            "--text",
+            "Second added block."
+          ],
+          "expect": {
+            "exitCode": 0
+          }
+        },
+        {
+          "id": "update block",
+          "capability": "guide.update-block",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "guide",
+            "update-block",
+            "{capture.guide}",
+            "--section-index",
+            "0",
+            "--block-index",
+            "0",
+            "--text",
+            "Updated block text."
+          ],
+          "expect": {
+            "exitCode": 0
+          }
+        },
+        {
+          "id": "move block",
+          "capability": "guide.move-block",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "guide",
+            "move-block",
+            "{capture.guide}",
+            "--section-index",
+            "0",
+            "--from",
+            "0",
+            "--to",
+            "1"
+          ],
+          "expect": {
+            "exitCode": 0
+          }
+        },
+        {
+          "id": "remove block",
+          "capability": "guide.remove-block",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "guide",
+            "remove-block",
+            "{capture.guide}",
+            "--section-index",
+            "0",
+            "--block-index",
+            "0"
+          ],
+          "expect": {
+            "exitCode": 0
+          }
+        },
+        {
+          "id": "update title",
+          "capability": "guide.update",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "guide",
+            "update",
+            "{capture.guide}",
+            "--title",
+            "Updated guide title"
+          ],
+          "expect": {
+            "exitCode": 0
+          }
+        },
+        {
+          "id": "edit",
+          "capability": "guide.edit",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "guide",
+            "edit",
+            "{capture.guide}",
+            "--title",
+            "Edited study guide",
+            "--section-index",
+            "0",
+            "--heading",
+            "Edited heading",
+            "--block-index",
+            "0",
+            "--text",
+            "Edited via edit."
+          ],
+          "expect": {
+            "exitCode": 0
+          }
+        },
+        {
+          "id": "move section",
+          "capability": "guide.move-section",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "guide",
+            "move-section",
+            "{capture.guide}",
+            "--from",
+            "0",
+            "--to",
+            "1"
+          ],
+          "expect": {
+            "exitCode": 0
+          }
+        },
+        {
+          "id": "remove section",
+          "capability": "guide.remove-section",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "guide",
+            "remove-section",
+            "{capture.guide}",
+            "--section-index",
+            "1"
+          ],
+          "expect": {
+            "exitCode": 0
+          }
+        },
+        {
+          "id": "validate",
+          "capability": "guide.validate",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "guide",
+            "validate",
+            "{capture.guide}"
+          ],
+          "expect": {
+            "exitCode": 0,
+            "stdoutJsonIncludes": {
+              "guide_id": "<uuid>",
+              "revision": 0,
+              "valid": true,
+              "error": ""
+            }
+          }
+        },
+        {
+          "id": "approve",
+          "capability": "guide.approve",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "guide",
+            "approve",
+            "{capture.guide}"
+          ],
+          "expect": {
+            "exitCode": 0,
+            "stdoutJsonIncludes": {
+              "approval_state": "approved"
+            }
+          }
+        },
+        {
+          "id": "history",
+          "capability": "guide.history",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "guide",
+            "history",
+            "{capture.guide}"
+          ],
+          "expect": {
+            "exitCode": 0,
+            "stdoutContains": [
+              "approval_state"
+            ]
+          }
+        },
+        {
+          "id": "compare",
+          "capability": "guide.compare",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "guide",
+            "compare",
+            "{capture.guide}"
+          ],
+          "expect": {
+            "exitCode": 0,
+            "stdoutJsonIncludes": {
+              "current_revision": "0",
+              "previous_revision": "1",
+              "current_title": "Edited study guide"
+            }
+          }
+        }
+      ]
+    }
+  ]
+}
