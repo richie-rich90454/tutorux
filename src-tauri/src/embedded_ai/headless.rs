@@ -83,9 +83,10 @@ pub fn generate_model_text(
     let mut backend = LlamaBackend::init()
         .map_err(|_| "The in-process GGUF runtime could not initialize.".to_owned())?;
     backend.void_logs();
-    let model = LlamaModel::load_from_file(&backend, &selected, &Default::default()).map_err(
-        |_| "The GGUF header was valid, but the model weights could not be loaded.".to_owned(),
-    )?;
+    let model =
+        LlamaModel::load_from_file(&backend, &selected, &Default::default()).map_err(|_| {
+            "The GGUF header was valid, but the model weights could not be loaded.".to_owned()
+        })?;
     let system_prompt = Zeroizing::new(system_prompt.to_owned());
     let user_content = Zeroizing::new(user_content.to_owned());
     let prompt = Zeroizing::new(render_prompt(&model, &system_prompt, &user_content)?);
@@ -95,9 +96,9 @@ pub fn generate_model_text(
     }
     let output_limit = (maximum_output_tokens as usize).min(4096 - tokens.len());
     let context_params = LlamaContextParams::default()
-        .with_n_ctx(Some(
-            NonZeroU32::new(4096).ok_or_else(|| "The configured model context is invalid.".to_owned())?,
-        ))
+        .with_n_ctx(Some(NonZeroU32::new(4096).ok_or_else(|| {
+            "The configured model context is invalid.".to_owned()
+        })?))
         .with_n_batch(4096)
         .with_n_threads(cpu_threads as i32)
         .with_n_threads_batch(cpu_threads as i32);
