@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 use crate::core::error::{CoreError, Result as CoreResult};
 
 pub mod archive;
+pub mod help;
 pub mod misc;
 pub mod recordings;
 pub mod records;
@@ -232,36 +233,7 @@ pub fn parse_integer(raw: Option<&str>, name: &str, fallback: u64, min: u64, max
     Ok(value)
 }
 
-pub const VERSION: &str = "Tutorux 1.0.0 (Rust)";
-
-const HELP: &str = r#"Tutorux — local-first tutoring archive tools
-
-Usage:
-  tutorux archive init <file.tux> --name <name> [--description <text>] [--new-passphrase-env <name>]
-  tutorux archive discover|list [--directory <directory>] [--json]
-  tutorux archive rename <file.tux> --name <name> [--passphrase-env <name>]
-  tutorux archive encrypt <file.tux> --new-passphrase-env <name>
-  tutorux archive unlock <file.tux> [--passphrase-env <name>] [--json]
-  tutorux archive change-passphrase <file.tux> --new-passphrase-env <name>
-  tutorux archive info|verify <file.tux> [--full] [--history] [--passphrase-env <name>] [--json]
-  tutorux archive backup|copy <file.tux> --output <copy.tux> --confirm-sensitive [--json]
-  tutorux archive recover <file.tux> [--apply] [--discard-tail] [--json]
-  tutorux archive compact <file.tux> [--apply] [--json]
-  tutorux archive backfill-indexes <file.tux> [--apply] [--json]
-  tutorux archive repair <file.tux> --output <copy.tux> --confirm-sensitive [--json]
-  tutorux archive rebuild-index <file.tux> --output <new-copy.tux> --confirm-sensitive [--json]
-  tutorux archive sanitize <file.tux> --output <copy.tux> [selection options]
-  tutorux --archive <file.tux> student|session|journal|annotation|asset|evidence|guide|template|settings|transcript|record|ai|model ... [--json]
-  tutorux diagnostics run|archive|report|providers|graphics|audio|network
-  tutorux benchmark startup|memory|cpu|indexing|rendering|export|audio|full
-
-Global options:
-  --archive <path>  Select the archive for record commands
-  --directory <path>  Select the directory for archive discovery
-  --passphrase-env <name>  Read an encrypted archive passphrase from an environment variable
-  --json            Print machine-readable JSON
-  --help            Show this help
-  --version         Show the application version"#;
+pub const VERSION: &str = "Tutorux 1.0.0 (TypeScript)";
 
 pub fn execute_cli(arguments: &[String], output: &mut dyn CliOutput, cancellation: &dyn Cancellation) -> i32 {
     match execute_inner(arguments, output, cancellation) {
@@ -286,7 +258,7 @@ fn execute_inner(
     if argv.iter().any(|value| value == "--help" || value == "-h")
         || argv.first().map(String::as_str) == Some("help")
     {
-        output.stdout(HELP);
+        output.stdout(help::HELP);
         return Ok(0);
     }
     if argv.iter().any(|value| value == "--version" || value == "-v")
