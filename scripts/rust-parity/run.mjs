@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { access, copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { access, copyFile, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { constants as fsConstants, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -19,7 +19,7 @@ const rustCli = join(
     process.platform === "win32" ? "tutorux-cli.exe" : "tutorux-cli",
 );
 const compareArchive = join(scriptDirectory, "compare-archive.ts");
-const capabilitySource = join(repositoryRoot, "src-tauri", "src", "core", "capability.rs");
+const capabilityDirectory = join(repositoryRoot, "src-tauri", "src", "core", "capability");
 
 const onlyIndex = process.argv.indexOf("--only");
 const only = onlyIndex === -1 ? undefined : process.argv[onlyIndex + 1];
@@ -254,8 +254,15 @@ function compareSides(left, right) {
 }
 
 async function corpusCapabilityIds() {
-    const source = await readFile(capabilitySource, "utf8");
-    return new Set([...source.matchAll(/cap!\("([^"]+)"/gu)].map((match) => match[1]));
+    const files = (await readdir(capabilityDirectory)).filter((name) => name.endsWith(".rs"));
+    const sources = await Promise.all(
+        files.map((name) => readFile(join(capabilityDirectory, name), "utf8")),
+    );
+    return new Set(
+        sources.flatMap((source) =>
+            [...source.matchAll(/cap!\("([^"]+)"/gu)].map((match) => match[1]),
+        ),
+    );
 }
 
 async function main() {
