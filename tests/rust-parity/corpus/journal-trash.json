@@ -1,338 +1,334 @@
 {
-  "version": 1,
-  "cases": [
-    {
-      "id": "journal.trash",
-      "family": "journal",
-      "capability": "journal.delete",
-      "setup": [
+    "version": 1,
+    "cases": [
         {
-          "id": "collection",
-          "args": [
-            "--archive",
-            "{archive}",
-            "--json",
-            "journal",
-            "collection",
-            "create",
-            "--name",
-            "Fractions",
-            "--description",
-            "Fraction work",
-            "--color",
-            "#336699"
-          ],
-          "capture": {
-            "collection": "id"
-          }
-        },
-        {
-          "id": "tag",
-          "args": [
-            "--archive",
-            "{archive}",
-            "--json",
-            "journal",
-            "tag",
-            "create",
-            "--name",
-            "Review",
-            "--color",
-            "#cc5500"
-          ],
-          "capture": {
-            "tag": "id"
-          }
-        },
-        {
-          "id": "entry",
-          "args": [
-            "--archive",
-            "{archive}",
-            "--json",
-            "journal",
-            "create",
-            "--title",
-            "Journal seed",
-            "--date",
-            "2026-10-31",
-            "--collection-ids",
-            "{capture.collection}",
-            "--tag-ids",
-            "{capture.tag}"
-          ],
-          "capture": {
-            "entry": "id",
-            "notes": "notes_document_id"
-          }
-        },
-        {
-          "id": "linked session",
-          "args": [
-            "--archive",
-            "{archive}",
-            "--json",
-            "session",
-            "create",
-            "--entry-id",
-            "{capture.entry}",
-            "--title",
-            "Linked session"
-          ],
-          "capture": {
-            "session": "id"
-          }
-        },
-        {
-          "id": "trash target",
-          "args": [
-            "--archive",
-            "{archive}",
-            "--json",
-            "journal",
-            "create",
-            "--title",
-            "Trash target",
-            "--date",
-            "2026-11-01"
-          ],
-          "capture": {
-            "trash_entry": "id",
-            "trash_notes": "notes_document_id"
-          }
-        }
-      ],
-      "steps": [
-        {
-          "id": "delete group",
-          "capability": "journal.delete",
-          "args": [
-            "--archive",
-            "{archive}",
-            "--json",
-            "journal",
-            "delete",
-            "{capture.trash_entry}"
-          ],
-          "expect": {
-            "exitCode": 0,
-            "stdoutJsonIncludes": {
-              "_deleted": "true"
-            }
-          }
-        },
-        {
-          "id": "restore group",
-          "capability": "journal.restore",
-          "args": [
-            "--archive",
-            "{archive}",
-            "--json",
-            "journal",
-            "restore",
-            "{capture.trash_entry}"
-          ],
-          "expect": {
-            "exitCode": 0,
-            "stdoutContains": [
-              "Trash target"
+            "id": "journal.trash",
+            "family": "journal",
+            "capability": "journal.delete",
+            "setup": [
+                {
+                    "id": "collection",
+                    "args": [
+                        "--archive",
+                        "{archive}",
+                        "--json",
+                        "journal",
+                        "collection",
+                        "create",
+                        "--name",
+                        "Fractions",
+                        "--description",
+                        "Fraction work",
+                        "--color",
+                        "#336699"
+                    ],
+                    "capture": {
+                        "collection": "id"
+                    }
+                },
+                {
+                    "id": "tag",
+                    "args": [
+                        "--archive",
+                        "{archive}",
+                        "--json",
+                        "journal",
+                        "tag",
+                        "create",
+                        "--name",
+                        "Review",
+                        "--color",
+                        "#cc5500"
+                    ],
+                    "capture": {
+                        "tag": "id"
+                    }
+                },
+                {
+                    "id": "entry",
+                    "args": [
+                        "--archive",
+                        "{archive}",
+                        "--json",
+                        "journal",
+                        "create",
+                        "--title",
+                        "Journal seed",
+                        "--date",
+                        "2026-10-31",
+                        "--collection-ids",
+                        "{capture.collection}",
+                        "--tag-ids",
+                        "{capture.tag}"
+                    ],
+                    "capture": {
+                        "entry": "id",
+                        "notes": "notes_document_id"
+                    }
+                },
+                {
+                    "id": "linked session",
+                    "args": [
+                        "--archive",
+                        "{archive}",
+                        "--json",
+                        "session",
+                        "create",
+                        "--entry-id",
+                        "{capture.entry}",
+                        "--title",
+                        "Linked session"
+                    ],
+                    "capture": {
+                        "session": "id"
+                    }
+                },
+                {
+                    "id": "trash target",
+                    "args": [
+                        "--archive",
+                        "{archive}",
+                        "--json",
+                        "journal",
+                        "create",
+                        "--title",
+                        "Trash target",
+                        "--date",
+                        "2026-11-01"
+                    ],
+                    "capture": {
+                        "trash_entry": "id",
+                        "trash_notes": "notes_document_id"
+                    }
+                }
             ],
-            "stdoutNotContains": [
-              "\"_deleted\": \"true\""
+            "steps": [
+                {
+                    "id": "delete group",
+                    "capability": "journal.delete",
+                    "args": [
+                        "--archive",
+                        "{archive}",
+                        "--json",
+                        "journal",
+                        "delete",
+                        "{capture.trash_entry}"
+                    ],
+                    "expect": {
+                        "exitCode": 0,
+                        "stdoutJsonIncludes": {
+                            "_deleted": "true"
+                        }
+                    }
+                },
+                {
+                    "id": "restore group",
+                    "capability": "journal.restore",
+                    "args": [
+                        "--archive",
+                        "{archive}",
+                        "--json",
+                        "journal",
+                        "restore",
+                        "{capture.trash_entry}"
+                    ],
+                    "expect": {
+                        "exitCode": 0,
+                        "stdoutContains": ["Trash target"],
+                        "stdoutNotContains": ["\"_deleted\": \"true\""]
+                    }
+                }
             ]
-          }
+        },
+        {
+            "id": "journal.documents",
+            "family": "journal",
+            "capability": "journal.document.show",
+            "setup": [
+                {
+                    "id": "document entry",
+                    "args": [
+                        "--archive",
+                        "{archive}",
+                        "--json",
+                        "journal",
+                        "create",
+                        "--title",
+                        "Document entry",
+                        "--date",
+                        "2026-10-31"
+                    ],
+                    "capture": {
+                        "entry2": "id",
+                        "notes2": "notes_document_id"
+                    }
+                }
+            ],
+            "steps": [
+                {
+                    "id": "document update text",
+                    "capability": "journal.document.update",
+                    "args": [
+                        "--archive",
+                        "{archive}",
+                        "--json",
+                        "journal",
+                        "document",
+                        "update",
+                        "{capture.notes2}",
+                        "--text",
+                        "Alpha\n\nBeta\n\nGamma"
+                    ],
+                    "expect": {
+                        "exitCode": 0,
+                        "stdoutJsonIncludes": {
+                            "document_id": "<uuid>",
+                            "entry_id": "<uuid>",
+                            "status": "saved"
+                        }
+                    }
+                },
+                {
+                    "id": "document show",
+                    "capability": "journal.document.show",
+                    "args": [
+                        "--archive",
+                        "{archive}",
+                        "--json",
+                        "journal",
+                        "document",
+                        "show",
+                        "{capture.notes2}"
+                    ],
+                    "capture": {
+                        "block0": "blocks.0.id",
+                        "block1": "blocks.1.id",
+                        "block2": "blocks.2.id"
+                    },
+                    "expect": {
+                        "exitCode": 0,
+                        "stdoutJsonIncludes": {
+                            "entry_id": "<uuid>",
+                            "text": "Alpha\nBeta\nGamma"
+                        }
+                    }
+                },
+                {
+                    "id": "document add block",
+                    "capability": "journal.document.add-block",
+                    "args": [
+                        "--archive",
+                        "{archive}",
+                        "--json",
+                        "journal",
+                        "document",
+                        "add-block",
+                        "{capture.notes2}",
+                        "--block-index",
+                        "1",
+                        "--kind",
+                        "paragraph",
+                        "--text",
+                        "Inserted"
+                    ],
+                    "expect": {
+                        "exitCode": 0,
+                        "stdoutJsonIncludes": {
+                            "status": "saved"
+                        }
+                    }
+                },
+                {
+                    "id": "document remove block",
+                    "capability": "journal.document.remove-block",
+                    "args": [
+                        "--archive",
+                        "{archive}",
+                        "--json",
+                        "journal",
+                        "document",
+                        "remove-block",
+                        "{capture.notes2}",
+                        "--block-id",
+                        "{capture.block1}"
+                    ],
+                    "expect": {
+                        "exitCode": 0,
+                        "stdoutJsonIncludes": {
+                            "status": "saved"
+                        }
+                    }
+                },
+                {
+                    "id": "document restore block",
+                    "capability": "journal.document.restore-block",
+                    "args": [
+                        "--archive",
+                        "{archive}",
+                        "--json",
+                        "journal",
+                        "document",
+                        "restore-block",
+                        "{capture.notes2}",
+                        "--block-id",
+                        "{capture.block1}"
+                    ],
+                    "expect": {
+                        "exitCode": 0,
+                        "stdoutJsonIncludes": {
+                            "status": "saved"
+                        }
+                    }
+                },
+                {
+                    "id": "document move block",
+                    "capability": "journal.document.move-block",
+                    "args": [
+                        "--archive",
+                        "{archive}",
+                        "--json",
+                        "journal",
+                        "document",
+                        "move-block",
+                        "{capture.notes2}",
+                        "--from",
+                        "2",
+                        "--to",
+                        "0"
+                    ],
+                    "expect": {
+                        "exitCode": 0,
+                        "stdoutJsonIncludes": {
+                            "status": "saved"
+                        }
+                    }
+                },
+                {
+                    "id": "document update block",
+                    "capability": "journal.document.update",
+                    "args": [
+                        "--archive",
+                        "{archive}",
+                        "--json",
+                        "journal",
+                        "document",
+                        "update",
+                        "{capture.notes2}",
+                        "--block-id",
+                        "{capture.block0}",
+                        "--text",
+                        "Alpha edited",
+                        "--kind",
+                        "paragraph"
+                    ],
+                    "expect": {
+                        "exitCode": 0,
+                        "stdoutJsonIncludes": {
+                            "status": "saved"
+                        }
+                    }
+                }
+            ]
         }
-      ]
-    },
-    {
-      "id": "journal.documents",
-      "family": "journal",
-      "capability": "journal.document.show",
-      "setup": [
-        {
-          "id": "document entry",
-          "args": [
-            "--archive",
-            "{archive}",
-            "--json",
-            "journal",
-            "create",
-            "--title",
-            "Document entry",
-            "--date",
-            "2026-10-31"
-          ],
-          "capture": {
-            "entry2": "id",
-            "notes2": "notes_document_id"
-          }
-        }
-      ],
-      "steps": [
-        {
-          "id": "document update text",
-          "capability": "journal.document.update",
-          "args": [
-            "--archive",
-            "{archive}",
-            "--json",
-            "journal",
-            "document",
-            "update",
-            "{capture.notes2}",
-            "--text",
-            "Alpha\n\nBeta\n\nGamma"
-          ],
-          "expect": {
-            "exitCode": 0,
-            "stdoutJsonIncludes": {
-              "document_id": "<uuid>",
-              "entry_id": "<uuid>",
-              "status": "saved"
-            }
-          }
-        },
-        {
-          "id": "document show",
-          "capability": "journal.document.show",
-          "args": [
-            "--archive",
-            "{archive}",
-            "--json",
-            "journal",
-            "document",
-            "show",
-            "{capture.notes2}"
-          ],
-          "capture": {
-            "block0": "blocks.0.id",
-            "block1": "blocks.1.id",
-            "block2": "blocks.2.id"
-          },
-          "expect": {
-            "exitCode": 0,
-            "stdoutJsonIncludes": {
-              "entry_id": "<uuid>",
-              "text": "Alpha\nBeta\nGamma"
-            }
-          }
-        },
-        {
-          "id": "document add block",
-          "capability": "journal.document.add-block",
-          "args": [
-            "--archive",
-            "{archive}",
-            "--json",
-            "journal",
-            "document",
-            "add-block",
-            "{capture.notes2}",
-            "--block-index",
-            "1",
-            "--kind",
-            "paragraph",
-            "--text",
-            "Inserted"
-          ],
-          "expect": {
-            "exitCode": 0,
-            "stdoutJsonIncludes": {
-              "status": "saved"
-            }
-          }
-        },
-        {
-          "id": "document remove block",
-          "capability": "journal.document.remove-block",
-          "args": [
-            "--archive",
-            "{archive}",
-            "--json",
-            "journal",
-            "document",
-            "remove-block",
-            "{capture.notes2}",
-            "--block-id",
-            "{capture.block1}"
-          ],
-          "expect": {
-            "exitCode": 0,
-            "stdoutJsonIncludes": {
-              "status": "saved"
-            }
-          }
-        },
-        {
-          "id": "document restore block",
-          "capability": "journal.document.restore-block",
-          "args": [
-            "--archive",
-            "{archive}",
-            "--json",
-            "journal",
-            "document",
-            "restore-block",
-            "{capture.notes2}",
-            "--block-id",
-            "{capture.block1}"
-          ],
-          "expect": {
-            "exitCode": 0,
-            "stdoutJsonIncludes": {
-              "status": "saved"
-            }
-          }
-        },
-        {
-          "id": "document move block",
-          "capability": "journal.document.move-block",
-          "args": [
-            "--archive",
-            "{archive}",
-            "--json",
-            "journal",
-            "document",
-            "move-block",
-            "{capture.notes2}",
-            "--from",
-            "2",
-            "--to",
-            "0"
-          ],
-          "expect": {
-            "exitCode": 0,
-            "stdoutJsonIncludes": {
-              "status": "saved"
-            }
-          }
-        },
-        {
-          "id": "document update block",
-          "capability": "journal.document.update",
-          "args": [
-            "--archive",
-            "{archive}",
-            "--json",
-            "journal",
-            "document",
-            "update",
-            "{capture.notes2}",
-            "--block-id",
-            "{capture.block0}",
-            "--text",
-            "Alpha edited",
-            "--kind",
-            "paragraph"
-          ],
-          "expect": {
-            "exitCode": 0,
-            "stdoutJsonIncludes": {
-              "status": "saved"
-            }
-          }
-        }
-      ]
-    }
-  ]
+    ]
 }
