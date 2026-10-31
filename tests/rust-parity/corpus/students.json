@@ -1,0 +1,428 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "id": "student.lifecycle",
+      "family": "student",
+      "capability": "student.create",
+      "setup": [
+        {
+          "id": "seed student",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "student",
+            "create",
+            "--name",
+            "Seed Student",
+            "--grade",
+            "Grade 5"
+          ],
+          "capture": {
+            "seed_student": "id"
+          }
+        },
+        {
+          "id": "seed session",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "session",
+            "create",
+            "--title",
+            "Seed session",
+            "--student-id",
+            "{capture.seed_student}",
+            "--subject",
+            "Mathematics"
+          ],
+          "capture": {
+            "seed_session": "id"
+          }
+        }
+      ],
+      "steps": [
+        {
+          "id": "create",
+          "capability": "student.create",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "student",
+            "create",
+            "--name",
+            "Mina",
+            "--grade",
+            "Grade 7",
+            "--subjects",
+            "Math",
+            "--objectives",
+            "Fractions",
+            "--notes",
+            "Note",
+            "--difficulties",
+            "Denominators",
+            "--demonstrated-improvements",
+            "Explains scale",
+            "--preferred-guide-template",
+            "mathematics"
+          ],
+          "capture": {
+            "student": "id"
+          },
+          "expect": {
+            "exitCode": 0,
+            "stdoutJsonIncludes": {
+              "type": "student",
+              "display_name": "Mina",
+              "grade": "Grade 7",
+              "preferred_guide_template": "mathematics"
+            }
+          }
+        },
+        {
+          "id": "list",
+          "capability": "student.list",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "student",
+            "list"
+          ],
+          "expect": {
+            "exitCode": 0,
+            "stdoutContains": [
+              "Mina",
+              "Seed Student"
+            ]
+          },
+          "unorderedJsonPaths": [
+            ""
+          ]
+        },
+        {
+          "id": "show",
+          "capability": "student.show",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "student",
+            "show",
+            "{capture.student}"
+          ],
+          "expect": {
+            "exitCode": 0,
+            "stdoutJsonIncludes": {
+              "display_name": "Mina",
+              "type": "student"
+            }
+          }
+        },
+        {
+          "id": "update",
+          "capability": "student.update",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "student",
+            "update",
+            "{capture.student}",
+            "--name",
+            "Mina Updated",
+            "--grade",
+            "Grade 8",
+            "--tutor-notes",
+            "Updated note",
+            "--learning-objectives",
+            "Equivalent fractions"
+          ],
+          "expect": {
+            "exitCode": 0,
+            "stdoutJsonIncludes": {
+              "display_name": "Mina Updated",
+              "grade": "Grade 8",
+              "tutor_notes": "Updated note"
+            }
+          }
+        },
+        {
+          "id": "history",
+          "capability": "student.history",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "student",
+            "history",
+            "{capture.seed_student}"
+          ],
+          "expect": {
+            "exitCode": 0,
+            "stdoutJsonIncludes": [
+              {
+                "student_id": "<uuid>"
+              }
+            ]
+          }
+        },
+        {
+          "id": "progress",
+          "capability": "student.progress",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "student",
+            "progress",
+            "{capture.seed_student}"
+          ],
+          "expect": {
+            "exitCode": 0,
+            "stdoutJsonIncludes": {
+              "student_id": "<uuid>",
+              "classifications": []
+            }
+          }
+        },
+        {
+          "id": "delete",
+          "capability": "student.delete",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "student",
+            "delete",
+            "{capture.student}"
+          ],
+          "expect": {
+            "exitCode": 0,
+            "stdoutJsonIncludes": {
+              "_deleted": "true"
+            }
+          }
+        },
+        {
+          "id": "restore",
+          "capability": "student.restore",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "student",
+            "restore",
+            "{capture.student}"
+          ],
+          "expect": {
+            "exitCode": 0,
+            "stdoutJsonIncludes": {
+              "_deleted": "false"
+            }
+          }
+        },
+        {
+          "id": "restore active record rejected",
+          "capability": "student.restore",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "student",
+            "restore",
+            "{capture.student}"
+          ],
+          "expect": {
+            "exitCode": 2,
+            "stdoutJson": null,
+            "stderrContains": [
+              "not in Trash"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "student.progress-review",
+      "family": "student",
+      "capability": "student.progress-review",
+      "files": {
+        "transcript.txt": "Hello evidence\nMina explained equivalent fractions.\n"
+      },
+      "setup": [
+        {
+          "id": "student",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "student",
+            "create",
+            "--name",
+            "Progress Student"
+          ],
+          "capture": {
+            "student": "id"
+          }
+        },
+        {
+          "id": "session",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "session",
+            "create",
+            "--title",
+            "Progress session",
+            "--student-id",
+            "{capture.student}",
+            "--subject",
+            "Mathematics"
+          ],
+          "capture": {
+            "session": "id"
+          }
+        },
+        {
+          "id": "transcript import",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "transcript",
+            "import",
+            "--session",
+            "{capture.session}",
+            "--input",
+            "transcript.txt",
+            "--format",
+            "text"
+          ]
+        },
+        {
+          "id": "transcript show",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "transcript",
+            "show",
+            "--session",
+            "{capture.session}"
+          ],
+          "capture": {
+            "segment": "0.id"
+          }
+        },
+        {
+          "id": "evidence",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "evidence",
+            "create",
+            "--session",
+            "{capture.session}",
+            "--source-segment",
+            "{capture.segment}",
+            "--type",
+            "observation",
+            "--title",
+            "Equivalent fractions",
+            "--content",
+            "Mina explained why one half equals two quarters."
+          ],
+          "capture": {
+            "evidence": "id"
+          }
+        }
+      ],
+      "steps": [
+        {
+          "id": "progress review",
+          "capability": "student.progress-review",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "student",
+            "progress-review",
+            "{capture.student}",
+            "--skill",
+            "Equivalent fractions",
+            "--classification",
+            "newly-observed",
+            "--evidence-ids",
+            "{capture.evidence}",
+            "--reviewed-by",
+            "Tutor",
+            "--note",
+            "Clear explanation"
+          ],
+          "expect": {
+            "exitCode": 0,
+            "stdoutJsonIncludes": {
+              "skill": "Equivalent fractions",
+              "classification": "newly-observed",
+              "human_reviewed": "true",
+              "source_status": "valid"
+            }
+          }
+        },
+        {
+          "id": "progress with classification",
+          "capability": "student.progress",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "student",
+            "progress",
+            "{capture.student}"
+          ],
+          "expect": {
+            "exitCode": 0,
+            "stdoutContains": [
+              "newly-observed",
+              "Equivalent fractions"
+            ]
+          }
+        },
+        {
+          "id": "invalid classification",
+          "capability": "student.progress-review",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "student",
+            "progress-review",
+            "{capture.student}",
+            "--skill",
+            "Fractions",
+            "--classification",
+            "excellent",
+            "--evidence-ids",
+            "{capture.evidence}",
+            "--reviewed-by",
+            "Tutor"
+          ],
+          "expect": {
+            "exitCode": 2,
+            "stdoutJson": null,
+            "stderrContains": [
+              "Classification must be"
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}
