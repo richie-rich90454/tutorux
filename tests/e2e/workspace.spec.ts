@@ -1,7 +1,23 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 import { readFile } from "node:fs/promises";
 import { strFromU8, unzipSync } from "fflate";
 import { openArchiveBytes, verifyArchiveSnapshot } from "../../frontend/archive/archive";
+
+async function navigateToSidebarView(page: Page, label: string) {
+    const navigation = page.getByRole("navigation", { name: "Primary navigation" });
+    const more = navigation.getByRole("button", { name: "More", exact: true });
+    const menu = page.getByRole("menu", { name: "More workspaces" });
+    if (await menu.isVisible().catch(() => false)) await more.click();
+
+    const primaryItem = navigation.getByRole("button", { name: label, exact: true });
+    if ((await primaryItem.count()) > 0) {
+        await primaryItem.click();
+        return;
+    }
+
+    await more.click();
+    await page.getByRole("menuitem", { name: label, exact: true }).click();
+}
 
 test.beforeEach(async ({ page }) => {
     await page.route("**/*", async (route) => {
@@ -34,7 +50,7 @@ test("creates a passphrase-protected workspace that opens authenticated and unlo
 }, testInfo) => {
     const passphrase = "新档案安全口令";
     await page.goto("/");
-    await page.getByRole("button", { name: "Create your workspace" }).click();
+    await page.getByRole("button", { name: "Create archive" }).click();
     await page.getByLabel("Workspace name").fill("Protected QA Workspace");
     await page.getByRole("checkbox", { name: /Protect this workspace with a passphrase/u }).check();
     await page.getByLabel("Archive passphrase").fill(passphrase);
@@ -43,7 +59,9 @@ test("creates a passphrase-protected workspace that opens authenticated and unlo
     const download = page.waitForEvent("download");
     await page.getByRole("button", { name: "Create workspace" }).click();
     await (await download).saveAs(testInfo.outputPath("protected-initial.tux"));
-    await expect(page.getByRole("heading", { name: "Good", exact: false })).toBeVisible();
+    await expect(
+        page.getByRole("heading", { name: "Teaching journal", exact: true }),
+    ).toBeVisible();
 
     const bytes = new Uint8Array(await readFile(testInfo.outputPath("protected-initial.tux")));
     const locked = await openArchiveBytes(bytes);
@@ -60,7 +78,7 @@ test("creates a passphrase-protected workspace that opens authenticated and unlo
     unlocked.lock();
 
     const rotatedPassphrase = "新しいアーカイブ保護の言葉";
-    await page.getByRole("navigation").getByRole("button", { name: "Preferences" }).click();
+    await navigateToSidebarView(page, "Preferences");
     await page.getByRole("button", { name: "Change passphrase" }).click();
     const passphraseDialog = page.getByRole("dialog", { name: "Change passphrase" });
     await passphraseDialog.getByLabel("Current passphrase", { exact: true }).fill(passphrase);
@@ -98,16 +116,18 @@ test("creates, updates, exports, and reopens a portable tutoring workspace", asy
 }, testInfo) => {
     await page.goto("/");
     await expect(page).toHaveTitle(/Tutorux/u);
-    await expect(page.getByRole("heading", { level: 1 })).toContainText("Your work with learners");
+    await expect(page.getByRole("heading", { level: 1 })).toHaveText("Open or create an archive");
 
-    await page.getByRole("button", { name: "Create your workspace" }).click();
+    await page.getByRole("button", { name: "Create archive" }).click();
     await page.getByLabel("Workspace name").fill("QA Workspace");
     const firstDownload = page.waitForEvent("download");
     await page.getByRole("button", { name: "Create workspace" }).click();
     await (await firstDownload).saveAs(testInfo.outputPath("initial.tux"));
-    await expect(page.getByRole("heading", { name: "Good", exact: false })).toBeVisible();
+    await expect(
+        page.getByRole("heading", { name: "Teaching journal", exact: true }),
+    ).toBeVisible();
 
-    await page.getByRole("button", { name: "Students", exact: true }).click();
+    await navigateToSidebarView(page, "Students");
     await page.getByRole("button", { name: "Add student", exact: true }).click();
     await page.getByLabel("Student name").fill("Mina Chen");
     await page.getByLabel("Grade or level").fill("Year 8");
@@ -137,15 +157,15 @@ test("creates, updates, exports, and reopens a portable tutoring workspace", asy
         .getByRole("button", { name: "Move to Trash" })
         .click();
     await expect(page.getByRole("heading", { name: "Mina Chen" })).toHaveCount(0);
-    await page.getByRole("button", { name: "Trash", exact: true }).click();
+    await navigateToSidebarView(page, "Trash");
     await expect(page.getByText("Mina Chen", { exact: true })).toBeVisible();
     await page.getByRole("button", { name: "Restore" }).click();
-    await page.getByRole("button", { name: "Students", exact: true }).click();
+    await navigateToSidebarView(page, "Students");
     await expect(
         page.getByText("Build confidence with linear equations and ratios."),
     ).toBeVisible();
 
-    await page.getByRole("button", { name: "Sessions", exact: true }).click();
+    await navigateToSidebarView(page, "Sessions");
     await page.getByRole("button", { name: "New session", exact: true }).click();
     await page.getByLabel("Session title").fill("Linear equations, one step at a time");
     await page.locator('select[name="student"]').selectOption({ label: "Mina Chen" });
@@ -160,8 +180,12 @@ test("creates, updates, exports, and reopens a portable tutoring workspace", asy
         .pressSequentially("Ask Mina to model the inverse operation.");
     await expect(page.getByLabel("Session notes block 2")).toBeFocused();
     await page.getByRole("button", { name: "Save session" }).click();
-    await expect(page.getByText("Linear equations, one step at a time")).toBeVisible();
-    await page.getByRole("button", { name: "Edit session" }).click();
+    await expect(
+        page
+            .locator(".session-record")
+            .getByRole("heading", { name: "Linear equations, one step at a time" }),
+    ).toBeVisible();
+    await page.getByRole("button", { name: "Notebook", exact: true }).click();
     await expect(page.getByLabel("Session notes block 2")).toHaveValue(
         "Ask Mina to model the inverse operation.",
     );
@@ -171,16 +195,13 @@ test("creates, updates, exports, and reopens a portable tutoring workspace", asy
     await page.getByRole("button", { name: "Save changes" }).click();
     await expect(page.getByText("Linear equations, one step at a time")).toBeVisible();
 
-    await page.getByRole("button", { name: "Students", exact: true }).click();
+    await navigateToSidebarView(page, "Students");
     const learningHistory = page.locator(".student-history");
     await learningHistory.locator("summary").click();
     await expect(learningHistory).toContainText("1 session");
     await expect(learningHistory).toContainText("Linear equations, one step at a time");
 
-    await page
-        .getByRole("navigation")
-        .getByRole("button", { name: "Materials", exact: true })
-        .click();
+    await navigateToSidebarView(page, "Materials");
     await page
         .getByLabel("Session for imported material")
         .selectOption({ label: "Linear equations, one step at a time" });
@@ -191,7 +212,7 @@ test("creates, updates, exports, and reopens a portable tutoring workspace", asy
     });
     await expect(page.getByText("lesson-notes.txt", { exact: true })).toBeVisible();
 
-    await page.getByRole("button", { name: "Transcripts", exact: true }).click();
+    await navigateToSidebarView(page, "Transcripts");
     await page.getByLabel("Choose transcript source file").setInputFiles({
         name: "lesson.srt",
         mimeType: "application/x-subrip",
@@ -260,7 +281,7 @@ test("creates, updates, exports, and reopens a portable tutoring workspace", asy
     expect(transcriptText).toContain("WEBVTT");
     expect(transcriptText).toContain("Tutor: The word &lt;balance&gt; is one step &amp; clear.");
 
-    await page.getByRole("button", { name: "Observations", exact: true }).click();
+    await navigateToSidebarView(page, "Observations");
     await page.getByRole("button", { name: "Add observation", exact: true }).click();
     await page
         .locator(".annotation-form")
@@ -306,10 +327,10 @@ test("creates, updates, exports, and reopens a portable tutoring workspace", asy
         .getByRole("button", { name: "Move to Trash" })
         .click();
     await expect(page.getByRole("heading", { name: "Check the sign change" })).toHaveCount(0);
-    await page.getByRole("button", { name: "Trash", exact: true }).click();
+    await navigateToSidebarView(page, "Trash");
     await expect(page.getByText("Check the sign change", { exact: true })).toBeVisible();
     await page.getByRole("button", { name: "Restore", exact: true }).click();
-    await page.getByRole("button", { name: "Observations", exact: true }).click();
+    await navigateToSidebarView(page, "Observations");
     await expect(page.getByRole("heading", { name: "Check the sign change" })).toBeVisible();
 
     await page.getByRole("button", { name: "Add observation", exact: true }).click();
@@ -325,7 +346,7 @@ test("creates, updates, exports, and reopens a portable tutoring workspace", asy
         .fill("Prepare one more balance-scale practice problem.");
     await page.getByRole("button", { name: "Save observation", exact: true }).click();
 
-    await page.getByRole("button", { name: "Evidence", exact: true }).click();
+    await navigateToSidebarView(page, "Evidence");
     await page.getByRole("button", { name: "Extract session evidence" }).click();
     await expect(page.getByRole("heading", { name: "Check the sign change" })).toBeVisible();
     await page.getByLabel("Transcript source segment").selectOption({ index: 1 });
@@ -392,14 +413,14 @@ test("creates, updates, exports, and reopens a portable tutoring workspace", asy
     await expect(page.getByRole("heading", { name: "Reviewed sign change evidence" })).toHaveCount(
         0,
     );
-    await page.getByRole("button", { name: "Trash", exact: true }).click();
+    await navigateToSidebarView(page, "Trash");
     await expect(page.getByText("Reviewed sign change evidence", { exact: true })).toBeVisible();
     await page
         .locator(".trash-record")
         .filter({ hasText: "Reviewed sign change evidence" })
         .getByRole("button", { name: "Restore", exact: true })
         .click();
-    await page.getByRole("button", { name: "Evidence", exact: true }).click();
+    await navigateToSidebarView(page, "Evidence");
     await expect(
         page.getByRole("heading", { name: "Reviewed sign change evidence" }),
     ).toBeVisible();
@@ -407,7 +428,7 @@ test("creates, updates, exports, and reopens a portable tutoring workspace", asy
     await expect(
         page.getByRole("img", { name: "3 evidence items connected by 1 relationship" }),
     ).toBeVisible();
-    await page.getByRole("button", { name: "Students", exact: true }).click();
+    await navigateToSidebarView(page, "Students");
     const studentHistory = page.locator(".student-history");
     await studentHistory.locator("summary").click();
     await studentHistory.getByRole("button", { name: "Review a skill" }).click();
@@ -419,7 +440,7 @@ test("creates, updates, exports, and reopens a portable tutoring workspace", asy
     await expect(studentHistory).toContainText("Equivalent fractions");
     await expect(studentHistory).toContainText("Newly observed");
 
-    await page.getByRole("button", { name: "Journal", exact: true }).click();
+    await navigateToSidebarView(page, "Journal");
     await page.getByRole("button", { name: "New collection", exact: true }).click();
     await page.getByLabel("Name", { exact: true }).fill("Growing confidence");
     await page
@@ -482,31 +503,31 @@ test("creates, updates, exports, and reopens a portable tutoring workspace", asy
     await page.reload();
 
     const fileChooser = page.waitForEvent("filechooser");
-    await page.getByRole("button", { name: "Open", exact: true }).click();
+    await page.getByRole("button", { name: "Open archive", exact: true }).click();
     await (await fileChooser).setFiles(archivePath);
-    await page.locator(".archive-status.is-open").waitFor();
-    await expect(page.getByRole("heading", { name: "Good", exact: false })).toBeVisible();
-    await expect(page.locator(".stat-card").nth(0)).toContainText("1");
-    await expect(page.locator(".stat-card").nth(1)).toContainText("1");
-    await expect(page.locator(".stat-card").nth(2)).toContainText("2");
-    await page.getByRole("button", { name: "Archive health", exact: true }).click();
+    await page.locator(".sidebar-archive-status").waitFor();
+    await expect(
+        page.getByRole("heading", { name: "Teaching journal", exact: true }),
+    ).toBeVisible();
+    await expect(page.locator(".record-list-journal")).toContainText("Balance as a visual model");
+    await navigateToSidebarView(page, "Archive health");
     await page.getByRole("button", { name: "Verify archive" }).click();
     await expect(
         page.getByRole("heading", { name: "Every current record passed verification" }),
     ).toBeVisible();
     await expect(page.locator(".integrity-status")).toContainText("verified");
 
-    await page.getByRole("button", { name: "Students", exact: true }).click();
+    await navigateToSidebarView(page, "Students");
     await expect(page.getByRole("heading", { name: "Mina Chen" })).toBeVisible();
     await page.screenshot({ path: testInfo.outputPath("students.png"), fullPage: true });
-    await page.getByRole("button", { name: "Sessions", exact: true }).click();
+    await navigateToSidebarView(page, "Sessions");
     await expect(page.getByText("Linear equations, one step at a time")).toBeVisible();
-    await page.getByRole("button", { name: "Edit session" }).click();
+    await page.getByRole("button", { name: "Notebook", exact: true }).click();
     await expect(page.getByLabel("Session notes block 2")).toHaveValue(
         "Ask Mina to model the inverse operation.",
     );
     await page.getByRole("button", { name: "Close", exact: true }).click();
-    await page.getByRole("button", { name: "Journal", exact: true }).click();
+    await navigateToSidebarView(page, "Journal");
     await expect(page.getByRole("heading", { name: "Balance as a visual model" })).toBeVisible();
     await page
         .locator(".journal-record-card")
@@ -531,19 +552,19 @@ test("creates, updates, exports, and reopens a portable tutoring workspace", asy
 
 test("creates and manages archive-backed study guide templates", async ({ page }, testInfo) => {
     await page.goto("/");
-    await page.getByRole("button", { name: "Create your workspace" }).click();
+    await page.getByRole("button", { name: "Create archive" }).click();
     await page.getByLabel("Workspace name").fill("Template QA Workspace");
     const initialDownload = page.waitForEvent("download");
     await page.getByRole("button", { name: "Create workspace" }).click();
     await (await initialDownload).saveAs(testInfo.outputPath("template-initial.tux"));
 
-    await page.getByRole("button", { name: "Sessions", exact: true }).click();
+    await navigateToSidebarView(page, "Sessions");
     await page.getByRole("button", { name: "New session", exact: true }).click();
     await page.getByLabel("Session title").fill("A question-led lesson");
     await page.getByLabel("Subject", { exact: true }).fill("General");
     await page.getByRole("button", { name: "Save session", exact: true }).click();
 
-    await page.getByRole("button", { name: "Study guides", exact: true }).click();
+    await navigateToSidebarView(page, "Study guides");
     await page.getByRole("button", { name: "Manage templates" }).click();
     await page.getByRole("button", { name: "Create template" }).click();
     await page.getByLabel("Template name").fill("Socratic review");
@@ -556,7 +577,7 @@ test("creates and manages archive-backed study guide templates", async ({ page }
     await page.getByRole("button", { name: "Save template" }).click();
     await expect(page.locator(".guide-template-manage-list")).toContainText("Socratic review");
 
-    await page.getByRole("button", { name: "Students", exact: true }).click();
+    await navigateToSidebarView(page, "Students");
     await page.getByRole("button", { name: "Add student", exact: true }).click();
     await page.getByLabel("Student name").fill("Template learner");
     await page
@@ -565,7 +586,7 @@ test("creates and manages archive-backed study guide templates", async ({ page }
     await page.getByRole("button", { name: "Add student", exact: true }).last().click();
     await expect(page.locator(".student-record-card")).toContainText("Socratic review");
 
-    await page.getByRole("button", { name: "Study guides", exact: true }).click();
+    await navigateToSidebarView(page, "Study guides");
 
     await page
         .locator(".guide-template-card")
@@ -669,7 +690,7 @@ test("creates and manages archive-backed study guide templates", async ({ page }
 
 test("supports keyboard quick actions and appearance preferences", async ({ page }, testInfo) => {
     await page.goto("/");
-    await page.getByRole("button", { name: "Create your workspace" }).click();
+    await page.getByRole("button", { name: "Create archive" }).click();
     await page.getByLabel("Workspace name").fill("Appearance QA");
     const archiveDownload = page.waitForEvent("download");
     await page.getByRole("button", { name: "Create workspace" }).click();
@@ -680,7 +701,7 @@ test("supports keyboard quick actions and appearance preferences", async ({ page
     await page.keyboard.press("Enter");
     await expect(page.getByRole("dialog", { name: "Quick actions" })).toBeHidden();
     await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
-    await page.getByRole("navigation").getByRole("button", { name: "Preferences" }).click();
+    await navigateToSidebarView(page, "Preferences");
     await page.emulateMedia({ colorScheme: "dark" });
     await page.getByRole("combobox", { name: "Color theme" }).selectOption("system");
     await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
