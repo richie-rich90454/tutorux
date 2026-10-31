@@ -10,6 +10,7 @@ mod application_audio;
 mod capture;
 mod commands;
 mod devices;
+pub mod headless;
 mod lifecycle;
 mod model;
 mod probe;
