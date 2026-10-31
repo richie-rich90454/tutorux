@@ -2,6 +2,8 @@ mod replicate;
 mod replicate_http;
 mod validation;
 
+pub mod headless;
+
 #[cfg(test)]
 mod tests;
 
@@ -61,7 +63,7 @@ pub struct AiTransportRequest {
 
 #[derive(Clone, Copy, Default, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "kebab-case")]
-enum CredentialStorage {
+pub(crate) enum CredentialStorage {
     #[default]
     None,
     EncryptedArchive,
@@ -84,13 +86,13 @@ pub enum AiTransportEvent {
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AiTransportResult {
-    status: u16,
-    content_type: String,
-    response_bytes: usize,
-    complete: bool,
-    cancelled: bool,
+    pub(crate) status: u16,
+    pub(crate) content_type: String,
+    pub(crate) response_bytes: usize,
+    pub(crate) complete: bool,
+    pub(crate) cancelled: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
-    error_message: Option<String>,
+    pub(crate) error_message: Option<String>,
 }
 
 #[tauri::command]
