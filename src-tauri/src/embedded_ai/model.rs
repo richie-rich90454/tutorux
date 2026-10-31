@@ -1,8 +1,9 @@
-use llama_cpp_2::{gguf::GgufContext, llama_backend::LlamaBackend, model::LlamaModel};
+use llama_cpp_2::{llama_backend::LlamaBackend, model::LlamaModel};
 use sha2::{Digest, Sha256};
 use std::{
+    collections::BTreeMap,
     fs::{self, File},
-    io::Read,
+    io::{Read, Seek, SeekFrom},
     path::{Path, PathBuf},
     time::SystemTime,
 };
@@ -69,42 +70,256 @@ pub(super) fn validate_selected_path(path: &Path) -> Result<PathBuf, String> {
     Ok(selected)
 }
 
-pub(super) fn inspect_gguf(path: &Path) -> Result<(String, String, u64), String> {
-    let mut header = [0u8; 8];
-    File::open(path)
-        .and_then(|mut file| file.read_exact(&mut header))
-        .map_err(|_| "The selected file is too short to contain a GGUF header.".to_owned())?;
+const GGUF_MAX_STRING_BYTES: u64 = 16 * 1024 * 1024;
+const GGUF_MAX_METADATA_ENTRIES: u64 = 1_000_000;
+const GGUF_MEMORY_OVERHEAD_BYTES: u128 = 256 * 1024 * 1024;
+
+#[derive(Clone, Debug)]
+pub(crate) struct GgufMetadata {
+    pub(crate) gguf_version: u32,
+    pub(crate) tensor_count: u64,
+    pub(crate) metadata_count: u64,
+    pub(crate) architecture: String,
+    pub(crate) name: String,
+    pub(crate) description: String,
+    pub(crate) training_context_tokens: String,
+    pub(crate) embedding_length: String,
+    pub(crate) layer_count: String,
+}
+
+/// Read GGUF header metadata without requiring tensor information. Tensor-only
+/// runtimes still validate the tensor index when a model is actually loaded.
+pub(crate) fn read_gguf_metadata(path: &Path) -> Result<GgufMetadata, String> {
+    let file_size = fs::metadata(path)
+        .map_err(|_| "The selected model file could not be inspected.".to_owned())?
+        .len();
+    if file_size < 24 {
+        return Err("The GGUF header is truncated.".to_owned());
+    }
+    let file =
+        File::open(path).map_err(|_| "The selected model file could not be read.".to_owned())?;
+    let mut reader = GgufReader {
+        file,
+        position: 0,
+        file_size,
+    };
+    let header = reader.bytes(24)?;
+    if &header[..4] != b"GGUF" {
+        return Err("The GGUF header is invalid.".to_owned());
+    }
     let version = u32::from_le_bytes([header[4], header[5], header[6], header[7]]);
-    if &header[..4] != b"GGUF" || !(2..=3).contains(&version) {
-        return Err("The selected file is not a supported GGUF v2 or v3 model.".to_owned());
+    if !matches!(version, 2 | 3) {
+        return Err("Unsupported GGUF version.".to_owned());
     }
-    let metadata = GgufContext::from_file(path)
-        .ok_or_else(|| "The GGUF metadata or tensor index could not be validated.".to_owned())?;
-    let architecture_index = metadata.find_key("general.architecture");
-    let architecture = if architecture_index >= 0 {
-        metadata
-            .val_str(architecture_index)
-            .unwrap_or_default()
-            .to_owned()
-    } else {
-        String::new()
-    };
-    if architecture.is_empty() || metadata.n_tensors() <= 0 {
-        return Err("The GGUF file is missing its model architecture or tensor index.".to_owned());
+    let tensor_count = u64::from_le_bytes(header[8..16].try_into().unwrap_or_default());
+    let metadata_count = u64::from_le_bytes(header[16..24].try_into().unwrap_or_default());
+    if metadata_count > GGUF_MAX_METADATA_ENTRIES {
+        return Err("The GGUF metadata index is too large.".to_owned());
     }
-    let name_index = metadata.find_key("general.name");
-    let name = if name_index >= 0 {
-        metadata
-            .val_str(name_index)
+
+    let mut strings: BTreeMap<String, String> = BTreeMap::new();
+    let mut integers: BTreeMap<String, i128> = BTreeMap::new();
+    for _ in 0..metadata_count {
+        let key_length = reader.uint64()?;
+        if key_length > GGUF_MAX_STRING_BYTES {
+            return Err("A GGUF metadata key is too large.".to_owned());
+        }
+        let key = String::from_utf8_lossy(&reader.bytes(key_length)?).into_owned();
+        let value_type = reader.uint32()?;
+        if value_type == 8 {
+            let value_length = reader.uint64()?;
+            if value_length > GGUF_MAX_STRING_BYTES {
+                return Err("A GGUF metadata string is too large.".to_owned());
+            }
+            if matches!(
+                key.as_str(),
+                "general.architecture" | "general.name" | "general.description"
+            ) {
+                let value = String::from_utf8_lossy(&reader.bytes(value_length)?).into_owned();
+                strings.insert(key, value);
+            } else {
+                reader.skip(value_length)?;
+            }
+        } else if value_type == 9 {
+            let element_type = reader.uint32()?;
+            let count = reader.uint64()?;
+            reader.skip_array(element_type, count)?;
+        } else {
+            if let Some(value) = reader.scalar(value_type)? {
+                if key.ends_with(".context_length")
+                    || key.ends_with(".embedding_length")
+                    || key.ends_with(".block_count")
+                {
+                    integers.insert(key, value);
+                }
+            }
+        }
+    }
+
+    let architecture = strings
+        .get("general.architecture")
+        .cloned()
+        .unwrap_or_default();
+    let unsigned = |key: String| {
+        integers
+            .get(&key)
+            .filter(|value| **value >= 0)
+            .map(i128::to_string)
             .unwrap_or_default()
-            .trim()
-            .chars()
-            .take(160)
-            .collect::<String>()
-    } else {
-        String::new()
     };
-    let name = if name.is_empty() {
+    Ok(GgufMetadata {
+        gguf_version: version,
+        tensor_count,
+        metadata_count,
+        training_context_tokens: unsigned(format!("{architecture}.context_length")),
+        embedding_length: unsigned(format!("{architecture}.embedding_length")),
+        layer_count: unsigned(format!("{architecture}.block_count")),
+        name: strings.get("general.name").cloned().unwrap_or_default(),
+        description: strings
+            .get("general.description")
+            .cloned()
+            .unwrap_or_default(),
+        architecture,
+    })
+}
+
+pub(crate) fn estimate_gguf_memory(
+    file_size: u64,
+    embedding_length: &str,
+    layer_count: &str,
+    context_tokens: u64,
+) -> Result<(String, bool), String> {
+    let embedding = embedding_length.parse::<u128>().unwrap_or(0);
+    let layers = layer_count.parse::<u128>().unwrap_or(0);
+    if file_size == 0 || embedding == 0 || layers == 0 {
+        return Err(
+            "Memory estimation requires a GGUF inspection with dimensions and file size."
+                .to_owned(),
+        );
+    }
+    let context_bytes = u128::from(context_tokens)
+        .checked_mul(embedding)
+        .and_then(|value| value.checked_mul(layers))
+        .and_then(|value| value.checked_mul(4))
+        .unwrap_or(u128::MAX);
+    let total = u128::from(file_size)
+        .checked_add(context_bytes)
+        .and_then(|value| value.checked_add(GGUF_MEMORY_OVERHEAD_BYTES))
+        .unwrap_or(u128::MAX);
+    if total > u128::from(u64::MAX) {
+        return Ok((u64::MAX.to_string(), true));
+    }
+    Ok(((total as u64).to_string(), false))
+}
+
+struct GgufReader {
+    file: File,
+    position: u64,
+    file_size: u64,
+}
+
+impl GgufReader {
+    fn bytes(&mut self, length: u64) -> Result<Vec<u8>, String> {
+        if self
+            .position
+            .checked_add(length)
+            .is_none_or(|end| end > self.file_size)
+        {
+            return Err("The GGUF metadata is truncated.".to_owned());
+        }
+        let length = usize::try_from(length)
+            .map_err(|_| "The GGUF metadata length is invalid.".to_owned())?;
+        let mut buffer = vec![0u8; length];
+        self.file
+            .read_exact(&mut buffer)
+            .map_err(|_| "The GGUF metadata is truncated.".to_owned())?;
+        self.position += length as u64;
+        Ok(buffer)
+    }
+
+    fn skip(&mut self, length: u64) -> Result<(), String> {
+        if self
+            .position
+            .checked_add(length)
+            .is_none_or(|end| end > self.file_size)
+        {
+            return Err("The GGUF metadata is truncated.".to_owned());
+        }
+        self.position += length;
+        self.file
+            .seek(SeekFrom::Start(self.position))
+            .map_err(|_| "The GGUF metadata is truncated.".to_owned())?;
+        Ok(())
+    }
+
+    fn uint32(&mut self) -> Result<u32, String> {
+        let bytes = self.bytes(4)?;
+        Ok(u32::from_le_bytes(bytes.try_into().unwrap_or_default()))
+    }
+
+    fn uint64(&mut self) -> Result<u64, String> {
+        let bytes = self.bytes(8)?;
+        Ok(u64::from_le_bytes(bytes.try_into().unwrap_or_default()))
+    }
+
+    fn scalar(&mut self, value_type: u32) -> Result<Option<i128>, String> {
+        let bytes = self.bytes(u64::from(scalar_size(value_type)?))?;
+        let value = match value_type {
+            0 => i128::from(bytes[0]),
+            1 => i128::from(i8::from_le_bytes([bytes[0]])),
+            2 => i128::from(u16::from_le_bytes(bytes.try_into().unwrap_or_default())),
+            3 => i128::from(i16::from_le_bytes(bytes.try_into().unwrap_or_default())),
+            4 => i128::from(u32::from_le_bytes(bytes.try_into().unwrap_or_default())),
+            5 => i128::from(i32::from_le_bytes(bytes.try_into().unwrap_or_default())),
+            7 => i128::from(bytes[0] != 0),
+            10 => i128::from(u64::from_le_bytes(bytes.try_into().unwrap_or_default())),
+            11 => i128::from(i64::from_le_bytes(bytes.try_into().unwrap_or_default())),
+            6 | 12 => return Ok(None),
+            _ => return Err("The GGUF metadata contains an unsupported value type.".to_owned()),
+        };
+        Ok(Some(value))
+    }
+
+    fn skip_array(&mut self, element_type: u32, count: u64) -> Result<(), String> {
+        if count > GGUF_MAX_METADATA_ENTRIES {
+            return Err("The GGUF metadata array is too large.".to_owned());
+        }
+        if element_type == 8 {
+            for _ in 0..count {
+                let length = self.uint64()?;
+                if length > GGUF_MAX_STRING_BYTES {
+                    return Err("A GGUF metadata string is too large.".to_owned());
+                }
+                self.skip(length)?;
+            }
+            return Ok(());
+        }
+        if element_type == 9 {
+            return Err("The GGUF metadata contains a nested array.".to_owned());
+        }
+        let total = u64::from(scalar_size(element_type)?)
+            .checked_mul(count)
+            .ok_or_else(|| "The GGUF metadata array is too large.".to_owned())?;
+        if total > self.file_size {
+            return Err("The GGUF metadata array is too large.".to_owned());
+        }
+        self.skip(total)
+    }
+}
+
+fn scalar_size(value_type: u32) -> Result<u32, String> {
+    match value_type {
+        0 | 1 | 7 => Ok(1),
+        2 | 3 => Ok(2),
+        4 | 5 | 6 => Ok(4),
+        10 | 11 | 12 => Ok(8),
+        _ => Err("The GGUF metadata contains an unsupported value type.".to_owned()),
+    }
+}
+
+pub(super) fn inspect_gguf(path: &Path) -> Result<(String, String, u64), String> {
+    let metadata = read_gguf_metadata(path)?;
+    let name = if metadata.name.trim().is_empty() {
         path.file_stem()
             .and_then(|stem| stem.to_str())
             .unwrap_or("GGUF model")
@@ -112,9 +327,9 @@ pub(super) fn inspect_gguf(path: &Path) -> Result<(String, String, u64), String>
             .take(160)
             .collect()
     } else {
-        name
+        metadata.name.trim().chars().take(160).collect()
     };
-    Ok((architecture, name, metadata.n_tensors() as u64))
+    Ok((metadata.architecture, name, metadata.tensor_count))
 }
 
 pub(super) fn file_identity(path: &Path) -> Result<FileIdentity, String> {
@@ -256,5 +471,29 @@ mod tests {
         let error = estimate_memory(MAX_MODEL_FILE_BYTES, 32_768)
             .expect_err("the 64 GiB estimate ceiling must remain enforced");
         assert!(error.contains("64 GiB"));
+    }
+
+    #[test]
+    fn metadata_only_gguf_is_readable() {
+        let mut bytes = b"GGUF".to_vec();
+        bytes.extend(3u32.to_le_bytes());
+        bytes.extend(0u64.to_le_bytes());
+        bytes.extend(2u64.to_le_bytes());
+        bytes.extend((b"general.architecture".len() as u64).to_le_bytes());
+        bytes.extend(b"general.architecture");
+        bytes.extend(8u32.to_le_bytes());
+        bytes.extend(5u64.to_le_bytes());
+        bytes.extend(b"llama");
+        bytes.extend((b"llama.block_count".len() as u64).to_le_bytes());
+        bytes.extend(b"llama.block_count");
+        bytes.extend(4u32.to_le_bytes());
+        bytes.extend(32u32.to_le_bytes());
+        let path = std::env::temp_dir().join(format!("tutorux-gguf-{}.gguf", std::process::id()));
+        std::fs::write(&path, &bytes).expect("write fixture");
+        let metadata = read_gguf_metadata(&path).expect("metadata-only GGUF is valid");
+        std::fs::remove_file(&path).ok();
+        assert_eq!(metadata.tensor_count, 0);
+        assert_eq!(metadata.architecture, "llama");
+        assert_eq!(metadata.layer_count, "32");
     }
 }
