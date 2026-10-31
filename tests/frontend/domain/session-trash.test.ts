@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import type { ArchiveSnapshot } from "../archive/archive";
-import { RecordType, type ArchiveRecord } from "../archive/format";
-import { planSessionRestore } from "./session-trash";
+import type { ArchiveSnapshot } from "../../../frontend/archive/archive";
+import { RecordType, type ArchiveRecord } from "../../../frontend/archive/format";
+import { planSessionRestore } from "../../../frontend/domain/session-trash";
 
 const SESSION_ID = "11111111-1111-4111-8111-111111111111";
 const ENTRY_A = "22222222-2222-4222-8222-222222222222";
