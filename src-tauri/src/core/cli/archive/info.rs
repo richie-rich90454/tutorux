@@ -4,7 +4,7 @@ use serde_json::json;
 
 use crate::core::archive::ArchiveSnapshot;
 use crate::core::cli::{
-    emit, open_archive, CliContext, CliError, CliOutput, CliResult, ParsedArguments,
+    cancellation, emit, open_archive, CliContext, CliError, CliOutput, CliResult, ParsedArguments,
 };
 use crate::core::format::RecordType;
 use crate::core::verify::{verify_full, verify_history};
@@ -47,7 +47,7 @@ pub(super) fn unlock(
     Ok(0)
 }
 
-fn record_counts(snapshot: &ArchiveSnapshot) -> (usize, usize) {
+fn record_counts(snapshot: &ArchiveSnapshot) -> CliResult<(usize, usize)> {
     const TYPES: [u16; 14] = [
         RecordType::STUDENT,
         RecordType::SESSION,
@@ -67,6 +67,7 @@ fn record_counts(snapshot: &ArchiveSnapshot) -> (usize, usize) {
     let mut live = 0usize;
     let mut deleted = 0usize;
     for record_type in TYPES {
+        cancellation::check("Archive verification")?;
         let Ok(records) = snapshot.list_record_metadata(record_type, true) else {
             continue;
         };
@@ -78,7 +79,7 @@ fn record_counts(snapshot: &ArchiveSnapshot) -> (usize, usize) {
             }
         }
     }
-    (live, deleted)
+    Ok((live, deleted))
 }
 
 pub(super) fn run(
@@ -88,6 +89,9 @@ pub(super) fn run(
     output: &mut dyn CliOutput,
     context: &CliContext,
 ) -> CliResult<i32> {
+    if action == "verify" {
+        cancellation::check("Archive verification")?;
+    }
     let snapshot = open_archive(path, context.passphrase())?;
     if action == "verify" && snapshot.locked() {
         return Err(CliError(
@@ -126,6 +130,9 @@ pub(super) fn run(
         .get_record(RecordType::SETTINGS, &snapshot.header.id)
         .ok()
         .flatten();
+    if action == "verify" {
+        cancellation::check("Archive verification")?;
+    }
     let student_count = counter(manifest_record.as_ref().and_then(|record| record.field("student_count")));
     let session_count = counter(manifest_record.as_ref().and_then(|record| record.field("session_count")));
     let valid = verification_error.is_none()
@@ -163,7 +170,7 @@ pub(super) fn run(
                 full.index_pages_checked,
             )
         } else if let Some(verification) = &verification {
-            let (live, deleted) = record_counts(&snapshot);
+            let (live, deleted) = record_counts(&snapshot)?;
             (
                 live,
                 verification.current_records,
