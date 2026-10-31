@@ -4,9 +4,12 @@ import {
     createArchiveBytes,
     openArchiveBytes,
     verifyArchiveSnapshot,
-} from "../archive/archive";
-import { newUuid, RecordType, type ArchiveRecord } from "../archive/format";
-import { createSessionPackage, importSessionPackage } from "./session-packages";
+} from "../../../frontend/archive/archive";
+import { newUuid, RecordType, type ArchiveRecord } from "../../../frontend/archive/format";
+import {
+    createSessionPackage,
+    importSessionPackage,
+} from "../../../frontend/domain/session-packages";
 
 describe("portable session packages", () => {
     it("exports linked records without student profile data and imports with fresh references", async () => {
