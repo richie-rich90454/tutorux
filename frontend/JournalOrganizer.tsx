@@ -84,7 +84,7 @@ export function JournalOrganizer(props: Props): JSX.Element {
         <section class="journal-organizer" aria-labelledby="journal-organizer-title">
             <div class="journal-organizer-heading">
                 <div>
-                    <span class="eyebrow">MAKE REFLECTIONS EASIER TO RETURN TO</span>
+                    <span class="eyebrow">Make reflections easier to return to</span>
                     <h2 id="journal-organizer-title">Collections & tags</h2>
                     <p>Group related notes, then find them again by the way you work.</p>
                 </div>
