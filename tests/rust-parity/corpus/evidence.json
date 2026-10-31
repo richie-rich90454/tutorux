@@ -1,0 +1,413 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "id": "evidence.lifecycle",
+      "family": "evidence",
+      "capability": "evidence.extract",
+      "files": {
+        "evidence-transcript.txt": "I think fractions are hard.\nCan we try another example?\n"
+      },
+      "setup": [
+        {
+          "id": "session",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "session",
+            "create",
+            "--title",
+            "Evidence session"
+          ],
+          "capture": {
+            "session": "id"
+          }
+        },
+        {
+          "id": "annotation",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "annotation",
+            "add",
+            "--session",
+            "{capture.session}",
+            "--type",
+            "student-mistake",
+            "--at",
+            "00:00:01",
+            "--title",
+            "Denominator confusion",
+            "--text",
+            "Mina added denominators directly."
+          ]
+        }
+      ],
+      "steps": [
+        {
+          "id": "extract annotation evidence",
+          "capability": "evidence.extract",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "evidence",
+            "extract",
+            "--session",
+            "{capture.session}"
+          ],
+          "capture": {
+            "first": "0.id"
+          },
+          "expect": {
+            "exitCode": 0,
+            "stdoutJsonIncludes": [
+              {
+                "session_id": "<uuid>",
+                "type": "student-mistake",
+                "verification_state": "human-verified"
+              }
+            ]
+          }
+        },
+        {
+          "id": "list",
+          "capability": "evidence.list",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "evidence",
+            "list",
+            "--session",
+            "{capture.session}"
+          ],
+          "expect": {
+            "exitCode": 0,
+            "stdoutContains": [
+              "Denominator confusion"
+            ]
+          },
+          "unorderedJsonPaths": [
+            ""
+          ]
+        },
+        {
+          "id": "review empty",
+          "capability": "evidence.review",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "evidence",
+            "review",
+            "--session",
+            "{capture.session}"
+          ],
+          "expect": {
+            "exitCode": 0,
+            "stdoutJson": []
+          },
+          "unorderedJsonPaths": [
+            ""
+          ]
+        },
+        {
+          "id": "import transcript",
+          "capability": "transcript.import",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "transcript",
+            "import",
+            "--session",
+            "{capture.session}",
+            "--input",
+            "evidence-transcript.txt",
+            "--format",
+            "text"
+          ],
+          "expect": {
+            "exitCode": 0,
+            "stdoutContains": [
+              "provisional"
+            ]
+          }
+        },
+        {
+          "id": "show transcript",
+          "capability": "transcript.show",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "transcript",
+            "show",
+            "--session",
+            "{capture.session}"
+          ],
+          "capture": {
+            "segment": "0.id"
+          },
+          "expect": {
+            "exitCode": 0,
+            "stdoutContains": [
+              "fractions"
+            ]
+          }
+        },
+        {
+          "id": "create",
+          "capability": "evidence.create",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "evidence",
+            "create",
+            "--session",
+            "{capture.session}",
+            "--source-segment",
+            "{capture.segment}",
+            "--type",
+            "student-question",
+            "--title",
+            "Fraction question",
+            "--content",
+            "Mina asked for another equivalent-fraction example."
+          ],
+          "capture": {
+            "second": "id"
+          },
+          "expect": {
+            "exitCode": 0,
+            "stdoutJsonIncludes": {
+              "type": "student-question",
+              "verification_state": "needs-review",
+              "origin": "tutor-authored"
+            }
+          }
+        },
+        {
+          "id": "review",
+          "capability": "evidence.review",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "evidence",
+            "review",
+            "--session",
+            "{capture.session}"
+          ],
+          "expect": {
+            "exitCode": 0,
+            "stdoutContains": [
+              "Fraction question"
+            ]
+          },
+          "unorderedJsonPaths": [
+            ""
+          ]
+        },
+        {
+          "id": "approve",
+          "capability": "evidence.approve",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "evidence",
+            "approve",
+            "{capture.second}"
+          ],
+          "expect": {
+            "exitCode": 0,
+            "stdoutJsonIncludes": {
+              "verification_state": "human-verified"
+            }
+          }
+        },
+        {
+          "id": "reject",
+          "capability": "evidence.reject",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "evidence",
+            "reject",
+            "{capture.second}"
+          ],
+          "expect": {
+            "exitCode": 0,
+            "stdoutJsonIncludes": {
+              "verification_state": "rejected"
+            }
+          }
+        },
+        {
+          "id": "verify",
+          "capability": "evidence.verify",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "evidence",
+            "verify",
+            "{capture.second}"
+          ],
+          "expect": {
+            "exitCode": 0,
+            "stdoutJsonIncludes": {
+              "evidence_id": "<uuid>",
+              "source_valid": true
+            }
+          }
+        },
+        {
+          "id": "show",
+          "capability": "evidence.show",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "evidence",
+            "show",
+            "{capture.second}"
+          ],
+          "expect": {
+            "exitCode": 0,
+            "stdoutJsonIncludes": {
+              "title": "Fraction question"
+            }
+          }
+        },
+        {
+          "id": "update",
+          "capability": "evidence.update",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "evidence",
+            "update",
+            "{capture.second}",
+            "--title",
+            "Updated fraction question",
+            "--content",
+            "Mina asked for an equivalent-fraction example.",
+            "--priority",
+            "high"
+          ],
+          "expect": {
+            "exitCode": 0,
+            "stdoutJsonIncludes": {
+              "title": "Updated fraction question",
+              "priority": "high",
+              "verification_state": "needs-review"
+            }
+          }
+        },
+        {
+          "id": "link",
+          "capability": "evidence.link",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "evidence",
+            "link",
+            "--from",
+            "{capture.second}",
+            "--to",
+            "{capture.first}",
+            "--relationship",
+            "supports"
+          ],
+          "capture": {
+            "edge": "id"
+          },
+          "expect": {
+            "exitCode": 0,
+            "stdoutJsonIncludes": {
+              "from_id": "<uuid>",
+              "to_id": "<uuid>",
+              "relationship": "supports"
+            }
+          }
+        },
+        {
+          "id": "edges",
+          "capability": "evidence.edges",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "evidence",
+            "edges",
+            "--session",
+            "{capture.session}"
+          ],
+          "expect": {
+            "exitCode": 0,
+            "stdoutJsonIncludes": [
+              {
+                "from_id": "<uuid>",
+                "to_id": "<uuid>",
+                "relationship": "supports"
+              }
+            ]
+          },
+          "unorderedJsonPaths": [
+            ""
+          ]
+        },
+        {
+          "id": "graph",
+          "capability": "evidence.graph",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "evidence",
+            "graph",
+            "--session",
+            "{capture.session}"
+          ],
+          "expect": {
+            "exitCode": 0,
+            "stdoutJsonIncludes": {
+              "session_id": "<uuid>",
+              "node_count": "<number>",
+              "edge_count": "<number>",
+              "contradiction_count": 0,
+              "valid": true
+            }
+          }
+        },
+        {
+          "id": "unlink",
+          "capability": "evidence.unlink",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "evidence",
+            "unlink",
+            "{capture.edge}"
+          ],
+          "expect": {
+            "exitCode": 0,
+            "stdoutJsonIncludes": {
+              "_deleted": "true"
+            }
+          }
+        }
+      ]
+    }
+  ]
+}
