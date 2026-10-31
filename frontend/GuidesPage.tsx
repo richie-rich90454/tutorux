@@ -178,6 +178,7 @@ interface GuidePageProps {
     customTemplates: ArchiveRecord[];
     trashedTemplates: ArchiveRecord[];
     templateManagerOpen: boolean;
+    initialSessionId?: string;
     onToggleTemplateManager: () => void;
     disabled: boolean;
     busy: boolean;
@@ -306,7 +307,10 @@ export function GuidesPage(props: GuidePageProps): JSX.Element {
         setRegenerationTitle("");
         setGeneration({
             scope: "session",
-            sourceId: props.sessions[0]?.id ?? "",
+            sourceId:
+                props.sessions.find((session) => session.id === props.initialSessionId)?.id ??
+                props.sessions[0]?.id ??
+                "",
             templateId: "auto",
             includeEntryEvidence: false,
             record: null,
@@ -504,7 +508,7 @@ export function GuidesPage(props: GuidePageProps): JSX.Element {
         <div class="page-body guides-page">
             <section class="record-heading guides-heading">
                 <div>
-                    <span class="eyebrow">STRUCTURE THAT LEAVES ROOM</span>
+                    <span class="eyebrow">Structure that leaves room</span>
                     <h1>Study guides</h1>
                     <p>
                         Turn session notes into clear, reusable learning material, with its sources
@@ -530,7 +534,7 @@ export function GuidesPage(props: GuidePageProps): JSX.Element {
                         >
                             <header class="guide-editor-header">
                                 <div>
-                                    <span class="eyebrow">A DRAFT GROUNDED IN YOUR ARCHIVE</span>
+                                    <span class="eyebrow">A draft grounded in your archive</span>
                                     <h2 id="guide-generation-title">
                                         {selection.record
                                             ? "Regenerate a study guide"
@@ -746,7 +750,7 @@ export function GuidesPage(props: GuidePageProps): JSX.Element {
             <section class="guide-template-section" aria-labelledby="guide-templates-title">
                 <div class="guide-section-heading">
                     <div>
-                        <span class="eyebrow">A THOUGHTFUL PLACE TO START</span>
+                        <span class="eyebrow">A thoughtful place to start</span>
                         <h2 id="guide-templates-title">Choose a structure</h2>
                     </div>
                     <div class="guide-template-heading-actions">
@@ -992,7 +996,7 @@ export function GuidesPage(props: GuidePageProps): JSX.Element {
                             </div>
                             <div class="guide-template-preview-content">
                                 <div>
-                                    <span class="eyebrow">ORDERED SECTIONS</span>
+                                    <span class="eyebrow">Ordered sections</span>
                                     <ol>
                                         <For each={template.sections}>
                                             {(section) => <li>{section}</li>}
@@ -1001,7 +1005,7 @@ export function GuidesPage(props: GuidePageProps): JSX.Element {
                                 </div>
                                 <Show when={template.body}>
                                     <div>
-                                        <span class="eyebrow">WRITING GUIDANCE</span>
+                                        <span class="eyebrow">Writing guidance</span>
                                         <p>{template.body}</p>
                                     </div>
                                 </Show>
@@ -1016,7 +1020,7 @@ export function GuidesPage(props: GuidePageProps): JSX.Element {
                     >
                         <div class="guide-template-manager-heading">
                             <div>
-                                <span class="eyebrow">YOUR ARCHIVE</span>
+                                <span class="eyebrow">Your archive</span>
                                 <h3 id="guide-template-manager-title">Custom templates</h3>
                             </div>
                             <div class="guide-template-manager-actions">
@@ -1168,7 +1172,7 @@ export function GuidesPage(props: GuidePageProps): JSX.Element {
                         </Show>
                         <Show when={templateOverrides().length > 0}>
                             <div class="guide-template-manage-list">
-                                <span class="eyebrow">BUILT-IN OVERRIDES</span>
+                                <span class="eyebrow">Built-in overrides</span>
                                 <For each={templateOverrides()}>
                                     {(record) => {
                                         const builtin = () =>
@@ -1250,7 +1254,7 @@ export function GuidesPage(props: GuidePageProps): JSX.Element {
                         </Show>
                         <Show when={props.trashedTemplates.length > 0}>
                             <div class="guide-template-trash-list">
-                                <span class="eyebrow">IN TRASH</span>
+                                <span class="eyebrow">In trash</span>
                                 <For each={props.trashedTemplates}>
                                     {(record) => (
                                         <div class="guide-template-trash-row">
@@ -2048,7 +2052,7 @@ function GuideEditor(props: {
             >
                 <header class="guide-editor-header">
                     <div>
-                        <span class="eyebrow">A GUIDE BUILT FROM YOUR WORK</span>
+                        <span class="eyebrow">A guide built from your work</span>
                         <h2 id="guide-editor-title">
                             {props.record
                                 ? "Shape this study guide"
@@ -2324,7 +2328,7 @@ function GuideEditor(props: {
 
                     <div class="guide-sections-heading">
                         <div>
-                            <span class="eyebrow">YOUR MATERIAL</span>
+                            <span class="eyebrow">Your material</span>
                             <h3>Sections and blocks</h3>
                         </div>
                         <span>{draft().sections.length} sections</span>
@@ -2909,7 +2913,7 @@ function GuideTemplateEditor(props: {
             >
                 <header class="guide-editor-header">
                     <div>
-                        <span class="eyebrow">A STRUCTURE THAT'S YOURS</span>
+                        <span class="eyebrow">A structure that's yours</span>
                         <h2 id="guide-template-editor-title">
                             {props.builtinTemplate
                                 ? props.current
