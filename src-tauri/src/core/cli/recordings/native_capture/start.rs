@@ -5,17 +5,26 @@ use std::time::Duration;
 
 use serde_json::{json, Value};
 
-use crate::core::archive::{new_uuid, now_us};
-use crate::core::cli::{emit, CliContext, CliError, CliOutput, CliResult, ParsedArguments};
-use crate::platform::synchronized_audio::headless::enumerate_devices;
-
-use super::{
-    capture_worker, install_interrupt_handler, is_archive_active, open_ready, registry,
-    require_session, select_application, select_device, CaptureCommand, CaptureConfig,
-    CaptureStatus, RegistryEntry, WhisperRequest, DEFAULT_DURATION_SECONDS, MAX_DURATION_SECONDS,
-    STOP_REQUESTED,
+use crate::core::archive::new_uuid;
+use crate::core::cli::{
+    cancellation, emit, CliContext, CliError, CliOutput, CliResult, ParsedArguments,
 };
+use crate::platform::synchronized_audio::headless::{enumerate_devices, HeadlessDevice, HeadlessDevices};
+
+use super::control_files::{WorkerControl, WORKER_ID_ENV};
+use super::ffmpeg_capture::{FfmpegPlan, FfmpegTrack};
+use super::start_options;
 use super::worker::CaptureOutcome;
+use super::{
+    capture_worker, install_interrupt_handler, registry, select_application, select_device,
+    CaptureCommand, CaptureConfig, CaptureSources, CaptureStatus, RegistryEntry, STOP_REQUESTED,
+};
+use crate::core::cli::recordings::ffmpeg::{self, FfmpegDevice};
+
+enum Selected {
+    Native(HeadlessDevice),
+    Ffmpeg(FfmpegDevice),
+}
 
 pub fn run_start(
     args: ParsedArguments,
@@ -23,301 +32,139 @@ pub fn run_start(
     path: &Path,
     context: &CliContext,
 ) -> CliResult<i32> {
-    if !args.positionals.is_empty() {
-        return Err(CliError("record start does not accept positional arguments.".to_owned()).into());
+    let options = start_options::parse(&args, path, context)?;
+    if options.detach {
+        return super::detach::run(&args, output, path, context, &options.session_id);
     }
-    if !args.flags.contains("consent") {
-        return Err(CliError("Recording requires explicit confirmation with --consent.".to_owned()).into());
-    }
-    for name in [
-        "source",
-        "device",
-        "microphone",
-        "playback",
-        "application",
-        "language",
-        "threads",
-        "window-seconds",
-        "confirmed-by",
-        "duration-seconds",
-    ] {
-        if args.flags.contains(name) {
-            return Err(CliError(format!("--{name} requires a value.")).into());
-        }
-    }
-    if args.options.contains_key("system-audio") {
-        return Err(CliError("--system-audio is a flag and does not accept a value.".to_owned()).into());
-    }
-    if args.options.contains_key("input-format") {
-        return Err(CliError(
-            "The Rust recording backend does not accept --input-format; native device identifiers select the backend."
-                .to_owned(),
-        )
-        .into());
-    }
-    if args.flags.contains("detach") {
-        output.stderr(
-            "Detached recording workers are not available in this build; recording in the foreground.",
-        );
-    }
-    let source = args
-        .option("source")
-        .unwrap_or(if args.flags.contains("system-audio") {
-            "system-audio"
-        } else {
-            "microphone"
-        });
-    if !["microphone", "system-audio", "loopback", "both", "application"].contains(&source) {
-        return Err(CliError(
-            "Recording source must be 'microphone', 'system-audio', 'application', or 'both'."
-                .to_owned(),
-        )
-        .into());
-    }
-    let source = if source == "loopback" { "system-audio" } else { source };
-    let device = args.option("device").map(str::to_owned);
-    let microphone_request = args.option("microphone").map(str::to_owned);
-    let playback_request = args.option("playback").map(str::to_owned);
-    let application_request = args.option("application").map(str::to_owned);
-    if [
-        device.as_deref(),
-        microphone_request.as_deref(),
-        playback_request.as_deref(),
-        application_request.as_deref(),
-    ]
-    .into_iter()
-    .flatten()
-    .any(|value| value.trim().is_empty())
-    {
-        return Err(CliError("A device option cannot be empty.".to_owned()).into());
-    }
-    if source == "system-audio" && microphone_request.is_some() {
-        return Err(CliError(
-            "Use --microphone only when the microphone source is enabled.".to_owned(),
-        )
-        .into());
-    }
-    if source == "microphone" && playback_request.is_some() {
-        return Err(CliError(
-            "Use --playback only when system-audio capture is enabled.".to_owned(),
-        )
-        .into());
-    }
-    let (needs_microphone, needs_system, needs_application) = match source {
-        "both" => {            if application_request.is_some() && args.flags.contains("system-audio") {
-                return Err(CliError(
-                    "Choose one synchronized secondary track with '--application' or '--system-audio'."
-                        .to_owned(),
-                )
-                .into());
-            }
-            if application_request.is_some() && playback_request.is_some() {
-                return Err(CliError(
-                    "Select one synchronized secondary track with '--application' or '--playback'."
-                        .to_owned(),
-                )
-                .into());
-            }
-            (true, application_request.is_none(), application_request.is_some())
-        }
-        "microphone" => {
-            if application_request.is_some() {
-                return Err(CliError(
-                    "Use --application only with --source application or --source both.".to_owned(),
-                )
-                .into());
-            }
-            (true, args.flags.contains("system-audio"), false)
-        }
-        "application" => {
-            if args.flags.contains("system-audio")
-                || microphone_request.is_some()
-                || playback_request.is_some()
-            {
-                return Err(CliError(
-                    "Application-only capture accepts --device or --application, not microphone or system-audio selectors."
-                        .to_owned(),
-                )
-                .into());
-            }
-            (false, false, true)
-        }
-        _ => (false, true, false),
-    };
-    if needs_microphone && (needs_system || needs_application) && device.is_some() {
-        return Err(CliError(
-            "Use source-specific selectors to choose synchronized inputs; --device is only for one source."
-                .to_owned(),
-        )
-        .into());
-    }
-    if device.is_some()
-        && (microphone_request.is_some()
-            || playback_request.is_some()
-            || application_request.is_some())
-    {
-        return Err(CliError(
-            "Choose --device or source-specific audio selectors, not both.".to_owned(),
-        )
-        .into());
+    let native = enumerate_devices().ok();
+    let mut ffmpeg_devices: Option<Result<Vec<FfmpegDevice>, String>> = None;
+    let mut ffmpeg_executable = ffmpeg::resolve_executable(args.option("ffmpeg"));
+    if args.options.contains_key("ffmpeg") && ffmpeg_executable.trim().is_empty() {
+        return Err(CliError("--ffmpeg cannot be empty.".to_owned()).into());
     }
 
-    let live = args.flags.contains("live-transcribe");
-    let diarize = args.flags.contains("diarize");
-    if diarize && !live {
-        return Err(CliError("Use --diarize with --live-transcribe.".to_owned()).into());
-    }
-    let whisper_options = ["whisper", "model", "language", "threads", "window-seconds"]
-        .iter()
-        .any(|name| args.options.contains_key(*name));
-    if !live && (whisper_options || args.flags.contains("consent-local-audio")) {
-        return Err(CliError("Whisper options require --live-transcribe.".to_owned()).into());
-    }
-    if live && !args.flags.contains("consent-local-audio") {
-        return Err(CliError(
-            "Use --consent-local-audio to authorize local Whisper processing during recording."
-                .to_owned(),
-        )
-        .into());
-    }
-    if live && needs_microphone && (needs_system || needs_application) {
-        return Err(CliError(
-            "Live transcription requires one captured track. Start a single source or transcribe the synchronized tracks after recording."
-                .to_owned(),
-        )
-        .into());
-    }
-    let whisper = if live {
-        let language = args.option("language").unwrap_or("auto").to_owned();
-        if language.is_empty()
-            || language.len() > 16
-            || !language.bytes().all(|byte| byte.is_ascii_alphabetic() || byte == b'-')
-        {
-            return Err(CliError("Enter a valid Whisper language code, or auto.".to_owned()).into());
-        }
-        Some(WhisperRequest {
-            executable: args.required_option("whisper")?.to_owned(),
-            model: args.required_option("model")?.to_owned(),
-            language,
-            threads: match args.option("threads") {
-                Some(value) => Some(
-                    value
-                        .parse::<u32>()
-                        .ok()
-                        .filter(|value| (1..=64).contains(value))
-                        .ok_or_else(|| {
-                            CliError("--threads must be an integer from 1 through 64.".to_owned())
-                        })?,
-                ),
-                None => None,
-            },
-            diarize,
-        })
-    } else {
-        None
-    };
-    let duration_seconds = match args.option("duration-seconds") {
-        Some(value) => value
-            .parse::<u64>()
-            .ok()
-            .filter(|value| (1..=MAX_DURATION_SECONDS).contains(value))
-            .ok_or_else(|| {
-                CliError("--duration-seconds must be an integer from 1 through 604800.".to_owned())
-            })?,
-        None => DEFAULT_DURATION_SECONDS,
-    };
-    let confirmed_by = args.option("confirmed-by").unwrap_or("CLI user").trim().to_owned();
-    if confirmed_by.is_empty()
-        || confirmed_by.len() > 256
-        || confirmed_by.contains(['\r', '\n', '\0'])
-    {
-        return Err(CliError(
-            "--confirmed-by must be a non-empty, single-line label up to 256 characters."
-                .to_owned(),
-        )
-        .into());
-    }
-    let session_id = crate::core::cli::validate_uuid(
-        args.required_option("session")?,
-        "--session",
-    )?;
-    let snapshot = open_ready(path, context)?;
-    let session = require_session(&snapshot, &session_id)?;
-    if is_archive_active(session.field("recording_state").unwrap_or("")) {
-        return Err(CliError(format!(
-            "Session {session_id} already has an active recording state. Check record status or recover the saved take before starting another recording."
-        ))
-        .into());
-    }
-    let devices = enumerate_devices().map_err(|error| CliError(error))?;
-    let microphone_device = if needs_microphone {
-        select_device(
-            &devices.devices,
+    let microphone = if options.needs_microphone {
+        Some(select_source(
+            &native,
+            &mut ffmpeg_devices,
+            &mut ffmpeg_executable,
             "microphone",
-            microphone_request.as_deref().or(if needs_system || needs_application {
+            options.microphone.as_deref().or(if options.needs_system || options.needs_application {
                 None
             } else {
-                device.as_deref()
+                options.device.as_deref()
             }),
-        )?
+        )?)
     } else {
         None
     };
-    let system_device = if needs_system {
-        select_device(
-            &devices.devices,
+    let system = if options.needs_system {
+        Some(select_source(
+            &native,
+            &mut ffmpeg_devices,
+            &mut ffmpeg_executable,
             "system-audio",
-            playback_request.as_deref().or(if needs_microphone {
+            options.playback.as_deref().or(if options.needs_microphone {
                 None
             } else {
-                device.as_deref()
+                options.device.as_deref()
             }),
-        )?
+        )?)
     } else {
         None
     };
-    let application_device = if needs_application {
-        select_application(
-            &devices.devices,
-            application_request.as_deref().or(device.as_deref()),
-        )?
+    let application = if options.needs_application {
+        let devices = native.as_ref().ok_or_else(|| {
+            CliError(super::super::native_probe::application_limitation())
+        })?;
+        select_application(&devices.devices, options.application.as_deref().or(options.device.as_deref()))?
+            .map(Selected::Native)
     } else {
         None
     };
 
+    let mut sources = CaptureSources {
+        microphone_id: None,
+        system_id: None,
+        application_id: None,
+        ffmpeg: None,
+    };
+    let mut ffmpeg_tracks = Vec::new();
+    let mut device_names = [String::new(), String::new(), String::new()];
+    let mut device_ids = [None, None, None];
+    for (index, selected) in [microphone, system, application].into_iter().enumerate() {
+        let Some(selected) = selected else { continue };
+        match selected {
+            Selected::Native(device) => {
+                device_names[index] = device.name.clone();
+                device_ids[index] = Some(device.id.clone());
+                match index {
+                    0 => sources.microphone_id = Some(device.id),
+                    1 => sources.system_id = Some(device.id),
+                    _ => sources.application_id = Some(device.id),
+                }
+            }
+            Selected::Ffmpeg(device) => {
+                if index == 2 {
+                    return Err(CliError(
+                        "Per-application audio capture requires the native audio backend.".to_owned(),
+                    )
+                    .into());
+                }
+                device_names[index] = device.name.clone();
+                device_ids[index] = Some(device.id.clone());
+                ffmpeg_tracks.push(FfmpegTrack {
+                    source: if index == 0 { "microphone" } else { "system-audio" },
+                    device,
+                });
+            }
+        }
+    }
+    if !ffmpeg_tracks.is_empty() {
+        sources.ffmpeg = Some(FfmpegPlan {
+            executable: ffmpeg_executable,
+            tracks: ffmpeg_tracks,
+        });
+    }
+    if sources.microphone_id.is_none()
+        && sources.system_id.is_none()
+        && sources.application_id.is_none()
+        && sources.ffmpeg.is_none()
+    {
+        return Err(CliError("No audio input endpoint was selected.".to_owned()).into());
+    }
+    let session_id = options.session_id.clone();
     let config = CaptureConfig {
         session_id: session_id.clone(),
         take_id: new_uuid(),
         track_ids: [new_uuid(), new_uuid(), new_uuid()],
-        device_names: [
-            microphone_device.as_ref().map(|device| device.name.clone()).unwrap_or_default(),
-            system_device.as_ref().map(|device| device.name.clone()).unwrap_or_default(),
-            application_device.as_ref().map(|device| device.name.clone()).unwrap_or_default(),
-        ],
-        microphone_device_id: microphone_device.as_ref().map(|device| device.id.clone()),
-        system_device_id: system_device.as_ref().map(|device| device.id.clone()),
-        application_device_id: application_device.as_ref().map(|device| device.id.clone()),
-        consent_at_us: now_us(),
-        confirmed_by,
-        duration_seconds,
-        durability: args.option("durability").unwrap_or("default").to_owned(),
-        whisper,
+        device_names,
+        microphone_device_id: device_ids[0].clone(),
+        system_device_id: device_ids[1].clone(),
+        application_device_id: device_ids[2].clone(),
+        consent_at_us: crate::core::archive::now_us(),
+        confirmed_by: options.confirmed_by,
+        duration_seconds: options.duration_seconds,
+        durability: options.durability,
+        whisper: options.whisper,
     };
     let capture_id = new_uuid();
     let (commands, command_receiver) = mpsc::channel();
     let status = Arc::new(Mutex::new(CaptureStatus {
-        session_id: session_id.clone(),
         state: "starting".to_owned(),
-        message: "Preparing native audio inputs.".to_owned(),
+        message: "Preparing audio inputs.".to_owned(),
     }));
+    let control = match std::env::var(WORKER_ID_ENV) {
+        Ok(worker_id) if !worker_id.trim().is_empty() => {
+            Some(WorkerControl::start(path, &session_id, worker_id.trim()).map_err(CliError)?)
+        }
+        _ => None,
+    };
     let (ready_sender, ready_receiver) = mpsc::channel();
     let (result_sender, result_receiver) = mpsc::channel();
     let worker_status = Arc::clone(&status);
     let worker_path = path.to_path_buf();
     let worker_passphrase = context.passphrase().map(str::to_owned);
-    let worker_microphone = microphone_device.as_ref().map(|device| device.id.clone());
-    let worker_system = system_device.as_ref().map(|device| device.id.clone());
-    let worker_application = application_device.as_ref().map(|device| device.id.clone());
     let worker_capture_id = capture_id.clone();
     std::thread::Builder::new()
         .name("tutorux-cli-recording".to_owned())
@@ -326,13 +173,12 @@ pub fn run_start(
                 &worker_path,
                 worker_passphrase.as_deref(),
                 &worker_capture_id,
-                worker_microphone.as_deref(),
-                worker_system.as_deref(),
-                worker_application.as_deref(),
+                &sources,
                 &config,
                 command_receiver,
                 &ready_sender,
                 &worker_status,
+                control,
             );
             let outcome = match result {
                 Ok(outcome) => outcome,
@@ -371,10 +217,7 @@ pub fn run_start(
     if let Ok(mut map) = registry().lock() {
         map.insert(
             session_id.clone(),
-            RegistryEntry {
-                commands,
-                status: Arc::clone(&status),
-            },
+            RegistryEntry { commands },
         );
     }
     install_interrupt_handler();
@@ -388,6 +231,14 @@ pub fn run_start(
                 return Ok(if outcome.completed { 0 } else { 1 });
             }
             Err(mpsc::RecvTimeoutError::Timeout) => {
+                if cancellation::is_cancelled() {
+                    if let Some(entry) = registry().lock().ok().and_then(|mut map| map.remove(&session_id)) {
+                        let (sender, receiver) = mpsc::channel();
+                        let _ = entry.commands.send(CaptureCommand::Stop(sender));
+                        let _ = receiver.recv_timeout(Duration::from_secs(10));
+                    }
+                    return Err(CliError("Recording was cancelled.".to_owned()).into());
+                }
                 if STOP_REQUESTED.swap(false, Ordering::AcqRel) {
                     if let Some(entry) = registry().lock().ok().and_then(|mut map| map.remove(&session_id)) {
                         let (sender, receiver) = mpsc::channel();
@@ -406,3 +257,72 @@ pub fn run_start(
     }
 }
 
+fn select_source(
+    native: &Option<HeadlessDevices>,
+    ffmpeg_devices: &mut Option<Result<Vec<FfmpegDevice>, String>>,
+    ffmpeg_executable: &mut String,
+    source: &str,
+    requested: Option<&str>,
+) -> CliResult<Selected> {
+    if let Some(devices) = native {
+        if let Ok(Some(device)) = select_device(&devices.devices, source, requested) {
+            return Ok(Selected::Native(device));
+        }
+    }
+    if source == "application" {
+        return Err(CliError(super::super::native_probe::application_limitation()).into());
+    }
+    let devices = ffmpeg_devices.get_or_insert_with(|| ffmpeg::enumerate(ffmpeg_executable.as_str()));
+    let devices = match devices {
+        Ok(devices) => devices.clone(),
+        Err(error) => {
+            return Err(CliError(format!(
+                "No native {} device is available and FFmpeg could not list inputs: {error}",
+                if source == "microphone" { "microphone" } else { "system-audio" }
+            ))
+            .into())
+        }
+    };
+    let candidates: Vec<&FfmpegDevice> = devices
+        .iter()
+        .filter(|device| {
+            if source == "microphone" {
+                !ffmpeg::is_loopback(device)
+            } else {
+                ffmpeg::is_loopback(device)
+            }
+        })
+        .collect();
+    let selected = match requested.filter(|value| *value != "default") {
+        Some(value) => devices
+            .iter()
+            .find(|device| device.id == value || device.name == value)
+            .filter(|device| {
+                if source == "microphone" {
+                    !ffmpeg::is_loopback(device)
+                } else {
+                    ffmpeg::is_loopback(device)
+                }
+            })
+            .ok_or_else(|| {
+                CliError(if source == "system-audio" {
+                    "No FFmpeg loopback input matches the selected system-audio device.".to_owned()
+                } else {
+                    format!("The selected microphone device '{value}' is not listed by FFmpeg.")
+                })
+            })?,
+        None => candidates
+            .iter()
+            .find(|device| device.backend == ffmpeg::preferred_backend())
+            .copied()
+            .or_else(|| candidates.first().copied())
+            .ok_or_else(|| {
+                CliError(if source == "system-audio" {
+                    "No FFmpeg loopback input is exposed on this host. Select a monitor or Stereo Mix device.".to_owned()
+                } else {
+                    "No microphone endpoint is available from the native backend or FFmpeg.".to_owned()
+                })
+            })?,
+    };
+    Ok(Selected::Ffmpeg(selected.clone()))
+}
