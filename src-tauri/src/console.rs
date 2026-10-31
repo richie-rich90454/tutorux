@@ -7,7 +7,7 @@ use std::{
     collections::HashMap,
     io::Read,
     path::{Path, PathBuf},
-    process::{Child, Command, Stdio},
+    process::{Command, Stdio},
     sync::{
         atomic::{AtomicBool, Ordering},
         mpsc, Arc, Mutex,
@@ -46,7 +46,7 @@ pub struct ConsoleRunResult {
     archive_changed: bool,
 }
 
-#[derive(Serialize)]
+#[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct ConsoleOutput {
     run_id: String,
