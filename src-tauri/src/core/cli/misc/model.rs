@@ -6,7 +6,7 @@ use crate::core::cli::{
     emit, open_archive, CliContext, CliError, CliOutput, CliResult, ParsedArguments,
 };
 use crate::core::format::{ArchiveRecord, RecordType};
-use crate::embedded_ai::inspect_model_path;
+use crate::embedded_ai::{estimate_gguf_memory, read_gguf_metadata, GgufMetadata};
 
 const LOCAL_FILE_PROVIDERS: &[&str] = &[
     "whisper",
@@ -39,7 +39,12 @@ pub(super) fn run_model(
                 .collect();
             emit(
                 output,
-                Value::Array(references.iter().map(crate::core::cli::records::plain).collect()),
+                Value::Array(
+                    references
+                        .iter()
+                        .map(crate::core::cli::records::plain)
+                        .collect(),
+                ),
                 &references
                     .iter()
                     .map(|record| {
@@ -65,7 +70,10 @@ pub(super) fn run_model(
         "select" => select(&snapshot, &args, output, path, context),
         "remove-reference" => remove(&snapshot, &args, output, path, context),
         "inspect" | "verify" => inspect(&snapshot, &args, output, path, action == "verify"),
-        _ => Err(CliError(format!("model {action} is not implemented in the Rust CLI yet.")).into()),
+        _ => Err(CliError(format!(
+            "model {action} is not implemented in the Rust CLI yet."
+        ))
+        .into()),
     }
 }
 
@@ -81,22 +89,22 @@ fn select(
     let raw_path = args.option("path").unwrap_or("").to_owned();
     let local = LOCAL_FILE_PROVIDERS.contains(&provider.as_str());
     if local && raw_path.is_empty() {
-        return Err(CliError("This provider requires --path to a selected model file.".to_owned()).into());
+        return Err(
+            CliError("This provider requires --path to a selected model file.".to_owned()).into(),
+        );
     }
     if local {
         let resolved = resolve_from_archive(path, &raw_path);
-        if !resolved.is_file()
-            || std::fs::symlink_metadata(&resolved)
-                .map(|metadata| metadata.file_type().is_symlink())
-                .unwrap_or(true)
-        {
-            return Err(CliError("Selected model must be a regular non-symlink file.".to_owned()).into());
+        let inspection = inspect_cli_model(&resolved)?;
+        if !inspection.available {
+            return Err(
+                CliError("Selected model must be a regular non-symlink file.".to_owned()).into(),
+            );
         }
-        if matches!(provider.as_str(), "llama.cpp-embedded" | "embedded-gguf") {
-            let inspection = inspect_model_path(&resolved.to_string_lossy()).map_err(CliError)?;
-            if inspection.architecture.is_empty() {
-                return Err(CliError("Select a GGUF file for the embedded model.".to_owned()).into());
-            }
+        if matches!(provider.as_str(), "llama.cpp-embedded" | "embedded-gguf")
+            && inspection.format != "GGUF"
+        {
+            return Err(CliError("Select a GGUF file for the embedded model.".to_owned()).into());
         }
     }
     let id = crate::core::cli::records::deterministic_uuid(&format!(
@@ -110,10 +118,10 @@ fn select(
             && record.id != id
         {
             let mut record = record;
-            record.fields.insert("active".to_owned(), "false".to_owned());
             record
                 .fields
-                .insert("updated_at_us".to_owned(), now());
+                .insert("active".to_owned(), "false".to_owned());
+            record.fields.insert("updated_at_us".to_owned(), now());
             changes.push(record);
         }
     }
@@ -125,21 +133,34 @@ fn select(
             ("provider", provider.clone()),
             ("model_id", model.clone()),
             ("path", raw_path.clone()),
-            ("capabilities", args.option("capabilities").unwrap_or("unknown").to_owned()),
+            (
+                "capabilities",
+                args.option("capabilities").unwrap_or("unknown").to_owned(),
+            ),
             ("active", "true".to_owned()),
             ("updated_at_us", now()),
         ],
     );
     if matches!(provider.as_str(), "llama.cpp-embedded" | "embedded-gguf") {
-        let context_tokens = bounded(args.option("context-tokens"), "context-tokens", 4096, 32, 1_048_576)?;
+        let context_tokens = bounded(
+            args.option("context-tokens"),
+            "context-tokens",
+            4096,
+            32,
+            1_048_576,
+        )?;
         let threads = bounded(args.option("threads"), "threads", 0, 0, 64)?;
         let max_threads = bounded(args.option("max-threads"), "max-threads", 16, 1, 64)?;
         let layers = bounded(args.option("gpu-layers"), "gpu-layers", 0, 0, 1_000_000)?;
         if threads > max_threads {
             return Err(CliError("--threads cannot exceed --max-threads.".to_owned()).into());
         }
-        record.fields.insert("context_tokens".to_owned(), context_tokens.to_string());
-        record.fields.insert("cpu_threads".to_owned(), threads.to_string());
+        record
+            .fields
+            .insert("context_tokens".to_owned(), context_tokens.to_string());
+        record
+            .fields
+            .insert("cpu_threads".to_owned(), threads.to_string());
         record
             .fields
             .insert("maximum_cpu_threads".to_owned(), max_threads.to_string());
@@ -167,16 +188,18 @@ fn remove(
     path: &Path,
     context: &CliContext,
 ) -> CliResult<i32> {
-    let id = args.required_position(0, "model reference ID")?.to_lowercase();
+    let id = args
+        .required_position(0, "model reference ID")?
+        .to_lowercase();
     let mut record = snapshot
         .get_record(RecordType::SETTINGS, &id)?
-        .filter(|record| record.field("record_role") == Some("model-reference") && !record.deleted())
+        .filter(|record| {
+            record.field("record_role") == Some("model-reference") && !record.deleted()
+        })
         .ok_or_else(|| CliError("Model reference not found.".to_owned()))?;
-    record.fields.insert("_deleted".to_owned(), "true".to_owned());
-    record.fields.insert("active".to_owned(), "false".to_owned());
     record
         .fields
-        .insert("updated_at_us".to_owned(), now());
+        .insert("_deleted".to_owned(), "true".to_owned());
     let next = snapshot.append_records(&[record.clone()])?;
     crate::core::cli::records::save_replacing(path, &next)?;
     let _ = context;
@@ -187,6 +210,145 @@ fn remove(
         args.json(),
     );
     Ok(0)
+}
+
+struct CliModelInspection {
+    path: PathBuf,
+    available: bool,
+    size_bytes: u64,
+    format: &'static str,
+    gguf: Option<GgufMetadata>,
+    estimate: Option<(String, bool)>,
+}
+
+impl CliModelInspection {
+    fn report(&self) -> Value {
+        if !self.available {
+            return json!({"path": self.path.to_string_lossy(), "available": false});
+        }
+        let Some(gguf) = &self.gguf else {
+            return json!({
+                "path": self.path.to_string_lossy(),
+                "available": true,
+                "size_bytes": self.size_bytes,
+                "format": "unknown",
+                "metadata": "not-inspected",
+            });
+        };
+        let mut report = json!({
+            "path": self.path.to_string_lossy(),
+            "available": true,
+            "size_bytes": self.size_bytes,
+            "format": "GGUF",
+            "metadata": "inspected",
+            "gguf_version": gguf.gguf_version,
+            "tensor_count": gguf.tensor_count.to_string(),
+            "metadata_count": gguf.metadata_count.to_string(),
+            "architecture": gguf.architecture.clone(),
+            "name": gguf.name.clone(),
+            "description": gguf.description.clone(),
+            "training_context_tokens": gguf.training_context_tokens.clone(),
+            "embedding_length": gguf.embedding_length.clone(),
+            "layer_count": gguf.layer_count.clone(),
+        });
+        if let Some((total, overflowed)) = &self.estimate {
+            report["estimated_memory_bytes_upper_bound"] = Value::String(total.clone());
+            report["memory_estimate_overflowed"] =
+                Value::String(if *overflowed { "true" } else { "false" }.to_owned());
+        }
+        report
+    }
+
+    fn message(&self) -> String {
+        if !self.available {
+            return "Selected model file is missing or not a regular non-symlink file.".to_owned();
+        }
+        let Some(gguf) = &self.gguf else {
+            return format!(
+                "Model file: {} ({} bytes; not-inspected).",
+                self.path.to_string_lossy(),
+                self.size_bytes
+            );
+        };
+        if gguf.architecture.is_empty() {
+            return format!(
+                "Model file: {} ({} bytes; inspected).",
+                self.path.to_string_lossy(),
+                self.size_bytes
+            );
+        }
+        let estimate = self
+            .estimate
+            .as_ref()
+            .map(|(total, _)| total.as_str())
+            .unwrap_or("unknown");
+        format!(
+            "GGUF model: {} ({}, {}, {} layers, {} bytes; estimated memory {} bytes).",
+            self.path.to_string_lossy(),
+            if gguf.name.is_empty() {
+                "unnamed"
+            } else {
+                gguf.name.as_str()
+            },
+            gguf.architecture,
+            gguf.layer_count,
+            self.size_bytes,
+            estimate
+        )
+    }
+}
+
+fn inspect_cli_model(path: &Path) -> CliResult<CliModelInspection> {
+    let available = std::fs::symlink_metadata(path)
+        .ok()
+        .is_some_and(|metadata| metadata.is_file() && !metadata.file_type().is_symlink());
+    if !available {
+        return Ok(CliModelInspection {
+            path: path.to_path_buf(),
+            available: false,
+            size_bytes: 0,
+            format: "unknown",
+            gguf: None,
+            estimate: None,
+        });
+    }
+    let size_bytes = std::fs::metadata(path)
+        .map_err(|_| CliError("The selected model file could not be inspected.".to_owned()))?
+        .len();
+    let is_gguf = path
+        .to_string_lossy()
+        .to_ascii_lowercase()
+        .ends_with(".gguf");
+    if !is_gguf {
+        return Ok(CliModelInspection {
+            path: path.to_path_buf(),
+            available: true,
+            size_bytes,
+            format: "unknown",
+            gguf: None,
+            estimate: None,
+        });
+    }
+    let gguf = read_gguf_metadata(path).map_err(CliError)?;
+    let estimate = if !gguf.architecture.is_empty()
+        && !gguf.embedding_length.is_empty()
+        && !gguf.layer_count.is_empty()
+    {
+        Some(
+            estimate_gguf_memory(size_bytes, &gguf.embedding_length, &gguf.layer_count, 4096)
+                .map_err(CliError)?,
+        )
+    } else {
+        None
+    };
+    Ok(CliModelInspection {
+        path: path.to_path_buf(),
+        available: true,
+        size_bytes,
+        format: "GGUF",
+        gguf: Some(gguf),
+        estimate,
+    })
 }
 
 fn inspect(
@@ -202,19 +364,11 @@ fn inspect(
         .or_else(|| args.positionals.first().cloned())
         .ok_or_else(|| CliError("A model path is required.".to_owned()))?;
     let resolved = resolve_from_archive(archive, &selected);
-    let metadata = std::fs::symlink_metadata(&resolved).ok();
-    let available = metadata
-        .as_ref()
-        .is_some_and(|value| value.is_file() && !value.file_type().is_symlink());
-    if !available {
-        let report = json!({"path": resolved.to_string_lossy(), "available": false});
+    let inspection = inspect_cli_model(&resolved)?;
+    if !inspection.available {
+        let report = inspection.report();
         if verify {
-            emit(
-                output,
-                report,
-                "Selected model file is missing or not a regular non-symlink file.",
-                args.json(),
-            );
+            emit(output, report, &inspection.message(), args.json());
             return Ok(2);
         }
         return Err(CliError(
@@ -222,53 +376,10 @@ fn inspect(
         )
         .into());
     }
-    let size = metadata.map(|value| value.len()).unwrap_or(0);
-    let extension = resolved
-        .extension()
-        .and_then(|value| value.to_str())
-        .unwrap_or("")
-        .to_ascii_lowercase();
-    if extension == "gguf" {
-        let inspection = inspect_model_path(&resolved.to_string_lossy()).map_err(CliError)?;
-        let report = json!({
-            "path": inspection.path,
-            "available": true,
-            "size_bytes": inspection.file_size_bytes,
-            "format": "GGUF",
-            "metadata": "GGUF header validated",
-            "tensor_count": inspection.tensor_count.to_string(),
-            "architecture": inspection.architecture,
-            "name": inspection.name,
-            "estimated_memory_bytes_upper_bound": inspection.estimated_memory_bytes.to_string(),
-            "memory_estimate_overflowed": "false",
-        });
-        emit(
-            output,
-            report.clone(),
-            &format!(
-                "GGUF model: {} ({}, {}, {} tensors, {} bytes; estimated memory {} bytes).",
-                report["path"].as_str().unwrap_or(""),
-                report["name"].as_str().unwrap_or("unnamed"),
-                report["architecture"].as_str().unwrap_or(""),
-                report["tensor_count"].as_str().unwrap_or("0"),
-                size,
-                report["estimated_memory_bytes_upper_bound"].as_str().unwrap_or("0")
-            ),
-            args.json(),
-        );
-        return Ok(0);
-    }
-    let report = json!({
-        "path": resolved.to_string_lossy(),
-        "available": true,
-        "size_bytes": size,
-        "format": if extension.is_empty() { "file" } else { extension.as_str() },
-        "metadata": "regular file",
-    });
     emit(
         output,
-        report.clone(),
-        &format!("Model file: {} ({} bytes).", report["path"].as_str().unwrap_or(""), size),
+        inspection.report(),
+        &inspection.message(),
         args.json(),
     );
     Ok(0)
@@ -279,7 +390,10 @@ fn resolve_from_archive(archive: &Path, value: &str) -> PathBuf {
     if candidate.is_absolute() {
         candidate.to_path_buf()
     } else {
-        archive.parent().unwrap_or_else(|| Path::new(".")).join(candidate)
+        archive
+            .parent()
+            .unwrap_or_else(|| Path::new("."))
+            .join(candidate)
     }
 }
 
@@ -291,7 +405,10 @@ fn bounded(value: Option<&str>, name: &str, fallback: u64, min: u64, max: u64) -
             .ok()
             .filter(|value| (min..=max).contains(value))
             .ok_or_else(|| {
-                CliError(format!("--{name} must be an integer from {min} through {max}.")).into()
+                CliError(format!(
+                    "--{name} must be an integer from {min} through {max}."
+                ))
+                .into()
             }),
     }
 }
