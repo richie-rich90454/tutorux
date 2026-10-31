@@ -1,5 +1,20 @@
 use super::*;
 
+#[path = "transcript_audio.rs"]
+mod transcript_audio;
+
+#[path = "transcript_cues.rs"]
+mod transcript_cues;
+
+#[path = "transcript_plan.rs"]
+mod transcript_plan;
+
+#[path = "transcript_whisper.rs"]
+mod transcript_whisper;
+
+use transcript_plan::run_transcript_plan;
+use transcript_whisper::run_transcript_transcription;
+
 pub(crate) fn run_transcript(
     action: &str,
     args: ParsedArguments,
@@ -169,91 +184,9 @@ pub(crate) fn run_transcript(
         "correct" | "timestamp" | "verify" | "speaker" | "split" | "merge" | "history"
         | "restore" => run_transcript_edit(action, &snapshot, &args, output, path),
         "transcribe" | "generate" | "refine" => {
-            let session_id = args.required_option("session")?.to_lowercase();
-            require_live(&snapshot, RecordType::SESSION, &session_id)?;
-            let has_audio = snapshot
-                .list_records(RecordType::AUDIO_CHUNK, false)?
-                .iter()
-                .any(|record| {
-                    record.field("session_id").map(str::to_lowercase) == Some(session_id.clone())
-                });
-            if !has_audio {
-                return Err(CliError("The session has no recorded audio track.".to_owned()).into());
-            }
-            if args.option("whisper").is_none() || args.option("model").is_none() {
-                return Err(CliError(
-                    "Whisper model and executable are required for transcription.".to_owned(),
-                )
-                .into());
-            }
-            Err(CliError(
-                "Whisper transcription runs through the native desktop backend; use the desktop workspace or the bundled audio helper."
-                    .to_owned(),
-            )
-            .into())
+            run_transcript_transcription(action, &snapshot, &args, output, path)
         }
-        "plan" => {
-            let session_id = args.required_option("session")?.to_lowercase();
-            if let Some(track) = args.option("track") {
-                if !is_uuid(&track.to_lowercase()) {
-                    return Err(CliError("--track must be a valid UUID.".to_owned()).into());
-                }
-            }
-            let threads = parse_integer(args.option("threads"), "threads", 0, 0, 64)?;
-            let model_memory = parse_integer(
-                args.option("model-memory-mb"),
-                "model-memory-mb",
-                512,
-                0,
-                1_048_576,
-            )?;
-            let available_memory = parse_integer(
-                args.option("available-memory-mb"),
-                "available-memory-mb",
-                0,
-                0,
-                1_048_576,
-            )?;
-            let hardware = std::thread::available_parallelism()
-                .map(|value| value.get() as u64)
-                .unwrap_or(1)
-                .max(1);
-            let effective_threads = if threads == 0 {
-                hardware.min(8)
-            } else {
-                threads
-            };
-            let estimated_memory = model_memory + 128 + effective_threads * 16;
-            let feasible = available_memory == 0 || estimated_memory <= available_memory;
-            let session = require_live(&snapshot, RecordType::SESSION, &session_id)?;
-            emit(
-                output,
-                json!({
-                    "session_id": session_id,
-                    "track_id": args.option("track").unwrap_or("").to_lowercase(),
-                    "duration_us": session.field("audio_duration_us").unwrap_or("0"),
-                    "threads": effective_threads,
-                    "model_memory_mb": model_memory,
-                    "estimated_memory_mb": estimated_memory,
-                    "available_memory_mb": available_memory,
-                    "available_known": available_memory != 0,
-                    "feasible": feasible,
-                }),
-                &format!(
-                    "Transcription plan: {effective_threads} thread(s), {estimated_memory} MB estimated working memory{}.",
-                    if available_memory == 0 {
-                        "; available memory not supplied".to_owned()
-                    } else {
-                        format!(
-                            ", {} the available {available_memory} MB",
-                            if feasible { "within" } else { "above" }
-                        )
-                    }
-                ),
-                args.json(),
-            );
-            Ok(0)
-        }
+        "plan" => run_transcript_plan(&args, output, &snapshot),
         _ => Err(CliError(format!(
             "transcript {action} is not implemented in the Rust CLI yet."
         ))
