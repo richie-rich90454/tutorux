@@ -1,118 +1,228 @@
-use serde_json::json;
+use std::time::Instant;
+
+use serde_json::{json, Map, Value};
 
 use crate::core::cli::{
     emit, open_archive, Cancellation, CliContext, CliError, CliOutput, CliResult, ParsedArguments,
 };
+use crate::core::format::{ArchiveRecord, RecordType};
+use crate::diagnostics::{headless_host_summary, headless_system_snapshot};
 
 pub fn run_benchmark_command(
     action: &str,
     args: ParsedArguments,
     output: &mut dyn CliOutput,
     context: &CliContext,
-    _cancellation: &dyn Cancellation,
+    cancellation: &dyn Cancellation,
 ) -> CliResult<i32> {
-    let started = std::time::Instant::now();
-    match action {
-        "startup" => {
-            emit(
-                output,
-                json!({"startup_us": started.elapsed().as_micros().to_string(), "status": "ok"}),
-                "Startup benchmark completed.",
-                args.json(),
-            );
-            Ok(0)
+    let started = Instant::now();
+    if !matches!(
+        action,
+        "startup" | "memory" | "cpu" | "indexing" | "rendering" | "export" | "audio" | "full"
+    ) {
+        return Err(CliError(format!("Unknown benchmark: {action}.")).into());
+    }
+    let mut report = base_report(action);
+    let needs_archive = matches!(action, "indexing" | "export" | "full");
+    if needs_archive {
+        let Some(path) = context.archive_path.clone() else {
+            return Err(CliError(format!("benchmark {action} requires --archive.")).into());
+        };
+        let snapshot = open_archive(&path, context.passphrase())?;
+        if snapshot.locked() {
+            return Err(CliError(
+                "This archive is encrypted. Provide --passphrase-env to unlock it.".to_owned(),
+            )
+            .into());
         }
-        "memory" => {
-            emit(
-                output,
-                json!({"rss_bytes": "0", "virtual_bytes": "0", "status": "ok"}),
-                "Memory benchmark completed.",
-                args.json(),
-            );
-            Ok(0)
+        if cancellation.is_cancelled() {
+            return Err(CliError("Benchmark cancelled.".to_owned()).into());
         }
-        "cpu" => {
-            emit(
-                output,
-                json!({"iterations": "0", "elapsed_us": started.elapsed().as_micros().to_string()}),
-                "CPU benchmark completed.",
-                args.json(),
-            );
-            Ok(0)
+        if matches!(action, "indexing" | "full") {
+            measure_index(&mut report, &snapshot, cancellation)?;
         }
-        "indexing" => {
-            let path = args
-                .positionals
-                .first()
-                .map(String::as_str)
-                .or(args.option("archive"))
-                .or_else(|| context.archive_path.as_deref().and_then(|path| path.to_str()));
-            let (generation, index_records) = if let Some(path) = path {
-                let snapshot = open_archive(&crate::core::cli::resolve_path(path), context.passphrase())?;
-                let mut indexed = 0usize;
-                for record_type in [
-                    crate::core::format::RecordType::STUDENT,
-                    crate::core::format::RecordType::SESSION,
-                    crate::core::format::RecordType::TRANSCRIPT_SEGMENT,
-                    crate::core::format::RecordType::ANNOTATION,
-                    crate::core::format::RecordType::ASSET_METADATA,
-                    crate::core::format::RecordType::EVIDENCE_NODE,
-                    crate::core::format::RecordType::GUIDE,
-                ] {
-                    indexed += snapshot.list_record_metadata(record_type, false)?.len();
-                }
-                (
-                    snapshot.commit.generation.to_string(),
-                    indexed.to_string(),
-                )
-            } else {
-                ("0".to_owned(), "0".to_owned())
-            };
-            emit(
-                output,
-                json!({
-                    "index_records": index_records,
-                    "index_elapsed_us": started.elapsed().as_micros().to_string(),
-                    "archive_generation": generation,
-                }),
-                "Indexing benchmark completed.",
-                args.json(),
-            );
-            Ok(0)
+        if action == "export" {
+            measure_export(&mut report, &snapshot, &args)?;
         }
-        "rendering" | "export" => {
-            emit(
-                output,
-                json!({"elapsed_us": started.elapsed().as_micros().to_string(), "status": "ok"}),
-                "Benchmark completed.",
-                args.json(),
-            );
-            Ok(0)
+    }
+    if matches!(action, "audio" | "full") {
+        if cancellation.is_cancelled() {
+            return Err(CliError("Benchmark cancelled.".to_owned()).into());
         }
-        "audio" => {
-            emit(
-                output,
-                json!({"elapsed_us": started.elapsed().as_micros().to_string(), "status": "ok"}),
-                "Audio benchmark completed.",
-                args.json(),
-            );
-            Ok(0)
+        measure_audio(&mut report);
+    }
+    if action == "rendering" {
+        report.insert("rendering_measured".to_owned(), json!(false));
+        report.insert(
+            "rendering_reason".to_owned(),
+            json!("run-the-benchmark-in-the-active-desktop-window"),
+        );
+    }
+    if action == "cpu" {
+        let cpu_started = Instant::now();
+        let mut accumulator = 0u64;
+        for index in 0..2_000_000u64 {
+            accumulator = accumulator.wrapping_add(index.wrapping_mul(2_654_435_761));
+            if index % 250_000 == 0 && cancellation.is_cancelled() {
+                return Err(CliError("Benchmark cancelled.".to_owned()).into());
+            }
         }
-        "full" => {
-            emit(
-                output,
-                json!({
-                    "startup_us": started.elapsed().as_micros().to_string(),
-                    "memory": {"rss_bytes": "0"},
-                    "cpu": {"elapsed_us": started.elapsed().as_micros().to_string()},
-                    "indexing": {"index_records": "0", "archive_generation": "0"},
-                    "status": "ok",
-                }),
-                "Full benchmark completed.",
-                args.json(),
-            );
-            Ok(0)
+        report.insert("cpu_iterations".to_owned(), json!("2000000"));
+        report.insert(
+            "cpu_elapsed_us".to_owned(),
+            json!(cpu_started.elapsed().as_micros().to_string()),
+        );
+        report.insert("cpu_checksum".to_owned(), json!(accumulator.to_string()));
+    }
+    report.insert(
+        "command_elapsed_us".to_owned(),
+        json!(started.elapsed().as_micros() as u64),
+    );
+    emit(
+        output,
+        Value::Object(report.clone()),
+        &serde_json::to_string_pretty(&Value::Object(report)).unwrap_or_else(|_| "{}".to_owned()),
+        args.json(),
+    );
+    Ok(0)
+}
+
+fn base_report(action: &str) -> Map<String, Value> {
+    let mut report = Map::new();
+    report.insert("benchmark".to_owned(), json!(action));
+    if let Some(system) = headless_system_snapshot().as_object() {
+        for (name, value) in system {
+            report.insert(name.clone(), value.clone());
         }
-        _ => Err(CliError(format!("benchmark {action} is not implemented in the Rust CLI yet.")).into()),
+    }
+    if let Some(host) = headless_host_summary().as_object() {
+        for (name, value) in host {
+            report.insert(name.clone(), value.clone());
+        }
+    }
+    let number = |name: &str| {
+        report
+            .get(name)
+            .and_then(Value::as_str)
+            .and_then(|value| value.parse::<u64>().ok())
+            .map_or(Value::Null, |value| json!(value))
+    };
+    let total_memory = report
+        .get("total_memory_bytes")
+        .cloned()
+        .unwrap_or_else(|| json!(0));
+    let available_memory = number("available_memory_bytes");
+    let resident_memory = number("resident_memory_bytes");
+    let uptime_seconds = report
+        .get("process_uptime_us")
+        .and_then(Value::as_str)
+        .and_then(|value| value.parse::<u64>().ok())
+        .map_or(Value::Null, |value| json!(value as f64 / 1_000_000.0));
+    report.insert("total_memory_bytes".to_owned(), total_memory);
+    report.insert("available_memory_bytes".to_owned(), available_memory);
+    report.insert("resident_memory_bytes".to_owned(), resident_memory);
+    report.insert("process_uptime_seconds".to_owned(), uptime_seconds);
+    report.insert(
+        "measurement_scope".to_owned(),
+        json!(if action == "startup" {
+            "process-uptime-and-current-command"
+        } else {
+            "current-process"
+        }),
+    );
+    report
+}
+
+fn measure_index(
+    report: &mut Map<String, Value>,
+    snapshot: &crate::core::archive::ArchiveSnapshot,
+    cancellation: &dyn Cancellation,
+) -> CliResult<()> {
+    let started = Instant::now();
+    let mut indexed = 0usize;
+    for record_type in [
+        RecordType::STUDENT,
+        RecordType::SESSION,
+        RecordType::TRANSCRIPT_SEGMENT,
+        RecordType::ANNOTATION,
+        RecordType::ASSET_METADATA,
+        RecordType::EVIDENCE_NODE,
+        RecordType::GUIDE,
+    ] {
+        if cancellation.is_cancelled() {
+            return Err(CliError("Benchmark cancelled.".to_owned()).into());
+        }
+        indexed += snapshot.list_record_metadata(record_type, false)?.len();
+    }
+    report.insert("index_records".to_owned(), json!(indexed.to_string()));
+    report.insert(
+        "index_elapsed_us".to_owned(),
+        json!(started.elapsed().as_micros().to_string()),
+    );
+    report.insert(
+        "archive_generation".to_owned(),
+        json!(snapshot.commit.generation.to_string()),
+    );
+    Ok(())
+}
+
+fn measure_export(
+    report: &mut Map<String, Value>,
+    snapshot: &crate::core::archive::ArchiveSnapshot,
+    args: &ParsedArguments,
+) -> CliResult<()> {
+    let guide_id = args.required_option("guide")?.to_lowercase();
+    let guide: ArchiveRecord = snapshot
+        .get_record(RecordType::GUIDE, &guide_id)?
+        .filter(|record| !record.deleted())
+        .ok_or_else(|| CliError("Guide was not found.".to_owned()))?;
+    let started = Instant::now();
+    let markdown = crate::core::cli::records::render_guide_markdown(&guide);
+    report.insert("export_format".to_owned(), json!("markdown-render"));
+    report.insert("export_bytes".to_owned(), json!(markdown.len()));
+    report.insert(
+        "export_elapsed_us".to_owned(),
+        json!(started.elapsed().as_micros().to_string()),
+    );
+    Ok(())
+}
+
+fn measure_audio(report: &mut Map<String, Value>) {
+    let started = Instant::now();
+    let count = super::diagnostics::audio_rows().len();
+    report.insert(
+        "audio_devices".to_owned(),
+        if count == 0 { json!("unavailable") } else { json!(count) },
+    );
+    report.insert(
+        "audio_enumeration_elapsed_us".to_owned(),
+        json!(started.elapsed().as_micros().to_string()),
+    );
+    if count == 0 {
+        report.insert(
+            "audio_reason".to_owned(),
+            json!("Audio endpoint enumeration is unavailable."),
+        );
+        report.insert("audio_status".to_owned(), json!("unavailable"));
+    } else {
+        report.insert("audio_status".to_owned(), json!("checked"));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::base_report;
+
+    #[test]
+    fn benchmark_report_keeps_legacy_numeric_and_string_scalars() {
+        let report = base_report("startup");
+        assert_eq!(report.get("benchmark").and_then(|value| value.as_str()), Some("startup"));
+        assert!(report.get("total_memory_bytes").is_some_and(|value| value.is_number()));
+        assert!(report.get("process_uptime_us").is_some_and(|value| value.is_string()));
+        assert!(report.get("platform").is_some_and(|value| value.is_string()));
+        assert_eq!(
+            report.get("measurement_scope").and_then(|value| value.as_str()),
+            Some("process-uptime-and-current-command")
+        );
     }
 }
