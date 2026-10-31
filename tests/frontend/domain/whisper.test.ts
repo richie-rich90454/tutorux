@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { AudioPreview } from "./audio";
-import { makeWhisperRecords } from "./whisper";
+import type { AudioPreview } from "../../../frontend/domain/audio";
+import { makeWhisperRecords } from "../../../frontend/domain/whisper";
 
 const preview: AudioPreview = {
     wav: new Uint8Array(44 + 32_000),
