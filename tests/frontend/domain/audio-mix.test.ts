@@ -1,7 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { appendRecords, createArchiveBytes, openArchiveBytes } from "../archive/archive";
-import { crc32, newUuid, RecordType, type ArchiveRecord } from "../archive/format";
-import { mixRecordingTracks, mixRecordingTracksIncremental } from "./audio-mix";
+import {
+    appendRecords,
+    createArchiveBytes,
+    openArchiveBytes,
+} from "../../../frontend/archive/archive";
+import { crc32, newUuid, RecordType, type ArchiveRecord } from "../../../frontend/archive/format";
+import {
+    mixRecordingTracks,
+    mixRecordingTracksIncremental,
+} from "../../../frontend/domain/audio-mix";
 
 describe("incremental recording mix", () => {
     it("commits track metadata, chunks, and completion without holding the mix in memory", async () => {
