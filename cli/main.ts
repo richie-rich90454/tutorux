@@ -32,10 +32,11 @@ Usage:
   tutorux archive unlock <file.tux> [--passphrase-env <name>] [--json]
   tutorux --passphrase-env <current-name> archive change-passphrase <file.tux> --new-passphrase-env <new-name>
   tutorux archive info <file.tux> [--json]
-  tutorux archive verify <file.tux> [--history] [--passphrase-env <name>] [--json]
+  tutorux archive verify <file.tux> [--full] [--history] [--passphrase-env <name>] [--json]
   tutorux archive backup|copy <file.tux> --output <copy.tux> --confirm-sensitive [--json]
   tutorux archive recover <file.tux> [--apply] [--json]
   tutorux archive compact <file.tux> [--prune-unreferenced-assets] [--apply] [--json]
+  tutorux archive purge-trash <file.tux> [--apply] [--json]
   tutorux archive backfill-indexes <file.tux> [--apply] [--json]
   tutorux archive repair <file.tux> --output <copy.tux> --confirm-sensitive [--json]
   tutorux archive rebuild-index <file.tux> --output <new-copy.tux> --confirm-sensitive [--json]
