@@ -10,7 +10,7 @@
 .diagnostics-report-error {
     margin: 0;
     color: var(--muted);
-    font-size: 9px;
+    font-size: 12px;
     line-height: 1.55;
 }
 
@@ -23,7 +23,7 @@
     align-items: flex-start;
     gap: 8px;
     color: var(--ink-soft);
-    font-size: 9px;
+    font-size: 12px;
     line-height: 1.45;
 }
 
@@ -44,7 +44,7 @@
 
 .diagnostics-report-actions [role="status"] {
     color: var(--muted);
-    font-size: 9px;
+    font-size: 12px;
 }
 
 .diagnostics-report-error {
@@ -68,19 +68,19 @@
     gap: 4px;
     padding: 10px 12px;
     border: 1px solid var(--line-soft);
-    border-radius: 7px;
+    border-radius: 5px;
     background: var(--surface-subtle);
 }
 
 .diagnostics-report-summary dt {
     color: var(--muted);
-    font-size: 8px;
+    font-size: 12px;
 }
 
 .diagnostics-report-summary dd {
     margin: 0;
     color: var(--ink-soft);
-    font-size: 10px;
+    font-size: 12px;
     font-variant-numeric: tabular-nums;
     overflow-wrap: anywhere;
 }
