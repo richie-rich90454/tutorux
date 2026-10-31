@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
-import type { ArchiveSnapshot } from "../archive/archive";
-import { RecordType, type ArchiveRecord } from "../archive/format";
+import type { ArchiveSnapshot } from "../../../frontend/archive/archive";
+import { RecordType, type ArchiveRecord } from "../../../frontend/archive/format";
 import {
     makeEvidenceRecord,
     restoreEvidenceEdge,
@@ -8,7 +8,7 @@ import {
     trashEvidenceEdge,
     trashEvidenceRecord,
     updateEvidenceRecord,
-} from "./evidence";
+} from "../../../frontend/domain/evidence";
 
 function evidenceRecord(overrides: Record<string, string> = {}): ArchiveRecord {
     return {
