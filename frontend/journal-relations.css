@@ -26,7 +26,7 @@
     margin-top: 10px;
     padding: 14px;
     border: 1px solid var(--line);
-    border-radius: var(--radius);
+    border-radius: 5px;
     background: var(--surface-subtle);
 }
 .journal-relations-content h3,
@@ -67,7 +67,7 @@
     gap: 10px;
     padding: 12px;
     border: 1px solid var(--line);
-    border-radius: var(--radius);
+    border-radius: 5px;
     background: var(--surface);
 }
 .journal-session-create h4 {
