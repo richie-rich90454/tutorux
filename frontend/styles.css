@@ -24,66 +24,69 @@
 
 :root {
     color-scheme: light;
-    font-family: "Noto Sans", "Segoe UI Variable", "Segoe UI", sans-serif;
+    font-family: "Noto Sans", sans-serif;
+    --font-display: "Noto Sans", sans-serif;
     font-synthesis: none;
     text-rendering: optimizeLegibility;
     -webkit-font-smoothing: antialiased;
-    --canvas: #f7f8f5;
+    --canvas: #fff;
     --surface: #fff;
-    --surface-subtle: #fbfcfa;
-    --surface-inset: #f0f3ef;
-    --sidebar: #f9faf8;
-    --ink: #18211b;
-    --ink-soft: #35443a;
-    --muted: #637267;
-    --faint: #849087;
-    --line: #dfe6df;
-    --line-soft: #edf1ed;
-    --line-strong: #c5d0c6;
-    --accent: #315b4a;
-    --accent-hover: #294e3e;
-    --accent-deep: #244638;
-    --accent-soft: #eaf0eb;
-    --accent-mid: #9bc8aa;
+    --surface-subtle: #fafbfb;
+    --surface-inset: #f2f4f4;
+    --sidebar: #fbfbfb;
+    --ink: #171a1c;
+    --ink-soft: #303639;
+    --muted: #5b6468;
+    --faint: #778084;
+    --line: #dfe3e5;
+    --line-soft: #eceff0;
+    --line-strong: #c5cbce;
+    --accent: #4a6870;
+    --accent-hover: #3e5b63;
+    --accent-deep: #30484f;
+    --accent-soft: #edf2f3;
+    --accent-mid: #9aafb4;
     --danger: #b83d36;
     --danger-soft: #faeeec;
     --warning: #9b6e2f;
-    --success: #315b4a;
+    --success: #4a6870;
     --recording: #e34d47;
-    --shadow-soft: 0 2px 8px rgb(19 39 27 / 3%), 0 14px 36px rgb(19 39 27 / 3%);
-    --shadow-menu: 0 18px 64px rgb(19 39 27 / 15%), 0 2px 10px rgb(19 39 27 / 6%);
-    --radius: 8px;
-    --radius-large: 12px;
+    --shadow-soft: none;
+    --shadow-menu: none;
+    --shadow: transparent;
+    --radius: 5px;
+    --radius-large: 5px;
     background: var(--canvas);
     color: var(--ink);
 }
 
 :root[data-theme="dark"] {
     color-scheme: dark;
-    --canvas: #101713;
-    --surface: #171f19;
-    --surface-subtle: #141b16;
-    --surface-inset: #121a15;
-    --sidebar: #111814;
-    --ink: #f1f5f1;
-    --ink-soft: #d1dbd3;
-    --muted: #a5b5a9;
-    --faint: #87968b;
-    --line: #2a3830;
-    --line-soft: #233028;
-    --line-strong: #405147;
-    --accent: #9bc8aa;
-    --accent-hover: #b3d9bd;
-    --accent-deep: #2b4134;
-    --accent-soft: #22372b;
-    --accent-mid: #9bc8aa;
+    --canvas: #000;
+    --surface: #080909;
+    --surface-subtle: #080909;
+    --surface-inset: #151819;
+    --sidebar: #050606;
+    --ink: #f5f6f6;
+    --ink-soft: #d8ddde;
+    --muted: #a4adaf;
+    --faint: #818b8e;
+    --line: #272d2f;
+    --line-soft: #1a2022;
+    --line-strong: #3a4245;
+    --accent: #a9c0c5;
+    --accent-hover: #c0d2d6;
+    --accent-deep: #d5e1e3;
+    --accent-soft: #172125;
+    --accent-mid: #7c9aa1;
     --danger: #ff8278;
     --danger-soft: #351f1d;
     --warning: #d7b679;
-    --success: #a8d4b6;
+    --success: #b5cbd0;
     --recording: #ef706a;
-    --shadow-soft: 0 2px 8px rgb(0 0 0 / 14%), 0 14px 36px rgb(0 0 0 / 14%);
-    --shadow-menu: 0 18px 64px rgb(0 0 0 / 48%), 0 2px 10px rgb(0 0 0 / 24%);
+    --shadow-soft: none;
+    --shadow-menu: none;
+    --shadow: transparent;
 }
 
 * {
@@ -138,10 +141,10 @@ button:disabled {
     left: 12px;
     padding: 10px 14px;
     border: 1px solid var(--line-strong);
-    border-radius: var(--radius);
+    border-radius: 5px;
     background: var(--surface);
     color: var(--ink);
-    box-shadow: var(--shadow-menu);
+    box-shadow: none;
     transform: translateY(calc(-100% - 18px));
 }
 .skip-link:focus-visible {
@@ -152,139 +155,22 @@ button:disabled {
 .skip-link:hover {
     border-color: var(--accent);
 }
-.topbar {
-    position: relative;
-    z-index: 5;
-    height: 68px;
-    display: flex;
-    align-items: center;
-    gap: 24px;
-    padding: 0 27px;
-    border-bottom: 1px solid var(--line);
-    background: var(--surface);
-}
-.brand-lockup {
-    min-width: 252px;
-    display: flex;
-    align-items: center;
-    gap: 10px;
-}
-.brand-mark {
-    display: block;
-    width: 29px;
-    height: 29px;
-    border-radius: 6px;
-}
-.brand-name {
-    color: var(--ink);
-    font-size: 16px;
-    font-weight: 700;
-    letter-spacing: -0.045em;
-}
-.brand-divider {
-    width: 1px;
-    height: 17px;
-    margin: 0 2px 0 6px;
-    background: var(--line);
-}
-.brand-context {
-    color: var(--muted);
-    font-size: 11px;
-    font-weight: 500;
-}
-.topbar-center {
-    min-width: 0;
-    flex: 1;
-    display: flex;
-    align-items: center;
-    gap: 12px;
-}
-.archive-status {
-    min-width: 0;
-    max-width: 310px;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    overflow: hidden;
-    color: var(--muted);
-    font-size: 12px;
-    font-weight: 500;
-    white-space: nowrap;
-    text-overflow: ellipsis;
-}
-.archive-status > span:last-child {
-    overflow: hidden;
-    text-overflow: ellipsis;
-}
 .status-dot {
     width: 7px;
     height: 7px;
     border-radius: 50%;
     background: var(--faint);
-    box-shadow: 0 0 0 3px color-mix(in srgb, var(--faint) 12%, transparent);
+    box-shadow: none;
 }
-.archive-status.is-open .status-dot {
-    background: #4c8a64;
-    box-shadow: 0 0 0 3px color-mix(in srgb, #4c8a64 15%, transparent);
-}
-.dirty-label {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    color: var(--warning);
-    font-size: 10px;
-    font-weight: 600;
-}
-.dirty-label span {
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-    background: currentColor;
-}
-.topbar-actions {
-    display: flex;
-    align-items: center;
-    gap: 9px;
-}
-.topbar-search {
-    width: 218px;
-    height: 34px;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 0 8px 0 10px;
-    border: 1px solid var(--line);
-    border-radius: 6px;
-    color: var(--faint);
-    background: var(--surface-subtle);
-    text-align: left;
-    cursor: pointer;
-    transition:
-        border-color 0.16s ease,
-        background 0.16s ease;
-}
-.topbar-search:hover {
-    border-color: var(--line-strong);
-    background: var(--surface);
-}
-.topbar-search .icon {
-    width: 15px;
-    height: 15px;
-}
-.topbar-search > span {
-    flex: 1;
-    font-size: 11px;
-}
-.topbar-search kbd,
 .palette-search kbd,
 .palette-footer kbd {
     padding: 2px 5px;
     border: 1px solid var(--line);
-    border-radius: 4px;
+    border-radius: 5px;
     color: var(--faint);
     background: var(--surface);
     font:
-        9px/1.4 "Noto Sans",
+        12px/1.4 "Noto Sans",
         sans-serif;
 }
 .button {
@@ -295,8 +181,8 @@ button:disabled {
     gap: 8px;
     padding: 0 12px;
     border: 1px solid transparent;
-    border-radius: 6px;
-    font-size: 11px;
+    border-radius: 5px;
+    font-size: 12px;
     font-weight: 600;
     text-decoration: none;
     white-space: nowrap;
@@ -353,7 +239,7 @@ button:disabled {
 .button-large {
     min-height: 43px;
     padding: 0 15px;
-    font-size: 11px;
+    font-size: 12px;
 }
 .button-large .icon {
     width: 16px;
@@ -366,7 +252,7 @@ button:disabled {
     place-items: center;
     padding: 0;
     border: 0;
-    border-radius: 6px;
+    border-radius: 5px;
     color: var(--muted);
     background: transparent;
     cursor: pointer;
@@ -382,13 +268,6 @@ button:disabled {
     width: 17px;
     height: 17px;
 }
-.topbar-save {
-    min-width: 92px;
-}
-.theme-button {
-    margin: 0 1px;
-}
-
 .workspace-frame {
     min-height: calc(100vh - 68px);
     display: grid;
@@ -418,10 +297,10 @@ button:disabled {
     place-items: center;
     flex: 0 0 auto;
     border: 1px solid color-mix(in srgb, var(--accent) 16%, transparent);
-    border-radius: 8px;
+    border-radius: 5px;
     color: var(--accent);
     background: var(--accent-soft);
-    font-size: 11px;
+    font-size: 12px;
     font-weight: 700;
 }
 .workspace-monogram .icon {
@@ -435,13 +314,13 @@ button:disabled {
     gap: 3px;
 }
 .workspace-switcher-copy .eyebrow {
-    font-size: 8px;
+    font-size: 12px;
     letter-spacing: 0.09em;
 }
 .workspace-switcher-copy strong {
     overflow: hidden;
     color: var(--ink);
-    font-size: 10px;
+    font-size: 12px;
     font-weight: 600;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -461,7 +340,7 @@ button:disabled {
 .nav-group-title,
 .eyebrow {
     color: var(--faint);
-    font-size: 9px;
+    font-size: 12px;
     font-weight: 700;
     letter-spacing: 0.105em;
     line-height: 1.4;
@@ -478,11 +357,11 @@ button:disabled {
     gap: 10px;
     padding: 0 10px;
     border: 0;
-    border-radius: 6px;
+    border-radius: 5px;
     color: var(--muted);
     background: transparent;
     text-align: left;
-    font-size: 11px;
+    font-size: 12px;
     font-weight: 500;
     cursor: pointer;
     transition:
@@ -494,7 +373,7 @@ button:disabled {
     left: 0;
     width: 2px;
     height: 17px;
-    border-radius: 0 3px 3px 0;
+    border-radius: 5px;
     background: transparent;
     content: "";
 }
@@ -530,7 +409,7 @@ button:disabled {
     border-radius: 5px;
     color: var(--muted);
     background: var(--surface-inset);
-    font-size: 9px;
+    font-size: 12px;
     font-weight: 600;
 }
 .sidebar-bottom {
@@ -543,7 +422,7 @@ button:disabled {
     margin: 12px 3px 14px;
     padding: 11px 10px;
     border: 1px solid var(--line-soft);
-    border-radius: 7px;
+    border-radius: 5px;
     background: color-mix(in srgb, var(--surface) 68%, transparent);
 }
 .privacy-icon {
@@ -552,7 +431,7 @@ button:disabled {
     display: grid;
     place-items: center;
     flex: 0 0 auto;
-    border-radius: 6px;
+    border-radius: 5px;
     color: var(--accent);
     background: var(--accent-soft);
 }
@@ -567,12 +446,12 @@ button:disabled {
 }
 .privacy-card strong {
     color: var(--ink-soft);
-    font-size: 9px;
+    font-size: 12px;
     font-weight: 600;
 }
 .privacy-card span:not(.privacy-icon) {
     color: var(--faint);
-    font-size: 8px;
+    font-size: 12px;
 }
 .sidebar-account {
     display: flex;
@@ -586,10 +465,10 @@ button:disabled {
     height: 28px;
     display: grid;
     place-items: center;
-    border-radius: 7px;
+    border-radius: 5px;
     color: #fff;
     background: var(--accent);
-    font-size: 10px;
+    font-size: 12px;
     font-weight: 700;
 }
 :root[data-theme="dark"] .account-avatar {
@@ -603,12 +482,12 @@ button:disabled {
 }
 .account-copy strong {
     color: var(--ink-soft);
-    font-size: 9px;
+    font-size: 12px;
     font-weight: 600;
 }
 .account-copy span {
     color: var(--faint);
-    font-size: 8px;
+    font-size: 12px;
 }
 .sidebar-account .icon-button {
     width: 25px;
@@ -639,7 +518,7 @@ button:disabled {
     align-items: center;
     gap: 9px;
     color: var(--faint);
-    font-size: 10px;
+    font-size: 12px;
 }
 .breadcrumbs .icon {
     width: 12px;
@@ -678,7 +557,7 @@ button:disabled {
     outline: 0;
     color: var(--ink);
     background: transparent;
-    font-size: 9px;
+    font-size: 12px;
 }
 .inline-search input::placeholder {
     color: var(--faint);
@@ -687,18 +566,12 @@ button:disabled {
     flex: none;
     padding: 2px 4px;
     border: 1px solid var(--line-soft);
-    border-radius: 3px;
+    border-radius: 5px;
     color: var(--faint);
     background: var(--surface-subtle);
-    font-size: 7px;
+    font-size: 12px;
     line-height: 1;
     white-space: nowrap;
-}
-.toolbar-more {
-    width: 30px;
-    height: 30px;
-    border: 1px solid var(--line-soft);
-    background: var(--surface);
 }
 .page-body {
     width: min(1240px, 100%);
@@ -720,18 +593,8 @@ button:disabled {
     overflow: hidden;
     padding: 40px clamp(25px, 4vw, 56px);
     border: 1px solid color-mix(in srgb, var(--accent) 12%, var(--line));
-    border-radius: 10px;
-    background:
-        radial-gradient(
-            circle at 80% 42%,
-            color-mix(in srgb, var(--accent-mid) 16%, transparent) 0,
-            transparent 37%
-        ),
-        linear-gradient(
-            110deg,
-            var(--surface) 3%,
-            color-mix(in srgb, var(--surface) 88%, var(--accent-soft)) 100%
-        );
+    border-radius: 5px;
+    background: var(--surface);
 }
 .welcome-copy {
     position: relative;
@@ -743,7 +606,7 @@ button:disabled {
     align-items: center;
     gap: 7px;
     color: var(--accent);
-    font-size: 9px;
+    font-size: 12px;
     letter-spacing: 0.12em;
 }
 .welcome-eyebrow span {
@@ -751,7 +614,7 @@ button:disabled {
     height: 7px;
     border-radius: 50%;
     background: var(--accent);
-    box-shadow: 0 0 0 4px var(--accent-soft);
+    box-shadow: none;
 }
 .welcome-copy h1 {
     margin: 16px 0 12px;
@@ -788,7 +651,7 @@ button:disabled {
     gap: 7px;
     margin-top: 21px;
     color: var(--faint);
-    font-size: 9px;
+    font-size: 12px;
 }
 .welcome-promise .icon {
     width: 13px;
@@ -808,9 +671,9 @@ button:disabled {
     min-height: 253px;
     padding: 17px 18px 13px;
     border: 1px solid color-mix(in srgb, var(--accent) 16%, var(--line));
-    border-radius: 6px;
+    border-radius: 5px;
     background: color-mix(in srgb, var(--surface) 96%, transparent);
-    box-shadow: 0 16px 32px color-mix(in srgb, var(--accent-deep) 12%, transparent);
+    box-shadow: none;
     transform: rotate(-3deg);
 }
 .art-paper-head {
@@ -818,7 +681,7 @@ button:disabled {
     align-items: center;
     gap: 6px;
     color: var(--faint);
-    font-size: 6px;
+    font-size: 12px;
     font-weight: 700;
     letter-spacing: 0.12em;
 }
@@ -829,14 +692,14 @@ button:disabled {
 .art-brand-dot {
     width: 6px;
     height: 6px;
-    border-radius: 2px;
+    border-radius: 5px;
     background: var(--accent);
 }
 .art-paper-title {
     width: 70%;
     height: 10px;
     margin: 17px 0 12px;
-    border-radius: 2px;
+    border-radius: 5px;
     background: var(--ink-soft);
     opacity: 0.81;
 }
@@ -844,7 +707,7 @@ button:disabled {
     width: 84%;
     height: 4px;
     margin: 7px 0;
-    border-radius: 2px;
+    border-radius: 5px;
     background: var(--line-strong);
     opacity: 0.56;
 }
@@ -861,7 +724,7 @@ button:disabled {
     margin-top: 16px;
     padding: 8px 9px;
     border-left: 2px solid var(--accent);
-    border-radius: 3px;
+    border-radius: 5px;
     background: var(--accent-soft);
 }
 .art-paper-note > span {
@@ -877,7 +740,7 @@ button:disabled {
 }
 .art-paper-note i {
     height: 3px;
-    border-radius: 3px;
+    border-radius: 5px;
     background: color-mix(in srgb, var(--accent) 39%, var(--line));
 }
 .art-paper-note i:last-child {
@@ -889,13 +752,13 @@ button:disabled {
     justify-content: space-between;
     margin-top: 16px;
     color: var(--faint);
-    font-size: 6px;
+    font-size: 12px;
     font-weight: 700;
     letter-spacing: 0.07em;
 }
 .art-paper-footer strong {
     color: var(--accent);
-    font-size: 8px;
+    font-size: 12px;
     letter-spacing: 0;
 }
 .art-paper-chart {
@@ -908,7 +771,7 @@ button:disabled {
 .art-paper-chart span {
     height: var(--bar);
     flex: 1;
-    border-radius: 2px 2px 0 0;
+    border-radius: 5px;
     background: color-mix(in srgb, var(--accent-mid) 70%, var(--surface));
 }
 .art-paper-chart span:nth-child(4n + 1) {
@@ -937,9 +800,9 @@ button:disabled {
     gap: 8px;
     padding: 9px 10px;
     border: 1px solid var(--line);
-    border-radius: 7px;
+    border-radius: 5px;
     background: var(--surface);
-    box-shadow: var(--shadow-soft);
+    box-shadow: none;
 }
 .art-note {
     top: 30px;
@@ -950,7 +813,7 @@ button:disabled {
     height: 7px;
     border-radius: 50%;
     background: #92ba9d;
-    box-shadow: 0 0 0 4px var(--accent-soft);
+    box-shadow: none;
 }
 .art-floating > div {
     display: grid;
@@ -958,12 +821,12 @@ button:disabled {
 }
 .art-floating strong {
     color: var(--ink-soft);
-    font-size: 8px;
+    font-size: 12px;
     font-weight: 600;
 }
 .art-floating small {
     color: var(--faint);
-    font-size: 7px;
+    font-size: 12px;
 }
 .art-note > .icon {
     width: 13px;
@@ -983,15 +846,15 @@ button:disabled {
     border-radius: 50%;
     color: #79514a;
     background: #ead3c8;
-    font-size: 8px;
+    font-size: 12px;
     font-weight: 700;
 }
 .student-progress {
     padding: 4px 5px;
-    border-radius: 4px;
+    border-radius: 5px;
     color: var(--accent);
     background: var(--accent-soft);
-    font-size: 7px;
+    font-size: 12px;
     font-weight: 700;
 }
 .art-leaf {
@@ -1049,7 +912,7 @@ button:disabled {
     grid-row: span 2;
     place-items: center;
     border: 1px solid var(--line-soft);
-    border-radius: 7px;
+    border-radius: 5px;
     color: var(--accent);
     background: var(--surface);
 }
@@ -1060,13 +923,13 @@ button:disabled {
 .welcome-feature h3 {
     margin: 1px 0 3px;
     color: var(--ink-soft);
-    font-size: 10px;
+    font-size: 12px;
     font-weight: 600;
 }
 .welcome-feature p {
     margin: 0;
     color: var(--faint);
-    font-size: 9px;
+    font-size: 12px;
     line-height: 1.65;
 }
 .welcome-footer {
@@ -1077,7 +940,7 @@ button:disabled {
     padding-top: 12px;
     border-top: 1px solid var(--line-soft);
     color: var(--faint);
-    font-size: 9px;
+    font-size: 12px;
 }
 
 .overview-heading,
@@ -1106,7 +969,7 @@ button:disabled {
     max-width: 540px;
     margin: 0;
     color: var(--muted);
-    font-size: 11px;
+    font-size: 12px;
     line-height: 1.7;
 }
 .heading-action-group {
@@ -1128,7 +991,7 @@ button:disabled {
     display: grid;
     gap: 5px;
     color: var(--muted);
-    font-size: 9px;
+    font-size: 12px;
     font-weight: 600;
 }
 .session-package-student-picker select {
@@ -1136,10 +999,10 @@ button:disabled {
     min-height: 34px;
     padding: 0 28px 0 10px;
     border: 1px solid var(--line);
-    border-radius: 6px;
+    border-radius: 5px;
     color: var(--ink-soft);
     background: var(--surface);
-    font-size: 10px;
+    font-size: 12px;
 }
 .overview-stat-grid {
     display: grid;
@@ -1155,7 +1018,7 @@ button:disabled {
     gap: 10px;
     padding: 14px 12px;
     border: 1px solid var(--line);
-    border-radius: var(--radius);
+    border-radius: 5px;
     color: var(--ink);
     background: var(--surface);
     text-align: left;
@@ -1167,7 +1030,7 @@ button:disabled {
 }
 .stat-card:hover {
     border-color: color-mix(in srgb, var(--accent) 34%, var(--line));
-    box-shadow: var(--shadow-soft);
+    box-shadow: none;
     transform: translateY(-1px);
 }
 .stat-icon {
@@ -1176,7 +1039,7 @@ button:disabled {
     display: grid;
     place-items: center;
     flex: 0 0 auto;
-    border-radius: 7px;
+    border-radius: 5px;
     color: var(--accent);
     background: var(--accent-soft);
 }
@@ -1216,7 +1079,7 @@ button:disabled {
 }
 .stat-copy > span {
     color: var(--muted);
-    font-size: 10px;
+    font-size: 12px;
     font-weight: 500;
 }
 .stat-copy strong {
@@ -1229,7 +1092,7 @@ button:disabled {
 .stat-copy small {
     overflow: hidden;
     color: var(--faint);
-    font-size: 9px;
+    font-size: 12px;
     text-overflow: ellipsis;
     white-space: nowrap;
 }
@@ -1247,7 +1110,7 @@ button:disabled {
 .surface-card {
     min-width: 0;
     border: 1px solid var(--line);
-    border-radius: var(--radius);
+    border-radius: 5px;
     background: var(--surface);
 }
 .activity-card {
@@ -1267,7 +1130,7 @@ button:disabled {
     gap: 12px;
 }
 .card-heading .eyebrow {
-    font-size: 7px;
+    font-size: 12px;
 }
 .card-heading h2 {
     margin: 3px 0 0;
@@ -1288,17 +1151,17 @@ button:disabled {
     min-height: 23px;
     padding: 0 7px;
     border: 0;
-    border-radius: 3px;
+    border-radius: 5px;
     color: var(--faint);
     background: transparent;
-    font-size: 7px;
+    font-size: 12px;
     font-weight: 600;
     cursor: pointer;
 }
 .segmented-control button.selected {
     color: var(--ink-soft);
     background: var(--surface);
-    box-shadow: 0 1px 3px rgb(19 39 27 / 9%);
+    box-shadow: none;
 }
 .activity-summary {
     display: flex;
@@ -1314,7 +1177,7 @@ button:disabled {
 }
 .activity-summary span {
     color: var(--muted);
-    font-size: 8px;
+    font-size: 12px;
 }
 .activity-chart {
     position: relative;
@@ -1365,23 +1228,19 @@ button:disabled {
     justify-content: center;
     border: 1px solid color-mix(in srgb, var(--accent) 13%, transparent);
     border-bottom: 0;
-    border-radius: 4px 4px 0 0;
+    border-radius: 5px;
     color: var(--accent);
-    background: linear-gradient(
-        180deg,
-        color-mix(in srgb, var(--accent-mid) 60%, var(--surface)) 0%,
-        color-mix(in srgb, var(--accent-soft) 74%, transparent) 100%
-    );
+    background: var(--accent-soft);
     transition: height 0.2s ease;
 }
 .chart-bar span {
     margin-top: 4px;
-    font-size: 7px;
+    font-size: 12px;
     font-weight: 700;
 }
 .chart-label {
     color: var(--faint);
-    font-size: 7px;
+    font-size: 12px;
 }
 .chart-legend {
     display: flex;
@@ -1391,12 +1250,12 @@ button:disabled {
     padding-top: 11px;
     border-top: 1px solid var(--line-soft);
     color: var(--muted);
-    font-size: 7px;
+    font-size: 12px;
 }
 .legend-dot {
     width: 7px;
     height: 7px;
-    border-radius: 2px;
+    border-radius: 5px;
     background: var(--accent-mid);
 }
 .chart-note {
@@ -1411,7 +1270,7 @@ button:disabled {
     border: 0;
     color: var(--accent);
     background: transparent;
-    font-size: 9px;
+    font-size: 12px;
     font-weight: 600;
     cursor: pointer;
 }
@@ -1458,7 +1317,7 @@ button:disabled {
     border-radius: 50%;
     color: #765449;
     background: #f0dfd5;
-    font-size: 9px;
+    font-size: 12px;
     font-weight: 700;
 }
 .avatar-1 {
@@ -1507,7 +1366,7 @@ button:disabled {
 .journal-peek > span:nth-child(2) strong {
     overflow: hidden;
     color: var(--ink-soft);
-    font-size: 10px;
+    font-size: 12px;
     font-weight: 600;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -1516,7 +1375,7 @@ button:disabled {
 .journal-peek > span:nth-child(2) small {
     overflow: hidden;
     color: var(--faint);
-    font-size: 7px;
+    font-size: 12px;
     text-overflow: ellipsis;
     white-space: nowrap;
 }
@@ -1557,7 +1416,7 @@ button:disabled {
 }
 .session-date span {
     color: var(--faint);
-    font-size: 6px;
+    font-size: 12px;
     font-weight: 700;
     letter-spacing: 0.07em;
 }
@@ -1567,7 +1426,7 @@ button:disabled {
     display: grid;
     place-items: center;
     flex: 0 0 auto;
-    border-radius: 6px;
+    border-radius: 5px;
     color: #59798b;
     background: #edf3f5;
 }
@@ -1593,7 +1452,7 @@ button:disabled {
     overflow: hidden;
     margin: 0;
     color: var(--ink-soft);
-    font-size: 10px;
+    font-size: 12px;
     font-weight: 600;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -1602,16 +1461,16 @@ button:disabled {
     overflow: hidden;
     margin: 3px 0 0;
     color: var(--muted);
-    font-size: 7px;
+    font-size: 12px;
     text-overflow: ellipsis;
     white-space: nowrap;
 }
 .session-state {
     padding: 2px 5px;
     border: 1px solid var(--line-soft);
-    border-radius: 4px;
+    border-radius: 5px;
     color: var(--muted);
-    font-size: 6px;
+    font-size: 12px;
     font-weight: 600;
     text-transform: capitalize;
 }
@@ -1647,7 +1506,7 @@ button:disabled {
 }
 .journal-date small {
     color: var(--faint);
-    font-size: 6px;
+    font-size: 12px;
     font-weight: 700;
     letter-spacing: 0.08em;
 }
@@ -1683,13 +1542,13 @@ button:disabled {
 }
 .empty-mini strong {
     color: var(--ink-soft);
-    font-size: 9px;
+    font-size: 12px;
     font-weight: 600;
 }
 .empty-mini p {
     margin: 4px 0 7px;
     color: var(--muted);
-    font-size: 8px;
+    font-size: 12px;
     line-height: 1.6;
 }
 .overview-footnote {
@@ -1698,7 +1557,7 @@ button:disabled {
     justify-content: space-between;
     margin-top: 14px;
     color: var(--faint);
-    font-size: 8px;
+    font-size: 12px;
 }
 .overview-footnote > span,
 .overview-footnote button {
@@ -1716,7 +1575,7 @@ button:disabled {
     border: 0;
     color: var(--muted);
     background: transparent;
-    font-size: 8px;
+    font-size: 12px;
     cursor: pointer;
 }
 .overview-footnote button:hover {
@@ -1740,7 +1599,7 @@ button:disabled {
 .record-list-shell {
     overflow: hidden;
     border: 1px solid var(--line);
-    border-radius: var(--radius);
+    border-radius: 5px;
     background: var(--surface);
 }
 .record-list-toolbar {
@@ -1751,7 +1610,7 @@ button:disabled {
     padding: 0 15px;
     border-bottom: 1px solid var(--line-soft);
     color: var(--faint);
-    font-size: 8px;
+    font-size: 12px;
 }
 .session-list-toolbar {
     gap: 10px;
@@ -1763,7 +1622,7 @@ button:disabled {
     gap: 2px;
     padding: 3px;
     border: 1px solid var(--line-soft);
-    border-radius: 6px;
+    border-radius: 5px;
     background: var(--surface-subtle);
 }
 .session-view-switch > button {
@@ -1773,10 +1632,10 @@ button:disabled {
     gap: 6px;
     padding: 0 9px;
     border: 1px solid transparent;
-    border-radius: 4px;
+    border-radius: 5px;
     color: var(--muted);
     background: transparent;
-    font-size: 8px;
+    font-size: 12px;
     font-weight: 600;
     cursor: pointer;
 }
@@ -1790,12 +1649,12 @@ button:disabled {
 }
 .session-view-switch > button > span {
     color: var(--faint);
-    font-size: 7px;
+    font-size: 12px;
     font-variant-numeric: tabular-nums;
 }
 .record-list-toolbar strong {
     color: var(--ink-soft);
-    font-size: 9px;
+    font-size: 12px;
     font-weight: 600;
 }
 .list-view-label {
@@ -1843,7 +1702,7 @@ button:disabled {
     max-width: 710px;
     margin: 7px 0;
     color: var(--muted);
-    font-size: 10px;
+    font-size: 12px;
     line-height: 1.7;
 }
 .record-badge {
@@ -1851,10 +1710,10 @@ button:disabled {
     align-items: center;
     padding: 3px 7px;
     border: 1px solid var(--line-soft);
-    border-radius: 4px;
+    border-radius: 5px;
     color: var(--muted);
     background: var(--surface-subtle);
-    font-size: 7px;
+    font-size: 12px;
     font-weight: 500;
     white-space: nowrap;
 }
@@ -1867,10 +1726,10 @@ button:disabled {
 .subject-chip {
     padding: 3px 7px;
     border: 1px solid color-mix(in srgb, var(--accent) 15%, var(--line-soft));
-    border-radius: 4px;
+    border-radius: 5px;
     color: var(--accent);
     background: var(--accent-soft);
-    font-size: 7px;
+    font-size: 12px;
     font-weight: 500;
 }
 .record-actions {
@@ -1882,7 +1741,7 @@ button:disabled {
 .record-action {
     min-height: 30px;
     padding: 0 9px;
-    font-size: 9px;
+    font-size: 12px;
 }
 .record-menu {
     flex: 0 0 auto;
@@ -1909,7 +1768,7 @@ button:disabled {
     gap: 12px;
     padding: 16px;
     border: 1px solid color-mix(in srgb, var(--danger) 22%, var(--line));
-    border-radius: 9px;
+    border-radius: 5px;
     background: color-mix(in srgb, var(--danger-soft) 40%, var(--surface));
 }
 .trash-purge-review h2 {
@@ -1920,16 +1779,16 @@ button:disabled {
 .trash-purge-review p {
     margin: 0;
     color: var(--ink-soft);
-    font-size: 11px;
+    font-size: 12px;
     line-height: 1.55;
 }
 .trash-purge-blockers {
     padding: 11px 12px;
     border: 1px solid color-mix(in srgb, var(--danger) 24%, var(--line));
-    border-radius: 7px;
+    border-radius: 5px;
     color: var(--danger);
     background: var(--surface);
-    font-size: 10px;
+    font-size: 12px;
     line-height: 1.5;
 }
 .trash-purge-blockers > strong {
@@ -1975,7 +1834,7 @@ button:disabled {
     margin-top: 16px;
     padding: 12px 14px;
     border: 1px solid color-mix(in srgb, var(--danger) 18%, var(--line-soft));
-    border-radius: 7px;
+    border-radius: 5px;
     color: var(--danger);
     background: color-mix(in srgb, var(--danger-soft) 48%, var(--surface));
 }
@@ -1986,7 +1845,7 @@ button:disabled {
 }
 .session-trash-total span {
     color: var(--ink-soft);
-    font-size: 10px;
+    font-size: 12px;
 }
 .session-trash-scope {
     display: grid;
@@ -1995,7 +1854,7 @@ button:disabled {
     overflow: hidden;
     margin: 10px 0 0;
     border: 1px solid var(--line-soft);
-    border-radius: 7px;
+    border-radius: 5px;
     background: var(--line-soft);
 }
 .session-trash-scope > div {
@@ -2007,19 +1866,19 @@ button:disabled {
 }
 .session-trash-scope dt {
     color: var(--muted);
-    font-size: 9px;
+    font-size: 12px;
 }
 .session-trash-scope dd {
     margin: 0;
     color: var(--ink-soft);
-    font-size: 10px;
+    font-size: 12px;
     font-weight: 650;
     font-variant-numeric: tabular-nums;
 }
 .session-trash-note {
     margin: 12px 0 0;
     color: var(--muted);
-    font-size: 9px;
+    font-size: 12px;
     line-height: 1.6;
 }
 .session-trash-detail {
@@ -2027,7 +1886,7 @@ button:disabled {
     max-width: 460px;
     margin-top: 5px;
     color: var(--muted);
-    font-size: 8px;
+    font-size: 12px;
     line-height: 1.5;
 }
 .session-actions {
@@ -2039,7 +1898,7 @@ button:disabled {
 .record-detail {
     margin-top: 9px;
     color: var(--muted);
-    font-size: 8px;
+    font-size: 12px;
 }
 .record-detail summary {
     width: fit-content;
@@ -2062,17 +1921,17 @@ button:disabled {
     height: 42px;
 }
 .session-record.is-expanded .record-card-title h2 {
-    font-size: 10px;
+    font-size: 12px;
 }
 .session-record.is-expanded .session-record-main > p {
-    font-size: 8px;
+    font-size: 12px;
 }
 .session-objective {
     display: block;
     overflow: hidden;
     margin-top: 5px;
     color: var(--muted);
-    font-size: 8px;
+    font-size: 12px;
     text-overflow: ellipsis;
     white-space: nowrap;
 }
@@ -2082,7 +1941,7 @@ button:disabled {
     gap: 11px;
     margin-top: 7px;
     color: var(--faint);
-    font-size: 7px;
+    font-size: 12px;
 }
 .record-inline-meta > span {
     display: inline-flex;
@@ -2096,7 +1955,7 @@ button:disabled {
 .session-open {
     min-height: 29px;
     margin-left: 5px;
-    font-size: 8px;
+    font-size: 12px;
 }
 .session-open .icon {
     width: 12px;
@@ -2120,7 +1979,7 @@ button:disabled {
 .journal-record-main > p {
     margin: 0;
     color: var(--muted);
-    font-size: 8px;
+    font-size: 12px;
 }
 .journal-record-card > .icon {
     width: 15px;
@@ -2136,7 +1995,7 @@ button:disabled {
     display: grid;
     place-items: center;
     flex: 0 0 auto;
-    border-radius: 7px;
+    border-radius: 5px;
     color: var(--accent);
     background: var(--accent-soft);
 }
@@ -2183,7 +2042,7 @@ button:disabled {
 }
 .library-record-card small {
     color: var(--faint);
-    font-size: 7px;
+    font-size: 12px;
 }
 .empty-state {
     min-height: 330px;
@@ -2207,7 +2066,7 @@ button:disabled {
     width: 73px;
     height: 79px;
     border: 1px solid color-mix(in srgb, var(--accent) 16%, var(--line));
-    border-radius: 7px;
+    border-radius: 5px;
     background: var(--accent-soft);
     transform: rotate(8deg) translate(7px, 2px);
 }
@@ -2220,9 +2079,9 @@ button:disabled {
     align-content: center;
     gap: 7px;
     border: 1px solid var(--line);
-    border-radius: 6px;
+    border-radius: 5px;
     background: var(--surface);
-    box-shadow: var(--shadow-soft);
+    box-shadow: none;
     transform: rotate(-5deg);
 }
 .empty-illustration-paper .icon {
@@ -2234,7 +2093,7 @@ button:disabled {
 .empty-illustration-paper i {
     width: 35px;
     height: 3px;
-    border-radius: 2px;
+    border-radius: 5px;
     background: var(--line);
 }
 .empty-illustration-paper i:last-child {
@@ -2258,7 +2117,7 @@ button:disabled {
     max-width: 365px;
     margin: 7px 0 16px;
     color: var(--muted);
-    font-size: 9px;
+    font-size: 12px;
     line-height: 1.75;
 }
 
@@ -2275,12 +2134,8 @@ button:disabled {
     overflow: hidden;
     padding: 22px;
     border: 1px solid var(--line);
-    border-radius: var(--radius);
-    background: linear-gradient(
-        113deg,
-        var(--surface) 50%,
-        color-mix(in srgb, var(--accent-soft) 73%, var(--surface)) 100%
-    );
+    border-radius: 5px;
+    background: var(--surface);
 }
 .archive-card-art {
     position: relative;
@@ -2290,7 +2145,7 @@ button:disabled {
     place-items: center;
     flex: 0 0 auto;
     border: 1px solid color-mix(in srgb, var(--accent) 17%, var(--line));
-    border-radius: 7px;
+    border-radius: 5px;
     background: color-mix(in srgb, var(--accent-soft) 70%, var(--surface));
 }
 .archive-card-art img {
@@ -2298,8 +2153,8 @@ button:disabled {
     z-index: 1;
     width: 51px;
     height: 51px;
-    border-radius: 10px;
-    box-shadow: 0 8px 22px color-mix(in srgb, var(--accent) 16%, transparent);
+    border-radius: 5px;
+    box-shadow: none;
 }
 .archive-card-glow {
     position: absolute;
@@ -2326,7 +2181,7 @@ button:disabled {
 .archive-summary-copy > p {
     margin: 0;
     color: var(--muted);
-    font-size: 9px;
+    font-size: 12px;
 }
 .archive-chip-row {
     display: flex;
@@ -2340,10 +2195,10 @@ button:disabled {
     gap: 5px;
     padding: 4px 7px;
     border: 1px solid var(--line-soft);
-    border-radius: 4px;
+    border-radius: 5px;
     color: var(--muted);
     background: var(--surface);
-    font-size: 7px;
+    font-size: 12px;
 }
 .archive-chip-row .icon {
     width: 11px;
@@ -2365,7 +2220,7 @@ button:disabled {
 }
 .archive-size > span {
     color: var(--faint);
-    font-size: 7px;
+    font-size: 12px;
     font-weight: 700;
     letter-spacing: 0.1em;
 }
@@ -2380,7 +2235,7 @@ button:disabled {
 .archive-size small {
     overflow: hidden;
     color: var(--faint);
-    font-size: 7px;
+    font-size: 12px;
     text-overflow: ellipsis;
     white-space: nowrap;
 }
@@ -2398,7 +2253,7 @@ button:disabled {
     gap: 6px;
     padding: 11px;
     border: 1px solid var(--line);
-    border-radius: 7px;
+    border-radius: 5px;
     background: var(--surface);
 }
 .info-card-icon {
@@ -2416,19 +2271,19 @@ button:disabled {
     height: 12px;
 }
 .archive-info-card .eyebrow {
-    font-size: 7px;
+    font-size: 12px;
 }
 .archive-info-card > strong {
     overflow: hidden;
     color: var(--ink-soft);
-    font-size: 9px;
+    font-size: 12px;
     font-weight: 600;
     text-overflow: ellipsis;
     white-space: nowrap;
 }
 .archive-info-card > strong.mono {
-    font-family: ui-monospace, "Cascadia Code", "Segoe UI Mono", monospace;
-    font-size: 7px;
+    font-family: "Noto Sans", sans-serif;
+    font-size: 12px;
 }
 .archive-integrity {
     display: flex;
@@ -2442,7 +2297,7 @@ button:disabled {
     display: grid;
     place-items: center;
     flex: 0 0 auto;
-    border-radius: 7px;
+    border-radius: 5px;
     color: var(--success);
     background: var(--accent-soft);
 }
@@ -2463,13 +2318,13 @@ button:disabled {
 .archive-integrity h2 {
     margin: 0;
     color: var(--ink-soft);
-    font-size: 9px;
+    font-size: 12px;
     font-weight: 600;
 }
 .archive-integrity p {
     margin: 3px 0 0;
     color: var(--muted);
-    font-size: 8px;
+    font-size: 12px;
 }
 .archive-integrity .archive-integrity-error {
     color: var(--danger);
@@ -2479,7 +2334,7 @@ button:disabled {
     align-items: center;
     gap: 6px;
     color: var(--success);
-    font-size: 7px;
+    font-size: 12px;
     font-weight: 600;
     white-space: nowrap;
 }
@@ -2497,20 +2352,20 @@ button:disabled {
     margin-top: 13px;
     padding: 15px 16px;
     border: 1px solid var(--line);
-    border-radius: 7px;
+    border-radius: 5px;
     background: var(--surface);
 }
 .archive-actions-card h2 {
     margin: 4px 0;
     color: var(--ink-soft);
-    font-size: 11px;
+    font-size: 12px;
     font-weight: 600;
 }
 .archive-actions-card p {
     max-width: 480px;
     margin: 0;
     color: var(--muted);
-    font-size: 8px;
+    font-size: 12px;
     line-height: 1.7;
 }
 .archive-actions-card > div:last-child {
@@ -2524,7 +2379,7 @@ button:disabled {
     margin: 18px 30px 0;
     padding: 13px 15px;
     border: 1px solid color-mix(in srgb, var(--warning) 28%, var(--line));
-    border-radius: 7px;
+    border-radius: 5px;
     color: var(--warning);
     background: color-mix(in srgb, var(--warning) 8%, var(--surface));
 }
@@ -2538,12 +2393,12 @@ button:disabled {
     flex: 0 0 auto;
 }
 .locked-banner strong {
-    font-size: 10px;
+    font-size: 12px;
 }
 .locked-banner p {
     margin: 3px 0 0;
     color: var(--muted);
-    font-size: 8px;
+    font-size: 12px;
     line-height: 1.6;
 }
 .locked-copy {
@@ -2575,17 +2430,17 @@ button:disabled {
     margin: 10px 30px 0;
     padding: 10px 12px;
     border: 1px solid var(--line);
-    border-radius: 6px;
+    border-radius: 5px;
     color: var(--muted);
     background: var(--surface-subtle);
-    font-size: 8px;
+    font-size: 12px;
 }
 
 .settings-section {
     margin: 12px 0;
     overflow: hidden;
     border: 1px solid var(--line);
-    border-radius: var(--radius);
+    border-radius: 5px;
     background: var(--surface);
 }
 .settings-section-heading {
@@ -2595,13 +2450,13 @@ button:disabled {
 .settings-section-heading h2 {
     margin: 0;
     color: var(--ink-soft);
-    font-size: 11px;
+    font-size: 12px;
     font-weight: 600;
 }
 .settings-section-heading p {
     margin: 4px 0 0;
     color: var(--muted);
-    font-size: 8px;
+    font-size: 12px;
 }
 .shortcut-matrix {
     margin: 0;
@@ -2621,13 +2476,13 @@ button:disabled {
 .shortcut-matrix-row dt {
     min-width: 0;
     color: var(--ink-soft);
-    font-size: 9px;
+    font-size: 12px;
 }
 .shortcut-matrix-row dd {
     max-width: 62%;
     margin: 0;
     color: var(--muted);
-    font-size: 8px;
+    font-size: 12px;
     text-align: right;
     overflow-wrap: anywhere;
     font-variant-numeric: tabular-nums;
@@ -2649,7 +2504,7 @@ button:disabled {
     display: grid;
     place-items: center;
     flex: 0 0 auto;
-    border-radius: 6px;
+    border-radius: 5px;
     color: #a27e3f;
     background: #f4f0e7;
 }
@@ -2669,14 +2524,14 @@ button:disabled {
 }
 .preference-copy strong {
     color: var(--ink-soft);
-    font-size: 9px;
+    font-size: 12px;
     font-weight: 600;
 }
 .preference-copy span,
 .preference-value {
     overflow: hidden;
     color: var(--faint);
-    font-size: 8px;
+    font-size: 12px;
     text-overflow: ellipsis;
     white-space: nowrap;
 }
@@ -2685,10 +2540,10 @@ button:disabled {
     height: 32px;
     padding: 0 9px;
     border: 1px solid var(--line);
-    border-radius: 6px;
+    border-radius: 5px;
     color: var(--ink-soft);
     background: var(--surface);
-    font-size: 9px;
+    font-size: 12px;
     cursor: pointer;
 }
 .settings-note {
@@ -2698,7 +2553,7 @@ button:disabled {
     margin-top: 13px;
     padding: 14px 16px;
     border: 1px solid color-mix(in srgb, var(--accent) 14%, var(--line));
-    border-radius: 7px;
+    border-radius: 5px;
     background: color-mix(in srgb, var(--accent-soft) 48%, var(--surface));
 }
 .settings-note > .icon {
@@ -2708,13 +2563,13 @@ button:disabled {
 }
 .settings-note strong {
     color: var(--ink-soft);
-    font-size: 9px;
+    font-size: 12px;
     font-weight: 600;
 }
 .settings-note p {
     margin: 3px 0 0;
     color: var(--muted);
-    font-size: 8px;
+    font-size: 12px;
 }
 
 .dialog-backdrop,
@@ -2726,7 +2581,7 @@ button:disabled {
     place-items: center;
     padding: 22px;
     background: rgb(10 16 12 / 43%);
-    backdrop-filter: blur(5px);
+    backdrop-filter: none;
     animation: fade-in 0.14s ease-out;
 }
 .modal-focus-scope {
@@ -2743,9 +2598,9 @@ button:disabled {
     overflow: auto;
     padding: 26px 28px 18px;
     border: 1px solid var(--line);
-    border-radius: 11px;
+    border-radius: 5px;
     background: var(--surface);
-    box-shadow: var(--shadow-menu);
+    box-shadow: none;
     animation: modal-in 0.18s ease-out;
 }
 .dialog-close {
@@ -2760,7 +2615,7 @@ button:disabled {
     place-items: center;
     margin-bottom: 16px;
     border: 1px solid color-mix(in srgb, var(--accent) 17%, var(--line));
-    border-radius: 9px;
+    border-radius: 5px;
     color: var(--accent);
     background: var(--accent-soft);
 }
@@ -2782,7 +2637,7 @@ button:disabled {
     max-width: 405px;
     margin: 0 0 18px;
     color: var(--muted);
-    font-size: 9px;
+    font-size: 12px;
     line-height: 1.7;
 }
 .form-dialog form {
@@ -2794,7 +2649,7 @@ button:disabled {
     display: grid;
     gap: 5px;
     color: var(--ink-soft);
-    font-size: 8px;
+    font-size: 12px;
     font-weight: 600;
 }
 .form-field > input,
@@ -2809,7 +2664,7 @@ button:disabled {
     outline: 0;
     color: var(--ink);
     background: var(--surface-subtle);
-    font-size: 9px;
+    font-size: 12px;
     font-weight: 400;
     transition:
         border-color 0.12s ease,
@@ -2835,7 +2690,7 @@ button:disabled {
 .form-field > select:focus-visible,
 .optional-fields > textarea:focus-visible {
     border-color: var(--accent);
-    box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 12%, transparent);
+    box-shadow: none;
 }
 .archive-encryption-toggle {
     display: flex;
@@ -2843,7 +2698,7 @@ button:disabled {
     gap: 9px;
     padding: 11px 12px;
     border: 1px solid var(--line);
-    border-radius: 6px;
+    border-radius: 5px;
     color: var(--ink);
     background: var(--surface-subtle);
     cursor: pointer;
@@ -2859,13 +2714,13 @@ button:disabled {
     gap: 3px;
 }
 .archive-encryption-toggle strong {
-    font-size: 9px;
+    font-size: 12px;
     font-weight: 650;
 }
 .archive-encryption-toggle small,
 .archive-encryption-help {
     color: var(--ink-soft);
-    font-size: 8px;
+    font-size: 12px;
     line-height: 1.5;
 }
 .archive-encryption-help {
@@ -2878,12 +2733,12 @@ button:disabled {
 }
 .optional {
     color: var(--faint);
-    font-size: 7px;
+    font-size: 12px;
     font-weight: 400;
 }
 .optional-fields {
     color: var(--ink-soft);
-    font-size: 8px;
+    font-size: 12px;
 }
 .optional-fields summary {
     width: fit-content;
@@ -2893,7 +2748,7 @@ button:disabled {
 .optional-fields summary span {
     margin-left: 5px;
     color: var(--faint);
-    font-size: 7px;
+    font-size: 12px;
 }
 .optional-fields > textarea {
     display: block;
@@ -2914,7 +2769,7 @@ button:disabled {
     gap: 6px;
     margin-top: 12px;
     color: var(--faint);
-    font-size: 7px;
+    font-size: 12px;
 }
 .dialog-privacy .icon {
     width: 11px;
@@ -2924,7 +2779,7 @@ button:disabled {
 .form-error {
     margin: 0;
     color: var(--danger);
-    font-size: 8px;
+    font-size: 12px;
 }
 .command-palette {
     width: min(520px, 100%);
@@ -2932,9 +2787,9 @@ button:disabled {
     margin-top: min(16vh, 135px);
     overflow: hidden;
     border: 1px solid var(--line);
-    border-radius: 10px;
+    border-radius: 5px;
     background: var(--surface);
-    box-shadow: var(--shadow-menu);
+    box-shadow: none;
     animation: modal-in 0.14s ease-out;
 }
 .command-console-dialog {
@@ -2945,15 +2800,15 @@ button:disabled {
     padding: 0;
     overflow: hidden;
     border: 1px solid var(--line);
-    border-radius: 12px;
+    border-radius: 5px;
     color: var(--ink);
     background: var(--surface);
-    box-shadow: var(--shadow-menu);
+    box-shadow: none;
     animation: modal-in 0.14s ease-out;
 }
 .command-console-dialog::backdrop {
     background: rgb(11 18 13 / 48%);
-    backdrop-filter: blur(3px);
+    backdrop-filter: none;
 }
 .command-console-header {
     min-height: 72px;
@@ -2969,10 +2824,10 @@ button:disabled {
 }
 .command-console-eyebrow {
     color: var(--accent);
-    font-size: 8px;
+    font-size: 12px;
     font-weight: 700;
     letter-spacing: 0.1em;
-    text-transform: uppercase;
+    text-transform: none;
 }
 .command-console-header h2 {
     margin: 0;
@@ -2992,7 +2847,7 @@ button:disabled {
 .command-console-description {
     margin: 0 0 13px;
     color: var(--muted);
-    font-size: 9px;
+    font-size: 12px;
     line-height: 1.6;
 }
 .command-console-context {
@@ -3002,7 +2857,7 @@ button:disabled {
     gap: 10px;
     padding: 11px;
     border: 1px solid var(--line-soft);
-    border-radius: 8px;
+    border-radius: 5px;
     background: var(--surface-subtle);
 }
 .command-console-context-mark {
@@ -3011,7 +2866,7 @@ button:disabled {
     flex: 0 0 auto;
     display: grid;
     place-items: center;
-    border-radius: 7px;
+    border-radius: 5px;
     color: var(--accent);
     background: var(--accent-soft);
     font-size: 20px;
@@ -3030,20 +2885,20 @@ button:disabled {
 }
 .command-console-context strong {
     color: var(--ink-soft);
-    font-size: 9px;
+    font-size: 12px;
     font-weight: 650;
 }
 .command-console-context small {
     color: var(--faint);
-    font-size: 7px;
+    font-size: 12px;
 }
 .command-console-lock {
     flex: 0 0 auto;
     padding: 4px 7px;
     border: 1px solid var(--line-soft);
-    border-radius: 999px;
+    border-radius: 5px;
     color: var(--accent);
-    font-size: 7px;
+    font-size: 12px;
     font-weight: 650;
 }
 .command-console-runtime {
@@ -3052,7 +2907,7 @@ button:disabled {
     align-items: center;
     gap: 7px;
     color: var(--faint);
-    font-size: 8px;
+    font-size: 12px;
 }
 .command-console-status-dot {
     width: 6px;
@@ -3071,24 +2926,24 @@ button:disabled {
 .command-console-form > label,
 .command-console-secrets label > span {
     color: var(--ink-soft);
-    font-size: 8px;
+    font-size: 12px;
     font-weight: 650;
 }
 .command-console-form textarea,
 .command-console-secrets input {
     width: 100%;
     border: 1px solid var(--line-strong);
-    border-radius: 6px;
+    border-radius: 5px;
     color: var(--ink);
     background: var(--surface-subtle);
     font: inherit;
-    font-size: 9px;
+    font-size: 12px;
 }
 .command-console-form textarea {
     min-height: 57px;
     resize: vertical;
     padding: 9px 10px;
-    font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
+    font-family: "Noto Sans", sans-serif;
     line-height: 1.55;
 }
 .command-console-form textarea:focus,
@@ -3105,7 +2960,7 @@ button:disabled {
     justify-content: space-between;
     gap: 10px;
     color: var(--faint);
-    font-size: 7px;
+    font-size: 12px;
 }
 .command-console-secrets {
     display: grid;
@@ -3125,13 +2980,13 @@ button:disabled {
 .command-console-passphrase-note {
     margin: 0;
     color: var(--faint);
-    font-size: 7px;
+    font-size: 12px;
     line-height: 1.5;
 }
 .command-console-error {
     margin: 2px 0 0;
     color: var(--danger);
-    font-size: 8px;
+    font-size: 12px;
     line-height: 1.5;
 }
 .command-console-actions {
@@ -3145,7 +3000,7 @@ button:disabled {
 .command-console-run-status {
     flex: 1;
     color: var(--muted);
-    font-size: 8px;
+    font-size: 12px;
 }
 .command-console-output-section {
     margin-top: 15px;
@@ -3160,12 +3015,12 @@ button:disabled {
 .command-console-output-heading h3 {
     margin: 0;
     color: var(--ink-soft);
-    font-size: 8px;
+    font-size: 12px;
     font-weight: 650;
 }
 .command-console-output-heading small {
     color: var(--faint);
-    font-size: 7px;
+    font-size: 12px;
 }
 .command-console-output {
     min-height: 128px;
@@ -3174,11 +3029,11 @@ button:disabled {
     overflow: auto;
     padding: 10px;
     border: 1px solid var(--line-soft);
-    border-radius: 7px;
+    border-radius: 5px;
     color: var(--ink-soft);
     background: var(--surface-inset);
-    font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
-    font-size: 8px;
+    font-family: "Noto Sans", sans-serif;
+    font-size: 12px;
     line-height: 1.65;
     overflow-wrap: anywhere;
     white-space: pre-wrap;
@@ -3213,7 +3068,7 @@ button:disabled {
     outline: 0;
     color: var(--ink);
     background: transparent;
-    font-size: 11px;
+    font-size: 12px;
 }
 .palette-search input::placeholder {
     color: var(--faint);
@@ -3221,10 +3076,10 @@ button:disabled {
 .command-palette > h2 {
     margin: 15px 15px 7px;
     color: var(--faint);
-    font-size: 8px;
+    font-size: 12px;
     font-weight: 700;
     letter-spacing: 0.09em;
-    text-transform: uppercase;
+    text-transform: none;
 }
 .palette-actions {
     display: grid;
@@ -3237,7 +3092,7 @@ button:disabled {
     gap: 10px;
     padding: 6px 9px;
     border: 0;
-    border-radius: 6px;
+    border-radius: 5px;
     background: transparent;
     text-align: left;
     cursor: pointer;
@@ -3256,7 +3111,7 @@ button:disabled {
     display: grid;
     place-items: center;
     border: 1px solid var(--line-soft);
-    border-radius: 6px;
+    border-radius: 5px;
     color: var(--accent);
     background: var(--surface);
 }
@@ -3272,12 +3127,12 @@ button:disabled {
 }
 .palette-action strong {
     color: var(--ink-soft);
-    font-size: 9px;
+    font-size: 12px;
     font-weight: 600;
 }
 .palette-action small {
     color: var(--faint);
-    font-size: 7px;
+    font-size: 12px;
 }
 .palette-action > .icon {
     width: 13px;
@@ -3290,7 +3145,7 @@ button:disabled {
     padding: 10px 15px;
     border-top: 1px solid var(--line-soft);
     color: var(--faint);
-    font-size: 7px;
+    font-size: 12px;
 }
 .palette-footer > span:last-child {
     display: flex;
@@ -3309,11 +3164,11 @@ button:disabled {
     gap: 9px;
     padding: 8px 10px;
     border: 1px solid var(--line);
-    border-radius: 7px;
+    border-radius: 5px;
     color: var(--ink-soft);
     background: var(--surface);
-    box-shadow: var(--shadow-menu);
-    font-size: 9px;
+    box-shadow: none;
+    font-size: 12px;
     animation: toast-in 0.2s ease-out;
 }
 .toast-mark {
@@ -3322,7 +3177,7 @@ button:disabled {
     display: grid;
     place-items: center;
     flex: 0 0 auto;
-    border-radius: 6px;
+    border-radius: 5px;
     color: var(--accent);
     background: var(--accent-soft);
 }
@@ -3420,24 +3275,6 @@ button:disabled {
 }
 
 @media (max-width: 900px) {
-    .topbar {
-        padding: 0 16px;
-    }
-    .brand-lockup {
-        min-width: 200px;
-    }
-    .brand-context,
-    .topbar-search > span {
-        display: none;
-    }
-    .topbar-search {
-        width: 36px;
-        justify-content: center;
-        padding: 0;
-    }
-    .topbar-search kbd {
-        display: none;
-    }
     .workspace-frame {
         grid-template-columns: 70px minmax(0, 1fr);
     }
@@ -3498,38 +3335,6 @@ button:disabled {
 }
 
 @media (max-width: 650px) {
-    .topbar {
-        height: 58px;
-        gap: 8px;
-        padding: 0 11px;
-    }
-    .brand-lockup {
-        min-width: auto;
-        gap: 7px;
-    }
-    .brand-mark {
-        width: 26px;
-        height: 26px;
-    }
-    .brand-name {
-        font-size: 14px;
-    }
-    .brand-divider,
-    .topbar-center,
-    .topbar-open,
-    .theme-button {
-        display: none;
-    }
-    .topbar-actions {
-        margin-left: auto;
-        gap: 6px;
-    }
-    .topbar-save {
-        min-width: 74px;
-        min-height: 32px;
-        padding: 0 9px;
-        font-size: 9px;
-    }
     .workspace-frame {
         min-height: calc(100vh - 58px);
         grid-template-columns: minmax(0, 1fr);
@@ -3589,7 +3394,7 @@ button:disabled {
     .toolbar-actions > .button {
         min-height: 29px;
         padding: 0 8px;
-        font-size: 8px;
+        font-size: 12px;
     }
     .toolbar-actions > .button .icon {
         width: 13px;
@@ -3600,10 +3405,7 @@ button:disabled {
         height: 29px;
     }
     .inline-search input {
-        font-size: 8px;
-    }
-    .toolbar-more {
-        display: none;
+        font-size: 12px;
     }
     .page-body {
         padding: 20px 13px 24px;
@@ -3621,17 +3423,17 @@ button:disabled {
         font-size: 29px;
     }
     .welcome-copy > p {
-        font-size: 10px;
+        font-size: 12px;
     }
     .welcome-actions {
         margin-top: 18px;
     }
     .welcome-actions .button {
         min-height: 38px;
-        font-size: 9px;
+        font-size: 12px;
     }
     .welcome-promise {
-        font-size: 7px;
+        font-size: 12px;
     }
     .welcome-art {
         min-height: 237px;
@@ -3646,7 +3448,7 @@ button:disabled {
     }
     .welcome-footer {
         gap: 12px;
-        font-size: 7px;
+        font-size: 12px;
     }
     .overview-heading,
     .record-heading {
@@ -3688,13 +3490,13 @@ button:disabled {
         height: 24px;
     }
     .stat-copy > span {
-        font-size: 8px;
+        font-size: 12px;
     }
     .stat-copy strong {
         font-size: 19px;
     }
     .stat-copy small {
-        font-size: 7px;
+        font-size: 12px;
     }
     .overview-content-grid {
         grid-template-columns: minmax(0, 1fr);
@@ -3758,14 +3560,14 @@ button:disabled {
         font-size: 14px;
     }
     .archive-summary-copy > p {
-        font-size: 8px;
+        font-size: 12px;
         line-height: 1.5;
     }
     .archive-chip-row {
         gap: 4px;
     }
     .archive-chip-row > span {
-        font-size: 6px;
+        font-size: 12px;
     }
     .archive-size {
         width: auto;
@@ -3812,7 +3614,7 @@ button:disabled {
     .archive-actions-card .button {
         flex: 1;
         padding: 0 7px;
-        font-size: 8px;
+        font-size: 12px;
     }
     .locked-banner,
     .archive-lock-action {
@@ -3837,7 +3639,7 @@ button:disabled {
         gap: 11px;
     }
     .palette-footer {
-        font-size: 6px;
+        font-size: 12px;
     }
 }
 
@@ -3862,7 +3664,7 @@ button:disabled {
 .marker-shortcuts input {
     max-width: 90px;
     text-align: center;
-    text-transform: uppercase;
+    text-transform: none;
 }
 
 .marker-shortcut-actions {
@@ -3881,7 +3683,7 @@ button:disabled {
     .command-console-dialog {
         width: calc(100vw - 20px);
         max-height: calc(100vh - 20px);
-        border-radius: 10px;
+        border-radius: 5px;
     }
     .command-console-body {
         max-height: calc(100vh - 93px);
