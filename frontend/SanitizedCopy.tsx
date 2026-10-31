@@ -475,7 +475,7 @@ export function SanitizedCopy(props: SanitizedCopyProps): JSX.Element {
     return (
         <section class="surface-card sanitized-copy" aria-labelledby="sanitized-copy-title">
             <header class="sanitized-copy-heading">
-                <span class="eyebrow">PRIVACY WORKFLOW</span>
+                <span class="eyebrow">Privacy workflow</span>
                 <h2 id="sanitized-copy-title">Create a reviewed copy</h2>
                 <p>
                     Build a separate archive from selected students, sessions, and records. The
@@ -774,7 +774,7 @@ export function SanitizedCopy(props: SanitizedCopyProps): JSX.Element {
                 {(reviewed) => (
                     <div class="sanitized-copy-review">
                         <div class="sanitized-copy-review-heading">
-                            <span class="eyebrow">REVIEW BEFORE CREATING</span>
+                            <span class="eyebrow">Review before creating</span>
                             <h3>What the new archive will contain</h3>
                             <p>
                                 Source generation {reviewed.summary.sourceGeneration.toString()} ·
