@@ -5,7 +5,11 @@ import { open as openFile, writeFile, type FileHandle } from "@tauri-apps/plugin
 import { MemoryArchiveSource, sourceStream, type ArchiveByteSource } from "../archive/source";
 import { sendEmbeddedAiRequest } from "./embedded-ai";
 import { isEmbeddedGgufProvider } from "../ai/providers";
-import type { CommandConsoleAvailability, CommandConsoleRun } from "./command-console";
+import type {
+    CommandConsoleAvailability,
+    CommandConsoleResult,
+    CommandConsoleRun,
+} from "./command-console";
 import {
     registerReplicateCancellationHandler,
     replicateModelMetadataEndpoint,
@@ -175,17 +179,40 @@ export const platform: ArchivePlatform = {
     kind: "desktop",
 
     async commandConsoleAvailability(): Promise<CommandConsoleAvailability> {
-        return {
-            available: false,
-            message:
-                "The in-app command console is not included in the desktop build. Run the standalone tutorux CLI instead.",
-        };
+        return invoke<CommandConsoleAvailability>("command_console_availability");
     },
 
-    async startCommandConsole(): Promise<CommandConsoleRun> {
-        throw new Error(
-            "The in-app command console is not included in the desktop build. Run the standalone tutorux CLI instead.",
+    async startCommandConsole(
+        source: ArchiveByteSource,
+        input: string,
+        passphrase: string,
+        newPassphrase: string,
+        onOutput: (text: string) => void,
+    ): Promise<CommandConsoleRun> {
+        const archiveToken = findArchiveToken(source);
+        if (!archiveToken) {
+            throw new Error(
+                "The selected archive no longer has an authorized desktop file handle.",
+            );
+        }
+        const runId = crypto.randomUUID();
+        const unlisten = await listen<{ runId: string; text: string }>(
+            "tutorux:console-output",
+            (event) => {
+                if (event.payload.runId === runId) onOutput(event.payload.text);
+            },
         );
+        const completion = invoke<CommandConsoleResult>("run_command_console", {
+            runId,
+            archiveToken,
+            input,
+            passphrase,
+            newPassphrase,
+        }).finally(unlisten);
+        return {
+            completion,
+            cancel: () => invoke<void>("cancel_command_console", { runId }),
+        };
     },
 
     async openArchive(): Promise<OpenedArchive | null> {
