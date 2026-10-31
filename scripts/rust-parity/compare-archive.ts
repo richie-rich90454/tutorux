@@ -22,8 +22,33 @@ type ArchiveModel = {
     indexKeys: string[];
 };
 
-function hashBlob(blob: Uint8Array): string {
+function hashBlob(blob: Uint8Array, recordType = ""): string {
+    if (recordType === "ai-job" && blob.byteLength > 0) {
+        try {
+            const parsed = JSON.parse(new TextDecoder().decode(blob));
+            const normalized = JSON.stringify(normalizePackageBlob(parsed));
+            return createHash("sha256").update(normalized).digest("hex");
+        } catch {
+            // Fall through to the raw byte hash for non-JSON blobs.
+        }
+    }
     return createHash("sha256").update(blob).digest("hex");
+}
+
+function normalizePackageBlob(value: unknown): unknown {
+    if (Array.isArray(value)) return value.map(normalizePackageBlob);
+    if (value && typeof value === "object") {
+        return Object.fromEntries(
+            Object.entries(value).map(([key, child]) => [key, normalizePackageBlob(child)]),
+        );
+    }
+    if (typeof value === "number" && Number.isSafeInteger(value) && Math.abs(value) >= 10 ** 15) {
+        return "<timestamp>";
+    }
+    if (typeof value === "string") {
+        return value.replace(/\b\d{16,}\b/gu, "<timestamp>");
+    }
+    return value;
 }
 
 function isAbsolutePath(value: string): boolean {
@@ -36,12 +61,22 @@ function normalizeFieldValue(key: string, value: string, typesById: Map<string, 
         return "<path>";
     }
     if (key.endsWith("_at_us") || key === "generated_at_us") return "<timestamp>";
-    return value
+    if (key.endsWith("_hash") || key === "content_hash") return "<hash>";
+    const normalized = value
         .replace(UUID_GLOBAL, (uuid) => {
             const type = typesById.get(uuid.toLowerCase());
             return type ? `<ref:${type}>` : "<uuid>";
         })
         .replace(/\b\d{16,}\b/gu, "<timestamp>");
+    if (key === "source_index_history" || key.endsWith("_ids") || key === "chunk_ids") {
+        return normalized
+            .split(",")
+            .map((entry) => entry.trim())
+            .filter(Boolean)
+            .sort()
+            .join(",");
+    }
+    return normalized;
 }
 
 function normalizedFields(
@@ -65,7 +100,7 @@ function normalizedRecord(
         type: recordTypeName(record.type),
         revision: record.revision.toString(),
         fields: normalizedFields(record, typesById),
-        blob_sha256: hashBlob(record.blob),
+        blob_sha256: hashBlob(record.blob, recordTypeName(record.type)),
         blob_bytes: record.blob.byteLength,
     };
 }
