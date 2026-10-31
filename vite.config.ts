@@ -26,6 +26,6 @@ export default defineConfig(({ mode }) => ({
     },
     test: {
         environment: "node",
-        include: ["frontend/**/*.test.ts", "frontend/**/*.test.tsx", "cli/**/*.test.ts"],
+        include: ["tests/**/*.test.ts", "tests/**/*.test.tsx"],
     },
 }));
