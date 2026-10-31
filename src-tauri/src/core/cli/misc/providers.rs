@@ -8,6 +8,7 @@ pub(super) struct ProviderDef {
     pub description: &'static str,
     pub protocol: &'static str,
     pub default_endpoint: &'static str,
+    pub endpoint_placeholder: &'static str,
     pub credential_key: Option<&'static str>,
     pub local: bool,
     pub generation_available: bool,
@@ -29,6 +30,31 @@ const fn provider(
         description,
         protocol,
         default_endpoint,
+        endpoint_placeholder: "",
+        credential_key,
+        local,
+        generation_available: true,
+        generation_unavailable_reason: "",
+    }
+}
+
+const fn provider_with_placeholder(
+    id: &'static str,
+    name: &'static str,
+    description: &'static str,
+    protocol: &'static str,
+    default_endpoint: &'static str,
+    endpoint_placeholder: &'static str,
+    credential_key: Option<&'static str>,
+    local: bool,
+) -> ProviderDef {
+    ProviderDef {
+        id,
+        name,
+        description,
+        protocol,
+        default_endpoint,
+        endpoint_placeholder,
         credential_key,
         local,
         generation_available: true,
@@ -65,8 +91,8 @@ pub(super) const PROVIDERS: &[ProviderDef] = &[
     provider("tencent-cloud", "Tencent Cloud TokenHub", "Tencent Cloud TokenHub OpenAI-compatible Chat Completions API", "OpenAI Chat Completions", "https://tokenhub.tencentmaas.com/v1", Some("TOKENHUB_API_KEY"), false),
     provider("volcengine", "Volcengine Ark", "Volcengine Ark OpenAI-compatible Chat Completions API", "OpenAI Chat Completions", "https://ark.cn-beijing.volces.com/api/v3", Some("ARK_API_KEY"), false),
     provider("bedrock", "Amazon Bedrock Mantle", "Amazon Bedrock Mantle OpenAI-compatible Chat Completions API", "OpenAI Chat Completions", "https://bedrock-mantle.us-east-1.api.aws/v1", Some("AWS_BEARER_TOKEN_BEDROCK"), false),
-    provider("azure-openai", "Azure OpenAI", "Azure OpenAI v1 Chat Completions API", "OpenAI Chat Completions", "", Some("AZURE_OPENAI_API_KEY"), false),
-    provider("cloudflare-workers-ai", "Cloudflare Workers AI", "Account-scoped Cloudflare Workers AI OpenAI-compatible API", "OpenAI Chat Completions", "", Some("CLOUDFLARE_API_TOKEN"), false),
+    provider_with_placeholder("azure-openai", "Azure OpenAI", "Azure OpenAI v1 Chat Completions API", "OpenAI Chat Completions", "", "https://my-resource.openai.azure.com/openai/v1", Some("AZURE_OPENAI_API_KEY"), false),
+    provider_with_placeholder("cloudflare-workers-ai", "Cloudflare Workers AI", "Account-scoped Cloudflare Workers AI OpenAI-compatible API", "OpenAI Chat Completions", "", "https://api.cloudflare.com/client/v4/accounts/<account-id>/ai/v1", Some("CLOUDFLARE_API_TOKEN"), false),
     provider("ai21", "AI21 Labs", "AI21 Labs OpenAI-compatible Chat Completions API", "OpenAI Chat Completions", "https://api.ai21.com/studio/v1", Some("AI21_API_KEY"), false),
     provider("ollama", "Ollama (local)", "Local Ollama service", "Ollama Chat", "http://127.0.0.1:11434", None, true),
     provider("lm-studio", "LM Studio (local)", "Local OpenAI-compatible LM Studio service", "OpenAI Chat Completions", "http://127.0.0.1:1234/v1", None, true),
@@ -80,6 +106,7 @@ pub(super) const PROVIDERS: &[ProviderDef] = &[
         description: "Public model discovery only; this provider is restricted to coding-agent traffic.",
         protocol: "OpenCode Go · tutoring use restricted",
         default_endpoint: "https://opencode.ai/zen/go/v1",
+        endpoint_placeholder: "",
         credential_key: None,
         local: false,
         generation_available: false,
@@ -231,25 +258,76 @@ pub(super) fn validate_endpoint(value: &str, provider: &ProviderDef) -> Result<S
     Ok(endpoint.trim_end_matches('/').to_owned())
 }
 
+pub(crate) fn run_diagnostics_providers(
+    args: ParsedArguments,
+    output: &mut dyn CliOutput,
+) -> CliResult<i32> {
+    let rows: Vec<Value> = PROVIDERS
+        .iter()
+        .map(|provider| {
+            let mut row = serde_json::Map::new();
+            row.insert("id".to_owned(), json!(provider.id));
+            row.insert("name".to_owned(), json!(provider.name));
+            row.insert("description".to_owned(), json!(provider.description));
+            row.insert("protocol".to_owned(), json!(provider.protocol));
+            row.insert("defaultEndpoint".to_owned(), json!(provider.default_endpoint));
+            if !provider.endpoint_placeholder.is_empty() {
+                row.insert(
+                    "endpointPlaceholder".to_owned(),
+                    json!(provider.endpoint_placeholder),
+                );
+            }
+            row.insert("credentialKey".to_owned(), json!(provider.credential_key));
+            row.insert("local".to_owned(), json!(provider.local));
+            if !provider.generation_available {
+                row.insert("generationAvailable".to_owned(), json!(false));
+                row.insert(
+                    "generationUnavailableReason".to_owned(),
+                    json!(provider.generation_unavailable_reason),
+                );
+            }
+            Value::Object(row)
+        })
+        .collect();
+    let summary = PROVIDERS
+        .iter()
+        .map(|provider| format!("{}  {}", provider.id, provider.name))
+        .collect::<Vec<_>>()
+        .join("\n");
+    emit(output, Value::Array(rows), &summary, args.json());
+    Ok(0)
+}
+
 pub fn run_ai_providers(args: ParsedArguments, output: &mut dyn CliOutput) -> CliResult<i32> {
     let rows: Vec<Value> = PROVIDERS
         .iter()
         .map(|provider| {
+            let mut catalog = serde_json::Map::new();
+            catalog.insert("id".to_owned(), json!(provider.id));
+            catalog.insert("name".to_owned(), json!(provider.name));
+            catalog.insert("description".to_owned(), json!(provider.description));
+            catalog.insert("protocol".to_owned(), json!(provider.protocol));
+            catalog.insert("defaultEndpoint".to_owned(), json!(provider.default_endpoint));
+            if !provider.endpoint_placeholder.is_empty() {
+                catalog.insert(
+                    "endpointPlaceholder".to_owned(),
+                    json!(provider.endpoint_placeholder),
+                );
+            }
+            catalog.insert("credentialKey".to_owned(), json!(provider.credential_key));
+            catalog.insert("local".to_owned(), json!(provider.local));
+            if !provider.generation_available {
+                catalog.insert("generationAvailable".to_owned(), json!(false));
+                catalog.insert(
+                    "generationUnavailableReason".to_owned(),
+                    json!(provider.generation_unavailable_reason),
+                );
+            }
             json!({
                 "provider_id": provider.id,
                 "provider": provider.name,
                 "status": catalog_status(provider.id),
-                "catalog": {
-                    "id": provider.id,
-                    "name": provider.name,
-                    "description": provider.description,
-                    "protocol": provider.protocol,
-                    "defaultEndpoint": provider.default_endpoint,
-                    "credentialKey": provider.credential_key,
-                    "local": provider.local,
-                    "generationAvailable": provider.generation_available,
-                    "generationUnavailableReason": provider.generation_unavailable_reason,
-                },
+                "catalog": Value::Object(catalog),
             })
         })
         .collect();
