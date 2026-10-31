@@ -45,7 +45,7 @@ function trimUtf8Start(value: string, maximumBytes: number): string {
 }
 
 export function CommandConsole(props: CommandConsoleProps): JSX.Element {
-    const [availability, setAvailability] = createSignal("Checking the bundled command runtime…");
+    const [availability, setAvailability] = createSignal("Checking the command runtime…");
     const [available, setAvailable] = createSignal(false);
     const [command, setCommand] = createSignal("");
     const [passphrase, setPassphrase] = createSignal("");
@@ -77,9 +77,7 @@ export function CommandConsole(props: CommandConsoleProps): JSX.Element {
                 if (disposed) return;
                 setAvailable(false);
                 setAvailability(
-                    cause instanceof Error
-                        ? cause.message
-                        : "The bundled command runtime is unavailable.",
+                    cause instanceof Error ? cause.message : "The command runtime is unavailable.",
                 );
             },
         );
@@ -253,8 +251,8 @@ export function CommandConsole(props: CommandConsoleProps): JSX.Element {
             </header>
             <div class="command-console-body">
                 <p id="command-console-description" class="command-console-description">
-                    Run one Tutorux CLI command with the bundled runtime. Commands use the archive
-                    and folder shown here; shell operators are passed as ordinary command arguments.
+                    Run one Tutorux CLI command in this application. Commands use the archive shown
+                    here; shell operators are passed as ordinary command arguments.
                 </p>
                 <Show when={props.archive?.dirty}>
                     <p class="command-console-error" role="status">
@@ -275,7 +273,7 @@ export function CommandConsole(props: CommandConsoleProps): JSX.Element {
                             </Show>
                         </small>
                     </div>
-                    <span class="command-console-lock" aria-label="Archive and folder are fixed">
+                    <span class="command-console-lock" aria-label="Archive is fixed">
                         Pinned
                     </span>
                 </div>
@@ -338,8 +336,8 @@ export function CommandConsole(props: CommandConsoleProps): JSX.Element {
                         </label>
                     </div>
                     <p class="command-console-passphrase-note">
-                        Passphrases are sent through a short-lived process environment variable and
-                        cleared when the command ends. Keep them out of command text.
+                        Passphrases stay in memory, are available only to this command, and are
+                        cleared when it ends. Keep them out of command text.
                     </p>
                     <Show when={error()}>
                         <p class="command-console-error" role="alert">
