@@ -381,31 +381,27 @@ pub(crate) fn export_session_package(
         )?;
     }
 
+    // Packages carry the current revision of each record only. History is
+    // consulted above to discover referenced assets, not to ship revisions.
     let mut packaged: Vec<ArchiveRecord> = Vec::new();
     for key in &order {
         let Some(record) = records.get(key) else {
             continue;
         };
-        let mut revisions = collect_history(snapshot, record)?;
-        for revision in &mut revisions {
-            if revision.record_type == RecordType::SESSION
-                && revision.id.to_lowercase() == session_id
-            {
-                revision
-                    .fields
-                    .insert("student_id".to_owned(), "anonymous".to_owned());
-            }
-            revision.revision = 0;
-            revision.previous_offset = 0;
+        let mut revision = record.clone();
+        if revision.record_type == RecordType::SESSION && revision.id.to_lowercase() == session_id {
+            revision
+                .fields
+                .insert("student_id".to_owned(), "anonymous".to_owned());
         }
-        packaged.extend(revisions);
+        revision.revision = 0;
+        revision.previous_offset = 0;
+        packaged.push(revision);
     }
     validate_session_records(&packaged, &session_id)?;
     let mut all = vec![manifest];
     all.extend(packaged);
-    for record in all {
-        package = package.append_records(std::slice::from_ref(&record))?;
-    }
+    package = package.append_records(&all)?;
     let package_bytes = package.source.read(0, package.source.size() as usize)?;
     if args.flag("force") {
         write_file_atomically(&destination, &package_bytes)?;
