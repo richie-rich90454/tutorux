@@ -8,8 +8,8 @@ import {
     mergeTranscriptRecords,
     setTranscriptLinkedAssets,
     splitTranscriptRecord,
-} from "./transcript";
-import { RecordType, type ArchiveRecord } from "../archive/format";
+} from "../../../frontend/domain/transcript";
+import { RecordType, type ArchiveRecord } from "../../../frontend/archive/format";
 
 describe("transcript source import", () => {
     it("imports nonempty text lines while retaining original line numbers", () => {
