@@ -7,6 +7,8 @@ mod evidence_mutations;
 #[path = "evidence_extract.rs"]
 mod evidence_extract;
 pub(crate) use evidence_extract::*;
+#[path = "ordered_json.rs"]
+mod ordered_json;
 
 fn validate_evidence_text(value: &str, label: &str, maximum_bytes: usize) -> CliResult<()> {
     if value.len() > maximum_bytes {
@@ -112,6 +114,7 @@ pub(crate) fn run_evidence(
                     .retain(|record| record.field("verification_state") != Some("human-verified"));
             }
             let count = records.len();
+            if args.json() { output.stdout(&ordered_json::records_json(&records)); return Ok(0); }
             emit(
                 output,
                 plain_array(&records),
