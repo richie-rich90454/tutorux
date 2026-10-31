@@ -4,7 +4,7 @@ import {
     createProviderCredentialRecord,
     maskCredentialMetadata,
     providerById,
-} from "./providers";
+} from "../../../frontend/ai/providers";
 
 describe("AI provider settings", () => {
     it("creates a legacy-compatible provider record with a stable ID", async () => {
