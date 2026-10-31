@@ -42,6 +42,7 @@ struct ImportedPcmChunk {
     pcm_base64: String,
 }
 
+#[derive(Debug)]
 struct WavFormat {
     sample_rate_hz: u32,
     channel_count: u16,
