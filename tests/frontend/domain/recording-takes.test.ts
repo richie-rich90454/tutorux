@@ -1,11 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { appendRecords, createArchiveBytes, openArchiveBytes } from "../archive/archive";
-import { crc32, newUuid, RecordType, type ArchiveRecord } from "../archive/format";
+import {
+    appendRecords,
+    createArchiveBytes,
+    openArchiveBytes,
+} from "../../../frontend/archive/archive";
+import { crc32, newUuid, RecordType, type ArchiveRecord } from "../../../frontend/archive/format";
 import {
     renameRecordingTake,
     renameRecordingTrack,
     setRecordingTakeDeleted,
-} from "./recording-takes";
+} from "../../../frontend/domain/recording-takes";
 
 describe("recording take management", () => {
     it("renames takes and tracks with C++-compatible single-line bounds", async () => {
