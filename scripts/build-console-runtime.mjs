@@ -119,10 +119,9 @@ if (target.key !== hostTarget.key) {
     );
 }
 
-const outputDirectory = resolve(root, "dist", "console-runtime");
+const outputDirectory = resolve(root, "src-tauri", "binaries", "console-runtime");
 const runtimeCacheDirectory = resolve(root, "src-tauri", "binaries", "console-runtime-cache");
 const targetCacheDirectory = resolve(runtimeCacheDirectory, version, target.key);
-const nodeModulesDirectory = resolve(root, "node_modules");
 const allowedOptionalPackages = new Set([target.llamaPackage, ...target.sharpPackages]);
 
 const cachedNode = join(targetCacheDirectory, target.nodeExecutable);
@@ -193,38 +192,43 @@ if (target.platform !== "win32") {
     await chmod(join(outputDirectory, target.nodeExecutable), 0o755);
 }
 
-const packages = await collectRuntimePackages(nodeModulesDirectory, allowedOptionalPackages);
-if (packages.length > maximumRuntimePackageCount) {
-    throw new Error(
-        `The Tutorux CLI dependency closure contains ${packages.length} packages; the supported maximum is ${maximumRuntimePackageCount}.`,
-    );
-}
-let closureBytes = 0;
-for (const entry of packages) {
-    closureBytes += await measureDirectoryBytes(entry.source);
-    if (closureBytes > maximumRuntimeClosureBytes) {
+const installationDirectory = await installHoistedRuntime();
+try {
+    const packages = await collectRuntimePackages(installationDirectory, allowedOptionalPackages);
+    if (packages.length > maximumRuntimePackageCount) {
         throw new Error(
-            `The Tutorux CLI dependency closure exceeds the 2 GiB packaging limit (${entry.name}).`,
+            `The Tutorux CLI dependency closure contains ${packages.length} packages; the supported maximum is ${maximumRuntimePackageCount}.`,
         );
     }
-    const destination = join(outputDirectory, "node_modules", entry.relativePath);
-    await mkdir(dirname(destination), { recursive: true });
-    await cp(entry.source, destination, { recursive: true, dereference: true });
+    let closureBytes = 0;
+    for (const entry of packages) {
+        closureBytes += await measureDirectoryBytes(entry.source);
+        if (closureBytes > maximumRuntimeClosureBytes) {
+            throw new Error(
+                `The Tutorux CLI dependency closure exceeds the 2 GiB packaging limit (${entry.name}).`,
+            );
+        }
+        const destination = join(outputDirectory, "node_modules", entry.relativePath);
+        await mkdir(dirname(destination), { recursive: true });
+        await cp(entry.source, destination, { recursive: true, dereference: true });
+    }
+    const bundledPackageLicenses = await collectBundledPackageLicenses();
+    const licenseEntries = [
+        ...packages.map((entry) => ({
+            name: entry.name,
+            version: entry.metadata.version,
+            license: entry.metadata.license ?? "See included license files",
+            directory: entry.source,
+        })),
+        ...bundledPackageLicenses,
+    ];
+    await writeThirdPartyNotices(outputDirectory, licenseEntries);
+} finally {
+    await rm(installationDirectory, { recursive: true, force: true });
 }
-const bundledPackageLicenses = await collectBundledPackageLicenses();
-const licenseEntries = [
-    ...packages.map((entry) => ({
-        name: entry.name,
-        version: entry.metadata.version,
-        license: entry.metadata.license ?? "See included license files",
-        directory: entry.source,
-    })),
-    ...bundledPackageLicenses,
-];
-await writeThirdPartyNotices(outputDirectory, licenseEntries);
 
 process.stdout.write(
-    `Prepared the Tutorux command console for ${targetTriple} with Node ${version} and ${packages.length} runtime packages.\n`,
+    `Prepared the Tutorux command console for ${targetTriple} with Node ${version} and a hoisted dependency tree.\n`,
 );
 
 async function hasExpectedNodeVersion(executable) {
@@ -348,9 +352,51 @@ async function fetchBounded(url, maximumBytes) {
     return Buffer.concat(chunks, totalBytes);
 }
 
-async function collectRuntimePackages(packageDirectory, optionalPackages) {
+async function installHoistedRuntime() {
+    const directory = await mkdtemp(join(tmpdir(), "tutorux-runtime-tree-"));
+    try {
+        await cp(join(root, "package.json"), join(directory, "package.json"));
+        await cp(join(root, "pnpm-lock.yaml"), join(directory, "pnpm-lock.yaml"));
+        const configured = process.env["npm_execpath"];
+        const executable = configured || (process.platform === "win32" ? "pnpm.cmd" : "pnpm");
+        const installation = spawnSync(
+            executable,
+            [
+                "install",
+                "--prod",
+                "--frozen-lockfile",
+                "--node-linker=hoisted",
+                "--ignore-scripts",
+                "--prefer-offline",
+                // The committed lockfile is already used for development.
+                // Skip its release-age re-check here; integrity checks remain.
+                "--trust-lockfile",
+            ],
+            {
+                cwd: directory,
+                encoding: "utf8",
+                windowsHide: true,
+                stdio: ["ignore", "pipe", "pipe"],
+                shell: !configured && process.platform === "win32",
+            },
+        );
+        if (installation.error) throw installation.error;
+        if (installation.status !== 0) {
+            throw new Error(
+                `Could not prepare the hoisted Tutorux CLI dependencies: ${installation.stderr.trim()}`,
+            );
+        }
+        return directory;
+    } catch (error) {
+        await rm(directory, { recursive: true, force: true });
+        throw error;
+    }
+}
+
+async function collectRuntimePackages(installationDirectory, optionalPackages) {
+    const nodeModulesDirectory = join(installationDirectory, "node_modules");
     const packages = new Map();
-    const rootRequire = createRequire(join(root, "package.json"));
+    const rootRequire = createRequire(join(installationDirectory, "package.json"));
 
     async function addPackage(packageName, requesterDirectory, required = true) {
         const requesterRequire = requesterDirectory
@@ -362,16 +408,15 @@ async function collectRuntimePackages(packageDirectory, optionalPackages) {
         } catch (cause) {
             // Platform packages such as @img/sharp-win32-x64 intentionally have no
             // JavaScript entry point. Resolve their manifest through the installed
-            // node_modules tree instead.
+            // tree instead.
             const directCandidate = join(
-                requesterDirectory ?? root,
+                requesterDirectory ?? installationDirectory,
                 "node_modules",
                 ...packageName.split("/"),
                 "package.json",
             );
             const rootCandidate = join(
-                root,
-                "node_modules",
+                nodeModulesDirectory,
                 ...packageName.split("/"),
                 "package.json",
             );
@@ -391,7 +436,7 @@ async function collectRuntimePackages(packageDirectory, optionalPackages) {
             }
         }
         const source = await findPackageRoot(entryPoint, packageName);
-        const relativePath = relative(packageDirectory, source);
+        const relativePath = relative(nodeModulesDirectory, source);
         if (
             !relativePath ||
             isAbsolute(relativePath) ||
@@ -402,14 +447,10 @@ async function collectRuntimePackages(packageDirectory, optionalPackages) {
                 `The Tutorux CLI dependency ${packageName} resolves outside node_modules.`,
             );
         }
-        // Flatten the pnpm store layout into ordinary node_modules/<package>
-        // directories. Windows Installer rejects the very long .pnpm paths.
-        const packagePath = packageName;
-        const existing = packages.get(packagePath);
-        if (existing) return;
+        if (packages.has(relativePath)) return;
         const metadata = JSON.parse(await readFile(join(source, "package.json"), "utf8"));
-        const entry = { name: metadata.name, source, relativePath: packagePath, metadata };
-        packages.set(packagePath, entry);
+        const entry = { name: metadata.name, source, relativePath, metadata };
+        packages.set(relativePath, entry);
 
         for (const dependencyName of Object.keys(metadata.dependencies ?? {})) {
             await addPackage(dependencyName, source);
