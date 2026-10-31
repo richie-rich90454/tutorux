@@ -1,7 +1,7 @@
 .student-history {
     margin-top: 12px;
     border: 1px solid var(--line-soft);
-    border-radius: 7px;
+    border-radius: 5px;
     background: color-mix(in srgb, var(--surface-subtle) 62%, transparent);
 }
 
@@ -36,7 +36,7 @@
 }
 
 .student-history-title {
-    font-size: 9px;
+    font-size: 12px;
     font-weight: 650;
 }
 
@@ -46,7 +46,7 @@
     align-items: center;
     gap: 6px;
     color: var(--muted);
-    font-size: 8px;
+    font-size: 12px;
     font-variant-numeric: tabular-nums;
 }
 
@@ -69,13 +69,13 @@
 .student-history-section-heading h3 {
     margin: 4px 0 0;
     color: var(--ink);
-    font-size: 11px;
+    font-size: 12px;
     font-weight: 620;
     letter-spacing: -0.02em;
 }
 
 .student-history-section-heading .eyebrow {
-    font-size: 6px;
+    font-size: 12px;
 }
 
 .student-session-history {
@@ -114,7 +114,7 @@
 .student-session-date,
 .student-review-date {
     color: var(--muted);
-    font-size: 7px;
+    font-size: 12px;
     font-variant-numeric: tabular-nums;
 }
 
@@ -127,7 +127,7 @@
 .student-session-copy strong {
     overflow: hidden;
     color: var(--ink-soft);
-    font-size: 8px;
+    font-size: 12px;
     font-weight: 580;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -136,7 +136,7 @@
 .student-session-copy small {
     overflow: hidden;
     color: var(--faint);
-    font-size: 7px;
+    font-size: 12px;
     text-overflow: ellipsis;
     white-space: nowrap;
 }
@@ -149,7 +149,7 @@
     border-radius: 5px;
     color: var(--muted);
     background: var(--surface);
-    font-size: 8px;
+    font-size: 12px;
     line-height: 1.65;
 }
 
@@ -167,7 +167,7 @@
 .student-review-trigger {
     min-height: 28px;
     padding: 0 8px;
-    font-size: 8px;
+    font-size: 12px;
 }
 
 .student-progress-list {
@@ -205,7 +205,7 @@
     overflow: hidden;
     margin: 0;
     color: var(--ink-soft);
-    font-size: 9px;
+    font-size: 12px;
     font-weight: 630;
     text-overflow: ellipsis;
 }
@@ -213,10 +213,10 @@
 .student-classification {
     padding: 3px 6px;
     border: 1px solid color-mix(in srgb, var(--accent) 25%, var(--line-soft));
-    border-radius: 4px;
+    border-radius: 5px;
     color: var(--accent);
     background: var(--accent-soft);
-    font-size: 6px;
+    font-size: 12px;
     font-weight: 620;
 }
 
@@ -237,8 +237,8 @@
     margin: 9px 0 0;
     padding: 6px 8px;
     border: 1px solid;
-    border-radius: 4px;
-    font-size: 7px;
+    border-radius: 5px;
+    font-size: 12px;
     font-weight: 650;
     letter-spacing: 0.025em;
 }
@@ -246,7 +246,7 @@
 .student-progress-note {
     margin: 8px 0 0;
     color: var(--muted);
-    font-size: 8px;
+    font-size: 12px;
     line-height: 1.6;
     white-space: pre-wrap;
 }
@@ -256,7 +256,7 @@
     justify-content: flex-start;
     margin-top: 8px;
     color: var(--faint);
-    font-size: 7px;
+    font-size: 12px;
 }
 
 .student-progress-sources > span + span::before {
@@ -281,10 +281,10 @@
     overflow: hidden;
     padding: 4px 6px;
     border: 1px solid var(--line-soft);
-    border-radius: 4px;
+    border-radius: 5px;
     color: var(--muted);
     background: var(--surface-subtle);
-    font-size: 6px;
+    font-size: 12px;
     text-overflow: ellipsis;
     white-space: nowrap;
 }
@@ -300,14 +300,14 @@
     margin-top: 12px;
     padding: 13px;
     border: 1px solid var(--line-soft);
-    border-radius: 6px;
+    border-radius: 5px;
     background: var(--surface);
 }
 
 .student-review-form-heading p {
     margin: 5px 0 0;
     color: var(--muted);
-    font-size: 8px;
+    font-size: 12px;
     line-height: 1.6;
 }
 
@@ -323,7 +323,7 @@
     align-content: start;
     gap: 6px;
     color: var(--ink-soft);
-    font-size: 8px;
+    font-size: 12px;
     font-weight: 570;
 }
 
@@ -333,7 +333,7 @@
     width: 100%;
     min-width: 0;
     border: 1px solid var(--line);
-    border-radius: 4px;
+    border-radius: 5px;
     outline: none;
     padding: 8px 9px;
     color: var(--ink);
@@ -347,19 +347,19 @@
 .student-review-note textarea:focus,
 .student-evidence-option:focus-within {
     border-color: var(--accent);
-    box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 15%, transparent);
+    box-shadow: none;
 }
 
 .student-review-fields small {
     color: var(--faint);
-    font-size: 7px;
+    font-size: 12px;
     font-weight: 400;
     line-height: 1.5;
 }
 
 .field-optional {
     color: var(--faint);
-    font-size: 7px;
+    font-size: 12px;
     font-weight: 450;
 }
 
@@ -373,14 +373,14 @@
 .student-evidence-picker legend {
     margin-bottom: 5px;
     color: var(--ink-soft);
-    font-size: 8px;
+    font-size: 12px;
     font-weight: 600;
 }
 
 .student-evidence-guidance {
     margin: 0 0 8px;
     color: var(--muted);
-    font-size: 7px;
+    font-size: 12px;
     line-height: 1.55;
 }
 
@@ -400,7 +400,7 @@
     gap: 8px;
     padding: 8px;
     border: 1px solid var(--line-soft);
-    border-radius: 4px;
+    border-radius: 5px;
     background: var(--surface-subtle);
     cursor: pointer;
 }
@@ -419,7 +419,7 @@
 .student-evidence-option-copy strong {
     overflow: hidden;
     color: var(--ink-soft);
-    font-size: 7px;
+    font-size: 12px;
     font-weight: 600;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -430,7 +430,7 @@
     display: -webkit-box;
     overflow: hidden;
     color: var(--faint);
-    font-size: 6px;
+    font-size: 12px;
     line-height: 1.45;
     -webkit-box-orient: vertical;
     -webkit-line-clamp: 2;
@@ -445,14 +445,14 @@
     margin: 0;
     padding: 8px 10px;
     border: 1px solid;
-    border-radius: 4px;
-    font-size: 8px;
+    border-radius: 5px;
+    font-size: 12px;
 }
 
 .student-review-form-actions {
     flex-wrap: wrap;
     color: var(--muted);
-    font-size: 7px;
+    font-size: 12px;
 }
 
 .student-history :focus-visible {
