@@ -14,10 +14,8 @@
     min-width: 0;
     padding: 10px;
     border: 1px solid var(--line);
-    border-radius: 10px;
-    background:
-        linear-gradient(115deg, color-mix(in srgb, var(--accent) 5%, transparent), transparent 48%),
-        var(--surface-subtle);
+    border-radius: 5px;
+    background: var(--surface-subtle);
 }
 
 .document-editor-toolbar,
@@ -47,10 +45,10 @@
     display: grid;
     place-items: center;
     border: 1px solid color-mix(in srgb, var(--accent) 24%, var(--line));
-    border-radius: 7px;
+    border-radius: 5px;
     color: var(--accent);
     background: color-mix(in srgb, var(--accent) 9%, var(--surface));
-    font-family: Georgia, "Times New Roman", serif;
+    font-family: "Noto Sans", sans-serif;
     font-size: 18px;
     line-height: 1;
 }
@@ -62,13 +60,13 @@
 
 .document-editor-summary strong {
     color: var(--ink-soft);
-    font-size: 10px;
+    font-size: 12px;
     font-weight: 650;
 }
 
 .document-editor-summary small {
     color: var(--faint);
-    font-size: 8px;
+    font-size: 12px;
 }
 
 .document-editor-add {
@@ -85,7 +83,7 @@
 .document-editor-tools .button {
     min-height: 29px;
     padding: 0 8px;
-    font-size: 9px;
+    font-size: 12px;
 }
 
 .document-editor-formatting {
@@ -98,7 +96,7 @@
 
 .document-editor-formatting > span {
     color: var(--faint);
-    font-size: 8px;
+    font-size: 12px;
 }
 
 .document-editor-formatting > div {
@@ -115,11 +113,11 @@
     gap: 6px;
     padding: 3px 7px;
     border: 1px solid var(--line-soft);
-    border-radius: 6px;
+    border-radius: 5px;
     color: var(--ink-soft);
     background: var(--surface);
     font: inherit;
-    font-size: 8px;
+    font-size: 12px;
     cursor: pointer;
 }
 
@@ -138,7 +136,7 @@
 .document-editor-formatting kbd {
     color: var(--faint);
     font: inherit;
-    font-size: 7px;
+    font-size: 12px;
 }
 
 .document-export-menu {
@@ -165,9 +163,9 @@
     display: grid;
     padding: 5px;
     border: 1px solid var(--line);
-    border-radius: 8px;
+    border-radius: 5px;
     background: var(--surface);
-    box-shadow: 0 8px 24px rgb(20 29 23 / 14%);
+    box-shadow: none;
 }
 
 .document-export-options button {
@@ -177,7 +175,7 @@
     color: var(--ink);
     background: transparent;
     font: inherit;
-    font-size: 10px;
+    font-size: 12px;
     text-align: left;
     cursor: pointer;
 }
@@ -190,7 +188,7 @@
 .document-editor-error {
     margin: 0;
     color: var(--danger);
-    font-size: 10px;
+    font-size: 12px;
 }
 
 .notes-autosave {
@@ -198,7 +196,7 @@
     gap: 5px;
     margin-top: 8px;
     color: var(--muted);
-    font-size: 10px;
+    font-size: 12px;
 }
 
 .notes-autosave label {
@@ -246,7 +244,7 @@
     .note-print-preview blockquote {
         margin-left: 0;
         padding-left: 1em;
-        border-left: 3px solid #78947b;
+        border-left: 3px solid #4a6870;
     }
 
     .note-print-preview .checklist {
@@ -262,17 +260,17 @@
     height: 29px;
     padding: 0 23px 0 8px;
     border: 1px solid var(--line);
-    border-radius: 7px;
+    border-radius: 5px;
     color: var(--ink-soft);
     background: var(--surface);
     font: inherit;
-    font-size: 9px;
+    font-size: 12px;
 }
 
 .document-editor-add-button {
     min-height: 29px;
     padding: 0 10px;
-    font-size: 9px;
+    font-size: 12px;
 }
 
 .document-editor-pages {
@@ -285,7 +283,7 @@
     min-width: 0;
     overflow: hidden;
     border: 1px solid var(--line-soft);
-    border-radius: 8px;
+    border-radius: 5px;
     background: var(--surface);
     transition:
         border-color 140ms ease,
@@ -294,7 +292,7 @@
 
 .document-block:focus-within {
     border-color: color-mix(in srgb, var(--accent) 50%, var(--line));
-    box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 9%, transparent);
+    box-shadow: none;
 }
 
 .document-block-heading {
@@ -309,7 +307,7 @@
     width: 22px;
     flex: 0 0 auto;
     color: var(--faint);
-    font-size: 8px;
+    font-size: 12px;
     font-variant-numeric: tabular-nums;
     letter-spacing: 0.06em;
 }
@@ -319,7 +317,7 @@
     padding-left: 7px;
     border-color: transparent;
     background: transparent;
-    font-size: 8px;
+    font-size: 12px;
 }
 
 .document-block-actions {
@@ -363,12 +361,12 @@
     resize: vertical;
     padding: 11px 13px 12px 15px;
     border: 0;
-    border-radius: 0;
+    border-radius: 5px;
     outline: 0;
     color: var(--ink-soft);
     background: transparent;
     font: inherit;
-    font-size: 10px;
+    font-size: 12px;
     line-height: 1.75;
 }
 
@@ -387,23 +385,23 @@
 .document-block[data-kind="quote"] textarea {
     border-left: 3px solid color-mix(in srgb, var(--accent) 48%, var(--line));
     color: var(--muted);
-    font-family: Georgia, "Times New Roman", serif;
-    font-size: 11px;
+    font-family: "Noto Sans", sans-serif;
+    font-size: 12px;
     font-style: italic;
 }
 
 .document-block[data-kind="code"] textarea {
     color: var(--ink-soft);
     background: color-mix(in srgb, var(--surface-subtle) 76%, var(--surface));
-    font-family: ui-monospace, "Cascadia Code", "SFMono-Regular", Consolas, monospace;
-    font-size: 9px;
+    font-family: "Noto Sans", sans-serif;
+    font-size: 12px;
     tab-size: 2;
 }
 
 .document-block[data-kind$="list"] textarea,
 .document-block[data-kind="checklist"] textarea {
     padding-left: 19px;
-    background-image: linear-gradient(var(--line-soft), var(--line-soft));
+    background-image: none;
     background-position: 11px 15px;
     background-repeat: repeat-y;
     background-size: 1px 1.75em;
@@ -416,7 +414,7 @@
     min-height: 74px;
     padding: 12px;
     border: 1px dashed var(--line);
-    border-radius: 8px;
+    border-radius: 5px;
     color: var(--muted);
     background: color-mix(in srgb, var(--surface) 65%, transparent);
 }
@@ -436,7 +434,7 @@
 .document-editor-footnote {
     margin: 0;
     color: var(--faint);
-    font-size: 8px;
+    font-size: 12px;
     line-height: 1.5;
 }
 
@@ -489,7 +487,7 @@
     min-width: 0;
     padding: 0.4rem 0.5rem;
     border: 1px solid var(--line-strong);
-    border-radius: var(--radius);
+    border-radius: 5px;
     color: var(--ink);
     background: var(--surface);
 }
@@ -497,7 +495,7 @@
 .document-find button {
     padding: 0.4rem 0.6rem;
     border: 1px solid var(--line);
-    border-radius: var(--radius);
+    border-radius: 5px;
     color: var(--ink);
     background: var(--surface);
 }
