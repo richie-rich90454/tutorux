@@ -26,6 +26,8 @@ const buildArguments = [
     cargoManifest,
     "--bin",
     helperName,
+    "--features",
+    "audio-helper",
     "--target",
     targetTriple,
     ...(debug ? [] : ["--release"]),
