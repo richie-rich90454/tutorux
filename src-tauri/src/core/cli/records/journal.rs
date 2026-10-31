@@ -124,21 +124,22 @@ pub(crate) fn run_journal(
                 fields.insert("entry_date".to_owned(), String::new());
                 changed = true;
             }
-            let mut changes = Vec::new();
-            if changed {
-                fields.insert("updated_at_us".to_owned(), timestamp_now());
-                let mut updated = current.clone();
-                updated.fields = fields;
-                changes.push(updated);
-            }
-            if let Some(text) = args.option("notes") {
-                let notes_id = current.field("notes_document_id").unwrap_or("");
-                if !notes_id.is_empty() {
-                    if let Some(mut notes) = snapshot.get_record(RecordType::SETTINGS, notes_id)? {
-                        apply_note_text(&mut notes, text);
-                        changes.push(notes);
-                    }
-                }
+            let mut changes = Vec::new();
+            let notes = args.option("notes");
+            if changed || notes.is_some() {
+                fields.insert("updated_at_us".to_owned(), timestamp_now());
+                let mut updated = current.clone();
+                updated.fields = fields;
+                changes.push(updated);
+            }
+            if let Some(text) = notes {
+                let notes_id = current.field("notes_document_id").unwrap_or("");
+                if !notes_id.is_empty() {
+                    if let Some(mut notes) = snapshot.get_record(RecordType::SETTINGS, notes_id)? {
+                        apply_note_text(&mut notes, text);
+                        changes.push(notes);
+                    }
+                }
             }
             if changes.is_empty() {
                 return Err(CliError("Provide a journal field to update.".to_owned()).into());
