@@ -2,8 +2,12 @@ mod audio;
 mod metrics;
 
 use audio::{enumerate_audio_endpoints, AudioEndpointDiagnostics};
-use metrics::{collect_process_metrics, ProcessMetrics};
+use metrics::{
+    collect_process_metrics, metric_available, metric_string, total_system_memory_bytes,
+    ProcessMetrics,
+};
 use serde::Serialize;
+use serde_json::{json, Value};
 use std::time::Duration;
 use tauri::WebviewWindow;
 
@@ -42,4 +46,68 @@ pub async fn get_desktop_diagnostics(
     })
     .await
     .map_err(|_| "Desktop diagnostics stopped unexpectedly.".to_owned())
+}
+
+/// Process and system counters for the CLI benchmark and diagnostics commands.
+pub fn headless_system_snapshot() -> Value {
+    let metrics = collect_process_metrics();
+    json!({
+        "operating_system": operating_system_name(),
+        "architecture": architecture_name(),
+        "process_uptime_us": metric_string(&metrics.uptime_microseconds),
+        "process_cpu_time_us": metric_string(&metrics.cpu_time_microseconds),
+        "process_cpu_available": metric_available(&metrics.cpu_time_microseconds),
+        "resident_memory_bytes": metric_string(&metrics.resident_memory_bytes),
+        "peak_resident_memory_bytes": metric_string(&metrics.peak_resident_memory_bytes),
+        "resident_memory_available": metric_available(&metrics.resident_memory_bytes),
+        "available_memory_bytes": metric_string(&metrics.available_memory_bytes),
+        "available_memory_available": metric_available(&metrics.available_memory_bytes),
+        "hardware_threads": std::thread::available_parallelism()
+            .map(|value| value.get().to_string())
+            .unwrap_or_else(|_| "1".to_owned()),
+    })
+}
+
+pub fn headless_host_summary() -> Value {
+    json!({
+        "platform": node_platform_name(),
+        "os_release": "",
+        "cpu_count": std::thread::available_parallelism()
+            .map(|value| value.get())
+            .unwrap_or(1),
+        "total_memory_bytes": total_system_memory_bytes().unwrap_or(0),
+    })
+}
+
+pub fn headless_audio_diagnostics(probe_streams: bool) -> Value {
+    serde_json::to_value(enumerate_audio_endpoints(probe_streams)).unwrap_or(Value::Null)
+}
+
+fn operating_system_name() -> &'static str {
+    match std::env::consts::OS {
+        "windows" => "Windows",
+        "macos" => "macOS",
+        "linux" => "Linux",
+        "freebsd" => "FreeBSD",
+        "android" => "Android",
+        _ => "Unknown",
+    }
+}
+
+fn architecture_name() -> &'static str {
+    match std::env::consts::ARCH {
+        "x86_64" => "x86_64",
+        "aarch64" => "arm64",
+        "x86" => "x86",
+        "arm" => "arm",
+        other => other,
+    }
+}
+
+fn node_platform_name() -> &'static str {
+    match std::env::consts::OS {
+        "windows" => "win32",
+        "macos" => "darwin",
+        other => other,
+    }
 }
