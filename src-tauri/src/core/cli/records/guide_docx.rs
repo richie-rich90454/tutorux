@@ -161,7 +161,7 @@ fn image_mime(extension: &str) -> CliResult<&'static str> {
     }
 }
 
-fn image_dimensions(mime: &str, bytes: &[u8]) -> CliResult<(u32, u32)> {
+pub(super) fn image_dimensions(mime: &str, bytes: &[u8]) -> CliResult<(u32, u32)> {
     let byte = |index: usize| bytes.get(index).copied().unwrap_or(0) as u32;
     let big32 = |offset: usize| {
         (byte(offset) << 24) | (byte(offset + 1) << 16) | (byte(offset + 2) << 8) | byte(offset + 3)
