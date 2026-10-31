@@ -14,8 +14,8 @@ use zeroize::{Zeroize, Zeroizing};
 
 use super::{
     model::{file_identity, LoadedModel},
-    EmbeddedGenerationChunk, EmbeddedGenerationRequest, EmbeddedGenerationResult,
-    MAX_OUTPUT_BYTES, MAX_OUTPUT_TOKENS, MAX_PROMPT_BYTES,
+    EmbeddedGenerationChunk, EmbeddedGenerationRequest, EmbeddedGenerationResult, MAX_OUTPUT_BYTES,
+    MAX_OUTPUT_TOKENS, MAX_PROMPT_BYTES,
 };
 
 pub(super) fn generate_blocking(
