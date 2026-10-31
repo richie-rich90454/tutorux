@@ -21,18 +21,21 @@ pub(super) async fn request_replicate_http(
     credential: &str,
     body: Option<&str>,
     timeout: Duration,
+    api_root: &Url,
 ) -> Result<ReplicateHttpResponse, String> {
     let url =
         Url::parse(endpoint).map_err(|_| "The Replicate API endpoint is invalid.".to_owned())?;
-    if url.scheme() != "https:"
-        || url.host_str() != Some("api.replicate.com")
-        || url.port().is_some()
+    if url.scheme() != api_root.scheme()
+        || url.host_str() != api_root.host_str()
+        || url.port_or_known_default() != api_root.port_or_known_default()
         || !url.username().is_empty()
         || url.password().is_some()
         || url.query().is_some()
         || url.fragment().is_some()
     {
-        return Err("Replicate requests are limited to its official HTTPS API origin.".to_owned());
+        return Err(
+            "Replicate requests are limited to the reviewed prediction API origin.".to_owned(),
+        );
     }
     let mut bearer = Zeroizing::new(String::with_capacity(7 + credential.len()));
     bearer.push_str("Bearer ");
