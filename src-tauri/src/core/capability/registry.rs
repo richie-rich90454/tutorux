@@ -8,6 +8,7 @@ const T_ARCHIVE_ENCRYPT: &str = "tests/cli/main.test.ts::CLI encrypted archive a
 const T_ARCHIVE_SANITIZE: &str = "tests/cli/main.test.ts::CLI sanitized archive copies::requires a reviewed sanitized-copy preview and publishes a private-data-filtered archive";
 const T_ARCHIVE_RECOVERY: &str = "tests/frontend/cli.test.ts::TypeScript CLI::previews and applies recovery for a complete unpublished generation";
 const T_ARCHIVE_COMPACT: &str = "tests/frontend/cli.test.ts::TypeScript CLI::previews archive compaction with --preview and applies by default";
+const T_ARCHIVE_PURGE_TRASH: &str = "src-tauri/src/core/cli/archive/tests_maintenance.rs::purge_trash_previews_without_writing_and_applies";
 const T_ARCHIVE_REPAIR: &str = "tests/frontend/cli.test.ts::TypeScript CLI::creates a verified repair copy without changing the damaged source";
 const T_ARCHIVE_BACKUP: &str = "tests/rust-parity/corpus.json#archive.backup.confirm-required";
 const T_ARCHIVE_DISCOVER: &str = "tests/frontend/archive/archive.test.ts::archive reader";
@@ -71,6 +72,7 @@ pub const CAPABILITIES: &[Capability] = &[
     cap!("archive.backup", Archive, ["archive", "backup"], ["archive copy"], "console:archive backup", [Filesystem, Archive, Output], T_ARCHIVE_BACKUP),
     cap!("archive.recover", Archive, ["archive", "recover"], [], "console:archive recover", [Filesystem, Archive, Output], T_ARCHIVE_RECOVERY),
     cap!("archive.compact", Archive, ["archive", "compact"], [], "console:archive compact", [Filesystem, Archive, Output], T_ARCHIVE_COMPACT),
+    cap!("archive.purge-trash", Archive, ["archive", "purge-trash"], [], "console:archive purge-trash", [Filesystem, Clock, Archive, Output], T_ARCHIVE_PURGE_TRASH),
     cap!("archive.backfill-indexes", Archive, ["archive", "backfill-indexes"], [], "console:archive backfill-indexes", [Filesystem, Archive, Output], T_ARCHIVE_VERIFY),
     cap!("archive.repair", Archive, ["archive", "repair"], [], "console:archive repair", [Filesystem, Archive, Output], T_ARCHIVE_REPAIR),
     cap!("archive.rebuild-index", Archive, ["archive", "rebuild-index"], [], "console:archive rebuild-index", [Filesystem, Archive, Output], T_ARCHIVE_REPAIR),
