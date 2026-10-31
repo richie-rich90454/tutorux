@@ -96,7 +96,7 @@ export function renderNoteHtml(title: string, blocks: readonly JournalNoteBlock[
             }
         })
         .join("\n");
-    return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escapeMarkup(title)}</title><style>body{font:16px/1.65 system-ui,sans-serif;color:#202820;margin:0}main{max-width:760px;margin:auto;padding:48px 32px}h1,h2{line-height:1.2}p,blockquote,pre{white-space:pre-wrap}blockquote{border-left:3px solid #78947b;margin-left:0;padding-left:1em;color:#4d5d50}pre{background:#f2f5f2;padding:1em;overflow-wrap:anywhere}ul.checklist{list-style:none;padding-left:0}@media print{main{max-width:none;padding:0}pre{white-space:pre-wrap}}</style></head><body><main class="note-document"><h1>${escapeMarkup(title)}</h1>${content}</main></body></html>`;
+    return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escapeMarkup(title)}</title><style>body{font:16px/1.65 "Noto Sans",sans-serif;color:#171a1c;margin:0}main{max-width:760px;margin:auto;padding:48px 32px}h1,h2{line-height:1.2}p,blockquote,pre{white-space:pre-wrap}blockquote{border-left:3px solid #4a6870;margin-left:0;padding-left:1em;color:#303639}pre{background:#f2f4f4;padding:1em;overflow-wrap:anywhere}ul.checklist{list-style:none;padding-left:0}@media print{main{max-width:none;padding:0}pre{white-space:pre-wrap}}</style></head><body><main class="note-document"><h1>${escapeMarkup(title)}</h1>${content}</main></body></html>`;
 }
 
 function wordText(value: string): string {
