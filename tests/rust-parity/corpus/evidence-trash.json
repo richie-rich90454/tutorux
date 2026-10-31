@@ -1,221 +1,213 @@
 {
-  "version": 1,
-  "cases": [
-    {
-      "id": "evidence.trash",
-      "family": "evidence",
-      "capability": "evidence.delete",
-      "files": {
-        "evidence-transcript.txt": "I think fractions are hard.\nCan we try another example?\n"
-      },
-      "setup": [
+    "version": 1,
+    "cases": [
         {
-          "id": "session",
-          "args": [
-            "--archive",
-            "{archive}",
-            "--json",
-            "session",
-            "create",
-            "--title",
-            "Evidence session"
-          ],
-          "capture": {
-            "session": "id"
-          }
-        },
-        {
-          "id": "annotation",
-          "args": [
-            "--archive",
-            "{archive}",
-            "--json",
-            "annotation",
-            "add",
-            "--session",
-            "{capture.session}",
-            "--type",
-            "student-mistake",
-            "--at",
-            "00:00:01",
-            "--title",
-            "Denominator confusion",
-            "--text",
-            "Mina added denominators directly."
-          ]
-        },
-        {
-          "id": "extract annotation evidence",
-          "args": [
-            "--archive",
-            "{archive}",
-            "--json",
-            "evidence",
-            "extract",
-            "--session",
-            "{capture.session}"
-          ],
-          "capture": {
-            "first": "0.id"
-          }
-        },
-        {
-          "id": "import transcript",
-          "args": [
-            "--archive",
-            "{archive}",
-            "--json",
-            "transcript",
-            "import",
-            "--session",
-            "{capture.session}",
-            "--input",
-            "evidence-transcript.txt",
-            "--format",
-            "text"
-          ]
-        },
-        {
-          "id": "show transcript",
-          "args": [
-            "--archive",
-            "{archive}",
-            "--json",
-            "transcript",
-            "show",
-            "--session",
-            "{capture.session}"
-          ],
-          "capture": {
-            "segment": "0.id"
-          }
-        },
-        {
-          "id": "create",
-          "args": [
-            "--archive",
-            "{archive}",
-            "--json",
-            "evidence",
-            "create",
-            "--session",
-            "{capture.session}",
-            "--source-segment",
-            "{capture.segment}",
-            "--type",
-            "student-question",
-            "--title",
-            "Fraction question",
-            "--content",
-            "Mina asked for another equivalent-fraction example."
-          ],
-          "capture": {
-            "second": "id"
-          }
-        },
-        {
-          "id": "link",
-          "args": [
-            "--archive",
-            "{archive}",
-            "--json",
-            "evidence",
-            "link",
-            "--from",
-            "{capture.second}",
-            "--to",
-            "{capture.first}",
-            "--relationship",
-            "supports"
-          ],
-          "capture": {
-            "edge": "id"
-          }
-        }
-      ],
-      "steps": [
-        {
-          "id": "delete group",
-          "capability": "evidence.delete",
-          "args": [
-            "--archive",
-            "{archive}",
-            "--json",
-            "evidence",
-            "delete",
-            "{capture.second}"
-          ],
-          "expect": {
-            "exitCode": 0,
-            "stdoutJsonIncludes": {
-              "_deleted": "true"
-            }
-          }
-        },
-        {
-          "id": "list deleted",
-          "capability": "evidence.list",
-          "args": [
-            "--archive",
-            "{archive}",
-            "--json",
-            "evidence",
-            "list",
-            "--session",
-            "{capture.session}",
-            "--include-deleted"
-          ],
-          "expect": {
-            "exitCode": 0,
-            "stdoutContains": [
-              "Fraction question"
+            "id": "evidence.trash",
+            "family": "evidence",
+            "capability": "evidence.delete",
+            "files": {
+                "evidence-transcript.txt": "I think fractions are hard.\nCan we try another example?\n"
+            },
+            "setup": [
+                {
+                    "id": "session",
+                    "args": [
+                        "--archive",
+                        "{archive}",
+                        "--json",
+                        "session",
+                        "create",
+                        "--title",
+                        "Evidence session"
+                    ],
+                    "capture": {
+                        "session": "id"
+                    }
+                },
+                {
+                    "id": "annotation",
+                    "args": [
+                        "--archive",
+                        "{archive}",
+                        "--json",
+                        "annotation",
+                        "add",
+                        "--session",
+                        "{capture.session}",
+                        "--type",
+                        "student-mistake",
+                        "--at",
+                        "00:00:01",
+                        "--title",
+                        "Denominator confusion",
+                        "--text",
+                        "Mina added denominators directly."
+                    ]
+                },
+                {
+                    "id": "extract annotation evidence",
+                    "args": [
+                        "--archive",
+                        "{archive}",
+                        "--json",
+                        "evidence",
+                        "extract",
+                        "--session",
+                        "{capture.session}"
+                    ],
+                    "capture": {
+                        "first": "0.id"
+                    }
+                },
+                {
+                    "id": "import transcript",
+                    "args": [
+                        "--archive",
+                        "{archive}",
+                        "--json",
+                        "transcript",
+                        "import",
+                        "--session",
+                        "{capture.session}",
+                        "--input",
+                        "evidence-transcript.txt",
+                        "--format",
+                        "text"
+                    ]
+                },
+                {
+                    "id": "show transcript",
+                    "args": [
+                        "--archive",
+                        "{archive}",
+                        "--json",
+                        "transcript",
+                        "show",
+                        "--session",
+                        "{capture.session}"
+                    ],
+                    "capture": {
+                        "segment": "0.id"
+                    }
+                },
+                {
+                    "id": "create",
+                    "args": [
+                        "--archive",
+                        "{archive}",
+                        "--json",
+                        "evidence",
+                        "create",
+                        "--session",
+                        "{capture.session}",
+                        "--source-segment",
+                        "{capture.segment}",
+                        "--type",
+                        "student-question",
+                        "--title",
+                        "Fraction question",
+                        "--content",
+                        "Mina asked for another equivalent-fraction example."
+                    ],
+                    "capture": {
+                        "second": "id"
+                    }
+                },
+                {
+                    "id": "link",
+                    "args": [
+                        "--archive",
+                        "{archive}",
+                        "--json",
+                        "evidence",
+                        "link",
+                        "--from",
+                        "{capture.second}",
+                        "--to",
+                        "{capture.first}",
+                        "--relationship",
+                        "supports"
+                    ],
+                    "capture": {
+                        "edge": "id"
+                    }
+                }
+            ],
+            "steps": [
+                {
+                    "id": "delete group",
+                    "capability": "evidence.delete",
+                    "args": [
+                        "--archive",
+                        "{archive}",
+                        "--json",
+                        "evidence",
+                        "delete",
+                        "{capture.second}"
+                    ],
+                    "expect": {
+                        "exitCode": 0,
+                        "stdoutJsonIncludes": {
+                            "_deleted": "true"
+                        }
+                    }
+                },
+                {
+                    "id": "list deleted",
+                    "capability": "evidence.list",
+                    "args": [
+                        "--archive",
+                        "{archive}",
+                        "--json",
+                        "evidence",
+                        "list",
+                        "--session",
+                        "{capture.session}",
+                        "--include-deleted"
+                    ],
+                    "expect": {
+                        "exitCode": 0,
+                        "stdoutContains": ["Fraction question"]
+                    },
+                    "unorderedJsonPaths": [""]
+                },
+                {
+                    "id": "restore group",
+                    "capability": "evidence.restore",
+                    "args": [
+                        "--archive",
+                        "{archive}",
+                        "--json",
+                        "evidence",
+                        "restore",
+                        "{capture.second}"
+                    ],
+                    "expect": {
+                        "exitCode": 0,
+                        "stdoutJsonIncludes": {
+                            "title": "Fraction question"
+                        }
+                    }
+                },
+                {
+                    "id": "edges after restore",
+                    "capability": "evidence.edges",
+                    "args": [
+                        "--archive",
+                        "{archive}",
+                        "--json",
+                        "evidence",
+                        "edges",
+                        "--session",
+                        "{capture.session}"
+                    ],
+                    "expect": {
+                        "exitCode": 0,
+                        "stdoutContains": ["supports"]
+                    },
+                    "unorderedJsonPaths": [""]
+                }
             ]
-          },
-          "unorderedJsonPaths": [
-            ""
-          ]
-        },
-        {
-          "id": "restore group",
-          "capability": "evidence.restore",
-          "args": [
-            "--archive",
-            "{archive}",
-            "--json",
-            "evidence",
-            "restore",
-            "{capture.second}"
-          ],
-          "expect": {
-            "exitCode": 0,
-            "stdoutJsonIncludes": {
-              "title": "Fraction question"
-            }
-          }
-        },
-        {
-          "id": "edges after restore",
-          "capability": "evidence.edges",
-          "args": [
-            "--archive",
-            "{archive}",
-            "--json",
-            "evidence",
-            "edges",
-            "--session",
-            "{capture.session}"
-          ],
-          "expect": {
-            "exitCode": 0,
-            "stdoutContains": [
-              "supports"
-            ]
-          },
-          "unorderedJsonPaths": [
-            ""
-          ]
         }
-      ]
-    }
-  ]
+    ]
 }
