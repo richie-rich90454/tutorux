@@ -8,6 +8,8 @@ use crate::core::cli::{emit, CliContext, CliError, CliOutput, CliResult, ParsedA
 use crate::core::format::{ArchiveRecord, RecordType};
 
 use super::super::providers::ProviderDef;
+use super::package::create_package;
+use super::response::create as create_proposal;
 use super::ready;
 
 pub(super) fn package(
@@ -16,71 +18,41 @@ pub(super) fn package(
     path: &Path,
     context: &CliContext,
 ) -> CliResult<i32> {
+    let format = args.option("format").unwrap_or("json");
+    if !["json", "markdown", "md", "parts", "zip"].contains(&format) {
+        return Err(CliError("Package format must be json, markdown, parts, or zip.".to_owned()).into());
+    }
+    let mode = args.option("mode").unwrap_or("manual");
+    if !matches!(mode, "manual" | "local") {
+        return Err(CliError("Package mode must be manual or local.".to_owned()).into());
+    }
+    if mode == "local" && format != "json" {
+        return Err(CliError("Local packages require JSON format.".to_owned()).into());
+    }
+    if format == "zip" && !args.flag("confirm-sensitive") {
+        return Err(CliError(
+            "ZIP packages include session materials; use --confirm-sensitive to export them.".to_owned(),
+        )
+        .into());
+    }
     let snapshot = ready(path, context)?;
     let session_id = args.required_option("session")?.to_lowercase();
-    let session = snapshot
-        .get_record(RecordType::SESSION, &session_id)?
-        .filter(|record| !record.deleted())
-        .ok_or_else(|| CliError("Session was not found.".to_owned()))?;
-    let template = args.option("template").unwrap_or("auto");
-    let transcript: Vec<Value> = snapshot
-        .list_records(RecordType::TRANSCRIPT_SEGMENT, false)?
-        .into_iter()
-        .filter(|record| record.field("session_id").map(str::to_lowercase) == Some(session_id.clone()))
-        .map(|record| crate::core::cli::records::plain(&record))
+    let image_ids: Vec<String> = args
+        .option("image-ids")
+        .unwrap_or("")
+        .split(',')
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_owned)
         .collect();
-    let annotations: Vec<Value> = snapshot
-        .list_records(RecordType::ANNOTATION, false)?
-        .into_iter()
-        .filter(|record| record.field("session_id").map(str::to_lowercase) == Some(session_id.clone()))
-        .map(|record| crate::core::cli::records::plain(&record))
-        .collect();
-    let evidence: Vec<Value> = snapshot
-        .list_records(RecordType::EVIDENCE_NODE, false)?
-        .into_iter()
-        .filter(|record| record.field("session_id").map(str::to_lowercase) == Some(session_id.clone()))
-        .map(|record| crate::core::cli::records::plain(&record))
-        .collect();
-    let assets: Vec<Value> = snapshot
-        .list_records(RecordType::ASSET_METADATA, false)?
-        .into_iter()
-        .filter(|record| record.field("session_id").map(str::to_lowercase) == Some(session_id.clone()))
-        .map(|record| crate::core::cli::records::plain(&record))
-        .collect();
-    let package = json!({
-        "format": "tutorux-ai-package-v1",
-        "session": crate::core::cli::records::plain(&session),
-        "template_id": template,
-        "transcript": transcript,
-        "annotations": annotations,
-        "evidence": evidence,
-        "assets": assets,
-        "attached_images": [],
-        "image_ids": args.option("image-ids").unwrap_or(""),
-    });
-    let bytes = serde_json::to_vec_pretty(&package).unwrap_or_default();
-    let content_hash = format!("{:x}", Sha256::digest(&bytes));
-    let id = new_uuid();
-    let mut job = ArchiveRecord::new(
-        RecordType::AI_JOB,
-        &id,
-        [
-            ("session_id", session_id.clone()),
-            ("mode", "manual".to_owned()),
-            ("requested_mode", "manual".to_owned()),
-            ("status", "package-ready".to_owned()),
-            ("format", "json".to_owned()),
-            ("template_id", template.to_owned()),
-            ("content_hash", content_hash.clone()),
-            ("package_bytes", bytes.len().to_string()),
-            ("transcript_segments", package["transcript"].as_array().map_or(0, Vec::len).to_string()),
-            ("annotations", package["annotations"].as_array().map_or(0, Vec::len).to_string()),
-            ("evidence", package["evidence"].as_array().map_or(0, Vec::len).to_string()),
-            ("assets", package["assets"].as_array().map_or(0, Vec::len).to_string()),
-            ("created_at_us", now_us().to_string()),
-        ],
-    );
-    job.blob = bytes;
+    let summary = create_package(
+        &snapshot,
+        &session_id,
+        args.option("template").unwrap_or("auto"),
+        &image_ids,
+    )?;
+    let mut job = summary.job.clone();
+    job.fields.insert("requested_mode".to_owned(), mode.to_owned());
     let next = snapshot.append_records(&[job.clone()])?;
     crate::core::cli::records::save_replacing(path, &next)?;
     let destination = args.option("output").map(crate::core::cli::resolve_path);
@@ -93,18 +65,18 @@ pub(super) fn package(
     emit(
         output,
         json!({
-            "job_id": id,
-            "session_id": session_id,
-            "template_id": template,
-            "content_hash": content_hash,
-            "package_bytes": job.blob.len(),
-            "transcript_segments": job.field("transcript_segments").and_then(|value| value.parse::<u64>().ok()).unwrap_or(0),
-            "annotations": job.field("annotations").and_then(|value| value.parse::<u64>().ok()).unwrap_or(0),
-            "evidence": job.field("evidence").and_then(|value| value.parse::<u64>().ok()).unwrap_or(0),
-            "assets": job.field("assets").and_then(|value| value.parse::<u64>().ok()).unwrap_or(0),
+            "job_id": job.id,
+            "session_id": summary.session_id,
+            "template_id": summary.template_id,
+            "content_hash": summary.content_hash,
+            "package_bytes": summary.byte_length,
+            "transcript_segments": summary.transcript_count,
+            "annotations": summary.annotation_count,
+            "evidence": summary.evidence_count,
+            "assets": summary.asset_count,
             "output": destination.as_ref().map(|value| value.to_string_lossy().into_owned()).unwrap_or_default(),
         }),
-        &format!("AI package {id} prepared. SHA-256: {content_hash}."),
+        &format!("AI package {} prepared. SHA-256: {}.", job.id, summary.content_hash),
         args.json(),
     );
     Ok(0)
@@ -125,55 +97,107 @@ pub(super) fn import(
         return Err(CliError("Session was not found.".to_owned()).into());
     }
     let input = crate::core::cli::resolve_path(args.required_option("input")?);
-    let text = std::fs::read_to_string(&input).map_err(|error| {
+    let bytes = std::fs::read(&input).map_err(|error| {
         crate::core::error::CoreError::new(
             "ai_import_failed",
             format!("Could not read AI response: {error}"),
         )
     })?;
-    if text.len() > 16 * 1024 * 1024 {
+    if bytes.is_empty() || bytes.len() > 16 * 1024 * 1024 {
         return Err(CliError("Response must be between 1 byte and 16 MiB.".to_owned()).into());
     }
-    let title = args.option("title").unwrap_or("Imported AI response");
-    let id = new_uuid();
+    let text = String::from_utf8(bytes.clone())
+        .map_err(|_| CliError("The response was not valid UTF-8.".to_owned()))?;
+    let response_template = serde_json::from_str::<Value>(&text)
+        .ok()
+        .and_then(|value| value.get("template_id").and_then(Value::as_str).map(str::to_owned))
+        .unwrap_or_else(|| "general".to_owned());
+    let expected_template = args.option("template").unwrap_or(&response_template).to_owned();
+    let mut proposal = create_proposal(&text, &session_id, &expected_template);
+    if let Some(title) = args.option("title") {
+        proposal.draft.title = title.to_owned();
+    }
+    let scope = crate::core::cli::records::read_guide_scope(&snapshot, &session_id)?;
+    let mut source_validation = "passed";
+    let guide = match crate::core::cli::records::make_guide_record(&proposal.draft, &scope, None) {
+        Ok(record) => record,
+        Err(_) => {
+            source_validation = "failed";
+            proposal.warnings.push(
+                "Some source links need correction; the original response was kept as editable text."
+                    .to_owned(),
+            );
+            let fallback = crate::core::cli::records::GuideDraft {
+                title: "AI response — review required".to_owned(),
+                session_id: session_id.clone(),
+                entry_id: String::new(),
+                template_id: expected_template.clone(),
+                sections: vec![crate::core::cli::records::GuideSection {
+                    id: new_uuid(),
+                    heading: "Generated response — review required".to_owned(),
+                    blocks: vec![crate::core::cli::records::GuideBlock {
+                        kind: "paragraph".to_owned(),
+                        text: text.clone(),
+                        source_ids: Vec::new(),
+                        stale: false,
+                        origin: "ai-generated".to_owned(),
+                    }],
+                }],
+            };
+            crate::core::cli::records::make_guide_record(&fallback, &scope, None)?
+        }
+    };
+    if source_validation == "passed"
+        && !proposal
+            .draft
+            .sections
+            .iter()
+            .any(|section| section.blocks.iter().any(|block| !block.source_ids.is_empty()))
+    {
+        source_validation = "missing-evidence";
+    }
+    let status = if proposal.schema_valid && source_validation == "passed" {
+        "response-imported"
+    } else {
+        "response-needs-correction"
+    };
     let filename = input
         .file_name()
         .and_then(|value| value.to_str())
         .unwrap_or("response");
-    let mut record = ArchiveRecord::new(
+    let mut job = ArchiveRecord::new(
         RecordType::AI_JOB,
-        &id,
+        new_uuid(),
         [
             ("session_id", session_id.clone()),
             ("mode", "manual".to_owned()),
-            ("status", "response-needs-correction".to_owned()),
-            ("schema_valid", "false".to_owned()),
-            ("source_validation", "missing-evidence".to_owned()),
-            (
-                "import_warnings",
-                "The response was stored for review; create or edit a guide before reuse.".to_owned(),
-            ),
-            ("guide_id", String::new()),
-            ("title", title.to_owned()),
+            ("status", status.to_owned()),
+            ("schema_valid", proposal.schema_valid.to_string()),
+            ("source_validation", source_validation.to_owned()),
+            ("import_warnings", proposal.warnings.join("\n")),
+            ("guide_id", guide.id.clone()),
             ("original_filename", filename.to_owned()),
-            ("content_hash", format!("{:x}", Sha256::digest(text.as_bytes()))),
+            ("content_hash", format!("{:x}", Sha256::digest(&bytes))),
             ("created_at_us", now_us().to_string()),
         ],
     );
-    record.blob = text.into_bytes();
-    let next = snapshot.append_records(&[record])?;
+    job.blob = bytes;
+    let mut changes =
+        crate::core::cli::records::guide_records_with_entry_links(&guide, None, &scope.records)?;
+    changes.push(job.clone());
+    let next = snapshot.append_records(&changes)?;
     crate::core::cli::records::save_replacing(path, &next)?;
     emit(
         output,
         json!({
-            "job_id": id,
-            "guide_id": "",
-            "status": "response-needs-correction",
-            "schema_valid": false,
-            "source_validation": "missing-evidence",
-            "warnings": ["The response was stored for review; create or edit a guide before reuse."],
+            "job_id": job.id,
+            "guide_id": guide.id,
+            "status": status,
+            "schema_valid": proposal.schema_valid,
+            "source_validation": source_validation,
+            "warnings": proposal.warnings,
         }),
-        "Imported AI response for review.",
+        &format!("Imported response as unapproved guide {} ({status}).", guide.id),
         args.json(),
     );
     Ok(0)
@@ -212,9 +236,6 @@ pub(super) fn cancel(
     updated
         .fields
         .insert("status".to_owned(), "cancelled".to_owned());
-    updated
-        .fields
-        .insert("updated_at_us".to_owned(), now_us().to_string());
     let next = snapshot.append_records(&[updated.clone()])?;
     crate::core::cli::records::save_replacing(path, &next)?;
     emit(
