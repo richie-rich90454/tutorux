@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
-import { newUuid, RecordType, type ArchiveRecord } from "../archive/format";
-import type { AiRequestPreview } from "./request";
-import { executeAiGeneration } from "./execution";
+import { newUuid, RecordType, type ArchiveRecord } from "../../../frontend/archive/format";
+import type { AiRequestPreview } from "../../../frontend/ai/request";
+import { executeAiGeneration } from "../../../frontend/ai/execution";
 
 const encoder = new TextEncoder();
 
