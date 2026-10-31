@@ -306,6 +306,18 @@ impl CaptureWriter {
         Ok(next)
     }
 
+    pub(super) fn merge_session(&mut self, session: &ArchiveRecord) {
+        for field in [
+            "processing_state",
+            "processing_detail",
+            "processing_updated_at_us",
+        ] {
+            if let Some(value) = session.field(field) {
+                self.session.fields.insert(field.to_owned(), value.to_owned());
+            }
+        }
+    }
+
     pub(super) fn finish(
         &mut self,
         snapshot: &ArchiveSnapshot,
