@@ -415,16 +415,8 @@ pub(crate) fn generate_guide_draft_from_session(
                 && record.field("record_role") == Some("journal-notes")
         })
         .collect();
-    notes_records.sort_by(|left, right| {
-        let left_entry = left.field("session_id").unwrap_or("").is_empty();
-        let right_entry = right.field("session_id").unwrap_or("").is_empty();
-        left_entry
-            .cmp(&right_entry)
-            .then_with(|| {
-                guide_int(left.field("created_at_us").unwrap_or(""))
-                    .cmp(&guide_int(right.field("created_at_us").unwrap_or("")))
-            })
-            .then_with(|| left.id.cmp(&right.id))
+    notes_records.sort_by_key(|record| {
+        record.field("session_id").map(str::to_lowercase).as_deref() != Some(session_id.as_str())
     });
     for notes in notes_records {
         let notes_session_id = notes.field("session_id").unwrap_or("").to_lowercase();
