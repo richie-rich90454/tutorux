@@ -1,12 +1,13 @@
 use std::path::Path;
 
-use serde_json::{json, Value};
+use serde_json::json;
 
 use crate::core::archive::ArchiveSnapshot;
 use crate::core::cli::{
     emit, open_archive, CliContext, CliError, CliOutput, CliResult, ParsedArguments,
 };
 use crate::core::format::RecordType;
+use crate::core::verify::{verify_full, verify_history};
 
 use super::helpers::{counter, file_stem, is_writable};
 
@@ -96,14 +97,30 @@ pub(super) fn run(
     }
     let writable = is_writable(path);
     let recovery_needed = snapshot.source.size() > snapshot.published_end_offset;
-    let (verification, verification_error) = if snapshot.locked() {
-        (None, None)
-    } else {
-        match snapshot.verify() {
-            Ok(result) => (Some(result), None),
-            Err(error) => (None, Some(error)),
+    let full_requested = action == "verify" && args.flag("full");
+    let history_requested = action == "verify" && args.flag("history");
+    let mut full = None;
+    let mut history = None;
+    let mut verification = None;
+    let mut verification_error: Option<String> = None;
+    if !snapshot.locked() {
+        if history_requested {
+            match verify_history(&snapshot) {
+                Ok(result) => history = Some(result),
+                Err(error) => verification_error = Some(error.message),
+            }
+        } else if full_requested {
+            match verify_full(&snapshot) {
+                Ok(result) => full = Some(result),
+                Err(error) => verification_error = Some(error.message),
+            }
+        } else {
+            match snapshot.verify() {
+                Ok(result) => verification = Some(result),
+                Err(error) => verification_error = Some(error.message),
+            }
         }
-    };
+    }
     let manifest = snapshot.get_manifest().ok();
     let manifest_record = snapshot
         .get_record(RecordType::SETTINGS, &snapshot.header.id)
@@ -111,29 +128,67 @@ pub(super) fn run(
         .flatten();
     let student_count = counter(manifest_record.as_ref().and_then(|record| record.field("student_count")));
     let session_count = counter(manifest_record.as_ref().and_then(|record| record.field("session_count")));
-    let verified = verification.is_some() && verification_error.is_none();
-    let healthy = !snapshot.locked() && !recovery_needed && verified;
+    let valid = verification_error.is_none()
+        && (history.is_some()
+            || full
+                .as_ref()
+                .map(|result| result.valid)
+                .unwrap_or(verification.is_some()));
     let health = if snapshot.locked() {
         "locked"
     } else if recovery_needed {
         "recovery-required"
-    } else if healthy {
-        "healthy"
-    } else {
+    } else if verification_error.is_some()
+        || full.as_ref().map(|result| !result.valid).unwrap_or(false)
+    {
         "invalid"
-    };
-    let records_verified = verification.as_ref().map(|value| value.current_records).unwrap_or(0);
-    let (live, deleted) = if verification.is_some() {
-        record_counts(&snapshot)
     } else {
-        (0, 0)
+        "healthy"
     };
-    let issues: Vec<String> = verification_error
+    let (live, records_verified, deleted, records_checked, index_pages_checked) =
+        if let Some(history) = &history {
+            (
+                history.current.live_records,
+                history.current.current_records,
+                history.current.deleted_records,
+                history.current.current_records,
+                0,
+            )
+        } else if let Some(full) = &full {
+            (
+                full.live_records,
+                full.current_records,
+                full.deleted_records,
+                full.records_checked,
+                full.index_pages_checked,
+            )
+        } else if let Some(verification) = &verification {
+            let (live, deleted) = record_counts(&snapshot);
+            (
+                live,
+                verification.current_records,
+                deleted,
+                verification.current_records,
+                0,
+            )
+        } else {
+            (0, 0, 0, 0, 0)
+        };
+    let issues: Vec<String> = full
         .as_ref()
-        .map(|error| error.message.split(';').map(str::trim).map(str::to_owned).collect())
+        .map(|result| result.issues.clone())
+        .or_else(|| {
+            verification_error
+                .as_ref()
+                .map(|error| error.split(';').map(str::trim).map(str::to_owned).collect())
+        })
         .unwrap_or_default();
     let verification_scope = if verification_error.is_some() {
         "failed"
+    } else if full_requested {
+        "full-semantic"
+    } else if history.is_some() {
+        "reachable-revisions-and-committed-generations"
     } else if verification.is_some() {
         "all-current-primary-records-and-index"
     } else {
@@ -163,16 +218,16 @@ pub(super) fn run(
         "metadata_only": false,
         "encrypted": snapshot.encrypted(),
         "locked": snapshot.locked(),
-        "verified": verified,
-        "valid": verified,
+        "verified": valid,
+        "valid": valid,
         "records": live,
         "recordsVerified": records_verified,
-        "records_checked": records_verified,
-        "index_pages_checked": 0,
+        "records_checked": records_checked,
+        "index_pages_checked": index_pages_checked,
         "deletedRecords": deleted,
         "issues": issues,
-        "historicalRevisionsVerified": Value::Null,
-        "commitsVerified": Value::Null,
+        "historicalRevisionsVerified": history.as_ref().map(|result| result.historical_revisions),
+        "commitsVerified": history.as_ref().map(|result| result.verified_commits),
         "verificationScope": verification_scope,
     });
     let summary = if snapshot.locked() {
@@ -180,6 +235,33 @@ pub(super) fn run(
             "{}: generation {}, encrypted records are locked.",
             file_stem(path),
             snapshot.commit.generation
+        )
+    } else if action == "verify" && (full_requested || verification_error.is_some()) {
+        if valid {
+            format!(
+                "{}: full verification passed at generation {} ({} record revisions, {} index pages).",
+                file_stem(path),
+                snapshot.commit.generation,
+                records_checked,
+                index_pages_checked
+            )
+        } else {
+            format!(
+                "{}: verification failed at generation {}.\n{}",
+                file_stem(path),
+                snapshot.commit.generation,
+                issues.join("\n")
+            )
+        }
+    } else if action == "verify" && history.is_some() {
+        format!(
+            "{}: generation {}, {} live records verified ({} in Trash); {} historical revisions across {} commits.",
+            file_stem(path),
+            snapshot.commit.generation,
+            live,
+            deleted,
+            history.as_ref().map(|result| result.historical_revisions).unwrap_or(0),
+            history.as_ref().map(|result| result.verified_commits).unwrap_or(0)
         )
     } else if action == "verify" {
         format!(
@@ -199,7 +281,7 @@ pub(super) fn run(
         )
     };
     emit(output, value, &summary, args.json());
-    if action == "verify" && verification_error.is_some() {
+    if verification_error.is_some() || (full_requested && !valid) {
         return Ok(2);
     }
     Ok(0)
