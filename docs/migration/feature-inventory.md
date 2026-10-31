@@ -33,7 +33,7 @@ Status meanings:
 | Settings and privacy | Theme, shortcut configuration, archive settings import/export, credential management, local diagnostics, support reports, and no-network guarantees. | Unit and Playwright coverage. |
 | CLI | Archive, student, session, journal, annotation, transcript, asset, evidence, guide, template, settings, model, record, diagnostics, benchmark, and AI command families, including legacy aliases and JSON contracts. | CLI parity and integration tests. |
 | Navigation and accessibility | Responsive navigation, command palette, configurable shortcuts, skip link, focus restoration, dialog focus traps, light/dark themes, and keyboard checks. | Playwright responsive/keyboard coverage. Screen-reader and desktop-DPI review remain release checks. |
-| Packaging | Vite static build, Tauri packages, icons, `.tux` association, single-instance launch routing, and a single-file portable executable that embeds the command runtime and both native helpers. | CI builds Windows, macOS, and Linux. Local packaging and portable single-file launch are Windows-host qualified. |
+| Packaging | Vite static build, Tauri packages, icons, `.tux` association, single-instance launch routing, and a single-process desktop executable with in-process Whisper, GGUF inference, and native audio. | CI builds Windows, macOS, and Linux. Local packaging is Windows-host qualified; installers contain only the desktop executable. |
 
 ## Remaining release qualification
 
