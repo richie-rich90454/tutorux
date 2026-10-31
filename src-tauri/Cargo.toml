@@ -5,13 +5,14 @@ description = "Tutorux desktop host"
 authors = ["Tutorux"]
 edition = "2021"
 rust-version = "1.90"
+default-run = "tutorux-desktop"
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
 base64 = "0.23"
-tutorux-archive-lock = { path = "../native-archive-lock" }
+dasp_sample = "0.11"
 reqwest = { version = "0.13.5", default-features = false, features = ["rustls", "stream", "system-proxy"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -54,7 +55,7 @@ cpal = "0.18.2"
 
 [patch.crates-io]
 # Match the helper's patched microphone backend so Linux resolves one ALSA sys crate.
-flexaudio-mic = { path = "../native-audio-helper/vendor/flexaudio-mic" }
+flexaudio-mic = { path = "vendor/flexaudio-mic" }
 
 [features]
 custom-protocol = ["tauri/custom-protocol"]
