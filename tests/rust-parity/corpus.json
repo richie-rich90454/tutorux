@@ -1,30 +1,28 @@
 {
-  "version": 1,
-  "description": "Registry-cited seed case; the rest of the matrix lives in corpus/*.json",
-  "cases": [
-    {
-      "id": "archive.backup.confirm-required",
-      "capability": "archive.backup",
-      "steps": [
+    "version": 1,
+    "description": "Registry-cited seed case; the rest of the matrix lives in corpus/*.json",
+    "cases": [
         {
-          "id": "archive backup without confirmation",
-          "args": [
-            "archive",
-            "backup",
-            "{archive}",
-            "--output",
-            "{dir}/copy.tux",
-            "--json"
-          ],
-          "expect": {
-            "exitCode": 2,
-            "stdoutJson": null,
-            "stderrContains": [
-              "--confirm-sensitive"
+            "id": "archive.backup.confirm-required",
+            "capability": "archive.backup",
+            "steps": [
+                {
+                    "id": "archive backup without confirmation",
+                    "args": [
+                        "archive",
+                        "backup",
+                        "{archive}",
+                        "--output",
+                        "{dir}/copy.tux",
+                        "--json"
+                    ],
+                    "expect": {
+                        "exitCode": 2,
+                        "stdoutJson": null,
+                        "stderrContains": ["--confirm-sensitive"]
+                    }
+                }
             ]
-          }
         }
-      ]
-    }
-  ]
+    ]
 }
