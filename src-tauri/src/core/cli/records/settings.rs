@@ -34,14 +34,57 @@ pub(crate) fn setting_environment_value(name: &str) -> CliResult<String> {
         .map_err(|_| CliError("The requested environment variable is not set.".to_owned()).into())
 }
 
-pub(crate) fn make_setting_record(key: &str, value: &str, credential: bool) -> ArchiveRecord {
-    let mut fields = BTreeMap::new();
-    fields.insert(
-        "record_role".to_owned(),
-        if credential { "credential" } else { "setting" }.to_owned(),
-    );
-    fields.insert("key".to_owned(), key.to_owned());
-    fields.insert("value".to_owned(), value.to_owned());
+fn credential_provider_id(key: &str) -> Option<&'static str> {
+    Some(match key {
+        "OPENAI_API_KEY" => "openai",
+        "ANTHROPIC_API_KEY" => "anthropic",
+        "GEMINI_API_KEY" => "google-gemini",
+        "COHERE_API_KEY" => "cohere",
+        "PERPLEXITY_API_KEY" => "perplexity",
+        "XAI_API_KEY" => "xai",
+        "OPENROUTER_API_KEY" => "openrouter",
+        "TOGETHER_API_KEY" => "together",
+        "FIREWORKS_API_KEY" => "fireworks",
+        "DEEPINFRA_API_KEY" => "deepinfra",
+        "NOVITA_API_KEY" => "novita",
+        "NEBIUS_API_KEY" => "nebius",
+        "GROQ_API_KEY" => "groq",
+        "CEREBRAS_API_KEY" => "cerebras",
+        "SAMBANOVA_API_KEY" => "sambanova",
+        "NVIDIA_API_KEY" => "nvidia",
+        "DEEPSEEK_API_KEY" => "deepseek",
+        "MISTRAL_API_KEY" => "mistral",
+        "HF_TOKEN" => "huggingface",
+        "MOONSHOT_API_KEY" => "moonshot",
+        "ZAI_API_KEY" => "zai",
+        "MINIMAX_API_KEY" => "minimax",
+        "SILICONFLOW_API_KEY" => "siliconflow",
+        "DASHSCOPE_API_KEY" => "alibaba-cloud",
+        "BAIDU_API_KEY" => "baidu",
+        "TOKENHUB_API_KEY" => "tencent-cloud",
+        "ARK_API_KEY" => "volcengine",
+        "AWS_BEARER_TOKEN_BEDROCK" => "bedrock",
+        "AZURE_OPENAI_API_KEY" => "azure-openai",
+        "CLOUDFLARE_API_TOKEN" => "cloudflare-workers-ai",
+        "AI21_API_KEY" => "ai21",
+        "TUTORUX_OPENAI_COMPATIBLE_API_KEY" => "openai-compatible",
+        "REPLICATE_API_TOKEN" => "replicate",
+        "OPENCODE_API_KEY" => "opencode-zen",
+        _ => return None,
+    })
+}
+
+pub(crate) fn make_setting_record(key: &str, value: &str, credential: bool) -> ArchiveRecord {
+    let mut fields = BTreeMap::new();
+    fields.insert(
+        "record_role".to_owned(),
+        if credential { "credential" } else { "setting" }.to_owned(),
+    );
+    fields.insert("key".to_owned(), key.to_owned());
+    if let Some(provider_id) = credential_provider_id(key).filter(|_| credential) {
+        fields.insert("provider_id".to_owned(), provider_id.to_owned());
+    }
+    fields.insert("value".to_owned(), value.to_owned());
     fields.insert("updated_at_us".to_owned(), timestamp_now());
     ArchiveRecord {
         record_type: RecordType::SETTINGS,
