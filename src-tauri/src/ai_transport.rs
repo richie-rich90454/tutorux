@@ -103,7 +103,7 @@ pub struct AiTransportResult {
 #[tauri::command]
 pub async fn send_ai_request(
     mut request: AiTransportRequest,
-    on_chunk: Option<Channel<AiTransportEvent>>,
+    on_chunk: Channel<AiTransportEvent>,
 ) -> Result<AiTransportResult, String> {
     if request.cancel_replicate_request {
         if request.provider_id != "replicate"
@@ -142,8 +142,6 @@ pub async fn send_ai_request(
             .timeout(Duration::from_secs(30))
             .build()
             .map_err(|_| "The Replicate connection could not be initialized.".to_owned())?;
-        let on_chunk = on_chunk
-            .ok_or_else(|| "The Replicate schema response channel is unavailable.".to_owned())?;
         return inspect_replicate_model(&client, &request, &credential, &on_chunk).await;
     }
     let body = request.request_body.as_bytes();
@@ -169,8 +167,6 @@ pub async fn send_ai_request(
         return Err("The request changed after review. Prepare and review it again.".to_owned());
     }
     validate_request(&request)?;
-    let on_chunk =
-        on_chunk.ok_or_else(|| "The provider response channel is unavailable.".to_owned())?;
 
     let credential = match request.credential_storage {
         CredentialStorage::None => Zeroizing::new(String::new()),
@@ -633,8 +629,8 @@ async fn request_replicate_http(
     let authorization = HeaderValue::from_str(&bearer)
         .map_err(|_| "The saved Replicate API token is invalid.".to_owned())?;
     let mut builder = match method {
-        "GET" => client.get(url),
-        "POST" => client.post(url),
+        "GET" => client.get(url.clone()),
+        "POST" => client.post(url.clone()),
         _ => return Err("The Replicate request method is not supported.".to_owned()),
     }
     .header(ACCEPT, "application/json")
