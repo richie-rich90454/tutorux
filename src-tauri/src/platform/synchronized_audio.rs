@@ -730,7 +730,7 @@ pub struct SynchronizedAudioStarted {
     backend: String,
 }
 
-#[derive(Serialize)]
+#[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct SynchronizedAudioChunkEvent {
     capture_id: String,
@@ -746,7 +746,7 @@ struct SynchronizedAudioChunkEvent {
     pcm_base64: String,
 }
 
-#[derive(Serialize)]
+#[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct SynchronizedAudioFailureEvent {
     capture_id: String,
@@ -754,7 +754,7 @@ struct SynchronizedAudioFailureEvent {
     message: String,
 }
 
-#[derive(Serialize)]
+#[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct SynchronizedAudioPauseDrainedEvent {
     capture_id: String,
@@ -856,27 +856,31 @@ pub fn begin_synchronized_audio_capture(
         Arc::new(TrackSignal::new()),
     ];
 
-    let (microphone_stream, microphone_sample_rate_hz) = match resolve_device(&microphone_device_id)
-        .and_then(|device| {
-            let config = device
-                .default_input_config()
-                .map_err(|error| device_error("microphone", error))?;
-            validate_config(&config, "microphone")?;
-            let sample_rate_hz = config.sample_rate().0;
-            let stream = build_capture_stream(
-                &device,
-                config.clone(),
-                TrackKind::Microphone,
-                microphone_sender,
-                Arc::clone(&signals[0]),
-            )?;
-            Ok((
-                stream,
-                sample_rate_hz,
-                config.channels(),
-                sample_format_name(config.sample_format()),
-            ))
-        }) {
+    let (
+        microphone_stream,
+        microphone_sample_rate_hz,
+        microphone_channel_count,
+        microphone_sample_format,
+    ) = match resolve_device(&microphone_device_id).and_then(|device| {
+        let config = device
+            .default_input_config()
+            .map_err(|error| device_error("microphone", error))?;
+        validate_config(&config, "microphone")?;
+        let sample_rate_hz = config.sample_rate();
+        let stream = build_capture_stream(
+            &device,
+            config.clone(),
+            TrackKind::Microphone,
+            microphone_sender,
+            Arc::clone(&signals[0]),
+        )?;
+        Ok((
+            stream,
+            sample_rate_hz,
+            config.channels(),
+            sample_format_name(config.sample_format()),
+        ))
+    }) {
         Ok((stream, sample_rate_hz, channel_count, sample_format)) => {
             (Some(stream), sample_rate_hz, channel_count, sample_format)
         }
@@ -905,7 +909,7 @@ pub fn begin_synchronized_audio_capture(
                     // input stream. PipeWire exposes the monitor as an ordinary input device instead.
                     let config = system_audio_config(&device)?;
                     validate_config(&config, "system audio")?;
-                    let sample_rate_hz = config.sample_rate().0;
+                    let sample_rate_hz = config.sample_rate();
                     let stream = build_capture_stream(
                         &device,
                         config.clone(),
@@ -1543,7 +1547,7 @@ fn build_capture_stream(
     signal: Arc<TrackSignal>,
 ) -> Result<cpal::Stream, String> {
     let channels = usize::from(config.channels());
-    let sample_rate_hz = config.sample_rate().0;
+    let sample_rate_hz = config.sample_rate();
     let sample_format = config.sample_format();
     let mut sequence = 0u64;
     let mut first_sample_index = 0u64;
@@ -1816,7 +1820,7 @@ fn sample_format_name(format: SampleFormat) -> &'static str {
 }
 
 fn validate_config(config: &cpal::SupportedStreamConfig, source: &str) -> Result<(), String> {
-    let rate = config.sample_rate().0;
+    let rate = config.sample_rate();
     if !(MIN_SAMPLE_RATE_HZ..=MAX_SAMPLE_RATE_HZ).contains(&rate) {
         return Err(format!(
             "The {source} device selected an unsupported sample rate."
