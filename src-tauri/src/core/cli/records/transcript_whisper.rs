@@ -1,9 +1,10 @@
 use super::transcript_audio::{frame_to_us, read_error, session_track_ids, TrackLayout};
 use super::transcript_cues::{build_changes, transcribe_windows, RecordOptions};
 use super::*;
+use crate::core::cli::cancellation;
 use crate::transcription::transcribe_wav;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 const WINDOW_SECONDS: u64 = 20;
@@ -131,8 +132,13 @@ pub(crate) fn run_transcript_transcription(
         .into());
     }
     let json = args.json();
+    cancellation::check("Transcription")?;
     let cancelled = Arc::new(AtomicBool::new(false));
     let mut engine = |wav: Vec<u8>| -> std::result::Result<String, String> {
+        if cancellation::is_cancelled() {
+            cancelled.store(true, Ordering::Release);
+            return Err("Transcription was cancelled.".to_owned());
+        }
         transcribe_wav(
             &whisper,
             &model_text,
@@ -166,7 +172,13 @@ pub(crate) fn run_transcript_transcription(
             &mut progress,
         )
     }
-    .map_err(|message| CoreError::new("transcription_failed", message))?;
+    .map_err(|message| -> crate::core::cli::Failure {
+        if cancellation::is_cancelled() {
+            CliError("Transcription was cancelled.".to_owned()).into()
+        } else {
+            CoreError::new("transcription_failed", message).into()
+        }
+    })?;
     let (windows, detected) = windows;
     let language = detected.unwrap_or(language);
     let existing = snapshot.list_records(RecordType::TRANSCRIPT_SEGMENT, false)?;
