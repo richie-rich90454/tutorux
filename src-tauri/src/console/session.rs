@@ -11,7 +11,7 @@ use std::{
     sync::atomic::{AtomicBool, Ordering},
 };
 use tauri::AppHandle;
-use tutorux_desktop::core::cli::{execute_cli, Cancellation};
+use crate::core::cli::{execute_cli, Cancellation};
 use zeroize::Zeroizing;
 
 /// Removes the short-lived passphrase variables even if the command unwinds.
