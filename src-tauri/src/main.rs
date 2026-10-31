@@ -1,5 +1,6 @@
 mod ai_transport;
 mod archive_lock;
+mod archive_lock_support;
 mod audio_import;
 mod console;
 mod credentials;
@@ -10,6 +11,7 @@ mod platform;
 mod transcription;
 
 use crate::archive_lock::{ArchiveLockRegistry, SharedArchiveLock};
+use archive_lock_support::LockMode;
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 use std::{
@@ -25,7 +27,6 @@ use tauri::{
     AppHandle, Emitter, Manager, State,
 };
 use tauri_plugin_fs::FsExt;
-use tutorux_archive_lock::LockMode;
 use uuid::Uuid;
 use zeroize::Zeroizing;
 
@@ -938,8 +939,13 @@ fn install_native_menu(app: &mut tauri::App) -> Result<(), Box<dyn std::error::E
         true,
         Some("CmdOrCtrl+S"),
     )?;
-    let quick_actions =
-        MenuItem::with_id(handle, "app.quick-actions", "Quick Actions…", true, None)?;
+    let quick_actions = MenuItem::with_id(
+        handle,
+        "app.quick-actions",
+        "Quick Actions…",
+        true,
+        None::<&str>,
+    )?;
     let preferences = MenuItem::with_id(
         handle,
         "app.preferences",
