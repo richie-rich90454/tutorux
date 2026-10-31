@@ -8,6 +8,8 @@ import {
     inspectArchiveRecovery,
     openArchiveSource,
     openArchiveSourceForRecovery,
+    planTrashPurge,
+    purgeTrashedArchiveSnapshot,
     rebuildDamagedPrimaryIndex,
     recoverChecksumDamagedArchiveHeader,
     recoverMagicDamagedArchiveHeader,
@@ -305,6 +307,75 @@ export async function runArchiveCompactCommand(
         return 0;
     } finally {
         compacted?.lock();
+        snapshot?.lock();
+        await source.close();
+    }
+}
+
+export async function runArchivePurgeTrashCommand(
+    path: string,
+    args: ParsedArguments,
+    output: CliIo,
+): Promise<number> {
+    const archivePath = resolve(path);
+    const source = await NodeFileArchiveSource.open(archivePath);
+    let snapshot: ArchiveSnapshot | undefined;
+    let purged: ArchiveSnapshot | undefined;
+    try {
+        snapshot = await unlockSnapshotForCli(await openArchiveSource(source), true);
+        const plan = await planTrashPurge(snapshot);
+        const applied = args.flags.has("apply") && !args.flags.has("preview");
+        const blockers = plan.blockers.map((blocker) => ({
+            recordId: blocker.recordId,
+            recordType: blocker.recordType,
+            label: blocker.label,
+            references: blocker.references.map((reference) => ({
+                recordId: reference.recordId,
+                recordType: reference.recordType,
+                label: reference.label,
+                fields: reference.fields,
+            })),
+        }));
+        const originalBytes = snapshot.source.size;
+        let compactedGeneration = plan.generation;
+        let purge: Awaited<ReturnType<typeof purgeTrashedArchiveSnapshot>> | undefined;
+        if (applied) {
+            purge = await purgeTrashedArchiveSnapshot(snapshot);
+            purged = purge.snapshot;
+            compactedGeneration = purged.commit.generation.toString();
+            await writeSourceAtomically(archivePath, purged);
+        }
+        const compactedBytes = purge?.compactedBytes ?? 0n;
+        const result = {
+            path: archivePath,
+            status: applied ? "purged" : "preview",
+            generation: plan.generation,
+            compactedGeneration,
+            deletedRecords: plan.deletedRecords,
+            opaqueRecords: plan.opaqueRecords,
+            blockers,
+            applied,
+            originalBytes: originalBytes.toString(),
+            compactedBytes: compactedBytes.toString(),
+            bytesSaved: (originalBytes > compactedBytes
+                ? originalBytes - compactedBytes
+                : 0n
+            ).toString(),
+            recordsPreserved: purge?.preservedRecords ?? 0,
+            prunedAssetRecords: purge?.prunedAssetRecords ?? 0,
+            purgeRemovedRecords: purge ? plan.deletedRecords : 0,
+        };
+        emit(
+            output,
+            result,
+            applied
+                ? `Purged Trash from ${archivePath}: removed ${result.purgeRemovedRecords} deleted records and preserved ${result.recordsPreserved} records.`
+                : `Trash purge preview for ${archivePath}: ${plan.deletedRecords} deleted records, ${plan.blockers.length} active blockers, ${plan.opaqueRecords} opaque records. Add --apply to purge.`,
+            args.flags.has("json"),
+        );
+        return 0;
+    } finally {
+        purged?.lock();
         snapshot?.lock();
         await source.close();
     }
