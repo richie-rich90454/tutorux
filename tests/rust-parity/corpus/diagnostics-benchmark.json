@@ -117,8 +117,7 @@
             "exitCode": 0,
             "stdoutJsonIncludes": {
               "status": "exported",
-              "output": "<path>",
-              "bytes": "<number>"
+              "output": "<path>"
             },
             "files": [
               {
