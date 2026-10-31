@@ -4,8 +4,8 @@ use std::sync::Arc;
 use serde_json::json;
 
 use crate::core::cli::{
-    emit, open_archive, resolve_path, write_new_file, CliContext, CliError, CliOutput, CliResult,
-    ParsedArguments,
+    cancellation, emit, open_archive, resolve_path, write_new_file, CliContext, CliError,
+    CliOutput, CliResult, ParsedArguments,
 };
 use crate::core::maintenance::{discard_tail, inspect_recovery_source, recover_unpublished};
 use crate::core::source::FileSource;
@@ -113,6 +113,7 @@ pub(super) fn recover(
         } else if discard_tail_requested && inspection.trailing_bytes == 0 {
             message = "The archive has no uncommitted trailing bytes to discard.".to_owned();
         } else if apply_requested {
+            cancellation::check("Archive recovery")?;
             let snapshot = open_archive(path, context.passphrase())?;
             if recover_unpublished_requested {
                 match recover_unpublished(&snapshot) {
@@ -134,6 +135,7 @@ pub(super) fn recover(
         }
     }
     if let Some(bytes) = pending {
+        cancellation::check("Archive recovery")?;
         save::save_bytes(path, &bytes)?;
     }
     let mut value = json!({
