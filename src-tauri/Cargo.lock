@@ -5512,6 +5512,7 @@ dependencies = [
  "cpal",
  "dasp_sample",
  "encoding_rs",
+ "flate2",
  "flexaudio",
  "hex",
  "hmac 0.12.1",
