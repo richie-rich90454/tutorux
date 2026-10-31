@@ -1,6 +1,6 @@
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { access, copyFile, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { access, copyFile, cp, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { constants as fsConstants, readFileSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, relative, resolve } from "node:path";
@@ -261,7 +261,7 @@ function checkExpectation(expect, result, context, label) {
     return issues;
 }
 
-async function runSide(side, testCase, seedPath, caseRoot, roots) {
+async function runSide(side, testCase, seedPath, caseRoot, roots, setupSource = null) {
     const context = {
         side,
         root: caseRoot,
@@ -271,9 +271,20 @@ async function runSide(side, testCase, seedPath, caseRoot, roots) {
         env: {},
     };
     await mkdir(context.dir, { recursive: true });
-    if (testCase.seed !== false) {
+    if (setupSource) {
+        await cp(setupSource.dir, context.dir, { recursive: true });
+        context.captures = Object.fromEntries(
+            Object.entries(setupSource.captures).map(([name, value]) => [
+                name,
+                typeof value === "string"
+                    ? value.split(setupSource.dir).join(context.dir)
+                    : value,
+            ]),
+        );
+    } else if (testCase.seed !== false) {
         await copyFile(seedPath, context.archive);
     }
+    if (!setupSource) {
     for (const [relativePath, contents] of Object.entries(testCase.files ?? {})) {
         const filePath = join(context.dir, relativePath);
         await mkdir(dirname(filePath), { recursive: true });
@@ -284,12 +295,13 @@ async function runSide(side, testCase, seedPath, caseRoot, roots) {
         await mkdir(dirname(filePath), { recursive: true });
         await writeFile(filePath, Buffer.from(contents, "base64"));
     }
+    }
     const caseEnvironment = Object.fromEntries(
         Object.entries(testCase.env ?? {}).map(([name, value]) => [name, String(value)]),
     );
 
     const setupResults = [];
-    for (const [index, step] of (testCase.setup ?? []).entries()) {
+    for (const [index, step] of (setupSource ? [] : (testCase.setup ?? [])).entries()) {
         const env = { ...caseEnvironment, ...(step.env ?? {}) };
         context.env = env;
         let args;
@@ -333,6 +345,9 @@ async function runSide(side, testCase, seedPath, caseRoot, roots) {
 
     const results = [];
     const issues = [];
+    const setupDir = join(caseRoot, `${side}-setup`);
+    await rm(setupDir, { recursive: true, force: true });
+    await cp(context.dir, setupDir, { recursive: true });
     for (const [index, step] of testCase.steps.entries()) {
         const label = `${side} step ${index} (${step.id ?? testCase.id})`;
         const capabilities = stepCapabilities(step, testCase);
@@ -367,7 +382,7 @@ async function runSide(side, testCase, seedPath, caseRoot, roots) {
             }
         }
     }
-    return { context, setupResults, results, issues };
+    return { context, setupResults, results, issues, setupDir };
 }
 
 function compareSides(left, right, testCase) {
@@ -687,7 +702,10 @@ async function main() {
             caseIssues.push(...(tsSide.issues ?? []));
             let rustSide;
             if (!tsOnly) {
-                rustSide = await runSide("rust", testCase, seedPath, caseRoot, roots);
+                rustSide = await runSide("rust", testCase, seedPath, caseRoot, roots, {
+                    dir: tsSide.setupDir,
+                    captures: tsSide.context.captures,
+                });
                 if (rustSide.error) {
                     caseIssues.push({
                         step: null,
