@@ -6,7 +6,7 @@
   "build": {
     "beforeDevCommand": "pnpm run build:audio-helper && pnpm run build:embedded-ai && pnpm run build:console-runtime && pnpm run dev:desktop",
     "devUrl": "http://127.0.0.1:1420",
-    "beforeBuildCommand": "pnpm run build:desktop && pnpm run build:audio-helper && pnpm run build:embedded-ai && pnpm run build:console-runtime",
+    "beforeBuildCommand": "pnpm run build:desktop && pnpm run build:audio-helper && pnpm run build:embedded-ai && pnpm run build:console-runtime && pnpm run build:portable-runtime",
     "frontendDist": "../dist"
   },
   "app": {
@@ -31,9 +31,6 @@
   "bundle": {
     "active": true,
     "targets": "all",
-    "resources": {
-      "../dist/console-runtime/": "console-runtime/"
-    },
     "category": "Productivity",
     "publisher": "Tutorux",
     "shortDescription": "A private workspace for tutoring",
