@@ -620,10 +620,17 @@ export function generateGuideDraftFromSession(
 
     if (student) addStudentProgress(draft, student, activeRecords);
 
-    for (const notes of sessionRecords.filter(
-        (record) =>
-            record.type === RecordType.settings && field(record, "record_role") === "journal-notes",
-    )) {
+    for (const notes of sessionRecords
+        .filter(
+            (record) =>
+                record.type === RecordType.settings &&
+                field(record, "record_role") === "journal-notes",
+        )
+        .sort((left, right) => {
+            const leftSession = field(left, "session_id").toLowerCase() === sessionId ? 0 : 1;
+            const rightSession = field(right, "session_id").toLowerCase() === sessionId ? 0 : 1;
+            return leftSession - rightSession || left.id.localeCompare(right.id);
+        })) {
         const notesSessionId = field(notes, "session_id").toLocaleLowerCase();
         const notesEntryId = field(notes, "entry_id").toLocaleLowerCase();
         if (
