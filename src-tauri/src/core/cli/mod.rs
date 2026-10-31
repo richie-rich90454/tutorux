@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 use crate::core::error::{CoreError, Result as CoreResult};
 
 pub mod archive;
+mod cancellation;
 pub mod help;
 pub mod misc;
 pub mod recordings;
@@ -267,6 +268,9 @@ fn execute_inner(
         output.stdout(VERSION);
         return Ok(0);
     }
+
+    let _cancellation = cancellation::Scope::install(cancellation);
+    cancellation::check("The command")?;
 
     let passphrase_environment = take_global_option(&mut argv, "passphrase-env")?;
     let directory = take_global_option(&mut argv, "directory")?;
