@@ -1,0 +1,292 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "id": "journal.create",
+      "capability": "journal.create",
+      "steps": [
+        {
+          "id": "journal create",
+          "args": [
+            "--archive",
+            "{archive}",
+            "journal",
+            "create",
+            "--title",
+            "Parity entry",
+            "--date",
+            "2026-10-31",
+            "--json"
+          ],
+          "expect": {
+            "exitCode": 0,
+            "stdoutJson": {
+              "id": "<uuid>",
+              "type": "settings",
+              "revision": "1",
+              "attachment_ids": "",
+              "collection_ids": "",
+              "created_at_us": "<timestamp>",
+              "entry_date": "2026-10-31",
+              "notes_document_id": "<uuid>",
+              "record_role": "journal-entry",
+              "session_ids": "",
+              "study_guide_ids": "",
+              "tag_ids": "",
+              "title": "Parity entry",
+              "updated_at_us": "<timestamp>"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "journal.document.update",
+      "capability": "journal.document.update",
+      "setup": [
+        {
+          "args": [
+            "--archive",
+            "{archive}",
+            "journal",
+            "create",
+            "--title",
+            "Parity entry",
+            "--date",
+            "2026-10-31",
+            "--json"
+          ],
+          "capture": {
+            "entry": "id",
+            "document": "notes_document_id"
+          }
+        }
+      ],
+      "steps": [
+        {
+          "id": "journal document update",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "journal",
+            "document",
+            "update",
+            "{capture.document}",
+            "--text",
+            "Alpha\n\nBeta"
+          ],
+          "expect": {
+            "exitCode": 0,
+            "stdoutJson": {
+              "document_id": "<uuid>",
+              "entry_id": "<uuid>",
+              "revision": "2",
+              "status": "saved"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "journal.document.show",
+      "capability": "journal.document.show",
+      "setup": [
+        {
+          "args": [
+            "--archive",
+            "{archive}",
+            "journal",
+            "create",
+            "--title",
+            "Parity entry",
+            "--date",
+            "2026-10-31",
+            "--json"
+          ],
+          "capture": {
+            "entry": "id",
+            "document": "notes_document_id"
+          }
+        },
+        {
+          "args": [
+            "--archive",
+            "{archive}",
+            "journal",
+            "document",
+            "update",
+            "{capture.document}",
+            "--text",
+            "Alpha\n\nBeta",
+            "--json"
+          ]
+        }
+      ],
+      "steps": [
+        {
+          "id": "journal document show",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "journal",
+            "document",
+            "show",
+            "{capture.document}"
+          ],
+          "expect": {
+            "exitCode": 0,
+            "stdoutJson": {
+              "document_id": "<uuid>",
+              "entry_id": "<uuid>",
+              "session_id": "",
+              "revision": "2",
+              "text": "Alpha\nBeta",
+              "blocks_json": "<json-string>",
+              "created_at_us": "<timestamp>",
+              "updated_at_us": "<timestamp>",
+              "blocks": [
+                {
+                  "id": "<uuid>",
+                  "kind": "paragraph",
+                  "text": "Alpha"
+                },
+                {
+                  "id": "<uuid>",
+                  "kind": "paragraph",
+                  "text": "Beta"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "journal.show",
+      "capability": "journal.show",
+      "setup": [
+        {
+          "args": [
+            "--archive",
+            "{archive}",
+            "journal",
+            "create",
+            "--title",
+            "Parity entry",
+            "--date",
+            "2026-10-31",
+            "--json"
+          ],
+          "capture": {
+            "entry": "id",
+            "document": "notes_document_id"
+          }
+        },
+        {
+          "args": [
+            "--archive",
+            "{archive}",
+            "journal",
+            "document",
+            "update",
+            "{capture.document}",
+            "--text",
+            "Alpha\n\nBeta",
+            "--json"
+          ]
+        }
+      ],
+      "steps": [
+        {
+          "id": "journal show",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "journal",
+            "show",
+            "{capture.entry}"
+          ],
+          "expect": {
+            "exitCode": 0,
+            "stdoutJson": {
+              "id": "<uuid>",
+              "type": "settings",
+              "revision": "1",
+              "attachment_ids": "",
+              "collection_ids": "",
+              "created_at_us": "<timestamp>",
+              "entry_date": "2026-10-31",
+              "notes_document_id": "<uuid>",
+              "record_role": "journal-entry",
+              "session_ids": "",
+              "study_guide_ids": "",
+              "tag_ids": "",
+              "title": "Parity entry",
+              "updated_at_us": "<timestamp>",
+              "session_count": "0",
+              "notes_text": "Alpha\nBeta"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "journal.delete.blocked",
+      "capability": "journal.delete",
+      "setup": [
+        {
+          "args": [
+            "--archive",
+            "{archive}",
+            "journal",
+            "create",
+            "--title",
+            "Linked entry",
+            "--date",
+            "2026-10-31",
+            "--json"
+          ],
+          "capture": {
+            "entry": "id"
+          }
+        },
+        {
+          "args": [
+            "--archive",
+            "{archive}",
+            "session",
+            "create",
+            "--title",
+            "Linked session",
+            "--entry-id",
+            "{capture.entry}",
+            "--json"
+          ]
+        }
+      ],
+      "steps": [
+        {
+          "id": "journal delete linked entry",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "journal",
+            "delete",
+            "{capture.entry}"
+          ],
+          "expect": {
+            "exitCode": 2,
+            "stdoutJson": null,
+            "stderrContains": [
+              "linked session"
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}
