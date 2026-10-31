@@ -1,0 +1,821 @@
+{
+    "version": 1,
+    "description": "Golden CLI cases for the Rust parity harness. Shapes use <uuid>, <timestamp>, <path>, <number>, <number-string>, <string>, <sha256> and <json-string> descriptors.",
+    "cases": [
+        {
+            "id": "archive.init",
+            "capability": "archive.init",
+            "seed": false,
+            "steps": [
+                {
+                    "id": "archive init",
+                    "args": ["archive", "init", "{archive}", "--name", "Parity init", "--json"],
+                    "expect": {
+                        "exitCode": 0,
+                        "stdoutJson": {
+                            "path": "<path>",
+                            "name": "Parity init",
+                            "bytes": "<number>",
+                            "created": true
+                        }
+                    }
+                }
+            ]
+        },
+        {
+            "id": "archive.init-existing",
+            "capability": "archive.init",
+            "steps": [
+                {
+                    "id": "archive init existing",
+                    "args": ["archive", "init", "{archive}", "--name", "Again", "--json"],
+                    "expect": {
+                        "exitCode": 2,
+                        "stdoutJson": null,
+                        "stderrContains": ["already exists"]
+                    }
+                }
+            ]
+        },
+        {
+            "id": "archive.info",
+            "capability": "archive.info",
+            "steps": [
+                {
+                    "id": "archive info",
+                    "args": ["archive", "info", "{archive}", "--json"],
+                    "expect": {
+                        "exitCode": 0,
+                        "stdoutJson": {
+                            "path": "<path>",
+                            "name": "Parity seed",
+                            "description": "",
+                            "id": "<uuid>",
+                            "archiveId": "<uuid>",
+                            "archive_id": "<uuid>",
+                            "generation": "1",
+                            "size": "<number-string>",
+                            "size_bytes": "<number-string>",
+                            "student_count": "0",
+                            "session_count": "0",
+                            "created_at_us": "<timestamp>",
+                            "format_major": "1",
+                            "format_minor": "0",
+                            "formatMajor": 1,
+                            "formatMinor": 0,
+                            "writable": true,
+                            "health": "healthy",
+                            "recoveryNeeded": false,
+                            "metadataOnly": false,
+                            "metadata_only": false,
+                            "encrypted": false,
+                            "locked": false,
+                            "verified": true,
+                            "valid": true,
+                            "records": 1,
+                            "recordsVerified": 1,
+                            "records_checked": 1,
+                            "index_pages_checked": 0,
+                            "deletedRecords": 0,
+                            "issues": [],
+                            "historicalRevisionsVerified": null,
+                            "commitsVerified": null,
+                            "verificationScope": "all-current-primary-records-and-index"
+                        }
+                    }
+                }
+            ]
+        },
+        {
+            "id": "archive.verify",
+            "capability": "archive.verify",
+            "steps": [
+                {
+                    "id": "archive verify",
+                    "args": ["archive", "verify", "{archive}", "--json"],
+                    "expect": {
+                        "exitCode": 0,
+                        "stdoutJson": {
+                            "path": "<path>",
+                            "name": "Parity seed",
+                            "description": "",
+                            "id": "<uuid>",
+                            "archiveId": "<uuid>",
+                            "archive_id": "<uuid>",
+                            "generation": "1",
+                            "size": "<number-string>",
+                            "size_bytes": "<number-string>",
+                            "student_count": "0",
+                            "session_count": "0",
+                            "created_at_us": "<timestamp>",
+                            "format_major": "1",
+                            "format_minor": "0",
+                            "formatMajor": 1,
+                            "formatMinor": 0,
+                            "writable": true,
+                            "health": "healthy",
+                            "recoveryNeeded": false,
+                            "metadataOnly": false,
+                            "metadata_only": false,
+                            "encrypted": false,
+                            "locked": false,
+                            "verified": true,
+                            "valid": true,
+                            "records": 1,
+                            "recordsVerified": 1,
+                            "records_checked": 1,
+                            "index_pages_checked": 0,
+                            "deletedRecords": 0,
+                            "issues": [],
+                            "historicalRevisionsVerified": null,
+                            "commitsVerified": null,
+                            "verificationScope": "all-current-primary-records-and-index"
+                        }
+                    }
+                }
+            ]
+        },
+        {
+            "id": "archive.backup.confirm-required",
+            "capability": "archive.backup",
+            "steps": [
+                {
+                    "id": "archive backup without confirmation",
+                    "args": [
+                        "archive",
+                        "backup",
+                        "{archive}",
+                        "--output",
+                        "{dir}/copy.tux",
+                        "--json"
+                    ],
+                    "expect": {
+                        "exitCode": 2,
+                        "stdoutJson": null,
+                        "stderrContains": ["--confirm-sensitive"]
+                    }
+                }
+            ]
+        },
+        {
+            "id": "student.create",
+            "capability": "student.create",
+            "steps": [
+                {
+                    "id": "student create",
+                    "args": [
+                        "--archive",
+                        "{archive}",
+                        "--json",
+                        "student",
+                        "create",
+                        "--name",
+                        "Mina",
+                        "--grade",
+                        "Grade 7",
+                        "--subjects",
+                        "Math",
+                        "--objectives",
+                        "Fractions",
+                        "--notes",
+                        "Note",
+                        "--difficulties",
+                        "Denominators",
+                        "--demonstrated-improvements",
+                        "Explains scale",
+                        "--preferred-guide-template",
+                        "mathematics"
+                    ],
+                    "expect": {
+                        "exitCode": 0,
+                        "stdoutJson": {
+                            "id": "<uuid>",
+                            "type": "student",
+                            "revision": "1",
+                            "created_at_us": "<timestamp>",
+                            "demonstrated_improvements": "Explains scale",
+                            "display_name": "Mina",
+                            "grade": "Grade 7",
+                            "known_difficulties": "Denominators",
+                            "learning_objectives": "Fractions",
+                            "preferred_guide_template": "mathematics",
+                            "progress_classifications": "",
+                            "subjects": "Math",
+                            "tutor_notes": "Note",
+                            "updated_at_us": "<timestamp>"
+                        }
+                    }
+                }
+            ]
+        },
+        {
+            "id": "student.list",
+            "capability": "student.list",
+            "steps": [
+                {
+                    "id": "student list empty",
+                    "args": ["--archive", "{archive}", "student", "list", "--json"],
+                    "expect": {
+                        "exitCode": 0,
+                        "stdoutJson": []
+                    }
+                }
+            ]
+        },
+        {
+            "id": "journal.create",
+            "capability": "journal.create",
+            "steps": [
+                {
+                    "id": "journal create",
+                    "args": [
+                        "--archive",
+                        "{archive}",
+                        "journal",
+                        "create",
+                        "--title",
+                        "Parity entry",
+                        "--date",
+                        "2026-10-31",
+                        "--json"
+                    ],
+                    "expect": {
+                        "exitCode": 0,
+                        "stdoutJson": {
+                            "id": "<uuid>",
+                            "type": "settings",
+                            "revision": "1",
+                            "attachment_ids": "",
+                            "collection_ids": "",
+                            "created_at_us": "<timestamp>",
+                            "entry_date": "2026-10-31",
+                            "notes_document_id": "<uuid>",
+                            "record_role": "journal-entry",
+                            "session_ids": "",
+                            "study_guide_ids": "",
+                            "tag_ids": "",
+                            "title": "Parity entry",
+                            "updated_at_us": "<timestamp>"
+                        }
+                    }
+                }
+            ]
+        },
+        {
+            "id": "journal.document.update",
+            "capability": "journal.document.update",
+            "setup": [
+                {
+                    "args": [
+                        "--archive",
+                        "{archive}",
+                        "journal",
+                        "create",
+                        "--title",
+                        "Parity entry",
+                        "--date",
+                        "2026-10-31",
+                        "--json"
+                    ],
+                    "capture": {
+                        "entry": "id",
+                        "document": "notes_document_id"
+                    }
+                }
+            ],
+            "steps": [
+                {
+                    "id": "journal document update",
+                    "args": [
+                        "--archive",
+                        "{archive}",
+                        "--json",
+                        "journal",
+                        "document",
+                        "update",
+                        "{capture.document}",
+                        "--text",
+                        "Alpha\n\nBeta"
+                    ],
+                    "expect": {
+                        "exitCode": 0,
+                        "stdoutJson": {
+                            "document_id": "<uuid>",
+                            "entry_id": "<uuid>",
+                            "revision": "2",
+                            "status": "saved"
+                        }
+                    }
+                }
+            ]
+        },
+        {
+            "id": "journal.document.show",
+            "capability": "journal.document.show",
+            "setup": [
+                {
+                    "args": [
+                        "--archive",
+                        "{archive}",
+                        "journal",
+                        "create",
+                        "--title",
+                        "Parity entry",
+                        "--date",
+                        "2026-10-31",
+                        "--json"
+                    ],
+                    "capture": {
+                        "entry": "id",
+                        "document": "notes_document_id"
+                    }
+                },
+                {
+                    "args": [
+                        "--archive",
+                        "{archive}",
+                        "journal",
+                        "document",
+                        "update",
+                        "{capture.document}",
+                        "--text",
+                        "Alpha\n\nBeta",
+                        "--json"
+                    ]
+                }
+            ],
+            "steps": [
+                {
+                    "id": "journal document show",
+                    "args": [
+                        "--archive",
+                        "{archive}",
+                        "--json",
+                        "journal",
+                        "document",
+                        "show",
+                        "{capture.document}"
+                    ],
+                    "expect": {
+                        "exitCode": 0,
+                        "stdoutJson": {
+                            "document_id": "<uuid>",
+                            "entry_id": "<uuid>",
+                            "session_id": "",
+                            "revision": "2",
+                            "text": "Alpha\nBeta",
+                            "blocks_json": "<json-string>",
+                            "created_at_us": "<timestamp>",
+                            "updated_at_us": "<timestamp>",
+                            "blocks": [
+                                { "id": "<uuid>", "kind": "paragraph", "text": "Alpha" },
+                                { "id": "<uuid>", "kind": "paragraph", "text": "Beta" }
+                            ]
+                        }
+                    }
+                }
+            ]
+        },
+        {
+            "id": "journal.show",
+            "capability": "journal.show",
+            "setup": [
+                {
+                    "args": [
+                        "--archive",
+                        "{archive}",
+                        "journal",
+                        "create",
+                        "--title",
+                        "Parity entry",
+                        "--date",
+                        "2026-10-31",
+                        "--json"
+                    ],
+                    "capture": {
+                        "entry": "id",
+                        "document": "notes_document_id"
+                    }
+                },
+                {
+                    "args": [
+                        "--archive",
+                        "{archive}",
+                        "journal",
+                        "document",
+                        "update",
+                        "{capture.document}",
+                        "--text",
+                        "Alpha\n\nBeta",
+                        "--json"
+                    ]
+                }
+            ],
+            "steps": [
+                {
+                    "id": "journal show",
+                    "args": [
+                        "--archive",
+                        "{archive}",
+                        "--json",
+                        "journal",
+                        "show",
+                        "{capture.entry}"
+                    ],
+                    "expect": {
+                        "exitCode": 0,
+                        "stdoutJson": {
+                            "id": "<uuid>",
+                            "type": "settings",
+                            "revision": "1",
+                            "attachment_ids": "",
+                            "collection_ids": "",
+                            "created_at_us": "<timestamp>",
+                            "entry_date": "2026-10-31",
+                            "notes_document_id": "<uuid>",
+                            "record_role": "journal-entry",
+                            "session_ids": "",
+                            "study_guide_ids": "",
+                            "tag_ids": "",
+                            "title": "Parity entry",
+                            "updated_at_us": "<timestamp>",
+                            "session_count": "0",
+                            "notes_text": "Alpha\nBeta"
+                        }
+                    }
+                }
+            ]
+        },
+        {
+            "id": "journal.delete.blocked",
+            "capability": "journal.delete",
+            "setup": [
+                {
+                    "args": [
+                        "--archive",
+                        "{archive}",
+                        "journal",
+                        "create",
+                        "--title",
+                        "Linked entry",
+                        "--date",
+                        "2026-10-31",
+                        "--json"
+                    ],
+                    "capture": {
+                        "entry": "id"
+                    }
+                },
+                {
+                    "args": [
+                        "--archive",
+                        "{archive}",
+                        "session",
+                        "create",
+                        "--title",
+                        "Linked session",
+                        "--entry-id",
+                        "{capture.entry}",
+                        "--json"
+                    ]
+                }
+            ],
+            "steps": [
+                {
+                    "id": "journal delete linked entry",
+                    "args": [
+                        "--archive",
+                        "{archive}",
+                        "--json",
+                        "journal",
+                        "delete",
+                        "{capture.entry}"
+                    ],
+                    "expect": {
+                        "exitCode": 2,
+                        "stdoutJson": null,
+                        "stderrContains": ["linked session"]
+                    }
+                }
+            ]
+        },
+        {
+            "id": "session.create",
+            "capability": "session.create",
+            "setup": [
+                {
+                    "args": [
+                        "--archive",
+                        "{archive}",
+                        "--json",
+                        "student",
+                        "create",
+                        "--name",
+                        "Mina"
+                    ],
+                    "capture": {
+                        "student": "id"
+                    }
+                },
+                {
+                    "args": [
+                        "--archive",
+                        "{archive}",
+                        "journal",
+                        "create",
+                        "--title",
+                        "Fractions entry",
+                        "--date",
+                        "2026-10-31",
+                        "--json"
+                    ],
+                    "capture": {
+                        "entry": "id"
+                    }
+                }
+            ],
+            "steps": [
+                {
+                    "id": "session create",
+                    "args": [
+                        "--archive",
+                        "{archive}",
+                        "--json",
+                        "session",
+                        "create",
+                        "--title",
+                        "Fractions",
+                        "--subject",
+                        "Math",
+                        "--student-id",
+                        "{capture.student}",
+                        "--entry-id",
+                        "{capture.entry}",
+                        "--type",
+                        "notes-only"
+                    ],
+                    "expect": {
+                        "exitCode": 0,
+                        "stdoutJson": {
+                            "id": "<uuid>",
+                            "type": "session",
+                            "revision": "1",
+                            "archived": "false",
+                            "created_at_us": "<timestamp>",
+                            "ended_at_us": "0",
+                            "entry_id": "<uuid>",
+                            "guide_template_id": "",
+                            "learning_objectives": "",
+                            "notes_document_id": "<uuid>",
+                            "processing_state": "not-processed",
+                            "recording_source": "none",
+                            "recording_state": "not-started",
+                            "reviewed_at_us": "0",
+                            "session_state": "active",
+                            "session_type": "notes-only",
+                            "started_at_us": "<timestamp>",
+                            "student_id": "<uuid>",
+                            "subject": "Math",
+                            "title": "Fractions",
+                            "transcription_language": "auto",
+                            "updated_at_us": "<timestamp>"
+                        }
+                    }
+                }
+            ]
+        },
+        {
+            "id": "annotation.add",
+            "capability": "annotation.add",
+            "setup": [
+                {
+                    "args": [
+                        "--archive",
+                        "{archive}",
+                        "--json",
+                        "student",
+                        "create",
+                        "--name",
+                        "Mina"
+                    ],
+                    "capture": {
+                        "student": "id"
+                    }
+                },
+                {
+                    "args": [
+                        "--archive",
+                        "{archive}",
+                        "session",
+                        "create",
+                        "--title",
+                        "Fractions",
+                        "--student-id",
+                        "{capture.student}",
+                        "--json"
+                    ],
+                    "capture": {
+                        "session": "id"
+                    }
+                }
+            ],
+            "steps": [
+                {
+                    "id": "annotation add",
+                    "args": [
+                        "--archive",
+                        "{archive}",
+                        "--json",
+                        "annotation",
+                        "add",
+                        "--session",
+                        "{capture.session}",
+                        "--type",
+                        "learning-outcome",
+                        "--at",
+                        "00:01:00",
+                        "--title",
+                        "Explains equivalent fractions",
+                        "--text",
+                        "Mina explains the shared scale factor."
+                    ],
+                    "expect": {
+                        "exitCode": 0,
+                        "stdoutJson": {
+                            "id": "<uuid>",
+                            "type": "learning-outcome",
+                            "revision": "1",
+                            "content": "Mina explains the shared scale factor.",
+                            "created_at_us": "<timestamp>",
+                            "end_time_us": "60000000",
+                            "origin": "tutor-authored",
+                            "priority": "normal",
+                            "session_id": "<uuid>",
+                            "start_time_us": "60000000",
+                            "title": "Explains equivalent fractions",
+                            "updated_at_us": "<timestamp>"
+                        }
+                    }
+                }
+            ]
+        },
+        {
+            "id": "asset.add-export",
+            "capability": "asset.add",
+            "files": {
+                "material.txt": "material payload"
+            },
+            "steps": [
+                {
+                    "id": "asset add",
+                    "args": [
+                        "--archive",
+                        "{archive}",
+                        "--json",
+                        "asset",
+                        "add",
+                        "{dir}/material.txt"
+                    ],
+                    "capture": {
+                        "asset": "0.id"
+                    },
+                    "expect": {
+                        "exitCode": 0,
+                        "stdoutJson": [
+                            {
+                                "id": "<uuid>",
+                                "type": "asset",
+                                "revision": "1",
+                                "blob_count": "1",
+                                "blob_id": "<uuid>",
+                                "byte_size": "16",
+                                "content_hash": "9fba0fbffed5c7d8f8c2cadb34ab07f7de4111945f1d4a6b76168403aa491373",
+                                "created_at_us": "<timestamp>",
+                                "filename": "material.txt",
+                                "mime_type": "text/plain",
+                                "origin": "user-import"
+                            }
+                        ]
+                    }
+                },
+                {
+                    "id": "asset export",
+                    "args": [
+                        "--archive",
+                        "{archive}",
+                        "--json",
+                        "asset",
+                        "export",
+                        "{capture.asset}",
+                        "--output",
+                        "{dir}/material-out.txt"
+                    ],
+                    "expect": {
+                        "exitCode": 0,
+                        "stdoutJson": {
+                            "id": "<uuid>",
+                            "output": "<path>",
+                            "bytes": 16
+                        },
+                        "file": {
+                            "path": "{dir}/material-out.txt",
+                            "text": "material payload"
+                        }
+                    }
+                }
+            ]
+        },
+        {
+            "id": "template.import",
+            "capability": "template.import",
+            "files": {
+                "review-guidance.md": "Ask one question at a time."
+            },
+            "steps": [
+                {
+                    "id": "template import",
+                    "args": [
+                        "--json",
+                        "--archive",
+                        "{archive}",
+                        "template",
+                        "import",
+                        "--input",
+                        "{dir}/review-guidance.md"
+                    ],
+                    "expect": {
+                        "exitCode": 0,
+                        "stdoutJson": {
+                            "id": "<uuid>",
+                            "type": "settings",
+                            "revision": "1",
+                            "body": "Ask one question at a time.",
+                            "created_at_us": "<timestamp>",
+                            "description": "",
+                            "name": "review-guidance",
+                            "record_role": "guide-template",
+                            "sections": "",
+                            "subject": "general",
+                            "updated_at_us": "<timestamp>"
+                        }
+                    }
+                }
+            ]
+        },
+        {
+            "id": "transcript.generate.missing-audio",
+            "capability": "transcript.transcribe",
+            "setup": [
+                {
+                    "args": [
+                        "--archive",
+                        "{archive}",
+                        "--json",
+                        "student",
+                        "create",
+                        "--name",
+                        "Mina"
+                    ],
+                    "capture": {
+                        "student": "id"
+                    }
+                },
+                {
+                    "args": [
+                        "--archive",
+                        "{archive}",
+                        "session",
+                        "create",
+                        "--title",
+                        "No audio",
+                        "--student-id",
+                        "{capture.student}",
+                        "--json"
+                    ],
+                    "capture": {
+                        "session": "id"
+                    }
+                }
+            ],
+            "steps": [
+                {
+                    "id": "transcript generate without audio",
+                    "args": [
+                        "--archive",
+                        "{archive}",
+                        "--json",
+                        "transcript",
+                        "generate",
+                        "--session",
+                        "{capture.session}"
+                    ],
+                    "expect": {
+                        "exitCode": 2,
+                        "stdoutJson": null,
+                        "stderrContains": ["no recorded audio track"]
+                    }
+                }
+            ]
+        }
+    ]
+}
