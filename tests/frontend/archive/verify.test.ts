@@ -11,9 +11,9 @@ import {
     recoverUnpublishedCommit,
     repairArchiveSnapshot,
     verifyArchiveFull,
-} from "./archive";
-import { MemoryArchiveSource } from "./source";
-import { newUuid, RecordType, type ArchiveRecord } from "./format";
+} from "../../../frontend/archive/archive";
+import { MemoryArchiveSource } from "../../../frontend/archive/source";
+import { newUuid, RecordType, type ArchiveRecord } from "../../../frontend/archive/format";
 
 function record(
     type: number,
