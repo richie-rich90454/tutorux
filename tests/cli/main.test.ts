@@ -1,15 +1,15 @@
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { executeCli } from "./main";
+import { executeCli } from "../../cli/main";
 import {
     appendRecords,
     createArchiveBytes,
     createEncryptedArchiveBytes,
     openArchiveBytes,
     verifyArchiveSnapshot,
-} from "../frontend/archive/archive";
-import { crc32, newUuid, RecordType, type ArchiveRecord } from "../frontend/archive/format";
+} from "../../frontend/archive/archive";
+import { crc32, newUuid, RecordType, type ArchiveRecord } from "../../frontend/archive/format";
 
 describe("CLI recording take management", () => {
     it("lists, renames, trashes, and restores takes with their audio intact", async () => {
@@ -823,7 +823,7 @@ describe("CLI encrypted archive access", () => {
     it("unlocks, verifies, reads, and appends an encrypted archive generation", async () => {
         const directory = await mkdtemp(join(process.cwd(), "tmp", "tutorux-cli-encrypted-"));
         const archivePath = join(directory, "encrypted.tux");
-        const fixture = new URL("../tests/fixtures/encrypted-v1.tux", import.meta.url);
+        const fixture = new URL("../fixtures/encrypted-v1.tux", import.meta.url);
         const fixtureBytes = await readFile(fixture);
         const initial = await openArchiveBytes(new Uint8Array(fixtureBytes));
         const studentEntry = [...initial.allIndexEntries()].find(([key]) =>
