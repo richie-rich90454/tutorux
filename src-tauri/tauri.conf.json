@@ -1,69 +1,70 @@
 {
-  "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
-  "productName": "Tutorux",
-  "version": "1.0.0",
-  "identifier": "app.tutorux.desktop",
-  "build": {
-    "beforeDevCommand": "pnpm run build:audio-helper && pnpm run build:embedded-ai && pnpm run build:console-runtime && pnpm run dev:desktop",
-    "devUrl": "http://127.0.0.1:1420",
-    "beforeBuildCommand": "pnpm run build:desktop && pnpm run build:audio-helper && pnpm run build:embedded-ai && pnpm run build:console-runtime && pnpm run build:portable-runtime",
-    "frontendDist": "../dist"
-  },
-  "app": {
-    "windows": [
-      {
-        "label": "main",
-        "title": "Tutorux",
-        "width": 1440,
-        "height": 920,
-        "minWidth": 1024,
-        "minHeight": 680,
-        "center": true,
-        "resizable": true,
-        "decorations": true,
-        "useHttpsScheme": true
-      }
-    ],
-    "security": {
-      "csp": "default-src 'self'; img-src 'self' asset: http://asset.localhost blob: data:; media-src 'self' asset: http://asset.localhost blob:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src ipc: http://ipc.localhost https://models.dev"
-    }
-  },
-  "bundle": {
-    "active": true,
-    "targets": "all",
-    "category": "Productivity",
-    "publisher": "Tutorux",
-    "shortDescription": "A private workspace for tutoring",
-    "longDescription": "A local-first tutoring workspace for student profiles, sessions, notes and study material.",
-    "icon": [
-      "../resources/macos/Tutorux.iconset/icon_32x32.png",
-      "../resources/macos/Tutorux.iconset/icon_128x128.png",
-      "../resources/macos/Tutorux.iconset/icon_256x256.png",
-      "../resources/macos/Tutorux.iconset/icon_512x512.png",
-      "../resources/tutorux.ico",
-      "../resources/macos/tutorux.icns"
-    ],
-    "fileAssociations": [
-      {
-        "ext": ["tux"],
-        "name": "Tutorux Archive",
-        "description": "Tutorux local archive",
-        "role": "Editor"
-      }
-    ],
-    "linux": {
-      "appimage": {
-        "bundleMediaFramework": true
-      },
-      "deb": {
-        "desktopTemplate": "linux/tutorux.desktop.hbs"
-      },
-      "rpm": {
-        "desktopTemplate": "linux/tutorux.desktop.hbs"
-      }
+    "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
+    "productName": "Tutorux",
+    "version": "1.0.0",
+    "identifier": "app.tutorux.desktop",
+    "build": {
+        "beforeDevCommand": "pnpm run dev:desktop",
+        "devUrl": "http://127.0.0.1:1420",
+        "beforeBuildCommand": "pnpm run build:desktop",
+        "frontendDist": "../dist"
     },
-    "macOS": {
-      "minimumSystemVersion": "14.0"
+    "app": {
+        "windows": [
+            {
+                "label": "main",
+                "title": "Tutorux",
+                "width": 1440,
+                "height": 920,
+                "minWidth": 1024,
+                "minHeight": 680,
+                "center": true,
+                "resizable": true,
+                "decorations": true,
+                "useHttpsScheme": true
+            }
+        ],
+        "security": {
+            "csp": "default-src 'self'; img-src 'self' asset: http://asset.localhost blob: data:; media-src 'self' asset: http://asset.localhost blob:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src ipc: http://ipc.localhost https://models.dev"
+        }
+    },
+    "bundle": {
+        "active": true,
+        "targets": "all",
+        "externalBin": [],
+        "category": "Productivity",
+        "publisher": "Tutorux",
+        "shortDescription": "A private workspace for tutoring",
+        "longDescription": "A local-first tutoring workspace for student profiles, sessions, notes and study material.",
+        "icon": [
+            "../resources/macos/Tutorux.iconset/icon_32x32.png",
+            "../resources/macos/Tutorux.iconset/icon_128x128.png",
+            "../resources/macos/Tutorux.iconset/icon_256x256.png",
+            "../resources/macos/Tutorux.iconset/icon_512x512.png",
+            "../resources/tutorux.ico",
+            "../resources/macos/tutorux.icns"
+        ],
+        "fileAssociations": [
+            {
+                "ext": ["tux"],
+                "name": "Tutorux Archive",
+                "description": "Tutorux local archive",
+                "role": "Editor"
+            }
+        ],
+        "linux": {
+            "appimage": {
+                "bundleMediaFramework": true
+            },
+            "deb": {
+                "desktopTemplate": "linux/tutorux.desktop.hbs"
+            },
+            "rpm": {
+                "desktopTemplate": "linux/tutorux.desktop.hbs"
+            }
+        },
+        "macOS": {
+            "minimumSystemVersion": "14.0"
+        }
     }
-  }
 }
