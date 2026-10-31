@@ -5,10 +5,8 @@
 /test-results/
 /playwright-report/
 /src-tauri/target/
-/native-audio-helper/target/
-/native-archive-lock/target/
-/native-archive-lock/Cargo.lock
 /src-tauri/binaries/tutorux-audio-helper-*
+/src-tauri/binaries/tutorux-embedded-ai-*
 /src-tauri/binaries/console-runtime-cache/
 /src-tauri/gen/
 /.cache/
