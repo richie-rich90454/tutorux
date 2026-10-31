@@ -4,7 +4,7 @@ use std::path::Path;
 use crate::core::cli::{CliError, CliResult};
 use crate::core::error::{CoreError, Result};
 
-pub(super) fn save_bytes(path: &Path, bytes: &[u8]) -> Result<()> {
+pub(crate) fn save_bytes(path: &Path, bytes: &[u8]) -> Result<()> {
     let parent = path
         .parent()
         .filter(|parent| !parent.as_os_str().is_empty())
