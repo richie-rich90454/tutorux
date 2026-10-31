@@ -2,13 +2,11 @@ mod ai_transport;
 mod archive_lock;
 mod archive_lock_support;
 mod audio_import;
-mod console;
 mod credentials;
 mod diagnostics;
 mod embedded_ai;
 mod live_transcription;
 mod platform;
-mod runtime;
 mod transcription;
 
 use crate::archive_lock::{ArchiveLockRegistry, SharedArchiveLock};
@@ -1018,7 +1016,6 @@ fn install_native_menu(app: &mut tauri::App) -> Result<(), Box<dyn std::error::E
 fn main() {
     tauri::Builder::default()
         .manage(DesktopState::default())
-        .manage(console::ConsoleState::default())
         .manage(embedded_ai::EmbeddedAiState::default())
         .manage(platform::audio_capture::AudioCaptureState::default())
         .manage(platform::synchronized_audio::SynchronizedAudioCaptureState::default())
@@ -1043,10 +1040,6 @@ fn main() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .setup(|app| {
-            let warm_app = app.handle().clone();
-            std::thread::spawn(move || {
-                let _ = runtime::paths(&warm_app);
-            });
             let current_directory = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
             if let Some(path) = archive_launch_path(
                 std::env::args_os().skip(1).map(PathBuf::from),
@@ -1082,9 +1075,6 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             diagnostics::get_desktop_diagnostics,
             audio_import::import_compressed_audio,
-            console::command_console_availability,
-            console::run_command_console,
-            console::cancel_command_console,
             credentials::ai_credential_store_available,
             credentials::has_ai_credential,
             credentials::save_ai_credential,
