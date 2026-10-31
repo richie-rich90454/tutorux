@@ -1,6 +1,6 @@
 import { availableParallelism } from "node:os";
 import { describe, expect, it } from "vitest";
-import { defaultWhisperThreads, transcriptionWindowSeconds } from "./whisper";
+import { defaultWhisperThreads, transcriptionWindowSeconds } from "../../cli/whisper";
 
 describe("Whisper thread defaults", () => {
     it("uses the hardware thread count capped at eight", () => {
