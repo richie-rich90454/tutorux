@@ -1,8 +1,12 @@
 import { strFromU8, unzipSync } from "fflate";
 import { describe, expect, it } from "vitest";
-import { RecordType, type ArchiveRecord } from "../archive/format";
-import { guideImageIds, renderGuideDocx, serializeGuideJson } from "./guide-export";
-import type { GuideExportImage } from "./guides";
+import { RecordType, type ArchiveRecord } from "../../../frontend/archive/format";
+import {
+    guideImageIds,
+    renderGuideDocx,
+    serializeGuideJson,
+} from "../../../frontend/domain/guide-export";
+import type { GuideExportImage } from "../../../frontend/domain/guides";
 
 const guideId = "9fd18de8-42ef-41b5-af46-0a24344c7a3e";
 const imageId = "44413a60-5500-499d-8b9e-5478da537bc5";
