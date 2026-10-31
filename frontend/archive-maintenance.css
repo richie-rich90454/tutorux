@@ -22,7 +22,7 @@
 .archive-maintenance-review {
     background: var(--surface-inset);
     border: 1px solid var(--line);
-    border-radius: var(--radius);
+    border-radius: 5px;
     margin-top: 18px;
     padding: 16px;
 }
@@ -40,7 +40,7 @@
     margin-top: 12px;
     padding: 12px;
     border: 1px solid var(--line);
-    border-radius: var(--radius);
+    border-radius: 5px;
 }
 .archive-maintenance-prune-preview strong {
     color: var(--ink);
@@ -79,7 +79,7 @@
     padding: 11px;
     background: var(--surface);
     border: 1px solid var(--line);
-    border-radius: var(--radius);
+    border-radius: 5px;
 }
 .archive-maintenance-repair-details dt {
     color: var(--muted);
