@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { whisperAudio } from "../frontend/domain/whisper";
+import { whisperAudio } from "../../frontend/domain/whisper";
 import {
     APPLICATION_CAPTURE_FORMAT,
     buildCapturePreview,
@@ -8,7 +8,7 @@ import {
     parseCaptureFormatLine,
     sameCaptureFormat,
     type LiveCaptureFormat,
-} from "./live-recording";
+} from "../../cli/live-recording";
 
 describe("native capture format metadata", () => {
     it("maps helper device formats to archive sample formats", () => {
