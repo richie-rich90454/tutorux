@@ -92,10 +92,7 @@ function normalizedFields(
     return fields;
 }
 
-function normalizedRecord(
-    record: ArchiveRecord,
-    typesById: Map<string, string>,
-): NormalizedRecord {
+function normalizedRecord(record: ArchiveRecord, typesById: Map<string, string>): NormalizedRecord {
     return {
         type: recordTypeName(record.type),
         revision: record.revision.toString(),
@@ -114,9 +111,7 @@ async function loadArchive(path: string, passphrase: string | undefined, include
     let snapshot = await openArchiveBytes(bytes);
     if (snapshot.locked) {
         if (!passphrase) {
-            throw new Error(
-                `archive ${path} is encrypted; set TUTORUX_PARITY_ARCHIVE_PASSPHRASE`,
-            );
+            throw new Error(`archive ${path} is encrypted; set TUTORUX_PARITY_ARCHIVE_PASSPHRASE`);
         }
         snapshot = await snapshot.unlock(passphrase);
     }
@@ -131,10 +126,7 @@ async function loadArchive(path: string, passphrase: string | undefined, include
         if (record) records.push(record);
     }
     const typesById = new Map(
-        records.map((record) => [
-            record.id.toLowerCase(),
-            recordTypeName(record.type),
-        ]),
+        records.map((record) => [record.id.toLowerCase(), recordTypeName(record.type)]),
     );
     const normalized = records.map((record) => normalizedRecord(record, typesById));
     let history: Array<{ record: string; revisions: string[] }> | null = null;
