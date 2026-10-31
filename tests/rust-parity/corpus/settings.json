@@ -1,0 +1,443 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "id": "settings.lifecycle",
+      "family": "settings",
+      "capability": "settings.list",
+      "env": {
+        "PARITY_SETTING_MODE": "review"
+      },
+      "files": {
+        "settings.env": "# archive settings\nworkspace.theme=light\nworkspace.timezone=UTC\n"
+      },
+      "setup": [
+        {
+          "id": "source archive",
+          "args": [
+            "archive",
+            "init",
+            "{dir}/source.tux",
+            "--name",
+            "Settings source",
+            "--json"
+          ]
+        },
+        {
+          "id": "source setting",
+          "args": [
+            "--archive",
+            "{dir}/source.tux",
+            "--json",
+            "settings",
+            "set",
+            "--key",
+            "workspace.theme",
+            "--value",
+            "sepia"
+          ]
+        }
+      ],
+      "steps": [
+        {
+          "id": "list empty",
+          "capability": "settings.list",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "settings",
+            "list"
+          ],
+          "expect": {
+            "exitCode": 0,
+            "stdoutJson": []
+          }
+        },
+        {
+          "id": "set value",
+          "capability": "settings.set",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "settings",
+            "set",
+            "--key",
+            "workspace.theme",
+            "--value",
+            "dark"
+          ],
+          "expect": {
+            "exitCode": 0,
+            "stdoutJsonIncludes": {
+              "record_role": "setting",
+              "key": "workspace.theme",
+              "value": "dark"
+            }
+          }
+        },
+        {
+          "id": "set from environment",
+          "capability": "settings.set",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "settings",
+            "set",
+            "--key",
+            "workspace.mode",
+            "--value-env",
+            "PARITY_SETTING_MODE"
+          ],
+          "expect": {
+            "exitCode": 0,
+            "stdoutJsonIncludes": {
+              "key": "workspace.mode",
+              "value": "review"
+            }
+          }
+        },
+        {
+          "id": "get positional",
+          "capability": "settings.get",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "settings",
+            "get",
+            "workspace.theme"
+          ],
+          "expect": {
+            "exitCode": 0,
+            "stdoutJsonIncludes": {
+              "key": "workspace.theme",
+              "value": "dark"
+            }
+          }
+        },
+        {
+          "id": "get option",
+          "capability": "settings.get",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "settings",
+            "get",
+            "--key",
+            "workspace.mode"
+          ],
+          "expect": {
+            "exitCode": 0,
+            "stdoutJsonIncludes": {
+              "key": "workspace.mode",
+              "value": "review"
+            }
+          }
+        },
+        {
+          "id": "list",
+          "capability": "settings.list",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "settings",
+            "list"
+          ],
+          "expect": {
+            "exitCode": 0,
+            "stdoutContains": [
+              "workspace.theme",
+              "workspace.mode"
+            ]
+          }
+        },
+        {
+          "id": "import settings",
+          "capability": "settings.import",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "settings",
+            "import",
+            "--input",
+            "settings.env"
+          ],
+          "expect": {
+            "exitCode": 0,
+            "stdoutJsonIncludes": {
+              "changed": 2
+            }
+          }
+        },
+        {
+          "id": "get imported",
+          "capability": "settings.get",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "settings",
+            "get",
+            "workspace.theme"
+          ],
+          "expect": {
+            "exitCode": 0,
+            "stdoutJsonIncludes": {
+              "value": "light"
+            }
+          }
+        },
+        {
+          "id": "copy from source",
+          "capability": "settings.copy-to-archive",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "settings",
+            "copy-to-archive",
+            "--source-archive",
+            "{dir}/source.tux",
+            "--key",
+            "workspace.theme"
+          ],
+          "expect": {
+            "exitCode": 0,
+            "stdoutJsonIncludes": {
+              "changed": 1
+            }
+          }
+        },
+        {
+          "id": "get copied",
+          "capability": "settings.get",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "settings",
+            "get",
+            "workspace.theme"
+          ],
+          "expect": {
+            "exitCode": 0,
+            "stdoutJsonIncludes": {
+              "value": "sepia"
+            }
+          }
+        },
+        {
+          "id": "reset key",
+          "capability": "settings.reset",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "settings",
+            "reset",
+            "--key",
+            "workspace.timezone"
+          ],
+          "expect": {
+            "exitCode": 0,
+            "stdoutJsonIncludes": {
+              "changed": 1
+            }
+          }
+        },
+        {
+          "id": "get reset key",
+          "capability": "settings.get",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "settings",
+            "get",
+            "workspace.timezone"
+          ],
+          "expect": {
+            "exitCode": 2,
+            "stdoutJson": null,
+            "stderrContains": [
+              "not found"
+            ]
+          }
+        },
+        {
+          "id": "credential list",
+          "capability": "settings.credential-list",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "settings",
+            "credential-list"
+          ],
+          "expect": {
+            "exitCode": 0,
+            "stdoutJson": []
+          }
+        },
+        {
+          "id": "reset all",
+          "capability": "settings.reset",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "settings",
+            "reset"
+          ],
+          "expect": {
+            "exitCode": 0,
+            "stdoutJsonIncludes": {
+              "changed": "<number>"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "settings.credentials",
+      "family": "settings",
+      "capability": "settings.set",
+      "seed": false,
+      "env": {
+        "PARITY_PASS": "settings passphrase",
+        "PARITY_SECRET": "sk-parity-test-secret"
+      },
+      "compareArchivePassphraseEnv": "PARITY_PASS",
+      "setup": [
+        {
+          "id": "encrypted archive",
+          "args": [
+            "archive",
+            "init",
+            "{archive}",
+            "--name",
+            "Credential archive",
+            "--new-passphrase-env",
+            "PARITY_PASS",
+            "--json"
+          ]
+        }
+      ],
+      "steps": [
+        {
+          "id": "store credential",
+          "capability": "settings.set",
+          "args": [
+            "--passphrase-env",
+            "PARITY_PASS",
+            "--archive",
+            "{archive}",
+            "--json",
+            "settings",
+            "set",
+            "--key",
+            "OPENAI_API_KEY",
+            "--store-credential",
+            "--value-env",
+            "PARITY_SECRET"
+          ],
+          "expect": {
+            "exitCode": 0,
+            "stdoutJsonIncludes": {
+              "changed": 1,
+              "credential": true
+            }
+          }
+        },
+        {
+          "id": "credential list",
+          "capability": "settings.credential-list",
+          "args": [
+            "--passphrase-env",
+            "PARITY_PASS",
+            "--archive",
+            "{archive}",
+            "--json",
+            "settings",
+            "credential-list"
+          ],
+          "expect": {
+            "exitCode": 0,
+            "stdoutJsonIncludes": [
+              {
+                "key": "OPENAI_API_KEY",
+                "provider_id": "openai"
+              }
+            ]
+          }
+        },
+        {
+          "id": "credential value is not readable",
+          "capability": "settings.get",
+          "args": [
+            "--passphrase-env",
+            "PARITY_PASS",
+            "--archive",
+            "{archive}",
+            "--json",
+            "settings",
+            "get",
+            "OPENAI_API_KEY"
+          ],
+          "expect": {
+            "exitCode": 2,
+            "stdoutJson": null,
+            "stderrContains": [
+              "cannot be read"
+            ]
+          }
+        },
+        {
+          "id": "remove credential",
+          "capability": "settings.credential-remove",
+          "args": [
+            "--passphrase-env",
+            "PARITY_PASS",
+            "--archive",
+            "{archive}",
+            "--json",
+            "settings",
+            "credential-remove",
+            "--key",
+            "OPENAI_API_KEY"
+          ],
+          "expect": {
+            "exitCode": 0,
+            "stdoutJsonIncludes": {
+              "changed": 1,
+              "credential": true
+            }
+          }
+        },
+        {
+          "id": "credential list empty",
+          "capability": "settings.credential-list",
+          "args": [
+            "--passphrase-env",
+            "PARITY_PASS",
+            "--archive",
+            "{archive}",
+            "--json",
+            "settings",
+            "credential-list"
+          ],
+          "expect": {
+            "exitCode": 0,
+            "stdoutJson": []
+          }
+        }
+      ]
+    }
+  ]
+}
