@@ -14,12 +14,8 @@
     margin-bottom: 18px;
     padding: 20px 22px;
     border: 1px solid var(--line);
-    border-radius: var(--radius);
-    background: linear-gradient(
-        110deg,
-        color-mix(in srgb, var(--accent-soft) 72%, var(--surface)),
-        var(--surface) 62%
-    );
+    border-radius: 5px;
+    background: var(--surface);
 }
 .transcript-heading p {
     max-width: 610px;
@@ -31,7 +27,7 @@
     place-items: center;
     flex: 0 0 auto;
     border: 1px solid color-mix(in srgb, var(--accent) 22%, var(--line));
-    border-radius: 14px;
+    border-radius: 5px;
     color: var(--accent);
     background: color-mix(in srgb, var(--accent-soft) 80%, var(--surface));
 }
@@ -47,7 +43,7 @@
     margin-bottom: 14px;
     padding: 14px 16px;
     border: 1px solid var(--line);
-    border-radius: var(--radius);
+    border-radius: 5px;
     background: var(--surface);
 }
 .transcript-session-picker,
@@ -56,10 +52,10 @@
     display: grid;
     gap: 5px;
     color: var(--faint);
-    font-size: 8px;
+    font-size: 12px;
     font-weight: 600;
     letter-spacing: 0.07em;
-    text-transform: uppercase;
+    text-transform: none;
 }
 .transcript-session-picker {
     flex: 1;
@@ -70,10 +66,10 @@
 .transcript-editor textarea {
     min-width: 0;
     border: 1px solid var(--line);
-    border-radius: 6px;
+    border-radius: 5px;
     color: var(--ink);
     background: var(--surface-subtle);
-    font-size: 10px;
+    font-size: 12px;
     font-weight: 400;
     letter-spacing: normal;
     text-transform: none;
@@ -93,7 +89,7 @@
     align-items: center;
     gap: 7px;
     color: var(--muted);
-    font-size: 8px;
+    font-size: 12px;
     line-height: 1.45;
 }
 .transcript-audio-add-checkbox input {
@@ -109,12 +105,8 @@
     margin: 0 0 14px;
     padding: 15px 17px;
     border: 1px solid color-mix(in srgb, var(--accent) 19%, var(--line));
-    border-radius: var(--radius);
-    background: linear-gradient(
-        105deg,
-        color-mix(in srgb, var(--accent-soft) 48%, var(--surface)),
-        var(--surface) 72%
-    );
+    border-radius: 5px;
+    background: #080909;
 }
 .transcript-capture-copy {
     min-width: 0;
@@ -123,14 +115,14 @@
 }
 .transcript-capture-copy strong {
     color: var(--ink);
-    font-size: 10px;
+    font-size: 12px;
     font-weight: 650;
 }
 .transcript-capture-copy > p,
 .transcript-capture-note {
     margin: 0;
     color: var(--muted);
-    font-size: 8px;
+    font-size: 12px;
     line-height: 1.5;
 }
 .transcript-capture-copy > label {
@@ -139,14 +131,14 @@
     align-items: center;
     gap: 9px;
     color: var(--ink-soft);
-    font-size: 9px;
+    font-size: 12px;
 }
 .transcript-capture-copy select {
     min-width: 0;
     max-width: 100%;
     padding: 6px 9px;
     border: 1px solid var(--line);
-    border-radius: 7px;
+    border-radius: 5px;
     background: var(--surface);
     color: var(--ink);
     font: inherit;
@@ -154,7 +146,7 @@
 .recording-capability-note {
     margin: 0;
     color: var(--muted);
-    font-size: 8px;
+    font-size: 12px;
     line-height: 1.5;
 }
 .transcript-capture-preflight {
@@ -168,7 +160,7 @@
     height: 8px;
     overflow: hidden;
     border: 1px solid var(--line);
-    border-radius: 999px;
+    border-radius: 5px;
     background: var(--surface-subtle);
 }
 .transcript-capture-meter > div {
@@ -182,7 +174,7 @@
     grid-column: 1 / -1;
     margin: 0;
     color: var(--muted);
-    font-size: 8px;
+    font-size: 12px;
     line-height: 1.45;
     font-variant-numeric: tabular-nums;
 }
@@ -191,7 +183,7 @@
     align-items: center;
     gap: 8px;
     color: var(--ink-soft);
-    font-size: 9px;
+    font-size: 12px;
     line-height: 1.45;
 }
 .transcript-capture-consent input {
@@ -218,7 +210,7 @@
     align-items: center;
     gap: 8px;
     color: var(--danger);
-    font-size: 9px;
+    font-size: 12px;
     font-weight: 650;
 }
 .transcript-capture-live i {
@@ -226,7 +218,7 @@
     height: 8px;
     border-radius: 50%;
     background: var(--danger);
-    box-shadow: 0 0 0 4px var(--danger-soft);
+    box-shadow: none;
     animation: capture-pulse 1.5s ease-in-out infinite;
 }
 .transcript-capture-live strong {
@@ -234,7 +226,7 @@
 }
 .transcript-capture-saving {
     color: var(--muted);
-    font-size: 9px;
+    font-size: 12px;
 }
 .transcript-capture-note,
 .transcript-capture-error {
@@ -242,11 +234,11 @@
 }
 .transcript-capture-error {
     color: var(--danger);
-    font-size: 9px;
+    font-size: 12px;
 }
 @keyframes capture-pulse {
     50% {
-        box-shadow: 0 0 0 7px color-mix(in srgb, var(--danger-soft) 55%, transparent);
+        box-shadow: none;
     }
 }
 .transcript-list-shell {
@@ -260,7 +252,7 @@
     margin: 0 0 14px;
     padding: 13px 16px;
     border: 1px solid color-mix(in srgb, var(--accent) 20%, var(--line));
-    border-radius: var(--radius);
+    border-radius: 5px;
     background: color-mix(in srgb, var(--accent-soft) 35%, var(--surface));
 }
 .transcript-audio-copy {
@@ -271,24 +263,24 @@
 .transcript-audio-copy strong {
     overflow: hidden;
     color: var(--ink);
-    font-size: 10px;
+    font-size: 12px;
     font-weight: 650;
     text-overflow: ellipsis;
     white-space: nowrap;
 }
 .transcript-audio-copy > span:last-child {
     color: var(--muted);
-    font-size: 8px;
+    font-size: 12px;
 }
 .transcript-audio-picker select {
     width: 100%;
     min-height: 34px;
     padding: 0 9px;
     border: 1px solid var(--line);
-    border-radius: 6px;
+    border-radius: 5px;
     color: var(--ink-soft);
     background: var(--surface);
-    font-size: 9px;
+    font-size: 12px;
 }
 .transcript-audio-export-actions {
     grid-column: 1 / -1;
@@ -301,7 +293,7 @@
     grid-column: 1 / -1;
     margin: -6px 0 0;
     color: var(--muted);
-    font-size: 8px;
+    font-size: 12px;
     line-height: 1.5;
 }
 .transcript-audio-panel audio {
@@ -313,7 +305,7 @@
 .transcript-audio-error {
     grid-column: 1 / -1;
     color: var(--danger);
-    font-size: 9px;
+    font-size: 12px;
 }
 .transcript-takes-panel {
     display: grid;
@@ -321,7 +313,7 @@
     margin: 0 0 14px;
     padding: 15px 16px;
     border: 1px solid var(--line);
-    border-radius: var(--radius);
+    border-radius: 5px;
     background: var(--surface);
 }
 .transcript-takes-heading,
@@ -345,19 +337,19 @@
 }
 .transcript-takes-heading strong {
     color: var(--ink);
-    font-size: 11px;
+    font-size: 12px;
     font-weight: 650;
 }
 .transcript-takes-heading > div > span:last-child,
 .transcript-take-copy > span {
     color: var(--muted);
-    font-size: 8px;
+    font-size: 12px;
     line-height: 1.5;
 }
 .transcript-takes-count {
     flex: 0 0 auto;
     color: var(--muted);
-    font-size: 8px;
+    font-size: 12px;
     font-variant-numeric: tabular-nums;
 }
 .transcript-takes-list {
@@ -369,7 +361,7 @@
     gap: 9px;
     padding: 12px;
     border: 1px solid var(--line-soft);
-    border-radius: 8px;
+    border-radius: 5px;
     background: var(--surface-subtle);
 }
 .transcript-take-card-trashed {
@@ -384,7 +376,7 @@
     display: grid;
     gap: 4px;
     color: var(--muted);
-    font-size: 8px;
+    font-size: 12px;
 }
 .transcript-take-card-heading input,
 .transcript-take-track-row input {
@@ -392,11 +384,11 @@
     min-height: 31px;
     padding: 0 9px;
     border: 1px solid var(--line);
-    border-radius: 6px;
+    border-radius: 5px;
     color: var(--ink-soft);
     background: var(--surface);
     font: inherit;
-    font-size: 9px;
+    font-size: 12px;
 }
 .transcript-take-meta {
     display: flex;
@@ -406,10 +398,10 @@
 .transcript-take-meta span {
     padding: 4px 7px;
     border: 1px solid var(--line-soft);
-    border-radius: 99px;
+    border-radius: 5px;
     color: var(--muted);
     background: var(--surface);
-    font-size: 7px;
+    font-size: 12px;
 }
 .transcript-take-tracks {
     display: grid;
@@ -419,7 +411,7 @@
 }
 .transcript-take-trashed-tracks > strong {
     color: var(--muted);
-    font-size: 8px;
+    font-size: 12px;
     font-weight: 650;
 }
 .transcript-take-trashed-track-row {
@@ -430,10 +422,10 @@
     gap: 10px;
     padding: 7px 8px;
     border: 1px solid var(--line-soft);
-    border-radius: 6px;
+    border-radius: 5px;
     color: var(--muted);
     background: var(--surface);
-    font-size: 8px;
+    font-size: 12px;
 }
 .transcript-take-trashed-track-row > span {
     overflow: hidden;
@@ -465,7 +457,7 @@
     padding-top: 2px;
     color: var(--faint);
     font:
-        600 9px/1.5 "Noto Sans",
+        600 12px/1.5 "Noto Sans",
         sans-serif;
     font-variant-numeric: tabular-nums;
 }
@@ -483,7 +475,7 @@
     flex-wrap: wrap;
     gap: 9px;
     color: var(--faint);
-    font-size: 8px;
+    font-size: 12px;
 }
 .transcript-time {
     color: var(--muted);
@@ -495,10 +487,10 @@
     gap: 5px;
     padding: 3px 7px;
     border: 1px solid var(--line-soft);
-    border-radius: 999px;
+    border-radius: 5px;
     color: var(--warning);
     background: var(--surface-subtle);
-    font-size: 7px;
+    font-size: 12px;
     font-weight: 600;
 }
 .transcript-status > span {
@@ -520,14 +512,14 @@
     display: inline-block;
     margin-top: 9px;
     color: var(--accent);
-    font-size: 9px;
+    font-size: 12px;
     font-weight: 650;
 }
 .transcript-cue-text {
     max-width: 880px;
     margin: 9px 0 0;
     color: var(--ink);
-    font-size: 11px;
+    font-size: 12px;
     line-height: 1.8;
     white-space: pre-wrap;
     overflow-wrap: anywhere;
@@ -544,7 +536,7 @@
     margin-top: 13px;
     padding: 13px;
     border: 1px solid var(--line);
-    border-radius: 8px;
+    border-radius: 5px;
     background: var(--surface-subtle);
 }
 .transcript-editor > label,
@@ -552,7 +544,7 @@
     display: grid;
     gap: 5px;
     color: var(--ink-soft);
-    font-size: 8px;
+    font-size: 12px;
     font-weight: 600;
 }
 .transcript-editor textarea {
@@ -586,7 +578,7 @@
     margin-top: 12px;
     padding: 13px;
     border: 1px solid var(--line);
-    border-radius: 8px;
+    border-radius: 5px;
     background: var(--surface-subtle);
 }
 .transcript-split-editor > label,
@@ -594,7 +586,7 @@
     display: grid;
     gap: 5px;
     color: var(--ink-soft);
-    font-size: 8px;
+    font-size: 12px;
     font-weight: 600;
 }
 .transcript-split-editor textarea {
@@ -602,10 +594,10 @@
     min-width: 0;
     padding: 9px 10px;
     border: 1px solid var(--line);
-    border-radius: 6px;
+    border-radius: 5px;
     color: var(--ink);
     background: var(--surface);
-    font-size: 10px;
+    font-size: 12px;
     line-height: 1.65;
     resize: vertical;
 }
@@ -614,26 +606,26 @@
     height: 34px;
     padding: 0 9px;
     border: 1px solid var(--line);
-    border-radius: 6px;
+    border-radius: 5px;
     color: var(--ink);
     background: var(--surface);
-    font-size: 10px;
+    font-size: 12px;
     font-variant-numeric: tabular-nums;
 }
 .transcript-split-editor p {
     margin: 0;
     color: var(--muted);
-    font-size: 8px;
+    font-size: 12px;
 }
 .transcript-material-editor > strong {
     color: var(--ink);
-    font-size: 9px;
+    font-size: 12px;
 }
 .transcript-material-editor > label {
     display: flex;
     align-items: center;
     gap: 8px;
-    font-size: 9px;
+    font-size: 12px;
 }
 .transcript-material-editor input {
     accent-color: var(--accent);
@@ -645,12 +637,12 @@
     gap: 6px;
     margin-top: 10px;
     color: var(--faint);
-    font-size: 8px;
+    font-size: 12px;
 }
 .transcript-material-chip {
     padding: 3px 8px;
     border: 1px solid var(--line);
-    border-radius: 999px;
+    border-radius: 5px;
     color: var(--ink-soft);
     background: var(--surface-subtle);
 }
@@ -660,7 +652,7 @@
     margin-top: 12px;
     padding: 12px;
     border: 1px solid var(--line-soft);
-    border-radius: 8px;
+    border-radius: 5px;
     background: var(--surface-subtle);
 }
 .transcript-history-heading {
@@ -671,12 +663,12 @@
 }
 .transcript-history-heading > span:last-child {
     color: var(--faint);
-    font-size: 8px;
+    font-size: 12px;
 }
 .transcript-history-empty {
     margin: 0;
     color: var(--muted);
-    font-size: 9px;
+    font-size: 12px;
 }
 .transcript-history-list {
     display: grid;
@@ -687,7 +679,7 @@
     gap: 7px;
     padding: 10px 11px;
     border: 1px solid var(--line-soft);
-    border-radius: 7px;
+    border-radius: 5px;
     background: var(--surface);
 }
 .transcript-history-entry > div {
@@ -696,18 +688,18 @@
 }
 .transcript-history-entry strong {
     color: var(--ink-soft);
-    font-size: 9px;
+    font-size: 12px;
     font-weight: 600;
 }
 .transcript-history-entry small {
     color: var(--faint);
-    font-size: 8px;
+    font-size: 12px;
     font-variant-numeric: tabular-nums;
 }
 .transcript-history-entry p {
     margin: 0;
     color: var(--muted);
-    font-size: 9px;
+    font-size: 12px;
     line-height: 1.65;
     white-space: pre-wrap;
     overflow-wrap: anywhere;
