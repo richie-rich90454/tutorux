@@ -1,6 +1,6 @@
 .audio-mixer {
     border: 1px solid var(--line);
-    border-radius: var(--radius-large);
+    border-radius: 5px;
     padding: 20px;
     margin-top: 18px;
     background: var(--surface);
