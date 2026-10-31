@@ -1,431 +1,413 @@
 {
-  "version": 1,
-  "cases": [
-    {
-      "id": "asset.lifecycle",
-      "family": "asset",
-      "capability": "asset.add",
-      "files": {
-        "material.txt": "material payload",
-        "second.txt": "second payload",
-        "materials/alpha.txt": "alpha payload",
-        "materials/beta.txt": "beta payload"
-      },
-      "setup": [
+    "version": 1,
+    "cases": [
         {
-          "id": "session",
-          "args": [
-            "--archive",
-            "{archive}",
-            "--json",
-            "session",
-            "create",
-            "--title",
-            "Asset session"
-          ],
-          "capture": {
-            "session": "id"
-          }
-        },
-        {
-          "id": "annotation",
-          "args": [
-            "--archive",
-            "{archive}",
-            "--json",
-            "annotation",
-            "add",
-            "--session",
-            "{capture.session}",
-            "--type",
-            "general-note",
-            "--at",
-            "00:00:01",
-            "--text",
-            "Link target"
-          ],
-          "capture": {
-            "annotation": "id"
-          }
-        }
-      ],
-      "steps": [
-        {
-          "id": "add",
-          "capability": "asset.add",
-          "args": [
-            "--archive",
-            "{archive}",
-            "--json",
-            "asset",
-            "add",
-            "material.txt",
-            "--session",
-            "{capture.session}"
-          ],
-          "capture": {
-            "asset": "0.id"
-          },
-          "expect": {
-            "exitCode": 0,
-            "stdoutJsonIncludes": [
-              {
-                "filename": "material.txt",
-                "session_id": "<uuid>",
-                "byte_size": "16",
-                "content_hash": "<sha256>"
-              }
-            ]
-          }
-        },
-        {
-          "id": "import alias",
-          "capability": "asset.add",
-          "args": [
-            "--archive",
-            "{archive}",
-            "--json",
-            "asset",
-            "import",
-            "--input",
-            "second.txt",
-            "--session",
-            "{capture.session}"
-          ],
-          "capture": {
-            "second": "0.id"
-          },
-          "expect": {
-            "exitCode": 0,
-            "stdoutContains": [
-              "second.txt"
-            ]
-          }
-        },
-        {
-          "id": "import folder",
-          "capability": "asset.import-folder",
-          "args": [
-            "--archive",
-            "{archive}",
-            "--json",
-            "asset",
-            "import-folder",
-            "materials",
-            "--session",
-            "{capture.session}"
-          ],
-          "capture": {
-            "folder_first": "0.id",
-            "folder_second": "1.id"
-          },
-          "expect": {
-            "exitCode": 0,
-            "stdoutContains": [
-              "alpha.txt",
-              "beta.txt"
-            ]
-          }
-        },
-        {
-          "id": "list",
-          "capability": "asset.list",
-          "args": [
-            "--archive",
-            "{archive}",
-            "--json",
-            "asset",
-            "list",
-            "--session",
-            "{capture.session}"
-          ],
-          "expect": {
-            "exitCode": 0,
-            "stdoutContains": [
-              "material.txt",
-              "second.txt",
-              "alpha.txt",
-              "beta.txt"
-            ]
-          },
-          "unorderedJsonPaths": [
-            ""
-          ]
-        },
-        {
-          "id": "show",
-          "capability": "asset.show",
-          "args": [
-            "--archive",
-            "{archive}",
-            "--json",
-            "asset",
-            "show",
-            "{capture.asset}"
-          ],
-          "expect": {
-            "exitCode": 0,
-            "stdoutJsonIncludes": {
-              "filename": "material.txt"
-            }
-          }
-        },
-        {
-          "id": "preview",
-          "capability": "asset.preview",
-          "args": [
-            "--archive",
-            "{archive}",
-            "--json",
-            "asset",
-            "preview",
-            "{capture.asset}"
-          ],
-          "expect": {
-            "exitCode": 0,
-            "stdoutJsonIncludes": {
-              "filename": "material.txt"
-            }
-          }
-        },
-        {
-          "id": "verify",
-          "capability": "asset.verify",
-          "args": [
-            "--archive",
-            "{archive}",
-            "--json",
-            "asset",
-            "verify",
-            "{capture.asset}"
-          ],
-          "expect": {
-            "exitCode": 0,
-            "stdoutJsonIncludes": {
-              "asset_id": "<uuid>",
-              "valid": true,
-              "sha256": "<sha256>"
-            }
-          }
-        },
-        {
-          "id": "update",
-          "capability": "asset.update",
-          "args": [
-            "--archive",
-            "{archive}",
-            "--json",
-            "asset",
-            "update",
-            "{capture.asset}",
-            "--filename",
-            "renamed.txt",
-            "--description",
-            "Updated material"
-          ],
-          "expect": {
-            "exitCode": 0,
-            "stdoutJsonIncludes": {
-              "filename": "renamed.txt",
-              "description": "Updated material"
-            }
-          }
-        },
-        {
-          "id": "history",
-          "capability": "asset.history",
-          "args": [
-            "--archive",
-            "{archive}",
-            "--json",
-            "asset",
-            "history",
-            "{capture.asset}"
-          ],
-          "expect": {
-            "exitCode": 0,
-            "stdoutContains": [
-              "history_index"
-            ]
-          }
-        },
-        {
-          "id": "extract",
-          "capability": "asset.extract",
-          "args": [
-            "--archive",
-            "{archive}",
-            "--json",
-            "asset",
-            "extract",
-            "{capture.asset}",
-            "--output",
-            "{dir}/extracted.txt"
-          ],
-          "expect": {
-            "exitCode": 0,
-            "stdoutJsonIncludes": {
-              "id": "<uuid>",
-              "bytes": 16
+            "id": "asset.lifecycle",
+            "family": "asset",
+            "capability": "asset.add",
+            "files": {
+                "material.txt": "material payload",
+                "second.txt": "second payload",
+                "materials/alpha.txt": "alpha payload",
+                "materials/beta.txt": "beta payload"
             },
-            "files": [
-              {
-                "path": "{dir}/extracted.txt",
-                "text": "material payload"
-              }
+            "setup": [
+                {
+                    "id": "session",
+                    "args": [
+                        "--archive",
+                        "{archive}",
+                        "--json",
+                        "session",
+                        "create",
+                        "--title",
+                        "Asset session"
+                    ],
+                    "capture": {
+                        "session": "id"
+                    }
+                },
+                {
+                    "id": "annotation",
+                    "args": [
+                        "--archive",
+                        "{archive}",
+                        "--json",
+                        "annotation",
+                        "add",
+                        "--session",
+                        "{capture.session}",
+                        "--type",
+                        "general-note",
+                        "--at",
+                        "00:00:01",
+                        "--text",
+                        "Link target"
+                    ],
+                    "capture": {
+                        "annotation": "id"
+                    }
+                }
+            ],
+            "steps": [
+                {
+                    "id": "add",
+                    "capability": "asset.add",
+                    "args": [
+                        "--archive",
+                        "{archive}",
+                        "--json",
+                        "asset",
+                        "add",
+                        "material.txt",
+                        "--session",
+                        "{capture.session}"
+                    ],
+                    "capture": {
+                        "asset": "0.id"
+                    },
+                    "expect": {
+                        "exitCode": 0,
+                        "stdoutJsonIncludes": [
+                            {
+                                "filename": "material.txt",
+                                "session_id": "<uuid>",
+                                "byte_size": "16",
+                                "content_hash": "<sha256>"
+                            }
+                        ]
+                    }
+                },
+                {
+                    "id": "import alias",
+                    "capability": "asset.add",
+                    "args": [
+                        "--archive",
+                        "{archive}",
+                        "--json",
+                        "asset",
+                        "import",
+                        "--input",
+                        "second.txt",
+                        "--session",
+                        "{capture.session}"
+                    ],
+                    "capture": {
+                        "second": "0.id"
+                    },
+                    "expect": {
+                        "exitCode": 0,
+                        "stdoutContains": ["second.txt"]
+                    }
+                },
+                {
+                    "id": "import folder",
+                    "capability": "asset.import-folder",
+                    "args": [
+                        "--archive",
+                        "{archive}",
+                        "--json",
+                        "asset",
+                        "import-folder",
+                        "materials",
+                        "--session",
+                        "{capture.session}"
+                    ],
+                    "capture": {
+                        "folder_first": "0.id",
+                        "folder_second": "1.id"
+                    },
+                    "expect": {
+                        "exitCode": 0,
+                        "stdoutContains": ["alpha.txt", "beta.txt"]
+                    }
+                },
+                {
+                    "id": "list",
+                    "capability": "asset.list",
+                    "args": [
+                        "--archive",
+                        "{archive}",
+                        "--json",
+                        "asset",
+                        "list",
+                        "--session",
+                        "{capture.session}"
+                    ],
+                    "expect": {
+                        "exitCode": 0,
+                        "stdoutContains": ["material.txt", "second.txt", "alpha.txt", "beta.txt"]
+                    },
+                    "unorderedJsonPaths": [""]
+                },
+                {
+                    "id": "show",
+                    "capability": "asset.show",
+                    "args": [
+                        "--archive",
+                        "{archive}",
+                        "--json",
+                        "asset",
+                        "show",
+                        "{capture.asset}"
+                    ],
+                    "expect": {
+                        "exitCode": 0,
+                        "stdoutJsonIncludes": {
+                            "filename": "material.txt"
+                        }
+                    }
+                },
+                {
+                    "id": "preview",
+                    "capability": "asset.preview",
+                    "args": [
+                        "--archive",
+                        "{archive}",
+                        "--json",
+                        "asset",
+                        "preview",
+                        "{capture.asset}"
+                    ],
+                    "expect": {
+                        "exitCode": 0,
+                        "stdoutJsonIncludes": {
+                            "filename": "material.txt"
+                        }
+                    }
+                },
+                {
+                    "id": "verify",
+                    "capability": "asset.verify",
+                    "args": [
+                        "--archive",
+                        "{archive}",
+                        "--json",
+                        "asset",
+                        "verify",
+                        "{capture.asset}"
+                    ],
+                    "expect": {
+                        "exitCode": 0,
+                        "stdoutJsonIncludes": {
+                            "asset_id": "<uuid>",
+                            "valid": true,
+                            "sha256": "<sha256>"
+                        }
+                    }
+                },
+                {
+                    "id": "update",
+                    "capability": "asset.update",
+                    "args": [
+                        "--archive",
+                        "{archive}",
+                        "--json",
+                        "asset",
+                        "update",
+                        "{capture.asset}",
+                        "--filename",
+                        "renamed.txt",
+                        "--description",
+                        "Updated material"
+                    ],
+                    "expect": {
+                        "exitCode": 0,
+                        "stdoutJsonIncludes": {
+                            "filename": "renamed.txt",
+                            "description": "Updated material"
+                        }
+                    }
+                },
+                {
+                    "id": "history",
+                    "capability": "asset.history",
+                    "args": [
+                        "--archive",
+                        "{archive}",
+                        "--json",
+                        "asset",
+                        "history",
+                        "{capture.asset}"
+                    ],
+                    "expect": {
+                        "exitCode": 0,
+                        "stdoutContains": ["history_index"]
+                    }
+                },
+                {
+                    "id": "extract",
+                    "capability": "asset.extract",
+                    "args": [
+                        "--archive",
+                        "{archive}",
+                        "--json",
+                        "asset",
+                        "extract",
+                        "{capture.asset}",
+                        "--output",
+                        "{dir}/extracted.txt"
+                    ],
+                    "expect": {
+                        "exitCode": 0,
+                        "stdoutJsonIncludes": {
+                            "id": "<uuid>",
+                            "bytes": 16
+                        },
+                        "files": [
+                            {
+                                "path": "{dir}/extracted.txt",
+                                "text": "material payload"
+                            }
+                        ]
+                    }
+                },
+                {
+                    "id": "export alias",
+                    "capability": "asset.extract",
+                    "args": [
+                        "--archive",
+                        "{archive}",
+                        "--json",
+                        "asset",
+                        "export",
+                        "{capture.second}",
+                        "--output",
+                        "{dir}/exported.txt"
+                    ],
+                    "expect": {
+                        "exitCode": 0,
+                        "stdoutJsonIncludes": {
+                            "bytes": 14
+                        },
+                        "files": [
+                            {
+                                "path": "{dir}/exported.txt",
+                                "text": "second payload"
+                            }
+                        ]
+                    }
+                },
+                {
+                    "id": "link annotation",
+                    "capability": "asset.link",
+                    "args": [
+                        "--archive",
+                        "{archive}",
+                        "--json",
+                        "asset",
+                        "link",
+                        "{capture.asset}",
+                        "--to",
+                        "annotation",
+                        "--target-id",
+                        "{capture.annotation}"
+                    ],
+                    "expect": {
+                        "exitCode": 0,
+                        "stdoutJsonIncludes": {
+                            "linked_asset_ids": "<uuid>"
+                        }
+                    }
+                },
+                {
+                    "id": "unlink annotation",
+                    "capability": "asset.unlink",
+                    "args": [
+                        "--archive",
+                        "{archive}",
+                        "--json",
+                        "asset",
+                        "unlink",
+                        "{capture.asset}",
+                        "--to",
+                        "annotation",
+                        "--target-id",
+                        "{capture.annotation}"
+                    ],
+                    "expect": {
+                        "exitCode": 0,
+                        "stdoutJsonIncludes": {
+                            "linked_asset_ids": ""
+                        }
+                    }
+                },
+                {
+                    "id": "remove",
+                    "capability": "asset.remove",
+                    "args": [
+                        "--archive",
+                        "{archive}",
+                        "--json",
+                        "asset",
+                        "remove",
+                        "{capture.asset}"
+                    ],
+                    "expect": {
+                        "exitCode": 0,
+                        "stdoutJsonIncludes": {
+                            "_deleted": "true"
+                        }
+                    }
+                },
+                {
+                    "id": "list deleted",
+                    "capability": "asset.list",
+                    "args": [
+                        "--archive",
+                        "{archive}",
+                        "--json",
+                        "asset",
+                        "list",
+                        "--session",
+                        "{capture.session}",
+                        "--include-deleted"
+                    ],
+                    "expect": {
+                        "exitCode": 0,
+                        "stdoutContains": ["renamed.txt"]
+                    },
+                    "unorderedJsonPaths": [""]
+                },
+                {
+                    "id": "restore",
+                    "capability": "asset.restore",
+                    "args": [
+                        "--archive",
+                        "{archive}",
+                        "--json",
+                        "asset",
+                        "restore",
+                        "{capture.asset}"
+                    ],
+                    "expect": {
+                        "exitCode": 0,
+                        "stdoutJsonIncludes": {
+                            "filename": "renamed.txt"
+                        }
+                    }
+                },
+                {
+                    "id": "restore from history",
+                    "capability": "asset.restore",
+                    "args": [
+                        "--archive",
+                        "{archive}",
+                        "--json",
+                        "asset",
+                        "restore",
+                        "{capture.asset}",
+                        "--revision",
+                        "3"
+                    ],
+                    "expect": {
+                        "exitCode": 0,
+                        "stdoutJsonIncludes": {
+                            "filename": "material.txt"
+                        }
+                    }
+                }
             ]
-          }
-        },
-        {
-          "id": "export alias",
-          "capability": "asset.extract",
-          "args": [
-            "--archive",
-            "{archive}",
-            "--json",
-            "asset",
-            "export",
-            "{capture.second}",
-            "--output",
-            "{dir}/exported.txt"
-          ],
-          "expect": {
-            "exitCode": 0,
-            "stdoutJsonIncludes": {
-              "bytes": 14
-            },
-            "files": [
-              {
-                "path": "{dir}/exported.txt",
-                "text": "second payload"
-              }
-            ]
-          }
-        },
-        {
-          "id": "link annotation",
-          "capability": "asset.link",
-          "args": [
-            "--archive",
-            "{archive}",
-            "--json",
-            "asset",
-            "link",
-            "{capture.asset}",
-            "--to",
-            "annotation",
-            "--target-id",
-            "{capture.annotation}"
-          ],
-          "expect": {
-            "exitCode": 0,
-            "stdoutJsonIncludes": {
-              "linked_asset_ids": "<uuid>"
-            }
-          }
-        },
-        {
-          "id": "unlink annotation",
-          "capability": "asset.unlink",
-          "args": [
-            "--archive",
-            "{archive}",
-            "--json",
-            "asset",
-            "unlink",
-            "{capture.asset}",
-            "--to",
-            "annotation",
-            "--target-id",
-            "{capture.annotation}"
-          ],
-          "expect": {
-            "exitCode": 0,
-            "stdoutJsonIncludes": {
-              "linked_asset_ids": ""
-            }
-          }
-        },
-        {
-          "id": "remove",
-          "capability": "asset.remove",
-          "args": [
-            "--archive",
-            "{archive}",
-            "--json",
-            "asset",
-            "remove",
-            "{capture.asset}"
-          ],
-          "expect": {
-            "exitCode": 0,
-            "stdoutJsonIncludes": {
-              "_deleted": "true"
-            }
-          }
-        },
-        {
-          "id": "list deleted",
-          "capability": "asset.list",
-          "args": [
-            "--archive",
-            "{archive}",
-            "--json",
-            "asset",
-            "list",
-            "--session",
-            "{capture.session}",
-            "--include-deleted"
-          ],
-          "expect": {
-            "exitCode": 0,
-            "stdoutContains": [
-              "renamed.txt"
-            ]
-          },
-          "unorderedJsonPaths": [
-            ""
-          ]
-        },
-        {
-          "id": "restore",
-          "capability": "asset.restore",
-          "args": [
-            "--archive",
-            "{archive}",
-            "--json",
-            "asset",
-            "restore",
-            "{capture.asset}"
-          ],
-          "expect": {
-            "exitCode": 0,
-            "stdoutJsonIncludes": {
-              "filename": "renamed.txt"
-            }
-          }
-        },
-        {
-          "id": "restore from history",
-          "capability": "asset.restore",
-          "args": [
-            "--archive",
-            "{archive}",
-            "--json",
-            "asset",
-            "restore",
-            "{capture.asset}",
-            "--revision",
-            "3"
-          ],
-          "expect": {
-            "exitCode": 0,
-            "stdoutJsonIncludes": {
-              "filename": "material.txt"
-            }
-          }
         }
-      ]
-    }
-  ]
+    ]
 }
