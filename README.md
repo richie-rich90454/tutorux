@@ -31,9 +31,12 @@ pnpm run build
 pnpm run build:desktop
 pnpm run desktop:dev
 pnpm run desktop:build
+pnpm run desktop:build:portable
 ```
 
-`pnpm run build` produces the static site in `dist/`. `pnpm run desktop:build` packages the Tauri application for the host operating system. Cross-platform release packages are built on matching operating-system runners; one host does not cross-package all three desktop targets.
+`pnpm run build` produces the static site in `dist/`. `pnpm run desktop:build` packages the Tauri application for the host operating system. `pnpm run desktop:build:portable` produces a single executable in `release/` that embeds the desktop host, both Rust helpers, and the Node-based command console; no installer or adjacent runtime files are required. Both desktop targets are built on matching operating-system runners; one host does not cross-package all three desktop targets.
+
+The portable executable extracts its embedded runtime into the application data directory on first use. Whisper and GGUF model files, FFmpeg, and the user's `.tux` archives remain user-supplied data or tools.
 
 The TypeScript CLI uses the same entry point:
 
