@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { newUuid, RecordType, type ArchiveRecord } from "../archive/format";
-import { makeSynchronizedCaptureStartRecords } from "./synchronized-recording";
+import { newUuid, RecordType, type ArchiveRecord } from "../../../frontend/archive/format";
+import { makeSynchronizedCaptureStartRecords } from "../../../frontend/domain/synchronized-recording";
 
 describe("synchronized capture durability", () => {
     it("persists the saved recording.durability policy on the session and take", () => {
