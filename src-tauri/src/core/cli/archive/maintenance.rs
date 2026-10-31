@@ -5,8 +5,8 @@ use serde_json::{json, Value};
 
 use crate::core::archive::{decode_commit, scan_commit_frame_offsets, ArchiveSnapshot};
 use crate::core::cli::{
-    emit, open_archive, require_unlocked, resolve_path, CliContext, CliError, CliOutput, CliResult,
-    ParsedArguments,
+    cancellation, emit, open_archive, require_unlocked, resolve_path, CliContext, CliError,
+    CliOutput, CliResult, ParsedArguments,
 };
 use crate::core::maintenance::{
     backfill_archive_secondary_indexes, compact_archive_with_options, plan_trash_purge,
@@ -79,6 +79,7 @@ pub(super) fn compact(
     output: &mut dyn CliOutput,
     context: &CliContext,
 ) -> CliResult<i32> {
+    cancellation::check("Archive compaction")?;
     let snapshot = require_unlocked(&open_archive(path, context.passphrase())?)?;
     let result = compact_archive_with_options(
         &snapshot,
@@ -88,6 +89,7 @@ pub(super) fn compact(
         },
     )?;
     let applied = !args.flag("preview");
+    cancellation::check("Archive compaction")?;
     let compacted = ArchiveSnapshot::open_bytes(result.bytes.clone())?;
     let previous_generation = snapshot.commit.generation;
     let compacted_generation = compacted.commit.generation;
@@ -134,12 +136,14 @@ pub(super) fn backfill(
     output: &mut dyn CliOutput,
     context: &CliContext,
 ) -> CliResult<i32> {
+    cancellation::check("Archive index backfill")?;
     let snapshot = require_unlocked(&open_archive(path, context.passphrase())?)?;
     let result = backfill_archive_secondary_indexes(&snapshot)?;
     let applied = args.flag("apply");
     let previous_generation = snapshot.commit.generation;
     let resulting_generation = result.snapshot.commit.generation;
     let pending = if applied && (result.added_entries > 0 || result.schema_versions_updated) {
+        cancellation::check("Archive index backfill")?;
         Some(read_bytes(&result.snapshot)?)
     } else {
         None
@@ -207,6 +211,7 @@ pub(super) fn repair(
         .into());
     }
     let passphrase = context.passphrase();
+    cancellation::check("Archive repair")?;
     let source: Arc<dyn ByteSource> = Arc::new(FileSource::open(path)?);
     let (snapshot, reconstructed_header) = match ArchiveSnapshot::open_for_recovery(Arc::clone(&source))
     {
@@ -244,6 +249,7 @@ pub(super) fn repair(
         }
     }
     let result = repair_archive_result(&repair_source)?;
+    cancellation::check("Archive repair")?;
     verify_output(
         &result.bytes,
         passphrase,
@@ -312,8 +318,10 @@ pub(super) fn rebuild_index(
         .into());
     }
     let source: Arc<dyn ByteSource> = Arc::new(FileSource::open(path)?);
+    cancellation::check("Archive index rebuild")?;
     let generation = source_generation(source.as_ref());
     let bytes = rebuild_damaged_primary_index(source)?;
+    cancellation::check("Archive index rebuild")?;
     let rebuilt = ArchiveSnapshot::open_bytes(bytes.clone())?;
     let live = rebuilt.verify()?;
     let recovered_revisions = count_history(&rebuilt)?;
@@ -349,6 +357,7 @@ pub(super) fn purge_trash(
     output: &mut dyn CliOutput,
     context: &CliContext,
 ) -> CliResult<i32> {
+    cancellation::check("Trash purge")?;
     let snapshot = require_unlocked(&open_archive(path, context.passphrase())?)?;
     let plan = plan_trash_purge(&snapshot)?;
     let applied = args.flag("apply") && !args.flag("preview");
@@ -374,6 +383,7 @@ pub(super) fn purge_trash(
     let mut purge = None;
     if applied {
         let result = purge_trashed_archive_snapshot(&snapshot)?;
+        cancellation::check("Trash purge")?;
         compacted_generation = ArchiveSnapshot::open_bytes(result.bytes.clone())?.commit.generation;
         purge = Some(result);
     }
