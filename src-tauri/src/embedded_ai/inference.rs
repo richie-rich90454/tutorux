@@ -182,7 +182,7 @@ pub(super) fn generate_blocking(
     result
 }
 
-fn render_prompt(
+pub(super) fn render_prompt(
     model: &LlamaModel,
     system_prompt: &str,
     user_content: &str,
