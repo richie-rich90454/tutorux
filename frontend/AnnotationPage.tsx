@@ -128,7 +128,7 @@ export function AnnotationPage(props: {
             <div class="page-body annotation-page">
                 <section class="record-heading annotation-heading">
                     <div>
-                        <span class="eyebrow">NOTICE THE MOMENTS THAT MATTER</span>
+                        <span class="eyebrow">Notice the moments that matter</span>
                         <h1>Observations</h1>
                         <p>
                             Mark ideas, questions, corrections, and follow-ups as they happen in a
@@ -140,7 +140,7 @@ export function AnnotationPage(props: {
                         aria-label={`${annotations().length} observations`}
                     >
                         <strong>{annotations().length.toString().padStart(2, "0")}</strong>
-                        <span>IN THIS SESSION</span>
+                        <span>In this session</span>
                     </div>
                 </section>
 
@@ -203,7 +203,7 @@ export function AnnotationPage(props: {
                     <section class="annotation-compose surface-card">
                         <div class="annotation-compose-heading">
                             <div>
-                                <span class="eyebrow">CAPTURE A MOMENT</span>
+                                <span class="eyebrow">Capture a moment</span>
                                 <h2>New observation</h2>
                             </div>
                             <button
@@ -280,7 +280,7 @@ export function AnnotationPage(props: {
                         <section class="annotation-timeline" aria-label="Session observations">
                             <div class="annotation-timeline-heading">
                                 <div>
-                                    <span class="eyebrow">SESSION TIMELINE</span>
+                                    <span class="eyebrow">Session timeline</span>
                                     <h2>What stood out</h2>
                                 </div>
                                 <span>
@@ -696,7 +696,7 @@ function AnnotationCard(props: {
                             aria-label="Observation version history"
                         >
                             <div class="annotation-history-heading">
-                                <span class="eyebrow">VERSION HISTORY</span>
+                                <span class="eyebrow">Version history</span>
                                 <span>
                                     {Math.max(0, (history()?.length ?? 1) - 1)} earlier versions
                                 </span>
