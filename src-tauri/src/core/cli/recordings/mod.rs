@@ -1,22 +1,29 @@
 use crate::core::cli::{CliContext, CliError, CliOutput, CliResult, ParsedArguments};
 
+mod audio_test;
 mod control;
+pub(super) mod ffmpeg;
+mod ffmpeg_probe;
 mod helpers;
 mod import;
+mod mix;
+mod mix_source;
 mod native_audio;
 mod native_capture;
 mod native_probe;
+mod playback;
 mod takes;
 mod wav;
 mod waveform;
 mod waveform_index;
+mod worker_control;
 
 pub fn run_recording_devices(args: ParsedArguments, output: &mut dyn CliOutput) -> CliResult<i32> {
     native_audio::run_devices(args, output)
 }
 
 pub fn run_recording_test(args: ParsedArguments, output: &mut dyn CliOutput) -> CliResult<i32> {
-    native_audio::run_test(args, output)
+    audio_test::run_test(args, output)
 }
 
 fn validate_control(action: &str, args: &ParsedArguments) -> CliResult<()> {
@@ -72,11 +79,11 @@ pub fn run_record_command(
         "waveform" => waveform::record_waveform(&args, output, path, context),
         "export-wav" => wav::record_export_wav(&args, output, path, context),
         "configure" => control::configure(args, output, path, context),
-        "status" => control::status(args, output, path, context),
-        "pause" | "resume" | "stop" => control::require_detached_worker(args, path, context),
+        "status" => worker_control::status(args, output, path, context),
+        "pause" | "resume" | "stop" => worker_control::action(action, args, output, path, context),
         "start" => native_capture::run_start(args, output, path, context),
-        "play" => control::play(args, output, path, context),
-        "mix" => control::mix(args, output, path, context),
+        "play" => playback::play(args, output, path, context),
+        "mix" => mix::mix(args, output, path, context),
         "import" => import::record_import(&args, output, path, context),
         "recover" => control::recover(args, output, path, context),
         "waveform-index-build" | "waveform-index-show" => {
