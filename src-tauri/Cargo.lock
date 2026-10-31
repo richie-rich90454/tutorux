@@ -5344,18 +5344,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e421abadd41a4225275504ea4d6566923418b7f05506fbc9c0fe86ba7396114b"
 
 [[package]]
-name = "tutorux-archive-lock"
-version = "1.0.0"
-dependencies = [
- "sha2 0.10.9",
-]
-
-[[package]]
 name = "tutorux-desktop"
 version = "1.0.0"
 dependencies = [
  "base64 0.23.1",
  "cpal",
+ "dasp_sample",
  "encoding_rs",
  "flexaudio",
  "keyring",
@@ -5371,7 +5365,6 @@ dependencies = [
  "tauri-plugin-dialog",
  "tauri-plugin-fs",
  "tauri-plugin-single-instance",
- "tutorux-archive-lock",
  "uuid",
  "whisper-rs",
  "windows-sys 0.61.2",
