@@ -15,16 +15,9 @@ pub(crate) fn load(path: &std::path::Path, context: &CliContext) -> CliResult<Ar
     Ok(snapshot)
 }
 
-pub(crate) fn save_replacing(path: &std::path::Path, snapshot: &ArchiveSnapshot) -> CliResult<()> {
-    let bytes = snapshot.source.read(0, snapshot.source.size() as usize)?;
-    // shortcut: direct overwrite instead of atomic rename; the open snapshot handle blocks
-    // renaming over the file on Windows. Upgrade when snapshots expose close().
-    std::fs::write(path, &bytes).map_err(|error| {
-        CoreError::new(
-            "archive_write_failed",
-            format!("Could not write the archive: {error}"),
-        )
-    })?;
+pub(crate) fn save_replacing(path: &std::path::Path, snapshot: &ArchiveSnapshot) -> CliResult<()> {
+    let bytes = snapshot.source.read(0, snapshot.source.size() as usize)?;
+    crate::core::cli::archive::save::save_bytes(path, &bytes)?;
     Ok(())
 }
 
