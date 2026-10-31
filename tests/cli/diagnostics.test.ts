@@ -1,10 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { audioDiagnosticRowsFromNativeDevices, enumerateAudioDiagnostics } from "./diagnostics";
+import {
+    audioDiagnosticRowsFromNativeDevices,
+    enumerateAudioDiagnostics,
+} from "../../cli/diagnostics";
 import type {
     NativeApplicationAudioDevice,
     NativeCaptureDevice,
     NativeCaptureProbe,
-} from "./native-audio-helper";
+} from "../../cli/native-audio-helper";
 
 const configuredDevice: NativeCaptureDevice = {
     id: "capture:mic",
