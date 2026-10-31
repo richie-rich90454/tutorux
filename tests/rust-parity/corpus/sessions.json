@@ -1,0 +1,372 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "id": "session.lifecycle",
+      "family": "session",
+      "capability": "session.create",
+      "setup": [
+        {
+          "id": "student",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "student",
+            "create",
+            "--name",
+            "Session Student"
+          ],
+          "capture": {
+            "student": "id"
+          }
+        },
+        {
+          "id": "journal",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "journal",
+            "create",
+            "--title",
+            "Session journal",
+            "--date",
+            "2026-10-31"
+          ],
+          "capture": {
+            "entry": "id"
+          }
+        },
+        {
+          "id": "seed session",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "session",
+            "create",
+            "--student-id",
+            "{capture.student}",
+            "--entry-id",
+            "{capture.entry}",
+            "--title",
+            "Seed session",
+            "--subject",
+            "Mathematics"
+          ],
+          "capture": {
+            "seed_session": "id"
+          }
+        }
+      ],
+      "steps": [
+        {
+          "id": "create",
+          "capability": "session.create",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "session",
+            "create",
+            "--student-id",
+            "{capture.student}",
+            "--entry-id",
+            "{capture.entry}",
+            "--title",
+            "New session",
+            "--subject",
+            "Physics",
+            "--type",
+            "notes-only",
+            "--language",
+            "en",
+            "--guide-template",
+            "general",
+            "--recording-source",
+            "none"
+          ],
+          "capture": {
+            "session": "id"
+          },
+          "expect": {
+            "exitCode": 0,
+            "stdoutJsonIncludes": {
+              "title": "New session",
+              "subject": "Physics",
+              "student_id": "<uuid>",
+              "session_type": "notes-only"
+            }
+          }
+        },
+        {
+          "id": "list",
+          "capability": "session.list",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "session",
+            "list",
+            "--student-id",
+            "{capture.student}"
+          ],
+          "expect": {
+            "exitCode": 0,
+            "stdoutContains": [
+              "New session",
+              "Seed session"
+            ]
+          }
+        },
+        {
+          "id": "list by entry and dates",
+          "capability": "session.list",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "session",
+            "list",
+            "--entry-id",
+            "{capture.entry}",
+            "--from",
+            "2026-01-01",
+            "--to",
+            "2026-12-31",
+            "--unarchived"
+          ],
+          "expect": {
+            "exitCode": 0,
+            "stdoutContains": [
+              "New session",
+              "Seed session"
+            ]
+          }
+        },
+        {
+          "id": "show",
+          "capability": "session.show",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "session",
+            "show",
+            "{capture.session}"
+          ],
+          "expect": {
+            "exitCode": 0,
+            "stdoutJsonIncludes": {
+              "title": "New session",
+              "session_type": "notes-only",
+              "entry_id": "<uuid>"
+            }
+          }
+        },
+        {
+          "id": "verify",
+          "capability": "session.verify",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "session",
+            "verify",
+            "{capture.session}"
+          ],
+          "expect": {
+            "exitCode": 0,
+            "stdoutJsonIncludes": {
+              "session_id": "<uuid>",
+              "annotations": "0",
+              "transcript_segments": "0",
+              "assets": "0"
+            }
+          }
+        },
+        {
+          "id": "update",
+          "capability": "session.update",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "session",
+            "update",
+            "{capture.session}",
+            "--title",
+            "Updated session",
+            "--subject",
+            "Chemistry",
+            "--objectives",
+            "Balance equations",
+            "--notes",
+            "Session note"
+          ],
+          "expect": {
+            "exitCode": 0,
+            "stdoutJsonIncludes": {
+              "title": "Updated session",
+              "subject": "Chemistry",
+              "learning_objectives": "Balance equations"
+            }
+          }
+        },
+        {
+          "id": "clone",
+          "capability": "session.clone",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "session",
+            "clone",
+            "{capture.session}",
+            "--title",
+            "Cloned session",
+            "--type",
+            "notes-only"
+          ],
+          "capture": {
+            "clone": "id"
+          },
+          "expect": {
+            "exitCode": 0,
+            "stdoutJsonIncludes": {
+              "title": "Cloned session",
+              "session_type": "notes-only"
+            }
+          }
+        },
+        {
+          "id": "archive",
+          "capability": "session.archive",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "session",
+            "archive",
+            "{capture.clone}"
+          ],
+          "expect": {
+            "exitCode": 0,
+            "stdoutJsonIncludes": {
+              "archived": "true"
+            }
+          }
+        },
+        {
+          "id": "list archived",
+          "capability": "session.list",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "session",
+            "list",
+            "--archived"
+          ],
+          "expect": {
+            "exitCode": 0,
+            "stdoutContains": [
+              "Cloned session"
+            ]
+          }
+        },
+        {
+          "id": "unarchive",
+          "capability": "session.unarchive",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "session",
+            "unarchive",
+            "{capture.clone}"
+          ],
+          "expect": {
+            "exitCode": 0,
+            "stdoutJsonIncludes": {
+              "archived": "false"
+            }
+          }
+        },
+        {
+          "id": "start",
+          "capability": "session.start",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "session",
+            "start",
+            "{capture.clone}"
+          ],
+          "expect": {
+            "exitCode": 0,
+            "stdoutJsonIncludes": {
+              "session_state": "active"
+            }
+          }
+        },
+        {
+          "id": "complete",
+          "capability": "session.complete",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "session",
+            "complete",
+            "{capture.clone}"
+          ],
+          "expect": {
+            "exitCode": 0,
+            "stdoutJsonIncludes": {
+              "session_state": "completed"
+            }
+          }
+        },
+        {
+          "id": "review",
+          "capability": "session.review",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "session",
+            "review",
+            "{capture.clone}"
+          ],
+          "expect": {
+            "exitCode": 0,
+            "stdoutJsonIncludes": {
+              "session_state": "reviewed"
+            }
+          }
+        },
+        {
+          "id": "resume",
+          "capability": "session.resume",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "session",
+            "resume",
+            "{capture.clone}"
+          ],
+          "expect": {
+            "exitCode": 0,
+            "stdoutJsonIncludes": {
+              "session_state": "active"
+            }
+          }
+        }
+      ]
+    }
+  ]
+}
