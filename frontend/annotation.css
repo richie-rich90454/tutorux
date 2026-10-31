@@ -4,18 +4,8 @@
     margin: 0 0 16px;
     padding: 20px 23px;
     border: 1px solid var(--line);
-    border-radius: var(--radius-large);
-    background:
-        radial-gradient(
-            circle at 92% 0%,
-            color-mix(in srgb, var(--accent-mid) 17%, transparent),
-            transparent 34%
-        ),
-        linear-gradient(
-            112deg,
-            color-mix(in srgb, var(--accent-soft) 68%, var(--surface)),
-            var(--surface) 62%
-        );
+    border-radius: 5px;
+    background: var(--surface);
 }
 .annotation-heading h1 {
     margin: 5px 0 5px;
@@ -41,7 +31,7 @@
     font-variant-numeric: tabular-nums;
 }
 .annotation-count span {
-    font-size: 7px;
+    font-size: 12px;
     font-weight: 650;
     letter-spacing: 0.1em;
 }
@@ -53,7 +43,7 @@
     margin-bottom: 14px;
     padding: 11px 13px;
     border: 1px solid var(--line);
-    border-radius: var(--radius);
+    border-radius: 5px;
     background: var(--surface);
 }
 .annotation-controls .transcript-session-picker {
@@ -75,7 +65,7 @@
     width: 32px;
     height: 32px;
     border: 1px solid color-mix(in srgb, var(--accent) 18%, var(--line));
-    border-radius: 9px;
+    border-radius: 5px;
     color: var(--accent);
     background: var(--accent-soft);
 }
@@ -87,14 +77,14 @@
 .annotation-session-context strong {
     overflow: hidden;
     color: var(--ink-soft);
-    font-size: 9px;
+    font-size: 12px;
     font-weight: 600;
     text-overflow: ellipsis;
     white-space: nowrap;
 }
 .annotation-session-context small {
     color: var(--faint);
-    font-size: 8px;
+    font-size: 12px;
 }
 .annotation-controls > .button {
     flex: 0 0 auto;
@@ -149,7 +139,7 @@
 .annotation-timeline {
     padding: 18px 20px 3px;
     border: 1px solid var(--line);
-    border-radius: var(--radius-large);
+    border-radius: 5px;
     background: color-mix(in srgb, var(--surface-subtle) 72%, var(--canvas));
 }
 .annotation-timeline-heading {
@@ -157,7 +147,7 @@
 }
 .annotation-timeline-heading > span {
     color: var(--faint);
-    font-size: 8px;
+    font-size: 12px;
     font-variant-numeric: tabular-nums;
 }
 .annotation-list {
@@ -210,17 +200,17 @@
     border: 2px solid var(--surface-subtle);
     border-radius: 50%;
     background: var(--accent);
-    box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 38%, var(--line));
+    box-shadow: none;
 }
 .priority-high .annotation-timeline-rail > span,
 .priority-critical .annotation-timeline-rail > span {
     background: var(--warning);
-    box-shadow: 0 0 0 1px color-mix(in srgb, var(--warning) 38%, var(--line));
+    box-shadow: none;
 }
 .annotation-card {
     min-width: 0;
     padding: 13px 15px 12px;
-    box-shadow: 0 1px 2px rgb(17 31 21 / 2%);
+    box-shadow: none;
 }
 .annotation-card-header,
 .annotation-type-line {
@@ -236,7 +226,7 @@
 .annotation-type-icon {
     width: 24px;
     height: 24px;
-    border-radius: 7px;
+    border-radius: 5px;
 }
 .annotation-type-icon .icon {
     width: 14px;
@@ -244,16 +234,16 @@
 }
 .annotation-type-label {
     color: var(--ink-soft);
-    font-size: 8px;
+    font-size: 12px;
     font-weight: 650;
 }
 .annotation-priority {
     padding: 3px 7px;
     border: 1px solid var(--line-soft);
-    border-radius: 999px;
+    border-radius: 5px;
     color: var(--muted);
     background: var(--surface-subtle);
-    font-size: 7px;
+    font-size: 12px;
     font-weight: 600;
     text-transform: capitalize;
 }
@@ -268,7 +258,7 @@
     align-items: center;
     gap: 5px;
     color: var(--faint);
-    font-size: 8px;
+    font-size: 12px;
     font-variant-numeric: tabular-nums;
 }
 .annotation-card-time .icon {
@@ -278,14 +268,14 @@
 .annotation-card-copy h3 {
     margin: 12px 0 5px;
     color: var(--ink);
-    font-size: 11px;
+    font-size: 12px;
     font-weight: 600;
     letter-spacing: -0.02em;
 }
 .annotation-card-copy p {
     margin: 0;
     color: var(--muted);
-    font-size: 9px;
+    font-size: 12px;
     line-height: 1.75;
     white-space: pre-wrap;
     overflow-wrap: anywhere;
@@ -307,12 +297,12 @@
 }
 .annotation-history-heading > span:last-child {
     color: var(--faint);
-    font-size: 7px;
+    font-size: 12px;
 }
 .annotation-history-empty {
     margin: 8px 0 2px;
     color: var(--muted);
-    font-size: 8px;
+    font-size: 12px;
 }
 .annotation-history-list {
     display: grid;
@@ -323,7 +313,7 @@
     gap: 6px;
     padding: 10px 11px;
     border: 1px solid var(--line-soft);
-    border-radius: 7px;
+    border-radius: 5px;
     background: var(--surface-subtle);
 }
 .annotation-history-entry > div {
@@ -332,17 +322,17 @@
 }
 .annotation-history-entry strong {
     color: var(--ink-soft);
-    font-size: 8px;
+    font-size: 12px;
     font-weight: 600;
 }
 .annotation-history-entry small {
     color: var(--faint);
-    font-size: 7px;
+    font-size: 12px;
 }
 .annotation-history-entry p {
     margin: 0;
     color: var(--muted);
-    font-size: 8px;
+    font-size: 12px;
     line-height: 1.65;
     white-space: pre-wrap;
     overflow-wrap: anywhere;
@@ -363,7 +353,7 @@
     place-items: center;
     margin-bottom: 12px;
     border: 1px solid color-mix(in srgb, var(--accent) 20%, var(--line));
-    border-radius: 15px;
+    border-radius: 5px;
     color: var(--accent);
     background: var(--accent-soft);
     transform: rotate(-4deg);
@@ -382,7 +372,7 @@
     max-width: 390px;
     margin: 7px 0 14px;
     color: var(--muted);
-    font-size: 9px;
+    font-size: 12px;
     line-height: 1.7;
 }
 @keyframes annotation-enter {
@@ -426,7 +416,7 @@
     }
     .annotation-count span {
         max-width: 55px;
-        font-size: 6px;
+        font-size: 12px;
         line-height: 1.5;
         text-align: right;
     }
@@ -525,7 +515,7 @@
 .annotation-quick-note input {
     padding: 0.55rem 0.7rem;
     border: 1px solid var(--line-strong);
-    border-radius: var(--radius);
+    border-radius: 5px;
     background: var(--surface);
     color: var(--ink);
 }
