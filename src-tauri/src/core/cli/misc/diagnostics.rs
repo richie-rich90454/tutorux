@@ -6,7 +6,7 @@ use crate::core::cli::{
 };
 use crate::diagnostics::headless_system_snapshot;
 
-use super::providers::run_ai_providers;
+use super::providers::run_diagnostics_providers;
 
 pub fn run_diagnostics_command(
     action: &str,
@@ -16,7 +16,7 @@ pub fn run_diagnostics_command(
     cancellation: &dyn Cancellation,
 ) -> CliResult<i32> {
     match action {
-        "providers" => run_ai_providers(args, output),
+        "providers" => run_diagnostics_providers(args, output),
         "network" => {
             if args.option("provider").is_none() {
                 emit(
