@@ -1,14 +1,14 @@
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { executeCli } from "./main";
+import { executeCli } from "../../cli/main";
 import {
     appendRecords,
     createArchiveBytes,
     openArchiveBytes,
     verifyArchiveSnapshot,
-} from "../frontend/archive/archive";
-import { crc32, newUuid, RecordType, type ArchiveRecord } from "../frontend/archive/format";
+} from "../../frontend/archive/archive";
+import { crc32, newUuid, RecordType, type ArchiveRecord } from "../../frontend/archive/format";
 
 function cliRecord(
     type: ArchiveRecord["type"],
