@@ -148,7 +148,7 @@ if (!(await hasExpectedNodeVersion(cachedNode)) || !(await exists(cachedNodeLice
 }
 
 const consoleEntryGuard =
-    /\nif \(process\.argv\[1\] && resolve\(process\.argv\[1\]\) === fileURLToPath\(import\.meta\.url\)\) \{\r?\n {2}process\.exitCode = await executeCli\(process\.argv\.slice\(2\)\);\r?\n\}\s*$/u;
+    /\nif \(process\.argv\[1\] && resolve\(process\.argv\[1\]\) === fileURLToPath\(import\.meta\.url\)\) \{\r?\n\s+process\.exitCode = await executeCli\(process\.argv\.slice\(2\)\);\r?\n\}\s*$/u;
 const consoleEntryPlugin = {
     name: "tutorux-command-console-entry",
     transform(source, id) {
@@ -360,13 +360,35 @@ async function collectRuntimePackages(packageDirectory, optionalPackages) {
         try {
             entryPoint = requesterRequire.resolve(packageName);
         } catch (cause) {
-            if (!required) return;
-            throw new Error(
-                `The bundled Tutorux CLI is missing its runtime dependency ${packageName}.`,
-                {
-                    cause,
-                },
+            // Platform packages such as @img/sharp-win32-x64 intentionally have no
+            // JavaScript entry point. Resolve their manifest through the installed
+            // node_modules tree instead.
+            const directCandidate = join(
+                requesterDirectory ?? root,
+                "node_modules",
+                ...packageName.split("/"),
+                "package.json",
             );
+            const rootCandidate = join(
+                root,
+                "node_modules",
+                ...packageName.split("/"),
+                "package.json",
+            );
+            if (await exists(directCandidate)) {
+                entryPoint = directCandidate;
+            } else if (await exists(rootCandidate)) {
+                entryPoint = rootCandidate;
+            } else if (!required) {
+                return;
+            } else {
+                throw new Error(
+                    `The bundled Tutorux CLI is missing its runtime dependency ${packageName}.`,
+                    {
+                        cause,
+                    },
+                );
+            }
         }
         const source = await findPackageRoot(entryPoint, packageName);
         const relativePath = relative(packageDirectory, source);
@@ -380,11 +402,14 @@ async function collectRuntimePackages(packageDirectory, optionalPackages) {
                 `The Tutorux CLI dependency ${packageName} resolves outside node_modules.`,
             );
         }
-        const existing = packages.get(relativePath);
+        // Flatten the pnpm store layout into ordinary node_modules/<package>
+        // directories. Windows Installer rejects the very long .pnpm paths.
+        const packagePath = packageName;
+        const existing = packages.get(packagePath);
         if (existing) return;
         const metadata = JSON.parse(await readFile(join(source, "package.json"), "utf8"));
-        const entry = { name: metadata.name, source, relativePath, metadata };
-        packages.set(relativePath, entry);
+        const entry = { name: metadata.name, source, relativePath: packagePath, metadata };
+        packages.set(packagePath, entry);
 
         for (const dependencyName of Object.keys(metadata.dependencies ?? {})) {
             await addPackage(dependencyName, source);
