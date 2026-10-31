@@ -1,7 +1,7 @@
 use reqwest::Url;
 use std::net::{Ipv4Addr, Ipv6Addr};
 
-use super::{AiTransportRequest, CredentialStorage, MAX_REPLICATE_RESPONSE_BYTES};
+use super::{AiTransportRequest, CredentialStorage, TransportPolicy, MAX_REPLICATE_RESPONSE_BYTES};
 
 const MAX_CREDENTIAL_BYTES: usize = 4096;
 
@@ -16,7 +16,10 @@ pub(super) fn valid_replicate_request_id(request_id: &str) -> bool {
             })
 }
 
-pub(super) fn validate_request(request: &AiTransportRequest) -> Result<(), String> {
+pub(super) fn validate_request(
+    request: &AiTransportRequest,
+    policy: TransportPolicy,
+) -> Result<(), String> {
     if request.provider_id.len() > 64
         || request.model.trim().is_empty()
         || request.model.len() > 1024
@@ -43,13 +46,15 @@ pub(super) fn validate_request(request: &AiTransportRequest) -> Result<(), Strin
     if !url.username().is_empty() || url.password().is_some() || url.fragment().is_some() {
         return Err("Provider endpoints cannot contain credentials or fragments.".to_owned());
     }
+    let loopback_override =
+        policy.allow_loopback_http && url.scheme() == "http" && is_loopback_host(&url);
     if local {
         if url.scheme() != "http" || !is_loopback_host(&url) || url.query().is_some() {
             return Err(
                 "Local model requests are limited to an HTTP loopback endpoint.".to_owned(),
             );
         }
-    } else if url.scheme() != "https" {
+    } else if url.scheme() != "https" && !loopback_override {
         return Err("Cloud provider requests require HTTPS.".to_owned());
     }
 
@@ -64,7 +69,10 @@ pub(super) fn validate_request(request: &AiTransportRequest) -> Result<(), Strin
     }
 
     let (expected_accept, route_valid) = if request.provider_id == "replicate" {
-        ("application/json", is_replicate_route(&url, &request.model))
+        (
+            "application/json",
+            is_replicate_route(&url, &request.model, loopback_override),
+        )
     } else if is_openai_compatible_provider(&request.provider_id) {
         let valid_query = if request.provider_id == "cloudflare-workers-ai" {
             is_cloudflare_workers_ai_route(&url)
@@ -263,23 +271,26 @@ fn is_openai_compatible_provider(provider_id: &str) -> bool {
     )
 }
 
-fn is_replicate_route(url: &Url, model: &str) -> bool {
-    if split_replicate_model_id(model).is_none() {
+fn is_replicate_route(url: &Url, model: &str, allow_loopback_http: bool) -> bool {
+    let Some((owner, name)) = split_replicate_model_id(model) else {
         return false;
-    }
-    url.scheme() == "https:"
+    };
+    let official_origin = url.scheme() == "https"
         && url.host_str() == Some("api.replicate.com")
-        && url.port().is_none()
+        && url.port().is_none();
+    let loopback_origin = allow_loopback_http && url.scheme() == "http" && is_loopback_host(url);
+    let path = url.path();
+    (official_origin || loopback_origin)
         && url.query().is_none()
         && url.fragment().is_none()
-        && url.path() == "/v1/predictions"
+        && (path == "/v1/predictions" || path == format!("/v1/models/{owner}/{name}/predictions"))
 }
 
 fn is_replicate_model_route(url: &Url, model: &str) -> bool {
     let Some((owner, name)) = split_replicate_model_id(model) else {
         return false;
     };
-    url.scheme() == "https:"
+    url.scheme() == "https"
         && url.host_str() == Some("api.replicate.com")
         && url.port().is_none()
         && url.query().is_none()
