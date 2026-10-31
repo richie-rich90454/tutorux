@@ -1,469 +1,462 @@
 {
-  "version": 1,
-  "cases": [
-    {
-      "id": "annotation.lifecycle",
-      "family": "annotation",
-      "capability": "annotation.add",
-      "files": {
-        "annotation-target.txt": "annotation attachment"
-      },
-      "setup": [
+    "version": 1,
+    "cases": [
         {
-          "id": "session",
-          "args": [
-            "--archive",
-            "{archive}",
-            "--json",
-            "session",
-            "create",
-            "--title",
-            "Annotation session"
-          ],
-          "capture": {
-            "session": "id"
-          }
-        },
-        {
-          "id": "asset",
-          "args": [
-            "--archive",
-            "{archive}",
-            "--json",
-            "asset",
-            "add",
-            "annotation-target.txt",
-            "--session",
-            "{capture.session}"
-          ],
-          "capture": {
-            "asset": "0.id"
-          }
+            "id": "annotation.lifecycle",
+            "family": "annotation",
+            "capability": "annotation.add",
+            "files": {
+                "annotation-target.txt": "annotation attachment"
+            },
+            "setup": [
+                {
+                    "id": "session",
+                    "args": [
+                        "--archive",
+                        "{archive}",
+                        "--json",
+                        "session",
+                        "create",
+                        "--title",
+                        "Annotation session"
+                    ],
+                    "capture": {
+                        "session": "id"
+                    }
+                },
+                {
+                    "id": "asset",
+                    "args": [
+                        "--archive",
+                        "{archive}",
+                        "--json",
+                        "asset",
+                        "add",
+                        "annotation-target.txt",
+                        "--session",
+                        "{capture.session}"
+                    ],
+                    "capture": {
+                        "asset": "0.id"
+                    }
+                }
+            ],
+            "steps": [
+                {
+                    "id": "add first",
+                    "capability": "annotation.add",
+                    "args": [
+                        "--archive",
+                        "{archive}",
+                        "--json",
+                        "annotation",
+                        "add",
+                        "--session",
+                        "{capture.session}",
+                        "--type",
+                        "worked-example",
+                        "--priority",
+                        "high",
+                        "--at",
+                        "00:00:02",
+                        "--end",
+                        "00:00:03",
+                        "--title",
+                        "Ratios",
+                        "--text",
+                        "Compare both ratios."
+                    ],
+                    "capture": {
+                        "first": "id"
+                    },
+                    "expect": {
+                        "exitCode": 0,
+                        "stdoutJsonIncludes": {
+                            "session_id": "<uuid>",
+                            "type": "worked-example",
+                            "priority": "high",
+                            "content": "Compare both ratios."
+                        }
+                    }
+                },
+                {
+                    "id": "add second",
+                    "capability": "annotation.add",
+                    "args": [
+                        "--archive",
+                        "{archive}",
+                        "--json",
+                        "annotation",
+                        "add",
+                        "--session",
+                        "{capture.session}",
+                        "--type",
+                        "worked-example",
+                        "--priority",
+                        "critical",
+                        "--at",
+                        "00:00:04",
+                        "--end",
+                        "00:00:05",
+                        "--title",
+                        "Second point",
+                        "--text",
+                        "Second point."
+                    ],
+                    "capture": {
+                        "second": "id"
+                    }
+                },
+                {
+                    "id": "list",
+                    "capability": "annotation.list",
+                    "args": [
+                        "--archive",
+                        "{archive}",
+                        "--json",
+                        "annotation",
+                        "list",
+                        "--session",
+                        "{capture.session}"
+                    ],
+                    "expect": {
+                        "exitCode": 0,
+                        "stdoutContains": ["Compare both ratios.", "Second point."]
+                    }
+                },
+                {
+                    "id": "show",
+                    "capability": "annotation.show",
+                    "args": [
+                        "--archive",
+                        "{archive}",
+                        "--json",
+                        "annotation",
+                        "show",
+                        "{capture.first}"
+                    ],
+                    "expect": {
+                        "exitCode": 0,
+                        "stdoutJsonIncludes": {
+                            "title": "Ratios",
+                            "type": "worked-example"
+                        }
+                    }
+                },
+                {
+                    "id": "update",
+                    "capability": "annotation.update",
+                    "args": [
+                        "--archive",
+                        "{archive}",
+                        "--json",
+                        "annotation",
+                        "update",
+                        "{capture.first}",
+                        "--text",
+                        "Compare both ratios carefully.",
+                        "--title",
+                        "Ratio comparison",
+                        "--start",
+                        "00:00:01",
+                        "--end",
+                        "00:00:04"
+                    ],
+                    "expect": {
+                        "exitCode": 0,
+                        "stdoutJsonIncludes": {
+                            "content": "Compare both ratios carefully.",
+                            "title": "Ratio comparison"
+                        }
+                    }
+                },
+                {
+                    "id": "prioritize",
+                    "capability": "annotation.prioritize",
+                    "args": [
+                        "--archive",
+                        "{archive}",
+                        "--json",
+                        "annotation",
+                        "prioritize",
+                        "{capture.first}",
+                        "--priority",
+                        "critical"
+                    ],
+                    "expect": {
+                        "exitCode": 0,
+                        "stdoutJsonIncludes": {
+                            "priority": "critical"
+                        }
+                    }
+                },
+                {
+                    "id": "duplicate",
+                    "capability": "annotation.duplicate",
+                    "args": [
+                        "--archive",
+                        "{archive}",
+                        "--json",
+                        "annotation",
+                        "duplicate",
+                        "{capture.first}"
+                    ],
+                    "capture": {
+                        "duplicate": "id"
+                    },
+                    "expect": {
+                        "exitCode": 0,
+                        "stdoutJsonIncludes": {
+                            "title": "Ratio comparison",
+                            "priority": "critical"
+                        }
+                    }
+                },
+                {
+                    "id": "history",
+                    "capability": "annotation.history",
+                    "args": [
+                        "--archive",
+                        "{archive}",
+                        "--json",
+                        "annotation",
+                        "history",
+                        "{capture.first}"
+                    ],
+                    "expect": {
+                        "exitCode": 0,
+                        "stdoutContains": ["history_index"]
+                    }
+                },
+                {
+                    "id": "remove duplicate",
+                    "capability": "annotation.remove",
+                    "args": [
+                        "--archive",
+                        "{archive}",
+                        "--json",
+                        "annotation",
+                        "remove",
+                        "{capture.duplicate}"
+                    ],
+                    "expect": {
+                        "exitCode": 0,
+                        "stdoutJsonIncludes": {
+                            "_deleted": "true"
+                        }
+                    }
+                },
+                {
+                    "id": "restore duplicate",
+                    "capability": "annotation.restore",
+                    "args": [
+                        "--archive",
+                        "{archive}",
+                        "--json",
+                        "annotation",
+                        "restore",
+                        "{capture.duplicate}",
+                        "--revision",
+                        "1"
+                    ],
+                    "expect": {
+                        "exitCode": 0,
+                        "stdoutJsonIncludes": {
+                            "restored_from_revision": "1"
+                        }
+                    }
+                },
+                {
+                    "id": "add split source",
+                    "capability": "annotation.add",
+                    "args": [
+                        "--archive",
+                        "{archive}",
+                        "--json",
+                        "annotation",
+                        "add",
+                        "--session",
+                        "{capture.session}",
+                        "--type",
+                        "general-note",
+                        "--at",
+                        "00:00:06",
+                        "--end",
+                        "00:00:08",
+                        "--text",
+                        "Keep rest"
+                    ],
+                    "capture": {
+                        "split_source": "id"
+                    }
+                },
+                {
+                    "id": "split",
+                    "capability": "annotation.split",
+                    "args": [
+                        "--archive",
+                        "{archive}",
+                        "--json",
+                        "annotation",
+                        "split",
+                        "{capture.split_source}",
+                        "--before",
+                        "Keep",
+                        "--after",
+                        " rest",
+                        "--at",
+                        "00:00:07"
+                    ],
+                    "capture": {
+                        "split_second": "id"
+                    },
+                    "expect": {
+                        "exitCode": 0,
+                        "stdoutJsonIncludes": {
+                            "content": " rest",
+                            "start_time_us": "7000000"
+                        }
+                    }
+                },
+                {
+                    "id": "add merge first",
+                    "capability": "annotation.add",
+                    "args": [
+                        "--archive",
+                        "{archive}",
+                        "--json",
+                        "annotation",
+                        "add",
+                        "--session",
+                        "{capture.session}",
+                        "--type",
+                        "general-note",
+                        "--at",
+                        "00:00:10",
+                        "--end",
+                        "00:00:11",
+                        "--text",
+                        "One"
+                    ],
+                    "capture": {
+                        "merge_first": "id"
+                    }
+                },
+                {
+                    "id": "add merge second",
+                    "capability": "annotation.add",
+                    "args": [
+                        "--archive",
+                        "{archive}",
+                        "--json",
+                        "annotation",
+                        "add",
+                        "--session",
+                        "{capture.session}",
+                        "--type",
+                        "general-note",
+                        "--at",
+                        "00:00:11",
+                        "--end",
+                        "00:00:12",
+                        "--text",
+                        "Two"
+                    ],
+                    "capture": {
+                        "merge_second": "id"
+                    }
+                },
+                {
+                    "id": "merge",
+                    "capability": "annotation.merge",
+                    "args": [
+                        "--archive",
+                        "{archive}",
+                        "--json",
+                        "annotation",
+                        "merge",
+                        "{capture.merge_first}",
+                        "{capture.merge_second}",
+                        "--separator",
+                        " | "
+                    ],
+                    "expect": {
+                        "exitCode": 0,
+                        "stdoutJsonIncludes": {
+                            "content": "One | Two",
+                            "source_annotation_ids": "<string>"
+                        }
+                    }
+                },
+                {
+                    "id": "link asset",
+                    "capability": "annotation.link",
+                    "args": [
+                        "--archive",
+                        "{archive}",
+                        "--json",
+                        "annotation",
+                        "link",
+                        "{capture.first}",
+                        "--to",
+                        "asset",
+                        "--target-id",
+                        "{capture.asset}"
+                    ],
+                    "expect": {
+                        "exitCode": 0,
+                        "stdoutJsonIncludes": {
+                            "linked_asset_ids": "<uuid>"
+                        }
+                    }
+                },
+                {
+                    "id": "unlink asset",
+                    "capability": "annotation.unlink",
+                    "args": [
+                        "--archive",
+                        "{archive}",
+                        "--json",
+                        "annotation",
+                        "unlink",
+                        "{capture.first}",
+                        "--to",
+                        "asset",
+                        "--target-id",
+                        "{capture.asset}"
+                    ],
+                    "expect": {
+                        "exitCode": 0,
+                        "stdoutJsonIncludes": {
+                            "linked_asset_ids": ""
+                        }
+                    }
+                },
+                {
+                    "id": "plan without audio",
+                    "capability": "annotation.plan",
+                    "args": [
+                        "--archive",
+                        "{archive}",
+                        "--json",
+                        "annotation",
+                        "plan",
+                        "--session",
+                        "{capture.session}",
+                        "--threads",
+                        "1",
+                        "--model-memory-mb",
+                        "512",
+                        "--available-memory-mb",
+                        "1024"
+                    ],
+                    "expect": {
+                        "exitCode": 2,
+                        "stdoutJson": null,
+                        "stderrContains": ["no audio chunks"]
+                    }
+                }
+            ]
         }
-      ],
-      "steps": [
-        {
-          "id": "add first",
-          "capability": "annotation.add",
-          "args": [
-            "--archive",
-            "{archive}",
-            "--json",
-            "annotation",
-            "add",
-            "--session",
-            "{capture.session}",
-            "--type",
-            "worked-example",
-            "--priority",
-            "high",
-            "--at",
-            "00:00:02",
-            "--end",
-            "00:00:03",
-            "--title",
-            "Ratios",
-            "--text",
-            "Compare both ratios."
-          ],
-          "capture": {
-            "first": "id"
-          },
-          "expect": {
-            "exitCode": 0,
-            "stdoutJsonIncludes": {
-              "session_id": "<uuid>",
-              "type": "worked-example",
-              "priority": "high",
-              "content": "Compare both ratios."
-            }
-          }
-        },
-        {
-          "id": "add second",
-          "capability": "annotation.add",
-          "args": [
-            "--archive",
-            "{archive}",
-            "--json",
-            "annotation",
-            "add",
-            "--session",
-            "{capture.session}",
-            "--type",
-            "worked-example",
-            "--priority",
-            "critical",
-            "--at",
-            "00:00:04",
-            "--end",
-            "00:00:05",
-            "--title",
-            "Second point",
-            "--text",
-            "Second point."
-          ],
-          "capture": {
-            "second": "id"
-          }
-        },
-        {
-          "id": "list",
-          "capability": "annotation.list",
-          "args": [
-            "--archive",
-            "{archive}",
-            "--json",
-            "annotation",
-            "list",
-            "--session",
-            "{capture.session}"
-          ],
-          "expect": {
-            "exitCode": 0,
-            "stdoutContains": [
-              "Compare both ratios.",
-              "Second point."
-            ]
-          }
-        },
-        {
-          "id": "show",
-          "capability": "annotation.show",
-          "args": [
-            "--archive",
-            "{archive}",
-            "--json",
-            "annotation",
-            "show",
-            "{capture.first}"
-          ],
-          "expect": {
-            "exitCode": 0,
-            "stdoutJsonIncludes": {
-              "title": "Ratios",
-              "type": "worked-example"
-            }
-          }
-        },
-        {
-          "id": "update",
-          "capability": "annotation.update",
-          "args": [
-            "--archive",
-            "{archive}",
-            "--json",
-            "annotation",
-            "update",
-            "{capture.first}",
-            "--text",
-            "Compare both ratios carefully.",
-            "--title",
-            "Ratio comparison",
-            "--start",
-            "00:00:01",
-            "--end",
-            "00:00:04"
-          ],
-          "expect": {
-            "exitCode": 0,
-            "stdoutJsonIncludes": {
-              "content": "Compare both ratios carefully.",
-              "title": "Ratio comparison"
-            }
-          }
-        },
-        {
-          "id": "prioritize",
-          "capability": "annotation.prioritize",
-          "args": [
-            "--archive",
-            "{archive}",
-            "--json",
-            "annotation",
-            "prioritize",
-            "{capture.first}",
-            "--priority",
-            "critical"
-          ],
-          "expect": {
-            "exitCode": 0,
-            "stdoutJsonIncludes": {
-              "priority": "critical"
-            }
-          }
-        },
-        {
-          "id": "duplicate",
-          "capability": "annotation.duplicate",
-          "args": [
-            "--archive",
-            "{archive}",
-            "--json",
-            "annotation",
-            "duplicate",
-            "{capture.first}"
-          ],
-          "capture": {
-            "duplicate": "id"
-          },
-          "expect": {
-            "exitCode": 0,
-            "stdoutJsonIncludes": {
-              "title": "Ratio comparison",
-              "priority": "critical"
-            }
-          }
-        },
-        {
-          "id": "history",
-          "capability": "annotation.history",
-          "args": [
-            "--archive",
-            "{archive}",
-            "--json",
-            "annotation",
-            "history",
-            "{capture.first}"
-          ],
-          "expect": {
-            "exitCode": 0,
-            "stdoutContains": [
-              "history_index"
-            ]
-          }
-        },
-        {
-          "id": "remove duplicate",
-          "capability": "annotation.remove",
-          "args": [
-            "--archive",
-            "{archive}",
-            "--json",
-            "annotation",
-            "remove",
-            "{capture.duplicate}"
-          ],
-          "expect": {
-            "exitCode": 0,
-            "stdoutJsonIncludes": {
-              "_deleted": "true"
-            }
-          }
-        },
-        {
-          "id": "restore duplicate",
-          "capability": "annotation.restore",
-          "args": [
-            "--archive",
-            "{archive}",
-            "--json",
-            "annotation",
-            "restore",
-            "{capture.duplicate}",
-            "--revision",
-            "1"
-          ],
-          "expect": {
-            "exitCode": 0,
-            "stdoutJsonIncludes": {
-              "restored_from_revision": "1"
-            }
-          }
-        },
-        {
-          "id": "add split source",
-          "capability": "annotation.add",
-          "args": [
-            "--archive",
-            "{archive}",
-            "--json",
-            "annotation",
-            "add",
-            "--session",
-            "{capture.session}",
-            "--type",
-            "general-note",
-            "--at",
-            "00:00:06",
-            "--end",
-            "00:00:08",
-            "--text",
-            "Keep rest"
-          ],
-          "capture": {
-            "split_source": "id"
-          }
-        },
-        {
-          "id": "split",
-          "capability": "annotation.split",
-          "args": [
-            "--archive",
-            "{archive}",
-            "--json",
-            "annotation",
-            "split",
-            "{capture.split_source}",
-            "--before",
-            "Keep",
-            "--after",
-            " rest",
-            "--at",
-            "00:00:07"
-          ],
-          "capture": {
-            "split_second": "id"
-          },
-          "expect": {
-            "exitCode": 0,
-            "stdoutJsonIncludes": {
-              "content": " rest",
-              "start_time_us": "7000000"
-            }
-          }
-        },
-        {
-          "id": "add merge first",
-          "capability": "annotation.add",
-          "args": [
-            "--archive",
-            "{archive}",
-            "--json",
-            "annotation",
-            "add",
-            "--session",
-            "{capture.session}",
-            "--type",
-            "general-note",
-            "--at",
-            "00:00:10",
-            "--end",
-            "00:00:11",
-            "--text",
-            "One"
-          ],
-          "capture": {
-            "merge_first": "id"
-          }
-        },
-        {
-          "id": "add merge second",
-          "capability": "annotation.add",
-          "args": [
-            "--archive",
-            "{archive}",
-            "--json",
-            "annotation",
-            "add",
-            "--session",
-            "{capture.session}",
-            "--type",
-            "general-note",
-            "--at",
-            "00:00:11",
-            "--end",
-            "00:00:12",
-            "--text",
-            "Two"
-          ],
-          "capture": {
-            "merge_second": "id"
-          }
-        },
-        {
-          "id": "merge",
-          "capability": "annotation.merge",
-          "args": [
-            "--archive",
-            "{archive}",
-            "--json",
-            "annotation",
-            "merge",
-            "{capture.merge_first}",
-            "{capture.merge_second}",
-            "--separator",
-            " | "
-          ],
-          "expect": {
-            "exitCode": 0,
-            "stdoutJsonIncludes": {
-              "content": "One | Two",
-              "source_annotation_ids": "<string>"
-            }
-          }
-        },
-        {
-          "id": "link asset",
-          "capability": "annotation.link",
-          "args": [
-            "--archive",
-            "{archive}",
-            "--json",
-            "annotation",
-            "link",
-            "{capture.first}",
-            "--to",
-            "asset",
-            "--target-id",
-            "{capture.asset}"
-          ],
-          "expect": {
-            "exitCode": 0,
-            "stdoutJsonIncludes": {
-              "linked_asset_ids": "<uuid>"
-            }
-          }
-        },
-        {
-          "id": "unlink asset",
-          "capability": "annotation.unlink",
-          "args": [
-            "--archive",
-            "{archive}",
-            "--json",
-            "annotation",
-            "unlink",
-            "{capture.first}",
-            "--to",
-            "asset",
-            "--target-id",
-            "{capture.asset}"
-          ],
-          "expect": {
-            "exitCode": 0,
-            "stdoutJsonIncludes": {
-              "linked_asset_ids": ""
-            }
-          }
-        },
-        {
-          "id": "plan without audio",
-          "capability": "annotation.plan",
-          "args": [
-            "--archive",
-            "{archive}",
-            "--json",
-            "annotation",
-            "plan",
-            "--session",
-            "{capture.session}",
-            "--threads",
-            "1",
-            "--model-memory-mb",
-            "512",
-            "--available-memory-mb",
-            "1024"
-          ],
-          "expect": {
-            "exitCode": 2,
-            "stdoutJson": null,
-            "stderrContains": [
-              "no audio chunks"
-            ]
-          }
-        }
-      ]
-    }
-  ]
+    ]
 }
