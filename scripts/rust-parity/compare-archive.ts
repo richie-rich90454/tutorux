@@ -8,11 +8,18 @@ const UUID_GLOBAL = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12
 
 type NormalizedRecord = {
     type: string;
-    id: string;
     revision: string;
     fields: Record<string, string>;
     blob_sha256: string;
     blob_bytes: number;
+};
+
+type ArchiveModel = {
+    path: string;
+    verification: unknown;
+    records: NormalizedRecord[];
+    history: Array<{ record: string; revisions: string[] }> | null;
+    indexKeys: string[];
 };
 
 function hashBlob(blob: Uint8Array): string {
@@ -23,26 +30,61 @@ function isAbsolutePath(value: string): boolean {
     return /^[A-Za-z]:[\\/]/u.test(value) || value.startsWith("\\\\") || value.startsWith("/");
 }
 
-function normalizeFieldValue(key: string, value: string, ids: Map<string, string>): string {
+function normalizeFieldValue(key: string, value: string, typesById: Map<string, string>): string {
     if (isAbsolutePath(value)) return "<path>";
     if (key === "path" || key === "output" || key === "source_path" || key === "file_path") {
         return "<path>";
     }
     if (key.endsWith("_at_us") || key === "generated_at_us") return "<timestamp>";
-    return value.replace(UUID_GLOBAL, (uuid) => ids.get(uuid.toLowerCase()) ?? "<uuid>");
+    return value
+        .replace(UUID_GLOBAL, (uuid) => {
+            const type = typesById.get(uuid.toLowerCase());
+            return type ? `<ref:${type}>` : "<uuid>";
+        })
+        .replace(/\b\d{16,}\b/gu, "<timestamp>");
 }
 
-function signature(record: ArchiveRecord): string {
-    const fields = [...record.fields.entries()]
-        .sort(([left], [right]) => left.localeCompare(right))
-        .map(([key, value]) => `${key}=${normalizeFieldValue(key, value, new Map())}`)
-        .join("\u0000");
-    return `${recordTypeName(record.type)}|${record.revision}|${hashBlob(record.blob)}|${fields}`;
+function normalizedFields(
+    record: ArchiveRecord,
+    typesById: Map<string, string>,
+): Record<string, string> {
+    const fields: Record<string, string> = {};
+    for (const [key, value] of [...record.fields.entries()].sort(([left], [right]) =>
+        left.localeCompare(right),
+    )) {
+        fields[key] = normalizeFieldValue(key, value, typesById);
+    }
+    return fields;
 }
 
-async function loadArchive(path: string) {
+function normalizedRecord(
+    record: ArchiveRecord,
+    typesById: Map<string, string>,
+): NormalizedRecord {
+    return {
+        type: recordTypeName(record.type),
+        revision: record.revision.toString(),
+        fields: normalizedFields(record, typesById),
+        blob_sha256: hashBlob(record.blob),
+        blob_bytes: record.blob.byteLength,
+    };
+}
+
+function recordSignature(record: NormalizedRecord): string {
+    return JSON.stringify(record);
+}
+
+async function loadArchive(path: string, passphrase: string | undefined, includeHistory: boolean) {
     const bytes = new Uint8Array(await readFile(path));
-    const snapshot = await openArchiveBytes(bytes);
+    let snapshot = await openArchiveBytes(bytes);
+    if (snapshot.locked) {
+        if (!passphrase) {
+            throw new Error(
+                `archive ${path} is encrypted; set TUTORUX_PARITY_ARCHIVE_PASSPHRASE`,
+            );
+        }
+        snapshot = await snapshot.unlock(passphrase);
+    }
     const verification = await verifyArchiveSnapshot(snapshot);
     const records: ArchiveRecord[] = [];
     for (const key of snapshot.allIndexEntries().keys()) {
@@ -53,65 +95,112 @@ async function loadArchive(path: string) {
         const record = await snapshot.getRecordByIndexKey(key);
         if (record) records.push(record);
     }
-    return { snapshot, verification, records };
+    const typesById = new Map(
+        records.map((record) => [
+            record.id.toLowerCase(),
+            recordTypeName(record.type),
+        ]),
+    );
+    const normalized = records.map((record) => normalizedRecord(record, typesById));
+    let history: Array<{ record: string; revisions: string[] }> | null = null;
+    if (includeHistory) {
+        history = [];
+        for (const record of records) {
+            const revisions = await snapshot.getRecordHistory(record.type, record.id);
+            history.push({
+                record: recordSignature(normalizedRecord(record, typesById)),
+                revisions: revisions
+                    .map((revision) => recordSignature(normalizedRecord(revision, typesById)))
+                    .sort(),
+            });
+        }
+        history.sort((left, right) => {
+            if (left.record !== right.record) return left.record < right.record ? -1 : 1;
+            const leftRevisions = left.revisions.join("\u0000");
+            const rightRevisions = right.revisions.join("\u0000");
+            return leftRevisions < rightRevisions ? -1 : leftRevisions > rightRevisions ? 1 : 0;
+        });
+    }
+    return { snapshot, verification, records: normalized, history };
 }
 
 function normalizedArchive(
     path: string,
     snapshot: Awaited<ReturnType<typeof loadArchive>>["snapshot"],
-    records: ArchiveRecord[],
+    records: NormalizedRecord[],
     verification: unknown,
-) {
-    const ordered = records
-        .map((record, index) => ({ record, index, signature: signature(record) }))
-        .sort((left, right) => {
-            if (left.signature === right.signature) return left.index - right.index;
-            return left.signature < right.signature ? -1 : 1;
-        });
-    const ids = new Map<string, string>();
-    ordered.forEach(({ record }, index) => {
-        ids.set(record.id.toLowerCase(), `record:${index}`);
-    });
-    const normalizedRecords: NormalizedRecord[] = ordered.map(({ record }) => {
-        const fields: Record<string, string> = {};
-        for (const [key, value] of [...record.fields.entries()].sort(([left], [right]) =>
-            left.localeCompare(right),
-        )) {
-            fields[key] = normalizeFieldValue(key, value, ids);
-        }
-        return {
-            type: recordTypeName(record.type),
-            id: ids.get(record.id.toLowerCase()) ?? "<uuid>",
-            revision: record.revision.toString(),
-            fields,
-            blob_sha256: hashBlob(record.blob),
-            blob_bytes: record.blob.byteLength,
-        };
+    history: ArchiveModel["history"],
+): ArchiveModel {
+    const sortedRecords = [...records].sort((left, right) => {
+        const leftSignature = recordSignature(left);
+        const rightSignature = recordSignature(right);
+        return leftSignature < rightSignature ? -1 : leftSignature > rightSignature ? 1 : 0;
     });
     const indexKeys = [...snapshot.allIndexEntries().keys()]
-        .map((key) => key.replace(UUID_GLOBAL, (uuid) => ids.get(uuid.toLowerCase()) ?? "<uuid>"))
+        .map((key) => key.replace(UUID_GLOBAL, "<uuid>"))
         .sort();
-    return { path, verification, records: normalizedRecords, indexKeys };
+    return { path, verification, records: sortedRecords, history, indexKeys };
+}
+
+function multiset(values: string[]): Map<string, number> {
+    const counts = new Map<string, number>();
+    for (const value of values) counts.set(value, (counts.get(value) ?? 0) + 1);
+    return counts;
+}
+
+function compareMultisets(label: string, left: string[], right: string[]): string[] {
+    const issues: string[] = [];
+    const leftCounts = multiset(left);
+    const rightCounts = multiset(right);
+    const keys = new Set([...leftCounts.keys(), ...rightCounts.keys()]);
+    const missingOnRight: string[] = [];
+    const missingOnLeft: string[] = [];
+    for (const key of keys) {
+        const leftCount = leftCounts.get(key) ?? 0;
+        const rightCount = rightCounts.get(key) ?? 0;
+        if (leftCount === rightCount) continue;
+        const detail = key.length > 600 ? `${key.slice(0, 600)}…` : key;
+        if (leftCount > rightCount) {
+            missingOnRight.push(`x${leftCount - rightCount} ${detail}`);
+        } else {
+            missingOnLeft.push(`x${rightCount - leftCount} ${detail}`);
+        }
+    }
+    if (missingOnRight.length) {
+        issues.push(
+            `${label} entries only on the TypeScript side: ${missingOnRight.slice(0, 3).join(" | ")}`,
+        );
+    }
+    if (missingOnLeft.length) {
+        issues.push(
+            `${label} entries only on the Rust side: ${missingOnLeft.slice(0, 3).join(" | ")}`,
+        );
+    }
+    return issues;
 }
 
 async function main() {
-    const [leftPath, rightPath] = process.argv.slice(2);
+    const includeHistory = process.argv.includes("--history");
+    const [leftPath, rightPath] = process.argv.slice(2).filter((value) => value !== "--history");
     if (!leftPath || !rightPath) {
-        throw new Error("usage: compare-archive.ts <left.tux> <right.tux>");
+        throw new Error("usage: compare-archive.ts <left.tux> <right.tux> [--history]");
     }
-    const left = await loadArchive(leftPath);
-    const right = await loadArchive(rightPath);
+    const passphrase = process.env["TUTORUX_PARITY_ARCHIVE_PASSPHRASE"];
+    const left = await loadArchive(leftPath, passphrase, includeHistory);
+    const right = await loadArchive(rightPath, passphrase, includeHistory);
     const normalizedLeft = normalizedArchive(
         leftPath,
         left.snapshot,
         left.records,
         left.verification,
+        left.history,
     );
     const normalizedRight = normalizedArchive(
         rightPath,
         right.snapshot,
         right.records,
         right.verification,
+        right.history,
     );
     const issues: string[] = [];
 
@@ -127,22 +216,26 @@ async function main() {
             `record count differs: ${normalizedLeft.records.length} != ${normalizedRight.records.length}`,
         );
     }
-    const count = Math.max(normalizedLeft.records.length, normalizedRight.records.length);
-    for (let index = 0; index < count; index += 1) {
-        const leftRecord = normalizedLeft.records[index];
-        const rightRecord = normalizedRight.records[index];
-        if (!leftRecord || !rightRecord) {
-            issues.push(`record ${index}: ${leftRecord ? "missing on right" : "missing on left"}`);
-            continue;
-        }
-        if (JSON.stringify(leftRecord) !== JSON.stringify(rightRecord)) {
-            issues.push(
-                `record ${index} differs: ${JSON.stringify(leftRecord)} != ${JSON.stringify(rightRecord)}`,
-            );
-        }
+    issues.push(
+        ...compareMultisets(
+            "record",
+            normalizedLeft.records.map((record) => JSON.stringify(record)),
+            normalizedRight.records.map((record) => JSON.stringify(record)),
+        ),
+    );
+    if (includeHistory) {
+        issues.push(
+            ...compareMultisets(
+                "record history",
+                (normalizedLeft.history ?? []).map((row) => JSON.stringify(row)),
+                (normalizedRight.history ?? []).map((row) => JSON.stringify(row)),
+            ),
+        );
     }
     if (normalizedLeft.indexKeys.join("\n") !== normalizedRight.indexKeys.join("\n")) {
-        issues.push("index entries differ");
+        issues.push(
+            ...compareMultisets("index key", normalizedLeft.indexKeys, normalizedRight.indexKeys),
+        );
     }
 
     const result = {
@@ -150,6 +243,9 @@ async function main() {
         left: normalizedLeft.path,
         right: normalizedRight.path,
         records: normalizedLeft.records.length,
+        historicalRevisions: includeHistory
+            ? (normalizedLeft.history?.reduce((sum, row) => sum + row.revisions.length, 0) ?? 0)
+            : null,
         verification: normalizedLeft.verification,
         issues,
     };
