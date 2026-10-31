@@ -8,6 +8,7 @@ mod diagnostics;
 mod embedded_ai;
 mod live_transcription;
 mod platform;
+mod runtime;
 mod transcription;
 
 use crate::archive_lock::{ArchiveLockRegistry, SharedArchiveLock};
@@ -1042,6 +1043,10 @@ fn main() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .setup(|app| {
+            let warm_app = app.handle().clone();
+            std::thread::spawn(move || {
+                let _ = runtime::paths(&warm_app);
+            });
             let current_directory = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
             if let Some(path) = archive_launch_path(
                 std::env::args_os().skip(1).map(PathBuf::from),
