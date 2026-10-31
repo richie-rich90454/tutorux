@@ -69,7 +69,7 @@ fn integer(record: &ArchiveRecord, name: &str, optional: bool) -> CliResult<u64>
         .map_err(|_| CliError(format!("Invalid waveform source metadata: {name}.")).into())
 }
 
-fn build(
+pub(super) fn build(
     snapshot: &ArchiveSnapshot,
     session_id: &str,
     track_id: &str,
