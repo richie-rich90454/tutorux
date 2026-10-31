@@ -1,3 +1,4 @@
+mod headless;
 mod inference;
 mod model;
 
@@ -21,6 +22,8 @@ use model::{
     status_from_runtime, validate_context_and_threads, validate_selected_path, AuthorizedModel,
     LoadedModel,
 };
+
+pub use headless::{generate_model_text, inspect_model_path, HeadlessModelInspection};
 
 const MIN_MODEL_FILE_BYTES: u64 = 24;
 const MAX_MODEL_FILE_BYTES: u64 = 64 * 1024 * 1024 * 1024;
