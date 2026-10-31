@@ -5,7 +5,7 @@ import {
     catalogAgeSeconds,
     catalogFreshness,
     structuredOutputCapability,
-} from "./catalog-metadata";
+} from "../../../frontend/ai/catalog-metadata";
 
 describe("AI model catalog metadata", () => {
     it("keeps the legacy fields and marks a fresh model catalog", () => {
