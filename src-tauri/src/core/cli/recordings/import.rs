@@ -63,6 +63,8 @@ pub(super) fn record_import(
     let track_id = new_uuid();
     let take_id = new_uuid();
     let chunk_id = new_uuid();
+    let track_blob_id = new_uuid();
+    let take_blob_id = new_uuid();
     let timestamp = now_us().to_string();
     let filename = input
         .file_name()
@@ -95,6 +97,7 @@ pub(super) fn record_import(
         &track_id,
         [
             ("record_role", "audio-track".to_owned()),
+            ("blob_id", track_blob_id.clone()),
             ("session_id", session_id.clone()),
             ("track_id", track_id.clone()),
             ("recording_take_id", take_id.clone()),
@@ -108,6 +111,7 @@ pub(super) fn record_import(
         &take_id,
         [
             ("record_role", "recording-take".to_owned()),
+            ("blob_id", take_blob_id.clone()),
             ("session_id", session_id.clone()),
             ("track_ids", track_id.clone()),
             ("label", "Imported audio".to_owned()),
@@ -130,8 +134,11 @@ pub(super) fn record_import(
         .insert("recording_state".to_owned(), "completed".to_owned());
     session
         .fields
-        .insert("updated_at_us".to_owned(), timestamp);
-    let next = snapshot.append_records(&[session, chunk, track, take])?;
+        .insert("updated_at_us".to_owned(), timestamp.clone());
+    let empty_hash = hex::encode(crate::core::archive::sha256(&[]));
+    let track_blob = empty_asset_blob(&track_blob_id, &empty_hash, &timestamp);
+    let take_blob = empty_asset_blob(&take_blob_id, &empty_hash, &timestamp);
+    let next = snapshot.append_records(&[session, chunk, track, take, track_blob, take_blob])?;
     crate::core::cli::records::save_replacing(path, &next)?;
     emit(
         output,
@@ -149,4 +156,20 @@ pub(super) fn record_import(
         args.json(),
     );
     Ok(0)
+}
+
+fn empty_asset_blob(id: &str, content_hash: &str, timestamp: &str) -> ArchiveRecord {
+    ArchiveRecord::new(
+        RecordType::ASSET_BLOB,
+        id,
+        [
+            ("record_role", "asset-blob-manifest".to_owned()),
+            ("byte_size", "0".to_owned()),
+            ("content_hash", content_hash.to_owned()),
+            ("chunk_count", "0".to_owned()),
+            ("chunk_ids", String::new()),
+            ("created_at_us", timestamp.to_owned()),
+            ("updated_at_us", timestamp.to_owned()),
+        ],
+    )
 }
