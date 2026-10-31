@@ -4,6 +4,7 @@ use cpal::{
     traits::{DeviceTrait, StreamTrait},
     Data, Sample, SampleFormat, SizedSample,
 };
+use dasp_sample::ToSample;
 use serde::Serialize;
 use std::{
     sync::{Arc, Mutex},
@@ -52,7 +53,7 @@ impl LevelAccumulator {
     }
 }
 
-#[derive(Serialize)]
+#[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct MicrophonePreflightLevel {
     probe_id: String,
@@ -117,18 +118,19 @@ fn preflight_microphone_inner(
     let levels = Arc::new(Mutex::new(LevelAccumulator::default()));
     let callback_levels = Arc::clone(&levels);
     let callback_error = Arc::new(Mutex::new(None::<String>));
-    let error_slot = Arc::clone(&callback_error);
+    let data_error_slot = Arc::clone(&callback_error);
+    let error_callback_slot = Arc::clone(&callback_error);
     let sample_format = config.sample_format();
     let stream = device
         .build_input_stream_raw(
-            &config.config(),
+            config.config(),
             sample_format,
             move |data: &Data, _info| {
                 let Ok(mut levels) = callback_levels.lock() else {
                     return;
                 };
                 if !accumulate_data(&mut levels, data) {
-                    if let Ok(mut error) = error_slot.lock() {
+                    if let Ok(mut error) = data_error_slot.lock() {
                         error.get_or_insert_with(|| {
                             "The microphone returned a sample format or callback that cannot be measured.".into()
                         });
@@ -136,7 +138,7 @@ fn preflight_microphone_inner(
                 }
             },
             move |error| {
-                if let Ok(mut slot) = callback_error.lock() {
+                if let Ok(mut slot) = error_callback_slot.lock() {
                     slot.get_or_insert_with(|| format!("Microphone capture failed: {error}"));
                 }
             },
@@ -275,7 +277,7 @@ fn accumulate_data(levels: &mut LevelAccumulator, data: &Data) -> bool {
 }
 
 impl LevelAccumulator {
-    fn add<T: Sample + SizedSample>(&mut self, samples: &[T]) -> bool {
+    fn add<T: Sample + SizedSample + ToSample<f64>>(&mut self, samples: &[T]) -> bool {
         if samples.len() > MAX_CALLBACK_SAMPLES {
             return false;
         }
