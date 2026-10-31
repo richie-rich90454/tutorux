@@ -1,305 +1,246 @@
 {
-  "version": 1,
-  "cases": [
-    {
-      "id": "diagnostics.lifecycle",
-      "family": "diagnostics",
-      "capability": "diagnostics.archive",
-      "steps": [
+    "version": 1,
+    "cases": [
         {
-          "id": "archive",
-          "capability": "diagnostics.archive",
-          "args": [
-            "--archive",
-            "{archive}",
-            "--json",
-            "diagnostics",
-            "archive"
-          ],
-          "expect": {
-            "exitCode": 0,
-            "stdoutJsonIncludes": {
-              "archive_generation": "1",
-              "archive_valid": true,
-              "records_checked": 0,
-              "index_pages_checked": 1,
-              "issues": "",
-              "archive_id": "<uuid>",
-              "encrypted": false
-            }
-          }
-        },
-        {
-          "id": "providers",
-          "capability": "diagnostics.providers",
-          "args": [
-            "--json",
-            "diagnostics",
-            "providers"
-          ],
-          "expect": {
-            "exitCode": 0,
-            "stdoutContains": [
-              "openai",
-              "ollama",
-              "OpenAI"
+            "id": "diagnostics.lifecycle",
+            "family": "diagnostics",
+            "capability": "diagnostics.archive",
+            "steps": [
+                {
+                    "id": "archive",
+                    "capability": "diagnostics.archive",
+                    "args": ["--archive", "{archive}", "--json", "diagnostics", "archive"],
+                    "expect": {
+                        "exitCode": 0,
+                        "stdoutJsonIncludes": {
+                            "archive_generation": "1",
+                            "archive_valid": true,
+                            "records_checked": 0,
+                            "index_pages_checked": 1,
+                            "issues": "",
+                            "archive_id": "<uuid>",
+                            "encrypted": false
+                        }
+                    }
+                },
+                {
+                    "id": "providers",
+                    "capability": "diagnostics.providers",
+                    "args": ["--json", "diagnostics", "providers"],
+                    "expect": {
+                        "exitCode": 0,
+                        "stdoutContains": ["openai", "ollama", "OpenAI"]
+                    }
+                },
+                {
+                    "id": "graphics",
+                    "capability": "diagnostics.graphics",
+                    "args": ["--json", "diagnostics", "graphics"],
+                    "expect": {
+                        "exitCode": 0,
+                        "stdoutJson": {
+                            "backend": "Tauri",
+                            "compiled": true,
+                            "status": "native-gui-enabled",
+                            "reason": "No frame was rendered by this CLI process.",
+                            "rendering_measured": false,
+                            "rendering_reason": "run-the-benchmark-in-the-active-desktop-window"
+                        }
+                    }
+                },
+                {
+                    "id": "network without provider",
+                    "capability": "diagnostics.network",
+                    "args": ["--json", "diagnostics", "network"],
+                    "expect": {
+                        "exitCode": 0,
+                        "stdoutJson": {
+                            "network_checked": false,
+                            "reason": "provider-not-selected"
+                        }
+                    }
+                },
+                {
+                    "id": "run",
+                    "capability": "diagnostics.run",
+                    "args": ["--archive", "{archive}", "--json", "diagnostics", "run"],
+                    "expect": {
+                        "exitCode": 0,
+                        "stdoutContains": [
+                            "archive_valid",
+                            "system_operating_system",
+                            "audio_status"
+                        ]
+                    }
+                },
+                {
+                    "id": "report",
+                    "capability": "diagnostics.report",
+                    "args": [
+                        "--archive",
+                        "{archive}",
+                        "--json",
+                        "diagnostics",
+                        "report",
+                        "--output",
+                        "{dir}/diagnostics.json"
+                    ],
+                    "expect": {
+                        "exitCode": 0,
+                        "stdoutJsonIncludes": {
+                            "status": "exported",
+                            "output": "<path>"
+                        },
+                        "files": [
+                            {
+                                "path": "{dir}/diagnostics.json",
+                                "contains": ["\"archive_valid\": true", "\"archive_generation\""]
+                            }
+                        ]
+                    }
+                }
             ]
-          }
         },
         {
-          "id": "graphics",
-          "capability": "diagnostics.graphics",
-          "args": [
-            "--json",
-            "diagnostics",
-            "graphics"
-          ],
-          "expect": {
-            "exitCode": 0,
-            "stdoutJson": {
-              "backend": "Tauri",
-              "compiled": true,
-              "status": "native-gui-enabled",
-              "reason": "No frame was rendered by this CLI process.",
-              "rendering_measured": false,
-              "rendering_reason": "run-the-benchmark-in-the-active-desktop-window"
-            }
-          }
-        },
-        {
-          "id": "network without provider",
-          "capability": "diagnostics.network",
-          "args": [
-            "--json",
-            "diagnostics",
-            "network"
-          ],
-          "expect": {
-            "exitCode": 0,
-            "stdoutJson": {
-              "network_checked": false,
-              "reason": "provider-not-selected"
-            }
-          }
-        },
-        {
-          "id": "run",
-          "capability": "diagnostics.run",
-          "args": [
-            "--archive",
-            "{archive}",
-            "--json",
-            "diagnostics",
-            "run"
-          ],
-          "expect": {
-            "exitCode": 0,
-            "stdoutContains": [
-              "archive_valid",
-              "system_operating_system",
-              "audio_status"
+            "id": "benchmark.lifecycle",
+            "family": "benchmark",
+            "capability": "benchmark.startup",
+            "setup": [
+                {
+                    "id": "session",
+                    "args": [
+                        "--archive",
+                        "{archive}",
+                        "--json",
+                        "session",
+                        "create",
+                        "--title",
+                        "Benchmark session",
+                        "--notes",
+                        "Benchmark notes."
+                    ],
+                    "capture": {
+                        "session": "id"
+                    }
+                },
+                {
+                    "id": "guide",
+                    "args": [
+                        "--archive",
+                        "{archive}",
+                        "--json",
+                        "guide",
+                        "create",
+                        "--session",
+                        "{capture.session}",
+                        "--template",
+                        "general",
+                        "--title",
+                        "Benchmark guide"
+                    ],
+                    "capture": {
+                        "guide": "id"
+                    }
+                }
+            ],
+            "steps": [
+                {
+                    "id": "startup",
+                    "capability": "benchmark.startup",
+                    "args": ["--json", "benchmark", "startup"],
+                    "expect": {
+                        "exitCode": 0,
+                        "stdoutJsonIncludes": {
+                            "benchmark": "startup",
+                            "measurement_scope": "process-uptime-and-current-command"
+                        }
+                    }
+                },
+                {
+                    "id": "memory",
+                    "capability": "benchmark.memory",
+                    "args": ["--json", "benchmark", "memory"],
+                    "expect": {
+                        "exitCode": 0,
+                        "stdoutJsonIncludes": {
+                            "benchmark": "memory"
+                        }
+                    }
+                },
+                {
+                    "id": "cpu",
+                    "capability": "benchmark.cpu",
+                    "args": ["--json", "benchmark", "cpu"],
+                    "expect": {
+                        "exitCode": 0,
+                        "stdoutJsonIncludes": {
+                            "benchmark": "cpu"
+                        }
+                    }
+                },
+                {
+                    "id": "rendering",
+                    "capability": "benchmark.rendering",
+                    "args": ["--json", "benchmark", "rendering"],
+                    "expect": {
+                        "exitCode": 0,
+                        "stdoutJsonIncludes": {
+                            "benchmark": "rendering",
+                            "rendering_measured": false,
+                            "rendering_reason": "run-the-benchmark-in-the-active-desktop-window"
+                        }
+                    }
+                },
+                {
+                    "id": "indexing",
+                    "capability": "benchmark.indexing",
+                    "args": ["--archive", "{archive}", "--json", "benchmark", "indexing"],
+                    "expect": {
+                        "exitCode": 0,
+                        "stdoutJsonIncludes": {
+                            "benchmark": "indexing",
+                            "index_records": "<number-string>",
+                            "index_elapsed_us": "<number-string>",
+                            "archive_generation": "<number-string>"
+                        }
+                    }
+                },
+                {
+                    "id": "export",
+                    "capability": "benchmark.export",
+                    "args": [
+                        "--archive",
+                        "{archive}",
+                        "--json",
+                        "benchmark",
+                        "export",
+                        "--guide",
+                        "{capture.guide}"
+                    ],
+                    "expect": {
+                        "exitCode": 0,
+                        "stdoutJsonIncludes": {
+                            "benchmark": "export",
+                            "export_format": "markdown-render",
+                            "export_bytes": "<number>",
+                            "export_elapsed_us": "<number>"
+                        }
+                    }
+                },
+                {
+                    "id": "full",
+                    "capability": "benchmark.full",
+                    "args": ["--archive", "{archive}", "--json", "benchmark", "full"],
+                    "expect": {
+                        "exitCode": 0,
+                        "stdoutJsonIncludes": {
+                            "benchmark": "full",
+                            "index_records": "<number-string>",
+                            "audio_status": "<string>"
+                        }
+                    }
+                }
             ]
-          }
-        },
-        {
-          "id": "report",
-          "capability": "diagnostics.report",
-          "args": [
-            "--archive",
-            "{archive}",
-            "--json",
-            "diagnostics",
-            "report",
-            "--output",
-            "{dir}/diagnostics.json"
-          ],
-          "expect": {
-            "exitCode": 0,
-            "stdoutJsonIncludes": {
-              "status": "exported",
-              "output": "<path>"
-            },
-            "files": [
-              {
-                "path": "{dir}/diagnostics.json",
-                "contains": [
-                  "\"archive_valid\": true",
-                  "\"archive_generation\""
-                ]
-              }
-            ]
-          }
         }
-      ]
-    },
-    {
-      "id": "benchmark.lifecycle",
-      "family": "benchmark",
-      "capability": "benchmark.startup",
-      "setup": [
-        {
-          "id": "session",
-          "args": [
-            "--archive",
-            "{archive}",
-            "--json",
-            "session",
-            "create",
-            "--title",
-            "Benchmark session",
-            "--notes",
-            "Benchmark notes."
-          ],
-          "capture": {
-            "session": "id"
-          }
-        },
-        {
-          "id": "guide",
-          "args": [
-            "--archive",
-            "{archive}",
-            "--json",
-            "guide",
-            "create",
-            "--session",
-            "{capture.session}",
-            "--template",
-            "general",
-            "--title",
-            "Benchmark guide"
-          ],
-          "capture": {
-            "guide": "id"
-          }
-        }
-      ],
-      "steps": [
-        {
-          "id": "startup",
-          "capability": "benchmark.startup",
-          "args": [
-            "--json",
-            "benchmark",
-            "startup"
-          ],
-          "expect": {
-            "exitCode": 0,
-            "stdoutJsonIncludes": {
-              "benchmark": "startup",
-              "measurement_scope": "process-uptime-and-current-command"
-            }
-          }
-        },
-        {
-          "id": "memory",
-          "capability": "benchmark.memory",
-          "args": [
-            "--json",
-            "benchmark",
-            "memory"
-          ],
-          "expect": {
-            "exitCode": 0,
-            "stdoutJsonIncludes": {
-              "benchmark": "memory"
-            }
-          }
-        },
-        {
-          "id": "cpu",
-          "capability": "benchmark.cpu",
-          "args": [
-            "--json",
-            "benchmark",
-            "cpu"
-          ],
-          "expect": {
-            "exitCode": 0,
-            "stdoutJsonIncludes": {
-              "benchmark": "cpu"
-            }
-          }
-        },
-        {
-          "id": "rendering",
-          "capability": "benchmark.rendering",
-          "args": [
-            "--json",
-            "benchmark",
-            "rendering"
-          ],
-          "expect": {
-            "exitCode": 0,
-            "stdoutJsonIncludes": {
-              "benchmark": "rendering",
-              "rendering_measured": false,
-              "rendering_reason": "run-the-benchmark-in-the-active-desktop-window"
-            }
-          }
-        },
-        {
-          "id": "indexing",
-          "capability": "benchmark.indexing",
-          "args": [
-            "--archive",
-            "{archive}",
-            "--json",
-            "benchmark",
-            "indexing"
-          ],
-          "expect": {
-            "exitCode": 0,
-            "stdoutJsonIncludes": {
-              "benchmark": "indexing",
-              "index_records": "<number-string>",
-              "index_elapsed_us": "<number-string>",
-              "archive_generation": "<number-string>"
-            }
-          }
-        },
-        {
-          "id": "export",
-          "capability": "benchmark.export",
-          "args": [
-            "--archive",
-            "{archive}",
-            "--json",
-            "benchmark",
-            "export",
-            "--guide",
-            "{capture.guide}"
-          ],
-          "expect": {
-            "exitCode": 0,
-            "stdoutJsonIncludes": {
-              "benchmark": "export",
-              "export_format": "markdown-render",
-              "export_bytes": "<number>",
-              "export_elapsed_us": "<number>"
-            }
-          }
-        },
-        {
-          "id": "full",
-          "capability": "benchmark.full",
-          "args": [
-            "--archive",
-            "{archive}",
-            "--json",
-            "benchmark",
-            "full"
-          ],
-          "expect": {
-            "exitCode": 0,
-            "stdoutJsonIncludes": {
-              "benchmark": "full",
-              "index_records": "<number-string>",
-              "audio_status": "<string>"
-            }
-          }
-        }
-      ]
-    }
-  ]
+    ]
 }
