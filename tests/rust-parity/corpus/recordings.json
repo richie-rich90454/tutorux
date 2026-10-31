@@ -1,466 +1,395 @@
 {
-  "version": 1,
-  "cases": [
-    {
-      "id": "record.lifecycle",
-      "family": "record",
-      "capability": "record.take-list",
-      "setup": [
+    "version": 1,
+    "cases": [
         {
-          "id": "session",
-          "args": [
-            "--archive",
-            "{archive}",
-            "--json",
-            "session",
-            "create",
-            "--title",
-            "Recording session"
-          ],
-          "capture": {
-            "session": "id"
-          }
+            "id": "record.lifecycle",
+            "family": "record",
+            "capability": "record.take-list",
+            "setup": [
+                {
+                    "id": "session",
+                    "args": [
+                        "--archive",
+                        "{archive}",
+                        "--json",
+                        "session",
+                        "create",
+                        "--title",
+                        "Recording session"
+                    ],
+                    "capture": {
+                        "session": "id"
+                    }
+                }
+            ],
+            "steps": [
+                {
+                    "id": "take list empty",
+                    "capability": "record.take-list",
+                    "args": [
+                        "--archive",
+                        "{archive}",
+                        "--json",
+                        "record",
+                        "take-list",
+                        "--session",
+                        "{capture.session}"
+                    ],
+                    "expect": {
+                        "exitCode": 0,
+                        "stdoutJson": []
+                    }
+                },
+                {
+                    "id": "configure",
+                    "capability": "record.configure",
+                    "args": [
+                        "--archive",
+                        "{archive}",
+                        "--json",
+                        "record",
+                        "configure",
+                        "--microphone",
+                        "default",
+                        "--playback",
+                        "default",
+                        "--durability",
+                        "maximum"
+                    ],
+                    "expect": {
+                        "exitCode": 0,
+                        "stdoutJson": {
+                            "microphone_device_id": "default",
+                            "playback_device_id": "default",
+                            "durability": "maximum"
+                        }
+                    }
+                },
+                {
+                    "id": "status without session",
+                    "capability": "record.status",
+                    "args": ["--archive", "{archive}", "--json", "record", "status"],
+                    "expect": {
+                        "exitCode": 0,
+                        "stdoutJson": {
+                            "active_recordings": "0"
+                        }
+                    }
+                },
+                {
+                    "id": "status with session",
+                    "capability": "record.status",
+                    "args": [
+                        "--archive",
+                        "{archive}",
+                        "--json",
+                        "record",
+                        "status",
+                        "--session",
+                        "{capture.session}"
+                    ],
+                    "expect": {
+                        "exitCode": 0,
+                        "stdoutJsonIncludes": {
+                            "sessionId": "<uuid>",
+                            "state": "not-started",
+                            "worker": "not-running"
+                        }
+                    }
+                },
+                {
+                    "id": "pause without session",
+                    "capability": "record.pause",
+                    "args": ["--archive", "{archive}", "--json", "record", "pause"],
+                    "expect": {
+                        "exitCode": 2,
+                        "stdoutJson": null,
+                        "stderrContains": ["--session"]
+                    }
+                },
+                {
+                    "id": "resume without session",
+                    "capability": "record.resume",
+                    "args": ["--archive", "{archive}", "--json", "record", "resume"],
+                    "expect": {
+                        "exitCode": 2,
+                        "stdoutJson": null,
+                        "stderrContains": ["--session"]
+                    }
+                },
+                {
+                    "id": "stop without session",
+                    "capability": "record.stop",
+                    "args": ["--archive", "{archive}", "--json", "record", "stop"],
+                    "expect": {
+                        "exitCode": 2,
+                        "stdoutJson": null,
+                        "stderrContains": ["--session"]
+                    }
+                },
+                {
+                    "id": "start without consent",
+                    "capability": "record.start",
+                    "args": [
+                        "--archive",
+                        "{archive}",
+                        "--json",
+                        "record",
+                        "start",
+                        "--session",
+                        "{capture.session}",
+                        "--source",
+                        "microphone"
+                    ],
+                    "expect": {
+                        "exitCode": 2,
+                        "stdoutJson": null,
+                        "stderrContains": ["--consent"]
+                    }
+                },
+                {
+                    "id": "devices rejects positional",
+                    "capability": "record.devices",
+                    "args": ["--json", "record", "devices", "extra"],
+                    "expect": {
+                        "exitCode": 2,
+                        "stdoutJson": null,
+                        "stderrContains": ["does not accept positional"]
+                    }
+                },
+                {
+                    "id": "test rejects source",
+                    "capability": "record.test",
+                    "args": ["--json", "record", "test", "--source", "telepathy"],
+                    "expect": {
+                        "exitCode": 2,
+                        "stdoutJson": null,
+                        "stderrContains": ["Recording test source"]
+                    }
+                },
+                {
+                    "id": "play without audio",
+                    "capability": "record.play",
+                    "args": [
+                        "--archive",
+                        "{archive}",
+                        "--json",
+                        "record",
+                        "play",
+                        "--session",
+                        "{capture.session}"
+                    ],
+                    "expect": {
+                        "exitCode": 2,
+                        "stdoutJson": null,
+                        "stderrContains": ["no audio tracks"]
+                    }
+                },
+                {
+                    "id": "recover without import",
+                    "capability": "record.recover",
+                    "args": [
+                        "--archive",
+                        "{archive}",
+                        "--json",
+                        "record",
+                        "recover",
+                        "--session",
+                        "{capture.session}"
+                    ],
+                    "expect": {
+                        "exitCode": 1,
+                        "stdoutJson": null,
+                        "stderrContains": ["no recoverable WAV"]
+                    }
+                },
+                {
+                    "id": "import requires input",
+                    "capability": "record.import",
+                    "args": [
+                        "--archive",
+                        "{archive}",
+                        "--json",
+                        "record",
+                        "import",
+                        "--session",
+                        "{capture.session}"
+                    ],
+                    "expect": {
+                        "exitCode": 2,
+                        "stdoutJson": null,
+                        "stderrContains": ["--input is required"]
+                    }
+                },
+                {
+                    "id": "export requires output",
+                    "capability": "record.export-wav",
+                    "args": [
+                        "--archive",
+                        "{archive}",
+                        "--json",
+                        "record",
+                        "export-wav",
+                        "--session",
+                        "{capture.session}"
+                    ],
+                    "expect": {
+                        "exitCode": 2,
+                        "stdoutJson": null,
+                        "stderrContains": ["Select an available audio track"]
+                    }
+                },
+                {
+                    "id": "waveform requires audio",
+                    "capability": "record.waveform",
+                    "args": [
+                        "--archive",
+                        "{archive}",
+                        "--json",
+                        "record",
+                        "waveform",
+                        "--session",
+                        "{capture.session}"
+                    ],
+                    "expect": {
+                        "exitCode": 2,
+                        "stdoutJson": null,
+                        "stderrContains": ["Select an available audio track"]
+                    }
+                },
+                {
+                    "id": "waveform index build requires audio",
+                    "capability": "record.waveform-index-build",
+                    "args": [
+                        "--archive",
+                        "{archive}",
+                        "--json",
+                        "record",
+                        "waveform-index-build",
+                        "--session",
+                        "{capture.session}"
+                    ],
+                    "expect": {
+                        "exitCode": 2,
+                        "stdoutJson": null,
+                        "stderrContains": ["Select an available audio track"]
+                    }
+                },
+                {
+                    "id": "waveform index show requires audio",
+                    "capability": "record.waveform-index-show",
+                    "args": [
+                        "--archive",
+                        "{archive}",
+                        "--json",
+                        "record",
+                        "waveform-index-show",
+                        "--session",
+                        "{capture.session}"
+                    ],
+                    "expect": {
+                        "exitCode": 2,
+                        "stdoutJson": null,
+                        "stderrContains": ["Select an available audio track"]
+                    }
+                },
+                {
+                    "id": "mix requires take",
+                    "capability": "record.mix",
+                    "args": [
+                        "--archive",
+                        "{archive}",
+                        "--json",
+                        "record",
+                        "mix",
+                        "--session",
+                        "{capture.session}",
+                        "--tracks",
+                        "00000000-0000-0000-0000-000000000000"
+                    ],
+                    "expect": {
+                        "exitCode": 2,
+                        "stdoutJson": null,
+                        "stderrContains": ["--take is required"]
+                    }
+                },
+                {
+                    "id": "take rename requires take",
+                    "capability": "record.take-rename",
+                    "args": [
+                        "--archive",
+                        "{archive}",
+                        "--json",
+                        "record",
+                        "take-rename",
+                        "--session",
+                        "{capture.session}",
+                        "--label",
+                        "Take"
+                    ],
+                    "expect": {
+                        "exitCode": 2,
+                        "stdoutJson": null,
+                        "stderrContains": ["--take is required"]
+                    }
+                },
+                {
+                    "id": "take delete requires take",
+                    "capability": "record.take-delete",
+                    "args": [
+                        "--archive",
+                        "{archive}",
+                        "--json",
+                        "record",
+                        "take-delete",
+                        "--session",
+                        "{capture.session}"
+                    ],
+                    "expect": {
+                        "exitCode": 2,
+                        "stdoutJson": null,
+                        "stderrContains": ["--take is required"]
+                    }
+                },
+                {
+                    "id": "take restore requires take",
+                    "capability": "record.take-restore",
+                    "args": [
+                        "--archive",
+                        "{archive}",
+                        "--json",
+                        "record",
+                        "take-restore",
+                        "--session",
+                        "{capture.session}"
+                    ],
+                    "expect": {
+                        "exitCode": 2,
+                        "stdoutJson": null,
+                        "stderrContains": ["--take is required"]
+                    }
+                },
+                {
+                    "id": "track rename requires track",
+                    "capability": "record.track-rename",
+                    "args": [
+                        "--archive",
+                        "{archive}",
+                        "--json",
+                        "record",
+                        "track-rename",
+                        "--session",
+                        "{capture.session}",
+                        "--label",
+                        "Track"
+                    ],
+                    "expect": {
+                        "exitCode": 2,
+                        "stdoutJson": null,
+                        "stderrContains": ["--track is required"]
+                    }
+                }
+            ]
         }
-      ],
-      "steps": [
-        {
-          "id": "take list empty",
-          "capability": "record.take-list",
-          "args": [
-            "--archive",
-            "{archive}",
-            "--json",
-            "record",
-            "take-list",
-            "--session",
-            "{capture.session}"
-          ],
-          "expect": {
-            "exitCode": 0,
-            "stdoutJson": []
-          }
-        },
-        {
-          "id": "configure",
-          "capability": "record.configure",
-          "args": [
-            "--archive",
-            "{archive}",
-            "--json",
-            "record",
-            "configure",
-            "--microphone",
-            "default",
-            "--playback",
-            "default",
-            "--durability",
-            "maximum"
-          ],
-          "expect": {
-            "exitCode": 0,
-            "stdoutJson": {
-              "microphone_device_id": "default",
-              "playback_device_id": "default",
-              "durability": "maximum"
-            }
-          }
-        },
-        {
-          "id": "status without session",
-          "capability": "record.status",
-          "args": [
-            "--archive",
-            "{archive}",
-            "--json",
-            "record",
-            "status"
-          ],
-          "expect": {
-            "exitCode": 0,
-            "stdoutJson": {
-              "active_recordings": "0"
-            }
-          }
-        },
-        {
-          "id": "status with session",
-          "capability": "record.status",
-          "args": [
-            "--archive",
-            "{archive}",
-            "--json",
-            "record",
-            "status",
-            "--session",
-            "{capture.session}"
-          ],
-          "expect": {
-            "exitCode": 0,
-            "stdoutJsonIncludes": {
-              "sessionId": "<uuid>",
-              "state": "not-started",
-              "worker": "not-running"
-            }
-          }
-        },
-        {
-          "id": "pause without session",
-          "capability": "record.pause",
-          "args": [
-            "--archive",
-            "{archive}",
-            "--json",
-            "record",
-            "pause"
-          ],
-          "expect": {
-            "exitCode": 2,
-            "stdoutJson": null,
-            "stderrContains": [
-              "--session"
-            ]
-          }
-        },
-        {
-          "id": "resume without session",
-          "capability": "record.resume",
-          "args": [
-            "--archive",
-            "{archive}",
-            "--json",
-            "record",
-            "resume"
-          ],
-          "expect": {
-            "exitCode": 2,
-            "stdoutJson": null,
-            "stderrContains": [
-              "--session"
-            ]
-          }
-        },
-        {
-          "id": "stop without session",
-          "capability": "record.stop",
-          "args": [
-            "--archive",
-            "{archive}",
-            "--json",
-            "record",
-            "stop"
-          ],
-          "expect": {
-            "exitCode": 2,
-            "stdoutJson": null,
-            "stderrContains": [
-              "--session"
-            ]
-          }
-        },
-        {
-          "id": "start without consent",
-          "capability": "record.start",
-          "args": [
-            "--archive",
-            "{archive}",
-            "--json",
-            "record",
-            "start",
-            "--session",
-            "{capture.session}",
-            "--source",
-            "microphone"
-          ],
-          "expect": {
-            "exitCode": 2,
-            "stdoutJson": null,
-            "stderrContains": [
-              "--consent"
-            ]
-          }
-        },
-        {
-          "id": "devices rejects positional",
-          "capability": "record.devices",
-          "args": [
-            "--json",
-            "record",
-            "devices",
-            "extra"
-          ],
-          "expect": {
-            "exitCode": 2,
-            "stdoutJson": null,
-            "stderrContains": [
-              "does not accept positional"
-            ]
-          }
-        },
-        {
-          "id": "test rejects source",
-          "capability": "record.test",
-          "args": [
-            "--json",
-            "record",
-            "test",
-            "--source",
-            "telepathy"
-          ],
-          "expect": {
-            "exitCode": 2,
-            "stdoutJson": null,
-            "stderrContains": [
-              "Recording test source"
-            ]
-          }
-        },
-        {
-          "id": "play without audio",
-          "capability": "record.play",
-          "args": [
-            "--archive",
-            "{archive}",
-            "--json",
-            "record",
-            "play",
-            "--session",
-            "{capture.session}"
-          ],
-          "expect": {
-            "exitCode": 2,
-            "stdoutJson": null,
-            "stderrContains": [
-              "no audio tracks"
-            ]
-          }
-        },
-        {
-          "id": "recover without import",
-          "capability": "record.recover",
-          "args": [
-            "--archive",
-            "{archive}",
-            "--json",
-            "record",
-            "recover",
-            "--session",
-            "{capture.session}"
-          ],
-          "expect": {
-            "exitCode": 1,
-            "stdoutJson": null,
-            "stderrContains": [
-              "no recoverable WAV"
-            ]
-          }
-        },
-        {
-          "id": "import requires input",
-          "capability": "record.import",
-          "args": [
-            "--archive",
-            "{archive}",
-            "--json",
-            "record",
-            "import",
-            "--session",
-            "{capture.session}"
-          ],
-          "expect": {
-            "exitCode": 2,
-            "stdoutJson": null,
-            "stderrContains": [
-              "--input is required"
-            ]
-          }
-        },
-        {
-          "id": "export requires output",
-          "capability": "record.export-wav",
-          "args": [
-            "--archive",
-            "{archive}",
-            "--json",
-            "record",
-            "export-wav",
-            "--session",
-            "{capture.session}"
-          ],
-          "expect": {
-            "exitCode": 2,
-            "stdoutJson": null,
-            "stderrContains": [
-              "Select an available audio track"
-            ]
-          }
-        },
-        {
-          "id": "waveform requires audio",
-          "capability": "record.waveform",
-          "args": [
-            "--archive",
-            "{archive}",
-            "--json",
-            "record",
-            "waveform",
-            "--session",
-            "{capture.session}"
-          ],
-          "expect": {
-            "exitCode": 2,
-            "stdoutJson": null,
-            "stderrContains": [
-              "Select an available audio track"
-            ]
-          }
-        },
-        {
-          "id": "waveform index build requires audio",
-          "capability": "record.waveform-index-build",
-          "args": [
-            "--archive",
-            "{archive}",
-            "--json",
-            "record",
-            "waveform-index-build",
-            "--session",
-            "{capture.session}"
-          ],
-          "expect": {
-            "exitCode": 2,
-            "stdoutJson": null,
-            "stderrContains": [
-              "Select an available audio track"
-            ]
-          }
-        },
-        {
-          "id": "waveform index show requires audio",
-          "capability": "record.waveform-index-show",
-          "args": [
-            "--archive",
-            "{archive}",
-            "--json",
-            "record",
-            "waveform-index-show",
-            "--session",
-            "{capture.session}"
-          ],
-          "expect": {
-            "exitCode": 2,
-            "stdoutJson": null,
-            "stderrContains": [
-              "Select an available audio track"
-            ]
-          }
-        },
-        {
-          "id": "mix requires take",
-          "capability": "record.mix",
-          "args": [
-            "--archive",
-            "{archive}",
-            "--json",
-            "record",
-            "mix",
-            "--session",
-            "{capture.session}",
-            "--tracks",
-            "00000000-0000-0000-0000-000000000000"
-          ],
-          "expect": {
-            "exitCode": 2,
-            "stdoutJson": null,
-            "stderrContains": [
-              "--take is required"
-            ]
-          }
-        },
-        {
-          "id": "take rename requires take",
-          "capability": "record.take-rename",
-          "args": [
-            "--archive",
-            "{archive}",
-            "--json",
-            "record",
-            "take-rename",
-            "--session",
-            "{capture.session}",
-            "--label",
-            "Take"
-          ],
-          "expect": {
-            "exitCode": 2,
-            "stdoutJson": null,
-            "stderrContains": [
-              "--take is required"
-            ]
-          }
-        },
-        {
-          "id": "take delete requires take",
-          "capability": "record.take-delete",
-          "args": [
-            "--archive",
-            "{archive}",
-            "--json",
-            "record",
-            "take-delete",
-            "--session",
-            "{capture.session}"
-          ],
-          "expect": {
-            "exitCode": 2,
-            "stdoutJson": null,
-            "stderrContains": [
-              "--take is required"
-            ]
-          }
-        },
-        {
-          "id": "take restore requires take",
-          "capability": "record.take-restore",
-          "args": [
-            "--archive",
-            "{archive}",
-            "--json",
-            "record",
-            "take-restore",
-            "--session",
-            "{capture.session}"
-          ],
-          "expect": {
-            "exitCode": 2,
-            "stdoutJson": null,
-            "stderrContains": [
-              "--take is required"
-            ]
-          }
-        },
-        {
-          "id": "track rename requires track",
-          "capability": "record.track-rename",
-          "args": [
-            "--archive",
-            "{archive}",
-            "--json",
-            "record",
-            "track-rename",
-            "--session",
-            "{capture.session}",
-            "--label",
-            "Track"
-          ],
-          "expect": {
-            "exitCode": 2,
-            "stdoutJson": null,
-            "stderrContains": [
-              "--track is required"
-            ]
-          }
-        }
-      ]
-    }
-  ]
+    ]
 }
