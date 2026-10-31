@@ -17,6 +17,7 @@
         "build:audio-helper": "node scripts/build-audio-helper.mjs",
         "build:embedded-ai": "node scripts/build-embedded-ai.mjs",
         "build:console-runtime": "node scripts/build-console-runtime.mjs",
+        "build:portable-runtime": "node scripts/build-portable-runtime.mjs",
         "preview": "vite preview --host 127.0.0.1 --port 1420 --strictPort",
         "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.node.json",
         "lint": "eslint frontend cli scripts tests vite.config.ts playwright.config.ts eslint.config.js",
@@ -30,7 +31,8 @@
         "tauri": "tauri",
         "dev:desktop": "vite --mode desktop --host 127.0.0.1 --port 1420 --strictPort",
         "desktop:dev": "tauri dev",
-        "desktop:build": "tauri build"
+        "desktop:build": "tauri build",
+        "desktop:build:portable": "tauri build --no-bundle && node scripts/build-portable.mjs"
     },
     "dependencies": {
         "@tauri-apps/api": "2.12.4",
