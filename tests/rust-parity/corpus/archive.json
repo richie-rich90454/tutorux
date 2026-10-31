@@ -1,391 +1,329 @@
 {
-  "version": 1,
-  "cases": [
-    {
-      "id": "archive.discover",
-      "family": "archive",
-      "capability": "archive.discover",
-      "steps": [
+    "version": 1,
+    "cases": [
         {
-          "id": "discover",
-          "capability": "archive.discover",
-          "args": [
-            "archive",
-            "discover",
-            "--directory",
-            "{dir}",
-            "--json"
-          ],
-          "expect": {
-            "exitCode": 0,
-            "stdoutContains": [
-              "Parity seed"
+            "id": "archive.discover",
+            "family": "archive",
+            "capability": "archive.discover",
+            "steps": [
+                {
+                    "id": "discover",
+                    "capability": "archive.discover",
+                    "args": ["archive", "discover", "--directory", "{dir}", "--json"],
+                    "expect": {
+                        "exitCode": 0,
+                        "stdoutContains": ["Parity seed"]
+                    }
+                },
+                {
+                    "id": "list alias",
+                    "capability": "archive.discover",
+                    "args": ["archive", "list", "--directory", "{dir}", "--json"],
+                    "expect": {
+                        "exitCode": 0,
+                        "stdoutContains": ["Parity seed"]
+                    }
+                },
+                {
+                    "id": "missing directory",
+                    "capability": "archive.discover",
+                    "args": ["archive", "discover", "--directory", "{dir}/missing", "--json"],
+                    "expect": {
+                        "exitCode": 2,
+                        "stdoutJson": null,
+                        "stderrContains": ["not a directory"]
+                    }
+                }
             ]
-          }
         },
         {
-          "id": "list alias",
-          "capability": "archive.discover",
-          "args": [
-            "archive",
-            "list",
-            "--directory",
-            "{dir}",
-            "--json"
-          ],
-          "expect": {
-            "exitCode": 0,
-            "stdoutContains": [
-              "Parity seed"
+            "id": "archive.lifecycle",
+            "family": "archive",
+            "capability": "archive.rename",
+            "steps": [
+                {
+                    "id": "rename",
+                    "capability": "archive.rename",
+                    "args": [
+                        "archive",
+                        "rename",
+                        "{archive}",
+                        "--name",
+                        "Renamed archive",
+                        "--json"
+                    ],
+                    "expect": {
+                        "exitCode": 0,
+                        "stdoutJson": {
+                            "name": "Renamed archive",
+                            "status": "updated"
+                        }
+                    }
+                },
+                {
+                    "id": "info after rename",
+                    "capability": "archive.info",
+                    "args": ["archive", "info", "{archive}", "--json"],
+                    "expect": {
+                        "exitCode": 0,
+                        "stdoutJsonIncludes": {
+                            "name": "Renamed archive",
+                            "valid": true,
+                            "verified": true
+                        }
+                    }
+                },
+                {
+                    "id": "open selected archive",
+                    "capability": "archive.open",
+                    "args": ["--archive", "{archive}", "archive", "open", "--json"],
+                    "expect": {
+                        "exitCode": 0,
+                        "stdoutJsonIncludes": {
+                            "name": "Renamed archive",
+                            "valid": true
+                        }
+                    }
+                },
+                {
+                    "id": "verify",
+                    "capability": "archive.verify",
+                    "args": ["archive", "verify", "{archive}", "--json"],
+                    "expect": {
+                        "exitCode": 0,
+                        "stdoutJsonIncludes": {
+                            "valid": true,
+                            "verified": true,
+                            "records": 1
+                        }
+                    }
+                },
+                {
+                    "id": "verify history",
+                    "capability": "archive.verify",
+                    "args": ["archive", "verify", "{archive}", "--history", "--json"],
+                    "expect": {
+                        "exitCode": 0,
+                        "stdoutJsonIncludes": {
+                            "valid": true,
+                            "verified": true
+                        }
+                    }
+                },
+                {
+                    "id": "backup",
+                    "capability": "archive.backup",
+                    "args": [
+                        "archive",
+                        "backup",
+                        "{archive}",
+                        "--output",
+                        "{dir}/backup.tux",
+                        "--confirm-sensitive",
+                        "--json"
+                    ],
+                    "expect": {
+                        "exitCode": 0,
+                        "stdoutJsonIncludes": {
+                            "status": "created",
+                            "encrypted": false,
+                            "original_preserved": true
+                        }
+                    }
+                },
+                {
+                    "id": "copy alias",
+                    "capability": "archive.backup",
+                    "args": [
+                        "archive",
+                        "copy",
+                        "{archive}",
+                        "--output",
+                        "{dir}/copy.tux",
+                        "--confirm-sensitive",
+                        "--json"
+                    ],
+                    "expect": {
+                        "exitCode": 0,
+                        "stdoutJsonIncludes": {
+                            "status": "created",
+                            "encrypted": false
+                        }
+                    }
+                },
+                {
+                    "id": "recover inspect",
+                    "capability": "archive.recover",
+                    "args": ["archive", "recover", "{archive}", "--inspect", "--json"],
+                    "expect": {
+                        "exitCode": 0,
+                        "stdoutJsonIncludes": {
+                            "action": "inspect",
+                            "recoverable": false,
+                            "applied": false,
+                            "changed": false
+                        }
+                    }
+                },
+                {
+                    "id": "discard empty tail",
+                    "capability": "archive.recover",
+                    "args": [
+                        "archive",
+                        "recover",
+                        "{archive}",
+                        "--discard-tail",
+                        "--apply",
+                        "--json"
+                    ],
+                    "expect": {
+                        "exitCode": 0,
+                        "stdoutJsonIncludes": {
+                            "action": "discard-tail",
+                            "applied": false,
+                            "remaining_trailing_bytes": "0"
+                        }
+                    }
+                },
+                {
+                    "id": "backfill indexes preview",
+                    "capability": "archive.backfill-indexes",
+                    "args": ["archive", "backfill-indexes", "{archive}", "--json"],
+                    "expect": {
+                        "exitCode": 0,
+                        "stdoutJsonIncludes": {
+                            "applied": false,
+                            "conflictingEntries": 0
+                        }
+                    }
+                },
+                {
+                    "id": "compact preview",
+                    "capability": "archive.compact",
+                    "args": [
+                        "archive",
+                        "compact",
+                        "{archive}",
+                        "--preview",
+                        "--prune-unreferenced-assets",
+                        "--json"
+                    ],
+                    "expect": {
+                        "exitCode": 0,
+                        "stdoutJsonIncludes": {
+                            "applied": false,
+                            "prunedAssetRecords": 0
+                        }
+                    }
+                },
+                {
+                    "id": "repair copy",
+                    "capability": "archive.repair",
+                    "args": [
+                        "archive",
+                        "repair",
+                        "{archive}",
+                        "--output",
+                        "{dir}/repaired.tux",
+                        "--confirm-sensitive",
+                        "--json"
+                    ],
+                    "expect": {
+                        "exitCode": 0,
+                        "stdoutJsonIncludes": {
+                            "status": "repaired-copy",
+                            "original_preserved": true,
+                            "records_preserved": "<number>"
+                        }
+                    }
+                },
+                {
+                    "id": "rebuild index copy",
+                    "capability": "archive.rebuild-index",
+                    "args": [
+                        "archive",
+                        "rebuild-index",
+                        "{archive}",
+                        "--output",
+                        "{dir}/rebuilt.tux",
+                        "--confirm-sensitive",
+                        "--json"
+                    ],
+                    "expect": {
+                        "exitCode": 0,
+                        "stdoutJsonIncludes": {
+                            "status": "rebuilt-index-copy",
+                            "original_preserved": true
+                        }
+                    }
+                },
+                {
+                    "id": "sanitize preview",
+                    "capability": "archive.sanitize",
+                    "args": [
+                        "archive",
+                        "sanitize",
+                        "{archive}",
+                        "--output",
+                        "{dir}/sanitized.tux",
+                        "--include-private-annotations",
+                        "--include-generation-logs",
+                        "--include-recordings",
+                        "--json"
+                    ],
+                    "expect": {
+                        "exitCode": 0,
+                        "stdoutJsonIncludes": {
+                            "status": "preview-required",
+                            "encrypted_output": false,
+                            "students": 0,
+                            "sessions": 0
+                        }
+                    }
+                }
             ]
-          }
         },
         {
-          "id": "missing directory",
-          "capability": "archive.discover",
-          "args": [
-            "archive",
-            "discover",
-            "--directory",
-            "{dir}/missing",
-            "--json"
-          ],
-          "expect": {
-            "exitCode": 2,
-            "stdoutJson": null,
-            "stderrContains": [
-              "not a directory"
+            "id": "archive.init-description",
+            "family": "archive",
+            "capability": "archive.init",
+            "seed": false,
+            "steps": [
+                {
+                    "id": "init with description",
+                    "capability": "archive.init",
+                    "args": [
+                        "archive",
+                        "init",
+                        "{archive}",
+                        "--name",
+                        "Described archive",
+                        "--description",
+                        "Parity description",
+                        "--json"
+                    ],
+                    "expect": {
+                        "exitCode": 0,
+                        "stdoutJsonIncludes": {
+                            "name": "Described archive",
+                            "created": true,
+                            "bytes": "<number>"
+                        }
+                    }
+                },
+                {
+                    "id": "info description",
+                    "capability": "archive.info",
+                    "args": ["archive", "info", "{archive}", "--json"],
+                    "expect": {
+                        "exitCode": 0,
+                        "stdoutJsonIncludes": {
+                            "name": "Described archive",
+                            "description": "Parity description"
+                        }
+                    }
+                }
             ]
-          }
         }
-      ]
-    },
-    {
-      "id": "archive.lifecycle",
-      "family": "archive",
-      "capability": "archive.rename",
-      "steps": [
-        {
-          "id": "rename",
-          "capability": "archive.rename",
-          "args": [
-            "archive",
-            "rename",
-            "{archive}",
-            "--name",
-            "Renamed archive",
-            "--json"
-          ],
-          "expect": {
-            "exitCode": 0,
-            "stdoutJson": {
-              "name": "Renamed archive",
-              "status": "updated"
-            }
-          }
-        },
-        {
-          "id": "info after rename",
-          "capability": "archive.info",
-          "args": [
-            "archive",
-            "info",
-            "{archive}",
-            "--json"
-          ],
-          "expect": {
-            "exitCode": 0,
-            "stdoutJsonIncludes": {
-              "name": "Renamed archive",
-              "valid": true,
-              "verified": true
-            }
-          }
-        },
-        {
-          "id": "open selected archive",
-          "capability": "archive.open",
-          "args": [
-            "--archive",
-            "{archive}",
-            "archive",
-            "open",
-            "--json"
-          ],
-          "expect": {
-            "exitCode": 0,
-            "stdoutJsonIncludes": {
-              "name": "Renamed archive",
-              "valid": true
-            }
-          }
-        },
-        {
-          "id": "verify",
-          "capability": "archive.verify",
-          "args": [
-            "archive",
-            "verify",
-            "{archive}",
-            "--json"
-          ],
-          "expect": {
-            "exitCode": 0,
-            "stdoutJsonIncludes": {
-              "valid": true,
-              "verified": true,
-              "records": 1
-            }
-          }
-        },
-        {
-          "id": "verify history",
-          "capability": "archive.verify",
-          "args": [
-            "archive",
-            "verify",
-            "{archive}",
-            "--history",
-            "--json"
-          ],
-          "expect": {
-            "exitCode": 0,
-            "stdoutJsonIncludes": {
-              "valid": true,
-              "verified": true
-            }
-          }
-        },
-        {
-          "id": "backup",
-          "capability": "archive.backup",
-          "args": [
-            "archive",
-            "backup",
-            "{archive}",
-            "--output",
-            "{dir}/backup.tux",
-            "--confirm-sensitive",
-            "--json"
-          ],
-          "expect": {
-            "exitCode": 0,
-            "stdoutJsonIncludes": {
-              "status": "created",
-              "encrypted": false,
-              "original_preserved": true
-            }
-          }
-        },
-        {
-          "id": "copy alias",
-          "capability": "archive.backup",
-          "args": [
-            "archive",
-            "copy",
-            "{archive}",
-            "--output",
-            "{dir}/copy.tux",
-            "--confirm-sensitive",
-            "--json"
-          ],
-          "expect": {
-            "exitCode": 0,
-            "stdoutJsonIncludes": {
-              "status": "created",
-              "encrypted": false
-            }
-          }
-        },
-        {
-          "id": "recover inspect",
-          "capability": "archive.recover",
-          "args": [
-            "archive",
-            "recover",
-            "{archive}",
-            "--inspect",
-            "--json"
-          ],
-          "expect": {
-            "exitCode": 0,
-            "stdoutJsonIncludes": {
-              "action": "inspect",
-              "recoverable": false,
-              "applied": false,
-              "changed": false
-            }
-          }
-        },
-        {
-          "id": "discard empty tail",
-          "capability": "archive.recover",
-          "args": [
-            "archive",
-            "recover",
-            "{archive}",
-            "--discard-tail",
-            "--apply",
-            "--json"
-          ],
-          "expect": {
-            "exitCode": 0,
-            "stdoutJsonIncludes": {
-              "action": "discard-tail",
-              "applied": false,
-              "remaining_trailing_bytes": "0"
-            }
-          }
-        },
-        {
-          "id": "backfill indexes preview",
-          "capability": "archive.backfill-indexes",
-          "args": [
-            "archive",
-            "backfill-indexes",
-            "{archive}",
-            "--json"
-          ],
-          "expect": {
-            "exitCode": 0,
-            "stdoutJsonIncludes": {
-              "applied": false,
-              "conflictingEntries": 0
-            }
-          }
-        },
-        {
-          "id": "compact preview",
-          "capability": "archive.compact",
-          "args": [
-            "archive",
-            "compact",
-            "{archive}",
-            "--preview",
-            "--prune-unreferenced-assets",
-            "--json"
-          ],
-          "expect": {
-            "exitCode": 0,
-            "stdoutJsonIncludes": {
-              "applied": false,
-              "prunedAssetRecords": 0
-            }
-          }
-        },
-        {
-          "id": "repair copy",
-          "capability": "archive.repair",
-          "args": [
-            "archive",
-            "repair",
-            "{archive}",
-            "--output",
-            "{dir}/repaired.tux",
-            "--confirm-sensitive",
-            "--json"
-          ],
-          "expect": {
-            "exitCode": 0,
-            "stdoutJsonIncludes": {
-              "status": "repaired-copy",
-              "original_preserved": true,
-              "records_preserved": "<number>"
-            }
-          }
-        },
-        {
-          "id": "rebuild index copy",
-          "capability": "archive.rebuild-index",
-          "args": [
-            "archive",
-            "rebuild-index",
-            "{archive}",
-            "--output",
-            "{dir}/rebuilt.tux",
-            "--confirm-sensitive",
-            "--json"
-          ],
-          "expect": {
-            "exitCode": 0,
-            "stdoutJsonIncludes": {
-              "status": "rebuilt-index-copy",
-              "original_preserved": true
-            }
-          }
-        },
-        {
-          "id": "sanitize preview",
-          "capability": "archive.sanitize",
-          "args": [
-            "archive",
-            "sanitize",
-            "{archive}",
-            "--output",
-            "{dir}/sanitized.tux",
-            "--include-private-annotations",
-            "--include-generation-logs",
-            "--include-recordings",
-            "--json"
-          ],
-          "expect": {
-            "exitCode": 0,
-            "stdoutJsonIncludes": {
-              "status": "preview-required",
-              "encrypted_output": false,
-              "students": 0,
-              "sessions": 0
-            }
-          }
-        }
-      ]
-    },
-    {
-      "id": "archive.init-description",
-      "family": "archive",
-      "capability": "archive.init",
-      "seed": false,
-      "steps": [
-        {
-          "id": "init with description",
-          "capability": "archive.init",
-          "args": [
-            "archive",
-            "init",
-            "{archive}",
-            "--name",
-            "Described archive",
-            "--description",
-            "Parity description",
-            "--json"
-          ],
-          "expect": {
-            "exitCode": 0,
-            "stdoutJsonIncludes": {
-              "name": "Described archive",
-              "created": true,
-              "bytes": "<number>"
-            }
-          }
-        },
-        {
-          "id": "info description",
-          "capability": "archive.info",
-          "args": [
-            "archive",
-            "info",
-            "{archive}",
-            "--json"
-          ],
-          "expect": {
-            "exitCode": 0,
-            "stdoutJsonIncludes": {
-              "name": "Described archive",
-              "description": "Parity description"
-            }
-          }
-        }
-      ]
-    }
-  ]
+    ]
 }
