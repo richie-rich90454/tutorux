@@ -1,8 +1,8 @@
 import { strToU8, zipSync } from "fflate";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { ArchiveSnapshot } from "../archive/archive";
-import { makeAssetImport } from "./assets";
-import { extractDocumentText } from "./document-text";
+import type { ArchiveSnapshot } from "../../../frontend/archive/archive";
+import { makeAssetImport } from "../../../frontend/domain/assets";
+import { extractDocumentText } from "../../../frontend/domain/document-text";
 
 const pdfMocks = vi.hoisted(() => ({ getDocument: vi.fn(), destroy: vi.fn() }));
 
