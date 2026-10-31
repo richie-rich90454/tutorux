@@ -150,7 +150,7 @@ export function StudentProgressPanel(props: StudentProgressPanelProps): JSX.Elem
                 <section class="student-session-history" aria-label="Session history">
                     <div class="student-history-section-heading">
                         <div>
-                            <span class="eyebrow">THE THREAD OVER TIME</span>
+                            <span class="eyebrow">The thread over time</span>
                             <h3>Sessions</h3>
                         </div>
                         <span class="student-history-total">{history().length} recorded</span>
@@ -194,7 +194,7 @@ export function StudentProgressPanel(props: StudentProgressPanelProps): JSX.Elem
                 <section class="student-progress-history" aria-label="Tutor-reviewed progress">
                     <div class="student-history-section-heading">
                         <div>
-                            <span class="eyebrow">HUMAN REVIEW, SOURCES ATTACHED</span>
+                            <span class="eyebrow">Human review, sources attached</span>
                             <h3>Progress by skill</h3>
                         </div>
                         <button
@@ -311,7 +311,7 @@ export function StudentProgressPanel(props: StudentProgressPanelProps): JSX.Elem
                             onSubmit={(event) => void saveReview(event)}
                         >
                             <div class="student-review-form-heading">
-                                <span class="eyebrow">A NEW TUTOR REVIEW</span>
+                                <span class="eyebrow">A new tutor review</span>
                                 <p>
                                     Each skill keeps its latest classification. Earlier archive
                                     revisions remain part of the file history.
