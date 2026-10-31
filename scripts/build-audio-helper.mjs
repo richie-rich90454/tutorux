@@ -4,7 +4,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const helperDirectory = resolve(root, "native-audio-helper");
+const helperDirectory = resolve(root, "src-tauri");
 const cargoManifest = resolve(helperDirectory, "Cargo.toml");
 const cargoTargetDirectory = resolve(helperDirectory, "target");
 const targetTriple =
