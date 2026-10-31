@@ -213,23 +213,18 @@ pub(crate) fn plan_session_trash(
         updated.fields = fields;
         updated_entries.push(updated);
     }
-    let trashed_session = mark_session_trashed(session, &session_id, &timestamp);
-    let mut scope_records: Vec<ArchiveRecord> = Vec::new();
-    let mut seen = BTreeSet::new();
-    for record in audio_chunks
-        .iter()
-        .chain(deletion.iter())
-        .chain(guides.iter())
-        .chain(assets.iter())
-        .chain(evidence_nodes.iter())
-        .chain(session_notes.iter())
-        .chain(updated_entries.iter())
-        .chain(std::iter::once(&trashed_session))
-    {
-        if seen.insert((record.record_type, record.id.to_lowercase())) {
-            scope_records.push(record.clone());
-        }
-    }
+    let trashed_session = mark_session_trashed(session, &session_id, &timestamp);
+    let scope_records: Vec<ArchiveRecord> = audio_chunks
+        .iter()
+        .chain(deletion.iter())
+        .chain(guides.iter())
+        .chain(assets.iter())
+        .chain(evidence_nodes.iter())
+        .chain(session_notes.iter())
+        .chain(updated_entries.iter())
+        .chain(std::iter::once(&trashed_session))
+        .cloned()
+        .collect();
     let changes: Vec<ArchiveRecord> = scope_records
         .iter()
         .filter(|record| record.record_type != RecordType::AUDIO_CHUNK)
