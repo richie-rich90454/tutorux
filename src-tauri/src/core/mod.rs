@@ -6,4 +6,6 @@ pub mod error;
 pub mod format;
 pub mod index;
 pub mod maintenance;
+pub mod sanitize;
 pub mod source;
+pub mod verify;
