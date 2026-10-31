@@ -1,0 +1,161 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "id": "student.create",
+      "capability": "student.create",
+      "steps": [
+        {
+          "id": "student create",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "student",
+            "create",
+            "--name",
+            "Mina",
+            "--grade",
+            "Grade 7",
+            "--subjects",
+            "Math",
+            "--objectives",
+            "Fractions",
+            "--notes",
+            "Note",
+            "--difficulties",
+            "Denominators",
+            "--demonstrated-improvements",
+            "Explains scale",
+            "--preferred-guide-template",
+            "mathematics"
+          ],
+          "expect": {
+            "exitCode": 0,
+            "stdoutJson": {
+              "id": "<uuid>",
+              "type": "student",
+              "revision": "1",
+              "created_at_us": "<timestamp>",
+              "demonstrated_improvements": "Explains scale",
+              "display_name": "Mina",
+              "grade": "Grade 7",
+              "known_difficulties": "Denominators",
+              "learning_objectives": "Fractions",
+              "preferred_guide_template": "mathematics",
+              "progress_classifications": "",
+              "subjects": "Math",
+              "tutor_notes": "Note",
+              "updated_at_us": "<timestamp>"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "student.list",
+      "capability": "student.list",
+      "steps": [
+        {
+          "id": "student list empty",
+          "args": [
+            "--archive",
+            "{archive}",
+            "student",
+            "list",
+            "--json"
+          ],
+          "expect": {
+            "exitCode": 0,
+            "stdoutJson": []
+          }
+        }
+      ]
+    },
+    {
+      "id": "session.create",
+      "capability": "session.create",
+      "setup": [
+        {
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "student",
+            "create",
+            "--name",
+            "Mina"
+          ],
+          "capture": {
+            "student": "id"
+          }
+        },
+        {
+          "args": [
+            "--archive",
+            "{archive}",
+            "journal",
+            "create",
+            "--title",
+            "Fractions entry",
+            "--date",
+            "2026-10-31",
+            "--json"
+          ],
+          "capture": {
+            "entry": "id"
+          }
+        }
+      ],
+      "steps": [
+        {
+          "id": "session create",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "session",
+            "create",
+            "--title",
+            "Fractions",
+            "--subject",
+            "Math",
+            "--student-id",
+            "{capture.student}",
+            "--entry-id",
+            "{capture.entry}",
+            "--type",
+            "notes-only"
+          ],
+          "expect": {
+            "exitCode": 0,
+            "stdoutJson": {
+              "id": "<uuid>",
+              "type": "session",
+              "revision": "1",
+              "archived": "false",
+              "created_at_us": "<timestamp>",
+              "ended_at_us": "0",
+              "entry_id": "<uuid>",
+              "guide_template_id": "",
+              "learning_objectives": "",
+              "notes_document_id": "<uuid>",
+              "processing_state": "not-processed",
+              "recording_source": "none",
+              "recording_state": "not-started",
+              "reviewed_at_us": "0",
+              "session_state": "active",
+              "session_type": "notes-only",
+              "started_at_us": "<timestamp>",
+              "student_id": "<uuid>",
+              "subject": "Math",
+              "title": "Fractions",
+              "transcription_language": "auto",
+              "updated_at_us": "<timestamp>"
+            }
+          }
+        }
+      ]
+    }
+  ]
+}
