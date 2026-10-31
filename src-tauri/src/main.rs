@@ -1,3 +1,5 @@
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+
 mod ai_transport;
 mod archive_lock;
 mod archive_lock_support;
