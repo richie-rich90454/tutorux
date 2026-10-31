@@ -22,7 +22,7 @@
     align-items: center;
     gap: 21px;
     color: var(--muted);
-    font-size: 11px;
+    font-size: 12px;
 }
 
 .evidence-session-counts > span {
@@ -48,7 +48,7 @@
 .evidence-create-heading h2 {
     margin: 5px 0 6px;
     color: var(--ink);
-    font-family: Georgia, "Times New Roman", serif;
+    font-family: "Noto Sans", sans-serif;
     font-size: 19px;
     font-weight: 500;
 }
@@ -56,7 +56,7 @@
 .evidence-create-heading p {
     margin: 0;
     color: var(--muted);
-    font-size: 11px;
+    font-size: 12px;
     line-height: 1.6;
 }
 
@@ -72,7 +72,7 @@
     display: grid;
     gap: 6px;
     color: var(--muted);
-    font-size: 10px;
+    font-size: 12px;
 }
 
 .evidence-create-form input,
@@ -83,11 +83,11 @@
     min-height: 35px;
     padding: 8px 9px;
     border: 1px solid var(--line);
-    border-radius: 6px;
+    border-radius: 5px;
     color: var(--ink-soft);
     background: var(--surface-subtle);
     font: inherit;
-    font-size: 11px;
+    font-size: 12px;
 }
 
 .evidence-create-form textarea {
@@ -110,7 +110,7 @@
 
 .evidence-create-footer small {
     color: var(--muted);
-    font-size: 10px;
+    font-size: 12px;
     line-height: 1.5;
 }
 
@@ -134,12 +134,12 @@
 
 .evidence-review-toolbar-copy strong {
     color: var(--ink-soft);
-    font-size: 11px;
+    font-size: 12px;
 }
 
 .evidence-review-toolbar-copy small {
     color: var(--muted);
-    font-size: 10px;
+    font-size: 12px;
     line-height: 1.5;
 }
 
@@ -154,7 +154,7 @@
     min-height: 31px;
     padding: 0 9px;
     border: 1px solid transparent;
-    font-size: 10px;
+    font-size: 12px;
 }
 
 .evidence-review-filter[aria-pressed="true"] {
@@ -166,10 +166,10 @@
 .evidence-review-filter-count {
     min-width: 18px;
     padding: 2px 5px;
-    border-radius: 4px;
+    border-radius: 5px;
     color: var(--muted);
     background: color-mix(in srgb, var(--line) 45%, transparent);
-    font-size: 9px;
+    font-size: 12px;
     text-align: center;
 }
 
@@ -181,7 +181,7 @@
     gap: 12px;
     padding: 13px 15px;
     color: var(--muted);
-    font-size: 11px;
+    font-size: 12px;
 }
 
 .evidence-list {
@@ -234,10 +234,10 @@
 .evidence-state {
     padding: 4px 7px;
     border: 1px solid var(--line-soft);
-    border-radius: 4px;
+    border-radius: 5px;
     color: var(--muted);
     background: var(--surface-subtle);
-    font-size: 9px;
+    font-size: 12px;
     font-weight: 600;
 }
 
@@ -259,14 +259,14 @@
 
 .evidence-type {
     color: var(--faint);
-    font-size: 10px;
+    font-size: 12px;
     text-transform: capitalize;
 }
 
 .evidence-card-content h2 {
     margin: 12px 0 5px;
     color: var(--ink);
-    font-family: Georgia, "Times New Roman", serif;
+    font-family: "Noto Sans", sans-serif;
     font-size: 18px;
     font-weight: 500;
 }
@@ -287,7 +287,7 @@
     gap: 13px;
     margin-top: 12px;
     color: var(--faint);
-    font-size: 10px;
+    font-size: 12px;
 }
 
 .evidence-source-meta > span {
@@ -315,7 +315,7 @@
 .evidence-review-actions .button {
     min-height: 32px;
     padding: 0 12px;
-    font-size: 11px;
+    font-size: 12px;
 }
 
 .evidence-card-actions {
@@ -333,7 +333,7 @@
     display: grid;
     gap: 6px;
     color: var(--muted);
-    font-size: 10px;
+    font-size: 12px;
 }
 
 .evidence-edit-form input,
@@ -342,7 +342,7 @@
     min-width: 0;
     padding: 9px 10px;
     border: 1px solid var(--line);
-    border-radius: 6px;
+    border-radius: 5px;
     color: var(--ink-soft);
     background: var(--surface-subtle);
     font: inherit;
@@ -371,14 +371,14 @@
 .evidence-graph-heading h2 {
     margin: 4px 0 0;
     color: var(--ink);
-    font-family: Georgia, "Times New Roman", serif;
+    font-family: "Noto Sans", sans-serif;
     font-size: 20px;
     font-weight: 500;
 }
 
 .evidence-graph-heading > span {
     color: var(--muted);
-    font-size: 11px;
+    font-size: 12px;
 }
 
 .evidence-graph-legend {
@@ -387,7 +387,7 @@
     align-items: center;
     gap: 8px 16px;
     color: var(--muted);
-    font-size: 10px;
+    font-size: 12px;
 }
 
 .evidence-graph-legend > span {
@@ -418,15 +418,8 @@
     overflow-x: auto;
     margin: 12px 0 16px;
     border: 1px solid var(--line-soft);
-    border-radius: 8px;
-    background:
-        radial-gradient(
-                circle at 1px 1px,
-                color-mix(in srgb, var(--line) 58%, transparent) 1px,
-                transparent 0
-            )
-            0 0 / 18px 18px,
-        var(--surface-subtle);
+    border-radius: 5px;
+    background: var(--surface-subtle);
 }
 
 .evidence-network {
@@ -459,7 +452,7 @@
 
 .evidence-network-link text {
     fill: var(--muted);
-    font-size: 9px;
+    font-size: 12px;
     paint-order: stroke;
     stroke: var(--surface-subtle);
     stroke-linejoin: round;
@@ -499,27 +492,27 @@
 
 .evidence-network-state {
     fill: var(--muted);
-    font-size: 8px;
+    font-size: 12px;
     letter-spacing: 0.04em;
-    text-transform: uppercase;
+    text-transform: none;
 }
 
 .evidence-network-title {
     fill: var(--ink);
-    font-family: Georgia, "Times New Roman", serif;
+    font-family: "Noto Sans", sans-serif;
     font-size: 12px;
 }
 
 .evidence-network-type {
     fill: var(--faint);
-    font-size: 8px;
+    font-size: 12px;
 }
 
 .evidence-contradictions {
     margin: 0 0 16px;
     padding: 13px 14px;
     border: 1px solid var(--line-soft);
-    border-radius: 8px;
+    border-radius: 5px;
     background: var(--surface-subtle);
 }
 
@@ -533,7 +526,7 @@
 .evidence-contradictions-heading h3 {
     margin: 4px 0 0;
     color: var(--ink);
-    font-family: Georgia, "Times New Roman", serif;
+    font-family: "Noto Sans", sans-serif;
     font-size: 16px;
     font-weight: 500;
 }
@@ -544,7 +537,7 @@
     border-radius: 5px;
     color: var(--warning);
     background: color-mix(in srgb, var(--warning) 8%, var(--surface));
-    font-size: 10px;
+    font-size: 12px;
     font-weight: 600;
     text-align: center;
 }
@@ -554,7 +547,7 @@
     display: block;
     margin: 8px 0 0;
     color: var(--muted);
-    font-size: 10px;
+    font-size: 12px;
     line-height: 1.55;
 }
 
@@ -571,16 +564,16 @@
     gap: 10px;
     padding: 9px 10px;
     border: 1px solid color-mix(in srgb, var(--warning) 20%, var(--line-soft));
-    border-radius: 6px;
+    border-radius: 5px;
     color: var(--ink-soft);
     background: var(--surface);
-    font-size: 10px;
+    font-size: 12px;
 }
 
 .evidence-contradiction-row strong {
     color: var(--warning);
-    font-size: 9px;
-    text-transform: uppercase;
+    font-size: 12px;
+    text-transform: none;
 }
 
 .evidence-graph-warning {
@@ -599,7 +592,7 @@
     display: grid;
     gap: 6px;
     color: var(--muted);
-    font-size: 10px;
+    font-size: 12px;
 }
 
 .evidence-link-form select {
@@ -607,16 +600,16 @@
     height: 35px;
     padding: 0 9px;
     border: 1px solid var(--line);
-    border-radius: 6px;
+    border-radius: 5px;
     color: var(--ink-soft);
     background: var(--surface-subtle);
-    font-size: 11px;
+    font-size: 12px;
 }
 
 .evidence-link-form .button {
     height: 35px;
     padding: 0 12px;
-    font-size: 10px;
+    font-size: 12px;
     white-space: nowrap;
 }
 
@@ -635,7 +628,7 @@
     align-items: center;
     gap: 10px;
     color: var(--ink-soft);
-    font-size: 11px;
+    font-size: 12px;
 }
 
 .evidence-edge-row > span {
@@ -650,10 +643,10 @@
 
 .evidence-edge-row strong {
     padding: 5px 8px;
-    border-radius: 4px;
+    border-radius: 5px;
     color: var(--accent);
     background: var(--accent-soft);
-    font-size: 9px;
+    font-size: 12px;
     font-weight: 600;
     text-align: center;
     text-transform: capitalize;
@@ -662,7 +655,7 @@
 .evidence-edge-row .button {
     min-height: 28px;
     padding: 0 8px;
-    font-size: 10px;
+    font-size: 12px;
 }
 
 .evidence-empty {
@@ -678,7 +671,7 @@
 .evidence-empty h2 {
     margin: 14px 0 6px;
     color: var(--ink);
-    font-family: Georgia, "Times New Roman", serif;
+    font-family: "Noto Sans", sans-serif;
     font-size: 21px;
     font-weight: 500;
 }
@@ -771,7 +764,7 @@
     .evidence-edge-row {
         grid-template-columns: minmax(0, 1fr) auto;
         gap: 5px;
-        font-size: 9px;
+        font-size: 12px;
     }
 
     .evidence-edge-row strong,
