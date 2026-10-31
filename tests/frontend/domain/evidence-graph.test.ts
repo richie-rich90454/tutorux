@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { RecordType, type ArchiveRecord } from "../archive/format";
-import { createEvidenceGraphLayout } from "./evidence-graph";
+import { RecordType, type ArchiveRecord } from "../../../frontend/archive/format";
+import { createEvidenceGraphLayout } from "../../../frontend/domain/evidence-graph";
 
 const sessionId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 
