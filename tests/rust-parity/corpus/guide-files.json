@@ -1,0 +1,264 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "id": "guide.files",
+      "family": "guide",
+      "capability": "guide.duplicate",
+      "setup": [
+        {
+          "id": "student",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "student",
+            "create",
+            "--name",
+            "Guide Student",
+            "--preferred-guide-template",
+            "general"
+          ],
+          "capture": {
+            "student": "id"
+          }
+        },
+        {
+          "id": "journal",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "journal",
+            "create",
+            "--title",
+            "Guide journal",
+            "--date",
+            "2026-10-31"
+          ],
+          "capture": {
+            "entry": "id"
+          }
+        },
+        {
+          "id": "session",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "session",
+            "create",
+            "--student-id",
+            "{capture.student}",
+            "--entry-id",
+            "{capture.entry}",
+            "--title",
+            "Guide session",
+            "--subject",
+            "Mathematics",
+            "--notes",
+            "Session notes for guide generation."
+          ],
+          "capture": {
+            "session": "id"
+          }
+        },
+        {
+          "id": "entry notes",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "journal",
+            "update",
+            "{capture.entry}",
+            "--notes",
+            "Entry notes for guide generation."
+          ]
+        },
+        {
+          "id": "annotation",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "annotation",
+            "add",
+            "--session",
+            "{capture.session}",
+            "--type",
+            "important-concept",
+            "--at",
+            "00:00:01",
+            "--title",
+            "Equivalent fractions",
+            "--text",
+            "One half equals two quarters."
+          ],
+          "capture": {
+            "annotation": "id"
+          }
+        },
+        {
+          "id": "guide",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "guide",
+            "create",
+            "--session",
+            "{capture.session}",
+            "--template",
+            "general",
+            "--title",
+            "Export guide"
+          ],
+          "capture": {
+            "guide": "id"
+          }
+        }
+      ],
+      "steps": [
+        {
+          "id": "duplicate",
+          "capability": "guide.duplicate",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "guide",
+            "duplicate",
+            "{capture.guide}"
+          ],
+          "capture": {
+            "duplicate": "id"
+          },
+          "expect": {
+            "exitCode": 0,
+            "stdoutContains": [
+              "Export guide (copy)"
+            ]
+          }
+        },
+        {
+          "id": "section alias",
+          "capability": "guide.add-section",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "guide",
+            "section",
+            "{capture.duplicate}",
+            "--heading",
+            "Alias section",
+            "--text",
+            "Alias block."
+          ],
+          "expect": {
+            "exitCode": 0
+          }
+        },
+        {
+          "id": "trash duplicate",
+          "capability": "guide.trash",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "guide",
+            "delete",
+            "{capture.duplicate}"
+          ],
+          "expect": {
+            "exitCode": 0,
+            "stdoutJsonIncludes": {
+              "deleted": true
+            }
+          }
+        },
+        {
+          "id": "restore duplicate",
+          "capability": "guide.restore",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "guide",
+            "restore",
+            "{capture.duplicate}"
+          ],
+          "expect": {
+            "exitCode": 0,
+            "stdoutJsonIncludes": {
+              "deleted": false
+            }
+          }
+        },
+        {
+          "id": "export markdown",
+          "capability": "guide.export",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "guide",
+            "export",
+            "{capture.guide}",
+            "--output",
+            "{dir}/guide.md",
+            "--format",
+            "markdown"
+          ],
+          "expect": {
+            "exitCode": 0,
+            "stdoutJsonIncludes": {
+              "format": "markdown"
+            },
+            "files": [
+              {
+                "path": "{dir}/guide.md",
+                "contains": [
+                  "Export guide",
+                  "Session overview"
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "id": "export html",
+          "capability": "guide.export",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "guide",
+            "export",
+            "{capture.guide}",
+            "--output",
+            "{dir}/guide.html",
+            "--format",
+            "html"
+          ],
+          "expect": {
+            "exitCode": 0,
+            "stdoutJsonIncludes": {
+              "format": "html"
+            },
+            "files": [
+              {
+                "path": "{dir}/guide.html",
+                "contains": [
+                  "Export guide",
+                  "Session overview"
+                ]
+              }
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}
