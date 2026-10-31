@@ -166,7 +166,7 @@ pub(crate) fn run_guide_inspect(
             }
             let contents: Vec<u8> = match format.as_str() {
                 "docx" => render_guide_docx(&record, &images)?,
-                "pdf" => render_guide_pdf(&record)?,
+                "pdf" => render_guide_pdf_with_images(&record, &images)?,
                 "html" => render_guide_html(&record, &images)?.into_bytes(),
                 "json" => serialize_guide_json(&record).into_bytes(),
                 _ => render_guide_markdown(&record).into_bytes(),
