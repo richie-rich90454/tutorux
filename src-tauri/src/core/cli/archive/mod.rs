@@ -6,7 +6,7 @@ mod info;
 mod lifecycle;
 mod maintenance;
 mod sanitize;
-mod save;
+pub(crate) mod save;
 mod selection;
 
 use crate::core::cli::{
