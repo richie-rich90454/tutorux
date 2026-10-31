@@ -1,12 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { RecordType, type ArchiveRecord } from "../archive/format";
+import { RecordType, type ArchiveRecord } from "../../../frontend/archive/format";
 import {
     decodeStudentProgress,
     encodeStudentProgress,
     reviewStudentProgressRecord,
     validateProgressEvidence,
     type StudentProgressItem,
-} from "./student-progress";
+} from "../../../frontend/domain/student-progress";
 
 const studentId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const firstSessionId = "11111111-1111-4111-8111-111111111111";
