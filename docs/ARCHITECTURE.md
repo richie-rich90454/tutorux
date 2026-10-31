@@ -30,6 +30,7 @@ flowchart LR
 - `frontend/main.tsx` assembles the workspace and owns archive state. Page components under `frontend/` provide the journal, sessions, observations, transcripts, materials, evidence, guides, AI, and settings surfaces.
 - `cli/main.ts` is the entry point; command implementations live in `cli/commands/`. The CLI coordinates the same domain and archive functions with Node file I/O.
 - `src-tauri/src/main.rs` is the Rust host: authorized archive range reads, staged saves, single-instance `.tux` launch routing, native menus, credential storage, synchronized audio capture, Whisper, and streamed AI HTTP transport. Platform modules under `src-tauri/src/platform/` implement microphone, system, and application capture. The `tutorux-audio-helper` binary in the same crate provides CLI capture and device probing.
+- `src-tauri/src/runtime.rs` embeds the command runtime and both helper binaries in the desktop executable, extracts them into a versioned application-data directory on first use, and supplies their paths to the console and GGUF sidecar.
 
 ## Dependency direction
 
