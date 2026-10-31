@@ -10,8 +10,8 @@ The rewrite is feature-complete. The SolidJS, TypeScript, Tauri, and Rust implem
 - Required TypeScript pin: `6.0.3`
 - CLI entry point: `cli/main.ts`; command modules live in `cli/commands/`
 - Desktop host: `src-tauri/src/`
-- Rust package: `src-tauri/Cargo.toml` (desktop plus `tutorux-audio-helper` and `tutorux-embedded-ai` binaries)
-- The only other manifest is the vendored `src-tauri/vendor/flexaudio-mic` dependency patch.
+- Rust package: `src-tauri/Cargo.toml` (desktop binary plus the feature-gated standalone `tutorux-audio-helper`)
+- Vendored dependency patches: `src-tauri/vendor/flexaudio-mic`, `src-tauri/vendor/whisper-rs-sys`, and `src-tauri/vendor/whisper-rs`.
 - Unit tests: `tests/cli/` and `tests/frontend/`; Playwright: `tests/e2e/`
 
 ## Completed parity work
@@ -45,12 +45,14 @@ The rewrite is feature-complete. The SolidJS, TypeScript, Tauri, and Rust implem
 
 ## Dependency and build state
 
-- The desktop host and both CLI sidecars are one first-party Rust package in `src-tauri`; the vendored `flexaudio-mic` patch keeps Linux on one ALSA sys crate.
+- The desktop host and the feature-gated standalone audio helper are one first-party Rust package in `src-tauri`; the vendored `flexaudio-mic` patch keeps Linux on one ALSA sys crate.
 - `src-tauri` pins `libc = "0.2.186"` because `flexaudio-os-macos` requires that exact version.
 - `src-tauri/Cargo.toml` adds `windows-sys` for native process and memory diagnostics and `dasp_sample` for microphone level conversion.
 - `.cargo/config.toml` disables llama.cpp's optional OpenSSL discovery so MSVC does not ingest MSYS2 headers.
-- `cargo check --bins` and `cargo test --bins` pass. `pnpm run desktop:build:portable` writes a single self-contained executable to `release/Tutorux.exe`; `pnpm run desktop:build` produces MSI and NSIS installers from the same binary.
-- The portable runtime archive embeds Node, the bundled CLI dependencies, and both Rust helpers. It is extracted to the application data directory on first use. Whisper and GGUF models, FFmpeg, and `.tux` archives remain user-supplied.
+- `cargo check --bins` and `cargo test --bins` pass. `pnpm run desktop:build` produces MSI and NSIS installers containing only `tutorux-desktop.exe`; the desktop process has no runtime extraction, Node dependency, or helper sidecars.
+- GGUF inference now runs in the desktop process. The vendored `whisper-rs-sys` prefixes whisper.cpp's `ggml`/`gguf` symbols so whisper.cpp and llama.cpp can link together without the retired `tutorux-embedded-ai` sidecar. The vendored `whisper-rs` binding calls the prefixed log setter.
+- The in-app command console is not part of the desktop executable; the standalone CLI remains available through `pnpm run cli` and `pnpm run build:audio-helper`.
+- Only the system WebView is external. Whisper and GGUF models, FFmpeg, the standalone CLI runtime, and `.tux` archives remain user-supplied.
 - macOS/Linux capture permissions, ScreenCaptureKit, PipeWire, real device matrices, DPI, screen-reader review, and installer signing remain release qualification work.
 
 ## Verification
@@ -65,14 +67,12 @@ pnpm run test
 pnpm run test:e2e
 pnpm run build
 pnpm run build:audio-helper
-pnpm run build:embedded-ai
-pnpm run build:console-runtime
-pnpm run build:portable-runtime
 pnpm run desktop:build
-pnpm run desktop:build:portable
+cargo check --manifest-path src-tauri/Cargo.toml --bins
+cargo test --manifest-path src-tauri/Cargo.toml --bins
 ```
 
-Latest passed checks: `pnpm run typecheck`, `pnpm run lint` (0 errors, 46 Solid reactivity warnings), `pnpm run format:check` (oxfmt), `pnpm run test` (39 files, 245 tests), `pnpm exec playwright test` (12/12), `pnpm run build`, `cargo check --bins`, `cargo test --bins` (28 tests), `pnpm run build:audio-helper`, `pnpm run build:embedded-ai`, `pnpm run build:console-runtime`, `pnpm run build:portable-runtime`, `pnpm run desktop:build` (MSI + NSIS), and `pnpm run desktop:build:portable` (`release/Tutorux.exe`, 120.8 MiB). The portable executable was launched from an otherwise empty directory: it extracted Node v24.21.0 plus both helpers, loaded `node-llama-cpp` and `sharp`, created and inspected a `.tux` archive, and ran native audio diagnostics. `pnpm audit` still reports advisories through `node-llama-cpp@3.22.2` -> `simple-git@3.36.0` / `@simple-git/argv-parser`; the suggested fix downgrades to `node-llama-cpp@2.0.0`, which is not acceptable. Track an upstream release instead of forcing an override.
+Latest passed checks: `pnpm run typecheck`, `pnpm run lint` (0 errors, 46 Solid reactivity warnings), `pnpm run format:check` (oxfmt), `pnpm run test` (39 files, 245 tests), `pnpm exec playwright test` (12/12), `pnpm run build`, `cargo check --bins`, `cargo test --bins` (20 desktop tests) plus `cargo test --features audio-helper --bin tutorux-audio-helper` (5 tests), `pnpm run build:audio-helper`, and `pnpm run desktop:build` (MSI 12.1 MiB, NSIS 9.3 MiB). Both installers contain only `tutorux-desktop.exe`; launching the desktop binary created no application-data runtime directory. The in-process llama.cpp and whisper.cpp link was verified; real-model inference, live-microphone Whisper, and device matrices remain release qualification work. `pnpm audit` still reports advisories through `node-llama-cpp@3.22.2` -> `simple-git@3.36.0` / `@simple-git/argv-parser`; the suggested fix downgrades to `node-llama-cpp@2.0.0`, which is not acceptable. Track an upstream release instead of forcing an override.
 
 ## Commit requirements
 
