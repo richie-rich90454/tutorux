@@ -1521,33 +1521,33 @@ export function renderGuideHtml(
   <meta name="color-scheme" content="light">
   <title>${title} · Tutorux study guide</title>
   <style>
-    :root { color-scheme: light; font-family: "Noto Sans", "Segoe UI", sans-serif; color: #18211b; background: #f4f6f3; }
+    :root { color-scheme: light; font-family: "Noto Sans", sans-serif; color: #171a1c; background: #fff; }
     * { box-sizing: border-box; }
     body { margin: 0; padding: 32px 18px; }
-    .document { max-width: 860px; margin: 0 auto; padding: 54px 64px 62px; background: #fff; border: 1px solid #dfe6df; border-radius: 10px; box-shadow: 0 12px 36px rgb(19 39 27 / 8%); }
-    .document-header { padding-bottom: 26px; border-bottom: 1px solid #dfe6df; }
-    .brand { margin: 0 0 22px; color: #315b4a; font-size: 12px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+    .document { max-width: 860px; margin: 0 auto; padding: 54px 64px 62px; background: #fff; border: 1px solid #dfe3e5; border-radius: 5px; }
+    .document-header { padding-bottom: 26px; border-bottom: 1px solid #dfe3e5; }
+    .brand { margin: 0 0 22px; color: #4a6870; font-size: 12px; font-weight: 600; }
     h1 { margin: 0; font-size: clamp(30px, 5vw, 42px); line-height: 1.12; letter-spacing: -.04em; text-wrap: balance; }
-    .document-meta { margin: 12px 0 0; color: #637267; font-size: 13px; }
+    .document-meta { margin: 12px 0 0; color: #5b6468; font-size: 13px; }
     .guide-section { margin-top: 34px; break-inside: avoid-page; }
-    h2 { margin: 0 0 14px; padding-bottom: 9px; border-bottom: 1px solid #e6ebe6; font-size: 21px; letter-spacing: -.025em; }
+    h2 { margin: 0 0 14px; padding-bottom: 9px; border-bottom: 1px solid #eceff0; font-size: 21px; letter-spacing: -.025em; }
     .guide-block { margin: 0 0 18px; break-inside: avoid; }
-    .guide-block-kind { margin: 0 0 6px; color: #637267; font-size: 10px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase; }
-    .guide-text { margin: 0; color: #35443a; font-size: 14px; line-height: 1.7; white-space: pre-wrap; overflow-wrap: anywhere; }
+    .guide-block-kind { margin: 0 0 6px; color: #5b6468; font-size: 12px; font-weight: 600; }
+    .guide-text { margin: 0; color: #303639; font-size: 14px; line-height: 1.7; white-space: pre-wrap; overflow-wrap: anywhere; }
     ul { margin: 0; padding-left: 22px; }
-    blockquote { padding-left: 16px; border-left: 3px solid #9bc8aa; }
-    pre { padding: 12px 14px; border-radius: 6px; background: #f0f3ef; font: 13px/1.6 ui-monospace, "Cascadia Code", monospace; }
+    blockquote { padding-left: 16px; border-left: 3px solid #9aafb4; }
+    pre { padding: 12px 14px; border-radius: 5px; background: #f2f4f4; font: 13px/1.6 "Noto Sans", sans-serif; }
     .guide-stale { margin: 0 0 8px; padding: 9px 11px; border-left: 3px solid #9b6e2f; background: #fbf4e9; color: #704d20; font-size: 12px; line-height: 1.5; }
-    .guide-sources { margin: 8px 0 0; color: #637267; font-size: 11px; line-height: 1.5; overflow-wrap: anywhere; }
+    .guide-sources { margin: 8px 0 0; color: #5b6468; font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
     .guide-table { width: 100%; margin: 12px 0; border-collapse: collapse; font-size: 13px; line-height: 1.5; }
-    .guide-table th, .guide-table td { padding: 8px 10px; border: 1px solid #d9e0d8; text-align: left; vertical-align: top; }
-    .guide-table th { background: #edf1eb; color: #28463c; }
+    .guide-table th, .guide-table td { padding: 8px 10px; border: 1px solid #dfe3e5; text-align: left; vertical-align: top; }
+    .guide-table th { background: #f2f4f4; color: #303639; }
     .guide-figure { margin: 16px 0; text-align: center; }
     .guide-figure img { max-width: 100%; max-height: 680px; object-fit: contain; }
     .guide-figure figcaption { margin-top: 7px; color: #637267; font-size: 12px; }
-    .document-footer { margin-top: 38px; padding-top: 14px; border-top: 1px solid #dfe6df; color: #637267; font-size: 10px; }
-    @media (max-width: 620px) { body { padding: 0; } .document { padding: 32px 22px; border: 0; border-radius: 0; box-shadow: none; } }
-    @media print { :root { background: #fff; } body { padding: 0; } .document { max-width: none; margin: 0; padding: 0; border: 0; border-radius: 0; box-shadow: none; } .guide-section { margin-top: 24px; } }
+    .document-footer { margin-top: 38px; padding-top: 14px; border-top: 1px solid #dfe3e5; color: #5b6468; font-size: 12px; }
+    @media (max-width: 620px) { body { padding: 0; } .document { padding: 32px 22px; border: 0; } }
+    @media print { :root { background: #fff; } body { padding: 0; } .document { max-width: none; margin: 0; padding: 0; border: 0; } .guide-section { margin-top: 24px; } }
   </style>
 </head>
 <body>
