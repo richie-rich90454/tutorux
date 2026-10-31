@@ -2,14 +2,8 @@
     margin: -2px 0 16px;
     padding: 18px 20px;
     border: 1px solid var(--line);
-    border-radius: var(--radius);
-    background:
-        radial-gradient(
-            ellipse at 95% 0%,
-            color-mix(in srgb, var(--accent) 7%, transparent),
-            transparent 42%
-        ),
-        var(--surface);
+    border-radius: 5px;
+    background: var(--surface);
 }
 
 .journal-organizer-heading,
@@ -33,7 +27,7 @@
 .journal-organizer-empty {
     margin: 0;
     color: var(--muted);
-    font-size: 10px;
+    font-size: 12px;
     line-height: 1.6;
 }
 
@@ -54,7 +48,7 @@
     min-width: 0;
     padding: 10px 12px;
     border: 1px solid var(--line-soft);
-    border-radius: 9px;
+    border-radius: 5px;
     background: color-mix(in srgb, var(--surface) 80%, var(--surface-subtle));
 }
 
@@ -65,14 +59,14 @@
 .journal-organizer-list-heading h3 {
     margin: 0;
     color: var(--ink-soft);
-    font-size: 10px;
+    font-size: 12px;
     font-weight: 600;
 }
 
 .journal-organizer-list-heading small,
 .journal-archived-row small {
     color: var(--faint);
-    font-size: 8px;
+    font-size: 12px;
 }
 
 .journal-label-list,
@@ -103,7 +97,7 @@
     flex: 1;
     overflow: hidden;
     color: var(--ink-soft);
-    font-size: 9px;
+    font-size: 12px;
     text-overflow: ellipsis;
     white-space: nowrap;
 }
@@ -120,7 +114,7 @@
 
 .journal-organizer-empty {
     padding: 3px 0 2px;
-    font-size: 9px;
+    font-size: 12px;
 }
 
 .journal-label-editor {
@@ -130,9 +124,9 @@
     margin-top: 13px;
     padding: 14px;
     border: 1px solid color-mix(in srgb, var(--accent) 25%, var(--line));
-    border-radius: 10px;
+    border-radius: 5px;
     background: var(--surface-raised, var(--surface));
-    box-shadow: 0 8px 24px color-mix(in srgb, var(--shadow) 55%, transparent);
+    box-shadow: none;
 }
 
 .journal-label-editor-title {
@@ -170,7 +164,7 @@
     height: 30px;
     padding: 3px;
     border: 1px solid var(--line);
-    border-radius: 7px;
+    border-radius: 5px;
     background: var(--surface);
     cursor: pointer;
 }
@@ -206,7 +200,7 @@
 .journal-archived-labels summary {
     width: fit-content;
     color: var(--muted);
-    font-size: 9px;
+    font-size: 12px;
     cursor: pointer;
 }
 
@@ -220,7 +214,7 @@
     gap: 9px;
     min-height: 29px;
     color: var(--ink-soft);
-    font-size: 9px;
+    font-size: 12px;
 }
 
 .journal-archived-row > span {
@@ -234,7 +228,7 @@
     gap: 8px;
     margin: 0 0 11px;
     color: var(--muted);
-    font-size: 9px;
+    font-size: 12px;
 }
 
 .journal-filter-row select {
@@ -242,7 +236,7 @@
     height: 30px;
     padding: 0 25px 0 9px;
     border: 1px solid var(--line);
-    border-radius: 7px;
+    border-radius: 5px;
     color: var(--ink-soft);
     background: var(--surface);
     font: inherit;
@@ -260,10 +254,10 @@
     padding: 4px 7px;
     overflow: hidden;
     border: 1px solid color-mix(in srgb, var(--label-color) 22%, var(--line-soft));
-    border-radius: 99px;
+    border-radius: 5px;
     color: var(--ink-soft);
     background: color-mix(in srgb, var(--label-color) 8%, var(--surface));
-    font-size: 8px;
+    font-size: 12px;
     text-overflow: ellipsis;
     white-space: nowrap;
 }
@@ -287,13 +281,13 @@
     margin: 0;
     padding: 9px 10px 10px;
     border: 1px solid var(--line-soft);
-    border-radius: 8px;
+    border-radius: 5px;
 }
 
 .journal-link-group legend {
     padding: 0 4px;
     color: var(--ink-soft);
-    font-size: 9px;
+    font-size: 12px;
     font-weight: 600;
 }
 
@@ -307,7 +301,7 @@
     align-items: center;
     gap: 5px;
     color: var(--ink-soft);
-    font-size: 9px;
+    font-size: 12px;
     cursor: pointer;
 }
 
