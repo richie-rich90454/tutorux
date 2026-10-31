@@ -203,13 +203,11 @@ async function resolveArchiveLockHelper(): Promise<string> {
 
     const executableName =
         process.platform === "win32" ? "tutorux-audio-helper.exe" : "tutorux-audio-helper";
+    const helperTargetDirectory = join(PROJECT_DIRECTORY, "src-tauri", "target");
     const candidates = new Set<string>([
-        join(PROJECT_DIRECTORY, "native-audio-helper", "target", "debug", executableName),
-        join(PROJECT_DIRECTORY, "native-audio-helper", "target", "release", executableName),
-        join(PROJECT_DIRECTORY, "src-tauri", "target", "debug", executableName),
-        join(PROJECT_DIRECTORY, "src-tauri", "target", "release", executableName),
+        join(helperTargetDirectory, "debug", executableName),
+        join(helperTargetDirectory, "release", executableName),
     ]);
-    const helperTargetDirectory = join(PROJECT_DIRECTORY, "native-audio-helper", "target");
     for (const target of await listDirectory(helperTargetDirectory)) {
         for (const profile of ["debug", "release"]) {
             candidates.add(join(helperTargetDirectory, target, profile, executableName));
