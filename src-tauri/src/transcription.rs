@@ -98,6 +98,7 @@ fn transcribe(
     wav: Vec<u8>,
     language: String,
     diarize_speaker_turns: bool,
+    threads: u32,
     cancelled: Arc<AtomicBool>,
 ) -> Result<WhisperOutput, String> {
     if cancelled.load(Ordering::Acquire) {
@@ -152,7 +153,9 @@ fn transcribe(
         .arg("-oj")
         .arg("-of")
         .arg(&output)
-        .arg("-np");
+        .arg("-np")
+        .arg("-t")
+        .arg(threads.to_string());
     if diarize_speaker_turns {
         command.arg("-tdrz");
     }
@@ -221,9 +224,116 @@ pub async fn transcribe_whisper(
             wav,
             language,
             diarize_speaker_turns,
+            default_threads(),
             cancelled,
         )
     })
     .await
     .map_err(|_| "The transcription task could not finish.".to_owned())?
+}
+
+fn default_threads() -> u32 {
+    std::thread::available_parallelism()
+        .map(|value| u32::try_from(value.get()).unwrap_or(8).clamp(1, 8))
+        .unwrap_or(4)
+}
+
+/// Run one WAV file through whisper.cpp without a Tauri window.
+pub fn transcribe_wav(
+    executable: &str,
+    model: &str,
+    wav: Vec<u8>,
+    language: &str,
+    diarize_speaker_turns: bool,
+    threads: Option<u32>,
+    cancelled: Arc<AtomicBool>,
+) -> Result<WhisperOutput, String> {
+    let threads = threads.unwrap_or_else(default_threads);
+    if !(1..=64).contains(&threads) {
+        return Err("The Whisper thread count must be an integer from 1 through 64.".to_owned());
+    }
+    transcribe(
+        executable.to_owned(),
+        model.to_owned(),
+        wav,
+        language.to_owned(),
+        diarize_speaker_turns,
+        threads,
+        cancelled,
+    )
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WhisperCue {
+    pub start_us: i64,
+    pub end_us: i64,
+    pub text: String,
+    pub speaker_turn_next: Option<bool>,
+}
+
+/// Parse whisper.cpp `-oj` output into bounded cue offsets.
+pub fn parse_whisper_json(json: &str) -> Result<Vec<WhisperCue>, String> {    let parsed: serde_json::Value =
+        serde_json::from_str(json).map_err(|_| "Whisper returned an invalid transcript.".to_owned())?;
+    let transcription = parsed
+        .get("transcription")
+        .and_then(serde_json::Value::as_array)
+        .ok_or_else(|| "Whisper returned an invalid transcript.".to_owned())?;
+    let mut cues = Vec::with_capacity(transcription.len());
+    for value in transcription {
+        let text = value
+            .get("text")
+            .and_then(serde_json::Value::as_str)
+            .ok_or_else(|| "Whisper returned an invalid segment.".to_owned())?;
+        let offsets = value
+            .get("offsets")
+            .ok_or_else(|| "Whisper returned an invalid segment.".to_owned())?;
+        let from = offsets
+            .get("from")
+            .and_then(serde_json::Value::as_i64)
+            .ok_or_else(|| "Whisper returned an invalid segment.".to_owned())?;
+        let to = offsets
+            .get("to")
+            .and_then(serde_json::Value::as_i64)
+            .ok_or_else(|| "Whisper returned an invalid segment.".to_owned())?;
+        if from < 0 || to <= from || text.len() > 1_000_000 {
+            return Err("Whisper returned an invalid segment.".to_owned());
+        }
+        if text.trim().is_empty() {
+            continue;
+        }
+        cues.push(WhisperCue {
+            start_us: from.saturating_mul(1_000),
+            end_us: to.saturating_mul(1_000),
+            text: text.to_owned(),
+            speaker_turn_next: value
+                .get("speaker_turn_next")
+                .and_then(serde_json::Value::as_bool),
+        });
+    }
+    Ok(cues)
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::parse_whisper_json;
+
+    #[test]
+    fn parses_bounded_whisper_offsets_into_microseconds() {
+        let cues = parse_whisper_json(
+            r#"{"transcription":[{"offsets":{"from":1500,"to":2750},"text":" Hello ","speaker_turn_next":true},{"offsets":{"from":2750,"to":4000},"text":"   "}]}"#,
+        )
+        .expect("valid whisper json");
+        assert_eq!(cues.len(), 1);
+        assert_eq!(cues[0].start_us, 1_500_000);
+        assert_eq!(cues[0].end_us, 2_750_000);
+        assert_eq!(cues[0].speaker_turn_next, Some(true));
+    }
+
+    #[test]
+    fn rejects_invalid_whisper_segments() {
+        assert!(parse_whisper_json("{}").is_err());
+        assert!(parse_whisper_json(r#"{"transcription":[{"offsets":{"from":5,"to":5},"text":"x"}]}"#).is_err());
+        assert!(parse_whisper_json(r#"{"transcription":[{"offsets":{"from":0,"to":5},"text":42}]}"#).is_err());
+    }
 }
