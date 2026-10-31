@@ -1,5 +1,5 @@
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
-use reqwest::Client;
+use reqwest::{Client, Url};
 use std::{
     collections::HashMap,
     sync::{
@@ -14,13 +14,27 @@ use super::{
     replicate_http::{
         preserve_latest_response_body, request_replicate_http, ReplicateHttpResponse,
     },
-    validation::valid_replicate_request_id,
+    validation::{is_loopback_host, valid_replicate_request_id},
     AiTransportEvent, AiTransportRequest, AiTransportResult, CHANNEL_BATCH_BYTES,
 };
 
-const REPLICATE_API_ROOT: &str = "https://api.replicate.com/v1";
 const MAX_PENDING_REPLICATE_CANCELLATIONS: usize = 128;
 const PENDING_REPLICATE_CANCELLATION_TTL: Duration = Duration::from_secs(120);
+
+#[derive(Clone, Copy)]
+pub(crate) struct ReplicateLimits {
+    pub(crate) deadline: Duration,
+    pub(crate) initial_delay: Duration,
+    pub(crate) maximum_delay: Duration,
+}
+
+impl ReplicateLimits {
+    pub(crate) const PRODUCTION: Self = Self {
+        deadline: Duration::from_secs(5 * 60),
+        initial_delay: Duration::from_millis(500),
+        maximum_delay: Duration::from_secs(5),
+    };
+}
 
 static REPLICATE_CANCELLATIONS: OnceLock<Mutex<ReplicateCancellationState>> = OnceLock::new();
 
@@ -49,10 +63,13 @@ pub(super) async fn send_replicate_prediction(
     request: &AiTransportRequest,
     credential: &str,
     on_chunk: &Channel<AiTransportEvent>,
+    allow_loopback_http: bool,
+    limits: ReplicateLimits,
 ) -> Result<AiTransportResult, String> {
     if !valid_replicate_request_id(&request.replicate_request_id) {
         return Err("The Replicate request identifier is invalid.".to_owned());
     }
+    let api_root = replicate_api_root(&request.endpoint, allow_loopback_http)?;
     let cancelled = Arc::new(AtomicBool::new(false));
     let state =
         REPLICATE_CANCELLATIONS.get_or_init(|| Mutex::new(ReplicateCancellationState::default()));
@@ -87,6 +104,7 @@ pub(super) async fn send_replicate_prediction(
         credential,
         Some(&request.request_body),
         Duration::from_secs(65),
+        &api_root,
     )
     .await
     {
@@ -127,14 +145,15 @@ pub(super) async fn send_replicate_prediction(
             on_chunk,
             &prediction_id,
             credential,
+            &api_root,
             &creation,
             None,
         )
         .await;
     }
 
-    let deadline = std::time::Instant::now() + Duration::from_secs(5 * 60);
-    let mut delay = Duration::from_millis(500);
+    let deadline = std::time::Instant::now() + limits.deadline;
+    let mut delay = limits.initial_delay;
     let mut latest = creation;
     while std::time::Instant::now() < deadline {
         let sleep_until = std::time::Instant::now() + delay;
@@ -145,6 +164,7 @@ pub(super) async fn send_replicate_prediction(
                     on_chunk,
                     &prediction_id,
                     credential,
+                    &api_root,
                     &latest,
                     None,
                 )
@@ -160,12 +180,13 @@ pub(super) async fn send_replicate_prediction(
                 on_chunk,
                 &prediction_id,
                 credential,
+                &api_root,
                 &latest,
                 None,
             )
             .await;
         }
-        let poll_url = format!("{REPLICATE_API_ROOT}/predictions/{prediction_id}");
+        let poll_url = format!("{api_root}/predictions/{prediction_id}");
         let poll = match request_replicate_http(
             client,
             "GET",
@@ -173,12 +194,24 @@ pub(super) async fn send_replicate_prediction(
             credential,
             None,
             Duration::from_secs(20),
+            &api_root,
         )
         .await
         {
             Ok(response) => response,
             Err(message) => {
-                return send_replicate_result(latest, on_chunk, false, Some(message), Some(0));
+                return send_replicate_result(
+                    ReplicateHttpResponse {
+                        status: 0,
+                        content_type: "application/json".to_owned(),
+                        bytes: Vec::new(),
+                        complete: false,
+                    },
+                    on_chunk,
+                    false,
+                    Some(message),
+                    Some(0),
+                );
             }
         };
         if poll.status < 200 || poll.status >= 300 || !poll.complete {
@@ -198,7 +231,7 @@ pub(super) async fn send_replicate_prediction(
             return send_replicate_result(poll, on_chunk, true, None, None);
         }
         latest = poll;
-        delay = (delay + Duration::from_millis(500)).min(Duration::from_secs(5));
+        delay = (delay + limits.initial_delay).min(limits.maximum_delay);
     }
 
     let mut result = cancel_replicate_prediction_remote(
@@ -206,8 +239,9 @@ pub(super) async fn send_replicate_prediction(
         on_chunk,
         &prediction_id,
         credential,
+        &api_root,
         &latest,
-        Some("Replicate prediction exceeded the five-minute wait limit.".to_owned()),
+        Some("Replicate prediction timed out after five minutes.".to_owned()),
     )
     .await?;
     result.status = 408;
@@ -220,6 +254,7 @@ pub(super) async fn inspect_replicate_model(
     credential: &str,
     on_chunk: &Channel<AiTransportEvent>,
 ) -> Result<AiTransportResult, String> {
+    let api_root = replicate_origin_root(&request.endpoint, false)?;
     match request_replicate_http(
         client,
         "GET",
@@ -227,6 +262,7 @@ pub(super) async fn inspect_replicate_model(
         credential,
         None,
         Duration::from_secs(30),
+        &api_root,
     )
     .await
     {
@@ -251,10 +287,11 @@ async fn cancel_replicate_prediction_remote(
     on_chunk: &Channel<AiTransportEvent>,
     prediction_id: &str,
     credential: &str,
+    api_root: &Url,
     fallback: &ReplicateHttpResponse,
     error_message: Option<String>,
 ) -> Result<AiTransportResult, String> {
-    let cancel_url = format!("{REPLICATE_API_ROOT}/predictions/{prediction_id}/cancel");
+    let cancel_url = format!("{api_root}/predictions/{prediction_id}/cancel");
     match request_replicate_http(
         client,
         "POST",
@@ -262,6 +299,7 @@ async fn cancel_replicate_prediction_remote(
         credential,
         Some("{}"),
         Duration::from_secs(10),
+        api_root,
     )
     .await
     {
@@ -368,6 +406,47 @@ pub(super) fn cancel_replicate_request(request_id: &str) {
             );
         }
     }
+}
+
+fn replicate_api_root(endpoint: &str, allow_loopback_http: bool) -> Result<Url, String> {
+    let mut root = replicate_origin_root(endpoint, allow_loopback_http)?;
+    let url =
+        Url::parse(endpoint).map_err(|_| "The Replicate API endpoint is invalid.".to_owned())?;
+    let path = url.path();
+    let model_prediction = path
+        .strip_prefix("/v1/models/")
+        .and_then(|value| value.strip_suffix("/predictions"))
+        .is_some_and(|model| {
+            model
+                .split_once('/')
+                .is_some_and(|(owner, name)| !owner.is_empty() && !name.is_empty())
+        });
+    if path != "/v1/predictions" && !model_prediction {
+        return Err("The reviewed Replicate prediction endpoint is invalid.".to_owned());
+    }
+    root.set_path("/v1");
+    Ok(root)
+}
+
+fn replicate_origin_root(endpoint: &str, allow_loopback_http: bool) -> Result<Url, String> {
+    let mut url =
+        Url::parse(endpoint).map_err(|_| "The Replicate API endpoint is invalid.".to_owned())?;
+    let official = url.scheme() == "https"
+        && url.host_str() == Some("api.replicate.com")
+        && url.port().is_none();
+    let loopback = allow_loopback_http && url.scheme() == "http" && is_loopback_host(&url);
+    if (!official && !loopback)
+        || !url.username().is_empty()
+        || url.password().is_some()
+        || url.query().is_some()
+        || url.fragment().is_some()
+    {
+        return Err("Replicate requests are limited to its official HTTPS API origin.".to_owned());
+    }
+    url.set_query(None);
+    url.set_fragment(None);
+    url.set_path("/v1");
+    Ok(url)
 }
 
 fn valid_prediction_id(id: &str) -> bool {
