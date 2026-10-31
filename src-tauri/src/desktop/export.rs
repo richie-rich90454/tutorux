@@ -17,6 +17,12 @@ pub(crate) fn write_export_file(path: String, contents: String) -> Result<(), St
         .parent()
         .filter(|folder| !folder.as_os_str().is_empty())
         .unwrap_or_else(|| Path::new("."));
+    fs::create_dir_all(parent).map_err(|error| {
+        format!(
+            "Could not create the export folder {}: {error}",
+            parent.display()
+        )
+    })?;
     let parent = fs::canonicalize(parent)
         .map_err(|error| format!("Could not access export folder: {error}"))?;
     let filename = requested
@@ -63,4 +69,24 @@ pub(crate) fn write_export_file(path: String, contents: String) -> Result<(), St
         let _ = fs::remove_file(backup);
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::write_export_file;
+
+    #[test]
+    fn export_creates_missing_folders() {
+        let root = tempfile::tempdir().expect("temp dir");
+        let target = root.path().join("reports").join("guide.html");
+        write_export_file(
+            target.to_string_lossy().into_owned(),
+            "<p>guide</p>".to_owned(),
+        )
+        .expect("write export");
+        assert_eq!(
+            std::fs::read_to_string(&target).expect("read export"),
+            "<p>guide</p>"
+        );
+    }
 }
