@@ -12,8 +12,12 @@ use crate::core::cli::misc::providers::open_code_zen_protocol;
 use super::providers::{provider_by_id, validate_endpoint, ProviderDef};
 
 mod archive;
+mod context;
 mod generate;
+mod json;
 mod models;
+mod package;
+mod response;
 
 use archive::{cancel, import, jobs, package};
 use generate::generate;
@@ -92,7 +96,7 @@ fn configure(
     )
     .map_err(CliError)?;
     let id = crate::core::cli::records::deterministic_uuid(&format!("ai-provider:{}", provider.id));
-    let mut record = ArchiveRecord::new(
+    let record = ArchiveRecord::new(
         RecordType::SETTINGS,
         &id,
         [
@@ -104,15 +108,11 @@ fn configure(
             ("credential_storage", "memory-only".to_owned()),
         ],
     );
-    record.fields.insert("updated_at_us".to_owned(), now_us().to_string());
     let next = snapshot.append_records(&[record.clone()])?;
     crate::core::cli::records::save_replacing(path, &next)?;
-    let saved = next
-        .get_record(RecordType::SETTINGS, &id)?
-        .unwrap_or(record);
     emit(
         output,
-        crate::core::cli::records::plain(&saved),
+        crate::core::cli::records::plain(&record),
         &format!("Provider {} configured.", provider.name),
         args.json(),
     );
@@ -127,25 +127,39 @@ fn context_preview(
 ) -> CliResult<i32> {
     let snapshot = ready(path, context)?;
     let session_id = args.required_option("session")?.to_lowercase();
-    let session = snapshot
-        .get_record(RecordType::SESSION, &session_id)?
-        .filter(|record| !record.deleted())
-        .ok_or_else(|| CliError("Session was not found.".to_owned()))?;
-    let budget = parse_integer(args.option("token-budget"), "token-budget", 8192, 1, 10_000_000)?;
-    let transcript = snapshot
-        .list_records(RecordType::TRANSCRIPT_SEGMENT, false)?
-        .into_iter()
-        .filter(|record| record.field("session_id").map(str::to_lowercase) == Some(session_id.clone()))
-        .count();
+    let budget = parse_integer(
+        args.option("token-budget"),
+        "token-budget",
+        context::default_token_budget(),
+        1,
+        10_000_000,
+    )?;
+    let item_limit = parse_integer(
+        args.option("max-item-tokens"),
+        "max-item-tokens",
+        budget,
+        1,
+        budget,
+    )?;
+    let packed = context::pack(&snapshot, &session_id, budget, item_limit)?;
+    let used = packed["used_tokens"].as_u64().unwrap_or(0);
+    let included = packed["included"].as_array().map_or(0, Vec::len);
+    let omitted = packed["omitted"].as_array().map_or(0, Vec::len);
+    let rows = packed["included"]
+        .as_array()
+        .map(|rows| {
+            rows.iter()
+                .map(|row| row.to_string())
+                .collect::<Vec<_>>()
+                .join("\n")
+        })
+        .unwrap_or_default();
     emit(
         output,
-        json!({
-            "session_id": session.id,
-            "title": session.field("title").unwrap_or(""),
-            "token_budget": budget.to_string(),
-            "transcript_segments": transcript.to_string(),
-        }),
-        "AI context prepared.",
+        packed,
+        &format!(
+            "Context preview: {used} / {budget} estimated tokens; {included} included fragment(s), {omitted} omitted fragment(s).\n{rows}"
+        ),
         args.json(),
     );
     Ok(0)
@@ -167,8 +181,6 @@ fn capabilities(args: &ParsedArguments, output: &mut dyn CliOutput) -> CliResult
             "local": provider.local,
             "image_input_supported_by_protocol": image_input,
             "model_capabilities": "unknown",
-            "structured_output_support": structured_output(provider.id, model),
-            "streaming_support": if matches!(provider.id, "replicate" | "embedded-gguf") { "unsupported" } else { "supported" },
         }),
         &format!("{}: {}; model-specific capabilities are unknown.", provider.name, provider.protocol),
         args.json(),
@@ -207,7 +219,11 @@ fn estimate(
         .get_record(RecordType::AI_JOB, &job_id)?
         .filter(|record| !record.deleted())
         .ok_or_else(|| CliError("AI job was not found.".to_owned()))?;
-    if job.blob.is_empty() {
+    if (job.field("mode") != Some("local") && job.field("requested_mode") != Some("local"))
+        || job.field("format") != Some("json")
+        || job.field("status") != Some("package-ready")
+        || job.blob.is_empty()
+    {
         return Err(CliError("Ollama estimation requires a stored local JSON AI package.".to_owned()).into());
     }
     let configured = snapshot.get_record(
