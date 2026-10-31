@@ -9,6 +9,7 @@ mod native_probe;
 mod takes;
 mod wav;
 mod waveform;
+mod waveform_index;
 
 pub fn run_recording_devices(args: ParsedArguments, output: &mut dyn CliOutput) -> CliResult<i32> {
     native_audio::run_devices(args, output)
@@ -18,6 +19,41 @@ pub fn run_recording_test(args: ParsedArguments, output: &mut dyn CliOutput) -> 
     native_audio::run_test(args, output)
 }
 
+fn validate_control(action: &str, args: &ParsedArguments) -> CliResult<()> {
+    if !args.positionals.is_empty() {
+        return Err(
+            CliError(format!("record {action} does not accept positional arguments.")).into(),
+        );
+    }
+    for flag in &args.flags {
+        if flag != "json" && flag != "session" {
+            return Err(CliError(format!("record {action} does not accept --{flag}.")).into());
+        }
+    }
+    for option in args.options.keys() {
+        if option != "session" {
+            return Err(CliError(format!("record {action} does not accept --{option}.")).into());
+        }
+    }
+    if args.flag("session") {
+        return Err(CliError("--session requires a value.".to_owned()).into());
+    }
+    match args.option("session") {
+        Some(value) => {
+            if !crate::core::format::valid_uuid(value.trim()) {
+                return Err(CliError("--session must be a valid UUID.".to_owned()).into());
+            }
+        }
+        None if action != "status" => {
+            return Err(
+                CliError("Recording control requires '--session UUID'.".to_owned()).into(),
+            )
+        }
+        None => {}
+    }
+    Ok(())
+}
+
 pub fn run_record_command(
     action: &str,
     args: ParsedArguments,
@@ -25,6 +61,9 @@ pub fn run_record_command(
     path: &std::path::Path,
     context: &CliContext,
 ) -> CliResult<i32> {
+    if matches!(action, "status" | "pause" | "resume" | "stop") {
+        validate_control(action, &args)?;
+    }
     match action {
         "take-list" => takes::take_list(args, output, path, context),
         "take-rename" => takes::take_rename(args, output, path, context),
@@ -33,20 +72,16 @@ pub fn run_record_command(
         "waveform" => waveform::record_waveform(&args, output, path, context),
         "export-wav" => wav::record_export_wav(&args, output, path, context),
         "configure" => control::configure(args, output, path, context),
-        "status" => native_capture::run_status(args, output, path, context),
-        "pause" | "resume" | "stop" => native_capture::run_control(action, args, output, path, context),
+        "status" => control::status(args, output, path, context),
+        "pause" | "resume" | "stop" => control::require_detached_worker(args, path, context),
         "start" => native_capture::run_start(args, output, path, context),
-        "play" => Err(CliError(
-            "Playback requires ffplay from a host FFmpeg distribution; the Rust CLI does not bundle it."
-                .to_owned(),
-        )
-        .into()),
+        "play" => control::play(args, output, path, context),
         "mix" => control::mix(args, output, path, context),
         "import" => import::record_import(&args, output, path, context),
         "recover" => control::recover(args, output, path, context),
-        "waveform-index-build" | "waveform-index-show" => Err(CliError(
-            "Native recording control is available in the desktop application.".to_owned(),
-        )
-        .into()),        _ => Err(CliError(format!("record {action} is not implemented in the Rust CLI yet.")).into()),
+        "waveform-index-build" | "waveform-index-show" => {
+            waveform_index::run(action, &args, output, path, context)
+        }
+        _ => Err(CliError(format!("record {action} is not implemented in the Rust CLI yet.")).into()),
     }
 }
