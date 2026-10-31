@@ -2,7 +2,7 @@
 
 ## Current state
 
-The rewrite is feature-complete. The SolidJS, TypeScript, Tauri, and Rust implementation is the only application in the repository. The retired C++/Slint sources, CMake build, legacy CI workflows, and obsolete documentation have been removed.
+The GUI rewrite is feature-complete. The SolidJS, TypeScript, Tauri, and Rust implementation is the only application in the repository. The retired C++/Slint sources, CMake build, legacy CI workflows, and obsolete documentation have been removed. The in-app command console remains unavailable until the Rust core port described in `RUST-PORT-PLAN.md` is complete.
 
 - Branch: `tauri-rewrite`
 - Package manager: pnpm 12 (`pnpm-lock.yaml`)
@@ -13,6 +13,15 @@ The rewrite is feature-complete. The SolidJS, TypeScript, Tauri, and Rust implem
 - Rust package: `src-tauri/Cargo.toml` (desktop binary plus the feature-gated standalone `tutorux-audio-helper`)
 - Vendored dependency patches: `src-tauri/vendor/flexaudio-mic`, `src-tauri/vendor/whisper-rs-sys`, and `src-tauri/vendor/whisper-rs`.
 - Unit tests: `tests/cli/` and `tests/frontend/`; Playwright: `tests/e2e/`
+
+## Rust core port
+
+- Plan: `RUST-PORT-PLAN.md` (proposed, not started).
+- Target: one Rust core plus two adapters — a standalone Rust CLI and the Tauri desktop host. The in-app console will call the Rust CLI command router in-process, so it needs no Node runtime and no extraction.
+- The port starts with the shared archive/crypto/domain core, not with `cli/*` alone; porting only the CLI would duplicate roughly 61k lines of shared logic.
+- Contract sources until parity is proven: `tests/cli/`, `tests/frontend/archive/`, `tests/fixtures/encrypted-v1.tux`, the audio fixtures, and `tests/e2e/`.
+- Feature parity invariant: every core capability must be reachable from both adapters. No CLI-only or GUI-only features are allowed; the capability registry and adapter coverage tests enforce this.
+- The TypeScript CLI remains operational during the port. The desktop console stays unavailable until the Rust command router reaches parity.
 
 ## Completed parity work
 
