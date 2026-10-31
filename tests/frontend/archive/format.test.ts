@@ -14,7 +14,7 @@ import {
     encodeRecordFrame,
     encodeRecordPayload,
     type ArchiveRecord,
-} from "./format";
+} from "../../../frontend/archive/format";
 
 describe("Tutorux archive v1 encoding", () => {
     it("uses the CRC-32/IEEE check value", () => {
