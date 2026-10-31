@@ -263,7 +263,7 @@ export function ArchiveMaintenance(props: ArchiveMaintenanceProps): JSX.Element 
     return (
         <section class="surface-card archive-maintenance">
             <div class="archive-maintenance-heading">
-                <span class="eyebrow">ARCHIVE MAINTENANCE</span>
+                <span class="eyebrow">Archive maintenance</span>
                 <h2>Review and maintain</h2>
                 <p>Inspect a proposed change before applying it to the workspace.</p>
             </div>
@@ -484,7 +484,7 @@ export function ArchiveMaintenance(props: ArchiveMaintenanceProps): JSX.Element 
                         item.result.compactedBytes > BROWSER_COPY_LIMIT;
                     return (
                         <div class="archive-maintenance-review archive-maintenance-repair-copy">
-                            <span class="eyebrow">REVIEW BEFORE CREATING</span>
+                            <span class="eyebrow">Review before creating</span>
                             <h3>Create a separate repaired archive</h3>
                             <p>
                                 Output destination: <strong>{item.destination.label}</strong>
