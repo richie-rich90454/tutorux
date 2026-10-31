@@ -1,8 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { appendRecords, createArchiveBytes, openArchiveBytes } from "../archive/archive";
-import { RecordType, type ArchiveRecord } from "../archive/format";
-import { buildAudioPreview } from "./audio";
-import { makeWaveImportRecords, makeWaveImportRecordsIncremental } from "./wav";
+import {
+    appendRecords,
+    createArchiveBytes,
+    openArchiveBytes,
+} from "../../../frontend/archive/archive";
+import { RecordType, type ArchiveRecord } from "../../../frontend/archive/format";
+import { buildAudioPreview } from "../../../frontend/domain/audio";
+import {
+    makeWaveImportRecords,
+    makeWaveImportRecordsIncremental,
+} from "../../../frontend/domain/wav";
 
 describe("legacy-compatible WAV import", () => {
     it("imports multiple data chunks and plays them in their original order", async () => {
