@@ -72,13 +72,14 @@ let activeReplicateRequestId: string | null = null;
 registerReplicateCancellationHandler(async () => {
     const requestId = activeReplicateRequestId;
     if (!requestId) return;
+    const channel = new Channel<{ kind: "chunk"; base64: string }>();
     await invoke("send_ai_request", {
         request: {
             providerId: "replicate",
             replicateRequestId: requestId,
             cancelReplicateRequest: true,
         },
-        onChunk: null,
+        onChunk: channel,
     });
 });
 
