@@ -25,7 +25,7 @@ pub(super) fn models(
     let snapshot = ready(path, context)?;
     let provider = provider_or_error(args.required_option("provider")?)?;
     if provider.id == "embedded-gguf" {
-        return embedded_models(action, args, output, &snapshot);
+        return embedded_models(action, args, output, &snapshot, path);
     }
     if provider.id == "replicate" {
         return Err(CliError(
@@ -111,35 +111,238 @@ pub(super) fn embedded_models(
     args: &ParsedArguments,
     output: &mut dyn CliOutput,
     snapshot: &ArchiveSnapshot,
+    archive: &Path,
 ) -> CliResult<i32> {
-    let models: Vec<ArchiveRecord> = snapshot
+    let references: Vec<ArchiveRecord> = snapshot
         .list_records(RecordType::SETTINGS, false)?
         .into_iter()
         .filter(|record| {
             record.field("record_role") == Some("model-reference")
-                && matches!(record.field("provider"), Some("llama.cpp-embedded") | Some("embedded-gguf"))
+                && matches!(
+                    record.field("provider"),
+                    Some("llama.cpp-embedded") | Some("embedded-gguf")
+                )
         })
         .collect();
+    let requested_model = args.option("model").map(str::trim).unwrap_or("");
     if action == "test" {
+        let selected = references
+            .iter()
+            .find(|record| {
+                record.field("active") == Some("true")
+                    && (requested_model.is_empty()
+                        || record.field("model_id") == Some(requested_model))
+            })
+            .ok_or_else(|| {
+                CliError("Select an embedded GGUF model before checking the local runtime.".to_owned())
+            })?;
+        let model_path = selected.field("path").unwrap_or("");
+        if model_path.is_empty() {
+            return Err(CliError("The selected embedded model has no file path.".to_owned()).into());
+        }
+        let inspected = inspect_model(&resolve_from_archive(archive, model_path))
+            .map_err(CliError)?;
+        if !inspected.available {
+            return Err(
+                CliError("Selected model path is missing or is not a regular non-symlink file.".to_owned())
+                    .into(),
+            );
+        }
+        if inspected.format != "GGUF"
+            || inspected.architecture.is_empty()
+            || inspected.embedding_length.is_empty()
+            || inspected.layer_count.is_empty()
+        {
+            return Err(CliError(
+                "The GGUF model is missing a valid architecture or required context metadata.".to_owned(),
+            )
+            .into());
+        }
+        let context_tokens = positive_integer(selected.field("context_tokens")).unwrap_or(4096);
+        let (estimate, overflowed) = crate::embedded_ai::estimate_gguf_memory(
+            inspected.size_bytes,
+            &inspected.embedding_length,
+            &inspected.layer_count,
+            context_tokens,
+        )
+        .map_err(CliError)?;
+        let model_id = selected.field("model_id").unwrap_or("");
         emit(
             output,
             json!({
-                "provider": "embedded-gguf",
-                "status": "connected",
-                "model_count": models.len(),
+                "provider": selected.field("provider").unwrap_or("embedded-gguf"),
+                "model_id": model_id,
+                "status": "model-file-valid",
+                "network_request_sent": "false",
+                "model_loaded": "false",
+                "architecture": inspected.architecture,
+                "file_size_bytes": inspected.size_bytes.to_string(),
+                "estimated_memory_bytes_upper_bound": estimate,
+                "memory_estimate_overflowed": if overflowed { "true" } else { "false" },
+                "available_memory_bytes": "unknown",
             }),
-            &format!("Embedded GGUF runtime is available; {} model reference(s).", models.len()),
+            &format!(
+                "Embedded model file is valid: {} ({}). No model was loaded and no network request was sent.",
+                if inspected.name.is_empty() { model_id } else { &inspected.name },
+                inspected.architecture
+            ),
             args.json(),
         );
         return Ok(0);
     }
+    let mut rows = Vec::new();
+    for reference in &references {
+        let model_id = reference.field("model_id").unwrap_or("");
+        if model_id.is_empty() || (!requested_model.is_empty() && model_id != requested_model) {
+            continue;
+        }
+        let model_path = reference.field("path").unwrap_or("");
+        let inspection = if model_path.is_empty() {
+            None
+        } else {
+            inspect_model(&resolve_from_archive(archive, model_path)).ok()
+        };
+        let checked_at_us = now_us();
+        let context_window = positive_integer(reference.field("context_tokens"))
+            .or_else(|| {
+                inspection
+                    .as_ref()
+                    .and_then(|value| positive_integer(Some(value.training_context_tokens.as_str())))
+            })
+            .map(|value| value.to_string())
+            .unwrap_or_default();
+        rows.push(json!({
+            "provider_id": reference.field("provider").unwrap_or("embedded-gguf"),
+            "model_id": model_id,
+            "owner": "embedded",
+            "catalog_state": "user-selected",
+            "capabilities": "structured=unknown;streaming=unsupported;tools=unknown",
+            "protocol_family": "embedded-gguf-runtime",
+            "context_window": context_window,
+            "maximum_output_tokens": "",
+            "input_modalities": "text",
+            "output_modalities": "text",
+            "structured_output_support": "unknown",
+            "streaming_support": "unsupported",
+            "tool_support": "unknown",
+            "tokenizer_information": "unknown",
+            "pricing_information": "unknown",
+            "availability_status": "listed",
+            "verification_status": "unverified",
+            "metadata_source": "model-reference",
+            "api_family": "embedded-gguf-runtime",
+            "catalog_source": "model-reference",
+            "discovered_at_us": checked_at_us.to_string(),
+            "catalog_freshness": "local",
+            "catalog_age_seconds": "0",
+            "catalog_checked_at_us": checked_at_us.to_string(),
+            "catalog_ttl_seconds": "0",
+            "catalog_status": "user-selected",
+            "catalog_refresh_source": "model-reference",
+            "path": model_path,
+            "active": reference.field("active").unwrap_or(""),
+            "architecture": inspection
+                .as_ref()
+                .map(|value| value.architecture.clone())
+                .unwrap_or_default(),
+        }));
+    }
+    let summary = rows
+        .iter()
+        .map(|row| {
+            format!(
+                "{}  {}{}",
+                row["model_id"].as_str().unwrap_or(""),
+                row["path"].as_str().unwrap_or(""),
+                if row["active"] == "true" { "  selected" } else { "" }
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
     emit(
         output,
-        Value::Array(models.iter().map(crate::core::cli::records::plain).collect()),
-        &format!("{} embedded model reference(s).", models.len()),
+        Value::Array(rows),
+        if summary.is_empty() {
+            "No embedded GGUF models are selected in this archive. Use 'model select --provider llama.cpp-embedded --model ID --path FILE'."
+        } else {
+            &summary
+        },
         args.json(),
     );
     Ok(0)
+}
+
+struct ModelInspection {
+    available: bool,
+    size_bytes: u64,
+    format: &'static str,
+    architecture: String,
+    name: String,
+    training_context_tokens: String,
+    embedding_length: String,
+    layer_count: String,
+}
+
+fn inspect_model(path: &Path) -> Result<ModelInspection, String> {
+    let available = std::fs::symlink_metadata(path)
+        .ok()
+        .is_some_and(|metadata| metadata.is_file() && !metadata.file_type().is_symlink());
+    if !available {
+        return Ok(ModelInspection {
+            available: false,
+            size_bytes: 0,
+            format: "unknown",
+            architecture: String::new(),
+            name: String::new(),
+            training_context_tokens: String::new(),
+            embedding_length: String::new(),
+            layer_count: String::new(),
+        });
+    }
+    let size_bytes = std::fs::metadata(path)
+        .map_err(|_| "The selected model file could not be inspected.".to_owned())?
+        .len();
+    if !path.to_string_lossy().to_ascii_lowercase().ends_with(".gguf") {
+        return Ok(ModelInspection {
+            available: true,
+            size_bytes,
+            format: "unknown",
+            architecture: String::new(),
+            name: String::new(),
+            training_context_tokens: String::new(),
+            embedding_length: String::new(),
+            layer_count: String::new(),
+        });
+    }
+    let metadata = crate::embedded_ai::read_gguf_metadata(path)?;
+    Ok(ModelInspection {
+        available: true,
+        size_bytes,
+        format: "GGUF",
+        architecture: metadata.architecture,
+        name: metadata.name,
+        training_context_tokens: metadata.training_context_tokens,
+        embedding_length: metadata.embedding_length,
+        layer_count: metadata.layer_count,
+    })
+}
+
+fn positive_integer(value: Option<&str>) -> Option<u64> {
+    value
+        .and_then(|value| value.parse::<u64>().ok())
+        .filter(|value| *value > 0)
+}
+
+fn resolve_from_archive(archive: &Path, value: &str) -> std::path::PathBuf {
+    let candidate = Path::new(value);
+    if candidate.is_absolute() {
+        candidate.to_path_buf()
+    } else {
+        archive
+            .parent()
+            .unwrap_or_else(|| Path::new("."))
+            .join(candidate)
+    }
 }
 
 fn protocol_family(provider_id: &str, model: &str) -> &'static str {
