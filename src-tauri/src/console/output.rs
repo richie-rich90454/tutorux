@@ -1,6 +1,6 @@
 use serde::Serialize;
 use tauri::{AppHandle, Emitter};
-use tutorux_desktop::core::cli::CliOutput;
+use crate::core::cli::CliOutput;
 
 const MAX_OUTPUT_BYTES: usize = 256 * 1024;
 const OUTPUT_CHUNK_BYTES: usize = 8 * 1024;
