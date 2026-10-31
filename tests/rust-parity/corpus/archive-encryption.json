@@ -1,152 +1,143 @@
 {
-  "version": 1,
-  "cases": [
-    {
-      "id": "archive.encryption",
-      "family": "archive",
-      "capability": "archive.encrypt",
-      "seed": false,
-      "env": {
-        "PARITY_OLD_PASSPHRASE": "parity old passphrase",
-        "PARITY_NEW_PASSPHRASE": "parity new passphrase"
-      },
-      "compareArchivePassphraseEnv": "PARITY_NEW_PASSPHRASE",
-      "setup": [
+    "version": 1,
+    "cases": [
         {
-          "id": "init",
-          "args": [
-            "archive",
-            "init",
-            "{archive}",
-            "--name",
-            "Encrypted parity",
-            "--json"
-          ]
-        }
-      ],
-      "steps": [
-        {
-          "id": "encrypt",
-          "capability": "archive.encrypt",
-          "args": [
-            "archive",
-            "encrypt",
-            "{archive}",
-            "--new-passphrase-env",
-            "PARITY_OLD_PASSPHRASE",
-            "--json"
-          ],
-          "env": {
-            "PARITY_OLD_PASSPHRASE": "parity old passphrase"
-          },
-          "expect": {
-            "exitCode": 0,
-            "stdoutJsonIncludes": {
-              "encrypted": true,
-              "verified": true
-            }
-          }
-        },
-        {
-          "id": "unlock",
-          "capability": "archive.unlock",
-          "args": [
-            "archive",
-            "unlock",
-            "{archive}",
-            "--passphrase-env",
-            "PARITY_OLD_PASSPHRASE",
-            "--json"
-          ],
-          "expect": {
-            "exitCode": 0,
-            "stdoutJsonIncludes": {
-              "encrypted": true,
-              "status": "unlocked",
-              "verified": true
-            }
-          }
-        },
-        {
-          "id": "verify encrypted",
-          "capability": "archive.verify",
-          "args": [
-            "archive",
-            "verify",
-            "{archive}",
-            "--passphrase-env",
-            "PARITY_OLD_PASSPHRASE",
-            "--json"
-          ],
-          "expect": {
-            "exitCode": 0,
-            "stdoutJsonIncludes": {
-              "encrypted": true,
-              "valid": true,
-              "verified": true
-            }
-          }
-        },
-        {
-          "id": "change passphrase",
-          "capability": "archive.change-passphrase",
-          "args": [
-            "--passphrase-env",
-            "PARITY_OLD_PASSPHRASE",
-            "archive",
-            "change-passphrase",
-            "{archive}",
-            "--new-passphrase-env",
-            "PARITY_NEW_PASSPHRASE",
-            "--json"
-          ],
-          "expect": {
-            "exitCode": 0,
-            "stdoutJsonIncludes": {
-              "encrypted": true,
-              "verified": true
-            }
-          }
-        },
-        {
-          "id": "unlock with rotated passphrase",
-          "capability": "archive.unlock",
-          "args": [
-            "archive",
-            "unlock",
-            "{archive}",
-            "--passphrase-env",
-            "PARITY_NEW_PASSPHRASE",
-            "--json"
-          ],
-          "expect": {
-            "exitCode": 0,
-            "stdoutJsonIncludes": {
-              "status": "unlocked",
-              "verified": true
-            }
-          }
-        },
-        {
-          "id": "old passphrase rejected",
-          "capability": "archive.unlock",
-          "args": [
-            "archive",
-            "unlock",
-            "{archive}",
-            "--passphrase-env",
-            "PARITY_OLD_PASSPHRASE",
-            "--json"
-          ],
-          "expect": {
-            "exitCode": 1,
-            "stdoutJson": null,
-            "stderrContains": [
-              "assphrase"
+            "id": "archive.encryption",
+            "family": "archive",
+            "capability": "archive.encrypt",
+            "seed": false,
+            "env": {
+                "PARITY_OLD_PASSPHRASE": "parity old passphrase",
+                "PARITY_NEW_PASSPHRASE": "parity new passphrase"
+            },
+            "compareArchivePassphraseEnv": "PARITY_NEW_PASSPHRASE",
+            "setup": [
+                {
+                    "id": "init",
+                    "args": ["archive", "init", "{archive}", "--name", "Encrypted parity", "--json"]
+                }
+            ],
+            "steps": [
+                {
+                    "id": "encrypt",
+                    "capability": "archive.encrypt",
+                    "args": [
+                        "archive",
+                        "encrypt",
+                        "{archive}",
+                        "--new-passphrase-env",
+                        "PARITY_OLD_PASSPHRASE",
+                        "--json"
+                    ],
+                    "env": {
+                        "PARITY_OLD_PASSPHRASE": "parity old passphrase"
+                    },
+                    "expect": {
+                        "exitCode": 0,
+                        "stdoutJsonIncludes": {
+                            "encrypted": true,
+                            "verified": true
+                        }
+                    }
+                },
+                {
+                    "id": "unlock",
+                    "capability": "archive.unlock",
+                    "args": [
+                        "archive",
+                        "unlock",
+                        "{archive}",
+                        "--passphrase-env",
+                        "PARITY_OLD_PASSPHRASE",
+                        "--json"
+                    ],
+                    "expect": {
+                        "exitCode": 0,
+                        "stdoutJsonIncludes": {
+                            "encrypted": true,
+                            "status": "unlocked",
+                            "verified": true
+                        }
+                    }
+                },
+                {
+                    "id": "verify encrypted",
+                    "capability": "archive.verify",
+                    "args": [
+                        "archive",
+                        "verify",
+                        "{archive}",
+                        "--passphrase-env",
+                        "PARITY_OLD_PASSPHRASE",
+                        "--json"
+                    ],
+                    "expect": {
+                        "exitCode": 0,
+                        "stdoutJsonIncludes": {
+                            "encrypted": true,
+                            "valid": true,
+                            "verified": true
+                        }
+                    }
+                },
+                {
+                    "id": "change passphrase",
+                    "capability": "archive.change-passphrase",
+                    "args": [
+                        "--passphrase-env",
+                        "PARITY_OLD_PASSPHRASE",
+                        "archive",
+                        "change-passphrase",
+                        "{archive}",
+                        "--new-passphrase-env",
+                        "PARITY_NEW_PASSPHRASE",
+                        "--json"
+                    ],
+                    "expect": {
+                        "exitCode": 0,
+                        "stdoutJsonIncludes": {
+                            "encrypted": true,
+                            "verified": true
+                        }
+                    }
+                },
+                {
+                    "id": "unlock with rotated passphrase",
+                    "capability": "archive.unlock",
+                    "args": [
+                        "archive",
+                        "unlock",
+                        "{archive}",
+                        "--passphrase-env",
+                        "PARITY_NEW_PASSPHRASE",
+                        "--json"
+                    ],
+                    "expect": {
+                        "exitCode": 0,
+                        "stdoutJsonIncludes": {
+                            "status": "unlocked",
+                            "verified": true
+                        }
+                    }
+                },
+                {
+                    "id": "old passphrase rejected",
+                    "capability": "archive.unlock",
+                    "args": [
+                        "archive",
+                        "unlock",
+                        "{archive}",
+                        "--passphrase-env",
+                        "PARITY_OLD_PASSPHRASE",
+                        "--json"
+                    ],
+                    "expect": {
+                        "exitCode": 1,
+                        "stdoutJson": null,
+                        "stderrContains": ["assphrase"]
+                    }
+                }
             ]
-          }
         }
-      ]
-    }
-  ]
+    ]
 }
