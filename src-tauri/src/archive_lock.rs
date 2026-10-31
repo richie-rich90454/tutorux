@@ -1,10 +1,10 @@
+use crate::archive_lock_support::{archive_lock_key, ArchiveLock, LockMode};
 use std::{
     collections::HashMap,
     ops::{Deref, DerefMut},
     path::Path,
     sync::{Arc, Mutex, MutexGuard, Weak},
 };
-use tutorux_archive_lock::{archive_lock_key, ArchiveLock, LockMode};
 
 pub(crate) type SharedArchiveLock = Arc<Mutex<ArchiveLock>>;
 
