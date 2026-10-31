@@ -47,6 +47,7 @@ pub fn run_archive_command(
         "recover" => backup::recover(&path, &args, output, context),
         "compact" => maintenance::compact(&path, &args, output, context),
         "backfill-indexes" => maintenance::backfill(&path, &args, output, context),
+        "purge-trash" => maintenance::purge_trash(&path, &args, output, context),
         "repair" => maintenance::repair(&path, &args, output, context),
         "rebuild-index" => maintenance::rebuild_index(&path, &args, output, context),
         "sanitize" => sanitize::run(&path, &args, output, context),
@@ -60,3 +61,5 @@ pub fn run_archive_command(
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_maintenance;
