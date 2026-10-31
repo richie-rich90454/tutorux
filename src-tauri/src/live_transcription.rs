@@ -744,7 +744,6 @@ fn start_worker(
                 }
             }
             windows.samples.fill(0.0);
-            resampler.previous_sample = None;
             if thread_cancelled.load(Ordering::Acquire) {
                 set_terminal(&thread_shared, "cancelled", None);
             }
