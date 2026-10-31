@@ -1,496 +1,463 @@
 {
-  "version": 1,
-  "cases": [
-    {
-      "id": "journal.organizer",
-      "family": "journal",
-      "capability": "journal.collection.list",
-      "setup": [
+    "version": 1,
+    "cases": [
         {
-          "id": "collection",
-          "args": [
-            "--archive",
-            "{archive}",
-            "--json",
-            "journal",
-            "collection",
-            "create",
-            "--name",
-            "Fractions",
-            "--description",
-            "Fraction work",
-            "--color",
-            "#336699"
-          ],
-          "capture": {
-            "collection": "id"
-          }
-        },
-        {
-          "id": "tag",
-          "args": [
-            "--archive",
-            "{archive}",
-            "--json",
-            "journal",
-            "tag",
-            "create",
-            "--name",
-            "Review",
-            "--color",
-            "#cc5500"
-          ],
-          "capture": {
-            "tag": "id"
-          }
-        },
-        {
-          "id": "entry",
-          "args": [
-            "--archive",
-            "{archive}",
-            "--json",
-            "journal",
-            "create",
-            "--title",
-            "Journal seed",
-            "--date",
-            "2026-10-31",
-            "--collection-ids",
-            "{capture.collection}",
-            "--tag-ids",
-            "{capture.tag}"
-          ],
-          "capture": {
-            "entry": "id",
-            "notes": "notes_document_id"
-          }
-        },
-        {
-          "id": "linked session",
-          "args": [
-            "--archive",
-            "{archive}",
-            "--json",
-            "session",
-            "create",
-            "--entry-id",
-            "{capture.entry}",
-            "--title",
-            "Linked session"
-          ],
-          "capture": {
-            "session": "id"
-          }
-        }
-      ],
-      "steps": [
-        {
-          "id": "collection list",
-          "capability": "journal.collection.list",
-          "args": [
-            "--archive",
-            "{archive}",
-            "--json",
-            "journal",
-            "collection",
-            "list"
-          ],
-          "expect": {
-            "exitCode": 0,
-            "stdoutContains": [
-              "Fractions"
-            ]
-          }
-        },
-        {
-          "id": "collection create",
-          "capability": "journal.collection.create",
-          "args": [
-            "--archive",
-            "{archive}",
-            "--json",
-            "journal",
-            "collection",
-            "create",
-            "--name",
-            "Geometry",
-            "--description",
-            "Shapes",
-            "--color",
-            "#008844"
-          ],
-          "capture": {
-            "collection2": "id"
-          },
-          "expect": {
-            "exitCode": 0,
-            "stdoutJsonIncludes": {
-              "record_role": "journal-collection",
-              "name": "Geometry"
-            }
-          }
-        },
-        {
-          "id": "collection show",
-          "capability": "journal.collection.show",
-          "args": [
-            "--archive",
-            "{archive}",
-            "--json",
-            "journal",
-            "collection",
-            "show",
-            "{capture.collection2}"
-          ],
-          "expect": {
-            "exitCode": 0,
-            "stdoutJsonIncludes": {
-              "name": "Geometry",
-              "description": "Shapes"
-            }
-          }
-        },
-        {
-          "id": "collection update",
-          "capability": "journal.collection.update",
-          "args": [
-            "--archive",
-            "{archive}",
-            "--json",
-            "journal",
-            "collection",
-            "update",
-            "{capture.collection2}",
-            "--name",
-            "Geometry and measures",
-            "--color",
-            "#880088"
-          ],
-          "expect": {
-            "exitCode": 0,
-            "stdoutJsonIncludes": {
-              "name": "Geometry and measures"
-            }
-          }
-        },
-        {
-          "id": "collection delete",
-          "capability": "journal.collection.delete",
-          "args": [
-            "--archive",
-            "{archive}",
-            "--json",
-            "journal",
-            "collection",
-            "delete",
-            "{capture.collection2}"
-          ],
-          "expect": {
-            "exitCode": 0,
-            "stdoutJsonIncludes": {
-              "status": "deleted"
-            }
-          }
-        },
-        {
-          "id": "collection restore",
-          "capability": "journal.collection.restore",
-          "args": [
-            "--archive",
-            "{archive}",
-            "--json",
-            "journal",
-            "collection",
-            "restore",
-            "{capture.collection2}"
-          ],
-          "expect": {
-            "exitCode": 0,
-            "stdoutJsonIncludes": {
-              "status": "restored"
-            }
-          }
-        },
-        {
-          "id": "tag list",
-          "capability": "journal.tag.list",
-          "args": [
-            "--archive",
-            "{archive}",
-            "--json",
-            "journal",
-            "tag",
-            "list"
-          ],
-          "expect": {
-            "exitCode": 0,
-            "stdoutContains": [
-              "Review"
-            ]
-          }
-        },
-        {
-          "id": "tag create",
-          "capability": "journal.tag.create",
-          "args": [
-            "--archive",
-            "{archive}",
-            "--json",
-            "journal",
-            "tag",
-            "create",
-            "--name",
-            "Homework",
-            "--color",
-            "#004488"
-          ],
-          "capture": {
-            "tag2": "id"
-          },
-          "expect": {
-            "exitCode": 0,
-            "stdoutJsonIncludes": {
-              "record_role": "journal-tag",
-              "name": "Homework"
-            }
-          }
-        },
-        {
-          "id": "tag show",
-          "capability": "journal.tag.show",
-          "args": [
-            "--archive",
-            "{archive}",
-            "--json",
-            "journal",
-            "tag",
-            "show",
-            "{capture.tag2}"
-          ],
-          "expect": {
-            "exitCode": 0,
-            "stdoutJsonIncludes": {
-              "name": "Homework"
-            }
-          }
-        },
-        {
-          "id": "tag update",
-          "capability": "journal.tag.update",
-          "args": [
-            "--archive",
-            "{archive}",
-            "--json",
-            "journal",
-            "tag",
-            "update",
-            "{capture.tag2}",
-            "--name",
-            "Home practice",
-            "--color",
-            "#884400"
-          ],
-          "expect": {
-            "exitCode": 0,
-            "stdoutJsonIncludes": {
-              "name": "Home practice"
-            }
-          }
-        },
-        {
-          "id": "tag delete",
-          "capability": "journal.tag.delete",
-          "args": [
-            "--archive",
-            "{archive}",
-            "--json",
-            "journal",
-            "tag",
-            "delete",
-            "{capture.tag2}"
-          ],
-          "expect": {
-            "exitCode": 0,
-            "stdoutJsonIncludes": {
-              "status": "deleted"
-            }
-          }
-        },
-        {
-          "id": "tag restore",
-          "capability": "journal.tag.restore",
-          "args": [
-            "--archive",
-            "{archive}",
-            "--json",
-            "journal",
-            "tag",
-            "restore",
-            "{capture.tag2}"
-          ],
-          "expect": {
-            "exitCode": 0,
-            "stdoutJsonIncludes": {
-              "status": "restored"
-            }
-          }
-        }
-      ]
-    },
-    {
-      "id": "journal.entry-aliases",
-      "family": "journal",
-      "capability": "journal.create",
-      "steps": [
-        {
-          "id": "entry create alias",
-          "capability": "journal.create",
-          "args": [
-            "--archive",
-            "{archive}",
-            "--json",
-            "journal",
-            "entry",
-            "create",
-            "--title",
-            "Alias entry",
-            "--date",
-            "2026-10-30"
-          ],
-          "capture": {
-            "entry": "id"
-          },
-          "expect": {
-            "exitCode": 0,
-            "stdoutJsonIncludes": {
-              "title": "Alias entry",
-              "record_role": "journal-entry"
-            }
-          }
-        },
-        {
-          "id": "entry update alias",
-          "capability": "journal.update",
-          "args": [
-            "--archive",
-            "{archive}",
-            "--json",
-            "journal",
-            "entry",
-            "update",
-            "{capture.entry}",
-            "--title",
-            "Alias updated",
-            "--notes",
-            "Alias notes"
-          ],
-          "expect": {
-            "exitCode": 0,
-            "stdoutJsonIncludes": {
-              "title": "Alias updated"
-            }
-          }
-        },
-        {
-          "id": "entry list alias",
-          "capability": "journal.list",
-          "args": [
-            "--archive",
-            "{archive}",
-            "--json",
-            "journal",
-            "entry",
-            "list"
-          ],
-          "expect": {
-            "exitCode": 0,
-            "stdoutContains": [
-              "Alias updated"
-            ]
-          }
-        },
-        {
-          "id": "entry search alias",
-          "capability": "journal.search",
-          "args": [
-            "--archive",
-            "{archive}",
-            "--json",
-            "journal",
-            "entry",
-            "search",
-            "--query",
-            "Alias"
-          ],
-          "expect": {
-            "exitCode": 0,
-            "stdoutContains": [
-              "Alias updated"
-            ]
-          }
-        },
-        {
-          "id": "entry show alias",
-          "capability": "journal.show",
-          "args": [
-            "--archive",
-            "{archive}",
-            "--json",
-            "journal",
-            "entry",
-            "show",
-            "{capture.entry}"
-          ],
-          "expect": {
-            "exitCode": 0,
-            "stdoutJsonIncludes": {
-              "notes_text": "Alias notes"
-            }
-          }
-        },
-        {
-          "id": "entry delete alias",
-          "capability": "journal.delete",
-          "args": [
-            "--archive",
-            "{archive}",
-            "--json",
-            "journal",
-            "entry",
-            "delete",
-            "{capture.entry}"
-          ],
-          "expect": {
-            "exitCode": 0,
-            "stdoutJsonIncludes": {
-              "_deleted": "true"
-            }
-          }
-        },
-        {
-          "id": "entry restore alias",
-          "capability": "journal.restore",
-          "args": [
-            "--archive",
-            "{archive}",
-            "--json",
-            "journal",
-            "entry",
-            "restore",
-            "{capture.entry}"
-          ],
-          "expect": {
-            "exitCode": 0,
-            "stdoutContains": [
-              "Alias updated"
+            "id": "journal.organizer",
+            "family": "journal",
+            "capability": "journal.collection.list",
+            "setup": [
+                {
+                    "id": "collection",
+                    "args": [
+                        "--archive",
+                        "{archive}",
+                        "--json",
+                        "journal",
+                        "collection",
+                        "create",
+                        "--name",
+                        "Fractions",
+                        "--description",
+                        "Fraction work",
+                        "--color",
+                        "#336699"
+                    ],
+                    "capture": {
+                        "collection": "id"
+                    }
+                },
+                {
+                    "id": "tag",
+                    "args": [
+                        "--archive",
+                        "{archive}",
+                        "--json",
+                        "journal",
+                        "tag",
+                        "create",
+                        "--name",
+                        "Review",
+                        "--color",
+                        "#cc5500"
+                    ],
+                    "capture": {
+                        "tag": "id"
+                    }
+                },
+                {
+                    "id": "entry",
+                    "args": [
+                        "--archive",
+                        "{archive}",
+                        "--json",
+                        "journal",
+                        "create",
+                        "--title",
+                        "Journal seed",
+                        "--date",
+                        "2026-10-31",
+                        "--collection-ids",
+                        "{capture.collection}",
+                        "--tag-ids",
+                        "{capture.tag}"
+                    ],
+                    "capture": {
+                        "entry": "id",
+                        "notes": "notes_document_id"
+                    }
+                },
+                {
+                    "id": "linked session",
+                    "args": [
+                        "--archive",
+                        "{archive}",
+                        "--json",
+                        "session",
+                        "create",
+                        "--entry-id",
+                        "{capture.entry}",
+                        "--title",
+                        "Linked session"
+                    ],
+                    "capture": {
+                        "session": "id"
+                    }
+                }
             ],
-            "stdoutNotContains": [
-              "\"_deleted\": \"true\""
+            "steps": [
+                {
+                    "id": "collection list",
+                    "capability": "journal.collection.list",
+                    "args": ["--archive", "{archive}", "--json", "journal", "collection", "list"],
+                    "expect": {
+                        "exitCode": 0,
+                        "stdoutContains": ["Fractions"]
+                    }
+                },
+                {
+                    "id": "collection create",
+                    "capability": "journal.collection.create",
+                    "args": [
+                        "--archive",
+                        "{archive}",
+                        "--json",
+                        "journal",
+                        "collection",
+                        "create",
+                        "--name",
+                        "Geometry",
+                        "--description",
+                        "Shapes",
+                        "--color",
+                        "#008844"
+                    ],
+                    "capture": {
+                        "collection2": "id"
+                    },
+                    "expect": {
+                        "exitCode": 0,
+                        "stdoutJsonIncludes": {
+                            "record_role": "journal-collection",
+                            "name": "Geometry"
+                        }
+                    }
+                },
+                {
+                    "id": "collection show",
+                    "capability": "journal.collection.show",
+                    "args": [
+                        "--archive",
+                        "{archive}",
+                        "--json",
+                        "journal",
+                        "collection",
+                        "show",
+                        "{capture.collection2}"
+                    ],
+                    "expect": {
+                        "exitCode": 0,
+                        "stdoutJsonIncludes": {
+                            "name": "Geometry",
+                            "description": "Shapes"
+                        }
+                    }
+                },
+                {
+                    "id": "collection update",
+                    "capability": "journal.collection.update",
+                    "args": [
+                        "--archive",
+                        "{archive}",
+                        "--json",
+                        "journal",
+                        "collection",
+                        "update",
+                        "{capture.collection2}",
+                        "--name",
+                        "Geometry and measures",
+                        "--color",
+                        "#880088"
+                    ],
+                    "expect": {
+                        "exitCode": 0,
+                        "stdoutJsonIncludes": {
+                            "name": "Geometry and measures"
+                        }
+                    }
+                },
+                {
+                    "id": "collection delete",
+                    "capability": "journal.collection.delete",
+                    "args": [
+                        "--archive",
+                        "{archive}",
+                        "--json",
+                        "journal",
+                        "collection",
+                        "delete",
+                        "{capture.collection2}"
+                    ],
+                    "expect": {
+                        "exitCode": 0,
+                        "stdoutJsonIncludes": {
+                            "status": "deleted"
+                        }
+                    }
+                },
+                {
+                    "id": "collection restore",
+                    "capability": "journal.collection.restore",
+                    "args": [
+                        "--archive",
+                        "{archive}",
+                        "--json",
+                        "journal",
+                        "collection",
+                        "restore",
+                        "{capture.collection2}"
+                    ],
+                    "expect": {
+                        "exitCode": 0,
+                        "stdoutJsonIncludes": {
+                            "status": "restored"
+                        }
+                    }
+                },
+                {
+                    "id": "tag list",
+                    "capability": "journal.tag.list",
+                    "args": ["--archive", "{archive}", "--json", "journal", "tag", "list"],
+                    "expect": {
+                        "exitCode": 0,
+                        "stdoutContains": ["Review"]
+                    }
+                },
+                {
+                    "id": "tag create",
+                    "capability": "journal.tag.create",
+                    "args": [
+                        "--archive",
+                        "{archive}",
+                        "--json",
+                        "journal",
+                        "tag",
+                        "create",
+                        "--name",
+                        "Homework",
+                        "--color",
+                        "#004488"
+                    ],
+                    "capture": {
+                        "tag2": "id"
+                    },
+                    "expect": {
+                        "exitCode": 0,
+                        "stdoutJsonIncludes": {
+                            "record_role": "journal-tag",
+                            "name": "Homework"
+                        }
+                    }
+                },
+                {
+                    "id": "tag show",
+                    "capability": "journal.tag.show",
+                    "args": [
+                        "--archive",
+                        "{archive}",
+                        "--json",
+                        "journal",
+                        "tag",
+                        "show",
+                        "{capture.tag2}"
+                    ],
+                    "expect": {
+                        "exitCode": 0,
+                        "stdoutJsonIncludes": {
+                            "name": "Homework"
+                        }
+                    }
+                },
+                {
+                    "id": "tag update",
+                    "capability": "journal.tag.update",
+                    "args": [
+                        "--archive",
+                        "{archive}",
+                        "--json",
+                        "journal",
+                        "tag",
+                        "update",
+                        "{capture.tag2}",
+                        "--name",
+                        "Home practice",
+                        "--color",
+                        "#884400"
+                    ],
+                    "expect": {
+                        "exitCode": 0,
+                        "stdoutJsonIncludes": {
+                            "name": "Home practice"
+                        }
+                    }
+                },
+                {
+                    "id": "tag delete",
+                    "capability": "journal.tag.delete",
+                    "args": [
+                        "--archive",
+                        "{archive}",
+                        "--json",
+                        "journal",
+                        "tag",
+                        "delete",
+                        "{capture.tag2}"
+                    ],
+                    "expect": {
+                        "exitCode": 0,
+                        "stdoutJsonIncludes": {
+                            "status": "deleted"
+                        }
+                    }
+                },
+                {
+                    "id": "tag restore",
+                    "capability": "journal.tag.restore",
+                    "args": [
+                        "--archive",
+                        "{archive}",
+                        "--json",
+                        "journal",
+                        "tag",
+                        "restore",
+                        "{capture.tag2}"
+                    ],
+                    "expect": {
+                        "exitCode": 0,
+                        "stdoutJsonIncludes": {
+                            "status": "restored"
+                        }
+                    }
+                }
             ]
-          }
+        },
+        {
+            "id": "journal.entry-aliases",
+            "family": "journal",
+            "capability": "journal.create",
+            "steps": [
+                {
+                    "id": "entry create alias",
+                    "capability": "journal.create",
+                    "args": [
+                        "--archive",
+                        "{archive}",
+                        "--json",
+                        "journal",
+                        "entry",
+                        "create",
+                        "--title",
+                        "Alias entry",
+                        "--date",
+                        "2026-10-30"
+                    ],
+                    "capture": {
+                        "entry": "id"
+                    },
+                    "expect": {
+                        "exitCode": 0,
+                        "stdoutJsonIncludes": {
+                            "title": "Alias entry",
+                            "record_role": "journal-entry"
+                        }
+                    }
+                },
+                {
+                    "id": "entry update alias",
+                    "capability": "journal.update",
+                    "args": [
+                        "--archive",
+                        "{archive}",
+                        "--json",
+                        "journal",
+                        "entry",
+                        "update",
+                        "{capture.entry}",
+                        "--title",
+                        "Alias updated",
+                        "--notes",
+                        "Alias notes"
+                    ],
+                    "expect": {
+                        "exitCode": 0,
+                        "stdoutJsonIncludes": {
+                            "title": "Alias updated"
+                        }
+                    }
+                },
+                {
+                    "id": "entry list alias",
+                    "capability": "journal.list",
+                    "args": ["--archive", "{archive}", "--json", "journal", "entry", "list"],
+                    "expect": {
+                        "exitCode": 0,
+                        "stdoutContains": ["Alias updated"]
+                    }
+                },
+                {
+                    "id": "entry search alias",
+                    "capability": "journal.search",
+                    "args": [
+                        "--archive",
+                        "{archive}",
+                        "--json",
+                        "journal",
+                        "entry",
+                        "search",
+                        "--query",
+                        "Alias"
+                    ],
+                    "expect": {
+                        "exitCode": 0,
+                        "stdoutContains": ["Alias updated"]
+                    }
+                },
+                {
+                    "id": "entry show alias",
+                    "capability": "journal.show",
+                    "args": [
+                        "--archive",
+                        "{archive}",
+                        "--json",
+                        "journal",
+                        "entry",
+                        "show",
+                        "{capture.entry}"
+                    ],
+                    "expect": {
+                        "exitCode": 0,
+                        "stdoutJsonIncludes": {
+                            "notes_text": "Alias notes"
+                        }
+                    }
+                },
+                {
+                    "id": "entry delete alias",
+                    "capability": "journal.delete",
+                    "args": [
+                        "--archive",
+                        "{archive}",
+                        "--json",
+                        "journal",
+                        "entry",
+                        "delete",
+                        "{capture.entry}"
+                    ],
+                    "expect": {
+                        "exitCode": 0,
+                        "stdoutJsonIncludes": {
+                            "_deleted": "true"
+                        }
+                    }
+                },
+                {
+                    "id": "entry restore alias",
+                    "capability": "journal.restore",
+                    "args": [
+                        "--archive",
+                        "{archive}",
+                        "--json",
+                        "journal",
+                        "entry",
+                        "restore",
+                        "{capture.entry}"
+                    ],
+                    "expect": {
+                        "exitCode": 0,
+                        "stdoutContains": ["Alias updated"],
+                        "stdoutNotContains": ["\"_deleted\": \"true\""]
+                    }
+                }
+            ]
         }
-      ]
-    }
-  ]
+    ]
 }
