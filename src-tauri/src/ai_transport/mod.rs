@@ -5,6 +5,10 @@ mod validation;
 pub mod headless;
 
 #[cfg(test)]
+mod http_mock;
+#[cfg(test)]
+mod http_tests;
+#[cfg(test)]
 mod tests;
 
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
@@ -19,7 +23,9 @@ use std::time::Duration;
 use tauri::ipc::Channel;
 use zeroize::{Zeroize, Zeroizing};
 
-use replicate::{cancel_replicate_request, inspect_replicate_model, send_replicate_prediction};
+use replicate::{
+    cancel_replicate_request, inspect_replicate_model, send_replicate_prediction, ReplicateLimits,
+};
 use validation::{
     constant_time_equal, is_local_provider, open_code_zen_protocol_for_model, validate_credential,
     validate_replicate_model_inspection, validate_request,
@@ -95,10 +101,39 @@ pub struct AiTransportResult {
     pub(crate) error_message: Option<String>,
 }
 
+#[derive(Clone, Copy)]
+pub(crate) struct TransportPolicy {
+    allow_loopback_http: bool,
+    replicate_limits: ReplicateLimits,
+}
+
+impl TransportPolicy {
+    pub(crate) const STRICT: Self = Self {
+        allow_loopback_http: false,
+        replicate_limits: ReplicateLimits::PRODUCTION,
+    };
+
+    #[cfg(test)]
+    pub(crate) fn loopback(limits: ReplicateLimits) -> Self {
+        Self {
+            allow_loopback_http: true,
+            replicate_limits: limits,
+        }
+    }
+}
+
 #[tauri::command]
 pub async fn send_ai_request(
+    request: AiTransportRequest,
+    on_chunk: Channel<AiTransportEvent>,
+) -> Result<AiTransportResult, String> {
+    send_reviewed(request, on_chunk, TransportPolicy::STRICT).await
+}
+
+pub(crate) async fn send_reviewed(
     mut request: AiTransportRequest,
     on_chunk: Channel<AiTransportEvent>,
+    policy: TransportPolicy,
 ) -> Result<AiTransportResult, String> {
     if request.cancel_replicate_request {
         if request.provider_id != "replicate"
@@ -161,7 +196,7 @@ pub async fn send_ai_request(
         request.credential.zeroize();
         return Err("The request changed after review. Prepare and review it again.".to_owned());
     }
-    validate_request(&request)?;
+    validate_request(&request, policy)?;
 
     let credential = match request.credential_storage {
         CredentialStorage::None => Zeroizing::new(String::new()),
@@ -189,7 +224,7 @@ pub async fn send_ai_request(
         .connect_timeout(Duration::from_secs(20))
         .read_timeout(Duration::from_secs(120))
         .timeout(Duration::from_secs(600));
-    if local {
+    if local || (policy.allow_loopback_http && validation::is_loopback_host(&endpoint)) {
         client_builder = client_builder.no_proxy();
     }
     let client = client_builder
@@ -197,8 +232,15 @@ pub async fn send_ai_request(
         .map_err(|_| "The secure provider connection could not be initialized.".to_owned())?;
 
     if provider_id == "replicate" {
-        let result = send_replicate_prediction(&client, &request, &credential, &on_chunk).await;
-        return result;
+        return send_replicate_prediction(
+            &client,
+            &request,
+            &credential,
+            &on_chunk,
+            policy.allow_loopback_http,
+            policy.replicate_limits,
+        )
+        .await;
     }
 
     let mut builder = client
