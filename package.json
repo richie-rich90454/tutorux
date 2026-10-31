@@ -15,6 +15,7 @@
         "build": "pnpm run typecheck && vite build --mode web",
         "build:desktop": "pnpm run typecheck && vite build --mode desktop",
         "build:audio-helper": "node scripts/build-audio-helper.mjs",
+        "build:embedded-ai": "node scripts/build-embedded-ai.mjs",
         "build:console-runtime": "node scripts/build-console-runtime.mjs",
         "preview": "vite preview --host 127.0.0.1 --port 1420 --strictPort",
         "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.node.json",
