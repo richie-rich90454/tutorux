@@ -1,21 +1,29 @@
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::atomic::AtomicBool;
-use std::sync::{mpsc, Arc, Mutex, OnceLock};
-
-use serde_json::json;
+use std::sync::{mpsc, Mutex, OnceLock};
 
 use crate::core::archive::ArchiveSnapshot;
-use crate::core::cli::{emit, open_archive, CliContext, CliError, CliOutput, CliResult, ParsedArguments};
+use crate::core::cli::{open_archive, CliContext, CliError, CliResult};
 use crate::core::format::{ArchiveRecord, RecordType};
 use crate::platform::synchronized_audio::headless::HeadlessDevice;
 
+mod control_files;
+mod detach;
+mod ffmpeg_capture;
 mod start;
+mod start_options;
 mod whisper;
+mod whisper_wav;
 mod worker;
 mod writer;
 
+pub(super) use control_files::{
+    clear as clear_control_files, read_status as read_worker_status,
+    write_command as write_worker_command, WorkerStatus,
+};
 pub use start::run_start;
+use ffmpeg_capture::FfmpegPlan;
 use worker::capture_worker;
 
 pub(super) const DEFAULT_DURATION_SECONDS: u64 = 0;
@@ -26,19 +34,15 @@ static REGISTRY: OnceLock<Mutex<HashMap<String, RegistryEntry>>> = OnceLock::new
 #[derive(Clone)]
 pub(super) struct RegistryEntry {
     pub(super) commands: mpsc::Sender<CaptureCommand>,
-    pub(super) status: Arc<Mutex<CaptureStatus>>,
 }
 
 #[derive(Clone)]
 pub(super) struct CaptureStatus {
-    pub(super) session_id: String,
     pub(super) state: String,
     pub(super) message: String,
 }
 
 pub(super) enum CaptureCommand {
-    Pause(mpsc::Sender<Result<(), String>>),
-    Resume(mpsc::Sender<Result<(), String>>),
     Stop(mpsc::Sender<()>),
 }
 
@@ -57,190 +61,24 @@ pub(super) struct CaptureConfig {
     pub(super) whisper: Option<WhisperRequest>,
 }
 
+pub(super) struct CaptureSources {
+    pub(super) microphone_id: Option<String>,
+    pub(super) system_id: Option<String>,
+    pub(super) application_id: Option<String>,
+    pub(super) ffmpeg: Option<FfmpegPlan>,
+}
+
 pub(super) struct WhisperRequest {
     pub(super) executable: String,
     pub(super) model: String,
     pub(super) language: String,
     pub(super) threads: Option<u32>,
     pub(super) diarize: bool,
+    pub(super) window_seconds: u32,
 }
 
 pub(super) fn registry() -> &'static Mutex<HashMap<String, RegistryEntry>> {
     REGISTRY.get_or_init(|| Mutex::new(HashMap::new()))
-}
-
-pub fn run_status(
-    args: ParsedArguments,
-    output: &mut dyn CliOutput,
-    path: &Path,
-    context: &CliContext,
-) -> CliResult<i32> {
-    if !args.positionals.is_empty() {
-        return Err(CliError("record status does not accept positional arguments.".to_owned()).into());
-    }
-    let Some(session_id) = args.option("session").map(str::to_lowercase) else {
-        let snapshot = open_ready(path, context)?;
-        let active = snapshot
-            .list_records(RecordType::SESSION, false)?
-            .iter()
-            .filter(|session| is_archive_active(session.field("recording_state").unwrap_or("")))
-            .count();
-        emit(
-            output,
-            json!({"active_recordings": active.to_string()}),
-            &format!("Active recording sessions: {active}."),
-            args.json(),
-        );
-        return Ok(0);
-    };
-    if let Some(status) = registered_status(&session_id) {
-        emit(
-            output,
-            json!({
-                "sessionId": status.session_id,
-                "state": status.state,
-                "message": status.message,
-                "worker": "in-process",
-            }),
-            &format!("Recording state: {}\n{}", status.state, status.message),
-            args.json(),
-        );
-        return Ok(0);
-    }
-    let snapshot = open_ready(path, context)?;
-    let session = require_session(&snapshot, &session_id)?;
-    let raw_state = session.field("recording_state").unwrap_or("not-started");
-    let state = match raw_state {
-        "starting" | "initializing" | "recording" | "paused" | "finalizing" | "completed"
-        | "interrupted" | "failed" | "partial" => raw_state,
-        _ => "not-started",
-    };
-    let message = session
-        .field("recording_error")
-        .filter(|value| !value.is_empty())
-        .map(str::to_owned)
-        .unwrap_or_else(|| {
-            format!("Archive recording state is '{raw_state}'. No in-process worker is connected.")
-        });
-    emit(
-        output,
-        json!({
-            "sessionId": session_id,
-            "state": state,
-            "message": message,
-            "worker": "not-running",
-        }),
-        &format!("Recording state: {state}\n{message}"),
-        args.json(),
-    );
-    Ok(0)
-}
-
-pub fn run_control(
-    action: &str,
-    args: ParsedArguments,
-    output: &mut dyn CliOutput,
-    path: &Path,
-    context: &CliContext,
-) -> CliResult<i32> {
-    if !args.positionals.is_empty() {
-        return Err(CliError(format!("record {action} does not accept positional arguments.")).into());
-    }
-    for flag in &args.flags {
-        if flag != "json" && flag != "session" {
-            return Err(CliError(format!("record {action} does not accept --{flag}.")).into());
-        }
-    }
-    for option in args.options.keys() {
-        if option != "session" {
-            return Err(CliError(format!("record {action} does not accept --{option}.")).into());
-        }
-    }
-    if args.flags.contains("session") {
-        return Err(CliError("--session requires a value.".to_owned()).into());
-    }
-    let session_id = args.required_option("session")?.to_lowercase();
-    let Some(entry) = registry().lock().ok().and_then(|map| map.get(&session_id).cloned()) else {
-        let snapshot = open_ready(path, context)?;
-        require_session(&snapshot, &session_id)?;
-        return Err(CliError(format!(
-            "No recording worker is active for session {session_id}."
-        ))
-        .into());
-    };
-    let status = Arc::clone(&entry.status);
-    match action {
-        "pause" | "resume" => {
-            let (sender, receiver) = mpsc::channel();
-            let command = if action == "pause" {
-                CaptureCommand::Pause(sender)
-            } else {
-                CaptureCommand::Resume(sender)
-            };
-            let _ = entry.commands.send(command);
-            match receiver.recv_timeout(std::time::Duration::from_secs(20)) {
-                Ok(Ok(())) => {}
-                Ok(Err(error)) => return Err(CliError(error).into()),
-                Err(_) => {
-                    return Err(
-                        CliError("The recording worker did not respond in time.".to_owned()).into(),
-                    )
-                }
-            }
-            let snapshot = status.lock().map(|value| value.clone()).unwrap_or_else(|_| CaptureStatus {
-                session_id: session_id.clone(),
-                state: action.to_owned(),
-                message: String::new(),
-            });
-            emit(
-                output,
-                json!({
-                    "sessionId": snapshot.session_id,
-                    "state": snapshot.state,
-                    "message": snapshot.message,
-                    "worker": "in-process",
-                }),
-                &format!("Recording state: {}\n{}", snapshot.state, snapshot.message),
-                args.json(),
-            );
-            Ok(0)
-        }
-        "stop" => {
-            if let Ok(mut map) = registry().lock() {
-                map.remove(&session_id);
-            }
-            let (sender, receiver) = mpsc::channel();
-            let _ = entry.commands.send(CaptureCommand::Stop(sender));
-            let _ = receiver.recv_timeout(std::time::Duration::from_secs(30));
-            let snapshot = status.lock().map(|value| value.clone()).ok();
-            let (state, message) = snapshot
-                .map(|value| (value.state, value.message))
-                .unwrap_or_else(|| ("interrupted".to_owned(), "The recording worker has stopped.".to_owned()));
-            let terminal = matches!(
-                state.as_str(),
-                "completed" | "interrupted" | "partial" | "failed"
-            );
-            emit(
-                output,
-                json!({
-                    "sessionId": session_id,
-                    "state": state,
-                    "message": message,
-                    "worker": "not-running",
-                }),
-                &format!("Recording state: {state}\n{message}"),
-                args.json(),
-            );
-            Ok(if terminal { 0 } else { 2 })
-        }
-        _ => Err(CliError(format!("Unknown recording control action: {action}.")).into()),
-    }
-}
-
-fn registered_status(session_id: &str) -> Option<CaptureStatus> {
-    let map = registry().lock().ok()?;
-    let entry = map.get(session_id)?;
-    entry.status.lock().ok().map(|status| status.clone())
 }
 
 pub(super) fn select_device(
