@@ -4,7 +4,7 @@ import {
     makeCustomGuideTemplateRecord,
     parseGuideTemplateImport,
     serializeGuideTemplate,
-} from "./templates";
+} from "../../../frontend/domain/templates";
 
 describe("custom guide templates", () => {
     it("creates and updates an archive-compatible template record", () => {
