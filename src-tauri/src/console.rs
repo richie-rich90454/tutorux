@@ -15,7 +15,7 @@ use std::{
     thread,
     time::Duration,
 };
-use tauri::{AppHandle, Emitter, Manager, State, WebviewWindow};
+use tauri::{AppHandle, Emitter, State, WebviewWindow};
 use uuid::Uuid;
 use zeroize::Zeroizing;
 
@@ -56,6 +56,7 @@ struct ConsoleOutput {
 struct CliRuntime {
     node: PathBuf,
     entry: PathBuf,
+    audio_helper: PathBuf,
     version: String,
 }
 
@@ -252,18 +253,18 @@ fn selected_archive_path(
 }
 
 fn resolve_cli_runtime(app: &AppHandle) -> Result<CliRuntime, String> {
-    let runtime_directory = bundled_cli_directory(app).ok_or_else(|| {
-        "The bundled Tutorux command runtime is missing. Repair or reinstall Tutorux to restore it.".to_owned()
-    })?;
-    let node = runtime_directory.join(if cfg!(windows) { "node.exe" } else { "node" });
+    let runtime = crate::runtime::paths(app)?;
+    let node = runtime.node;
     if !node.is_file() {
-        return Err("Tutorux's bundled command runtime is missing. Repair or reinstall Tutorux to restore it.".to_owned());
+        return Err(
+            "Tutorux's bundled command runtime is missing. This Tutorux build is incomplete."
+                .to_owned(),
+        );
     }
-    let entry = runtime_directory.join("tutorux-cli.mjs");
+    let entry = runtime.cli_entry;
     if !entry.is_file() {
         return Err(
-            "Tutorux's bundled CLI is missing. Repair or reinstall Tutorux to restore it."
-                .to_owned(),
+            "Tutorux's bundled CLI is missing. This Tutorux build is incomplete.".to_owned(),
         );
     }
     let output = bundled_node_command(&node)
@@ -276,36 +277,21 @@ fn resolve_cli_runtime(app: &AppHandle) -> Result<CliRuntime, String> {
             format!("Tutorux's bundled command runtime could not be started: {error}")
         })?;
     if !output.status.success() {
-        return Err("Tutorux's bundled command runtime could not report its version. Repair or reinstall Tutorux to restore it.".to_owned());
+        return Err("Tutorux's bundled command runtime could not report its version. This Tutorux build is incomplete.".to_owned());
     }
     let version = String::from_utf8_lossy(&output.stdout).trim().to_owned();
     if version != BUNDLED_NODE_VERSION {
         return Err(format!(
-            "Tutorux's bundled command runtime has an unexpected version ({version}). Repair or reinstall Tutorux to restore {}.",
+            "Tutorux's bundled command runtime has an unexpected version ({version}). This Tutorux build is incomplete; expected {}.",
             BUNDLED_NODE_VERSION
         ));
     }
     Ok(CliRuntime {
         node,
         entry,
+        audio_helper: runtime.audio_helper,
         version,
     })
-}
-
-fn bundled_cli_directory(app: &AppHandle) -> Option<PathBuf> {
-    let resource_directory = app.path().resource_dir().ok()?.join("console-runtime");
-    if resource_directory.is_dir() {
-        return Some(resource_directory);
-    }
-
-    if cfg!(debug_assertions) {
-        let development = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .parent()?
-            .join("dist")
-            .join("console-runtime");
-        return development.is_dir().then_some(development);
-    }
-    None
 }
 
 fn parse_command_line(input: &str) -> Result<Vec<String>, String> {
@@ -438,6 +424,8 @@ fn execute_console_command(
         .unwrap_or_else(|| Path::new("."));
     let mut command = bundled_node_command(&runtime.node);
     command
+        .env("TUTORUX_AUDIO_HELPER", &runtime.audio_helper)
+        .env("TUTORUX_ARCHIVE_LOCK_HELPER", &runtime.audio_helper)
         .arg(&runtime.entry)
         .arg("--archive")
         .arg(archive_path)
@@ -632,6 +620,7 @@ fn bundled_node_command(node: &Path) -> Command {
         .env_remove("NODE_REPL_EXTERNAL_MODULE")
         .env_remove("NODE_V8_COVERAGE")
         .env_remove("TUTORUX_AUDIO_HELPER");
+    command.env_remove("TUTORUX_ARCHIVE_LOCK_HELPER");
     command
 }
 
