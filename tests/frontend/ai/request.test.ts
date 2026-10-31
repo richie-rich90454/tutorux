@@ -1,14 +1,18 @@
 import { describe, expect, it } from "vitest";
-import { appendRecords, createArchiveBytes, openArchiveBytes } from "../archive/archive";
-import { newUuid, RecordType, type ArchiveRecord } from "../archive/format";
-import { makeAssetImport } from "../domain/assets";
-import { aiPackageText, createAiPackageRecord } from "./package";
+import {
+    appendRecords,
+    createArchiveBytes,
+    openArchiveBytes,
+} from "../../../frontend/archive/archive";
+import { newUuid, RecordType, type ArchiveRecord } from "../../../frontend/archive/format";
+import { makeAssetImport } from "../../../frontend/domain/assets";
+import { aiPackageText, createAiPackageRecord } from "../../../frontend/ai/package";
 import {
     createProviderConfigurationRecord,
     createProviderCredentialRecord,
     maskCredentialMetadata,
-} from "./providers";
-import { createAiRequestPreview, MAX_AI_REQUEST_BODY_BYTES } from "./request";
+} from "../../../frontend/ai/providers";
+import { createAiRequestPreview, MAX_AI_REQUEST_BODY_BYTES } from "../../../frontend/ai/request";
 
 const encoder = new TextEncoder();
 
