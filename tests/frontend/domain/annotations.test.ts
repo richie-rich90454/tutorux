@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { RecordType, newUuid } from "../archive/format";
+import { RecordType, newUuid } from "../../../frontend/archive/format";
 import {
     duplicateAnnotationRecord,
     makeAnnotationRecord,
     removeAnnotationRecord,
     updateAnnotationRecord,
-} from "./annotations";
+} from "../../../frontend/domain/annotations";
 
 const input = {
     sessionId: newUuid(),
