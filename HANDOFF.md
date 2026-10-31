@@ -10,7 +10,7 @@ The rewrite is feature-complete. The SolidJS, TypeScript, Tauri, and Rust implem
 - Required TypeScript pin: `6.0.3`
 - CLI entry point: `cli/main.ts`; command modules live in `cli/commands/`
 - Desktop host: `src-tauri/src/`
-- Native audio helper: `native-audio-helper/src/`
+- Native audio helper: `src-tauri/src/bin/tutorux-audio-helper/`
 
 ## Completed parity work
 
@@ -43,7 +43,7 @@ The rewrite is feature-complete. The SolidJS, TypeScript, Tauri, and Rust implem
 
 ## Dependency and build state
 
-- `native-audio-helper` and `src-tauri` share the vendored `flexaudio-mic` patch so Linux resolves one ALSA sys crate.
+- The desktop host and CLI helper are one Rust package in `src-tauri`; it uses the vendored `flexaudio-mic` patch so Linux resolves one ALSA sys crate.
 - `src-tauri` pins `libc = "0.2.186"` because `flexaudio-os-macos` requires that exact version.
 - `src-tauri/Cargo.toml` adds `windows-sys` for native process and memory diagnostics.
 - The local Windows `cargo check`/desktop build still stops in `llama-cpp-sys-2` when its CMake build uses the Visual Studio 18 2026 generator from the MSYS2 CMake installation. This is a host toolchain mismatch, not a source error. CI must verify the desktop package on all three operating systems.
@@ -79,4 +79,4 @@ One changed file per commit with a detailed Conventional Commit message. Do not 
 - `frontend/main.tsx` — workspace orchestration
 - `cli/commands/` — CLI command families
 - `src-tauri/src/platform/` — native capture
-- `native-audio-helper/src/` — CLI capture and probing
+- `src-tauri/src/bin/tutorux-audio-helper/` — CLI capture and probing
