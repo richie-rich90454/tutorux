@@ -1,183 +1,183 @@
 {
-  "version": 1,
-  "cases": [
-    {
-      "id": "guide.generate",
-      "family": "guide",
-      "capability": "guide.generate",
-      "files": {
-        "guide-transcript.txt": "A fraction shows part of a whole.\nEquivalent fractions have the same value.\n"
-      },
-      "setup": [
+    "version": 1,
+    "cases": [
         {
-          "id": "student",
-          "args": [
-            "--archive",
-            "{archive}",
-            "--json",
-            "student",
-            "create",
-            "--name",
-            "Guide Student",
-            "--preferred-guide-template",
-            "general"
-          ],
-          "capture": {
-            "student": "id"
-          }
-        },
-        {
-          "id": "journal",
-          "args": [
-            "--archive",
-            "{archive}",
-            "--json",
-            "journal",
-            "create",
-            "--title",
-            "Guide journal",
-            "--date",
-            "2026-10-31"
-          ],
-          "capture": {
-            "entry": "id"
-          }
-        },
-        {
-          "id": "session",
-          "args": [
-            "--archive",
-            "{archive}",
-            "--json",
-            "session",
-            "create",
-            "--student-id",
-            "{capture.student}",
-            "--entry-id",
-            "{capture.entry}",
-            "--title",
-            "Guide session",
-            "--subject",
-            "Mathematics",
-            "--notes",
-            "Session notes for guide generation."
-          ],
-          "capture": {
-            "session": "id"
-          }
-        },
-        {
-          "id": "entry notes",
-          "args": [
-            "--archive",
-            "{archive}",
-            "--json",
-            "journal",
-            "update",
-            "{capture.entry}",
-            "--notes",
-            "Entry notes for guide generation."
-          ]
-        },
-        {
-          "id": "annotation",
-          "args": [
-            "--archive",
-            "{archive}",
-            "--json",
-            "annotation",
-            "add",
-            "--session",
-            "{capture.session}",
-            "--type",
-            "important-concept",
-            "--at",
-            "00:00:01",
-            "--title",
-            "Equivalent fractions",
-            "--text",
-            "One half equals two quarters."
-          ],
-          "capture": {
-            "annotation": "id"
-          }
+            "id": "guide.generate",
+            "family": "guide",
+            "capability": "guide.generate",
+            "files": {
+                "guide-transcript.txt": "A fraction shows part of a whole.\nEquivalent fractions have the same value.\n"
+            },
+            "setup": [
+                {
+                    "id": "student",
+                    "args": [
+                        "--archive",
+                        "{archive}",
+                        "--json",
+                        "student",
+                        "create",
+                        "--name",
+                        "Guide Student",
+                        "--preferred-guide-template",
+                        "general"
+                    ],
+                    "capture": {
+                        "student": "id"
+                    }
+                },
+                {
+                    "id": "journal",
+                    "args": [
+                        "--archive",
+                        "{archive}",
+                        "--json",
+                        "journal",
+                        "create",
+                        "--title",
+                        "Guide journal",
+                        "--date",
+                        "2026-10-31"
+                    ],
+                    "capture": {
+                        "entry": "id"
+                    }
+                },
+                {
+                    "id": "session",
+                    "args": [
+                        "--archive",
+                        "{archive}",
+                        "--json",
+                        "session",
+                        "create",
+                        "--student-id",
+                        "{capture.student}",
+                        "--entry-id",
+                        "{capture.entry}",
+                        "--title",
+                        "Guide session",
+                        "--subject",
+                        "Mathematics",
+                        "--notes",
+                        "Session notes for guide generation."
+                    ],
+                    "capture": {
+                        "session": "id"
+                    }
+                },
+                {
+                    "id": "entry notes",
+                    "args": [
+                        "--archive",
+                        "{archive}",
+                        "--json",
+                        "journal",
+                        "update",
+                        "{capture.entry}",
+                        "--notes",
+                        "Entry notes for guide generation."
+                    ]
+                },
+                {
+                    "id": "annotation",
+                    "args": [
+                        "--archive",
+                        "{archive}",
+                        "--json",
+                        "annotation",
+                        "add",
+                        "--session",
+                        "{capture.session}",
+                        "--type",
+                        "important-concept",
+                        "--at",
+                        "00:00:01",
+                        "--title",
+                        "Equivalent fractions",
+                        "--text",
+                        "One half equals two quarters."
+                    ],
+                    "capture": {
+                        "annotation": "id"
+                    }
+                }
+            ],
+            "steps": [
+                {
+                    "id": "generate",
+                    "capability": "guide.generate",
+                    "args": [
+                        "--archive",
+                        "{archive}",
+                        "--json",
+                        "guide",
+                        "generate",
+                        "--session",
+                        "{capture.session}",
+                        "--template",
+                        "auto",
+                        "--title",
+                        "Generated guide",
+                        "--include-entry-evidence"
+                    ],
+                    "capture": {
+                        "generated": "id"
+                    },
+                    "expect": {
+                        "exitCode": 0,
+                        "stdoutJsonIncludes": {
+                            "title": "Generated guide",
+                            "template_id": "<string>"
+                        }
+                    }
+                },
+                {
+                    "id": "regenerate",
+                    "capability": "guide.regenerate",
+                    "args": [
+                        "--archive",
+                        "{archive}",
+                        "--json",
+                        "guide",
+                        "regenerate",
+                        "{capture.generated}",
+                        "--template",
+                        "general",
+                        "--title",
+                        "Regenerated guide",
+                        "--session-only"
+                    ],
+                    "expect": {
+                        "exitCode": 0,
+                        "stdoutJsonIncludes": {
+                            "title": "Regenerated guide"
+                        }
+                    }
+                },
+                {
+                    "id": "generate from entry",
+                    "capability": "guide.generate",
+                    "args": [
+                        "--archive",
+                        "{archive}",
+                        "--json",
+                        "guide",
+                        "generate",
+                        "--entry-id",
+                        "{capture.entry}",
+                        "--title",
+                        "Entry guide"
+                    ],
+                    "expect": {
+                        "exitCode": 0,
+                        "stdoutJsonIncludes": {
+                            "title": "Entry guide",
+                            "entry_id": "<uuid>"
+                        }
+                    }
+                }
+            ]
         }
-      ],
-      "steps": [
-        {
-          "id": "generate",
-          "capability": "guide.generate",
-          "args": [
-            "--archive",
-            "{archive}",
-            "--json",
-            "guide",
-            "generate",
-            "--session",
-            "{capture.session}",
-            "--template",
-            "auto",
-            "--title",
-            "Generated guide",
-            "--include-entry-evidence"
-          ],
-          "capture": {
-            "generated": "id"
-          },
-          "expect": {
-            "exitCode": 0,
-            "stdoutJsonIncludes": {
-              "title": "Generated guide",
-              "template_id": "<string>"
-            }
-          }
-        },
-        {
-          "id": "regenerate",
-          "capability": "guide.regenerate",
-          "args": [
-            "--archive",
-            "{archive}",
-            "--json",
-            "guide",
-            "regenerate",
-            "{capture.generated}",
-            "--template",
-            "general",
-            "--title",
-            "Regenerated guide",
-            "--session-only"
-          ],
-          "expect": {
-            "exitCode": 0,
-            "stdoutJsonIncludes": {
-              "title": "Regenerated guide"
-            }
-          }
-        },
-        {
-          "id": "generate from entry",
-          "capability": "guide.generate",
-          "args": [
-            "--archive",
-            "{archive}",
-            "--json",
-            "guide",
-            "generate",
-            "--entry-id",
-            "{capture.entry}",
-            "--title",
-            "Entry guide"
-          ],
-          "expect": {
-            "exitCode": 0,
-            "stdoutJsonIncludes": {
-              "title": "Entry guide",
-              "entry_id": "<uuid>"
-            }
-          }
-        }
-      ]
-    }
-  ]
+    ]
 }
