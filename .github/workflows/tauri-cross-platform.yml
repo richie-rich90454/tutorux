@@ -74,6 +74,25 @@ jobs:
       - name: Unit and archive compatibility tests
         run: pnpm run test
 
+      - name: Rust core, CLI, and desktop tests
+        run: cargo test --manifest-path src-tauri/Cargo.toml --features cli
+
+      - name: Rust audio helper tests
+        run: cargo test --manifest-path src-tauri/Cargo.toml --features audio-helper --bin tutorux-audio-helper
+
+      - name: Rust CLI parity harness
+        run: node scripts/rust-parity/run.mjs
+
+      - name: Build standalone Rust CLI
+        run: cargo build --manifest-path src-tauri/Cargo.toml --release --features cli --bin tutorux-cli
+
+      - name: Upload standalone Rust CLI
+        uses: actions/upload-artifact@v4
+        with:
+          name: tutorux-cli-${{ matrix.os }}
+          path: src-tauri/target/release/tutorux-cli*
+          if-no-files-found: error
+
       - name: Browser workflow
         run: pnpm run test:e2e
 
