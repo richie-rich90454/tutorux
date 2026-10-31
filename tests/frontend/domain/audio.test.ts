@@ -4,15 +4,15 @@ import {
     createArchiveBytes,
     openArchiveBytes,
     openArchiveSource,
-} from "../archive/archive";
-import { crc32, RecordType, type ArchiveRecord } from "../archive/format";
-import type { ArchiveByteSource } from "../archive/source";
+} from "../../../frontend/archive/archive";
+import { crc32, RecordType, type ArchiveRecord } from "../../../frontend/archive/format";
+import type { ArchiveByteSource } from "../../../frontend/archive/source";
 import {
     buildAudioPreview,
     buildAudioTrackWavExport,
     buildAudioTrackWavStream,
     listSessionAudioTracks,
-} from "./audio";
+} from "../../../frontend/domain/audio";
 
 describe("archive audio playback", () => {
     it("does not expose audio tracks whose metadata is in Trash", () => {
