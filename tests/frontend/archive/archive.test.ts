@@ -10,7 +10,7 @@ import {
     repairArchiveSnapshot,
     recoverUnpublishedCommit,
     verifyArchiveSnapshot,
-} from "./archive";
+} from "../../../frontend/archive/archive";
 import {
     decodeRecordFrame,
     decodeRecordFrameHeader,
@@ -21,8 +21,12 @@ import {
     recordTypeName,
     RecordType,
     type ArchiveRecord,
-} from "./format";
-import { CompositeArchiveSource, MemoryArchiveSource, type ArchiveByteSource } from "./source";
+} from "../../../frontend/archive/format";
+import {
+    CompositeArchiveSource,
+    MemoryArchiveSource,
+    type ArchiveByteSource,
+} from "../../../frontend/archive/source";
 
 describe("Tutorux archive snapshots", () => {
     it("creates and reopens a committed v1 archive with its manifest", async () => {
