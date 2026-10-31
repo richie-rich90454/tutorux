@@ -50,7 +50,6 @@ jobs:
         with:
           workspaces: |
             src-tauri -> target
-            native-audio-helper -> target
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
