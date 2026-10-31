@@ -36,7 +36,7 @@ pub fn run_benchmark_command(
             .into());
         }
         if cancellation.is_cancelled() {
-            return Err(CliError("Benchmark cancelled.".to_owned()).into());
+            return Err(CliError("Benchmark was cancelled.".to_owned()).into());
         }
         if matches!(action, "indexing" | "full") {
             measure_index(&mut report, &snapshot, cancellation)?;
@@ -47,7 +47,7 @@ pub fn run_benchmark_command(
     }
     if matches!(action, "audio" | "full") {
         if cancellation.is_cancelled() {
-            return Err(CliError("Benchmark cancelled.".to_owned()).into());
+            return Err(CliError("Benchmark was cancelled.".to_owned()).into());
         }
         measure_audio(&mut report);
     }
@@ -181,7 +181,7 @@ fn measure_index(
         RecordType::GUIDE,
     ] {
         if cancellation.is_cancelled() {
-            return Err(CliError("Benchmark cancelled.".to_owned()).into());
+            return Err(CliError("Benchmark was cancelled.".to_owned()).into());
         }
         indexed += snapshot.list_record_metadata(record_type, false)?.len();
     }
