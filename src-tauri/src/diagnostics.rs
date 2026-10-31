@@ -253,42 +253,6 @@ fn unix_filetime_ticks() -> Result<u64, String> {
         .map_err(|_| "The system clock exceeded the supported Windows time range.".to_owned())
 }
 
-#[cfg(target_os = "windows")]
-fn windows_available_memory_bytes() -> Result<u64, String> {
-    use windows_sys::Win32::System::SystemInformation::{GlobalMemoryStatusEx, MEMORYSTATUSEX};
-
-    let mut memory = MEMORYSTATUSEX::default();
-    memory.dwLength = std::mem::size_of::<MEMORYSTATUSEX>() as u32;
-    // SAFETY: memory is a live, uniquely borrowed MEMORYSTATUSEX whose dwLength field states
-    // its own size, as GlobalMemoryStatusEx requires.
-    if unsafe { GlobalMemoryStatusEx(&mut memory) } == 0 {
-        return Err("GlobalMemoryStatusEx did not return the system memory status.".to_owned());
-    }
-    Ok(memory.ullAvailPhys)
-}
-
-#[cfg(target_os = "macos")]
-pub(crate) fn available_system_memory_bytes() -> Result<u64, String> {
-    macos_available_memory()
-}
-
-#[cfg(target_os = "linux")]
-pub(crate) fn available_system_memory_bytes() -> Result<u64, String> {
-    fs::read_to_string("/proc/meminfo")
-        .map_err(|error| error.to_string())
-        .and_then(|contents| parse_proc_memory_kib(&contents, "MemAvailable"))
-}
-
-#[cfg(target_os = "windows")]
-pub(crate) fn available_system_memory_bytes() -> Result<u64, String> {
-    windows_available_memory_bytes()
-}
-
-#[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
-pub(crate) fn available_system_memory_bytes() -> Result<u64, String> {
-    Err("Available system memory is not implemented for this operating system.".to_owned())
-}
-
 #[cfg(target_os = "macos")]
 fn macos_process_metrics() -> ProcessMetrics {
     let process_id = std::process::id();
@@ -841,7 +805,7 @@ fn endpoint_probe_result(
     AudioEndpointProbe {
         state,
         sample_format: Some(format!("{:?}", config.sample_format())),
-        sample_rate_hz: Some(config.sample_rate().0),
+        sample_rate_hz: Some(config.sample_rate()),
         channel_count: Some(config.channels()),
         unavailable_reason,
     }
@@ -856,7 +820,7 @@ fn open_discarding_probe_stream(
     let stream_config = config.config();
     let stream = device
         .build_input_stream_raw(
-            &stream_config,
+            stream_config,
             config.sample_format(),
             |_data: &Data, _info| {},
             move |_error| {
