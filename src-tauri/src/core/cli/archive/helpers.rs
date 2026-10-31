@@ -107,8 +107,9 @@ pub(super) fn read_bytes(snapshot: &ArchiveSnapshot) -> Result<Vec<u8>> {
     snapshot.source.read(0, snapshot.source.size() as usize)
 }
 
-pub(super) fn count_history(snapshot: &ArchiveSnapshot) -> Result<usize> {
-    let mut count = 0usize;
+fn revision_counts(snapshot: &ArchiveSnapshot) -> Result<(usize, usize)> {
+    let mut total = 0usize;
+    let mut historical = 0usize;
     for key in snapshot.all_index_entries().keys() {
         if key.matches(':').count() != 1 {
             continue;
@@ -122,9 +123,19 @@ pub(super) fn count_history(snapshot: &ArchiveSnapshot) -> Result<usize> {
         let Some(record_type) = crate::core::format::record_type_from_name(type_name) else {
             continue;
         };
-        count += snapshot
+        let revisions = snapshot
             .get_record_history(record_type, id, 10_000)?
             .len();
+        total += revisions;
+        historical += revisions.saturating_sub(1);
     }
-    Ok(count)
+    Ok((total, historical))
+}
+
+pub(super) fn count_history(snapshot: &ArchiveSnapshot) -> Result<usize> {
+    Ok(revision_counts(snapshot)?.0)
+}
+
+pub(super) fn count_historical_revisions(snapshot: &ArchiveSnapshot) -> Result<usize> {
+    Ok(revision_counts(snapshot)?.1)
 }
