@@ -9,16 +9,31 @@ use std::{
 const HASH_BUFFER_BYTES: usize = 8 * 1024 * 1024;
 
 pub(crate) fn normalized_location_path(requested: &Path) -> Result<PathBuf, String> {
-    let parent = requested
-        .parent()
-        .filter(|path| !path.as_os_str().is_empty())
-        .unwrap_or_else(|| Path::new("."));
+    let parent = location_parent(requested);
     let parent = fs::canonicalize(parent)
         .map_err(|error| format!("Could not access destination folder: {error}"))?;
     let filename = requested
         .file_name()
         .ok_or_else(|| "Archive destination needs a file name.".to_owned())?;
     Ok(parent.join(filename))
+}
+
+pub(crate) fn normalized_save_location(requested: &Path) -> Result<PathBuf, String> {
+    let parent = location_parent(requested);
+    fs::create_dir_all(parent).map_err(|error| {
+        format!(
+            "Could not create the destination folder {}: {error}",
+            parent.display()
+        )
+    })?;
+    normalized_location_path(requested)
+}
+
+fn location_parent(requested: &Path) -> &Path {
+    requested
+        .parent()
+        .filter(|path| !path.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."))
 }
 
 pub(crate) fn resolve_existing_file(path: &Path) -> Result<Option<PathBuf>, String> {
@@ -148,5 +163,26 @@ pub(crate) fn preserve_backup_error(backup: &Path, target: &Path, reason: String
             "{reason} Tutorux preserved the previous archive at {} because it could not safely restore it to the destination: {restore_error}",
             backup.display()
         ),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::normalized_save_location;
+
+    #[test]
+    fn save_location_creates_missing_folders() {
+        let root = tempfile::tempdir().expect("temp dir");
+        let target = root
+            .path()
+            .join("courses")
+            .join("algebra")
+            .join("archive.tux");
+        let normalized = normalized_save_location(&target).expect("normalize save location");
+        assert!(normalized.parent().expect("parent").is_dir());
+        assert_eq!(
+            normalized.file_name().and_then(|name| name.to_str()),
+            Some("archive.tux")
+        );
     }
 }
