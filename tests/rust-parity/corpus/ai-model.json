@@ -1,0 +1,497 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "id": "ai.model.lifecycle",
+      "family": "ai",
+      "capability": "ai.providers",
+      "files": {
+        "ai-response.json": "{\n  \"title\": \"Imported AI Guide\",\n  \"sections\": [\n    {\n      \"heading\": \"Overview\",\n      \"blocks\": [\n        { \"kind\": \"paragraph\", \"text\": \"AI generated text for review.\" }\n      ]\n    }\n  ]\n}\n"
+      },
+      "filesBase64": {
+        "fixture.gguf": "R0dVRgMAAAABAAAAAAAAAAYAAAAAAAAAFAAAAAAAAABnZW5lcmFsLmFyY2hpdGVjdHVyZQgAAAAFAAAAAAAAAGxsYW1hDAAAAAAAAABnZW5lcmFsLm5hbWUIAAAAEQAAAAAAAABDTEkgRml4dHVyZSBNb2RlbBMAAAAAAAAAZ2VuZXJhbC5kZXNjcmlwdGlvbggAAAAYAAAAAAAAAEEgdGlueSBtZXRhZGF0YSBmaXh0dXJlLhQAAAAAAAAAbGxhbWEuY29udGV4dF9sZW5ndGgEAAAAACAAABYAAAAAAAAAbGxhbWEuZW1iZWRkaW5nX2xlbmd0aAQAAAAAEAAAEQAAAAAAAABsbGFtYS5ibG9ja19jb3VudAQAAAAgAAAA"
+      },
+      "setup": [
+        {
+          "id": "session",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "session",
+            "create",
+            "--title",
+            "AI session",
+            "--subject",
+            "Mathematics"
+          ],
+          "capture": {
+            "session": "id"
+          }
+        },
+        {
+          "id": "annotation",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "annotation",
+            "add",
+            "--session",
+            "{capture.session}",
+            "--type",
+            "important-concept",
+            "--at",
+            "00:00:01",
+            "--text",
+            "Equivalent fractions have the same value."
+          ]
+        }
+      ],
+      "steps": [
+        {
+          "id": "providers",
+          "capability": "ai.providers",
+          "args": [
+            "--json",
+            "ai",
+            "providers"
+          ],
+          "expect": {
+            "exitCode": 0,
+            "stdoutContains": [
+              "provider_id",
+              "ollama",
+              "native-ollama-api"
+            ]
+          }
+        },
+        {
+          "id": "model list empty",
+          "capability": "model.list",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "model",
+            "list"
+          ],
+          "expect": {
+            "exitCode": 0,
+            "stdoutJson": []
+          }
+        },
+        {
+          "id": "model select",
+          "capability": "model.select",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "model",
+            "select",
+            "--provider",
+            "llama.cpp-embedded",
+            "--model",
+            "fixture",
+            "--path",
+            "fixture.gguf"
+          ],
+          "capture": {
+            "model_reference": "id"
+          },
+          "expect": {
+            "exitCode": 0,
+            "stdoutJsonIncludes": {
+              "record_role": "model-reference",
+              "provider": "llama.cpp-embedded",
+              "model_id": "fixture",
+              "active": "true"
+            }
+          }
+        },
+        {
+          "id": "model list selected",
+          "capability": "model.list",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "model",
+            "list"
+          ],
+          "expect": {
+            "exitCode": 0,
+            "stdoutContains": [
+              "fixture",
+              "llama.cpp-embedded"
+            ]
+          }
+        },
+        {
+          "id": "model inspect",
+          "capability": "model.inspect",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "model",
+            "inspect",
+            "--path",
+            "fixture.gguf"
+          ],
+          "expect": {
+            "exitCode": 0,
+            "stdoutJsonIncludes": {
+              "available": true,
+              "format": "GGUF",
+              "gguf_version": 3,
+              "architecture": "llama",
+              "name": "CLI Fixture Model",
+              "training_context_tokens": "8192",
+              "embedding_length": "4096",
+              "layer_count": "32"
+            }
+          }
+        },
+        {
+          "id": "model verify",
+          "capability": "model.verify",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "model",
+            "verify",
+            "--path",
+            "fixture.gguf"
+          ],
+          "expect": {
+            "exitCode": 0,
+            "stdoutJsonIncludes": {
+              "available": true,
+              "format": "GGUF",
+              "architecture": "llama"
+            }
+          }
+        },
+        {
+          "id": "ai models embedded",
+          "capability": "ai.models",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "ai",
+            "models",
+            "--provider",
+            "llama.cpp-embedded"
+          ],
+          "expect": {
+            "exitCode": 0,
+            "stdoutJsonIncludes": [
+              {
+                "provider_id": "llama.cpp-embedded",
+                "model_id": "fixture",
+                "architecture": "llama",
+                "context_window": "4096",
+                "catalog_status": "user-selected"
+              }
+            ]
+          }
+        },
+        {
+          "id": "ai test embedded",
+          "capability": "ai.test",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "ai",
+            "test",
+            "--provider",
+            "llama.cpp-embedded"
+          ],
+          "expect": {
+            "exitCode": 0,
+            "stdoutJsonIncludes": {
+              "provider": "llama.cpp-embedded",
+              "model_id": "fixture",
+              "status": "model-file-valid",
+              "network_request_sent": "false"
+            }
+          }
+        },
+        {
+          "id": "ai configure",
+          "capability": "ai.configure",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "ai",
+            "configure",
+            "--provider",
+            "openai",
+            "--endpoint",
+            "https://api.openai.com/v1",
+            "--model",
+            "gpt-4.1"
+          ],
+          "expect": {
+            "exitCode": 0,
+            "stdoutJsonIncludes": {
+              "record_role": "ai-provider",
+              "provider_id": "openai",
+              "endpoint": "https://api.openai.com/v1",
+              "selected_model": "gpt-4.1"
+            }
+          }
+        },
+        {
+          "id": "ai capabilities",
+          "capability": "ai.capabilities",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "ai",
+            "capabilities",
+            "--provider",
+            "openai",
+            "--model",
+            "gpt-4.1"
+          ],
+          "expect": {
+            "exitCode": 0,
+            "stdoutJsonIncludes": {
+              "provider": "openai",
+              "model": "gpt-4.1",
+              "protocol": "OpenAI Chat Completions",
+              "local": false,
+              "model_capabilities": "unknown"
+            }
+          }
+        },
+        {
+          "id": "ai context",
+          "capability": "ai.context",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "ai",
+            "context",
+            "--session",
+            "{capture.session}",
+            "--token-budget",
+            "512",
+            "--max-item-tokens",
+            "128"
+          ],
+          "expect": {
+            "exitCode": 0,
+            "stdoutContains": [
+              "used_tokens",
+              "included",
+              "omitted"
+            ]
+          }
+        },
+        {
+          "id": "ai package manual",
+          "capability": "ai.package",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "ai",
+            "package",
+            "--session",
+            "{capture.session}",
+            "--format",
+            "json",
+            "--mode",
+            "manual"
+          ],
+          "capture": {
+            "manual_job": "job_id"
+          },
+          "expect": {
+            "exitCode": 0,
+            "stdoutJsonIncludes": {
+              "job_id": "<uuid>",
+              "session_id": "<uuid>",
+              "template_id": "<string>",
+              "content_hash": "<sha256>",
+              "package_bytes": "<number>"
+            }
+          }
+        },
+        {
+          "id": "ai generate preview",
+          "capability": "ai.generate",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "ai",
+            "generate",
+            "--job",
+            "{capture.manual_job}",
+            "--provider",
+            "openai",
+            "--model",
+            "gpt-4.1",
+            "--request-output",
+            "{dir}/request.json"
+          ],
+          "expect": {
+            "exitCode": 0,
+            "stdoutJsonIncludes": {
+              "provider": "openai",
+              "model": "gpt-4.1",
+              "local_only": false,
+              "credential_available": false,
+              "request_body_hash": "<sha256>"
+            },
+            "files": [
+              {
+                "path": "{dir}/request.json",
+                "contains": [
+                  "messages"
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "id": "ai package local",
+          "capability": "ai.package",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "ai",
+            "package",
+            "--session",
+            "{capture.session}",
+            "--format",
+            "json",
+            "--mode",
+            "local"
+          ],
+          "capture": {
+            "local_job": "job_id"
+          },
+          "expect": {
+            "exitCode": 0
+          }
+        },
+        {
+          "id": "ai estimate requires model",
+          "capability": "ai.estimate",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "ai",
+            "estimate",
+            "--provider",
+            "ollama",
+            "--job",
+            "{capture.local_job}"
+          ],
+          "expect": {
+            "exitCode": 2,
+            "stdoutJson": null,
+            "stderrContains": [
+              "Choose a model"
+            ]
+          }
+        },
+        {
+          "id": "ai import response",
+          "capability": "ai.import",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "ai",
+            "import",
+            "--session",
+            "{capture.session}",
+            "--input",
+            "ai-response.json"
+          ],
+          "expect": {
+            "exitCode": 0,
+            "stdoutJsonIncludes": {
+              "job_id": "<uuid>",
+              "guide_id": "<uuid>",
+              "schema_valid": "<boolean>",
+              "source_validation": "<string>"
+            }
+          }
+        },
+        {
+          "id": "ai jobs",
+          "capability": "ai.jobs",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "ai",
+            "jobs"
+          ],
+          "expect": {
+            "exitCode": 0,
+            "stdoutContains": [
+              "package-ready",
+              "response-"
+            ]
+          },
+          "unorderedJsonPaths": [
+            ""
+          ]
+        },
+        {
+          "id": "ai cancel",
+          "capability": "ai.cancel",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "ai",
+            "cancel",
+            "{capture.local_job}"
+          ],
+          "expect": {
+            "exitCode": 0,
+            "stdoutJsonIncludes": {
+              "status": "cancelled"
+            }
+          }
+        },
+        {
+          "id": "model remove reference",
+          "capability": "model.remove-reference",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "model",
+            "remove-reference",
+            "{capture.model_reference}"
+          ],
+          "expect": {
+            "exitCode": 0,
+            "stdoutJsonIncludes": {
+              "_deleted": "true"
+            }
+          }
+        }
+      ]
+    }
+  ]
+}
