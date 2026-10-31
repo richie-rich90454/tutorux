@@ -1,0 +1,8 @@
+{
+    "version": 1,
+    "description": "Capabilities whose success path needs host audio hardware. The harness verifies each cited file and test title exists.",
+    "tests": {
+        "diagnostics.audio": "tests/cli/diagnostics.test.ts::CLI audio diagnostics::reports inspected native endpoint configuration",
+        "benchmark.audio": "tests/cli/diagnostics.test.ts::CLI audio diagnostics::probes capture and application streams and reports explicit failures"
+    }
+}
