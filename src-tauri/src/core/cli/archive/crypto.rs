@@ -9,7 +9,7 @@ use crate::core::cli::{
 use crate::core::error::CoreError;
 use crate::core::maintenance::{change_passphrase as rekey, enable_encryption};
 
-use super::helpers::{count_history, passphrase_from_env};
+use super::helpers::{count_historical_revisions, passphrase_from_env};
 use super::save;
 
 pub(super) fn encrypt(
@@ -32,18 +32,20 @@ pub(super) fn encrypt(
         return Err(CliError("This archive is already encrypted.".to_owned()).into());
     }
     let previous_generation = snapshot.commit.generation;
-    let history = count_history(&snapshot)?;
+    let history = count_historical_revisions(&snapshot)?;
     let bytes = enable_encryption(&snapshot, &passphrase)?;
     let next = ArchiveSnapshot::open_bytes(bytes.clone())?;
     let unlocked = next.unlock(&passphrase)?;
     unlocked.verify()?;
     let generation = unlocked.commit.generation;
+    let archive_id = snapshot.header.id.clone();
     drop(unlocked);
     drop(next);
     drop(snapshot);
     save::save_bytes(path, &bytes)?;
     let value = json!({
         "path": path.display().to_string(),
+        "archive_id": archive_id,
         "previous_generation": previous_generation.to_string(),
         "generation": generation.to_string(),
         "encrypted": true,
