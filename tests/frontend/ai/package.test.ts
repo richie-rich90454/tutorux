@@ -1,10 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { appendRecords, createArchiveBytes, openArchiveBytes } from "../archive/archive";
-import { newUuid, RecordType, type ArchiveRecord } from "../archive/format";
-import { makeAssetImport } from "../domain/assets";
-import { makeCustomGuideTemplateRecord } from "../domain/templates";
-import { encodeStudentProgress } from "../domain/student-progress";
-import { aiPackageText, createAiPackageRecord } from "./package";
+import {
+    appendRecords,
+    createArchiveBytes,
+    openArchiveBytes,
+} from "../../../frontend/archive/archive";
+import { newUuid, RecordType, type ArchiveRecord } from "../../../frontend/archive/format";
+import { makeAssetImport } from "../../../frontend/domain/assets";
+import { makeCustomGuideTemplateRecord } from "../../../frontend/domain/templates";
+import { encodeStudentProgress } from "../../../frontend/domain/student-progress";
+import { aiPackageText, createAiPackageRecord } from "../../../frontend/ai/package";
 
 function record(type: number, id: string, fields: Record<string, string>): ArchiveRecord {
     return {
