@@ -1,0 +1,352 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "id": "template.lifecycle",
+      "family": "template",
+      "capability": "template.list",
+      "files": {
+        "imported-template.json": "{\n  \"format\": \"tutorux-guide-template-v1\",\n  \"name\": \"Imported Template\",\n  \"subject\": \"Science\",\n  \"description\": \"Imported template\",\n  \"sections\": [\"Questions\", \"Summary\"],\n  \"body\": \"Ask one question per concept.\"\n}\n"
+      },
+      "steps": [
+        {
+          "id": "global list",
+          "capability": "template.list",
+          "args": [
+            "--json",
+            "template",
+            "list"
+          ],
+          "expect": {
+            "exitCode": 0,
+            "stdoutContains": [
+              "\"origin\": \"built-in\"",
+              "general"
+            ]
+          }
+        },
+        {
+          "id": "archive list",
+          "capability": "template.list",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "template",
+            "list"
+          ],
+          "expect": {
+            "exitCode": 0,
+            "stdoutContains": [
+              "general",
+              "built-in"
+            ]
+          }
+        },
+        {
+          "id": "show built-in",
+          "capability": "template.show",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "template",
+            "show",
+            "general"
+          ],
+          "expect": {
+            "exitCode": 0,
+            "stdoutJsonIncludes": {
+              "id": "general",
+              "origin": "built-in"
+            }
+          }
+        },
+        {
+          "id": "create",
+          "capability": "template.create",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "template",
+            "create",
+            "--name",
+            "Custom Template",
+            "--sections",
+            "Overview;Evidence;Practice",
+            "--subject",
+            "Mathematics",
+            "--description",
+            "Custom description",
+            "--body",
+            "Custom body"
+          ],
+          "capture": {
+            "custom": "id"
+          },
+          "expect": {
+            "exitCode": 0,
+            "stdoutJsonIncludes": {
+              "record_role": "guide-template",
+              "name": "Custom Template",
+              "sections": "Overview\nEvidence\nPractice"
+            }
+          }
+        },
+        {
+          "id": "update",
+          "capability": "template.update",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "template",
+            "update",
+            "{capture.custom}",
+            "--name",
+            "Updated Template",
+            "--sections",
+            "Overview;Practice",
+            "--body",
+            "Updated body"
+          ],
+          "expect": {
+            "exitCode": 0,
+            "stdoutJsonIncludes": {
+              "name": "Updated Template",
+              "sections": "Overview\nPractice"
+            }
+          }
+        },
+        {
+          "id": "show custom",
+          "capability": "template.show",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "template",
+            "show",
+            "{capture.custom}"
+          ],
+          "expect": {
+            "exitCode": 0,
+            "stdoutJsonIncludes": {
+              "name": "Updated Template",
+              "sections": [
+                "Overview",
+                "Practice"
+              ]
+            }
+          }
+        },
+        {
+          "id": "import",
+          "capability": "template.import",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "template",
+            "import",
+            "--input",
+            "imported-template.json"
+          ],
+          "capture": {
+            "imported": "id"
+          },
+          "expect": {
+            "exitCode": 0,
+            "stdoutJsonIncludes": {
+              "name": "Imported Template",
+              "sections": "Questions\nSummary"
+            }
+          }
+        },
+        {
+          "id": "show imported",
+          "capability": "template.show",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "template",
+            "show",
+            "{capture.imported}"
+          ],
+          "expect": {
+            "exitCode": 0,
+            "stdoutJsonIncludes": {
+              "name": "Imported Template",
+              "sections": [
+                "Questions",
+                "Summary"
+              ]
+            }
+          }
+        },
+        {
+          "id": "show by name",
+          "capability": "template.show",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "template",
+            "show",
+            "Imported Template"
+          ],
+          "expect": {
+            "exitCode": 0,
+            "stdoutJsonIncludes": {
+              "name": "Imported Template"
+            }
+          }
+        },
+        {
+          "id": "export",
+          "capability": "template.export",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "template",
+            "export",
+            "{capture.custom}",
+            "--output",
+            "{dir}/exported-template.json"
+          ],
+          "expect": {
+            "exitCode": 0,
+            "stdoutJsonIncludes": {
+              "id": "<uuid>",
+              "output": "<path>"
+            },
+            "files": [
+              {
+                "path": "{dir}/exported-template.json",
+                "contains": [
+                  "tutorux-guide-template-v1",
+                  "Updated Template"
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "id": "delete custom",
+          "capability": "template.delete",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "template",
+            "delete",
+            "{capture.custom}"
+          ],
+          "expect": {
+            "exitCode": 0,
+            "stdoutJsonIncludes": {
+              "_deleted": "true"
+            }
+          }
+        },
+        {
+          "id": "restore custom",
+          "capability": "template.restore",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "template",
+            "restore",
+            "{capture.custom}"
+          ],
+          "expect": {
+            "exitCode": 0,
+            "stdoutContains": [
+              "Updated Template"
+            ]
+          }
+        },
+        {
+          "id": "override built-in",
+          "capability": "template.update",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "template",
+            "update",
+            "general",
+            "--name",
+            "General override",
+            "--sections",
+            "Overview;Evidence"
+          ],
+          "expect": {
+            "exitCode": 0,
+            "stdoutJsonIncludes": {
+              "name": "General override",
+              "builtin_template_id": "general"
+            }
+          }
+        },
+        {
+          "id": "show override",
+          "capability": "template.show",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "template",
+            "show",
+            "general"
+          ],
+          "expect": {
+            "exitCode": 0,
+            "stdoutJsonIncludes": {
+              "name": "General override",
+              "origin": "built-in"
+            }
+          }
+        },
+        {
+          "id": "delete override",
+          "capability": "template.delete",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "template",
+            "delete",
+            "general"
+          ],
+          "expect": {
+            "exitCode": 0
+          }
+        },
+        {
+          "id": "show restored default",
+          "capability": "template.show",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "template",
+            "show",
+            "general"
+          ],
+          "expect": {
+            "exitCode": 0,
+            "stdoutJsonIncludes": {
+              "id": "general",
+              "origin": "built-in"
+            }
+          }
+        }
+      ]
+    }
+  ]
+}
