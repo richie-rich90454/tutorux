@@ -275,7 +275,7 @@ export function ArchiveSettingsCopy(props: ArchiveSettingsCopyProps): JSX.Elemen
                     >
                         <div class="archive-settings-copy-review-heading">
                             <div>
-                                <span class="eyebrow">REVIEW TRANSFER</span>
+                                <span class="eyebrow">Review transfer</span>
                                 <h3 id="settings-copy-review-title">{sourceName()}</h3>
                             </div>
                             <span class="archive-settings-copy-count">
