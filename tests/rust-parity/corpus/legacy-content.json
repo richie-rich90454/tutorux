@@ -1,0 +1,240 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "id": "annotation.add",
+      "capability": "annotation.add",
+      "setup": [
+        {
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "student",
+            "create",
+            "--name",
+            "Mina"
+          ],
+          "capture": {
+            "student": "id"
+          }
+        },
+        {
+          "args": [
+            "--archive",
+            "{archive}",
+            "session",
+            "create",
+            "--title",
+            "Fractions",
+            "--student-id",
+            "{capture.student}",
+            "--json"
+          ],
+          "capture": {
+            "session": "id"
+          }
+        }
+      ],
+      "steps": [
+        {
+          "id": "annotation add",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "annotation",
+            "add",
+            "--session",
+            "{capture.session}",
+            "--type",
+            "learning-outcome",
+            "--at",
+            "00:01:00",
+            "--title",
+            "Explains equivalent fractions",
+            "--text",
+            "Mina explains the shared scale factor."
+          ],
+          "expect": {
+            "exitCode": 0,
+            "stdoutJson": {
+              "id": "<uuid>",
+              "type": "learning-outcome",
+              "revision": "1",
+              "content": "Mina explains the shared scale factor.",
+              "created_at_us": "<timestamp>",
+              "end_time_us": "60000000",
+              "origin": "tutor-authored",
+              "priority": "normal",
+              "session_id": "<uuid>",
+              "start_time_us": "60000000",
+              "title": "Explains equivalent fractions",
+              "updated_at_us": "<timestamp>"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "asset.add-export",
+      "capability": "asset.add",
+      "files": {
+        "material.txt": "material payload"
+      },
+      "steps": [
+        {
+          "id": "asset add",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "asset",
+            "add",
+            "{dir}/material.txt"
+          ],
+          "capture": {
+            "asset": "0.id"
+          },
+          "expect": {
+            "exitCode": 0,
+            "stdoutJson": [
+              {
+                "id": "<uuid>",
+                "type": "asset",
+                "revision": "1",
+                "blob_count": "1",
+                "blob_id": "<uuid>",
+                "byte_size": "16",
+                "content_hash": "9fba0fbffed5c7d8f8c2cadb34ab07f7de4111945f1d4a6b76168403aa491373",
+                "created_at_us": "<timestamp>",
+                "filename": "material.txt",
+                "mime_type": "text/plain",
+                "origin": "user-import"
+              }
+            ]
+          }
+        },
+        {
+          "id": "asset export",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "asset",
+            "export",
+            "{capture.asset}",
+            "--output",
+            "{dir}/material-out.txt"
+          ],
+          "expect": {
+            "exitCode": 0,
+            "stdoutJson": {
+              "id": "<uuid>",
+              "output": "<path>",
+              "bytes": 16
+            },
+            "file": {
+              "path": "{dir}/material-out.txt",
+              "text": "material payload"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "template.import",
+      "capability": "template.import",
+      "files": {
+        "review-guidance.md": "Ask one question at a time."
+      },
+      "steps": [
+        {
+          "id": "template import",
+          "args": [
+            "--json",
+            "--archive",
+            "{archive}",
+            "template",
+            "import",
+            "--input",
+            "{dir}/review-guidance.md"
+          ],
+          "expect": {
+            "exitCode": 0,
+            "stdoutJson": {
+              "id": "<uuid>",
+              "type": "settings",
+              "revision": "1",
+              "body": "Ask one question at a time.",
+              "created_at_us": "<timestamp>",
+              "description": "",
+              "name": "review-guidance",
+              "record_role": "guide-template",
+              "sections": "",
+              "subject": "general",
+              "updated_at_us": "<timestamp>"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "transcript.generate.missing-audio",
+      "capability": "transcript.transcribe",
+      "setup": [
+        {
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "student",
+            "create",
+            "--name",
+            "Mina"
+          ],
+          "capture": {
+            "student": "id"
+          }
+        },
+        {
+          "args": [
+            "--archive",
+            "{archive}",
+            "session",
+            "create",
+            "--title",
+            "No audio",
+            "--student-id",
+            "{capture.student}",
+            "--json"
+          ],
+          "capture": {
+            "session": "id"
+          }
+        }
+      ],
+      "steps": [
+        {
+          "id": "transcript generate without audio",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "transcript",
+            "generate",
+            "--session",
+            "{capture.session}"
+          ],
+          "expect": {
+            "exitCode": 2,
+            "stdoutJson": null,
+            "stderrContains": [
+              "no recorded audio track"
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}
