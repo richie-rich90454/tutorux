@@ -26,14 +26,8 @@ fn read_package_records(package: &ArchiveSnapshot) -> CliResult<Vec<ArchiveRecor
             CliError("Session packages cannot contain student profiles.".to_owned()).into(),
         );
     }
-    let mut identities: Vec<(u16, String)> = Vec::new();
-    let mut seen: BTreeSet<(u16, String)> = BTreeSet::new();
-    let mut add = |record: &ArchiveRecord| {
-        let key = (record.record_type, record.id.to_lowercase());
-        if seen.insert(key.clone()) {
-            identities.push(key);
-        }
-    };
+    // Packages contain current revisions, so direct records are the package.
+    let mut records = Vec::new();
     for settings in package.list_records(RecordType::SETTINGS, true)? {
         if settings.id.to_lowercase() == package.header.id.to_lowercase() {
             continue;
@@ -46,7 +40,7 @@ fn read_package_records(package: &ArchiveSnapshot) -> CliResult<Vec<ArchiveRecor
                 CliError("Session packages cannot contain unrelated settings.".to_owned()).into(),
             );
         }
-        add(&settings);
+        records.push(settings);
     }
     for record_type in [
         RecordType::SESSION,
@@ -60,29 +54,7 @@ fn read_package_records(package: &ArchiveSnapshot) -> CliResult<Vec<ArchiveRecor
         RecordType::GUIDE,
         RecordType::AI_JOB,
     ] {
-        for record in package.list_records(record_type, true)? {
-            add(&record);
-        }
-    }
-    let mut records = Vec::new();
-    for (record_type, id) in identities {
-        let history = package.get_record_history(record_type, &id, 10_000)?;
-        if history.is_empty() {
-            return Err(CliError(format!("Package record {id} could not be read.")).into());
-        }
-        if history
-            .last()
-            .is_some_and(|record| record.previous_offset != 0)
-        {
-            return Err(CliError(
-                "A session package cannot include more than 10,000 revisions of one record."
-                    .to_owned(),
-            )
-            .into());
-        }
-        let mut revisions = history;
-        revisions.reverse();
-        records.extend(revisions);
+        records.extend(package.list_records(record_type, true)?);
     }
     Ok(records)
 }
@@ -251,6 +223,7 @@ pub(crate) fn import_session_package(
         .into());
     }
     let source_session_id = session_ids.into_iter().next().expect("checked");
+    super::package_export::validate_session_records(&records, &source_session_id)?;
     let source_session = records
         .iter()
         .rev()
@@ -368,51 +341,24 @@ pub(crate) fn import_session_package(
             CliError("The package session identifier could not be remapped.".to_owned()).into(),
         );
     }
-    let mut latest: BTreeMap<(u16, String), ArchiveRecord> = BTreeMap::new();
-    for record in &imported {
-        latest.insert(
-            (record.record_type, record.id.to_lowercase()),
-            record.clone(),
-        );
-    }
-    for record in latest.values_mut() {
-        record.blob = Vec::new();
-    }
-    let linked = ensure_journal_links(
-        snapshot,
-        latest.into_values().collect(),
-        &imported_session_id,
-        &timestamp,
-    )?;
-    let linked_by_key: BTreeMap<(u16, String), ArchiveRecord> = linked
-        .iter()
-        .map(|record| ((record.record_type, record.id.to_lowercase()), record.clone()))
-        .collect();
-    let mut last_index: BTreeMap<(u16, String), usize> = BTreeMap::new();
-    for (index, record) in imported.iter().enumerate() {
-        last_index.insert((record.record_type, record.id.to_lowercase()), index);
-    }
-    let mut records = Vec::with_capacity(imported.len() + linked.len());
-    for (index, mut record) in imported.into_iter().enumerate() {
+    let mut linked_by_key: BTreeMap<(u16, String), ArchiveRecord> =
+        ensure_journal_links(snapshot, imported.clone(), &imported_session_id, &timestamp)?
+            .into_iter()
+            .map(|record| ((record.record_type, record.id.to_lowercase()), record))
+            .collect();
+    let mut records = Vec::with_capacity(imported.len() + linked_by_key.len());
+    for mut record in imported {
         let key = (record.record_type, record.id.to_lowercase());
-        if last_index.get(&key) == Some(&index) {
-            if let Some(current) = linked_by_key.get(&key) {
-                record.fields = current.fields.clone();
-            }
+        if let Some(current) = linked_by_key.remove(&key) {
+            record = current;
         }
         records.push(record);
     }
-    for (key, record) in linked_by_key {
-        if !last_index.contains_key(&key) {
-            records.push(record);
-        }
-    }
+    records.extend(linked_by_key.into_values());
     let imported_record_count = records.len();
-    let mut working = load(path, context)?;
-    for record in records {
-        mutate(path, &working, &[record])?;
-        working = load(path, context)?;
-    }
+    let working = load(path, context)?;
+    mutate(path, &working, &records)?;
+    let working = load(path, context)?;
     let saved_session = working
         .get_record(RecordType::SESSION, &imported_session_id)?
         .ok_or_else(|| CliError("The imported package has no session record.".to_owned()))?;
