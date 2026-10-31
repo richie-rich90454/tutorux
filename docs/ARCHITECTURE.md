@@ -63,7 +63,7 @@ The [TypeScript benchmark report](performance/TYPESCRIPT-BASELINE.md) records th
 
 ## Verification strategy
 
-Vitest covers archive framing, snapshots, verification, maintenance, domain rules, audio transforms, AI packaging, and CLI workflows. Playwright covers browser create/edit/save/reopen, audio, AI, encrypted-archive, session-package, and workspace flows. CI runs type checking, linting, formatting, unit tests, browser tests, the static build, and the Tauri package on Windows, macOS, and Linux.
+Vitest covers archive framing, snapshots, verification, maintenance, domain rules, audio transforms, AI packaging, and CLI workflows from `tests/cli/` and `tests/frontend/`. Playwright covers browser create/edit/save/reopen, audio, AI, encrypted-archive, session-package, and workspace flows in `tests/e2e/`. CI runs type checking, linting, formatting, unit tests, browser tests, the static build, and the Tauri package on Windows, macOS, and Linux.
 
 ## Why this stack
 
