@@ -1,0 +1,303 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "id": "journal.entries",
+      "family": "journal",
+      "capability": "journal.create",
+      "setup": [
+        {
+          "id": "collection",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "journal",
+            "collection",
+            "create",
+            "--name",
+            "Fractions",
+            "--description",
+            "Fraction work",
+            "--color",
+            "#336699"
+          ],
+          "capture": {
+            "collection": "id"
+          }
+        },
+        {
+          "id": "tag",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "journal",
+            "tag",
+            "create",
+            "--name",
+            "Review",
+            "--color",
+            "#cc5500"
+          ],
+          "capture": {
+            "tag": "id"
+          }
+        },
+        {
+          "id": "entry",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "journal",
+            "create",
+            "--title",
+            "Journal seed",
+            "--date",
+            "2026-10-31",
+            "--collection-ids",
+            "{capture.collection}",
+            "--tag-ids",
+            "{capture.tag}"
+          ],
+          "capture": {
+            "entry": "id",
+            "notes": "notes_document_id"
+          }
+        },
+        {
+          "id": "linked session",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "session",
+            "create",
+            "--entry-id",
+            "{capture.entry}",
+            "--title",
+            "Linked session"
+          ],
+          "capture": {
+            "session": "id"
+          }
+        }
+      ],
+      "steps": [
+        {
+          "id": "create",
+          "capability": "journal.create",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "journal",
+            "create",
+            "--title",
+            "New journal",
+            "--date",
+            "2026-11-01",
+            "--collection-ids",
+            "{capture.collection}",
+            "--tag-ids",
+            "{capture.tag}"
+          ],
+          "capture": {
+            "entry2": "id",
+            "notes2": "notes_document_id"
+          },
+          "expect": {
+            "exitCode": 0,
+            "stdoutJsonIncludes": {
+              "type": "settings",
+              "record_role": "journal-entry",
+              "title": "New journal",
+              "entry_date": "2026-11-01"
+            }
+          }
+        },
+        {
+          "id": "list",
+          "capability": "journal.list",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "journal",
+            "list"
+          ],
+          "expect": {
+            "exitCode": 0,
+            "stdoutContains": [
+              "Journal seed",
+              "New journal"
+            ]
+          }
+        },
+        {
+          "id": "list by collection",
+          "capability": "journal.list",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "journal",
+            "list",
+            "--collection-id",
+            "{capture.collection}"
+          ],
+          "expect": {
+            "exitCode": 0,
+            "stdoutContains": [
+              "Journal seed",
+              "New journal"
+            ]
+          }
+        },
+        {
+          "id": "list by tag and dates",
+          "capability": "journal.list",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "journal",
+            "list",
+            "--tag-id",
+            "{capture.tag}",
+            "--from",
+            "2026-10-01",
+            "--to",
+            "2026-12-31",
+            "--has-sessions",
+            "true"
+          ],
+          "expect": {
+            "exitCode": 0,
+            "stdoutContains": [
+              "Journal seed"
+            ],
+            "stdoutNotContains": [
+              "New journal"
+            ]
+          }
+        },
+        {
+          "id": "search",
+          "capability": "journal.search",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "journal",
+            "search",
+            "--query",
+            "seed"
+          ],
+          "expect": {
+            "exitCode": 0,
+            "stdoutContains": [
+              "Journal seed",
+              "match_source"
+            ]
+          }
+        },
+        {
+          "id": "search with filters",
+          "capability": "journal.search",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "journal",
+            "search",
+            "--query",
+            "journal",
+            "--collection-id",
+            "{capture.collection}",
+            "--tag-id",
+            "{capture.tag}",
+            "--from",
+            "2026-10-01",
+            "--to",
+            "2026-12-31",
+            "--has-sessions",
+            "false"
+          ],
+          "expect": {
+            "exitCode": 0,
+            "stdoutContains": [
+              "New journal"
+            ]
+          }
+        },
+        {
+          "id": "show seeded entry",
+          "capability": "journal.show",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "journal",
+            "show",
+            "{capture.entry}"
+          ],
+          "expect": {
+            "exitCode": 0,
+            "stdoutJsonIncludes": {
+              "title": "Journal seed",
+              "session_count": "1",
+              "session_ids": "<uuid>"
+            }
+          }
+        },
+        {
+          "id": "show new entry",
+          "capability": "journal.show",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "journal",
+            "show",
+            "{capture.entry2}"
+          ],
+          "expect": {
+            "exitCode": 0,
+            "stdoutJsonIncludes": {
+              "title": "New journal",
+              "session_count": "0",
+              "notes_text": ""
+            }
+          }
+        },
+        {
+          "id": "update",
+          "capability": "journal.update",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "journal",
+            "update",
+            "{capture.entry2}",
+            "--title",
+            "Updated journal",
+            "--date",
+            "2026-11-02",
+            "--notes",
+            "First paragraph\n\nSecond paragraph"
+          ],
+          "expect": {
+            "exitCode": 0,
+            "stdoutJsonIncludes": {
+              "title": "Updated journal",
+              "entry_date": "2026-11-02"
+            }
+          }
+        }
+      ]
+    }
+  ]
+}
