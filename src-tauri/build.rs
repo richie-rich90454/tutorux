@@ -1,60 +1,40 @@
+use sha2::{Digest, Sha256};
+use std::{
+    env, fs,
+    path::{Path, PathBuf},
+};
+
 fn main() {
-    // Tauri checks configured resources while compiling. The console runtime is
-    // generated before packaging, but a plain `cargo check` needs the directory.
-    let _ = std::fs::create_dir_all("../dist/console-runtime");
-    prepare_embedded_ai_sidecar();
+    prepare_runtime_archive();
     tauri_build::build();
 }
 
-// Tauri validates configured external binaries during every package build,
-// including the sidecar's own build. Reuse a previously compiled helper when
-// one exists; otherwise leave an empty placeholder that packaging replaces.
-fn prepare_embedded_ai_sidecar() {
-    let Ok(target) = std::env::var("TARGET") else {
-        return;
-    };
-    if target.is_empty() {
-        return;
-    }
-    let extension = if target.contains("windows") {
-        ".exe"
-    } else {
-        ""
-    };
-    let helper_name = format!("tutorux-embedded-ai{extension}");
-    let output =
-        std::path::Path::new("binaries").join(format!("tutorux-embedded-ai-{target}{extension}"));
-    if output.exists() {
-        return;
-    }
-    let profile = std::env::var("PROFILE").unwrap_or_else(|_| "debug".to_owned());
-    let candidates = [
-        std::path::Path::new("target")
-            .join(&target)
-            .join(&profile)
-            .join(&helper_name),
-        std::path::Path::new("target")
-            .join(&profile)
-            .join(&helper_name),
-    ];
-    let _ = std::fs::create_dir_all("binaries");
-    for candidate in candidates {
-        if candidate.is_file() && std::fs::copy(&candidate, &output).is_ok() {
-            make_executable(&output);
-            return;
-        }
-    }
-    let _ = std::fs::File::create(&output);
-}
+// The portable runtime is a single ZIP embedded into the desktop binary. The
+// packaging scripts create it before Cargo runs; plain cargo commands use an
+// empty placeholder and fall back to the development file layout.
+fn prepare_runtime_archive() {
+    let output = PathBuf::from(env::var("OUT_DIR").expect("OUT_DIR is set by Cargo"))
+        .join("tutorux-runtime.zip");
+    let target = env::var("TARGET").expect("TARGET is set by Cargo");
+    let source = Path::new("binaries").join(format!("tutorux-runtime-{target}.zip"));
+    println!("cargo:rerun-if-changed=binaries");
+    println!("cargo:rerun-if-changed={}", source.display());
 
-fn make_executable(path: &std::path::Path) {
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755));
-    }
-    #[cfg(not(unix))]
-    {
-        let _ = path;
-    }
+    let bytes = match fs::read(&source) {
+        Ok(bytes) => bytes,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Vec::new(),
+        Err(error) => panic!("Could not read {}: {error}", source.display()),
+    };
+    fs::write(&output, &bytes).expect("Could not stage the embedded Tutorux runtime");
+
+    let id = if bytes.is_empty() {
+        "development".to_owned()
+    } else {
+        Sha256::digest(&bytes)
+            .iter()
+            .take(8)
+            .map(|byte| format!("{byte:02x}"))
+            .collect()
+    };
+    println!("cargo:rustc-env=TUTORUX_RUNTIME_ID={id}");
 }
