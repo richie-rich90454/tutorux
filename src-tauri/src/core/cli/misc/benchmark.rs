@@ -58,22 +58,6 @@ pub fn run_benchmark_command(
             json!("run-the-benchmark-in-the-active-desktop-window"),
         );
     }
-    if action == "cpu" {
-        let cpu_started = Instant::now();
-        let mut accumulator = 0u64;
-        for index in 0..2_000_000u64 {
-            accumulator = accumulator.wrapping_add(index.wrapping_mul(2_654_435_761));
-            if index % 250_000 == 0 && cancellation.is_cancelled() {
-                return Err(CliError("Benchmark cancelled.".to_owned()).into());
-            }
-        }
-        report.insert("cpu_iterations".to_owned(), json!("2000000"));
-        report.insert(
-            "cpu_elapsed_us".to_owned(),
-            json!(cpu_started.elapsed().as_micros().to_string()),
-        );
-        report.insert("cpu_checksum".to_owned(), json!(accumulator.to_string()));
-    }
     report.insert(
         "command_elapsed_us".to_owned(),
         json!(started.elapsed().as_micros() as u64),
@@ -85,6 +69,52 @@ pub fn run_benchmark_command(
         args.json(),
     );
     Ok(0)
+}
+
+fn node_os_release() -> String {
+    #[cfg(windows)]
+    {
+        if let Ok(output) = std::process::Command::new("cmd")
+            .args(["/C", "ver"])
+            .output()
+        {
+            let text = String::from_utf8_lossy(&output.stdout);
+            let mut token = String::new();
+            let mut found = false;
+            for character in text.chars() {
+                if character.is_ascii_digit() || (found && character == '.') {
+                    found = true;
+                    token.push(character);
+                } else if found {
+                    break;
+                }
+            }
+            let parts: Vec<&str> = token.split('.').filter(|part| !part.is_empty()).collect();
+            if parts.len() >= 3 {
+                return parts[..3].join(".");
+            }
+        }
+        return String::new();
+    }
+    #[cfg(target_os = "linux")]
+    {
+        return std::fs::read_to_string("/proc/sys/kernel/osrelease")
+            .map(|value| value.trim().to_owned())
+            .unwrap_or_default();
+    }
+    #[cfg(target_os = "macos")]
+    {
+        return std::process::Command::new("uname")
+            .arg("-r")
+            .output()
+            .ok()
+            .map(|output| String::from_utf8_lossy(&output.stdout).trim().to_owned())
+            .unwrap_or_default();
+    }
+    #[cfg(not(any(windows, target_os = "linux", target_os = "macos")))]
+    {
+        String::new()
+    }
 }
 
 fn base_report(action: &str) -> Map<String, Value> {
@@ -100,6 +130,7 @@ fn base_report(action: &str) -> Map<String, Value> {
             report.insert(name.clone(), value.clone());
         }
     }
+    report.insert("os_release".to_owned(), json!(node_os_release()));
     let number = |name: &str| {
         report
             .get(name)
@@ -182,7 +213,7 @@ fn measure_export(
     report.insert("export_bytes".to_owned(), json!(markdown.len()));
     report.insert(
         "export_elapsed_us".to_owned(),
-        json!(started.elapsed().as_micros().to_string()),
+        json!(started.elapsed().as_micros() as u64),
     );
     Ok(())
 }
@@ -196,7 +227,7 @@ fn measure_audio(report: &mut Map<String, Value>) {
     );
     report.insert(
         "audio_enumeration_elapsed_us".to_owned(),
-        json!(started.elapsed().as_micros().to_string()),
+        json!(started.elapsed().as_micros() as u64),
     );
     if count == 0 {
         report.insert(
