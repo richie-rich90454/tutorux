@@ -1,0 +1,240 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "id": "session.transfer",
+      "family": "session",
+      "capability": "session.export",
+      "setup": [
+        {
+          "id": "student",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "student",
+            "create",
+            "--name",
+            "Session Student"
+          ],
+          "capture": {
+            "student": "id"
+          }
+        },
+        {
+          "id": "journal",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "journal",
+            "create",
+            "--title",
+            "Session journal",
+            "--date",
+            "2026-10-31"
+          ],
+          "capture": {
+            "entry": "id"
+          }
+        },
+        {
+          "id": "seed session",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "session",
+            "create",
+            "--student-id",
+            "{capture.student}",
+            "--entry-id",
+            "{capture.entry}",
+            "--title",
+            "Seed session",
+            "--subject",
+            "Mathematics"
+          ],
+          "capture": {
+            "seed_session": "id"
+          }
+        }
+      ],
+      "steps": [
+        {
+          "id": "export package",
+          "capability": "session.export",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "session",
+            "export",
+            "{capture.seed_session}",
+            "--output",
+            "{dir}/session-package.tux"
+          ],
+          "expect": {
+            "exitCode": 0,
+            "stdoutJsonIncludes": {
+              "session_id": "<uuid>",
+              "status": "exported",
+              "created": true
+            }
+          }
+        },
+        {
+          "id": "import package",
+          "capability": "session.import",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "session",
+            "import",
+            "{dir}/session-package.tux"
+          ],
+          "capture": {
+            "imported_session": "session_id"
+          },
+          "expect": {
+            "exitCode": 0,
+            "stdoutJsonIncludes": {
+              "status": "imported",
+              "session_id": "<uuid>",
+              "imported_records": "<number>"
+            }
+          }
+        },
+        {
+          "id": "export without force rejects existing",
+          "capability": "session.export",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "session",
+            "export",
+            "{capture.seed_session}",
+            "--output",
+            "{dir}/session-package.tux"
+          ],
+          "expect": {
+            "exitCode": 2,
+            "stdoutJson": null,
+            "stderrContains": [
+              "already exists"
+            ]
+          }
+        },
+        {
+          "id": "export force overwrites",
+          "capability": "session.export",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "session",
+            "export",
+            "{capture.seed_session}",
+            "--output",
+            "{dir}/session-package.tux",
+            "--force"
+          ],
+          "expect": {
+            "exitCode": 0,
+            "stdoutJsonIncludes": {
+              "status": "exported",
+              "created": true
+            }
+          }
+        },
+        {
+          "id": "recover without audio",
+          "capability": "session.recover",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "session",
+            "recover",
+            "--session",
+            "{capture.seed_session}"
+          ],
+          "expect": {
+            "exitCode": 1,
+            "stdoutJson": null,
+            "stderrContains": [
+              "no recoverable WAV"
+            ]
+          }
+        },
+        {
+          "id": "delete preview",
+          "capability": "session.delete",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "session",
+            "delete",
+            "{capture.seed_session}",
+            "--dry-run"
+          ],
+          "capture": {
+            "scope_token": "scope_token"
+          },
+          "expect": {
+            "exitCode": 0,
+            "stdoutJsonIncludes": {
+              "status": "confirmation-required",
+              "session_id": "<uuid>",
+              "scope_token": "<sha256>"
+            }
+          }
+        },
+        {
+          "id": "delete confirm",
+          "capability": "session.delete",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "session",
+            "delete",
+            "{capture.seed_session}",
+            "--confirm-scope",
+            "--scope-token",
+            "{capture.scope_token}"
+          ],
+          "expect": {
+            "exitCode": 0,
+            "stdoutJsonIncludes": {
+              "status": "deleted",
+              "session_id": "<uuid>"
+            }
+          }
+        },
+        {
+          "id": "restore",
+          "capability": "session.restore",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "session",
+            "restore",
+            "{capture.seed_session}"
+          ],
+          "expect": {
+            "exitCode": 0,
+            "stdoutJsonIncludes": {
+              "status": "restored",
+              "session_id": "<uuid>"
+            }
+          }
+        }
+      ]
+    }
+  ]
+}
