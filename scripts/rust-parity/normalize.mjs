@@ -32,6 +32,9 @@ const VOLATILE_NUMBER_KEYS = new Set([
     "export_elapsed_us",
     "audio_enumeration_elapsed_us",
     "process_uptime_us",
+    "process_uptime_seconds",
+    "bytes",
+    "request_bytes",
     "process_cpu_time_us",
     "resident_memory_bytes",
     "peak_resident_memory_bytes",
@@ -75,6 +78,17 @@ function normalizeAdapterLabel(value) {
 
 function normalizeString(value, key) {
     if (PATH_KEYS.has(key) || isAbsolutePath(value)) return "<path>";
+    if (key === "scope_token") return "<hash>";
+    if (
+        key === "content_hash" ||
+        key === "package_hash" ||
+        key === "package_content_hash" ||
+        key === "manifest_hash" ||
+        key === "request_body_hash" ||
+        key === "export_hash"
+    ) {
+        return "<hash>";
+    }
     let normalized = normalizeAdapterLabel(value);
     if (TIMESTAMP_KEYS.has(key) || key.endsWith("_at_us")) return "<timestamp>";
     if (VOLATILE_NUMBER_KEYS.has(key)) {
