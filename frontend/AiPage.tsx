@@ -837,7 +837,7 @@ export function AiPage(props: AiPageProps): JSX.Element {
         <div class="page-body ai-page">
             <section class="record-heading ai-heading">
                 <div>
-                    <span class="eyebrow">PRIVATE BY DEFAULT</span>
+                    <span class="eyebrow">Private by default</span>
                     <h1>AI workspace</h1>
                     <p>
                         Prepare a source-linked study-guide handoff. Packages stay in your archive
@@ -874,7 +874,7 @@ export function AiPage(props: AiPageProps): JSX.Element {
             <section class="ai-panel ai-provider-panel" aria-labelledby="ai-provider-title">
                 <div class="ai-panel-heading">
                     <div>
-                        <span class="eyebrow">LOCAL SETUP · NO CONNECTION TEST</span>
+                        <span class="eyebrow">Local setup · no connection test</span>
                         <h2 id="ai-provider-title">Provider settings</h2>
                     </div>
                     <span class="ai-provider-status">
@@ -1037,7 +1037,7 @@ export function AiPage(props: AiPageProps): JSX.Element {
                 <section class="ai-model-catalog" aria-labelledby="ai-model-catalog-title">
                     <div class="ai-model-catalog-heading">
                         <div>
-                            <span class="eyebrow">OPTIONAL · PUBLIC METADATA ONLY</span>
+                            <span class="eyebrow">Optional · public metadata only</span>
                             <h3 id="ai-model-catalog-title">Model catalog</h3>
                         </div>
                         <button
@@ -1372,7 +1372,7 @@ export function AiPage(props: AiPageProps): JSX.Element {
                     <section class="ai-embedded-model" aria-labelledby="ai-embedded-model-title">
                         <div class="ai-panel-heading">
                             <div>
-                                <span class="eyebrow">ON THIS DEVICE · NO DOWNLOADS</span>
+                                <span class="eyebrow">On this device · no downloads</span>
                                 <h3 id="ai-embedded-model-title">In-process GGUF model</h3>
                             </div>
                             <span class="ai-provider-status">
@@ -1498,7 +1498,7 @@ export function AiPage(props: AiPageProps): JSX.Element {
             <section class="ai-panel" aria-labelledby="ai-prepare-title">
                 <div class="ai-panel-heading">
                     <div>
-                        <span class="eyebrow">NO API KEY REQUIRED</span>
+                        <span class="eyebrow">No API key required</span>
                         <h2 id="ai-prepare-title">Prepare a guide package</h2>
                     </div>
                     <span class="ai-step-marker">
@@ -1654,7 +1654,7 @@ export function AiPage(props: AiPageProps): JSX.Element {
                     <section class="ai-review-card" aria-labelledby="ai-review-title">
                         <div class="ai-review-heading">
                             <div>
-                                <span class="eyebrow">PACKAGE READY FOR YOUR REVIEW</span>
+                                <span class="eyebrow">Package ready for your review</span>
                                 <h2 id="ai-review-title">{summary().guideTemplateName}</h2>
                             </div>
                             <span class="ai-hash-label">
@@ -2041,7 +2041,7 @@ export function AiPage(props: AiPageProps): JSX.Element {
                     >
                         <div class="ai-request-preview-heading">
                             <div>
-                                <span class="eyebrow">RESPONSE SAVED · REVIEW REQUIRED</span>
+                                <span class="eyebrow">Response saved · review required</span>
                                 <h2 id="ai-generation-result-title">
                                     {result().guideId
                                         ? "Proposed study guide is ready"
@@ -2133,7 +2133,7 @@ export function AiPage(props: AiPageProps): JSX.Element {
             <section class="ai-panel" aria-labelledby="ai-import-response-title">
                 <div class="ai-panel-heading">
                     <div>
-                        <span class="eyebrow">EXTERNAL RESPONSE</span>
+                        <span class="eyebrow">External response</span>
                         <h2 id="ai-import-response-title">Import a response</h2>
                     </div>
                     <span class="ai-provider-status">Review required</span>
@@ -2171,7 +2171,7 @@ export function AiPage(props: AiPageProps): JSX.Element {
             <section class="ai-panel ai-history" aria-labelledby="ai-history-title">
                 <div class="ai-panel-heading">
                     <div>
-                        <span class="eyebrow">KEPT WITH YOUR WORKSPACE</span>
+                        <span class="eyebrow">Kept with your workspace</span>
                         <h2 id="ai-history-title">Prepared packages</h2>
                     </div>
                     <span class="ai-history-count">{latestJobs().length} recent</span>
@@ -2237,7 +2237,7 @@ export function AiPage(props: AiPageProps): JSX.Element {
                 <section class="ai-panel ai-history" aria-labelledby="ai-run-history-title">
                     <div class="ai-panel-heading">
                         <div>
-                            <span class="eyebrow">REVIEW BEFORE APPROVAL</span>
+                            <span class="eyebrow">Review before approval</span>
                             <h2 id="ai-run-history-title">Provider responses</h2>
                         </div>
                         <span class="ai-history-count">{latestRuns().length} recent</span>
