@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
-import type { ArchiveRecord } from "../archive/format";
-import { importTranscriptBatches, transcriptCueBatches } from "./transcript-import";
+import type { ArchiveRecord } from "../../../frontend/archive/format";
+import {
+    importTranscriptBatches,
+    transcriptCueBatches,
+} from "../../../frontend/audio/transcript-import";
 
 async function* chunksOf(value: string): AsyncGenerator<Uint8Array> {
     for (let offset = 0; offset < value.length; offset += 7) {
