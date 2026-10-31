@@ -15,6 +15,7 @@ import {
 import {
     runArchiveBackfillIndexesCommand,
     runArchiveCompactCommand,
+    runArchivePurgeTrashCommand,
     runArchiveRebuildIndexCommand,
     runArchiveRecoverCommand,
     runArchiveRepairCommand,
@@ -166,6 +167,9 @@ export async function runArchiveCommand(
     }
     if (action === "compact") {
         return runArchiveCompactCommand(path, args, output);
+    }
+    if (action === "purge-trash") {
+        return runArchivePurgeTrashCommand(path, args, output);
     }
     if (action === "rebuild-index") {
         return runArchiveRebuildIndexCommand(path, args, output);
