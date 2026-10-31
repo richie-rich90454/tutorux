@@ -4,7 +4,63 @@ use super::*;
 // Assets
 // ---------------------------------------------------------------------------
 
-pub(crate) const ASSET_CHUNK_BYTES: usize = 8 * 1024 * 1024;
+pub(crate) const ASSET_CHUNK_BYTES: usize = 8 * 1024 * 1024;
+
+struct MemoryStaging {
+    bytes: Vec<u8>,
+}
+
+impl crate::core::archive::ArchiveStaging for MemoryStaging {
+    fn append(&mut self, bytes: &[u8]) -> Result<()> {
+        self.bytes.extend_from_slice(bytes);
+        Ok(())
+    }
+
+    fn seal(&mut self) -> Result<std::sync::Arc<dyn crate::core::source::ByteSource>> {
+        Ok(std::sync::Arc::new(
+            crate::core::source::MemorySource::new(std::mem::take(&mut self.bytes)),
+        ))
+    }
+
+    fn abort(&mut self) -> Result<()> {
+        self.bytes.clear();
+        Ok(())
+    }
+}
+
+fn mutate_staged_assets(
+    path: &std::path::Path,
+    snapshot: &ArchiveSnapshot,
+    records: Vec<ArchiveRecord>,
+) -> CliResult<Vec<ArchiveRecord>> {
+    let mut staging = MemoryStaging { bytes: Vec::new() };
+    let next = crate::core::archive::append_staged_asset_records(
+        snapshot,
+        records.into_iter(),
+        &mut staging,
+    )?;
+    let bytes = next.source.read(0, next.source.size() as usize)?;
+    crate::core::cli::archive::save::save_bytes(path, &bytes)?;
+    let mut saved = Vec::new();
+    for key in next.all_index_entries().keys() {
+        if key.matches(':').count() != 1 {
+            continue;
+        }
+        let Some((type_name, id)) = key.split_once(':') else {
+            continue;
+        };
+        let Some(record_type) = crate::core::format::record_type_from_name(type_name) else {
+            continue;
+        };
+        if record_type == RecordType::ASSET_METADATA || record_type == RecordType::ASSET_BLOB {
+            if let Some(record) = next.get_record(record_type, id)? {
+                saved.push(record);
+            }
+        }
+    }
+    Ok(saved)
+}
+
 
 pub(crate) fn sha256_hex(bytes: &[u8]) -> String {
     crate::core::archive::sha256(bytes)
@@ -191,7 +247,7 @@ pub(crate) fn run_asset(
                 &session_id,
                 args.option("description").unwrap_or(""),
             )?;
-            let saved = mutate(path, &snapshot, &records)?;
+            let saved = mutate_staged_assets(path, &snapshot, records)?;
             let metadata: Vec<Value> = saved
                 .iter()
                 .filter(|record| record.record_type == RecordType::ASSET_METADATA)
@@ -228,7 +284,7 @@ pub(crate) fn run_asset(
                 records.extend(import_asset(&snapshot, &bytes, filename, &session_id, "")?);
                 imported += 1;
             }
-            let saved = mutate(path, &snapshot, &records)?;
+            let saved = mutate_staged_assets(path, &snapshot, records)?;
             let metadata: Vec<Value> = saved
                 .iter()
                 .filter(|record| record.record_type == RecordType::ASSET_METADATA)
