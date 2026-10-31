@@ -1,116 +1,96 @@
 {
-  "version": 1,
-  "cases": [
-    {
-      "id": "cli.help",
-      "family": "cli",
-      "capability": "cli.help",
-      "steps": [
+    "version": 1,
+    "cases": [
         {
-          "id": "help flag",
-          "capability": "cli.help",
-          "args": [
-            "--help"
-          ],
-          "compareStdout": "text",
-          "expect": {
-            "exitCode": 0,
-            "stdoutMinLines": 100,
-            "stdoutContains": [
-              "Global options:",
-              "archive init <file.tux>",
-              "journal collection|tag",
-              "record start --session",
-              "transcript transcribe|generate|refine"
+            "id": "cli.help",
+            "family": "cli",
+            "capability": "cli.help",
+            "steps": [
+                {
+                    "id": "help flag",
+                    "capability": "cli.help",
+                    "args": ["--help"],
+                    "compareStdout": "text",
+                    "expect": {
+                        "exitCode": 0,
+                        "stdoutMinLines": 100,
+                        "stdoutContains": [
+                            "Global options:",
+                            "archive init <file.tux>",
+                            "journal collection|tag",
+                            "record start --session",
+                            "transcript transcribe|generate|refine"
+                        ]
+                    }
+                },
+                {
+                    "id": "help short flag",
+                    "capability": "cli.help",
+                    "args": ["-h"],
+                    "compareStdout": "text",
+                    "expect": {
+                        "exitCode": 0,
+                        "stdoutMinLines": 100
+                    }
+                },
+                {
+                    "id": "help command",
+                    "capability": "cli.help",
+                    "args": ["help"],
+                    "compareStdout": "text",
+                    "expect": {
+                        "exitCode": 0,
+                        "stdoutMinLines": 100
+                    }
+                }
             ]
-          }
         },
         {
-          "id": "help short flag",
-          "capability": "cli.help",
-          "args": [
-            "-h"
-          ],
-          "compareStdout": "text",
-          "expect": {
-            "exitCode": 0,
-            "stdoutMinLines": 100
-          }
-        },
-        {
-          "id": "help command",
-          "capability": "cli.help",
-          "args": [
-            "help"
-          ],
-          "compareStdout": "text",
-          "expect": {
-            "exitCode": 0,
-            "stdoutMinLines": 100
-          }
+            "id": "cli.version",
+            "family": "cli",
+            "capability": "cli.version",
+            "steps": [
+                {
+                    "id": "version flag",
+                    "capability": "cli.version",
+                    "args": ["--version"],
+                    "compareStdout": "text",
+                    "expect": {
+                        "exitCode": 0,
+                        "stdoutContains": ["Tutorux 1.0.0"]
+                    }
+                },
+                {
+                    "id": "version short flag",
+                    "capability": "cli.version",
+                    "args": ["-v"],
+                    "compareStdout": "text",
+                    "expect": {
+                        "exitCode": 0,
+                        "stdoutContains": ["Tutorux 1.0.0"]
+                    }
+                },
+                {
+                    "id": "version command",
+                    "capability": "cli.version",
+                    "args": ["version"],
+                    "compareStdout": "text",
+                    "expect": {
+                        "exitCode": 0,
+                        "stdoutContains": ["Tutorux 1.0.0"]
+                    }
+                },
+                {
+                    "id": "missing command",
+                    "capability": "cli.help",
+                    "args": [],
+                    "expect": {
+                        "exitCode": 2,
+                        "stdoutJson": null,
+                        "stderrContains": ["Choose a command group"]
+                    }
+                }
+            ]
         }
-      ]
-    },
-    {
-      "id": "cli.version",
-      "family": "cli",
-      "capability": "cli.version",
-      "steps": [
-        {
-          "id": "version flag",
-          "capability": "cli.version",
-          "args": [
-            "--version"
-          ],
-          "compareStdout": "text",
-          "expect": {
-            "exitCode": 0,
-            "stdoutContains": [
-              "Tutorux 1.0.0"
-            ]
-          }
-        },
-        {
-          "id": "version short flag",
-          "capability": "cli.version",
-          "args": [
-            "-v"
-          ],
-          "compareStdout": "text",
-          "expect": {
-            "exitCode": 0,
-            "stdoutContains": [
-              "Tutorux 1.0.0"
-            ]
-          }
-        },
-        {
-          "id": "version command",
-          "capability": "cli.version",
-          "args": [
-            "version"
-          ],
-          "compareStdout": "text",
-          "expect": {
-            "exitCode": 0,
-            "stdoutContains": [
-              "Tutorux 1.0.0"
-            ]
-          }
-        },
-        {
-          "id": "missing command",
-          "capability": "cli.help",
-          "args": [],
-          "expect": {
-            "exitCode": 2,
-            "stdoutJson": null,
-            "stderrContains": [
-              "Choose a command group"
-            ]
-          }
-        }
-      ]
-    }
-  ]
+    ]
 }
