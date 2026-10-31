@@ -5,7 +5,7 @@ import {
     openArchiveBytes,
     verifyArchiveSnapshot,
     type ArchiveSnapshot,
-} from "./archive";
+} from "../../../frontend/archive/archive";
 import {
     decodeLz4Block,
     decodeRecordFrame,
@@ -15,8 +15,12 @@ import {
     newUuid,
     RecordType,
     RECORD_HEADER_SIZE,
-} from "./format";
-import { ArchiveDataKey, encryptionEnvelopeFromRecord, encryptionEnvelopeToRecord } from "./crypto";
+} from "../../../frontend/archive/format";
+import {
+    ArchiveDataKey,
+    encryptionEnvelopeFromRecord,
+    encryptionEnvelopeToRecord,
+} from "../../../frontend/archive/crypto";
 
 async function readFrame(snapshot: ArchiveSnapshot, offset: bigint) {
     const header = decodeRecordFrameHeader(await snapshot.source.read(offset, RECORD_HEADER_SIZE));
@@ -122,7 +126,7 @@ describe("Tutorux archive encryption primitives", () => {
     });
 
     it("opens encryption metadata, protected records, and MACs written by the C++ archive", async () => {
-        const fixture = new URL("../../tests/fixtures/encrypted-v1.tux", import.meta.url);
+        const fixture = new URL("../../fixtures/encrypted-v1.tux", import.meta.url);
         const snapshot = await openArchiveBytes(new Uint8Array(await readFile(fixture)));
         expect(snapshot.encrypted).toBe(true);
         expect(snapshot.locked).toBe(true);
@@ -202,7 +206,7 @@ describe("Tutorux archive encryption primitives", () => {
     });
 
     it("unlocks a C++ archive after authenticating its commit, index, and manifest", async () => {
-        const fixture = new URL("../../tests/fixtures/encrypted-v1.tux", import.meta.url);
+        const fixture = new URL("../../fixtures/encrypted-v1.tux", import.meta.url);
         const locked = await openArchiveBytes(new Uint8Array(await readFile(fixture)));
         const studentEntry = [...locked.allIndexEntries()].find(([indexKey]) =>
             indexKey.startsWith("STUDENT:"),
@@ -239,7 +243,7 @@ describe("Tutorux archive encryption primitives", () => {
     });
 
     it("appends, authenticates, and reopens an encrypted v1 generation", async () => {
-        const fixture = new URL("../../tests/fixtures/encrypted-v1.tux", import.meta.url);
+        const fixture = new URL("../../fixtures/encrypted-v1.tux", import.meta.url);
         const locked = await openArchiveBytes(new Uint8Array(await readFile(fixture)));
         const original = await locked.unlock("Tutorux cross-language fixture phrase 2026");
         const encryptionEnvelope = await original.getRecord(
@@ -291,7 +295,7 @@ describe("Tutorux archive encryption primitives", () => {
     });
 
     it("changes the passphrase by re-keying the archive and removing the old envelope", async () => {
-        const fixture = new URL("../../tests/fixtures/encrypted-v1.tux", import.meta.url);
+        const fixture = new URL("../../fixtures/encrypted-v1.tux", import.meta.url);
         const locked = await openArchiveBytes(new Uint8Array(await readFile(fixture)));
         const original = await locked.unlock("Tutorux cross-language fixture phrase 2026");
         const nextPassphrase = "A new protected archive phrase 2026";
