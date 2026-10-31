@@ -90,7 +90,7 @@ pub fn run_diagnostics_command(
                 .into());
             }
             if cancellation.is_cancelled() {
-                return Err(CliError("Diagnostics cancelled.".to_owned()).into());
+                return Err(CliError("Diagnostics were cancelled.".to_owned()).into());
             }
             let full = args.flag("full");
             let include_system = action != "archive";
