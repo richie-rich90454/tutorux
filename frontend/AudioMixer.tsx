@@ -79,7 +79,7 @@ export function AudioMixer(props: AudioMixerProps): JSX.Element {
     return (
         <section class="audio-mixer">
             <div>
-                <span class="eyebrow">LISTEN TOGETHER</span>
+                <span class="eyebrow">Listen together</span>
                 <h3>Mix recording tracks</h3>
                 <p>
                     Combine two to eight tracks from one take into a new stereo track. The original
