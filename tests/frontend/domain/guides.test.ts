@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { RecordType, type ArchiveRecord } from "../archive/format";
+import { RecordType, type ArchiveRecord } from "../../../frontend/archive/format";
 import {
     GUIDE_TEMPLATES,
     generateGuideDraftFromSession,
@@ -13,7 +13,7 @@ import {
     resolveGuideTemplates,
     validateGuideForExport,
     type GuideExportImage,
-} from "./guides";
+} from "../../../frontend/domain/guides";
 
 describe("study guide HTML export", () => {
     it("escapes imported text and keeps source review cues in the document", () => {
