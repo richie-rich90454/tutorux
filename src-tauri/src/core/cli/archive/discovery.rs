@@ -2,9 +2,9 @@ use serde_json::{json, Value};
 
 use crate::core::archive::ArchiveSnapshot;
 use crate::core::cli::{emit, resolve_path, CliError, CliOutput, CliResult, ParsedArguments};
-use crate::core::format::decode_archive_header;
+use crate::core::format::{decode_archive_header, inspect_archive_version, RecordType};
 
-use super::helpers::{file_stem, is_writable};
+use super::helpers::{counter, file_stem, is_writable};
 
 pub(super) fn run(args: &ParsedArguments, output: &mut dyn CliOutput) -> CliResult<i32> {
     if args.flag("directory") {
@@ -50,63 +50,75 @@ pub(super) fn run(args: &ParsedArguments, output: &mut dyn CliOutput) -> CliResu
 
 fn inspect_candidate(path: &std::path::Path) -> Option<Value> {
     let bytes = std::fs::read(path).ok()?;
-    let header = decode_archive_header(&bytes).ok()?;
-    let size = bytes.len().to_string();
+    let size = bytes.len();
     let writable = is_writable(path);
     let name = file_stem(path);
-    let snapshot = ArchiveSnapshot::open_bytes(bytes).ok();
-    let (display_name, description, generation, records, health) = match snapshot {
-        Some(snapshot) => {
-            let manifest = snapshot.get_manifest().ok();
-            let live = snapshot.verify().ok();
-            (
-                manifest
-                    .as_ref()
-                    .map(|manifest| manifest.display_name.clone())
-                    .unwrap_or(name.clone()),
-                manifest.map(|manifest| manifest.description).unwrap_or_default(),
-                snapshot.commit.generation.to_string(),
-                live.map(|value| value.live_records).unwrap_or(0),
-                "healthy".to_owned(),
-            )
+    let header = match decode_archive_header(&bytes) {
+        Ok(header) => header,
+        Err(error) => {
+            let (major, minor) = inspect_archive_version(&bytes).unwrap_or((0, 0));
+            let code = error.code;
+            let mut value = json!({
+                "path": path.display().to_string(),
+                "name": name,
+                "size_bytes": size.to_string(),
+                "format_major": major.to_string(),
+                "format_minor": minor.to_string(),
+                "health": code.as_str(),
+                "writable": writable,
+            });
+            if matches!(
+                code.as_str(),
+                "archive_version_unsupported" | "archive_capability_unsupported"
+            ) {
+                value["metadata_only"] = Value::Bool(true);
+            }
+            return Some(value);
         }
-        None => (name.clone(), String::new(), "0".to_owned(), 0, "locked".to_owned()),
+    };
+    let snapshot = match ArchiveSnapshot::open_bytes(bytes) {
+        Ok(snapshot) => snapshot,
+        Err(error) => {
+            return Some(json!({
+                "path": path.display().to_string(),
+                "name": name,
+                "size_bytes": size.to_string(),
+                "format_major": "0",
+                "format_minor": "0",
+                "health": error.code,
+                "writable": writable,
+            }))
+        }
+    };
+    let manifest_record = snapshot
+        .get_record(RecordType::SETTINGS, &header.id)
+        .ok()
+        .flatten();
+    let manifest = snapshot.get_manifest().ok();
+    let health = if snapshot.locked() {
+        "locked"
+    } else if snapshot.source.size() > snapshot.published_end_offset {
+        "recovery-required"
+    } else {
+        "healthy"
     };
     Some(json!({
         "path": path.display().to_string(),
-        "name": display_name,
-        "description": description,
+        "name": manifest
+            .as_ref()
+            .map(|manifest| manifest.display_name.clone())
+            .unwrap_or_else(|| name.clone()),
+        "description": manifest.as_ref().map(|manifest| manifest.description.clone()).unwrap_or_default(),
         "id": header.id,
-        "archiveId": header.id,
-        "archive_id": header.id,
-        "generation": generation,
-        "size": size,
-        "size_bytes": size,
-        "student_count": records.to_string(),
-        "session_count": "0",
+        "generation": snapshot.commit.generation.to_string(),
+        "size_bytes": size.to_string(),
+        "student_count": counter(manifest_record.as_ref().and_then(|record| record.field("student_count"))),
+        "session_count": counter(manifest_record.as_ref().and_then(|record| record.field("session_count"))),
         "created_at_us": header.created_at_us.to_string(),
         "format_major": header.major_version.to_string(),
         "format_minor": header.minor_version.to_string(),
-        "formatMajor": header.major_version,
-        "formatMinor": header.minor_version,
         "writable": writable,
         "health": health,
-        "recoveryNeeded": false,
-        "metadataOnly": false,
-        "metadata_only": false,
-        "encrypted": header.capabilities & 1 != 0,
-        "locked": header.capabilities & 1 != 0,
-        "verified": false,
-        "valid": false,
-        "records": records,
-        "recordsVerified": records,
-        "records_checked": records,
-        "index_pages_checked": 0,
-        "deletedRecords": 0,
-        "issues": Vec::<String>::new(),
-        "historicalRevisionsVerified": Value::Null,
-        "commitsVerified": Value::Null,
-        "verificationScope": "header-and-index",
     }))
 }
 
