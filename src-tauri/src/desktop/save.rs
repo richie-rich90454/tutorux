@@ -8,7 +8,7 @@ use super::{
 };
 use crate::archive_lock_support::LockMode;
 use std::{
-    fs::{self, File},
+    fs::{self, OpenOptions},
     path::Path,
 };
 use tauri::{AppHandle, State};
@@ -115,7 +115,9 @@ pub(crate) fn publish_archive_save(
         .archive_locks
         .for_path(&pending.target, LockMode::Exclusive)?;
     let mut archive_write_lock = state.archive_locks.exclusive_guard(&target_lock)?;
-    File::open(&pending.temporary)
+    OpenOptions::new()
+        .write(true)
+        .open(&pending.temporary)
         .and_then(|file| file.sync_all())
         .map_err(|error| format!("The temporary archive could not be finalized: {error}"))?;
 
