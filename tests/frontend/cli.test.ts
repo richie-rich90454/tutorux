@@ -1,14 +1,14 @@
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { executeCli } from "../cli/main";
+import { executeCli } from "../../cli/main";
 import {
     appendRecords,
     createArchiveBytes,
     openArchiveBytes,
     verifyArchiveSnapshot,
-} from "./archive/archive";
-import { newUuid, RecordType, type ArchiveRecord } from "./archive/format";
+} from "../../frontend/archive/archive";
+import { newUuid, RecordType, type ArchiveRecord } from "../../frontend/archive/format";
 
 describe("TypeScript CLI", () => {
     it("shows student history and reviews source-backed progress", async () => {
