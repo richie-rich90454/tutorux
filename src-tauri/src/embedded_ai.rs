@@ -2,9 +2,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::{
     collections::HashMap,
-    fs,
     io::{BufRead, BufReader, Write},
-    path::{Path, PathBuf},
+    path::PathBuf,
     process::{Child, ChildStdin, ChildStdout, Command, Stdio},
     sync::{
         atomic::{AtomicU64, Ordering},
@@ -12,7 +11,7 @@ use std::{
         Arc, Mutex,
     },
 };
-use tauri::{ipc::Channel, AppHandle, Manager, State};
+use tauri::{ipc::Channel, AppHandle, State};
 use zeroize::Zeroize;
 
 const MAX_PROMPT_BYTES: usize = 4 * 1024 * 1024;
@@ -469,54 +468,9 @@ fn fail_pending(pending: &Mutex<PendingRequests>) {
 }
 
 fn locate_sidecar(app: &AppHandle) -> Result<PathBuf, String> {
-    let file_name = if cfg!(windows) {
-        "tutorux-embedded-ai.exe"
-    } else {
-        "tutorux-embedded-ai"
-    };
-    let mut directories = Vec::new();
-    if let Ok(executable) = std::env::current_exe() {
-        if let Some(directory) = executable.parent() {
-            directories.push(directory.to_path_buf());
-        }
+    let path = crate::runtime::paths(app)?.embedded_ai;
+    if path.is_file() {
+        return Ok(path);
     }
-    if let Ok(resource_directory) = app.path().resource_dir() {
-        directories.push(resource_directory);
-    }
-    directories.push(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("binaries"));
-
-    for directory in &directories {
-        let direct = directory.join(file_name);
-        if direct.is_file() {
-            return Ok(direct);
-        }
-    }
-    for directory in directories {
-        for candidate_directory in [directory.clone(), directory.join("binaries")] {
-            let Ok(entries) = fs::read_dir(candidate_directory) else {
-                continue;
-            };
-            for entry in entries.flatten() {
-                let path = entry.path();
-                if path.is_file() && is_sidecar_file(&path) {
-                    return Ok(path);
-                }
-            }
-        }
-    }
-    Err("The bundled local AI helper is missing. Repair or reinstall Tutorux to restore local GGUF inference.".to_owned())
-}
-
-fn is_sidecar_file(path: &Path) -> bool {
-    let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
-        return false;
-    };
-    let extension_ok = path.extension().is_none()
-        || path
-            .extension()
-            .is_some_and(|extension| extension.eq_ignore_ascii_case("exe"));
-    extension_ok
-        && (name == "tutorux-embedded-ai"
-            || name == "tutorux-embedded-ai.exe"
-            || name.starts_with("tutorux-embedded-ai-"))
+    Err("The bundled local AI helper is missing. This Tutorux build is incomplete.".into())
 }
