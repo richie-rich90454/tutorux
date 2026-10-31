@@ -1,0 +1,441 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "id": "transcript.lifecycle",
+      "family": "transcript",
+      "capability": "transcript.import",
+      "files": {
+        "transcript.txt": "Fractions are parts of a whole.\nWe compare fractions.\nEquivalent fractions are equal.\n"
+      },
+      "setup": [
+        {
+          "id": "session",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "session",
+            "create",
+            "--title",
+            "Transcript session"
+          ],
+          "capture": {
+            "session": "id"
+          }
+        }
+      ],
+      "steps": [
+        {
+          "id": "import",
+          "capability": "transcript.import",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "transcript",
+            "import",
+            "--session",
+            "{capture.session}",
+            "--input",
+            "transcript.txt",
+            "--format",
+            "text"
+          ],
+          "expect": {
+            "exitCode": 0,
+            "stdoutJsonIncludes": {
+              "session_id": "<uuid>",
+              "source_format": "text",
+              "imported_segment_count": "3",
+              "verification_state": "provisional"
+            }
+          }
+        },
+        {
+          "id": "show",
+          "capability": "transcript.show",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "transcript",
+            "show",
+            "--session",
+            "{capture.session}"
+          ],
+          "capture": {
+            "first": "0.id",
+            "second": "1.id",
+            "third": "2.id"
+          },
+          "expect": {
+            "exitCode": 0,
+            "stdoutContains": [
+              "Fractions are parts of a whole."
+            ]
+          }
+        },
+        {
+          "id": "search",
+          "capability": "transcript.search",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "transcript",
+            "search",
+            "--session",
+            "{capture.session}",
+            "--query",
+            "fractions"
+          ],
+          "expect": {
+            "exitCode": 0,
+            "stdoutContains": [
+              "Equivalent fractions are equal."
+            ]
+          }
+        },
+        {
+          "id": "plan",
+          "capability": "transcript.plan",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "transcript",
+            "plan",
+            "--session",
+            "{capture.session}",
+            "--threads",
+            "2",
+            "--model-memory-mb",
+            "256",
+            "--available-memory-mb",
+            "1024"
+          ],
+          "expect": {
+            "exitCode": 0,
+            "stdoutJsonIncludes": {
+              "session_id": "<uuid>",
+              "threads": 2,
+              "model_memory_mb": 256,
+              "estimated_memory_mb": 416,
+              "available_memory_mb": 1024,
+              "available_known": true,
+              "feasible": true
+            }
+          }
+        },
+        {
+          "id": "transcribe without audio",
+          "capability": "transcript.transcribe",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "transcript",
+            "transcribe",
+            "--session",
+            "{capture.session}",
+            "--track",
+            "00000000-0000-0000-0000-000000000000",
+            "--whisper",
+            "whisper-cli",
+            "--model",
+            "model.bin",
+            "--consent-local-audio"
+          ],
+          "expect": {
+            "exitCode": 2,
+            "stdoutJson": null,
+            "stderrContains": [
+              "no recorded audio track"
+            ]
+          }
+        },
+        {
+          "id": "generate alias without audio",
+          "capability": "transcript.transcribe",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "transcript",
+            "generate",
+            "--session",
+            "{capture.session}",
+            "--whisper",
+            "whisper-cli",
+            "--model",
+            "model.bin",
+            "--consent-local-audio"
+          ],
+          "expect": {
+            "exitCode": 2,
+            "stdoutJson": null,
+            "stderrContains": [
+              "no recorded audio track"
+            ]
+          }
+        },
+        {
+          "id": "refine without audio",
+          "capability": "transcript.refine",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "transcript",
+            "refine",
+            "--session",
+            "{capture.session}",
+            "--whisper",
+            "whisper-cli",
+            "--model",
+            "model.bin",
+            "--consent-local-audio"
+          ],
+          "expect": {
+            "exitCode": 2,
+            "stdoutJson": null,
+            "stderrContains": [
+              "no recorded audio track"
+            ]
+          }
+        },
+        {
+          "id": "correct",
+          "capability": "transcript.correct",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "transcript",
+            "correct",
+            "{capture.first}",
+            "--text",
+            "Fractions represent parts of a whole."
+          ],
+          "expect": {
+            "exitCode": 0,
+            "stdoutJsonIncludes": {
+              "text": "Fractions represent parts of a whole.",
+              "verification_state": "human-corrected"
+            }
+          }
+        },
+        {
+          "id": "timestamp",
+          "capability": "transcript.timestamp",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "transcript",
+            "timestamp",
+            "{capture.first}",
+            "--start",
+            "00:00:01",
+            "--end",
+            "00:00:02"
+          ],
+          "expect": {
+            "exitCode": 0,
+            "stdoutJsonIncludes": {
+              "start_time_us": "1000000",
+              "end_time_us": "2000000",
+              "timestamp_state": "timestamped"
+            }
+          }
+        },
+        {
+          "id": "verify",
+          "capability": "transcript.verify",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "transcript",
+            "verify",
+            "{capture.first}",
+            "--state",
+            "human-verified"
+          ],
+          "expect": {
+            "exitCode": 0,
+            "stdoutJsonIncludes": {
+              "verification_state": "human-verified"
+            }
+          }
+        },
+        {
+          "id": "speaker",
+          "capability": "transcript.speaker",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "transcript",
+            "speaker",
+            "{capture.first}",
+            "--name",
+            "Mina"
+          ],
+          "expect": {
+            "exitCode": 0,
+            "stdoutJsonIncludes": {
+              "speaker_label": "Mina"
+            }
+          }
+        },
+        {
+          "id": "split",
+          "capability": "transcript.split",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "transcript",
+            "split",
+            "{capture.second}",
+            "--before",
+            "We compare",
+            "--after",
+            " fractions."
+          ],
+          "capture": {
+            "split_second": "id"
+          },
+          "expect": {
+            "exitCode": 0,
+            "stdoutJsonIncludes": {
+              "text": " fractions."
+            }
+          }
+        },
+        {
+          "id": "merge",
+          "capability": "transcript.merge",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "transcript",
+            "merge",
+            "{capture.second}",
+            "{capture.split_second}"
+          ],
+          "expect": {
+            "exitCode": 0,
+            "stdoutJsonIncludes": {
+              "text": "We compare fractions."
+            }
+          }
+        },
+        {
+          "id": "history",
+          "capability": "transcript.history",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "transcript",
+            "history",
+            "{capture.first}"
+          ],
+          "expect": {
+            "exitCode": 0,
+            "stdoutContains": [
+              "history_index"
+            ]
+          }
+        },
+        {
+          "id": "restore revision",
+          "capability": "transcript.restore",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "transcript",
+            "restore",
+            "{capture.first}",
+            "--revision",
+            "1"
+          ],
+          "expect": {
+            "exitCode": 0,
+            "stdoutContains": [
+              "restored_from_revision"
+            ]
+          }
+        },
+        {
+          "id": "export",
+          "capability": "transcript.export",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "transcript",
+            "export",
+            "--session",
+            "{capture.session}",
+            "--output",
+            "{dir}/transcript.txt",
+            "--format",
+            "text"
+          ],
+          "expect": {
+            "exitCode": 0,
+            "stdoutJsonIncludes": {
+              "format": "text",
+              "segment_count": "<number-string>"
+            },
+            "files": [
+              {
+                "path": "{dir}/transcript.txt",
+                "contains": [
+                  "We compare fractions."
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "id": "export json",
+          "capability": "transcript.export",
+          "args": [
+            "--archive",
+            "{archive}",
+            "--json",
+            "transcript",
+            "export",
+            "--session",
+            "{capture.session}",
+            "--output",
+            "{dir}/transcript.json",
+            "--format",
+            "json"
+          ],
+          "expect": {
+            "exitCode": 0,
+            "stdoutJsonIncludes": {
+              "format": "json"
+            },
+            "files": [
+              {
+                "path": "{dir}/transcript.json",
+                "contains": [
+                  "We compare fractions."
+                ]
+              }
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}
