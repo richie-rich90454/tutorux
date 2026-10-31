@@ -30,7 +30,7 @@
     margin-top: 14px;
     padding: 18px;
     border: 1px solid var(--line);
-    border-radius: 14px;
+    border-radius: 5px;
     background: color-mix(in srgb, var(--surface) 88%, var(--canvas));
 }
 .archive-settings-copy-review-heading h3 {
@@ -55,7 +55,7 @@
     overflow-wrap: anywhere;
     padding: 5px 9px;
     border: 1px solid var(--line);
-    border-radius: 999px;
+    border-radius: 5px;
     color: var(--ink);
     background: var(--surface);
     font-size: 0.78rem;
