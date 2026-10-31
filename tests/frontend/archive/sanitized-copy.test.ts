@@ -5,9 +5,17 @@ import {
     createEncryptedArchiveBytes,
     openArchiveBytes,
     verifyArchiveSnapshot,
-} from "./archive";
-import { createSanitizedCopy, previewSanitizedCopy } from "./sanitized-copy";
-import { newUuid, RecordType, type ArchiveRecord, type RecordTypeValue } from "./format";
+} from "../../../frontend/archive/archive";
+import {
+    createSanitizedCopy,
+    previewSanitizedCopy,
+} from "../../../frontend/archive/sanitized-copy";
+import {
+    newUuid,
+    RecordType,
+    type ArchiveRecord,
+    type RecordTypeValue,
+} from "../../../frontend/archive/format";
 
 function record(
     type: RecordTypeValue,
