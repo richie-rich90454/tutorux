@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { extractDocumentText } from "./document-text";
+import { extractDocumentText } from "../../../frontend/domain/document-text";
 
 function makePdf(text: string): Uint8Array {
     const stream = `BT /F1 18 Tf 10 80 Td (${text}) Tj ET`;
