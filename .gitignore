@@ -1,4 +1,5 @@
 /dist/
+/release/
 /tmp/
 /node_modules/
 /.vite/
@@ -7,6 +8,8 @@
 /src-tauri/target/
 /src-tauri/binaries/tutorux-audio-helper-*
 /src-tauri/binaries/tutorux-embedded-ai-*
+/src-tauri/binaries/tutorux-runtime-*
+/src-tauri/binaries/console-runtime/
 /src-tauri/binaries/console-runtime-cache/
 /src-tauri/gen/
 /.cache/
