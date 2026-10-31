@@ -112,9 +112,18 @@ pub(crate) fn run_transcript(
             Ok(0)
         }
         "correct" | "timestamp" | "verify" | "speaker" | "split" | "merge" | "history" | "restore" => run_transcript_edit(action, &snapshot, &args, output, path),
-        "transcribe" | "generate" | "refine" => {
-            let session_id = args.required_option("session")?.to_lowercase();
-            require_live(&snapshot, RecordType::SESSION, &session_id)?;
+        "transcribe" | "generate" | "refine" => {
+            let session_id = args.required_option("session")?.to_lowercase();
+            require_live(&snapshot, RecordType::SESSION, &session_id)?;
+            let has_audio = snapshot
+                .list_records(RecordType::AUDIO_CHUNK, false)?
+                .iter()
+                .any(|record| {
+                    record.field("session_id").map(str::to_lowercase) == Some(session_id.clone())
+                });
+            if !has_audio {
+                return Err(CliError("The session has no recorded audio track.".to_owned()).into());
+            }
             if args.option("whisper").is_none() || args.option("model").is_none() {
                 return Err(CliError(
                     "Whisper model and executable are required for transcription.".to_owned(),
