@@ -1,4 +1,6 @@
 use super::*;
+#[path = "annotation_plan.rs"]
+mod annotation_plan;
 
 // ---------------------------------------------------------------------------
 // Annotations
@@ -83,8 +85,9 @@ pub(crate) fn run_annotation(
     path: &std::path::Path,
     context: &CliContext,
 ) -> CliResult<i32> {
-    let snapshot = load(path, context)?;
-    match action {
+    let snapshot = load(path, context)?;
+    match action {
+        "plan" => annotation_plan::run_annotation_plan(&snapshot, &args, output),
         "add" => {
             let session_id = args.required_option("session")?.to_lowercase();
             require_live(&snapshot, RecordType::SESSION, &session_id)?;
@@ -275,45 +278,77 @@ pub(crate) fn run_annotation(
             );
             Ok(0)
         }
-        "merge" => {
-            let ids: Vec<String> = args.positionals.iter().map(|value| value.to_lowercase()).collect();
-            if ids.len() < 2 {
-                return Err(CliError("Provide at least two annotation IDs to merge.".to_owned()).into());
-            }
-            let mut annotations = Vec::new();
-            for id in &ids {
-                annotations.push(require_live(&snapshot, RecordType::ANNOTATION, id)?);
-            }
-            let first = annotations[0].clone();
-            let session_id = first.field("session_id").unwrap_or("").to_owned();
-            let annotation_type = first.field("type").unwrap_or("general-note").to_owned();
-            let priority = first.field("priority").unwrap_or("normal").to_owned();
-            let mut contents = Vec::new();
-            let mut titles = Vec::new();
-            let mut end = first.field("end_time_us").unwrap_or("0").parse::<i64>().unwrap_or(0);
-            for record in &annotations {
-                if record.field("session_id") != Some(session_id.as_str()) {
-                    return Err(CliError("All annotations must belong to the same session.".to_owned()).into());
-                }
-                if record.field("type") != Some(annotation_type.as_str())
-                    || record.field("priority") != Some(priority.as_str())
-                {
-                    return Err(CliError("Annotations must have the same type and priority to merge.".to_owned()).into());
-                }
-                contents.push(record.field("content").unwrap_or("").to_owned());
-                if let Some(title) = record.field("title") {
-                    if !title.is_empty() && !titles.contains(&title.to_owned()) {
-                        titles.push(title.to_owned());
-                    }
-                }
-                end = end.max(record.field("end_time_us").unwrap_or("0").parse().unwrap_or(0));
-            }
-            let separator = args.option("separator").unwrap_or("\n");
-            let mut merged = first;
-            merged.fields.insert("content".to_owned(), contents.join(separator));
-            merged.fields.insert("end_time_us".to_owned(), end.to_string());
-            merged.fields.insert("merged_titles".to_owned(), titles.join("\n"));
-            merged.fields.insert("source_annotation_ids".to_owned(), ids.join(","));
+        "merge" => {
+            let ids: Vec<String> = args.positionals.iter().map(|value| value.to_lowercase()).collect();
+            if ids.len() < 2 {
+                return Err(CliError("Provide at least two annotation IDs to merge.".to_owned()).into());
+            }
+            let unique: BTreeSet<&String> = ids.iter().collect();
+            if unique.len() != ids.len() {
+                return Err(CliError(
+                    "Each annotation ID may appear only once in a merge.".to_owned(),
+                )
+                .into());
+            }
+            let mut annotations = Vec::new();
+            for id in &ids {
+                annotations.push(require_live(&snapshot, RecordType::ANNOTATION, id)?);
+            }
+            let first = annotations[0].clone();
+            let session_id = first.field("session_id").unwrap_or("").to_owned();
+            let annotation_type = first.field("type").unwrap_or("general-note").to_owned();
+            let priority = first.field("priority").unwrap_or("normal").to_owned();
+            let mut contents = Vec::new();
+            let mut titles: Vec<String> = Vec::new();
+            let mut links: BTreeMap<&str, BTreeSet<String>> = [
+                ("linked_asset_ids", BTreeSet::new()),
+                ("linked_evidence_ids", BTreeSet::new()),
+                ("source_segment_ids", BTreeSet::new()),
+            ]
+            .into_iter()
+            .collect();
+            let mut end = first.field("end_time_us").unwrap_or("0").parse::<i64>().unwrap_or(0);
+            let mut previous_start: i64 = -1;
+            for record in &annotations {
+                if record.field("session_id") != Some(session_id.as_str()) {
+                    return Err(CliError("All annotations must belong to the same session.".to_owned()).into());
+                }
+                if record.field("type") != Some(annotation_type.as_str())
+                    || record.field("priority") != Some(priority.as_str())
+                {
+                    return Err(CliError("Annotations must have the same type and priority to merge.".to_owned()).into());
+                }
+                let start = record.field("start_time_us").unwrap_or("0").parse::<i64>().unwrap_or(0);
+                if start < previous_start {
+                    return Err(CliError("Provide annotations in chronological order.".to_owned()).into());
+                }
+                previous_start = start;
+                contents.push(record.field("content").unwrap_or("").to_owned());
+                if let Some(title) = record.field("title") {
+                    if !title.is_empty() && !titles.iter().any(|existing| existing == title) {
+                        titles.push(title.to_owned());
+                    }
+                }
+                for (field, values) in &mut links {
+                    for value in record.field(field).unwrap_or("").split(',').map(str::trim) {
+                        if !value.is_empty() {
+                            values.insert(value.to_owned());
+                        }
+                    }
+                }
+                end = end.max(record.field("end_time_us").unwrap_or("0").parse().unwrap_or(0));
+            }
+            let separator = args.option("separator").unwrap_or("\n");
+            let mut merged = first;
+            merged.fields.insert("content".to_owned(), contents.join(separator));
+            merged.fields.insert("end_time_us".to_owned(), end.to_string());
+            merged.fields.insert("merged_titles".to_owned(), titles.join("\n"));
+            merged.fields.insert("source_annotation_ids".to_owned(), ids.join(","));
+            for (field, values) in links {
+                merged
+                    .fields
+                    .insert(field.to_owned(), values.into_iter().collect::<Vec<_>>().join(","));
+            }
             merged.fields.insert("updated_at_us".to_owned(), timestamp_now());
             let mut changes = vec![merged];
             for record in annotations.iter().skip(1) {
