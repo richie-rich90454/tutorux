@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { extractAiResponseText, createAiGuideProposal } from "./response";
+import { extractAiResponseText, createAiGuideProposal } from "../../../frontend/ai/response";
 
 const encoder = new TextEncoder();
 
