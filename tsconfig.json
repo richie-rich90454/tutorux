@@ -25,7 +25,7 @@
         "frontend/**/*.tsx",
         "cli/**/*.ts",
         "scripts/**/*.ts",
-        "tests/e2e/**/*.ts",
+        "tests/**/*.ts",
         "vite.config.ts",
         "playwright.config.ts"
     ]
