@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { encodeRecordPayload, RecordType, validateRecordPayloadSize } from "../archive/format";
+import {
+    encodeRecordPayload,
+    RecordType,
+    validateRecordPayloadSize,
+} from "../../../frontend/archive/format";
 import {
     archiveJournalOrganizerRecord,
     makeJournalCollectionRecord,
@@ -16,7 +20,7 @@ import {
     updateJournalRecords,
     updateSessionRecords,
     updateStudentRecord,
-} from "./records";
+} from "../../../frontend/domain/records";
 
 describe("student profile lifecycle", () => {
     it("creates and edits the complete legacy student profile", () => {
