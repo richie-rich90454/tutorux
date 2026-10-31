@@ -1,5 +1,3 @@
-use std::collections::BTreeSet;
-
 use serde_json::json;
 
 use crate::core::cli::{emit, CliContext, CliError, CliOutput, CliResult, ParsedArguments};
@@ -102,139 +100,6 @@ pub(super) fn configure(
     Ok(0)
 }
 
-pub(super) fn play(
-    args: ParsedArguments,
-    _output: &mut dyn CliOutput,
-    path: &std::path::Path,
-    context: &CliContext,
-) -> CliResult<i32> {
-    if !args.positionals.is_empty() {
-        return Err(CliError("record play does not accept positional arguments.".to_owned()).into());
-    }
-    let snapshot = open_unlocked(path, context)?;
-    let session_id = args.required_option("session")?.to_lowercase();
-    require_session(&snapshot, &session_id)?;
-    let mut tracks = BTreeSet::new();
-    for chunk in snapshot.list_records(RecordType::AUDIO_CHUNK, false)? {
-        if chunk.field("session_id").map(str::to_lowercase).as_deref()
-            != Some(session_id.as_str())
-        {
-            continue;
-        }
-        if let Some(track_id) = chunk.field("track_id").filter(|value| !value.is_empty()) {
-            tracks.insert(track_id.to_lowercase());
-        }
-    }
-    if tracks.is_empty() {
-        return Err(CliError("The selected session contains no audio tracks.".to_owned()).into());
-    }
-    Err(CliError(
-        "Playback requires ffplay from a host FFmpeg distribution; the Rust CLI does not bundle it."
-            .to_owned(),
-    )
-    .into())
-}
-
-pub(super) fn status(
-    args: ParsedArguments,
-    output: &mut dyn CliOutput,
-    path: &std::path::Path,
-    context: &CliContext,
-) -> CliResult<i32> {
-    let snapshot = open_unlocked(path, context)?;
-    let Some(session_id) = args.option("session").map(str::to_lowercase) else {
-        let sessions = snapshot.list_records(RecordType::SESSION, false)?;
-        let active = sessions
-            .iter()
-            .filter(|session| {
-                matches!(
-                    session.field("recording_state"),
-                    Some("starting")
-                        | Some("initializing")
-                        | Some("recording")
-                        | Some("paused")
-                        | Some("finalizing")
-                )
-            })
-            .count();
-        emit(
-            output,
-            json!({"active_recordings": active.to_string()}),
-            &format!("Active recording sessions: {active}."),
-            args.json(),
-        );
-        return Ok(0);
-    };
-    let session = require_session(&snapshot, &session_id)?;
-    let raw_state = session.field("recording_state").unwrap_or("not-started");
-    let state = match raw_state {
-        "starting" | "initializing" | "recording" | "paused" | "finalizing"
-        | "completed" | "interrupted" | "failed" | "partial" => raw_state,
-        _ => "not-started",
-    };
-    let message = session
-        .field("recording_error")
-        .filter(|value| !value.is_empty())
-        .map(str::to_owned)
-        .unwrap_or_else(|| {
-            format!(
-                "Archive recording state is '{raw_state}'. No detached worker is connected."
-            )
-        });
-    emit(
-        output,
-        json!({
-            "sessionId": session_id,
-            "state": state,
-            "message": message,
-            "worker": "not-running",
-        }),
-        &format!("Recording state: {state}\n{message}"),
-        args.json(),
-    );
-    Ok(0)
-}
-
-pub(super) fn require_detached_worker(
-    args: ParsedArguments,
-    path: &std::path::Path,
-    context: &CliContext,
-) -> CliResult<i32> {
-    let snapshot = open_unlocked(path, context)?;
-    let session_id = args.required_option("session")?.to_lowercase();
-    require_session(&snapshot, &session_id)?;
-    Err(CliError(format!(
-        "No detached recording worker is active for session {session_id}."
-    ))
-    .into())
-}
-
-pub(super) fn mix(
-    args: ParsedArguments,
-    output: &mut dyn CliOutput,
-    path: &std::path::Path,
-    context: &CliContext,
-) -> CliResult<i32> {
-    let snapshot = open_unlocked(path, context)?;
-    let session_id = args.required_option("session")?.to_lowercase();
-    require_session(&snapshot, &session_id)?;
-    let take_id = args.required_option("take")?.to_lowercase();
-    let tracks = args.required_option("tracks")?.to_lowercase();
-    emit(
-        output,
-        json!({
-            "session_id": session_id,
-            "take_id": take_id,
-            "tracks": tracks,
-            "status": "unsupported",
-            "message": "Audio mixing runs in the desktop application.",
-        }),
-        "Audio mixing runs in the desktop application.",
-        args.json(),
-    );
-    Ok(0)
-}
-
 pub(super) fn recover(
     args: ParsedArguments,
     output: &mut dyn CliOutput,
@@ -280,7 +145,7 @@ pub(super) fn recover(
             };
             let device_id = metadata
                 .as_ref()
-                .and_then(|record| record.field("device_id"))
+                .and_then(|record| record.field("source_device_id").or_else(|| record.field("device_id")))
                 .or_else(|| session.field("recording_device_id"))
                 .unwrap_or("");
             let sample_format = metadata.as_ref().and_then(|record| record.field("sample_format"));
@@ -349,7 +214,7 @@ pub(super) fn recover(
             sample_count = sample_count.saturating_add(track_samples);
             chunk_count += track_chunks;
             byte_count = byte_count.saturating_add(track_bytes);
-            duration_us = duration_us.saturating_add(track_duration);
+            duration_us = duration_us.max(track_duration);
             let completed = session.field("recording_state") == Some("completed") && track_chunks > 0;
             if !completed {
                 all_completed = false;
@@ -381,7 +246,13 @@ pub(super) fn recover(
             }
             tracks.push(report);
         }
-        let state = if all_completed { "completed" } else { "failed" };
+        let state = if all_completed {
+            "completed"
+        } else if chunk_count > 0 {
+            "partial"
+        } else {
+            "failed"
+        };
         emit(
             output,
             json!({
