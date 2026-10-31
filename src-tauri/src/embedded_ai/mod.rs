@@ -24,6 +24,7 @@ use model::{
 };
 
 pub use headless::{generate_model_text, inspect_model_path, HeadlessModelInspection};
+pub(crate) use model::{estimate_gguf_memory, read_gguf_metadata, GgufMetadata};
 
 const MIN_MODEL_FILE_BYTES: u64 = 24;
 const MAX_MODEL_FILE_BYTES: u64 = 64 * 1024 * 1024 * 1024;
