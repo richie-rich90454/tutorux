@@ -1,7 +1,7 @@
 use super::{
     identity::{
         archive_changed_message, archive_identity, archive_identity_and_hasher,
-        archive_location_changed_message, normalized_location_path, preserve_backup_error,
+        archive_location_changed_message, normalized_save_location, preserve_backup_error,
         resolve_existing_file, same_path,
     },
     state::{DesktopState, PendingSave, SavePreparation},
@@ -24,7 +24,7 @@ pub(crate) fn prepare_archive_save(
     state: State<'_, DesktopState>,
 ) -> Result<SavePreparation, String> {
     let source_archive_token = archive_token.clone();
-    let target_location = normalized_location_path(Path::new(&target_path))?;
+    let target_location = normalized_save_location(Path::new(&target_path))?;
     let target = match resolve_existing_file(&target_location)? {
         Some(path) => path,
         None => target_location.clone(),
