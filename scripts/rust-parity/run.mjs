@@ -1,6 +1,16 @@
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { access, copyFile, cp, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import {
+    access,
+    copyFile,
+    cp,
+    mkdir,
+    mkdtemp,
+    readFile,
+    readdir,
+    rm,
+    writeFile,
+} from "node:fs/promises";
 import { constants as fsConstants, readFileSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, relative, resolve } from "node:path";
@@ -124,7 +134,11 @@ function stepCapabilities(step, testCase) {
     return [
         ...(step.capability ? [step.capability] : []),
         ...(step.capabilities ?? []),
-        ...(step.capability || step.capabilities ? [] : testCase.capability ? [testCase.capability] : []),
+        ...(step.capability || step.capabilities
+            ? []
+            : testCase.capability
+              ? [testCase.capability]
+              : []),
     ];
 }
 
@@ -132,8 +146,18 @@ function normalizeResult(result, context, roots) {
     const json = parseJson(result.stdout);
     return {
         exitCode: result.code,
-        stderr: normalizeText(result.stderr, [context.archive, context.dir, context.root, ...roots]),
-        stdout: normalizeText(result.stdout, [context.archive, context.dir, context.root, ...roots]),
+        stderr: normalizeText(result.stderr, [
+            context.archive,
+            context.dir,
+            context.root,
+            ...roots,
+        ]),
+        stdout: normalizeText(result.stdout, [
+            context.archive,
+            context.dir,
+            context.root,
+            ...roots,
+        ]),
         json,
     };
 }
@@ -185,7 +209,9 @@ function checkExpectation(expect, result, context, label) {
     if (expect.stdoutMinLines !== undefined) {
         const lines = result.stdout.split(/\r?\n/gu).filter((line) => line.length > 0).length;
         if (lines < expect.stdoutMinLines) {
-            issues.push(`${label}: expected at least ${expect.stdoutMinLines} stdout lines, got ${lines}`);
+            issues.push(
+                `${label}: expected at least ${expect.stdoutMinLines} stdout lines, got ${lines}`,
+            );
         }
     }
     if (expect.stdoutEmpty === true && result.stdout.trim() !== "") {
@@ -218,9 +244,7 @@ function checkExpectation(expect, result, context, label) {
             actual = undefined;
         }
         if (actual !== undefined) {
-            issues.push(
-                ...matchSubset(actual, expect.stdoutJsonIncludes, `${label}.stdout`),
-            );
+            issues.push(...matchSubset(actual, expect.stdoutJsonIncludes, `${label}.stdout`));
         }
     }
     for (const fileExpectation of expect.files ?? (expect.file ? [expect.file] : [])) {
@@ -276,25 +300,23 @@ async function runSide(side, testCase, seedPath, caseRoot, roots, setupSource = 
         context.captures = Object.fromEntries(
             Object.entries(setupSource.captures).map(([name, value]) => [
                 name,
-                typeof value === "string"
-                    ? value.split(setupSource.dir).join(context.dir)
-                    : value,
+                typeof value === "string" ? value.split(setupSource.dir).join(context.dir) : value,
             ]),
         );
     } else if (testCase.seed !== false) {
         await copyFile(seedPath, context.archive);
     }
     if (!setupSource) {
-    for (const [relativePath, contents] of Object.entries(testCase.files ?? {})) {
-        const filePath = join(context.dir, relativePath);
-        await mkdir(dirname(filePath), { recursive: true });
-        await writeFile(filePath, contents, "utf8");
-    }
-    for (const [relativePath, contents] of Object.entries(testCase.filesBase64 ?? {})) {
-        const filePath = join(context.dir, relativePath);
-        await mkdir(dirname(filePath), { recursive: true });
-        await writeFile(filePath, Buffer.from(contents, "base64"));
-    }
+        for (const [relativePath, contents] of Object.entries(testCase.files ?? {})) {
+            const filePath = join(context.dir, relativePath);
+            await mkdir(dirname(filePath), { recursive: true });
+            await writeFile(filePath, contents, "utf8");
+        }
+        for (const [relativePath, contents] of Object.entries(testCase.filesBase64 ?? {})) {
+            const filePath = join(context.dir, relativePath);
+            await mkdir(dirname(filePath), { recursive: true });
+            await writeFile(filePath, Buffer.from(contents, "base64"));
+        }
     }
     const caseEnvironment = Object.fromEntries(
         Object.entries(testCase.env ?? {}).map(([name, value]) => [name, String(value)]),
@@ -359,7 +381,13 @@ async function runSide(side, testCase, seedPath, caseRoot, roots, setupSource = 
             result = sideCommand(side, args, context.dir, env, step.timeout);
         } catch (error) {
             issues.push({ step: index, capabilities, message: `${label}: ${error.message}` });
-            results.push({ capability: capabilities[0], exitCode: -1, stderr: "", stdout: "", json: undefined });
+            results.push({
+                capability: capabilities[0],
+                exitCode: -1,
+                stderr: "",
+                stdout: "",
+                json: undefined,
+            });
             continue;
         }
         const normalized = normalizeResult(result, context, roots);
@@ -422,15 +450,13 @@ function compareSides(left, right, testCase) {
                 add(`step ${index}: one adapter produced JSON and the other did not`);
             } else {
                 const unordered = step?.unorderedJsonPaths ?? [];
-                const leftJson = sortJsonPaths(
-                    normalizeSemantic(leftResult.json),
-                    unordered,
-                );
-                const rightJson = sortJsonPaths(
-                    normalizeSemantic(rightResult.json),
-                    unordered,
-                );
-                for (const difference of firstDifference(leftJson, rightJson, `step ${index} stdout`)) {
+                const leftJson = sortJsonPaths(normalizeSemantic(leftResult.json), unordered);
+                const rightJson = sortJsonPaths(normalizeSemantic(rightResult.json), unordered);
+                for (const difference of firstDifference(
+                    leftJson,
+                    rightJson,
+                    `step ${index} stdout`,
+                )) {
                     add(difference);
                 }
             }
@@ -520,7 +546,8 @@ function verifyTestCitation(citation) {
     const title = parts.join("::");
     if (!file || !title) return `invalid test citation \`${citation}\``;
     const absolute = resolve(repositoryRoot, file);
-    if (!absolute.startsWith(repositoryRoot)) return `test citation escapes the repository: ${file}`;
+    if (!absolute.startsWith(repositoryRoot))
+        return `test citation escapes the repository: ${file}`;
     let source;
     try {
         source = readFileSync(absolute, "utf8");
@@ -549,14 +576,16 @@ async function checkCoverage(cases) {
     const testCovered = new Set(Object.keys(testCitations));
     const issues = [];
     for (const [capability, citation] of Object.entries(testCitations)) {
-        if (!registry.has(capability)) issues.push(`test coverage names unregistered capability \`${capability}\``);
+        if (!registry.has(capability))
+            issues.push(`test coverage names unregistered capability \`${capability}\``);
         const problem = verifyTestCitation(citation);
         if (problem) issues.push(problem);
     }
     const missing = [...registry.keys()].filter(
         (capability) => !corpusCovered.has(capability) && !testCovered.has(capability),
     );
-    for (const capability of missing) issues.push(`registry capability has no corpus case or test: ${capability}`);
+    for (const capability of missing)
+        issues.push(`registry capability has no corpus case or test: ${capability}`);
     const unregisteredCorpus = [...corpusCovered].filter((capability) => !registry.has(capability));
     for (const capability of unregisteredCorpus) {
         issues.push(`corpus names unregistered capability \`${capability}\``);
@@ -578,7 +607,10 @@ function matchesOnly(id) {
     return patterns.some((pattern) => {
         if (pattern.includes("*") || pattern.includes("?")) {
             const expression = new RegExp(
-                `^${pattern.replace(/[.+^${}()|[\]\\]/gu, "\\$&").replace(/\*/gu, ".*").replace(/\?/gu, ".")}$`,
+                `^${pattern
+                    .replace(/[.+^${}()|[\]\\]/gu, "\\$&")
+                    .replace(/\*/gu, ".*")
+                    .replace(/\?/gu, ".")}$`,
                 "u",
             );
             return expression.test(id);
@@ -611,9 +643,7 @@ function summarize(cases, results, coverageIssues) {
             const indexes = stepCaps.get(capability) ?? [];
             const caseLevelFailure =
                 !caseResult ||
-                caseResult.issues.some(
-                    (issue) => issue.step === null || issue.step === undefined,
-                );
+                caseResult.issues.some((issue) => issue.step === null || issue.step === undefined);
             const stepFailure =
                 caseResult?.issues.some(
                     (issue) => issue.step !== null && indexes.includes(issue.step),
@@ -765,8 +795,7 @@ async function main() {
                 const first = caseIssues[0];
                 failures.push({
                     id: testCase.id,
-                    capability:
-                        first?.capabilities?.[0] ?? capabilities[0] ?? "unregistered",
+                    capability: first?.capabilities?.[0] ?? capabilities[0] ?? "unregistered",
                     step: first?.step ?? null,
                     issueCount: caseIssues.length,
                     issues: caseIssues.slice(0, 8).map((issue) => issue.message),
@@ -788,9 +817,7 @@ async function main() {
         if (showSummary) {
             process.stdout.write("\nSummary by capability:\n");
             for (const row of summary.byCapability) {
-                process.stdout.write(
-                    `  ${row.id}: ${row.passed} passed, ${row.failed} failed\n`,
-                );
+                process.stdout.write(`  ${row.id}: ${row.passed} passed, ${row.failed} failed\n`);
             }
         }
         if (showSummary) {
