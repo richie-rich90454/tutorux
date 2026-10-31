@@ -1,7 +1,7 @@
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { executeCli } from "../main";
+import { executeCli } from "../../../cli/main";
 
 describe("template CLI parity", () => {
     it("imports plain guidance and applies built-in overrides", async () => {
