@@ -49,7 +49,8 @@ The rewrite is feature-complete. The SolidJS, TypeScript, Tauri, and Rust implem
 - `src-tauri` pins `libc = "0.2.186"` because `flexaudio-os-macos` requires that exact version.
 - `src-tauri/Cargo.toml` adds `windows-sys` for native process and memory diagnostics and `dasp_sample` for microphone level conversion.
 - `.cargo/config.toml` disables llama.cpp's optional OpenSSL discovery so MSVC does not ingest MSYS2 headers.
-- `cargo check --bins` and `cargo test --bins` pass. `pnpm run desktop:build` produces both the MSI and NSIS bundles with the desktop binary and both sidecars.
+- `cargo check --bins` and `cargo test --bins` pass. `pnpm run desktop:build:portable` writes a single self-contained executable to `release/Tutorux.exe`; `pnpm run desktop:build` produces MSI and NSIS installers from the same binary.
+- The portable runtime archive embeds Node, the bundled CLI dependencies, and both Rust helpers. It is extracted to the application data directory on first use. Whisper and GGUF models, FFmpeg, and `.tux` archives remain user-supplied.
 - macOS/Linux capture permissions, ScreenCaptureKit, PipeWire, real device matrices, DPI, screen-reader review, and installer signing remain release qualification work.
 
 ## Verification
@@ -66,10 +67,12 @@ pnpm run build
 pnpm run build:audio-helper
 pnpm run build:embedded-ai
 pnpm run build:console-runtime
+pnpm run build:portable-runtime
 pnpm run desktop:build
+pnpm run desktop:build:portable
 ```
 
-Latest passed checks: `pnpm run typecheck`, `pnpm run lint` (0 errors, 46 Solid reactivity warnings), `pnpm run format:check` (oxfmt), `pnpm run test` (39 files, 245 tests), `pnpm exec playwright test` (12/12), `pnpm run build`, `cargo check --bins`, `cargo test --bins`, `pnpm run build:audio-helper`, `pnpm run build:embedded-ai`, `pnpm run build:console-runtime`, and `pnpm run desktop:build` (MSI + NSIS). `pnpm audit` still reports advisories through `node-llama-cpp@3.22.2` -> `simple-git@3.36.0` / `@simple-git/argv-parser`; the suggested fix downgrades to `node-llama-cpp@2.0.0`, which is not acceptable. Track an upstream release instead of forcing an override.
+Latest passed checks: `pnpm run typecheck`, `pnpm run lint` (0 errors, 46 Solid reactivity warnings), `pnpm run format:check` (oxfmt), `pnpm run test` (39 files, 245 tests), `pnpm exec playwright test` (12/12), `pnpm run build`, `cargo check --bins`, `cargo test --bins` (28 tests), `pnpm run build:audio-helper`, `pnpm run build:embedded-ai`, `pnpm run build:console-runtime`, `pnpm run build:portable-runtime`, `pnpm run desktop:build` (MSI + NSIS), and `pnpm run desktop:build:portable` (`release/Tutorux.exe`, 120.8 MiB). The portable executable was launched from an otherwise empty directory: it extracted Node v24.21.0 plus both helpers, loaded `node-llama-cpp` and `sharp`, created and inspected a `.tux` archive, and ran native audio diagnostics. `pnpm audit` still reports advisories through `node-llama-cpp@3.22.2` -> `simple-git@3.36.0` / `@simple-git/argv-parser`; the suggested fix downgrades to `node-llama-cpp@2.0.0`, which is not acceptable. Track an upstream release instead of forcing an override.
 
 ## Commit requirements
 
