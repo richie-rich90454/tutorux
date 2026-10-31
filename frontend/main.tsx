@@ -216,6 +216,7 @@ import "./annotation.css";
 import "./assets.css";
 import "./evidence.css";
 import "./journal.css";
+import "./workbench.css";
 
 configurePdfWorkerSource(pdfWorkerUrl);
 
@@ -337,23 +338,27 @@ type IconName =
     | "more";
 
 const views: readonly ViewDefinition[] = [
-    { id: "home", label: "Overview", icon: "home", group: "workspace" },
     { id: "journal", label: "Journal", icon: "journal", group: "workspace" },
     { id: "students", label: "Students", icon: "students", group: "workspace" },
+    { id: "assets", label: "Materials", icon: "assets", group: "library" },
     { id: "sessions", label: "Sessions", icon: "sessions", group: "workspace" },
     { id: "annotations", label: "Observations", icon: "annotations", group: "workspace" },
     { id: "transcripts", label: "Transcripts", icon: "transcripts", group: "workspace" },
     { id: "ai", label: "AI workspace", icon: "spark", group: "workspace" },
     { id: "guides", label: "Study guides", icon: "guides", group: "library" },
     { id: "evidence", label: "Evidence", icon: "evidence", group: "library" },
-    { id: "assets", label: "Materials", icon: "assets", group: "library" },
     { id: "trash", label: "Trash", icon: "trash", group: "library" },
     { id: "archive", label: "Archive health", icon: "archive", group: "system" },
     { id: "settings", label: "Preferences", icon: "settings", group: "system" },
 ];
+const primaryViews = views.filter((item) => ["journal", "students", "assets"].includes(item.id));
+const contextualViews = views.filter(
+    (item) => item.id !== "home" && !["journal", "students", "assets"].includes(item.id),
+);
 
 const [workspace, setWorkspace] = createSignal<Workspace | null>(null);
-const [view, setView] = createSignal<View>("home");
+const [view, setView] = createSignal<View>("journal");
+const [contextualNavOpen, setContextualNavOpen] = createSignal(false);
 const [dialog, setDialog] = createSignal<DialogKind>(null);
 const [dialogRecord, setDialogRecord] = createSignal<ArchiveRecord | null>(null);
 const [pendingDelete, setPendingDelete] = createSignal<ArchiveRecord | null>(null);
@@ -371,6 +376,7 @@ const [notice, setNotice] = createSignal<{ message: string; tone: Tone } | null>
 const [busy, setBusy] = createSignal(false);
 const [selectedTranscriptSessionId, setSelectedTranscriptSessionId] = createSignal("");
 const [selectedAnnotationSessionId, setSelectedAnnotationSessionId] = createSignal("");
+const [selectedGuideSessionId, setSelectedGuideSessionId] = createSignal("");
 const [selectedEvidenceSessionId, setSelectedEvidenceSessionId] = createSignal("");
 const [observationPlayback, setObservationPlayback] = createSignal<{
     url: string;
@@ -591,7 +597,9 @@ function applyThemeMode(mode: ThemeMode, persist = true): void {
     if (persist && !archiveThemeMode(workspace())) localStorage.setItem("tutorux.theme", mode);
 }
 
-const activeView = createMemo(() => views.find((item) => item.id === view()) ?? views[0]!);
+const activeView = createMemo(
+    () => views.find((item) => item.id === view()) ?? views.find((item) => item.id === "journal")!,
+);
 const currentRecords = createMemo(() => {
     const state = workspace();
     if (!state) return [] as ArchiveRecord[];
@@ -1033,7 +1041,7 @@ function App(): JSX.Element {
             setPendingSessionTrash(null);
             setPendingTrashPurge(null);
             accepted = true;
-            setView("home");
+            setView("journal");
             setQuery("");
             if (previous && previous.snapshot.source !== source) {
                 await previous.snapshot.source.close?.().catch(() => undefined);
@@ -1076,7 +1084,7 @@ function App(): JSX.Element {
             }
             setWorkspace(next);
             applyWorkspaceTheme(next);
-            setView("home");
+            setView("journal");
             announce(
                 "Archive unlocked; commit, index pages, and manifest authentication passed.",
                 "success",
@@ -1131,7 +1139,7 @@ function App(): JSX.Element {
         setSelectedAnnotationSessionId("");
         setSelectedEvidenceSessionId("");
         setQuery("");
-        setView("home");
+        setView("journal");
         announce("Archive locked.", "success");
     }
 
@@ -1189,7 +1197,7 @@ function App(): JSX.Element {
             setDialog(null);
             setDialogRecord(null);
             setPendingDelete(null);
-            setView("home");
+            setView("journal");
             await current.snapshot.source.close?.().catch(() => undefined);
             announce(
                 refreshedSnapshot.locked
@@ -1210,7 +1218,7 @@ function App(): JSX.Element {
             setDialog(null);
             setDialogRecord(null);
             setPendingDelete(null);
-            setView("home");
+            setView("journal");
             await current.snapshot.source.close?.().catch(() => undefined);
             announce(
                 `The command changed this archive, but Tutorux could not reopen it. Reopen the archive before continuing. ${errorMessage(error)}`,
@@ -1255,7 +1263,7 @@ function App(): JSX.Element {
                 await previous.snapshot.source.close?.().catch(() => undefined);
             }
             setPendingSessionTrash(null);
-            setView("home");
+            setView("journal");
             setDialog(null);
             setDialogRecord(null);
             announce(`Created ${name.trim()}.`, "success");
@@ -3782,6 +3790,7 @@ function App(): JSX.Element {
 
     function navigateToView(nextView: View): void {
         setView(nextView);
+        setContextualNavOpen(false);
         setQuery("");
         window.cancelAnimationFrame(navigationFocusFrame);
         navigationFocusFrame = window.requestAnimationFrame(() => {
@@ -3947,143 +3956,180 @@ function App(): JSX.Element {
             <a class="skip-link" href="#main-content">
                 Skip to main content
             </a>
-            <header class="topbar">
-                <div class="brand-lockup">
-                    <img src={brandLogo} class="brand-mark" alt="" />
-                    <span class="brand-name">Tutorux</span>
-                    <span class="brand-divider" aria-hidden="true" />
-                    <span class="brand-context">Teaching workspace</span>
-                </div>
-
-                <div class="topbar-center" aria-live="polite">
-                    <span class={`archive-status ${workspace() ? "is-open" : ""}`}>
-                        <span class="status-dot" aria-hidden="true" />
-                        <span>
-                            {workspace() ? workspace()!.manifest.displayName : "No archive open"}
-                        </span>
-                    </span>
-                    <Show when={workspace()?.dirty}>
-                        <span class="dirty-label">
-                            <span />
-                            Unsaved changes
-                        </span>
+            <div class={`workspace-frame ${workspace() ? "has-archive" : "no-archive"}`}>
+                <aside
+                    class={`sidebar ${workspace() ? "has-archive" : "no-archive"}`}
+                    aria-label="Workspace navigation"
+                >
+                    <Show
+                        when={workspace()}
+                        fallback={
+                            <section class="sidebar-empty-archive" aria-label="Archive actions">
+                                <span class="sidebar-section-label">Archive</span>
+                                <button
+                                    class="sidebar-action"
+                                    type="button"
+                                    onClick={() => void openArchive()}
+                                    disabled={loading()}
+                                >
+                                    <Icon name="folder" />
+                                    <span>Open archive</span>
+                                </button>
+                                <button
+                                    class="sidebar-action sidebar-action-primary"
+                                    type="button"
+                                    onClick={() => openDialog("archive")}
+                                    disabled={loading()}
+                                >
+                                    <Icon name="plus" />
+                                    <span>Create archive</span>
+                                </button>
+                            </section>
+                        }
+                    >
+                        <div class="sidebar-archive">
+                            <button
+                                class="sidebar-workspace"
+                                type="button"
+                                onClick={() => void openArchive()}
+                                title="Open another archive"
+                            >
+                                <span class="workspace-monogram" aria-hidden="true">
+                                    <Icon name="archive" />
+                                </span>
+                                <span class="workspace-switcher-copy">
+                                    <span class="eyebrow">Active archive</span>
+                                    <strong>{workspace()!.manifest.displayName}</strong>
+                                </span>
+                                <Icon name="chevron" />
+                            </button>
+                            <div class="sidebar-archive-status" aria-live="polite">
+                                <span
+                                    class={`status-dot ${workspace()?.dirty ? "is-dirty" : ""}`}
+                                    aria-hidden="true"
+                                />
+                                <span>
+                                    {workspace()?.snapshot.locked
+                                        ? "Archive locked"
+                                        : workspace()?.dirty
+                                          ? "Unsaved changes"
+                                          : "Archive ready"}
+                                </span>
+                            </div>
+                            <Show when={workspace()?.dirty}>
+                                <button
+                                    class="button button-primary sidebar-save-archive"
+                                    type="button"
+                                    onClick={() => void saveCurrentArchive()}
+                                    disabled={busy() || workspace()?.snapshot.locked}
+                                >
+                                    <Icon name="archive" />
+                                    <span>Save archive</span>
+                                </button>
+                            </Show>
+                        </div>
                     </Show>
-                </div>
 
-                <div class="topbar-actions">
                     <button
-                        class="topbar-search"
+                        class="sidebar-search"
                         type="button"
                         onClick={openPalette}
                         aria-label="Open quick actions"
                         aria-keyshortcuts="Control+K Meta+K"
                     >
-                        <Icon name="search" /> <span>Search Tutorux</span>
+                        <Icon name="search" />
+                        <span>Search Tutorux</span>
                         <kbd>{navigator.platform.includes("Mac") ? "⌘" : "Ctrl"} K</kbd>
                     </button>
-                    <button
-                        class="icon-button theme-button"
-                        type="button"
-                        onClick={toggleTheme}
-                        aria-label={`Switch to ${theme() === "light" ? "dark" : "light"} appearance`}
-                        title="Appearance"
-                        aria-keyshortcuts="Control+Shift+L Meta+Shift+L"
-                    >
-                        <Icon name={theme() === "light" ? "moon" : "sun"} />
-                    </button>
-                    <button
-                        class="button button-outline topbar-open"
-                        type="button"
-                        onClick={() => void openArchive()}
-                        aria-keyshortcuts="Control+O Meta+O"
-                    >
-                        <Icon name="folder" />
-                        Open
-                    </button>
-                    <button
-                        class="button button-primary topbar-save"
-                        type="button"
-                        disabled={!workspace() || busy()}
-                        onClick={() => void saveCurrentArchive()}
-                        aria-keyshortcuts="Control+S Meta+S"
-                    >
-                        <Icon name="check" />
-                        {busy() ? "Saving…" : workspace()?.dirty ? "Save archive" : "Save"}
-                    </button>
-                </div>
-            </header>
 
-            <div class="workspace-frame">
-                <aside class="sidebar" aria-label="Workspace navigation">
-                    <div class="sidebar-workspace">
-                        <div class="workspace-monogram">
-                            {workspace() ? (
-                                initials(workspace()!.manifest.displayName)
-                            ) : (
-                                <Icon name="book" />
-                            )}
-                        </div>
-                        <div class="workspace-switcher-copy">
-                            <span class="eyebrow">CURRENT WORKSPACE</span>
-                            <strong>
-                                {workspace()?.manifest.displayName ?? "Local workspace"}
-                            </strong>
-                        </div>
-                        <button
-                            class="icon-button workspace-more"
-                            type="button"
-                            title="Workspace actions"
-                            aria-label="Workspace actions"
-                            onClick={() => navigateToView("archive")}
-                        >
-                            <Icon name="more" />
-                        </button>
-                    </div>
-
-                    <nav class="nav-groups">
-                        <NavGroup
-                            title="Workspace"
-                            items={views.filter((item) => item.group === "workspace")}
-                        />
-                        <NavGroup
-                            title="Library"
-                            items={views.filter((item) => item.group === "library")}
-                        />
-                        <NavGroup
-                            title="Manage"
-                            items={views.filter((item) => item.group === "system")}
-                        />
-                    </nav>
+                    <Show when={workspace()}>
+                        <nav class="nav-groups" aria-label="Primary navigation">
+                            <span class="nav-group-title">Workspace</span>
+                            <For each={primaryViews}>
+                                {(item) => (
+                                    <button
+                                        class={`nav-item ${view() === item.id ? "is-active" : ""}`}
+                                        type="button"
+                                        aria-current={view() === item.id ? "page" : undefined}
+                                        onClick={() => navigateToView(item.id)}
+                                    >
+                                        <Icon name={item.icon} />
+                                        <span>{item.label}</span>
+                                    </button>
+                                )}
+                            </For>
+                            <div
+                                class="contextual-navigation"
+                                onFocusOut={(event) => {
+                                    if (
+                                        !(event.relatedTarget instanceof Node) ||
+                                        !event.currentTarget.contains(event.relatedTarget)
+                                    ) {
+                                        setContextualNavOpen(false);
+                                    }
+                                }}
+                            >
+                                <button
+                                    class={`nav-item contextual-nav-toggle ${contextualViews.some((item) => item.id === view()) ? "is-active" : ""}`}
+                                    type="button"
+                                    aria-haspopup="menu"
+                                    aria-expanded={contextualNavOpen()}
+                                    onClick={() => setContextualNavOpen((open) => !open)}
+                                    onKeyDown={(event) => {
+                                        if (event.key === "Escape") setContextualNavOpen(false);
+                                    }}
+                                >
+                                    <Icon name="more" />
+                                    <span>More</span>
+                                    <Icon name="chevron" />
+                                </button>
+                                <Show when={contextualNavOpen()}>
+                                    <div
+                                        class="contextual-nav-menu"
+                                        role="menu"
+                                        aria-label="More workspaces"
+                                        onKeyDown={(event) => {
+                                            if (event.key === "Escape") {
+                                                setContextualNavOpen(false);
+                                                event.preventDefault();
+                                            }
+                                        }}
+                                    >
+                                        <For each={contextualViews}>
+                                            {(item) => (
+                                                <button
+                                                    class={`contextual-nav-item ${view() === item.id ? "is-active" : ""}`}
+                                                    type="button"
+                                                    role="menuitem"
+                                                    aria-current={
+                                                        view() === item.id ? "page" : undefined
+                                                    }
+                                                    onClick={() => navigateToView(item.id)}
+                                                >
+                                                    <Icon name={item.icon} />
+                                                    <span>{item.label}</span>
+                                                </button>
+                                            )}
+                                        </For>
+                                    </div>
+                                </Show>
+                            </div>
+                        </nav>
+                    </Show>
 
                     <div class="sidebar-bottom">
-                        <div class="privacy-card">
-                            <span class="privacy-icon">
-                                <Icon name="shield" />
+                        <button
+                            class="sidebar-appearance"
+                            type="button"
+                            onClick={toggleTheme}
+                            aria-label={`Switch to ${theme() === "light" ? "dark" : "light"} appearance`}
+                            aria-keyshortcuts="Control+Shift+L Meta+Shift+L"
+                        >
+                            <Icon name={theme() === "light" ? "moon" : "sun"} />
+                            <span>
+                                {theme() === "light" ? "Dark appearance" : "Light appearance"}
                             </span>
-                            <div>
-                                <strong>Private by design</strong>
-                                <span>Your records stay with you.</span>
-                            </div>
-                        </div>
-                        <div class="sidebar-account">
-                            <div class="account-avatar">T</div>
-                            <div class="account-copy">
-                                <strong>Teaching practice</strong>
-                                <span>
-                                    {platform.kind === "desktop"
-                                        ? "Desktop app"
-                                        : "Browser workspace"}
-                                </span>
-                            </div>
-                            <button
-                                class="icon-button"
-                                type="button"
-                                aria-label="Preferences"
-                                onClick={() => navigateToView("settings")}
-                            >
-                                <Icon name="more" />
-                            </button>
-                        </div>
+                        </button>
                     </div>
                 </aside>
 
@@ -4092,58 +4138,48 @@ function App(): JSX.Element {
                     id="main-content"
                     tabindex="-1"
                     ref={(element) => (mainContentElement = element)}
+                    onClick={() => setContextualNavOpen(false)}
                 >
-                    <div class="page-toolbar">
-                        <div class="breadcrumbs">
-                            <span>Workspace</span>
-                            <Icon name="chevron" />
-                            <strong>{activeView().label}</strong>
+                    <Show when={workspace()}>
+                        <div class="page-toolbar">
+                            <div class="breadcrumbs">
+                                <span>Workspace</span>
+                                <Icon name="chevron" />
+                                <strong>{activeView().label}</strong>
+                            </div>
+                            <div class="toolbar-actions">
+                                <Show
+                                    when={
+                                        view() === "students" ||
+                                        view() === "sessions" ||
+                                        view() === "annotations" ||
+                                        view() === "transcripts" ||
+                                        view() === "journal" ||
+                                        view() === "assets" ||
+                                        view() === "guides"
+                                    }
+                                >
+                                    <label class="inline-search">
+                                        <Icon name="search" />
+                                        <input
+                                            ref={(element) => (pageSearchInput = element)}
+                                            value={query()}
+                                            onInput={(event) => setQuery(event.currentTarget.value)}
+                                            placeholder={`Search ${activeView().label.toLocaleLowerCase()}…`}
+                                            aria-label={`Search ${activeView().label}`}
+                                            aria-keyshortcuts="Control+F Meta+F"
+                                        />
+                                        <kbd class="inline-search-shortcut">
+                                            {navigator.platform.includes("Mac") ? "⌘F" : "Ctrl F"}
+                                        </kbd>
+                                    </label>
+                                </Show>
+                            </div>
                         </div>
-                        <div class="toolbar-actions">
-                            <Show
-                                when={
-                                    view() === "students" ||
-                                    view() === "sessions" ||
-                                    view() === "annotations" ||
-                                    view() === "transcripts" ||
-                                    view() === "journal" ||
-                                    view() === "assets" ||
-                                    view() === "guides"
-                                }
-                            >
-                                <label class="inline-search">
-                                    <Icon name="search" />
-                                    <input
-                                        ref={(element) => (pageSearchInput = element)}
-                                        value={query()}
-                                        onInput={(event) => setQuery(event.currentTarget.value)}
-                                        placeholder={`Search ${activeView().label.toLocaleLowerCase()}…`}
-                                        aria-label={`Search ${activeView().label}`}
-                                        aria-keyshortcuts="Control+F Meta+F"
-                                    />
-                                    <kbd class="inline-search-shortcut">
-                                        {navigator.platform.includes("Mac") ? "⌘F" : "Ctrl F"}
-                                    </kbd>
-                                </label>
-                            </Show>
-                            <button
-                                class="icon-button toolbar-more"
-                                type="button"
-                                title="Quick actions"
-                                aria-label="Quick actions"
-                                onClick={openPalette}
-                            >
-                                <Icon name="more" />
-                            </button>
-                        </div>
-                    </div>
+                    </Show>
 
                     <Show when={!workspace()}>
-                        <Welcome
-                            onOpen={() => void openArchive()}
-                            onCreate={() => openDialog("archive")}
-                            loading={loading()}
-                        />
+                        <Welcome loading={loading()} />
                     </Show>
                     <Show when={workspace()} keyed>
                         {(state) => (
@@ -4208,6 +4244,18 @@ function App(): JSX.Element {
                                         onArchive={(record, archived) =>
                                             void updateSessionArchiveState(record, archived)
                                         }
+                                        onOpenTranscript={(record) => {
+                                            setSelectedTranscriptSessionId(record.id);
+                                            navigateToView("transcripts");
+                                        }}
+                                        onOpenObservations={(record) => {
+                                            setSelectedAnnotationSessionId(record.id);
+                                            navigateToView("annotations");
+                                        }}
+                                        onOpenStudyGuide={(record) => {
+                                            setSelectedGuideSessionId(record.id);
+                                            navigateToView("guides");
+                                        }}
                                     />
                                 </Show>
                                 <Show when={view() === "transcripts"}>
@@ -4428,6 +4476,7 @@ function App(): JSX.Element {
                                         customTemplates={state.guideTemplates}
                                         trashedTemplates={state.trashedGuideTemplates}
                                         templateManagerOpen={guideTemplateManagerOpen()}
+                                        initialSessionId={selectedGuideSessionId()}
                                         onToggleTemplateManager={() =>
                                             setGuideTemplateManagerOpen((open) => !open)
                                         }
@@ -4846,194 +4895,20 @@ function App(): JSX.Element {
             </Show>
         </div>
     );
-
-    function NavGroup(props: { title: string; items: readonly ViewDefinition[] }): JSX.Element {
-        return (
-            <div class="nav-group">
-                <span class="nav-group-title">{props.title}</span>
-                <For each={props.items}>
-                    {(item) => (
-                        <button
-                            class={`nav-item ${view() === item.id ? "is-active" : ""}`}
-                            type="button"
-                            aria-label={item.label}
-                            aria-current={view() === item.id ? "page" : undefined}
-                            onClick={() => {
-                                navigateToView(item.id);
-                            }}
-                        >
-                            <Icon name={item.icon} />
-                            <span>{item.label}</span>
-                            <Show when={item.id === "sessions" && workspace()?.sessions.length}>
-                                <span class="nav-count" aria-hidden="true">
-                                    {workspace()?.sessions.length}
-                                </span>
-                            </Show>
-                            <Show
-                                when={
-                                    item.id === "trash" &&
-                                    (workspace()?.trashedStudents.length ?? 0) +
-                                        (workspace()?.trashedAnnotations.length ?? 0) +
-                                        (workspace()?.trashedGuides.length ?? 0) +
-                                        (workspace()?.trashedEvidence.length ?? 0) +
-                                        (workspace()?.trashedEvidenceEdges.length ?? 0) +
-                                        (workspace()?.trashedSessions.length ?? 0)
-                                }
-                            >
-                                <span class="nav-count" aria-hidden="true">
-                                    {(workspace()?.trashedStudents.length ?? 0) +
-                                        (workspace()?.trashedAnnotations.length ?? 0) +
-                                        (workspace()?.trashedGuides.length ?? 0) +
-                                        (workspace()?.trashedEvidence.length ?? 0) +
-                                        (workspace()?.trashedEvidenceEdges.length ?? 0) +
-                                        (workspace()?.trashedSessions.length ?? 0)}
-                                </span>
-                            </Show>
-                        </button>
-                    )}
-                </For>
-            </div>
-        );
-    }
 }
 
-function Welcome(props: {
-    onOpen: () => void;
-    onCreate: () => void;
-    loading: boolean;
-}): JSX.Element {
+function Welcome(props: { loading: boolean }): JSX.Element {
     return (
         <div class="welcome-page">
-            <section class="welcome-hero">
-                <div class="welcome-copy">
-                    <span class="eyebrow welcome-eyebrow">
-                        <span /> A thoughtful space for teaching
-                    </span>
-                    <h1>
-                        Your work with learners,
-                        <br />
-                        <em>beautifully gathered.</em>
-                    </h1>
-                    <p>
-                        Keep notes, sessions, and study materials in one private, portable workspace
-                        that belongs to you.
-                    </p>
-                    <div class="welcome-actions">
-                        <button
-                            class="button button-primary button-large"
-                            type="button"
-                            onClick={() => props.onCreate()}
-                            disabled={props.loading}
-                        >
-                            <Icon name="plus" />
-                            Create your workspace
-                            <Icon name="arrow" />
-                        </button>
-                        <button
-                            class="button button-outline button-large"
-                            type="button"
-                            onClick={() => props.onOpen()}
-                            disabled={props.loading}
-                        >
-                            <Icon name="folder" />
-                            Open an archive
-                        </button>
-                    </div>
-                    <div class="welcome-promise">
-                        <Icon name="shield" />
-                        <span>Local first · Portable by design · No account required</span>
-                    </div>
-                </div>
-                <div class="welcome-art" aria-hidden="true">
-                    <div class="art-orbit orbit-one" />
-                    <div class="art-orbit orbit-two" />
-                    <div class="art-paper">
-                        <div class="art-paper-head">
-                            <span class="art-brand-dot" />
-                            <span>TUTORING NOTES</span>
-                            <span>•••</span>
-                        </div>
-                        <div class="art-paper-title" />
-                        <div class="art-paper-line line-long" />
-                        <div class="art-paper-line" />
-                        <div class="art-paper-line line-mid" />
-                        <div class="art-paper-note">
-                            <span />
-                            <div>
-                                <i />
-                                <i />
-                            </div>
-                        </div>
-                        <div class="art-paper-footer">
-                            <span>STUDENT PROGRESS</span>
-                            <strong>+ 24%</strong>
-                        </div>
-                        <div class="art-paper-chart">
-                            <span style={{ "--bar": "36%" }} />
-                            <span style={{ "--bar": "52%" }} />
-                            <span style={{ "--bar": "44%" }} />
-                            <span style={{ "--bar": "68%" }} />
-                            <span style={{ "--bar": "60%" }} />
-                            <span style={{ "--bar": "82%" }} />
-                            <span style={{ "--bar": "96%" }} />
-                        </div>
-                    </div>
-                    <div class="art-floating art-note">
-                        <span class="floating-dot" />
-                        <div>
-                            <strong>Lesson reflection</strong>
-                            <small>Saved just now</small>
-                        </div>
-                        <Icon name="check" />
-                    </div>
-                    <div class="art-floating art-student">
-                        <span class="student-face">M</span>
-                        <div>
-                            <strong>Maya Chen</strong>
-                            <small>Algebra · Year 8</small>
-                        </div>
-                        <span class="student-progress">+12%</span>
-                    </div>
-                    <div class="art-leaf leaf-one" />
-                    <div class="art-leaf leaf-two" />
-                </div>
+            <section class="welcome-invitation" aria-labelledby="welcome-title">
+                <span class="eyebrow">Archive</span>
+                <h1 id="welcome-title">Open or create an archive</h1>
+                <p>
+                    {props.loading
+                        ? "Loading your teaching workspace…"
+                        : "Choose an archive from the sidebar to continue, or create one for your teaching work."}
+                </p>
             </section>
-            <section class="welcome-features">
-                <div class="feature-intro">
-                    <span class="eyebrow">MADE FOR THE RHYTHM OF TEACHING</span>
-                    <h2>
-                        Everything has a place.
-                        <br />
-                        <span>Nothing gets in the way.</span>
-                    </h2>
-                </div>
-                <div class="feature-grid">
-                    <Feature
-                        icon="journal"
-                        title="A living journal"
-                        text="Collect reflections and lesson notes as your practice grows."
-                    />
-                    <Feature
-                        icon="students"
-                        title="People, not paperwork"
-                        text="Keep each learner’s goals and progress close at hand."
-                    />
-                    <Feature
-                        icon="sessions"
-                        title="Sessions that connect"
-                        text="Bring notes, recordings, and materials together."
-                    />
-                    <Feature
-                        icon="archive"
-                        title="Yours to keep"
-                        text="One open archive file, easy to back up and move."
-                    />
-                </div>
-            </section>
-            <footer class="welcome-footer">
-                <span>Designed for focused, human teaching.</span>
-                <span>Windows · macOS · Linux · Web</span>
-            </footer>
         </div>
     );
 }
@@ -5132,7 +5007,7 @@ function Overview(props: {
                 <section class="surface-card activity-card" aria-labelledby="activity-title">
                     <div class="card-heading">
                         <div>
-                            <span class="eyebrow">TEACHING RHYTHM</span>
+                            <span class="eyebrow">Teaching rhythm</span>
                             <h2 id="activity-title">Your sessions</h2>
                         </div>
                         <div class="segmented-control" aria-label="Activity time range">
@@ -5192,7 +5067,7 @@ function Overview(props: {
                 <section class="surface-card focus-card" aria-labelledby="focus-title">
                     <div class="card-heading">
                         <div>
-                            <span class="eyebrow">YOUR LEARNERS</span>
+                            <span class="eyebrow">Your learners</span>
                             <h2 id="focus-title">Students to keep close</h2>
                         </div>
                         <button
@@ -5249,7 +5124,7 @@ function Overview(props: {
                 <section class="surface-card recent-card" aria-labelledby="recent-title">
                     <div class="card-heading">
                         <div>
-                            <span class="eyebrow">KEEP THE THREAD</span>
+                            <span class="eyebrow">Keep the thread</span>
                             <h2 id="recent-title">Recent sessions</h2>
                         </div>
                         <button
@@ -5287,7 +5162,7 @@ function Overview(props: {
                 >
                     <div class="card-heading">
                         <div>
-                            <span class="eyebrow">SMALL OBSERVATIONS, BIG PICTURE</span>
+                            <span class="eyebrow">Small observations, big picture</span>
                             <h2 id="journal-peek-title">Journal</h2>
                         </div>
                         <button
@@ -5532,7 +5407,7 @@ function EvidencePage(props: {
         <div class="page-body evidence-page">
             <section class="record-heading evidence-heading">
                 <div>
-                    <span class="eyebrow">A TRACEABLE RECORD OF LEARNING</span>
+                    <span class="eyebrow">A traceable record of learning</span>
                     <h1>Evidence</h1>
                     <p>
                         Review what the session supports, check each source revision, then connect
@@ -5611,7 +5486,7 @@ function EvidencePage(props: {
                     aria-labelledby="evidence-create-title"
                 >
                     <div class="evidence-create-heading">
-                        <span class="eyebrow">TUTOR-AUTHORED SOURCE</span>
+                        <span class="eyebrow">Tutor-authored source</span>
                         <h2 id="evidence-create-title">Add evidence from a transcript</h2>
                         <p>
                             Write a reviewed claim and keep its source segment, revision, and linked
@@ -5833,7 +5708,7 @@ function EvidencePage(props: {
                     <section class="evidence-graph surface-card">
                         <div class="evidence-graph-heading">
                             <div>
-                                <span class="eyebrow">RELATIONSHIPS</span>
+                                <span class="eyebrow">Relationships</span>
                                 <h2>Connect the evidence</h2>
                             </div>
                             <span>
@@ -5870,7 +5745,7 @@ function EvidencePage(props: {
                         >
                             <div class="evidence-contradictions-heading">
                                 <div>
-                                    <span class="eyebrow">SOURCE REVIEW</span>
+                                    <span class="eyebrow">Source review</span>
                                     <h3 id="evidence-contradictions-title">
                                         Explicit contradiction links
                                     </h3>
@@ -6534,7 +6409,7 @@ function AssetPage(props: {
             </Show>
             <section class="record-heading material-heading">
                 <div>
-                    <span class="eyebrow">MATERIALS FOR THE WORK</span>
+                    <span class="eyebrow">Materials for the work</span>
                     <h1>Materials</h1>
                     <p>
                         Keep lesson files beside the sessions and observations they support. Imports
@@ -6550,7 +6425,7 @@ function AssetPage(props: {
             <section class="material-library surface-card">
                 <div class="material-library-toolbar">
                     <div>
-                        <span class="eyebrow">FILE LIBRARY</span>
+                        <span class="eyebrow">File library</span>
                         <strong>
                             {visibleRecords().length}{" "}
                             {visibleRecords().length === 1 ? "item" : "items"}
@@ -6734,7 +6609,7 @@ function AssetPage(props: {
                         >
                             <header class="material-preview-header">
                                 <div>
-                                    <span class="eyebrow">MATERIAL PREVIEW</span>
+                                    <span class="eyebrow">Material preview</span>
                                     <h2>
                                         {field(active().record, "filename", "Untitled material")}
                                     </h2>
@@ -6823,6 +6698,9 @@ function RecordPage(props: {
     onExportSessionPackage?: (record: ArchiveRecord) => void;
     onImportSessionPackage?: (studentId?: string) => void;
     onArchive?: (record: ArchiveRecord, archived: boolean) => void;
+    onOpenTranscript?: (record: ArchiveRecord) => void;
+    onOpenObservations?: (record: ArchiveRecord) => void;
+    onOpenStudyGuide?: (record: ArchiveRecord) => void;
     onProgressReview?: (input: {
         student: ArchiveRecord;
         skill: string;
@@ -6913,7 +6791,7 @@ function RecordPage(props: {
         }
     > = {
         students: {
-            eyebrow: "THE PEOPLE AT THE HEART OF IT",
+            eyebrow: "The people at the heart of it",
             title: "Students",
             description:
                 "Know each learner as a whole person. Keep their goals and progress close to your teaching.",
@@ -6924,7 +6802,7 @@ function RecordPage(props: {
             icon: "students",
         },
         sessions: {
-            eyebrow: "EVERY CONVERSATION COUNTS",
+            eyebrow: "Every conversation counts",
             title: "Sessions",
             description:
                 "A connected record of your tutoring work: notes, materials, and ideas for next time.",
@@ -6935,7 +6813,7 @@ function RecordPage(props: {
             icon: "sessions",
         },
         journal: {
-            eyebrow: "NOTICE WHAT’S CHANGING",
+            eyebrow: "Notice what’s changing",
             title: "Teaching journal",
             description:
                 "A calm, chronological place for reflections, plans, and the details you want to remember.",
@@ -6946,7 +6824,7 @@ function RecordPage(props: {
             icon: "journal",
         },
         guides: {
-            eyebrow: "STRUCTURE THAT LEAVES ROOM",
+            eyebrow: "Structure that leaves room",
             title: "Study guides",
             description:
                 "Reusable guides and lesson structures, ready to adapt to the learner in front of you.",
@@ -6956,7 +6834,7 @@ function RecordPage(props: {
             icon: "guides",
         },
         evidence: {
-            eyebrow: "GROWTH YOU CAN POINT TO",
+            eyebrow: "Growth you can point to",
             title: "Learning evidence",
             description:
                 "Observations and source material that make a learner’s progress easier to see and revisit.",
@@ -6967,7 +6845,7 @@ function RecordPage(props: {
             icon: "evidence",
         },
         assets: {
-            eyebrow: "MATERIALS FOR THE WORK",
+            eyebrow: "Materials for the work",
             title: "Materials",
             description: "Files and resources connected to the tutoring work in this archive.",
             emptyTitle: "Your library is quiet for now",
@@ -7053,7 +6931,6 @@ function RecordPage(props: {
                     onRestore={(record) => props.onRestoreOrganizer?.(record)}
                 />
                 <div class="journal-filter-row" aria-label="Filter journal entries">
-                    <span>Show reflections</span>
                     <label>
                         <span>Filter by collection</span>
                         <select
@@ -7266,6 +7143,9 @@ function RecordPage(props: {
                                             ? undefined
                                             : props.onArchive
                                     }
+                                    onOpenTranscript={props.onOpenTranscript}
+                                    onOpenObservations={props.onOpenObservations}
+                                    onOpenStudyGuide={props.onOpenStudyGuide}
                                 />
                             )}
                         </For>
@@ -7310,6 +7190,9 @@ function RecordCard(props: {
     onClone: ((record: ArchiveRecord) => void) | undefined;
     onExportSessionPackage: ((record: ArchiveRecord) => void) | undefined;
     onArchive: ((record: ArchiveRecord, archived: boolean) => void) | undefined;
+    onOpenTranscript: ((record: ArchiveRecord) => void) | undefined;
+    onOpenObservations: ((record: ArchiveRecord) => void) | undefined;
+    onOpenStudyGuide: ((record: ArchiveRecord) => void) | undefined;
 }): JSX.Element {
     const record = props.record;
     if (props.kind === "students") {
@@ -7451,6 +7334,9 @@ function RecordCard(props: {
                 onClone={props.onClone}
                 onExportPackage={props.onExportSessionPackage}
                 onArchive={props.onArchive}
+                onOpenTranscript={props.onOpenTranscript}
+                onOpenObservations={props.onOpenObservations}
+                onOpenStudyGuide={props.onOpenStudyGuide}
             />
         );
     if (props.kind === "journal") {
@@ -7558,7 +7444,7 @@ function RecordCard(props: {
                     <Icon name="guides" />
                 </span>
                 <div>
-                    <span class="eyebrow">STUDY GUIDE</span>
+                    <span class="eyebrow">Study guide</span>
                     <h2>{field(record, "title", "Untitled guide")}</h2>
                     <p>
                         {field(
@@ -7579,7 +7465,7 @@ function RecordCard(props: {
                     <Icon name="evidence" />
                 </span>
                 <div>
-                    <span class="eyebrow">LEARNING OBSERVATION</span>
+                    <span class="eyebrow">Learning observation</span>
                     <h2>
                         {field(record, "title", field(record, "skill", "Untitled observation"))}
                     </h2>
@@ -7603,7 +7489,7 @@ function RecordCard(props: {
                 <Icon name="assets" />
             </span>
             <div>
-                <span class="eyebrow">ARCHIVE MATERIAL</span>
+                <span class="eyebrow">Archive material</span>
                 <h2>
                     {field(record, "display_name", field(record, "file_name", "Untitled material"))}
                 </h2>
@@ -7673,7 +7559,7 @@ function TrashPage(props: {
         <div class="page-body record-page">
             <section class="record-heading">
                 <div>
-                    <span class="eyebrow">RECOVERABLE ARCHIVE ITEMS</span>
+                    <span class="eyebrow">Recoverable archive items</span>
                     <h1>Trash</h1>
                     <p>
                         Restore a session or journal entry with its linked records, or bring back an
@@ -7706,7 +7592,7 @@ function TrashPage(props: {
                             aria-label="Permanent Trash purge review"
                         >
                             <div>
-                                <span class="eyebrow">PERMANENT ACTION</span>
+                                <span class="eyebrow">Permanent action</span>
                                 <h2>Review permanent purge</h2>
                                 <p>
                                     This removes {review().plan.deletedRecords.toLocaleString()}{" "}
@@ -7800,7 +7686,7 @@ function TrashPage(props: {
                                             <Icon name="journal" />
                                         </span>
                                         <div>
-                                            <span class="eyebrow">REMOVED NOTE BLOCK</span>
+                                            <span class="eyebrow">Removed note block</span>
                                             <h2>{block.text || "Empty note block"}</h2>
                                             <p>
                                                 {block.kind} block removed from{" "}
@@ -7984,6 +7870,9 @@ function SessionRow(props: {
     onClone?: ((record: ArchiveRecord) => void) | undefined;
     onExportPackage?: ((record: ArchiveRecord) => void) | undefined;
     onArchive?: ((record: ArchiveRecord, archived: boolean) => void) | undefined;
+    onOpenTranscript?: ((record: ArchiveRecord) => void) | undefined;
+    onOpenObservations?: ((record: ArchiveRecord) => void) | undefined;
+    onOpenStudyGuide?: ((record: ArchiveRecord) => void) | undefined;
 }): JSX.Element {
     const student = props.students.find((item) => item.id === field(props.session, "student_id"));
     const sessionState = field(props.session, "session_state", "active");
@@ -8052,6 +7941,54 @@ function SessionRow(props: {
                 }
             >
                 <div class="record-actions session-actions">
+                    <Show
+                        when={
+                            props.onEdit ||
+                            props.onOpenTranscript ||
+                            props.onOpenObservations ||
+                            props.onOpenStudyGuide
+                        }
+                    >
+                        <div class="session-document-links" aria-label="Session documents">
+                            <Show when={props.onEdit}>
+                                <button
+                                    type="button"
+                                    class="session-document-link"
+                                    disabled={props.disabled}
+                                    onClick={() => props.onEdit?.(props.session)}
+                                >
+                                    Notebook
+                                </button>
+                            </Show>
+                            <Show when={props.onOpenTranscript}>
+                                <button
+                                    type="button"
+                                    class="session-document-link"
+                                    onClick={() => props.onOpenTranscript?.(props.session)}
+                                >
+                                    Transcript
+                                </button>
+                            </Show>
+                            <Show when={props.onOpenStudyGuide}>
+                                <button
+                                    type="button"
+                                    class="session-document-link"
+                                    onClick={() => props.onOpenStudyGuide?.(props.session)}
+                                >
+                                    Study guide
+                                </button>
+                            </Show>
+                        </div>
+                    </Show>
+                    <Show when={props.onOpenObservations}>
+                        <button
+                            class="button button-quiet record-action"
+                            type="button"
+                            onClick={() => props.onOpenObservations?.(props.session)}
+                        >
+                            Observations
+                        </button>
+                    </Show>
                     <Show when={props.onTransition && sessionState === "created"}>
                         <button
                             class="button button-outline record-action"
@@ -8154,16 +8091,6 @@ function SessionRow(props: {
                             }
                         >
                             {field(props.session, "archived") === "true" ? "Unarchive" : "Archive"}
-                        </button>
-                    </Show>
-                    <Show when={props.onEdit}>
-                        <button
-                            class="button button-outline session-open"
-                            type="button"
-                            disabled={props.disabled}
-                            onClick={() => props.onEdit?.(props.session)}
-                        >
-                            Edit session <Icon name="arrow" />
                         </button>
                     </Show>
                     <Show when={props.onTrash}>
@@ -8620,7 +8547,7 @@ function TranscriptPage(props: {
         <div class="page-body transcript-page">
             <section class="record-heading transcript-heading">
                 <div>
-                    <span class="eyebrow">LISTEN CLOSELY, KEEP THE WORDS</span>
+                    <span class="eyebrow">Listen closely, keep the words</span>
                     <h1>Transcripts</h1>
                     <p>
                         Bring in text or subtitle cues, correct the wording, and mark what you’ve
@@ -8634,7 +8561,7 @@ function TranscriptPage(props: {
 
             <section class="transcript-controls" aria-label="Transcript actions">
                 <label class="transcript-session-picker">
-                    <span class="eyebrow">SESSION</span>
+                    <span class="eyebrow">Session</span>
                     <select
                         value={selectedSession()?.id ?? ""}
                         disabled={props.sessions.length === 0 || captureState() !== "idle"}
@@ -8792,7 +8719,7 @@ function TranscriptPage(props: {
 
             <section class="transcript-capture-panel" aria-label="Microphone recording">
                 <div class="transcript-capture-copy">
-                    <span class="eyebrow">SESSION AUDIO</span>
+                    <span class="eyebrow">Session audio</span>
                     <strong>Record from microphone</strong>
                     <span>
                         Saved locally as an audio material for playback, export, or cue links.
@@ -8891,7 +8818,7 @@ function TranscriptPage(props: {
                 <section class="transcript-takes-panel" aria-label="Recording takes">
                     <div class="transcript-takes-heading">
                         <div>
-                            <span class="eyebrow">SESSION AUDIO</span>
+                            <span class="eyebrow">Session audio</span>
                             <strong>Recording takes</strong>
                             <span>
                                 Rename takes and tracks, then move individual items to Trash or
@@ -8994,7 +8921,7 @@ function TranscriptPage(props: {
             <Show when={sessionTracks().length > 0}>
                 <section class="transcript-audio-panel" aria-label="Session recording playback">
                     <div class="transcript-audio-copy">
-                        <span class="eyebrow">SESSION RECORDING</span>
+                        <span class="eyebrow">Session recording</span>
                         <strong>{selectedTrack()?.label ?? "Recording"}</strong>
                         <span>Load up to 30 seconds from the beginning or a transcript cue.</span>
                     </div>
@@ -9571,7 +9498,7 @@ function TranscriptCueCard(props: {
                         aria-label="Transcript cue version history"
                     >
                         <div class="transcript-history-heading">
-                            <span class="eyebrow">VERSION HISTORY</span>
+                            <span class="eyebrow">Version history</span>
                             <span>
                                 {Math.max(0, (history()?.length ?? 1) - 1)} earlier versions
                             </span>
@@ -9921,7 +9848,7 @@ function ArchivePage(props: {
         <div class="page-body archive-page">
             <section class="record-heading">
                 <div>
-                    <span class="eyebrow">YOUR DATA, IN YOUR HANDS</span>
+                    <span class="eyebrow">Your data, in your hands</span>
                     <h1>Archive health</h1>
                     <p>Review the portable file that holds your tutoring workspace.</p>
                 </div>
@@ -9936,7 +9863,7 @@ function ArchivePage(props: {
                     <span class="archive-card-glow" />
                 </div>
                 <div class="archive-summary-copy">
-                    <span class="eyebrow">TUTORUX PORTABLE ARCHIVE</span>
+                    <span class="eyebrow">Tutorux portable archive</span>
                     <h2>{props.state.manifest.displayName}</h2>
                     <p>
                         {props.state.manifest.description ||
@@ -9963,7 +9890,7 @@ function ArchivePage(props: {
                     </div>
                 </div>
                 <div class="archive-size">
-                    <span>FILE SIZE</span>
+                    <span>File size</span>
                     <strong>{formatBytes(props.state.snapshot.source.size)}</strong>
                     <small>{props.state.location ?? "Browser copy"}</small>
                 </div>
@@ -10071,7 +9998,7 @@ function ArchivePage(props: {
             <SanitizedCopy snapshot={props.state.snapshot} disabled={props.busy} />
             <section class="archive-actions-card">
                 <div>
-                    <span class="eyebrow">PORTABLE BY DESIGN</span>
+                    <span class="eyebrow">Portable by design</span>
                     <h2>Keep a safe copy</h2>
                     <p>
                         Your archive is a single file. Save a copy somewhere you trust, then open it
@@ -10122,7 +10049,7 @@ function SettingsPage(props: {
         <div class="page-body settings-page">
             <section class="record-heading">
                 <div>
-                    <span class="eyebrow">MAKE THE SPACE YOURS</span>
+                    <span class="eyebrow">Make the space yours</span>
                     <h1>Preferences</h1>
                     <p>A few small choices for a workspace that feels right to use.</p>
                 </div>
@@ -10395,7 +10322,7 @@ function ConfirmSessionTrashDialog(props: {
                 <span class="dialog-icon">
                     <Icon name="trash" />
                 </span>
-                <span class="eyebrow">REVIEW SESSION GROUP</span>
+                <span class="eyebrow">Review session group</span>
                 <h2 id="session-trash-title">Move this session to Trash?</h2>
                 <p id="session-trash-description" class="dialog-description">
                     <strong>{field(props.session, "title", "Untitled session")}</strong> and its
@@ -10469,7 +10396,7 @@ function ConfirmDeleteDialog(props: {
                 <span class="dialog-icon">
                     <Icon name="trash" />
                 </span>
-                <span class="eyebrow">RECOVERABLE ACTION</span>
+                <span class="eyebrow">Recoverable action</span>
                 <h2 id="trash-dialog-title">
                     Move {props.kind === "student" ? "student" : "observation"} to Trash?
                 </h2>
@@ -10538,7 +10465,7 @@ function FormDialog(props: {
         { eyebrow: string; title: string; description: string; submit: string; icon: IconName }
     > = {
         archive: {
-            eyebrow: "A HOME FOR YOUR WORK",
+            eyebrow: "A home for your work",
             title: "Create a workspace",
             description:
                 "Your workspace lives in one portable .tux file. You can move it or make a backup whenever you like.",
@@ -10546,7 +10473,7 @@ function FormDialog(props: {
             icon: "archive",
         },
         passphrase: {
-            eyebrow: "KEEP YOUR WORK PROTECTED",
+            eyebrow: "Keep your work protected",
             title: "Change passphrase",
             description:
                 "Tutorux checks your current passphrase and every retained revision, then re-encrypts the archive with a fresh data key.",
@@ -10554,21 +10481,21 @@ function FormDialog(props: {
             icon: "shield",
         },
         student: {
-            eyebrow: "THE PERSON FIRST",
+            eyebrow: "The person first",
             title: "Add a student",
             description: "Start with the details that help you see and support this learner.",
             submit: "Add student",
             icon: "students",
         },
         session: {
-            eyebrow: "MAKE THE MOMENT COUNT",
+            eyebrow: "Make the moment count",
             title: "New session",
             description: "Capture what you worked on and what you want to carry into next time.",
             submit: "Save session",
             icon: "sessions",
         },
         journal: {
-            eyebrow: "NOTICE, REFLECT, RETURN",
+            eyebrow: "Notice, reflect, return",
             title: "New journal entry",
             description: "A short reflection can help you notice how a learner is growing.",
             submit: "Save entry",
@@ -11454,18 +11381,6 @@ function StatCard(props: {
             </span>
             <Icon name="arrow" />
         </button>
-    );
-}
-
-function Feature(props: { icon: IconName; title: string; text: string }): JSX.Element {
-    return (
-        <article class="welcome-feature">
-            <span class="feature-icon">
-                <Icon name={props.icon} />
-            </span>
-            <h3>{props.title}</h3>
-            <p>{props.text}</p>
-        </article>
     );
 }
 
