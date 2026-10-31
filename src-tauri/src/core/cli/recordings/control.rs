@@ -1,6 +1,7 @@
+use std::collections::BTreeSet;
+
 use serde_json::json;
 
-use crate::core::archive::now_us;
 use crate::core::cli::{emit, CliContext, CliError, CliOutput, CliResult, ParsedArguments};
 use crate::core::error::CoreError;
 use crate::core::format::{ArchiveRecord, RecordType};
@@ -13,37 +14,125 @@ pub(super) fn configure(
     path: &std::path::Path,
     context: &CliContext,
 ) -> CliResult<i32> {
+    for name in ["microphone", "playback", "durability"] {
+        if args.flag(name) {
+            return Err(CliError(format!("--{name} requires a value.")).into());
+        }
+    }
+    let microphone = args.option("microphone").map(str::to_owned);
+    let playback = args.option("playback").map(str::to_owned);
+    let durability = args.option("durability").map(str::to_owned);
+    if microphone.as_deref() == Some("") {
+        return Err(CliError("The '--microphone' device value cannot be empty.".to_owned()).into());
+    }
+    if playback.as_deref() == Some("") {
+        return Err(CliError("The '--playback' device value cannot be empty.".to_owned()).into());
+    }
+    if let Some(value) = durability.as_deref() {
+        if !matches!(value, "default" | "maximum" | "reduced-write") {
+            return Err(CliError(
+                "Durability must be 'default', 'maximum', or 'reduced-write'.".to_owned(),
+            )
+            .into());
+        }
+    }
+    if !args.positionals.is_empty() {
+        return Err(
+            CliError("record configure does not accept positional arguments.".to_owned()).into(),
+        );
+    }
+
     let snapshot = open_unlocked(path, context)?;
-    let timestamp = now_us().to_string();
-    let record = ArchiveRecord::new(
-        RecordType::SETTINGS,
-        crate::core::cli::records::deterministic_uuid("recording-configuration"),
-        [
-            ("record_role", "recording-configuration".to_owned()),
-            (
-                "microphone",
-                args.option("microphone").unwrap_or("default").to_owned(),
-            ),
-            (
-                "playback",
-                args.option("playback").unwrap_or("default").to_owned(),
-            ),
-            (
-                "durability",
-                args.option("durability").unwrap_or("default").to_owned(),
-            ),
-            ("updated_at_us", timestamp),
-        ],
+    let settings = snapshot.list_records(RecordType::SETTINGS, false)?;
+    let read = |key: &str| -> String {
+        settings
+            .iter()
+            .find(|record| {
+                record.field("record_role") == Some("setting") && record.field("key") == Some(key)
+            })
+            .and_then(|record| record.field("value"))
+            .unwrap_or("default")
+            .to_owned()
+    };
+    let configured_microphone = microphone
+        .clone()
+        .unwrap_or_else(|| read("recording.microphone_device_id"));
+    let configured_playback = playback
+        .clone()
+        .unwrap_or_else(|| read("recording.playback_device_id"));
+    let configured_durability = durability.clone().unwrap_or_else(|| read("recording.durability"));
+    let configured = json!({
+        "microphone_device_id": configured_microphone,
+        "playback_device_id": configured_playback,
+        "durability": configured_durability,
+    });
+    let mut changes: Vec<ArchiveRecord> = Vec::new();
+    if let Some(value) = microphone.as_deref() {
+        changes.push(crate::core::cli::records::make_setting_record(
+            "recording.microphone_device_id",
+            value,
+            false,
+        ));
+    }
+    if let Some(value) = playback.as_deref() {
+        changes.push(crate::core::cli::records::make_setting_record(
+            "recording.playback_device_id",
+            value,
+            false,
+        ));
+    }
+    if let Some(value) = durability.as_deref() {
+        changes.push(crate::core::cli::records::make_setting_record(
+            "recording.durability",
+            value,
+            false,
+        ));
+    }
+    if !changes.is_empty() {
+        let next = snapshot.append_records(&changes)?;
+        crate::core::cli::records::save_replacing(path, &next)?;
+    }
+    let message = format!(
+        "Recording configuration saved in the active archive.\nMicrophone: {}\nPlayback: {}\nDurability: {}",
+        configured["microphone_device_id"].as_str().unwrap_or("default"),
+        configured["playback_device_id"].as_str().unwrap_or("default"),
+        configured["durability"].as_str().unwrap_or("default"),
     );
-    let next = snapshot.append_records(&[record])?;
-    crate::core::cli::records::save_replacing(path, &next)?;
-    emit(
-        output,
-        json!({"status": "configured"}),
-        "Recording preferences saved.",
-        args.json(),
-    );
+    emit(output, configured, &message, args.json());
     Ok(0)
+}
+
+pub(super) fn play(
+    args: ParsedArguments,
+    _output: &mut dyn CliOutput,
+    path: &std::path::Path,
+    context: &CliContext,
+) -> CliResult<i32> {
+    if !args.positionals.is_empty() {
+        return Err(CliError("record play does not accept positional arguments.".to_owned()).into());
+    }
+    let snapshot = open_unlocked(path, context)?;
+    let session_id = args.required_option("session")?.to_lowercase();
+    require_session(&snapshot, &session_id)?;
+    let mut tracks = BTreeSet::new();
+    for chunk in snapshot.list_records(RecordType::AUDIO_CHUNK, false)? {
+        if chunk.field("session_id").map(str::to_lowercase).as_deref()
+            != Some(session_id.as_str())
+        {
+            continue;
+        }
+        if let Some(track_id) = chunk.field("track_id").filter(|value| !value.is_empty()) {
+            tracks.insert(track_id.to_lowercase());
+        }
+    }
+    if tracks.is_empty() {
+        return Err(CliError("The selected session contains no audio tracks.".to_owned()).into());
+    }
+    Err(CliError(
+        "Playback requires ffplay from a host FFmpeg distribution; the Rust CLI does not bundle it."
+            .to_owned(),
+    )
+    .into())
 }
 
 pub(super) fn status(
