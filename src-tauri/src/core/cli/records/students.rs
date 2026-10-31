@@ -145,9 +145,12 @@ pub(crate) fn run_student(
         }
         "restore" => {
             let id = args.required_position(0, "student ID")?.to_lowercase();
-            let current = snapshot
-                .get_record(RecordType::STUDENT, &id)?
-                .ok_or_else(|| CliError(format!("Record {id} was not found in this archive.")))?;
+            let current = snapshot
+                .get_record(RecordType::STUDENT, &id)?
+                .ok_or_else(|| CliError(format!("Record {id} was not found in this archive.")))?;
+            if current.field("_deleted") != Some("true") {
+                return Err(CliError(format!("Record {id} is not in Trash.")).into());
+            }
             let mut fields = current.fields.clone();
             fields.insert("_deleted".to_owned(), "false".to_owned());
             fields.insert("restored_at_us".to_owned(), timestamp_now());
