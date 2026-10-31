@@ -1,16 +1,11 @@
 /dist/
-/release/
 /tmp/
 /node_modules/
 /.vite/
 /test-results/
 /playwright-report/
 /src-tauri/target/
-/src-tauri/binaries/tutorux-audio-helper-*
-/src-tauri/binaries/tutorux-embedded-ai-*
-/src-tauri/binaries/tutorux-runtime-*
-/src-tauri/binaries/console-runtime/
-/src-tauri/binaries/console-runtime-cache/
+/src-tauri/binaries/
 /src-tauri/gen/
 /.cache/
 /.DS_Store
