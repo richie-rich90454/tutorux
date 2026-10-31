@@ -1,0 +1,164 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "id": "archive.init",
+      "capability": "archive.init",
+      "seed": false,
+      "steps": [
+        {
+          "id": "archive init",
+          "args": [
+            "archive",
+            "init",
+            "{archive}",
+            "--name",
+            "Parity init",
+            "--json"
+          ],
+          "expect": {
+            "exitCode": 0,
+            "stdoutJson": {
+              "path": "<path>",
+              "name": "Parity init",
+              "bytes": "<number>",
+              "created": true
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "archive.init-existing",
+      "capability": "archive.init",
+      "steps": [
+        {
+          "id": "archive init existing",
+          "args": [
+            "archive",
+            "init",
+            "{archive}",
+            "--name",
+            "Again",
+            "--json"
+          ],
+          "expect": {
+            "exitCode": 2,
+            "stdoutJson": null,
+            "stderrContains": [
+              "already exists"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "archive.info",
+      "capability": "archive.info",
+      "steps": [
+        {
+          "id": "archive info",
+          "args": [
+            "archive",
+            "info",
+            "{archive}",
+            "--json"
+          ],
+          "expect": {
+            "exitCode": 0,
+            "stdoutJson": {
+              "path": "<path>",
+              "name": "Parity seed",
+              "description": "",
+              "id": "<uuid>",
+              "archiveId": "<uuid>",
+              "archive_id": "<uuid>",
+              "generation": "1",
+              "size": "<number-string>",
+              "size_bytes": "<number-string>",
+              "student_count": "0",
+              "session_count": "0",
+              "created_at_us": "<timestamp>",
+              "format_major": "1",
+              "format_minor": "0",
+              "formatMajor": 1,
+              "formatMinor": 0,
+              "writable": true,
+              "health": "healthy",
+              "recoveryNeeded": false,
+              "metadataOnly": false,
+              "metadata_only": false,
+              "encrypted": false,
+              "locked": false,
+              "verified": true,
+              "valid": true,
+              "records": 1,
+              "recordsVerified": 1,
+              "records_checked": 1,
+              "index_pages_checked": 0,
+              "deletedRecords": 0,
+              "issues": [],
+              "historicalRevisionsVerified": null,
+              "commitsVerified": null,
+              "verificationScope": "all-current-primary-records-and-index"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "archive.verify",
+      "capability": "archive.verify",
+      "steps": [
+        {
+          "id": "archive verify",
+          "args": [
+            "archive",
+            "verify",
+            "{archive}",
+            "--json"
+          ],
+          "expect": {
+            "exitCode": 0,
+            "stdoutJson": {
+              "path": "<path>",
+              "name": "Parity seed",
+              "description": "",
+              "id": "<uuid>",
+              "archiveId": "<uuid>",
+              "archive_id": "<uuid>",
+              "generation": "1",
+              "size": "<number-string>",
+              "size_bytes": "<number-string>",
+              "student_count": "0",
+              "session_count": "0",
+              "created_at_us": "<timestamp>",
+              "format_major": "1",
+              "format_minor": "0",
+              "formatMajor": 1,
+              "formatMinor": 0,
+              "writable": true,
+              "health": "healthy",
+              "recoveryNeeded": false,
+              "metadataOnly": false,
+              "metadata_only": false,
+              "encrypted": false,
+              "locked": false,
+              "verified": true,
+              "valid": true,
+              "records": 1,
+              "recordsVerified": 1,
+              "records_checked": 1,
+              "index_pages_checked": 0,
+              "deletedRecords": 0,
+              "issues": [],
+              "historicalRevisionsVerified": null,
+              "commitsVerified": null,
+              "verificationScope": "all-current-primary-records-and-index"
+            }
+          }
+        }
+      ]
+    }
+  ]
+}
