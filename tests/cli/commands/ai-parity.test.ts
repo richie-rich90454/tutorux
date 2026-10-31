@@ -1,13 +1,13 @@
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { executeCli } from "../main";
+import { executeCli } from "../../../cli/main";
 import {
     appendRecords,
     createArchiveBytes,
     openArchiveBytes,
-} from "../../frontend/archive/archive";
-import { newUuid, RecordType, type ArchiveRecord } from "../../frontend/archive/format";
+} from "../../../frontend/archive/archive";
+import { newUuid, RecordType, type ArchiveRecord } from "../../../frontend/archive/format";
 
 function u32(value: number): Buffer {
     const buffer = Buffer.alloc(4);
