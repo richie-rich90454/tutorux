@@ -1,3 +1,5 @@
+import { twClasses } from "./tailwind";
+import { jsxTailwindStyles } from "./AssetPage.tailwind";
 import { For, Show, createMemo, createSignal, onCleanup, type JSX } from "solid-js";
 import type { ArchiveSnapshot } from "./archive/archive";
 import type { ArchiveRecord } from "./archive/format";
@@ -13,8 +15,6 @@ import {
 import { MediaPlayer } from "./MediaPlayer";
 import { Icon, ManagedDialog } from "./shared-ui";
 import { errorMessage, field, formatBytes, formatTimestamp } from "./shared-utils";
-
-import "./assets.css";
 
 export function AssetPage(props: {
     records: ArchiveRecord[];
@@ -148,16 +148,21 @@ export function AssetPage(props: {
 
     return (
         <div
-            class="page-body material-page"
+            class={twClasses("page-body material-page", jsxTailwindStyles, "div")}
             onDragEnter={dragEnter}
             onDragLeave={dragLeave}
             onDragOver={dragOver}
             onDrop={dropFiles}
         >
             <Show when={fileDropActive()}>
-                <div class="material-file-drop-overlay" aria-hidden="true">
-                    <strong>Drop files to add them to Materials</strong>
-                    <span>
+                <div
+                    class={twClasses("material-file-drop-overlay", jsxTailwindStyles, "div")}
+                    aria-hidden="true"
+                >
+                    <strong class={twClasses("", jsxTailwindStyles, "strong")}>
+                        Drop files to add them to Materials
+                    </strong>
+                    <span class={twClasses("", jsxTailwindStyles, "span")}>
                         {sessionId()
                             ? "Files will be linked to the selected session."
                             : "Files will be added to the general library."}
@@ -165,15 +170,23 @@ export function AssetPage(props: {
                 </div>
             </Show>
             <Show when={dropStatus()}>
-                <p class="material-drop-status" role="status" aria-live="polite">
+                <p
+                    class={twClasses("material-drop-status", jsxTailwindStyles, "p")}
+                    role="status"
+                    aria-live="polite"
+                >
                     {dropStatus()}
                 </p>
             </Show>
-            <section class="record-heading material-heading">
-                <div>
-                    <span class="eyebrow">Materials for the work</span>
-                    <h1>Materials</h1>
-                    <p>
+            <section
+                class={twClasses("record-heading material-heading", jsxTailwindStyles, "section")}
+            >
+                <div class={twClasses("", jsxTailwindStyles, "div")}>
+                    <span class={twClasses("eyebrow", jsxTailwindStyles, "span")}>
+                        Materials for the work
+                    </span>
+                    <h1 class={twClasses("", jsxTailwindStyles, "h1")}>Materials</h1>
+                    <p class={twClasses("", jsxTailwindStyles, "p")}>
                         Keep lesson files beside the sessions and observations they support. Imports
                         are limited to 256 MiB per file.
                     </p>
@@ -184,21 +197,28 @@ export function AssetPage(props: {
                 />
             </section>
 
-            <section class="material-library surface-card">
-                <div class="material-library-toolbar">
-                    <div>
-                        <span class="eyebrow">File library</span>
-                        <strong>
+            <section
+                class={twClasses("material-library surface-card", jsxTailwindStyles, "section")}
+            >
+                <div class={twClasses("material-library-toolbar", jsxTailwindStyles, "div")}>
+                    <div class={twClasses("", jsxTailwindStyles, "div")}>
+                        <span class={twClasses("eyebrow", jsxTailwindStyles, "span")}>
+                            File library
+                        </span>
+                        <strong class={twClasses("", jsxTailwindStyles, "strong")}>
                             {visibleRecords().length}{" "}
                             {visibleRecords().length === 1 ? "item" : "items"}
                         </strong>
                     </div>
-                    <label class="material-session-picker">
-                        <span>Show materials for</span>
+                    <label class={twClasses("material-session-picker", jsxTailwindStyles, "label")}>
+                        <span class={twClasses("", jsxTailwindStyles, "span")}>
+                            Show materials for
+                        </span>
                         <select
                             value={librarySessionFilter()}
                             onChange={(event) => setLibrarySessionFilter(event.currentTarget.value)}
                             aria-label="Show materials for"
+                            class={twClasses("", jsxTailwindStyles, "select")}
                         >
                             <option value="all">All materials</option>
                             <option value="">General library</option>
@@ -211,13 +231,16 @@ export function AssetPage(props: {
                             </For>
                         </select>
                     </label>
-                    <label class="material-session-picker">
-                        <span>Link new material to</span>
+                    <label class={twClasses("material-session-picker", jsxTailwindStyles, "label")}>
+                        <span class={twClasses("", jsxTailwindStyles, "span")}>
+                            Link new material to
+                        </span>
                         <select
                             value={sessionId()}
                             disabled={props.disabled}
                             onChange={(event) => setSessionId(event.currentTarget.value)}
                             aria-label="Session for imported material"
+                            class={twClasses("", jsxTailwindStyles, "select")}
                         >
                             <option value="">General library</option>
                             <For each={props.sessions}>
@@ -233,24 +256,30 @@ export function AssetPage(props: {
                 <Show
                     when={visibleRecords().length > 0}
                     fallback={
-                        <div class="material-empty">
-                            <span class="material-empty-mark">
+                        <div class={twClasses("material-empty", jsxTailwindStyles, "div")}>
+                            <span
+                                class={twClasses("material-empty-mark", jsxTailwindStyles, "span")}
+                            >
                                 <Icon name="assets" />
                             </span>
-                            <div>
-                                <h2>
+                            <div class={twClasses("", jsxTailwindStyles, "div")}>
+                                <h2 class={twClasses("", jsxTailwindStyles, "h2")}>
                                     {props.records.length === 0
                                         ? "A thoughtful library starts with one file"
                                         : "No materials in this view"}
                                 </h2>
-                                <p>
+                                <p class={twClasses("", jsxTailwindStyles, "p")}>
                                     {props.records.length === 0
                                         ? "Import a worksheet, reference image, recording, or document. Tutorux keeps its content inside this archive."
                                         : "Choose another session or switch to All materials to see files from the rest of your library."}
                                 </p>
                                 <Show when={props.records.length > 0}>
                                     <button
-                                        class="button button-outline"
+                                        class={twClasses(
+                                            "button button-outline",
+                                            jsxTailwindStyles,
+                                            "button",
+                                        )}
                                         type="button"
                                         onClick={() => setLibrarySessionFilter("all")}
                                     >
@@ -261,7 +290,7 @@ export function AssetPage(props: {
                         </div>
                     }
                 >
-                    <div class="material-grid">
+                    <div class={twClasses("material-grid", jsxTailwindStyles, "div")}>
                         <For each={visibleRecords()}>
                             {(record) => {
                                 const session = () =>
@@ -273,44 +302,107 @@ export function AssetPage(props: {
                                 const label = () =>
                                     contentType().split("/")[0]?.toLocaleUpperCase() || "FILE";
                                 return (
-                                    <article class="material-card">
-                                        <div class="material-card-top">
-                                            <span class="material-file-glyph">
+                                    <article
+                                        class={twClasses(
+                                            "material-card",
+                                            jsxTailwindStyles,
+                                            "article",
+                                        )}
+                                    >
+                                        <div
+                                            class={twClasses(
+                                                "material-card-top",
+                                                jsxTailwindStyles,
+                                                "div",
+                                            )}
+                                        >
+                                            <span
+                                                class={twClasses(
+                                                    "material-file-glyph",
+                                                    jsxTailwindStyles,
+                                                    "span",
+                                                )}
+                                            >
                                                 <Icon name="assets" />
                                             </span>
-                                            <span class="material-type-badge">{label()}</span>
+                                            <span
+                                                class={twClasses(
+                                                    "material-type-badge",
+                                                    jsxTailwindStyles,
+                                                    "span",
+                                                )}
+                                            >
+                                                {label()}
+                                            </span>
                                         </div>
-                                        <div class="material-card-copy">
+                                        <div
+                                            class={twClasses(
+                                                "material-card-copy",
+                                                jsxTailwindStyles,
+                                                "div",
+                                            )}
+                                        >
                                             <h2
                                                 title={field(
                                                     record,
                                                     "filename",
                                                     "Untitled material",
                                                 )}
+                                                class={twClasses("", jsxTailwindStyles, "h2")}
                                             >
                                                 {field(record, "filename", "Untitled material")}
                                             </h2>
-                                            <p>{contentType()}</p>
+                                            <p class={twClasses("", jsxTailwindStyles, "p")}>
+                                                {contentType()}
+                                            </p>
                                         </div>
-                                        <div class="material-card-meta">
-                                            <span>
+                                        <div
+                                            class={twClasses(
+                                                "material-card-meta",
+                                                jsxTailwindStyles,
+                                                "div",
+                                            )}
+                                        >
+                                            <span class={twClasses("", jsxTailwindStyles, "span")}>
                                                 {formatBytes(
                                                     BigInt(field(record, "byte_size", "0")),
                                                 )}
                                             </span>
-                                            <span>
+                                            <span class={twClasses("", jsxTailwindStyles, "span")}>
                                                 {formatTimestamp(field(record, "created_at_us"))}
                                             </span>
                                         </div>
-                                        <div class="material-card-footer">
-                                            <span class="material-link-context">
+                                        <div
+                                            class={twClasses(
+                                                "material-card-footer",
+                                                jsxTailwindStyles,
+                                                "div",
+                                            )}
+                                        >
+                                            <span
+                                                class={twClasses(
+                                                    "material-link-context",
+                                                    jsxTailwindStyles,
+                                                    "span",
+                                                )}
+                                            >
                                                 {session()
                                                     ? `Linked · ${field(session()!, "title", "Session")}`
                                                     : "General library"}
                                             </span>
-                                            <div class="material-card-actions">
+                                            <div
+                                                class={twClasses(
+                                                    "material-card-actions",
+                                                    jsxTailwindStyles,
+                                                    "div",
+                                                )}
+                                            >
                                                 <button
-                                                    class="button button-quiet record-action"
+                                                    class={twClasses(
+                                                        "button button-quiet record-action",
+                                                        jsxTailwindStyles,
+                                                        "button",
+                                                    )}
                                                     type="button"
                                                     disabled={props.disabled}
                                                     onClick={(event) => {
@@ -321,7 +413,11 @@ export function AssetPage(props: {
                                                     Preview
                                                 </button>
                                                 <button
-                                                    class="button button-outline record-action"
+                                                    class={twClasses(
+                                                        "button button-outline record-action",
+                                                        jsxTailwindStyles,
+                                                        "button",
+                                                    )}
                                                     type="button"
                                                     disabled={props.disabled}
                                                     onClick={() => props.onExport(record)}
@@ -331,7 +427,13 @@ export function AssetPage(props: {
                                             </div>
                                         </div>
                                         <Show when={field(record, "text_extraction_status")}>
-                                            <small class="material-extraction-note">
+                                            <small
+                                                class={twClasses(
+                                                    "material-extraction-note",
+                                                    jsxTailwindStyles,
+                                                    "small",
+                                                )}
+                                            >
                                                 Text extraction:{" "}
                                                 {field(record, "text_extraction_status")}
                                             </small>
@@ -357,27 +459,35 @@ export function AssetPage(props: {
             <Show when={preview()}>
                 {(active) => (
                     <div
-                        class="material-preview-backdrop"
+                        class={twClasses("material-preview-backdrop", jsxTailwindStyles, "div")}
                         onClick={(event) => {
                             if (event.target === event.currentTarget) closePreview();
                         }}
                     >
                         <ManagedDialog
-                            class="material-preview-dialog"
+                            class={twClasses("material-preview-dialog", jsxTailwindStyles, "")}
                             role="dialog"
                             label={`Preview ${field(active().record, "filename", "material")}`}
                             onEscape={closePreview}
                             restoreFocus={() => false}
                         >
-                            <header class="material-preview-header">
-                                <div>
-                                    <span class="eyebrow">Material preview</span>
-                                    <h2>
+                            <header
+                                class={twClasses(
+                                    "material-preview-header",
+                                    jsxTailwindStyles,
+                                    "header",
+                                )}
+                            >
+                                <div class={twClasses("", jsxTailwindStyles, "div")}>
+                                    <span class={twClasses("eyebrow", jsxTailwindStyles, "span")}>
+                                        Material preview
+                                    </span>
+                                    <h2 class={twClasses("", jsxTailwindStyles, "h2")}>
                                         {field(active().record, "filename", "Untitled material")}
                                     </h2>
                                 </div>
                                 <button
-                                    class="icon-button"
+                                    class={twClasses("icon-button", jsxTailwindStyles, "button")}
                                     type="button"
                                     aria-label="Close preview"
                                     onClick={closePreview}
@@ -385,7 +495,13 @@ export function AssetPage(props: {
                                     <Icon name="close" />
                                 </button>
                             </header>
-                            <div class="material-preview-content">
+                            <div
+                                class={twClasses(
+                                    "material-preview-content",
+                                    jsxTailwindStyles,
+                                    "div",
+                                )}
+                            >
                                 <Show
                                     when={active().text !== null}
                                     fallback={
@@ -397,6 +513,7 @@ export function AssetPage(props: {
                                                     "filename",
                                                     "Material preview",
                                                 )}
+                                                class={twClasses("", jsxTailwindStyles, "img")}
                                             />
                                         ) : active().mimeType.startsWith("audio/") ? (
                                             active().waveform ? (
@@ -427,12 +544,24 @@ export function AssetPage(props: {
                                             />
                                         ) : active().mimeType.startsWith("text/") ||
                                           active().mimeType === "application/json" ? (
-                                            <div class="material-preview-unavailable">
+                                            <div
+                                                class={twClasses(
+                                                    "material-preview-unavailable",
+                                                    jsxTailwindStyles,
+                                                    "div",
+                                                )}
+                                            >
                                                 Text previews are limited to 2 MiB. Export the
                                                 verified original file to read the full document.
                                             </div>
                                         ) : (
-                                            <div class="material-preview-unavailable">
+                                            <div
+                                                class={twClasses(
+                                                    "material-preview-unavailable",
+                                                    jsxTailwindStyles,
+                                                    "div",
+                                                )}
+                                            >
                                                 Preview is unavailable for this file type. Export
                                                 the verified original file to open it in another
                                                 app.
@@ -440,16 +569,28 @@ export function AssetPage(props: {
                                         )
                                     }
                                 >
-                                    <pre>{active().text}</pre>
+                                    <pre class={twClasses("", jsxTailwindStyles, "pre")}>
+                                        {active().text}
+                                    </pre>
                                 </Show>
                             </div>
-                            <footer class="material-preview-footer">
-                                <span>
+                            <footer
+                                class={twClasses(
+                                    "material-preview-footer",
+                                    jsxTailwindStyles,
+                                    "footer",
+                                )}
+                            >
+                                <span class={twClasses("", jsxTailwindStyles, "span")}>
                                     {active().mimeType} ·{" "}
                                     {formatBytes(BigInt(field(active().record, "byte_size", "0")))}
                                 </span>
                                 <button
-                                    class="button button-outline"
+                                    class={twClasses(
+                                        "button button-outline",
+                                        jsxTailwindStyles,
+                                        "button",
+                                    )}
                                     type="button"
                                     onClick={() => props.onExport(active().record)}
                                 >
