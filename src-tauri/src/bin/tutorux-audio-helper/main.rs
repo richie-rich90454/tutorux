@@ -6,13 +6,13 @@
 //! until stdin receives `stop` or closes. The selected format is announced as a JSON line on stderr
 //! before the first PCM byte, followed by a frame/byte summary on stderr after the stream ends.
 
-#[path = "../../archive_lock_support.rs"]
-#[allow(dead_code)]
-mod archive_lock_support;
 mod application;
 mod application_capture;
 mod application_probe;
 mod archive_lock;
+#[path = "../../archive_lock_support.rs"]
+#[allow(dead_code)]
+mod archive_lock_support;
 mod args;
 mod capture_io;
 mod native_input;
