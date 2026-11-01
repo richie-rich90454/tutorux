@@ -4,9 +4,7 @@ use serde_json::{json, Value};
 
 use crate::core::archive::{new_uuid, now_us, ArchiveSnapshot};
 use crate::core::format::{ArchiveRecord, RecordType};
-use crate::platform::synchronized_audio::headless::{
-    HeadlessChunk,
-};
+use crate::platform::synchronized_audio::headless::HeadlessChunk;
 
 use super::{samples_to_microseconds, track_index, track_label, CaptureConfig};
 
@@ -91,11 +89,15 @@ impl CaptureWriter {
                 _ => config.application_device_id.clone(),
             };
             if let Some(device_id) = device_id {
-                record.fields.insert("source_device_id".to_owned(), device_id);
+                record
+                    .fields
+                    .insert("source_device_id".to_owned(), device_id);
             }
             if index == 2 {
                 if let Some(name) = &started.application_audio_name {
-                    record.fields.insert("application_name".to_owned(), name.clone());
+                    record
+                        .fields
+                        .insert("application_name".to_owned(), name.clone());
                 }
                 if let Some(process_id) = started.application_audio_process_id {
                     record
@@ -125,8 +127,24 @@ impl CaptureWriter {
                 ("record_role", "recording-take".to_owned()),
                 ("blob_id", take_blob_id),
                 ("session_id", config.session_id.clone()),
-                ("label", if track_ids.len() == 2 { "Synchronized recording" } else { "Audio recording" }.to_owned()),
-                ("source", if track_ids.len() == 2 { "microphone+system-audio" } else { "microphone" }.to_owned()),
+                (
+                    "label",
+                    if track_ids.len() == 2 {
+                        "Synchronized recording"
+                    } else {
+                        "Audio recording"
+                    }
+                    .to_owned(),
+                ),
+                (
+                    "source",
+                    if track_ids.len() == 2 {
+                        "microphone+system-audio"
+                    } else {
+                        "microphone"
+                    }
+                    .to_owned(),
+                ),
                 ("capture_source_backend", started.backend.clone()),
                 ("capture_consent_at_us", config.consent_at_us.to_string()),
                 ("capture_consent_policy", "1".to_owned()),
@@ -170,38 +188,54 @@ impl CaptureWriter {
         session
             .fields
             .insert("recording_source".to_owned(), "native".to_owned());
-        session
-            .fields
-            .insert("recording_source_backend".to_owned(), started.backend.clone());
-        session
-            .fields
-            .insert("recording_sample_format".to_owned(), started.microphone_sample_format.clone());
-        session
-            .fields
-            .insert("recording_sample_rate_hz".to_owned(), started.microphone_sample_rate_hz.to_string());
-        session
-            .fields
-            .insert("recording_channel_count".to_owned(), started.microphone_channel_count.to_string());
+        session.fields.insert(
+            "recording_source_backend".to_owned(),
+            started.backend.clone(),
+        );
+        session.fields.insert(
+            "recording_sample_format".to_owned(),
+            started.microphone_sample_format.clone(),
+        );
+        session.fields.insert(
+            "recording_sample_rate_hz".to_owned(),
+            started.microphone_sample_rate_hz.to_string(),
+        );
+        session.fields.insert(
+            "recording_channel_count".to_owned(),
+            started.microphone_channel_count.to_string(),
+        );
         session
             .fields
             .insert("recording_started_at_us".to_owned(), timestamp.clone());
-        session
-            .fields
-            .insert("recording_consent_at_us".to_owned(), config.consent_at_us.to_string());
+        session.fields.insert(
+            "recording_consent_at_us".to_owned(),
+            config.consent_at_us.to_string(),
+        );
         session
             .fields
             .insert("recording_consent_policy".to_owned(), "1".to_owned());
-        session
-            .fields
-            .insert("recording_consent_confirmed_by".to_owned(), config.confirmed_by.clone());
+        session.fields.insert(
+            "recording_consent_confirmed_by".to_owned(),
+            config.confirmed_by.clone(),
+        );
         session
             .fields
             .insert("recording_durability".to_owned(), config.durability.clone());
+        session.fields.insert(
+            "recording_track_mode".to_owned(),
+            if track_ids.len() == 2 {
+                "synchronized-separate"
+            } else {
+                "single-source"
+            }
+            .to_owned(),
+        );
         session
             .fields
-            .insert("recording_track_mode".to_owned(), if track_ids.len() == 2 { "synchronized-separate" } else { "single-source" }.to_owned());
-        session.fields.insert("recording_state".to_owned(), "recording".to_owned());
-        session.fields.insert("recording_error".to_owned(), String::new());
+            .insert("recording_state".to_owned(), "recording".to_owned());
+        session
+            .fields
+            .insert("recording_error".to_owned(), String::new());
         session.fields.insert("updated_at_us".to_owned(), timestamp);
 
         let mut records: Vec<ArchiveRecord> = tracks.iter().flatten().cloned().collect();
@@ -249,22 +283,43 @@ impl CaptureWriter {
                     ("first_sample_index", chunk.first_sample_index.to_string()),
                     ("sample_count", frames.to_string()),
                     ("gap_before_samples", chunk.gap_before_samples.to_string()),
-                    ("timeline_start_us", samples_to_microseconds(chunk.first_sample_index, rate).to_string()),
-                    ("timeline_end_us", samples_to_microseconds(chunk.first_sample_index.saturating_add(frames), rate).to_string()),
+                    (
+                        "timeline_start_us",
+                        samples_to_microseconds(chunk.first_sample_index, rate).to_string(),
+                    ),
+                    (
+                        "timeline_end_us",
+                        samples_to_microseconds(
+                            chunk.first_sample_index.saturating_add(frames),
+                            rate,
+                        )
+                        .to_string(),
+                    ),
                     ("sample_format", chunk.sample_format.to_owned()),
                     ("sample_rate_hz", rate.to_string()),
                     ("channel_count", chunk.channel_count.to_string()),
                     ("channel_mask", "0".to_owned()),
                     ("codec", "none".to_owned()),
                     ("source", chunk.track.to_owned()),
-                    ("contains_device_discontinuity", chunk.contains_device_discontinuity.to_string()),
-                    ("payload_checksum", crate::core::format::crc32(&chunk.pcm).to_string()),
+                    (
+                        "contains_device_discontinuity",
+                        chunk.contains_device_discontinuity.to_string(),
+                    ),
+                    (
+                        "payload_checksum",
+                        crate::core::format::crc32(&chunk.pcm).to_string(),
+                    ),
                     ("created_at_us", now_us().to_string()),
                 ],
             );
             chunk_record.blob = chunk.pcm;
-            track.fields.insert("sample_count".to_owned(), self.samples[index].to_string());
-            track.fields.insert("timeline_sample_count".to_owned(), self.timeline[index].to_string());
+            track
+                .fields
+                .insert("sample_count".to_owned(), self.samples[index].to_string());
+            track.fields.insert(
+                "timeline_sample_count".to_owned(),
+                self.timeline[index].to_string(),
+            );
             track.fields.insert(
                 "duration_us".to_owned(),
                 samples_to_microseconds(self.timeline[index], rate).to_string(),
@@ -274,9 +329,17 @@ impl CaptureWriter {
                 .insert("chunk_count".to_owned(), (chunk.sequence + 1).to_string());
             track.fields.insert(
                 "byte_count".to_owned(),
-                (chunk_record.blob.len() as u64 + track.field("byte_count").unwrap_or("0").parse::<u64>().unwrap_or(0)).to_string(),
+                (chunk_record.blob.len() as u64
+                    + track
+                        .field("byte_count")
+                        .unwrap_or("0")
+                        .parse::<u64>()
+                        .unwrap_or(0))
+                .to_string(),
             );
-            track.fields.insert("updated_at_us".to_owned(), now_us().to_string());
+            track
+                .fields
+                .insert("updated_at_us".to_owned(), now_us().to_string());
             records.push(chunk_record);
         }
         if records.is_empty() {
@@ -286,22 +349,39 @@ impl CaptureWriter {
         counters.fields.insert(
             "recording_audio_chunks".to_owned(),
             (records.len() as u64
-                + counters.field("recording_audio_chunks").unwrap_or("0").parse::<u64>().unwrap_or(0))
+                + counters
+                    .field("recording_audio_chunks")
+                    .unwrap_or("0")
+                    .parse::<u64>()
+                    .unwrap_or(0))
             .to_string(),
         );
         counters.fields.insert(
             "recording_bytes".to_owned(),
-            (records.iter().map(|record| record.blob.len() as u64).sum::<u64>()
-                + counters.field("recording_bytes").unwrap_or("0").parse::<u64>().unwrap_or(0))
+            (records
+                .iter()
+                .map(|record| record.blob.len() as u64)
+                .sum::<u64>()
+                + counters
+                    .field("recording_bytes")
+                    .unwrap_or("0")
+                    .parse::<u64>()
+                    .unwrap_or(0))
             .to_string(),
         );
-        counters.fields.insert("recording_state".to_owned(), "recording".to_owned());
-        counters.fields.insert("updated_at_us".to_owned(), now_us().to_string());
+        counters
+            .fields
+            .insert("recording_state".to_owned(), "recording".to_owned());
+        counters
+            .fields
+            .insert("updated_at_us".to_owned(), now_us().to_string());
         for track in self.tracks.iter().flatten() {
             records.push(track.clone());
         }
         records.push(counters.clone());
-        let next = snapshot.append_records(&records).map_err(|error| error.message)?;
+        let next = snapshot
+            .append_records(&records)
+            .map_err(|error| error.message)?;
         self.session = counters;
         Ok(next)
     }
@@ -313,7 +393,9 @@ impl CaptureWriter {
             "processing_updated_at_us",
         ] {
             if let Some(value) = session.field(field) {
-                self.session.fields.insert(field.to_owned(), value.to_owned());
+                self.session
+                    .fields
+                    .insert(field.to_owned(), value.to_owned());
             }
         }
     }
@@ -326,7 +408,11 @@ impl CaptureWriter {
         paused: Duration,
     ) -> Result<ArchiveSnapshot, String> {
         let timestamp = now_us().to_string();
-        let summaries = [&finished.microphone, &finished.system_audio, &finished.application_audio];
+        let summaries = [
+            &finished.microphone,
+            &finished.system_audio,
+            &finished.application_audio,
+        ];
         let mut failures = Vec::new();
         let mut records = Vec::new();
         for (index, track) in self.tracks.iter_mut().enumerate() {
@@ -334,41 +420,100 @@ impl CaptureWriter {
             let summary = summaries[index];
             let failure = summary.failure.clone().unwrap_or_default();
             if !failure.is_empty() {
-                failures.push(format!("{}: {failure}", track.field("source").unwrap_or("audio")));
+                failures.push(format!(
+                    "{}: {failure}",
+                    track.field("source").unwrap_or("audio")
+                ));
             }
-            track.fields.insert("state".to_owned(), if failure.is_empty() { "completed" } else { "interrupted" }.to_owned());
-            track.fields.insert("capture_pause_count".to_owned(), pause_count.to_string());
-            track.fields.insert("capture_paused_duration_us".to_owned(), paused.as_micros().to_string());
-            track.fields.insert("ended_at_us".to_owned(), timestamp.clone());
+            track.fields.insert(
+                "state".to_owned(),
+                if failure.is_empty() {
+                    "completed"
+                } else {
+                    "interrupted"
+                }
+                .to_owned(),
+            );
+            track
+                .fields
+                .insert("capture_pause_count".to_owned(), pause_count.to_string());
+            track.fields.insert(
+                "capture_paused_duration_us".to_owned(),
+                paused.as_micros().to_string(),
+            );
+            track
+                .fields
+                .insert("ended_at_us".to_owned(), timestamp.clone());
             track.fields.insert("recovery_error".to_owned(), failure);
-            track.fields.insert("updated_at_us".to_owned(), timestamp.clone());
+            track
+                .fields
+                .insert("updated_at_us".to_owned(), timestamp.clone());
             records.push(track.clone());
         }
         let duration = self
             .tracks
             .iter()
             .flatten()
-            .filter_map(|track| track.field("duration_us").and_then(|value| value.parse::<u64>().ok()))
+            .filter_map(|track| {
+                track
+                    .field("duration_us")
+                    .and_then(|value| value.parse::<u64>().ok())
+            })
             .max()
             .unwrap_or(0);
         let partial = !failures.is_empty();
-        self.take.fields.insert("state".to_owned(), if partial { "partial" } else { "completed" }.to_owned());
-        self.take.fields.insert("capture_pause_count".to_owned(), pause_count.to_string());
-        self.take.fields.insert("capture_paused_duration_us".to_owned(), paused.as_micros().to_string());
-        self.take.fields.insert("ended_at_us".to_owned(), timestamp.clone());
-        self.take.fields.insert("duration_us".to_owned(), duration.to_string());
-        self.take.fields.insert("recovery_error".to_owned(), failures.join("\n"));
-        self.take.fields.insert("updated_at_us".to_owned(), timestamp.clone());
-        self.session.fields.insert("recording_state".to_owned(), if partial { "partial" } else { "completed" }.to_owned());
-        self.session.fields.insert("recording_ended_at_us".to_owned(), timestamp.clone());
-        self.session.fields.insert("recording_error".to_owned(), failures.join("\n"));
-        self.session.fields.insert("recording_capture_pause_count".to_owned(), pause_count.to_string());
-        self.session.fields.insert("recording_capture_paused_duration_us".to_owned(), paused.as_micros().to_string());
-        self.session.fields.insert("recording_duration_us".to_owned(), duration.to_string());
-        self.session.fields.insert("updated_at_us".to_owned(), timestamp);
+        self.take.fields.insert(
+            "state".to_owned(),
+            if partial { "partial" } else { "completed" }.to_owned(),
+        );
+        self.take
+            .fields
+            .insert("capture_pause_count".to_owned(), pause_count.to_string());
+        self.take.fields.insert(
+            "capture_paused_duration_us".to_owned(),
+            paused.as_micros().to_string(),
+        );
+        self.take
+            .fields
+            .insert("ended_at_us".to_owned(), timestamp.clone());
+        self.take
+            .fields
+            .insert("duration_us".to_owned(), duration.to_string());
+        self.take
+            .fields
+            .insert("recovery_error".to_owned(), failures.join("\n"));
+        self.take
+            .fields
+            .insert("updated_at_us".to_owned(), timestamp.clone());
+        self.session.fields.insert(
+            "recording_state".to_owned(),
+            if partial { "partial" } else { "completed" }.to_owned(),
+        );
+        self.session
+            .fields
+            .insert("recording_ended_at_us".to_owned(), timestamp.clone());
+        self.session
+            .fields
+            .insert("recording_error".to_owned(), failures.join("\n"));
+        self.session.fields.insert(
+            "recording_capture_pause_count".to_owned(),
+            pause_count.to_string(),
+        );
+        self.session.fields.insert(
+            "recording_capture_paused_duration_us".to_owned(),
+            paused.as_micros().to_string(),
+        );
+        self.session
+            .fields
+            .insert("recording_duration_us".to_owned(), duration.to_string());
+        self.session
+            .fields
+            .insert("updated_at_us".to_owned(), timestamp);
         records.push(self.take.clone());
         records.push(self.session.clone());
-        snapshot.append_records(&records).map_err(|error| error.message)
+        snapshot
+            .append_records(&records)
+            .map_err(|error| error.message)
     }
 
     pub(super) fn report(
@@ -376,7 +521,11 @@ impl CaptureWriter {
         config: &CaptureConfig,
         finished: &crate::platform::synchronized_audio::headless::HeadlessFinished,
     ) -> Value {
-        let summaries = [&finished.microphone, &finished.system_audio, &finished.application_audio];
+        let summaries = [
+            &finished.microphone,
+            &finished.system_audio,
+            &finished.application_audio,
+        ];
         let tracks: Vec<Value> = self
             .tracks
             .iter()
@@ -401,9 +550,16 @@ impl CaptureWriter {
                 }))
             })
             .collect();
-        let state = if tracks.iter().any(|track| track["error"].as_str().is_some_and(|value| !value.is_empty())) {
+        let state = if tracks.iter().any(|track| {
+            track["error"]
+                .as_str()
+                .is_some_and(|value| !value.is_empty())
+        }) {
             "interrupted"
-        } else if tracks.iter().any(|track| track["sampleCount"].as_str() != Some("0")) {
+        } else if tracks
+            .iter()
+            .any(|track| track["sampleCount"].as_str() != Some("0"))
+        {
             "completed"
         } else {
             "failed"
@@ -462,8 +618,6 @@ impl CaptureWriter {
     }
 }
 
-
-
 fn empty_asset_blob(id: &str, content_hash: &str, timestamp: &str) -> ArchiveRecord {
     ArchiveRecord::new(
         RecordType::ASSET_BLOB,
@@ -479,4 +633,3 @@ fn empty_asset_blob(id: &str, content_hash: &str, timestamp: &str) -> ArchiveRec
         ],
     )
 }
-
