@@ -58,8 +58,10 @@ fn windows_process_snapshot() -> Result<WindowsProcessSnapshot, String> {
     let now_ticks = unix_filetime_ticks()?;
     let uptime_ticks = now_ticks.saturating_sub(creation_ticks);
 
-    let mut counters = PROCESS_MEMORY_COUNTERS::default();
-    counters.cb = std::mem::size_of::<PROCESS_MEMORY_COUNTERS>() as u32;
+    let mut counters = PROCESS_MEMORY_COUNTERS {
+        cb: std::mem::size_of::<PROCESS_MEMORY_COUNTERS>() as u32,
+        ..Default::default()
+    };
     // SAFETY: counters is a live, uniquely borrowed PROCESS_MEMORY_COUNTERS whose cb field
     // states its own size, as GetProcessMemoryInfo requires.
     if unsafe { GetProcessMemoryInfo(process, &mut counters, counters.cb) } == 0 {
@@ -68,8 +70,10 @@ fn windows_process_snapshot() -> Result<WindowsProcessSnapshot, String> {
         );
     }
 
-    let mut memory = MEMORYSTATUSEX::default();
-    memory.dwLength = std::mem::size_of::<MEMORYSTATUSEX>() as u32;
+    let mut memory = MEMORYSTATUSEX {
+        dwLength: std::mem::size_of::<MEMORYSTATUSEX>() as u32,
+        ..Default::default()
+    };
     // SAFETY: memory is a live, uniquely borrowed MEMORYSTATUSEX whose dwLength field states
     // its own size, as GlobalMemoryStatusEx requires.
     if unsafe { GlobalMemoryStatusEx(&mut memory) } == 0 {
