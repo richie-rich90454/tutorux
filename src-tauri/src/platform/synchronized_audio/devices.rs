@@ -129,7 +129,8 @@ pub(super) fn enumerate_devices() -> Result<SynchronizedAudioDevices, String> {
     })
 }
 
-pub(super) fn enumerate_application_audio_devices() -> (Vec<SynchronizedAudioDevice>, Option<String>) {
+pub(super) fn enumerate_application_audio_devices() -> (Vec<SynchronizedAudioDevice>, Option<String>)
+{
     if APPLICATION_AUDIO_DISCOVERY_RUNNING
         .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
         .is_err()
