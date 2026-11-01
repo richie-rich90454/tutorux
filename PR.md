@@ -36,6 +36,7 @@ This branch fixes the Windows desktop Save path and makes staged archive/export 
 
 - Restrict `run_command_console` to crate visibility so its private desktop state type is not exposed through a public function.
 - Clean up Clippy findings across the Rust targets, including a dead loop, redundant branches, checked division, duplicate map lookups, and overly complex return signatures. Keep intentional command/worker argument boundaries explicit with narrow, reasoned lint expectations.
+- Scope the Windows linker-status lint allowance to the unit-test crate so it does not create an unused-attribute warning in regular library builds.
 - Collect Windows MSI, NSIS, and portable outputs together. The portable EXE embeds the frontend, native host, and Whisper model; it does not need companion application files or extract a runtime/model directory. Windows still needs the system WebView2 runtime, and the app may create per-user application state.
 - Update architecture, TypeScript development, privacy, release, and `PR.md` documentation to describe the actual TSX Tailwind structure, save behavior, WebView2 autofill setting, bundled model, runtime requirements, and release artifacts.
 
@@ -45,18 +46,18 @@ This branch fixes the Windows desktop Save path and makes staged archive/export 
 - `pnpm typecheck` — passed.
 - `pnpm format:check` — passed.
 - `pnpm test` — passed: 40 files and 246 tests.
-- `pnpm exec playwright test --workers=1 --reporter=list` — passed: all 15 browser end-to-end tests, including the compact journal empty state, responsive workspace navigation, save/reopen, recording playback and take management, encrypted archives, workspace flows, and guide print preview.
+- `pnpm test:e2e` — passed: all 15 browser end-to-end tests, including the compact journal empty state, responsive workspace navigation, save/reopen, recording playback and take management, encrypted archives, workspace flows, and guide print preview.
 - `cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets --all-features --locked -- -D warnings` — passed with warnings denied.
-- `cargo test --manifest-path src-tauri/Cargo.toml --lib -- --test-threads=1` — passed: 187 tests, including archive save publication and embedded Whisper model initialization/transcription. On Windows, run with permission to create/move temporary files and bind loopback test servers.
+- `cargo test --locked --lib -- --test-threads=1` — passed: 187 tests, including archive save publication and embedded Whisper model initialization/transcription. On Windows, run with permission to create/move temporary files and bind loopback test servers.
 - `pnpm build` — passed with no Babel deoptimization or JavaScript chunk-size warning. The largest JavaScript chunk was the 431.01 kB PDF vendor chunk (129.98 kB gzip).
-- `pnpm desktop:build` — passed on Windows and collected both installers and the portable EXE. The Rust release build emitted no source warnings.
+- `pnpm desktop:build` — passed on Windows for this tree and collected both installers and the portable EXE. The Rust release build emitted no source warnings.
 
 ## Windows release artifacts
 
 `release/` contains:
 
 - `Tutorux_1.0.0_x64_en-US.msi` — Windows Installer package (70,483,968 bytes).
-- `Tutorux_1.0.0_x64-setup.exe` — NSIS installer (65,085,546 bytes).
+- `Tutorux_1.0.0_x64-setup.exe` — NSIS installer (65,110,709 bytes).
 - `Tutorux_1.0.0_x64_portable.exe` — one-file portable desktop executable (95,210,496 bytes), copied from the release application binary.
 
-The portable EXE and `src-tauri/target/release/tutorux-desktop.exe` have the same SHA-256 (`2A3EED943561D07A585B10C7ECBBAC7A118E0EB4826183D8AA39EA3E016CDCBB`), confirming that the portable artifact is the application binary itself. The embedded Whisper model is 59,707,625 bytes with SHA-256 `422F1AE452ADE6F30A004D7E5C6A43195E4433BC370BF23FAC9CC591F01A8898`; its source and license attribution are recorded in `resources/whisper/README.md`. GGUF models and FFmpeg remain optional user-provided resources and are not required for desktop Whisper transcription.
+The portable EXE and `src-tauri/target/release/tutorux-desktop.exe` have the same SHA-256 (`F8E68FC12908B294E57F599E3ECCCB5E340F0163A6620C450987C120EBE8568C`), confirming that the portable artifact is the application binary itself. The embedded Whisper model is 59,707,625 bytes with SHA-256 `422F1AE452ADE6F30A004D7E5C6A43195E4433BC370BF23FAC9CC591F01A8898`; its source and license attribution are recorded in `resources/whisper/README.md`. GGUF models and FFmpeg remain optional user-provided resources and are not required for desktop Whisper transcription.
