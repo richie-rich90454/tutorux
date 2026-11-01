@@ -246,7 +246,7 @@ fn state_directory() -> Result<PathBuf, String> {
             .ok_or_else(|| {
                 "Could not locate the current user's local state directory.".to_owned()
             })?;
-        return Ok(root.join("tutorux").join("recordings"));
+        Ok(root.join("tutorux").join("recordings"))
     }
     #[cfg(unix)]
     {
