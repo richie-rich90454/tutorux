@@ -13,7 +13,7 @@ import { crc32, newUuid, RecordType, type ArchiveRecord } from "../../frontend/a
 
 describe("CLI recording take management", () => {
     it("lists, renames, trashes, and restores takes with their audio intact", async () => {
-        const directory = await mkdtemp(join(process.cwd(), "tmp", "tutorux-cli-recording-take-"));
+        const directory = await mkdtemp(join(process.cwd(), "tutorux-cli-recording-take-"));
         const archivePath = join(directory, "recording.tux");
         const sessionId = newUuid();
         const takeId = newUuid();
@@ -145,7 +145,7 @@ describe("CLI recording take management", () => {
 
 describe("CLI session package transfer", () => {
     it("exports a private package, preserves no-overwrite behavior, and imports to a fresh session", async () => {
-        const directory = await mkdtemp(join(process.cwd(), "tmp", "tutorux-cli-session-package-"));
+        const directory = await mkdtemp(join(process.cwd(), "tutorux-cli-session-package-"));
         const sourcePath = join(directory, "source.tux");
         const packagePath = join(directory, "reading-session.tux");
         const destinationPath = join(directory, "destination.tux");
@@ -289,7 +289,7 @@ function cliRecordingRecord(
 }
 describe("CLI sanitized archive copies", () => {
     it("requires a reviewed sanitized-copy preview and publishes a private-data-filtered archive", async () => {
-        const directory = await mkdtemp(join(process.cwd(), "tmp", "tutorux-cli-sanitize-"));
+        const directory = await mkdtemp(join(process.cwd(), "tutorux-cli-sanitize-"));
         const archivePath = join(directory, "lesson.tux");
         const outputPath = join(directory, "sanitized.tux");
         const stdout: string[] = [];
@@ -464,7 +464,7 @@ describe("CLI sanitized archive copies", () => {
     });
 
     it("rejects a confirmation that removes encryption promised by the preview", async () => {
-        const directory = await mkdtemp(join(process.cwd(), "tmp", "tutorux-cli-sanitize-choice-"));
+        const directory = await mkdtemp(join(process.cwd(), "tutorux-cli-sanitize-choice-"));
         const archivePath = join(directory, "lesson.tux");
         const outputPath = join(directory, "encrypted-copy.tux");
         const environmentName = "TUTORUX_CLI_TEST_SANITIZE_OPTIONAL_PASSPHRASE";
@@ -577,9 +577,7 @@ describe("CLI sanitized archive copies", () => {
 
 describe("CLI encrypted sanitized archive copies", () => {
     it("previews, confirms, encrypts, and verifies a credential-inclusive copy", async () => {
-        const directory = await mkdtemp(
-            join(process.cwd(), "tmp", "tutorux-cli-sanitize-encrypted-"),
-        );
+        const directory = await mkdtemp(join(process.cwd(), "tutorux-cli-sanitize-encrypted-"));
         const archivePath = join(directory, "protected.tux");
         const outputPath = join(directory, "sanitized.tux");
         const sourceEnvironmentName = "TUTORUX_CLI_TEST_SANITIZE_SOURCE_PASSPHRASE";
@@ -722,9 +720,7 @@ describe("CLI encrypted sanitized archive copies", () => {
 
 describe("CLI encrypted archive access", () => {
     it("creates encrypted archives from a passphrase environment variable", async () => {
-        const directory = await mkdtemp(
-            join(process.cwd(), "tmp", "tutorux-cli-create-encrypted-"),
-        );
+        const directory = await mkdtemp(join(process.cwd(), "tutorux-cli-create-encrypted-"));
         const archivePath = join(directory, "protected.tux");
         const environmentName = "TUTORUX_CLI_TEST_NEW_ARCHIVE_PASSPHRASE";
         const previousPassphrase = process.env[environmentName];
@@ -821,7 +817,7 @@ describe("CLI encrypted archive access", () => {
     });
 
     it("unlocks, verifies, reads, and appends an encrypted archive generation", async () => {
-        const directory = await mkdtemp(join(process.cwd(), "tmp", "tutorux-cli-encrypted-"));
+        const directory = await mkdtemp(join(process.cwd(), "tutorux-cli-encrypted-"));
         const archivePath = join(directory, "encrypted.tux");
         const fixture = new URL("../fixtures/encrypted-v1.tux", import.meta.url);
         const fixtureBytes = await readFile(fixture);
