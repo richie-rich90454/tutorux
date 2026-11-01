@@ -1,3 +1,5 @@
+import { twClasses } from "./tailwind";
+import { jsxTailwindStyles } from "./DatePicker.tailwind";
 import {
     createEffect,
     createMemo,
@@ -9,7 +11,6 @@ import {
     untrack,
 } from "solid-js";
 import { Icon } from "./shared-ui";
-import "./date-picker.css";
 
 interface DatePickerProps {
     id: string;
@@ -203,8 +204,18 @@ export function DatePicker(props: DatePickerProps) {
     }
 
     return (
-        <div class="date-picker" ref={(element) => (root = element)} onKeyDown={handleKeys}>
-            <div class={`date-picker-control ${invalid() ? "is-invalid" : ""}`}>
+        <div
+            class={twClasses("date-picker", jsxTailwindStyles, "div")}
+            ref={(element) => (root = element)}
+            onKeyDown={handleKeys}
+        >
+            <div
+                class={twClasses(
+                    `date-picker-control ${invalid() ? "is-invalid" : ""}`,
+                    jsxTailwindStyles,
+                    "div",
+                )}
+            >
                 <input
                     ref={(element) => (input = element)}
                     id={props.id}
@@ -229,9 +240,10 @@ export function DatePicker(props: DatePickerProps) {
                         }
                     }}
                     onBlur={() => setInvalid(Boolean(draft() && !parseDate(draft())))}
+                    class={twClasses("", jsxTailwindStyles, "input")}
                 />
                 <button
-                    class="date-picker-trigger"
+                    class={twClasses("date-picker-trigger", jsxTailwindStyles, "button")}
                     type="button"
                     disabled={props.disabled}
                     aria-label={open() ? "Close calendar" : "Choose date"}
@@ -251,42 +263,71 @@ export function DatePicker(props: DatePickerProps) {
                 </button>
             </div>
             <Show when={invalid()}>
-                <span class="date-picker-error" id={`${props.id}-error`} role="alert">
+                <span
+                    class={twClasses("date-picker-error", jsxTailwindStyles, "span")}
+                    id={`${props.id}-error`}
+                    role="alert"
+                >
                     Enter a real date as YYYY-MM-DD.
                 </span>
             </Show>
             <Show when={open()}>
                 <section
-                    class="date-picker-popover"
+                    class={twClasses("date-picker-popover", jsxTailwindStyles, "section")}
                     id={`${props.id}-calendar`}
                     role="dialog"
                     aria-label="Choose date"
                 >
-                    <header class="date-picker-calendar-heading">
+                    <header
+                        class={twClasses(
+                            "date-picker-calendar-heading",
+                            jsxTailwindStyles,
+                            "header",
+                        )}
+                    >
                         <button
                             type="button"
-                            class="date-picker-month-button"
+                            class={twClasses(
+                                "date-picker-month-button",
+                                jsxTailwindStyles,
+                                "button",
+                            )}
                             aria-label="Previous month"
                             onClick={() => moveMonth(-1)}
                         >
                             <Icon name="chevron" />
                         </button>
-                        <strong>{monthLabel(month())}</strong>
+                        <strong class={twClasses("", jsxTailwindStyles, "strong")}>
+                            {monthLabel(month())}
+                        </strong>
                         <button
                             type="button"
-                            class="date-picker-month-button is-next"
+                            class={twClasses(
+                                "date-picker-month-button is-next",
+                                jsxTailwindStyles,
+                                "button",
+                            )}
                             aria-label="Next month"
                             onClick={() => moveMonth(1)}
                         >
                             <Icon name="chevron" />
                         </button>
                     </header>
-                    <div class="date-picker-weekdays" aria-hidden="true">
+                    <div
+                        class={twClasses("date-picker-weekdays", jsxTailwindStyles, "div")}
+                        aria-hidden="true"
+                    >
                         <For each={["M", "T", "W", "T", "F", "S", "S"]}>
-                            {(day) => <span>{day}</span>}
+                            {(day) => (
+                                <span class={twClasses("", jsxTailwindStyles, "span")}>{day}</span>
+                            )}
                         </For>
                     </div>
-                    <div class="date-picker-days" role="grid" aria-label={monthLabel(month())}>
+                    <div
+                        class={twClasses("date-picker-days", jsxTailwindStyles, "div")}
+                        role="grid"
+                        aria-label={monthLabel(month())}
+                    >
                         <For each={days()}>
                             {(day) => {
                                 const isSelected = () =>
@@ -301,6 +342,11 @@ export function DatePicker(props: DatePickerProps) {
                                         type="button"
                                         role="gridcell"
                                         tabIndex={focusedDate() === dateValue ? 0 : -1}
+                                        class={twClasses("", jsxTailwindStyles, "button", [
+                                            "is-outside",
+                                            "is-selected",
+                                            "is-today",
+                                        ])}
                                         classList={{
                                             "is-outside": !day.inMonth,
                                             "is-selected": isSelected(),
@@ -318,8 +364,18 @@ export function DatePicker(props: DatePickerProps) {
                             }}
                         </For>
                     </div>
-                    <footer class="date-picker-calendar-footer">
-                        <button type="button" onClick={() => chooseDate(todayDate())}>
+                    <footer
+                        class={twClasses(
+                            "date-picker-calendar-footer",
+                            jsxTailwindStyles,
+                            "footer",
+                        )}
+                    >
+                        <button
+                            type="button"
+                            onClick={() => chooseDate(todayDate())}
+                            class={twClasses("", jsxTailwindStyles, "button")}
+                        >
                             Today
                         </button>
                         <button
@@ -331,6 +387,7 @@ export function DatePicker(props: DatePickerProps) {
                                 setOpen(false);
                                 input?.focus();
                             }}
+                            class={twClasses("", jsxTailwindStyles, "button")}
                         >
                             Clear
                         </button>
