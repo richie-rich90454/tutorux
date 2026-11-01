@@ -94,7 +94,7 @@ fn node_os_release() -> String {
                 return parts[..3].join(".");
             }
         }
-        return String::new();
+        String::new()
     }
     #[cfg(target_os = "linux")]
     {
@@ -223,7 +223,11 @@ fn measure_audio(report: &mut Map<String, Value>) {
     let count = super::diagnostics::audio_rows().len();
     report.insert(
         "audio_devices".to_owned(),
-        if count == 0 { json!("unavailable") } else { json!(count) },
+        if count == 0 {
+            json!("unavailable")
+        } else {
+            json!(count)
+        },
     );
     report.insert(
         "audio_enumeration_elapsed_us".to_owned(),
@@ -247,12 +251,23 @@ mod tests {
     #[test]
     fn benchmark_report_keeps_legacy_numeric_and_string_scalars() {
         let report = base_report("startup");
-        assert_eq!(report.get("benchmark").and_then(|value| value.as_str()), Some("startup"));
-        assert!(report.get("total_memory_bytes").is_some_and(|value| value.is_number()));
-        assert!(report.get("process_uptime_us").is_some_and(|value| value.is_string()));
-        assert!(report.get("platform").is_some_and(|value| value.is_string()));
         assert_eq!(
-            report.get("measurement_scope").and_then(|value| value.as_str()),
+            report.get("benchmark").and_then(|value| value.as_str()),
+            Some("startup")
+        );
+        assert!(report
+            .get("total_memory_bytes")
+            .is_some_and(|value| value.is_number()));
+        assert!(report
+            .get("process_uptime_us")
+            .is_some_and(|value| value.is_string()));
+        assert!(report
+            .get("platform")
+            .is_some_and(|value| value.is_string()));
+        assert_eq!(
+            report
+                .get("measurement_scope")
+                .and_then(|value| value.as_str()),
             Some("process-uptime-and-current-command")
         );
     }
