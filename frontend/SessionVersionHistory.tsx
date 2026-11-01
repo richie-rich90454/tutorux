@@ -1,7 +1,8 @@
+import { twClasses } from "./tailwind";
+import { jsxTailwindStyles } from "./SessionVersionHistory.tailwind";
 import { For, Show, createSignal, type JSX } from "solid-js";
 import type { ArchiveSnapshot } from "./archive/archive";
 import { RecordType, type ArchiveRecord } from "./archive/format";
-import "./session-version-history.css";
 
 interface SessionVersionHistoryProps {
     session: ArchiveRecord;
@@ -125,7 +126,7 @@ export function SessionVersionHistory(props: SessionVersionHistoryProps): JSX.El
 
     return (
         <details
-            class="session-version-history"
+            class={twClasses("session-version-history", jsxTailwindStyles, "details")}
             onToggle={(event) => {
                 if (event.currentTarget.open && !history()) void load();
                 if (!event.currentTarget.open) {
@@ -134,18 +135,21 @@ export function SessionVersionHistory(props: SessionVersionHistoryProps): JSX.El
                 }
             }}
         >
-            <summary>Session versions</summary>
-            <div class="session-version-content">
-                <p>
+            <summary class={twClasses("", jsxTailwindStyles, "summary")}>Session versions</summary>
+            <div class={twClasses("session-version-content", jsxTailwindStyles, "div")}>
+                <p class={twClasses("", jsxTailwindStyles, "p")}>
                     Restore the title, subject and learning objectives from an earlier version.
                     Notes, recordings, links and session status stay current.
                 </p>
                 <Show when={error()}>
-                    <p class="session-version-error" role="alert">
+                    <p
+                        class={twClasses("session-version-error", jsxTailwindStyles, "p")}
+                        role="alert"
+                    >
                         {error()}
                     </p>
                     <button
-                        class="button button-outline"
+                        class={twClasses("button button-outline", jsxTailwindStyles, "button")}
                         type="button"
                         disabled={loading()}
                         onClick={() => void load()}
@@ -154,15 +158,27 @@ export function SessionVersionHistory(props: SessionVersionHistoryProps): JSX.El
                     </button>
                 </Show>
                 <Show when={loading()}>
-                    <p role="status">Loading session versions…</p>
+                    <p role="status" class={twClasses("", jsxTailwindStyles, "p")}>
+                        Loading session versions…
+                    </p>
                 </Show>
                 <Show when={!loading() && history()}>
                     {(revisions) => (
                         <Show
                             when={revisions().length > 1}
-                            fallback={<p>No earlier versions yet.</p>}
+                            fallback={
+                                <p class={twClasses("", jsxTailwindStyles, "p")}>
+                                    No earlier versions yet.
+                                </p>
+                            }
                         >
-                            <label class="session-version-selector">
+                            <label
+                                class={twClasses(
+                                    "session-version-selector",
+                                    jsxTailwindStyles,
+                                    "label",
+                                )}
+                            >
                                 Earlier version
                                 <select
                                     value={selected()}
@@ -170,6 +186,7 @@ export function SessionVersionHistory(props: SessionVersionHistoryProps): JSX.El
                                         setSelected(Number(event.currentTarget.value));
                                         setConfirming(false);
                                     }}
+                                    class={twClasses("", jsxTailwindStyles, "select")}
                                 >
                                     <For each={revisions().slice(1)}>
                                         {(record, index) => (
@@ -182,23 +199,63 @@ export function SessionVersionHistory(props: SessionVersionHistoryProps): JSX.El
                                 </select>
                             </label>
                             <div
-                                class="session-version-table"
+                                class={twClasses("session-version-table", jsxTailwindStyles, "div")}
                                 role="table"
                                 aria-label="Session details comparison"
                             >
-                                <div class="session-version-row session-version-header" role="row">
-                                    <span role="columnheader">Detail</span>
-                                    <span role="columnheader">Earlier</span>
-                                    <span role="columnheader">Current</span>
+                                <div
+                                    class={twClasses(
+                                        "session-version-row session-version-header",
+                                        jsxTailwindStyles,
+                                        "div",
+                                    )}
+                                    role="row"
+                                >
+                                    <span
+                                        role="columnheader"
+                                        class={twClasses("", jsxTailwindStyles, "span")}
+                                    >
+                                        Detail
+                                    </span>
+                                    <span
+                                        role="columnheader"
+                                        class={twClasses("", jsxTailwindStyles, "span")}
+                                    >
+                                        Earlier
+                                    </span>
+                                    <span
+                                        role="columnheader"
+                                        class={twClasses("", jsxTailwindStyles, "span")}
+                                    >
+                                        Current
+                                    </span>
                                 </div>
                                 <For each={details}>
                                     {([key, label]) => (
-                                        <div class="session-version-row" role="row">
-                                            <strong role="rowheader">{label}</strong>
-                                            <span role="cell">
+                                        <div
+                                            class={twClasses(
+                                                "session-version-row",
+                                                jsxTailwindStyles,
+                                                "div",
+                                            )}
+                                            role="row"
+                                        >
+                                            <strong
+                                                role="rowheader"
+                                                class={twClasses("", jsxTailwindStyles, "strong")}
+                                            >
+                                                {label}
+                                            </strong>
+                                            <span
+                                                role="cell"
+                                                class={twClasses("", jsxTailwindStyles, "span")}
+                                            >
                                                 {revisions()[selected()]?.fields.get(key) || "—"}
                                             </span>
-                                            <span role="cell">
+                                            <span
+                                                role="cell"
+                                                class={twClasses("", jsxTailwindStyles, "span")}
+                                            >
                                                 {revisions()[0]?.fields.get(key) || "—"}
                                             </span>
                                         </div>
@@ -208,10 +265,22 @@ export function SessionVersionHistory(props: SessionVersionHistoryProps): JSX.El
                             <Show
                                 when={!confirming()}
                                 fallback={
-                                    <div class="session-version-confirm">
-                                        <span>Restore these session details?</span>
+                                    <div
+                                        class={twClasses(
+                                            "session-version-confirm",
+                                            jsxTailwindStyles,
+                                            "div",
+                                        )}
+                                    >
+                                        <span class={twClasses("", jsxTailwindStyles, "span")}>
+                                            Restore these session details?
+                                        </span>
                                         <button
-                                            class="button button-primary"
+                                            class={twClasses(
+                                                "button button-primary",
+                                                jsxTailwindStyles,
+                                                "button",
+                                            )}
                                             type="button"
                                             disabled={props.disabled || loading()}
                                             onClick={() => void restore()}
@@ -219,7 +288,11 @@ export function SessionVersionHistory(props: SessionVersionHistoryProps): JSX.El
                                             Confirm restore
                                         </button>
                                         <button
-                                            class="button button-outline"
+                                            class={twClasses(
+                                                "button button-outline",
+                                                jsxTailwindStyles,
+                                                "button",
+                                            )}
                                             type="button"
                                             onClick={() => setConfirming(false)}
                                         >
@@ -229,7 +302,11 @@ export function SessionVersionHistory(props: SessionVersionHistoryProps): JSX.El
                                 }
                             >
                                 <button
-                                    class="button button-outline"
+                                    class={twClasses(
+                                        "button button-outline",
+                                        jsxTailwindStyles,
+                                        "button",
+                                    )}
                                     type="button"
                                     disabled={props.disabled || loading()}
                                     onClick={() => setConfirming(true)}
