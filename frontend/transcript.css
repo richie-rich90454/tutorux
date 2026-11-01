@@ -49,11 +49,7 @@
     padding: 22px 24px;
     border: 1px solid color-mix(in srgb, var(--accent) 24%, var(--line));
     border-radius: 10px;
-    background: linear-gradient(
-        110deg,
-        color-mix(in srgb, var(--accent-soft) 78%, var(--surface)),
-        var(--surface) 62%
-    );
+    background: color-mix(in srgb, var(--accent-soft) 52%, var(--surface));
 }
 .record-onboarding-mark {
     width: 48px;
@@ -295,14 +291,11 @@
 }
 .transcript-audio-panel {
     display: grid;
-    grid-template-columns: minmax(180px, 0.8fr) minmax(160px, 0.7fr) minmax(280px, 1.5fr) auto;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
     align-items: center;
-    gap: 14px;
+    gap: 14px 18px;
     margin: 0 0 14px;
-    padding: 13px 16px;
-    border: 1px solid color-mix(in srgb, var(--accent) 20%, var(--line));
-    border-radius: 10px;
-    background: color-mix(in srgb, var(--accent-soft) 35%, var(--surface));
+    min-width: 0;
 }
 .transcript-whisper {
     grid-column: 1 / -1;
@@ -325,6 +318,15 @@
     color: var(--muted);
     font-size: 12px;
     line-height: 1.55;
+}
+.transcript-whisper > .transcript-whisper-model {
+    width: fit-content;
+    padding: 6px 9px;
+    border: 1px solid var(--line-soft);
+    border-radius: 6px;
+    color: var(--accent-deep);
+    background: var(--accent-soft);
+    font-size: 11px;
 }
 .transcript-whisper-actions {
     display: flex;
@@ -363,13 +365,6 @@
     background: var(--surface);
     font: inherit;
 }
-.transcript-whisper-diarization-note {
-    flex-basis: 100%;
-    margin: -1px 0 0;
-    color: var(--faint);
-    font-size: 11px;
-    line-height: 1.45;
-}
 .transcript-whisper [role="status"] {
     color: var(--success);
 }
@@ -393,8 +388,16 @@
     color: var(--muted);
     font-size: 12px;
 }
+.transcript-audio-controls {
+    grid-column: 2;
+}
+.transcript-audio-picker {
+    flex: 1 1 180px;
+    max-width: 100%;
+}
 .transcript-audio-picker select {
     width: 100%;
+    min-width: 0;
     min-height: 34px;
     padding: 0 9px;
     border: 1px solid var(--line);
@@ -418,10 +421,20 @@
     line-height: 1.5;
 }
 .transcript-audio-panel audio {
-    grid-column: 3 / 5;
+    grid-column: 1 / -1;
     width: 100%;
     min-width: 0;
     height: 38px;
+}
+.transcript-audio-panel > .full-track-waveform {
+    grid-column: 1 / -1;
+    width: 100%;
+    min-width: 0;
+}
+.transcript-audio-panel > .audio-waveform {
+    grid-column: 1 / -1;
+    width: 100%;
+    min-width: 0;
 }
 .transcript-audio-error {
     grid-column: 1 / -1;
@@ -900,6 +913,10 @@
     .transcript-audio-panel {
         grid-template-columns: minmax(0, 1fr);
         gap: 9px;
+    }
+    .transcript-audio-controls {
+        grid-column: 1;
+        justify-content: flex-start;
     }
     .transcript-audio-panel audio {
         grid-column: auto;
