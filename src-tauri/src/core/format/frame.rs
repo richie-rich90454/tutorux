@@ -26,7 +26,8 @@ pub fn encode_record_frame(
     let padding = (8 - (stored_payload.len() % 8)) % 8;
     let mut output = vec![0u8; RECORD_HEADER_SIZE + stored_payload.len() + padding];
     output[..RECORD_HEADER_SIZE].copy_from_slice(&header);
-    output[RECORD_HEADER_SIZE..RECORD_HEADER_SIZE + stored_payload.len()].copy_from_slice(stored_payload);
+    output[RECORD_HEADER_SIZE..RECORD_HEADER_SIZE + stored_payload.len()]
+        .copy_from_slice(stored_payload);
     Ok(output)
 }
 
@@ -71,7 +72,7 @@ pub fn encode_record_frame_header(
 }
 
 pub fn decode_record_frame_header(header: &[u8], absolute_offset: u64) -> Result<RecordFrame> {
-    if absolute_offset % 8 != 0 {
+    if !absolute_offset.is_multiple_of(8) {
         return err(
             "record_offset_invalid",
             "Record offset is unaligned or outside the archive.",
@@ -87,7 +88,9 @@ pub fn decode_record_frame_header(header: &[u8], absolute_offset: u64) -> Result
     let version = read_u16(header, 6)?;
     let header_length = read_u32(header, 8)?;
     let payload_length = read_u64(header, 12)?;
-    if version != 1 || header_length != RECORD_HEADER_SIZE as u32 || payload_length > MAX_RECORD_PAYLOAD
+    if version != 1
+        || header_length != RECORD_HEADER_SIZE as u32
+        || payload_length > MAX_RECORD_PAYLOAD
     {
         return err(
             "record_header_invalid",
@@ -99,11 +102,7 @@ pub fn decode_record_frame_header(header: &[u8], absolute_offset: u64) -> Result
     let reserved = read_u16(header, 54)?;
     let payload_checksum = read_u32(header, 56)?;
     let header_checksum = read_u32(header, 60)?;
-    if reserved != 0
-        || flags & !1 != 0
-        || codec > 1
-        || crc32(&header[..60]) != header_checksum
-    {
+    if reserved != 0 || flags & !1 != 0 || codec > 1 || crc32(&header[..60]) != header_checksum {
         return err(
             "record_header_checksum",
             "Record header checksum or codec is invalid.",
@@ -125,7 +124,7 @@ pub fn decode_record_frame_header(header: &[u8], absolute_offset: u64) -> Result
 
 /// Decode a frame from a buffer that begins with its 64-byte header.
 pub fn decode_record_frame(bytes: &[u8], absolute_offset: u64) -> Result<RecordFrame> {
-    if absolute_offset % 8 != 0 {
+    if !absolute_offset.is_multiple_of(8) {
         return err(
             "record_offset_invalid",
             "Record offset is unaligned or outside the archive.",
