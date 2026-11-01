@@ -148,7 +148,7 @@ pub(crate) fn make_plan(
             snapshot.list_record_metadata(record_type, true)?,
         );
     }
-    let fingerprint = selection_fingerprint(snapshot, &options);
+    let fingerprint = selection_fingerprint(snapshot, options);
     let summary = SanitizedCopySummary {
         source_generation: snapshot.commit.generation,
         selection_fingerprint: fingerprint,
@@ -244,9 +244,9 @@ pub(crate) fn make_plan(
         plan.keep_set(RecordType::SESSION).insert(id);
     }
 
-    let is_scoped = scoped(&options);
-    if recordings_requested(&options) {
-        plan_recordings(snapshot, &mut plan, &options)?;
+    let is_scoped = scoped(options);
+    if recordings_requested(options) {
+        plan_recordings(snapshot, &mut plan, options)?;
     }
     for record in records(&plan, RecordType::ANNOTATION) {
         if active(&record)
@@ -268,7 +268,7 @@ pub(crate) fn make_plan(
         }
     }
     let requested_assets = plan_notes_and_guides(&mut plan, is_scoped);
-    plan_assets(&mut plan, &options, is_scoped, &requested_assets)?;
+    plan_assets(&mut plan, options, is_scoped, &requested_assets)?;
     plan.summary.students = plan.kept(RecordType::STUDENT).len();
     plan.summary.sessions = plan.kept(RecordType::SESSION).len();
     plan.summary.annotations = plan.kept(RecordType::ANNOTATION).len();
