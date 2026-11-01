@@ -37,6 +37,10 @@ impl WindowProcessor {
         })
     }
 
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "Window consumption keeps the model, language, timeline, cancellation, and output handles explicit."
+    )]
     pub(super) fn consume(
         &mut self,
         context: &WhisperContext,
@@ -73,6 +77,10 @@ impl WindowProcessor {
         Ok(())
     }
 
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "Final window flushing needs the same explicit model and shared-output context as consume."
+    )]
     pub(super) fn finish(
         &mut self,
         context: &WhisperContext,
@@ -99,6 +107,10 @@ impl WindowProcessor {
         Ok(())
     }
 
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "A transcription window uses explicit model, cue metadata, cancellation, and shared-output state."
+    )]
     fn transcribe_window(
         &mut self,
         _context: &WhisperContext,
