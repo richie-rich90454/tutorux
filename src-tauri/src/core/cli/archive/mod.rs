@@ -9,9 +9,7 @@ mod sanitize;
 pub(crate) mod save;
 mod selection;
 
-use crate::core::cli::{
-    resolve_path, CliContext, CliError, CliOutput, CliResult, ParsedArguments,
-};
+use crate::core::cli::{resolve_path, CliContext, CliError, CliOutput, CliResult, ParsedArguments};
 
 pub fn run_archive_command(
     action: &str,
