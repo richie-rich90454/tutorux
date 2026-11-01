@@ -1,3 +1,5 @@
+import { twClasses } from "./tailwind";
+import { jsxTailwindStyles } from "./EvidencePage.tailwind";
 import { For, Show, createMemo, createSignal, type JSX } from "solid-js";
 import type { ArchiveSnapshot } from "./archive/archive";
 import type { ArchiveRecord } from "./archive/format";
@@ -12,8 +14,6 @@ import { formatTranscriptTimestampUs } from "./domain/transcript";
 import { EvidenceSources } from "./lazy-components";
 import { Icon } from "./shared-ui";
 import { field } from "./shared-utils";
-
-import "./evidence.css";
 
 function timestampForEvidence(record: ArchiveRecord): bigint {
     try {
@@ -192,18 +192,22 @@ export function EvidencePage(props: {
     }
 
     return (
-        <div class="page-body evidence-page">
-            <section class="record-heading evidence-heading">
-                <div>
-                    <span class="eyebrow">A traceable record of learning</span>
-                    <h1>Evidence</h1>
-                    <p>
+        <div class={twClasses("page-body evidence-page", jsxTailwindStyles, "div")}>
+            <section
+                class={twClasses("record-heading evidence-heading", jsxTailwindStyles, "section")}
+            >
+                <div class={twClasses("", jsxTailwindStyles, "div")}>
+                    <span class={twClasses("eyebrow", jsxTailwindStyles, "span")}>
+                        A traceable record of learning
+                    </span>
+                    <h1 class={twClasses("", jsxTailwindStyles, "h1")}>Evidence</h1>
+                    <p class={twClasses("", jsxTailwindStyles, "p")}>
                         Review what the session supports, check each source revision, then connect
                         related ideas.
                     </p>
                 </div>
                 <button
-                    class="button button-primary"
+                    class={twClasses("button button-primary", jsxTailwindStyles, "button")}
                     type="button"
                     disabled={props.disabled || !selectedSession()}
                     onClick={() => selectedSession() && props.onExtract(selectedSession()!.id)}
@@ -213,9 +217,11 @@ export function EvidencePage(props: {
                 </button>
             </section>
 
-            <section class="evidence-session-bar surface-card">
-                <label class="material-session-picker">
-                    <span>Session to review</span>
+            <section
+                class={twClasses("evidence-session-bar surface-card", jsxTailwindStyles, "section")}
+            >
+                <label class={twClasses("material-session-picker", jsxTailwindStyles, "label")}>
+                    <span class={twClasses("", jsxTailwindStyles, "span")}>Session to review</span>
                     <select
                         value={selectedSession()?.id ?? ""}
                         disabled={props.sessions.length === 0}
@@ -226,6 +232,7 @@ export function EvidencePage(props: {
                             chooseTranscriptSource("");
                         }}
                         aria-label="Evidence session"
+                        class={twClasses("", jsxTailwindStyles, "select")}
                     >
                         <Show when={props.sessions.length === 0}>
                             <option value="">No sessions yet</option>
@@ -239,9 +246,9 @@ export function EvidencePage(props: {
                         </For>
                     </select>
                 </label>
-                <div class="evidence-session-counts">
-                    <span>
-                        <strong>
+                <div class={twClasses("evidence-session-counts", jsxTailwindStyles, "div")}>
+                    <span class={twClasses("", jsxTailwindStyles, "span")}>
+                        <strong class={twClasses("", jsxTailwindStyles, "strong")}>
                             {
                                 sessionRecords().filter(
                                     (record) =>
@@ -251,8 +258,8 @@ export function EvidencePage(props: {
                         </strong>{" "}
                         to review
                     </span>
-                    <span>
-                        <strong>
+                    <span class={twClasses("", jsxTailwindStyles, "span")}>
+                        <strong class={twClasses("", jsxTailwindStyles, "strong")}>
                             {
                                 sessionRecords().filter(
                                     (record) =>
@@ -262,28 +269,43 @@ export function EvidencePage(props: {
                         </strong>{" "}
                         verified
                     </span>
-                    <span>
-                        <strong>{sessionEdges().length}</strong> links
+                    <span class={twClasses("", jsxTailwindStyles, "span")}>
+                        <strong class={twClasses("", jsxTailwindStyles, "strong")}>
+                            {sessionEdges().length}
+                        </strong>{" "}
+                        links
                     </span>
                 </div>
             </section>
 
             <Show when={selectedSession()}>
                 <section
-                    class="evidence-create surface-card"
+                    class={twClasses("evidence-create surface-card", jsxTailwindStyles, "section")}
                     aria-labelledby="evidence-create-title"
                 >
-                    <div class="evidence-create-heading">
-                        <span class="eyebrow">Tutor-authored source</span>
-                        <h2 id="evidence-create-title">Add evidence from a transcript</h2>
-                        <p>
+                    <div class={twClasses("evidence-create-heading", jsxTailwindStyles, "div")}>
+                        <span class={twClasses("eyebrow", jsxTailwindStyles, "span")}>
+                            Tutor-authored source
+                        </span>
+                        <h2
+                            id="evidence-create-title"
+                            class={twClasses("", jsxTailwindStyles, "h2")}
+                        >
+                            Add evidence from a transcript
+                        </h2>
+                        <p class={twClasses("", jsxTailwindStyles, "p")}>
                             Write a reviewed claim and keep its source segment, revision, and linked
                             materials attached.
                         </p>
                     </div>
-                    <form class="evidence-create-form" onSubmit={submitEvidence}>
-                        <label>
-                            <span>Transcript segment</span>
+                    <form
+                        class={twClasses("evidence-create-form", jsxTailwindStyles, "form")}
+                        onSubmit={submitEvidence}
+                    >
+                        <label class={twClasses("", jsxTailwindStyles, "label")}>
+                            <span class={twClasses("", jsxTailwindStyles, "span")}>
+                                Transcript segment
+                            </span>
                             <select
                                 aria-label="Transcript source segment"
                                 required
@@ -292,6 +314,7 @@ export function EvidencePage(props: {
                                 onChange={(event) =>
                                     chooseTranscriptSource(event.currentTarget.value)
                                 }
+                                class={twClasses("", jsxTailwindStyles, "select")}
                             >
                                 <option value="">Choose a transcript segment</option>
                                 <For each={sessionTranscripts()}>
@@ -303,8 +326,8 @@ export function EvidencePage(props: {
                                 </For>
                             </select>
                         </label>
-                        <label>
-                            <span>Title</span>
+                        <label class={twClasses("", jsxTailwindStyles, "label")}>
+                            <span class={twClasses("", jsxTailwindStyles, "span")}>Title</span>
                             <input
                                 aria-label="Evidence title"
                                 required
@@ -312,10 +335,11 @@ export function EvidencePage(props: {
                                 value={createTitle()}
                                 disabled={props.disabled || !sourceSegmentId()}
                                 onInput={(event) => setCreateTitle(event.currentTarget.value)}
+                                class={twClasses("", jsxTailwindStyles, "input")}
                             />
                         </label>
-                        <label>
-                            <span>Type</span>
+                        <label class={twClasses("", jsxTailwindStyles, "label")}>
+                            <span class={twClasses("", jsxTailwindStyles, "span")}>Type</span>
                             <input
                                 aria-label="Evidence type"
                                 required
@@ -323,15 +347,17 @@ export function EvidencePage(props: {
                                 value={createType()}
                                 disabled={props.disabled || !sourceSegmentId()}
                                 onInput={(event) => setCreateType(event.currentTarget.value)}
+                                class={twClasses("", jsxTailwindStyles, "input")}
                             />
                         </label>
-                        <label>
-                            <span>Priority</span>
+                        <label class={twClasses("", jsxTailwindStyles, "label")}>
+                            <span class={twClasses("", jsxTailwindStyles, "span")}>Priority</span>
                             <select
                                 aria-label="Evidence priority"
                                 value={createPriority()}
                                 disabled={props.disabled || !sourceSegmentId()}
                                 onChange={(event) => setCreatePriority(event.currentTarget.value)}
+                                class={twClasses("", jsxTailwindStyles, "select")}
                             >
                                 <option value="low">Low</option>
                                 <option value="normal">Normal</option>
@@ -339,28 +365,31 @@ export function EvidencePage(props: {
                                 <option value="critical">Critical</option>
                             </select>
                         </label>
-                        <label class="evidence-create-content">
-                            <span>Evidence</span>
+                        <label
+                            class={twClasses("evidence-create-content", jsxTailwindStyles, "label")}
+                        >
+                            <span class={twClasses("", jsxTailwindStyles, "span")}>Evidence</span>
                             <textarea
                                 aria-label="Evidence content"
                                 required
                                 value={createContent()}
                                 disabled={props.disabled || !sourceSegmentId()}
                                 onInput={(event) => setCreateContent(event.currentTarget.value)}
+                                class={twClasses("", jsxTailwindStyles, "textarea")}
                             />
                         </label>
-                        <div class="evidence-create-footer">
+                        <div class={twClasses("evidence-create-footer", jsxTailwindStyles, "div")}>
                             <Show
                                 when={selectedSegmentAssets().length > 0}
                                 fallback={
-                                    <small>
+                                    <small class={twClasses("", jsxTailwindStyles, "small")}>
                                         {selectedSegmentAssetIds().length > 0
                                             ? "Linked material metadata is unavailable. Source IDs will still be preserved."
                                             : "The source transcript revision will be recorded with this item."}
                                     </small>
                                 }
                             >
-                                <small>
+                                <small class={twClasses("", jsxTailwindStyles, "small")}>
                                     Linked materials:{" "}
                                     {selectedSegmentAssets()
                                         .map((asset) => field(asset, "filename", "Material"))
@@ -372,7 +401,11 @@ export function EvidencePage(props: {
                                 </small>
                             </Show>
                             <button
-                                class="button button-primary"
+                                class={twClasses(
+                                    "button button-primary",
+                                    jsxTailwindStyles,
+                                    "button",
+                                )}
                                 type="submit"
                                 disabled={
                                     props.disabled ||
@@ -393,12 +426,20 @@ export function EvidencePage(props: {
             <Show
                 when={selectedSession()}
                 fallback={
-                    <section class="surface-card evidence-empty">
-                        <span class="material-empty-mark">
+                    <section
+                        class={twClasses(
+                            "surface-card evidence-empty",
+                            jsxTailwindStyles,
+                            "section",
+                        )}
+                    >
+                        <span class={twClasses("material-empty-mark", jsxTailwindStyles, "span")}>
                             <Icon name="evidence" />
                         </span>
-                        <h2>Start with a tutoring session</h2>
-                        <p>
+                        <h2 class={twClasses("", jsxTailwindStyles, "h2")}>
+                            Start with a tutoring session
+                        </h2>
+                        <p class={twClasses("", jsxTailwindStyles, "p")}>
                             Evidence is grounded in observations and transcript cues from a specific
                             session.
                         </p>
@@ -408,17 +449,31 @@ export function EvidencePage(props: {
                 <Show
                     when={sessionRecords().length > 0}
                     fallback={
-                        <section class="surface-card evidence-empty">
-                            <span class="material-empty-mark">
+                        <section
+                            class={twClasses(
+                                "surface-card evidence-empty",
+                                jsxTailwindStyles,
+                                "section",
+                            )}
+                        >
+                            <span
+                                class={twClasses("material-empty-mark", jsxTailwindStyles, "span")}
+                            >
                                 <Icon name="evidence" />
                             </span>
-                            <h2>Evidence begins with what happened</h2>
-                            <p>
+                            <h2 class={twClasses("", jsxTailwindStyles, "h2")}>
+                                Evidence begins with what happened
+                            </h2>
+                            <p class={twClasses("", jsxTailwindStyles, "p")}>
                                 Extract tutor observations and transcript cues from this session.
                                 Spoken cues stay unverified until you review them.
                             </p>
                             <button
-                                class="button button-outline"
+                                class={twClasses(
+                                    "button button-outline",
+                                    jsxTailwindStyles,
+                                    "button",
+                                )}
                                 type="button"
                                 disabled={props.disabled}
                                 onClick={() => props.onExtract(selectedSession()!.id)}
@@ -428,28 +483,58 @@ export function EvidencePage(props: {
                         </section>
                     }
                 >
-                    <section class="evidence-review-toolbar surface-card">
-                        <div class="evidence-review-toolbar-copy">
-                            <strong>Review session evidence</strong>
-                            <small>
+                    <section
+                        class={twClasses(
+                            "evidence-review-toolbar surface-card",
+                            jsxTailwindStyles,
+                            "section",
+                        )}
+                    >
+                        <div
+                            class={twClasses(
+                                "evidence-review-toolbar-copy",
+                                jsxTailwindStyles,
+                                "div",
+                            )}
+                        >
+                            <strong class={twClasses("", jsxTailwindStyles, "strong")}>
+                                Review session evidence
+                            </strong>
+                            <small class={twClasses("", jsxTailwindStyles, "small")}>
                                 Rejected items stay in the review queue so you can reconsider them.
                             </small>
                         </div>
                         <div
-                            class="evidence-review-filter-list"
+                            class={twClasses(
+                                "evidence-review-filter-list",
+                                jsxTailwindStyles,
+                                "div",
+                            )}
                             role="group"
                             aria-label="Filter evidence by review status"
                         >
                             <For each={evidenceFilters}>
                                 {(filter) => (
                                     <button
-                                        class="button button-quiet evidence-review-filter"
+                                        class={twClasses(
+                                            "button button-quiet evidence-review-filter",
+                                            jsxTailwindStyles,
+                                            "button",
+                                        )}
                                         type="button"
                                         aria-pressed={evidenceFilter() === filter.id}
                                         onClick={() => setEvidenceFilter(filter.id)}
                                     >
-                                        <span>{filter.label}</span>
-                                        <span class="evidence-review-filter-count">
+                                        <span class={twClasses("", jsxTailwindStyles, "span")}>
+                                            {filter.label}
+                                        </span>
+                                        <span
+                                            class={twClasses(
+                                                "evidence-review-filter-count",
+                                                jsxTailwindStyles,
+                                                "span",
+                                            )}
+                                        >
                                             {evidenceFilterCount(filter.id)}
                                         </span>
                                     </button>
@@ -457,18 +542,32 @@ export function EvidencePage(props: {
                             </For>
                         </div>
                     </section>
-                    <section class="evidence-list" aria-label="Session evidence">
+                    <section
+                        class={twClasses("evidence-list", jsxTailwindStyles, "section")}
+                        aria-label="Session evidence"
+                    >
                         <Show
                             when={visibleEvidenceRecords().length > 0}
                             fallback={
-                                <div class="evidence-filter-empty surface-card" role="status">
-                                    <span>
+                                <div
+                                    class={twClasses(
+                                        "evidence-filter-empty surface-card",
+                                        jsxTailwindStyles,
+                                        "div",
+                                    )}
+                                    role="status"
+                                >
+                                    <span class={twClasses("", jsxTailwindStyles, "span")}>
                                         {evidenceFilter() === "review"
                                             ? "Everything in this session has been verified."
                                             : "There are no verified items in this session yet."}
                                     </span>
                                     <button
-                                        class="button button-quiet"
+                                        class={twClasses(
+                                            "button button-quiet",
+                                            jsxTailwindStyles,
+                                            "button",
+                                        )}
                                         type="button"
                                         onClick={() => setEvidenceFilter("all")}
                                     >
@@ -493,34 +592,59 @@ export function EvidencePage(props: {
                         </Show>
                     </section>
 
-                    <section class="evidence-graph surface-card">
-                        <div class="evidence-graph-heading">
-                            <div>
-                                <span class="eyebrow">Relationships</span>
-                                <h2>Connect the evidence</h2>
+                    <section
+                        class={twClasses(
+                            "evidence-graph surface-card",
+                            jsxTailwindStyles,
+                            "section",
+                        )}
+                    >
+                        <div class={twClasses("evidence-graph-heading", jsxTailwindStyles, "div")}>
+                            <div class={twClasses("", jsxTailwindStyles, "div")}>
+                                <span class={twClasses("eyebrow", jsxTailwindStyles, "span")}>
+                                    Relationships
+                                </span>
+                                <h2 class={twClasses("", jsxTailwindStyles, "h2")}>
+                                    Connect the evidence
+                                </h2>
                             </div>
-                            <span>
+                            <span class={twClasses("", jsxTailwindStyles, "span")}>
                                 {graph().nodes.length} items · {graph().edges.length} links
                             </span>
                         </div>
-                        <div class="evidence-graph-legend" aria-label="Evidence map legend">
-                            <span>
+                        <div
+                            class={twClasses("evidence-graph-legend", jsxTailwindStyles, "div")}
+                            aria-label="Evidence map legend"
+                        >
+                            <span class={twClasses("", jsxTailwindStyles, "span")}>
                                 <i
-                                    class="evidence-legend-dot evidence-legend-review"
+                                    class={twClasses(
+                                        "evidence-legend-dot evidence-legend-review",
+                                        jsxTailwindStyles,
+                                        "i",
+                                    )}
                                     aria-hidden="true"
                                 />
                                 Needs review
                             </span>
-                            <span>
+                            <span class={twClasses("", jsxTailwindStyles, "span")}>
                                 <i
-                                    class="evidence-legend-dot evidence-legend-verified"
+                                    class={twClasses(
+                                        "evidence-legend-dot evidence-legend-verified",
+                                        jsxTailwindStyles,
+                                        "i",
+                                    )}
                                     aria-hidden="true"
                                 />
                                 Verified
                             </span>
-                            <span>
+                            <span class={twClasses("", jsxTailwindStyles, "span")}>
                                 <i
-                                    class="evidence-legend-line evidence-legend-contradiction"
+                                    class={twClasses(
+                                        "evidence-legend-line evidence-legend-contradiction",
+                                        jsxTailwindStyles,
+                                        "i",
+                                    )}
                                     aria-hidden="true"
                                 />
                                 Contradicts
@@ -528,40 +652,81 @@ export function EvidencePage(props: {
                         </div>
                         <EvidenceNetwork layout={graph()} />
                         <section
-                            class="evidence-contradictions"
+                            class={twClasses(
+                                "evidence-contradictions",
+                                jsxTailwindStyles,
+                                "section",
+                            )}
                             aria-labelledby="evidence-contradictions-title"
                         >
-                            <div class="evidence-contradictions-heading">
-                                <div>
-                                    <span class="eyebrow">Source review</span>
-                                    <h3 id="evidence-contradictions-title">
+                            <div
+                                class={twClasses(
+                                    "evidence-contradictions-heading",
+                                    jsxTailwindStyles,
+                                    "div",
+                                )}
+                            >
+                                <div class={twClasses("", jsxTailwindStyles, "div")}>
+                                    <span class={twClasses("eyebrow", jsxTailwindStyles, "span")}>
+                                        Source review
+                                    </span>
+                                    <h3
+                                        id="evidence-contradictions-title"
+                                        class={twClasses("", jsxTailwindStyles, "h3")}
+                                    >
                                         Explicit contradiction links
                                     </h3>
                                 </div>
-                                <span>{graph().contradictions.length}</span>
+                                <span class={twClasses("", jsxTailwindStyles, "span")}>
+                                    {graph().contradictions.length}
+                                </span>
                             </div>
-                            <p>
+                            <p class={twClasses("", jsxTailwindStyles, "p")}>
                                 These pairs were explicitly linked as contradictions. Review each
                                 item’s source status above.
                             </p>
                             <Show
                                 when={graph().contradictions.length > 0}
                                 fallback={
-                                    <small>
+                                    <small class={twClasses("", jsxTailwindStyles, "small")}>
                                         No evidence items are explicitly linked as contradicting
                                         another.
                                     </small>
                                 }
                             >
-                                <div class="evidence-contradiction-list">
+                                <div
+                                    class={twClasses(
+                                        "evidence-contradiction-list",
+                                        jsxTailwindStyles,
+                                        "div",
+                                    )}
+                                >
                                     <For each={graph().contradictions}>
                                         {(pair) => (
-                                            <div class="evidence-contradiction-row">
-                                                <span>
+                                            <div
+                                                class={twClasses(
+                                                    "evidence-contradiction-row",
+                                                    jsxTailwindStyles,
+                                                    "div",
+                                                )}
+                                            >
+                                                <span
+                                                    class={twClasses("", jsxTailwindStyles, "span")}
+                                                >
                                                     {field(pair.first, "title", "Evidence item")}
                                                 </span>
-                                                <strong>contradicts</strong>
-                                                <span>
+                                                <strong
+                                                    class={twClasses(
+                                                        "",
+                                                        jsxTailwindStyles,
+                                                        "strong",
+                                                    )}
+                                                >
+                                                    contradicts
+                                                </strong>
+                                                <span
+                                                    class={twClasses("", jsxTailwindStyles, "span")}
+                                                >
                                                     {field(pair.second, "title", "Evidence item")}
                                                 </span>
                                             </div>
@@ -570,7 +735,14 @@ export function EvidencePage(props: {
                                 </div>
                             </Show>
                             <Show when={graph().invalidEdgeCount > 0}>
-                                <p class="evidence-graph-warning" role="status">
+                                <p
+                                    class={twClasses(
+                                        "evidence-graph-warning",
+                                        jsxTailwindStyles,
+                                        "p",
+                                    )}
+                                    role="status"
+                                >
                                     {graph().invalidEdgeCount} relationship
                                     {graph().invalidEdgeCount === 1 ? "" : "s"} could not be drawn
                                     because an endpoint or session reference is invalid.
@@ -578,20 +750,21 @@ export function EvidencePage(props: {
                             </Show>
                         </section>
                         <form
-                            class="evidence-link-form"
+                            class={twClasses("evidence-link-form", jsxTailwindStyles, "form")}
                             onSubmit={(event) => {
                                 event.preventDefault();
                                 if (fromId() && toId())
                                     props.onLink(fromId(), toId(), relationship());
                             }}
                         >
-                            <label>
-                                <span>From</span>
+                            <label class={twClasses("", jsxTailwindStyles, "label")}>
+                                <span class={twClasses("", jsxTailwindStyles, "span")}>From</span>
                                 <select
                                     required
                                     value={fromId()}
                                     disabled={props.disabled}
                                     onChange={(event) => setFromId(event.currentTarget.value)}
+                                    class={twClasses("", jsxTailwindStyles, "select")}
                                 >
                                     <option value="">Choose evidence</option>
                                     <For each={sessionRecords()}>
@@ -607,8 +780,10 @@ export function EvidencePage(props: {
                                     </For>
                                 </select>
                             </label>
-                            <label>
-                                <span>Relationship</span>
+                            <label class={twClasses("", jsxTailwindStyles, "label")}>
+                                <span class={twClasses("", jsxTailwindStyles, "span")}>
+                                    Relationship
+                                </span>
                                 <select
                                     value={relationship()}
                                     disabled={props.disabled}
@@ -618,6 +793,7 @@ export function EvidencePage(props: {
                                                 .value as (typeof EVIDENCE_RELATIONSHIPS)[number],
                                         )
                                     }
+                                    class={twClasses("", jsxTailwindStyles, "select")}
                                 >
                                     <For each={EVIDENCE_RELATIONSHIPS}>
                                         {(value) => (
@@ -628,13 +804,14 @@ export function EvidencePage(props: {
                                     </For>
                                 </select>
                             </label>
-                            <label>
-                                <span>To</span>
+                            <label class={twClasses("", jsxTailwindStyles, "label")}>
+                                <span class={twClasses("", jsxTailwindStyles, "span")}>To</span>
                                 <select
                                     required
                                     value={toId()}
                                     disabled={props.disabled}
                                     onChange={(event) => setToId(event.currentTarget.value)}
+                                    class={twClasses("", jsxTailwindStyles, "select")}
                                 >
                                     <option value="">Choose evidence</option>
                                     <For each={sessionRecords()}>
@@ -651,7 +828,11 @@ export function EvidencePage(props: {
                                 </select>
                             </label>
                             <button
-                                class="button button-outline"
+                                class={twClasses(
+                                    "button button-outline",
+                                    jsxTailwindStyles,
+                                    "button",
+                                )}
                                 type="submit"
                                 disabled={
                                     props.disabled ||
@@ -664,7 +845,7 @@ export function EvidencePage(props: {
                             </button>
                         </form>
                         <Show when={sessionEdges().length > 0}>
-                            <div class="evidence-edge-list">
+                            <div class={twClasses("evidence-edge-list", jsxTailwindStyles, "div")}>
                                 <For each={sessionEdges()}>
                                     {(edge) => {
                                         const from = () =>
@@ -680,8 +861,16 @@ export function EvidencePage(props: {
                                                     field(edge, "to_id").toLowerCase(),
                                             );
                                         return (
-                                            <div class="evidence-edge-row">
-                                                <span>
+                                            <div
+                                                class={twClasses(
+                                                    "evidence-edge-row",
+                                                    jsxTailwindStyles,
+                                                    "div",
+                                                )}
+                                            >
+                                                <span
+                                                    class={twClasses("", jsxTailwindStyles, "span")}
+                                                >
                                                     {from()
                                                         ? field(
                                                               from()!,
@@ -690,14 +879,22 @@ export function EvidencePage(props: {
                                                           )
                                                         : "Missing evidence item"}
                                                 </span>
-                                                <strong>
+                                                <strong
+                                                    class={twClasses(
+                                                        "",
+                                                        jsxTailwindStyles,
+                                                        "strong",
+                                                    )}
+                                                >
                                                     {field(
                                                         edge,
                                                         "relationship",
                                                         "unknown",
                                                     ).replaceAll("-", " ")}
                                                 </strong>
-                                                <span>
+                                                <span
+                                                    class={twClasses("", jsxTailwindStyles, "span")}
+                                                >
                                                     {to()
                                                         ? field(
                                                               to()!,
@@ -707,7 +904,11 @@ export function EvidencePage(props: {
                                                         : "Missing evidence item"}
                                                 </span>
                                                 <button
-                                                    class="button button-quiet"
+                                                    class={twClasses(
+                                                        "button button-quiet",
+                                                        jsxTailwindStyles,
+                                                        "button",
+                                                    )}
                                                     type="button"
                                                     disabled={
                                                         props.disabled ||
@@ -736,9 +937,13 @@ function EvidenceNetwork(props: { layout: EvidenceGraphLayout }): JSX.Element {
     const relationshipLabel = () =>
         props.layout.edges.length === 1 ? "relationship" : "relationships";
     return (
-        <div class="evidence-network-scroll" role="region" aria-label="Evidence relationship map">
+        <div
+            class={twClasses("evidence-network-scroll", jsxTailwindStyles, "div")}
+            role="region"
+            aria-label="Evidence relationship map"
+        >
             <svg
-                class="evidence-network"
+                class={twClasses("evidence-network", jsxTailwindStyles, "svg")}
                 viewBox={`0 0 ${props.layout.width} ${props.layout.height}`}
                 role="img"
                 aria-label={`${props.layout.nodes.length} ${itemLabel()} connected by ${props.layout.edges.length} ${relationshipLabel()}`}
@@ -753,7 +958,10 @@ function EvidenceNetwork(props: { layout: EvidenceGraphLayout }): JSX.Element {
                         markerHeight="6"
                         orient="auto-start-reverse"
                     >
-                        <path d="M 0 0 L 10 5 L 0 10 z" class="evidence-network-arrow" />
+                        <path
+                            d="M 0 0 L 10 5 L 0 10 z"
+                            class={twClasses("evidence-network-arrow", jsxTailwindStyles, "path")}
+                        />
                     </marker>
                 </defs>
                 <For each={props.layout.edges}>
@@ -763,10 +971,19 @@ function EvidenceNetwork(props: { layout: EvidenceGraphLayout }): JSX.Element {
                             <g
                                 class={`evidence-network-link evidence-network-link-${relationship}`}
                             >
-                                <path d={edge.path} marker-end="url(#evidence-edge-arrow)">
+                                <path
+                                    d={edge.path}
+                                    marker-end="url(#evidence-edge-arrow)"
+                                    class={twClasses("", jsxTailwindStyles, "path")}
+                                >
                                     <title>{relationship.replaceAll("-", " ")}</title>
                                 </path>
-                                <text x={edge.labelX} y={edge.labelY - 5} text-anchor="middle">
+                                <text
+                                    x={edge.labelX}
+                                    y={edge.labelY - 5}
+                                    text-anchor="middle"
+                                    class={twClasses("", jsxTailwindStyles, "text")}
+                                >
                                     {relationship.replaceAll("-", " ")}
                                 </text>
                             </g>
@@ -788,15 +1005,49 @@ function EvidenceNetwork(props: { layout: EvidenceGraphLayout }): JSX.Element {
                                 transform={`translate(${node.x} ${node.y})`}
                             >
                                 <title>{`${title} · ${state.replaceAll("-", " ")}`}</title>
-                                <rect width="176" height="64" rx="8" />
-                                <circle cx="14" cy="15" r="4" />
-                                <text class="evidence-network-state" x="24" y="18">
+                                <rect
+                                    width="176"
+                                    height="64"
+                                    rx="8"
+                                    class={twClasses("", jsxTailwindStyles, "rect")}
+                                />
+                                <circle
+                                    cx="14"
+                                    cy="15"
+                                    r="4"
+                                    class={twClasses("", jsxTailwindStyles, "circle")}
+                                />
+                                <text
+                                    class={twClasses(
+                                        "evidence-network-state",
+                                        jsxTailwindStyles,
+                                        "text",
+                                    )}
+                                    x="24"
+                                    y="18"
+                                >
                                     {state.replaceAll("-", " ")}
                                 </text>
-                                <text class="evidence-network-title" x="12" y="39">
+                                <text
+                                    class={twClasses(
+                                        "evidence-network-title",
+                                        jsxTailwindStyles,
+                                        "text",
+                                    )}
+                                    x="12"
+                                    y="39"
+                                >
                                     {shortTitle}
                                 </text>
-                                <text class="evidence-network-type" x="12" y="55">
+                                <text
+                                    class={twClasses(
+                                        "evidence-network-type",
+                                        jsxTailwindStyles,
+                                        "text",
+                                    )}
+                                    x="12"
+                                    y="55"
+                                >
                                     {field(node.record, "type", "learning evidence").replaceAll(
                                         "-",
                                         " ",
@@ -876,18 +1127,33 @@ function EvidenceCard(props: {
 
     return (
         <article
-            class={`evidence-card surface-card evidence-${state()}`}
+            class={twClasses(
+                `evidence-card surface-card evidence-${state()}`,
+                jsxTailwindStyles,
+                "article",
+            )}
             data-evidence-id={props.record.id}
         >
-            <div class="evidence-card-rail" aria-hidden="true">
-                <span />
+            <div
+                class={twClasses("evidence-card-rail", jsxTailwindStyles, "div")}
+                aria-hidden="true"
+            >
+                <span class={twClasses("", jsxTailwindStyles, "span")} />
             </div>
-            <div class="evidence-card-content">
+            <div class={twClasses("evidence-card-content", jsxTailwindStyles, "div")}>
                 <EvidenceSources record={props.record} snapshot={props.snapshot} />
-                <header class="evidence-card-header">
-                    <div class="evidence-card-labels">
-                        <span class="eyebrow">{sourceLabel()}</span>
-                        <span class={`evidence-state evidence-state-${state()}`}>
+                <header class={twClasses("evidence-card-header", jsxTailwindStyles, "header")}>
+                    <div class={twClasses("evidence-card-labels", jsxTailwindStyles, "div")}>
+                        <span class={twClasses("eyebrow", jsxTailwindStyles, "span")}>
+                            {sourceLabel()}
+                        </span>
+                        <span
+                            class={twClasses(
+                                `evidence-state evidence-state-${state()}`,
+                                jsxTailwindStyles,
+                                "span",
+                            )}
+                        >
                             {state() === "human-verified"
                                 ? "Verified"
                                 : state() === "rejected"
@@ -895,7 +1161,7 @@ function EvidenceCard(props: {
                                   : "Needs review"}
                         </span>
                     </div>
-                    <span class="evidence-type">
+                    <span class={twClasses("evidence-type", jsxTailwindStyles, "span")}>
                         {field(props.record, "type", "learning evidence").replaceAll("-", " ")}
                     </span>
                 </header>
@@ -903,46 +1169,58 @@ function EvidenceCard(props: {
                     when={editing()}
                     fallback={
                         <>
-                            <h2>{field(props.record, "title", "Evidence from this session")}</h2>
-                            <p class="evidence-content">{field(props.record, "content")}</p>
+                            <h2 class={twClasses("", jsxTailwindStyles, "h2")}>
+                                {field(props.record, "title", "Evidence from this session")}
+                            </h2>
+                            <p class={twClasses("evidence-content", jsxTailwindStyles, "p")}>
+                                {field(props.record, "content")}
+                            </p>
                         </>
                     }
                 >
-                    <form class="evidence-edit-form" onSubmit={save}>
-                        <label>
-                            <span>Title</span>
+                    <form
+                        class={twClasses("evidence-edit-form", jsxTailwindStyles, "form")}
+                        onSubmit={save}
+                    >
+                        <label class={twClasses("", jsxTailwindStyles, "label")}>
+                            <span class={twClasses("", jsxTailwindStyles, "span")}>Title</span>
                             <input
                                 value={title()}
                                 maxLength={512}
                                 required
                                 disabled={props.disabled}
                                 onInput={(event) => setTitle(event.currentTarget.value)}
+                                class={twClasses("", jsxTailwindStyles, "input")}
                             />
                         </label>
-                        <div class="evidence-edit-row">
-                            <label>
-                                <span>Type</span>
+                        <div class={twClasses("evidence-edit-row", jsxTailwindStyles, "div")}>
+                            <label class={twClasses("", jsxTailwindStyles, "label")}>
+                                <span class={twClasses("", jsxTailwindStyles, "span")}>Type</span>
                                 <input
                                     value={type()}
                                     maxLength={128}
                                     required
                                     disabled={props.disabled}
                                     onInput={(event) => setType(event.currentTarget.value)}
+                                    class={twClasses("", jsxTailwindStyles, "input")}
                                 />
                             </label>
-                            <label>
-                                <span>Priority</span>
+                            <label class={twClasses("", jsxTailwindStyles, "label")}>
+                                <span class={twClasses("", jsxTailwindStyles, "span")}>
+                                    Priority
+                                </span>
                                 <input
                                     value={priority()}
                                     maxLength={32}
                                     required
                                     disabled={props.disabled}
                                     onInput={(event) => setPriority(event.currentTarget.value)}
+                                    class={twClasses("", jsxTailwindStyles, "input")}
                                 />
                             </label>
                         </div>
-                        <label>
-                            <span>Evidence</span>
+                        <label class={twClasses("", jsxTailwindStyles, "label")}>
+                            <span class={twClasses("", jsxTailwindStyles, "span")}>Evidence</span>
                             <textarea
                                 value={content()}
                                 maxLength={16 * 1024 * 1024}
@@ -950,18 +1228,27 @@ function EvidenceCard(props: {
                                 required
                                 disabled={props.disabled}
                                 onInput={(event) => setContent(event.currentTarget.value)}
+                                class={twClasses("", jsxTailwindStyles, "textarea")}
                             />
                         </label>
-                        <div class="evidence-review-actions">
+                        <div class={twClasses("evidence-review-actions", jsxTailwindStyles, "div")}>
                             <button
-                                class="button button-primary"
+                                class={twClasses(
+                                    "button button-primary",
+                                    jsxTailwindStyles,
+                                    "button",
+                                )}
                                 type="submit"
                                 disabled={props.disabled}
                             >
                                 Save changes
                             </button>
                             <button
-                                class="button button-quiet"
+                                class={twClasses(
+                                    "button button-quiet",
+                                    jsxTailwindStyles,
+                                    "button",
+                                )}
                                 type="button"
                                 disabled={props.disabled}
                                 onClick={() => setEditing(false)}
@@ -971,38 +1258,52 @@ function EvidenceCard(props: {
                         </div>
                     </form>
                 </Show>
-                <div class="evidence-source-meta">
+                <div class={twClasses("evidence-source-meta", jsxTailwindStyles, "div")}>
                     <Show when={timestamp()}>
-                        <span>
+                        <span class={twClasses("", jsxTailwindStyles, "span")}>
                             <Icon name="clock" /> {formattedTimestamp()}
                         </span>
                     </Show>
                     <Show when={field(props.record, "detection_confidence")}>
-                        <span>
+                        <span class={twClasses("", jsxTailwindStyles, "span")}>
                             Heuristic confidence {field(props.record, "detection_confidence")}
                         </span>
                     </Show>
                     <Show when={field(props.record, "source_speaker_label")}>
-                        <span>Speaker: {field(props.record, "source_speaker_label")}</span>
+                        <span class={twClasses("", jsxTailwindStyles, "span")}>
+                            Speaker: {field(props.record, "source_speaker_label")}
+                        </span>
                     </Show>
                     <For each={sourceAssets()}>
                         {(asset) => (
-                            <span class="evidence-source-material">
+                            <span
+                                class={twClasses(
+                                    "evidence-source-material",
+                                    jsxTailwindStyles,
+                                    "span",
+                                )}
+                            >
                                 Material: {field(asset, "filename", "Untitled material")}
                             </span>
                         )}
                     </For>
                     <Show when={sourceAssetIds().length > sourceAssets().length}>
-                        <span>
+                        <span class={twClasses("", jsxTailwindStyles, "span")}>
                             {sourceAssetIds().length - sourceAssets().length} linked materials
                             unavailable
                         </span>
                     </Show>
                 </div>
                 <Show when={!editing()}>
-                    <div class="evidence-review-actions evidence-card-actions">
+                    <div
+                        class={twClasses(
+                            "evidence-review-actions evidence-card-actions",
+                            jsxTailwindStyles,
+                            "div",
+                        )}
+                    >
                         <button
-                            class="button button-outline"
+                            class={twClasses("button button-outline", jsxTailwindStyles, "button")}
                             type="button"
                             disabled={props.disabled}
                             onClick={beginEditing}
@@ -1010,7 +1311,7 @@ function EvidenceCard(props: {
                             Edit evidence
                         </button>
                         <button
-                            class="button button-quiet"
+                            class={twClasses("button button-quiet", jsxTailwindStyles, "button")}
                             type="button"
                             disabled={props.disabled}
                             onClick={() => props.onTrash(props.record)}
@@ -1019,7 +1320,11 @@ function EvidenceCard(props: {
                         </button>
                         <Show when={state() !== "human-verified"}>
                             <button
-                                class="button button-primary"
+                                class={twClasses(
+                                    "button button-primary",
+                                    jsxTailwindStyles,
+                                    "button",
+                                )}
                                 type="button"
                                 disabled={props.disabled}
                                 onClick={() => props.onReview(props.record, "human-verified")}
@@ -1028,7 +1333,7 @@ function EvidenceCard(props: {
                             </button>
                         </Show>
                         <button
-                            class="button button-quiet"
+                            class={twClasses("button button-quiet", jsxTailwindStyles, "button")}
                             type="button"
                             disabled={props.disabled}
                             onClick={() => props.onReview(props.record, "rejected")}
