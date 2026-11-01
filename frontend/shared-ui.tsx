@@ -1,5 +1,6 @@
 import { twClasses } from "./tailwind";
 import { jsxTailwindStyles } from "./shared-ui.tailwind";
+import { emptyStateTailwindStyles } from "./empty-state.tailwind";
 import { onCleanup, onMount, Show, type JSX } from "solid-js";
 
 export type IconName =
@@ -45,8 +46,8 @@ export function EmptyState(props: {
     disabled: boolean;
 }): JSX.Element {
     return (
-        <div class={twClasses("empty-state", jsxTailwindStyles, "div")}>
-            <span class={twClasses("empty-illustration", jsxTailwindStyles, "span")}>
+        <div class={twClasses("empty-state", emptyStateTailwindStyles, "div")}>
+            <span class={twClasses("empty-illustration", emptyStateTailwindStyles, "span")}>
                 <span class={twClasses("empty-illustration-back", jsxTailwindStyles, "span")} />
                 <span class={twClasses("empty-illustration-paper", jsxTailwindStyles, "span")}>
                     <Icon name={props.icon} />
@@ -58,8 +59,8 @@ export function EmptyState(props: {
                     ✳
                 </span>
             </span>
-            <h2 class={twClasses("", jsxTailwindStyles, "h2")}>{props.title}</h2>
-            <p class={twClasses("", jsxTailwindStyles, "p")}>{props.text}</p>
+            <h2 class={twClasses("", emptyStateTailwindStyles, "h2")}>{props.title}</h2>
+            <p class={twClasses("", emptyStateTailwindStyles, "p")}>{props.text}</p>
             <Show when={!props.disabled}>
                 <button
                     class={twClasses("button button-primary", jsxTailwindStyles, "button")}
