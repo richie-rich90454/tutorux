@@ -28,13 +28,20 @@ export function JournalOrganizer(props: Props): JSX.Element {
     const [name, setName] = createSignal("");
     const [description, setDescription] = createSignal("");
     const [color, setColor] = createSignal(palette[0]!);
+    const [colorText, setColorText] = createSignal(palette[0]!);
+    const [colorInvalid, setColorInvalid] = createSignal(false);
     const [error, setError] = createSignal("");
+    const hasLabels = () => props.collections.length > 0 || props.tags.length > 0;
 
     function start(kind: "collection" | "tag", record: ArchiveRecord | null = null): void {
+        const initialColor = safeLabelColor(record?.fields.get("color"));
+        const selectedColor = initialColor.startsWith("#") ? initialColor : palette[0]!;
         setEditor({ kind, record });
         setName(record?.fields.get("name") ?? "");
         setDescription(record?.fields.get("description") ?? "");
-        setColor(record?.fields.get("color") || palette[0]!);
+        setColor(selectedColor);
+        setColorText(selectedColor);
+        setColorInvalid(false);
         setError("");
     }
 
@@ -43,6 +50,10 @@ export function JournalOrganizer(props: Props): JSX.Element {
         const active = editor();
         if (!active) return;
         setError("");
+        if (colorInvalid()) {
+            setError("Enter a six-digit hex color, such as #42666A.");
+            return;
+        }
         const normalized = name().trim().toLocaleLowerCase();
         const siblings = active.kind === "collection" ? props.collections : props.tags;
         if (
@@ -108,24 +119,34 @@ export function JournalOrganizer(props: Props): JSX.Element {
                 </div>
             </div>
 
-            <div class="journal-organizer-lists">
-                <OrganizerList
-                    title="Collections"
-                    hint="A home for connected reflections"
-                    records={props.collections}
-                    disabled={props.disabled || props.busy}
-                    onEdit={(record) => start("collection", record)}
-                    onArchive={props.onArchive}
-                />
-                <OrganizerList
-                    title="Tags"
-                    hint="Small labels for a useful detail"
-                    records={props.tags}
-                    disabled={props.disabled || props.busy}
-                    onEdit={(record) => start("tag", record)}
-                    onArchive={props.onArchive}
-                />
-            </div>
+            <Show
+                when={hasLabels()}
+                fallback={
+                    <p class="journal-organizer-empty-summary">
+                        Add a collection to group related notes, or a tag to make them easier to
+                        find.
+                    </p>
+                }
+            >
+                <div class="journal-organizer-lists">
+                    <OrganizerList
+                        title="Collections"
+                        hint="A home for connected reflections"
+                        records={props.collections}
+                        disabled={props.disabled || props.busy}
+                        onEdit={(record) => start("collection", record)}
+                        onArchive={props.onArchive}
+                    />
+                    <OrganizerList
+                        title="Tags"
+                        hint="Small labels for a useful detail"
+                        records={props.tags}
+                        disabled={props.disabled || props.busy}
+                        onEdit={(record) => start("tag", record)}
+                        onArchive={props.onArchive}
+                    />
+                </div>
+            </Show>
 
             <Show when={props.archived.length > 0}>
                 <details class="journal-archived-labels">
@@ -208,9 +229,23 @@ export function JournalOrganizer(props: Props): JSX.Element {
                             Color <span class="optional">Optional</span>
                             <div class="journal-color-control">
                                 <input
-                                    type="color"
-                                    value={color()}
-                                    onInput={(event) => setColor(event.currentTarget.value)}
+                                    type="text"
+                                    class="journal-color-value"
+                                    value={colorText()}
+                                    maxlength="7"
+                                    autocapitalize="off"
+                                    spellcheck={false}
+                                    aria-label="Custom hex color"
+                                    aria-invalid={colorInvalid()}
+                                    placeholder="#42666A"
+                                    onInput={(event) => {
+                                        const value = event.currentTarget.value;
+                                        setColorText(value);
+                                        const valid = /^#[0-9a-f]{6}$/iu.test(value);
+                                        setColorInvalid(!valid);
+                                        if (valid) setColor(value);
+                                        setError("");
+                                    }}
                                 />
                                 <div class="journal-color-swatches" aria-label="Suggested colors">
                                     <For each={palette}>
@@ -222,7 +257,11 @@ export function JournalOrganizer(props: Props): JSX.Element {
                                                 style={{ "--swatch": swatch }}
                                                 aria-label={`Use ${swatch}`}
                                                 aria-pressed={color() === swatch}
-                                                onClick={() => setColor(swatch)}
+                                                onClick={() => {
+                                                    setColor(swatch);
+                                                    setColorText(swatch);
+                                                    setColorInvalid(false);
+                                                }}
                                             />
                                         )}
                                     </For>
