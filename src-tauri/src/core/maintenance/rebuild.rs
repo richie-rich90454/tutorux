@@ -338,7 +338,7 @@ pub fn rebuild_archive(
     }
     let mut chains = Vec::new();
     for ((record_type, id), mut revisions) in grouped {
-        revisions.sort_by(|left, right| left.revision.cmp(&right.revision));
+        revisions.sort_by_key(|left| left.revision);
         chains.push(RetainedChain {
             key: primary_index_key(record_type, &id),
             revisions: revisions
@@ -373,6 +373,10 @@ pub fn rebuild_archive(
     Ok(bytes)
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Rebuild verification mirrors the archive's independent retention and cryptographic inputs."
+)]
 pub(crate) fn rebuild_and_verify(
     header: &ArchiveHeader,
     chains: Vec<RetainedChain>,
