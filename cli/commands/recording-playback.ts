@@ -1,11 +1,16 @@
 import { randomUUID } from "node:crypto";
-import { link, open, rm } from "node:fs/promises";
+import { open, rm } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { RecordType } from "../../frontend/archive/format";
 import { canonicalizeProgressUuid } from "../../frontend/domain/student-progress";
 import { buildAudioTrackPcmRangeStream } from "../../frontend/domain/audio";
 import { playAudioRange } from "../record-playback";
-import { closeSnapshot, openForCommand, replaceFile } from "./archive-io";
+import {
+    closeSnapshot,
+    openForCommand,
+    publishStagedFileAtomically,
+    replaceFile,
+} from "./archive-io";
 import { CliError, emit, field, requiredOption } from "./shared";
 import { requireLiveRecord } from "./record-helpers";
 import type { CliIo, ParsedArguments } from "./shared";
@@ -27,10 +32,7 @@ export async function writeAudioStreamAtomically(
         await file.sync();
         await file.close();
         if (overwrite) await replaceFile(temporary, destination);
-        else {
-            await link(temporary, destination);
-            await rm(temporary, { force: true });
-        }
+        else await publishStagedFileAtomically(temporary, destination, undefined, "Audio export");
     } catch (error) {
         await file.close().catch(() => {});
         await rm(temporary, { force: true });
