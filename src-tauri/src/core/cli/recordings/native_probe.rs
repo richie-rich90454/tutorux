@@ -1,4 +1,3 @@
-
 pub(super) fn microphone_limitation() -> &'static str {
     "No microphone endpoint was available from the native audio backend. Check device support and operating-system microphone permissions."
 }
@@ -43,4 +42,3 @@ pub(super) fn application_limitation() -> String {
         "Per-application audio capture is not supported on this operating system.".to_owned()
     }
 }
-
