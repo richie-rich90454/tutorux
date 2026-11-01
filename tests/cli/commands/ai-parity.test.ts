@@ -111,7 +111,7 @@ describe("AI CLI parity", () => {
     });
 
     it("returns cached legacy catalog metadata with freshness and TTL", async () => {
-        const directory = await mkdtemp(join(process.cwd(), "tmp", "tutorux-ai-catalog-"));
+        const directory = await mkdtemp(join(process.cwd(), "tutorux-ai-catalog-"));
         const archivePath = join(directory, "catalog.tux");
         const stdout: string[] = [];
         const stderr: string[] = [];
@@ -201,7 +201,7 @@ describe("AI CLI parity", () => {
     });
 
     it("inspects an embedded GGUF locally and never routes ai test to HTTP discovery", async () => {
-        const directory = await mkdtemp(join(process.cwd(), "tmp", "tutorux-ai-parity-"));
+        const directory = await mkdtemp(join(process.cwd(), "tutorux-ai-parity-"));
         const archivePath = join(directory, "ai.tux");
         const modelPath = join(directory, "fixture.gguf");
         const stdout: string[] = [];
