@@ -410,7 +410,7 @@ fn per_user_lock_directory() -> Result<PathBuf, String> {
             .ok_or_else(|| {
                 "Could not locate the current user's local application data directory.".to_owned()
             })?;
-        return Ok(root.join("Tutorux").join("archive-locks-v1"));
+        Ok(root.join("Tutorux").join("archive-locks-v1"))
     }
     #[cfg(target_os = "macos")]
     {
