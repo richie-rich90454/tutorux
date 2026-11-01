@@ -6,7 +6,7 @@ import { RecordType } from "../../frontend/archive/format";
 
 async function openAiWorkspace(page: Page): Promise<void> {
     const navigation = page.getByRole("navigation", { name: "Primary navigation" });
-    await navigation.getByRole("button", { name: "More", exact: true }).click();
+    await navigation.getByRole("button", { name: "More workspaces", exact: true }).click();
     await page.getByRole("menuitem", { name: "AI workspace", exact: true }).click();
 }
 
@@ -352,7 +352,7 @@ test("archives successful and HTTP-error responses after explicit request confir
     await page.getByRole("button", { name: "Save archive" }).click();
     await (await archiveDownload).saveAs(info.outputPath("ai-run-saved.tux"));
 
-    await page.getByRole("navigation").getByRole("button", { name: "More" }).click();
+    await page.getByRole("navigation").getByRole("button", { name: "More workspaces" }).click();
     await page.getByRole("menuitem", { name: "Archive health" }).click();
     await page.getByRole("button", { name: "Lock archive" }).click();
     const lockedPassphrase = page.getByLabel("Archive passphrase");
