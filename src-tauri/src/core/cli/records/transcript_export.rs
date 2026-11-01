@@ -296,7 +296,9 @@ mod tests {
             ],
         );
         assert_eq!(
-            transcript_export(&[record.clone()], "srt").ok().unwrap(),
+            transcript_export(std::slice::from_ref(&record), "srt")
+                .ok()
+                .unwrap(),
             "1\n00:00:01,000 --> 00:00:02,500\nTutor: Hello & <world>\n\n"
         );
         assert_eq!(
