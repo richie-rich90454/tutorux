@@ -20,7 +20,7 @@ impl Resampler {
     }
 
     pub(super) fn push(&mut self, bytes: &[u8]) -> Result<Zeroizing<Vec<f32>>, String> {
-        if bytes.is_empty() || bytes.len() % 2 != 0 {
+        if bytes.is_empty() || !bytes.len().is_multiple_of(2) {
             return Err("Live microphone audio is not aligned 16-bit PCM.".to_owned());
         }
         let frames = bytes.len() / 2;
