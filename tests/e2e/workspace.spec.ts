@@ -5,7 +5,7 @@ import { openArchiveBytes, verifyArchiveSnapshot } from "../../frontend/archive/
 
 async function navigateToSidebarView(page: Page, label: string) {
     const navigation = page.getByRole("navigation", { name: "Primary navigation" });
-    const more = navigation.getByRole("button", { name: "More", exact: true });
+    const more = navigation.getByRole("button", { name: "More workspaces", exact: true });
     const menu = page.getByRole("menu", { name: "More workspaces" });
     if (await menu.isVisible().catch(() => false)) await more.click();
 
@@ -43,6 +43,80 @@ test.beforeEach(async ({ page }) => {
             value: undefined,
         });
     });
+});
+
+test("keeps the empty journal state compact instead of inheriting the welcome layout", async ({
+    page,
+}, testInfo) => {
+    await page.goto("/");
+    await page.getByRole("button", { name: "Create archive" }).click();
+    await page.getByLabel("Workspace name").fill("Empty Journal Layout QA");
+    const download = page.waitForEvent("download");
+    await page.getByRole("button", { name: "Create workspace" }).click();
+    await (await download).saveAs(testInfo.outputPath("empty-journal-layout.tux"));
+
+    const emptyState = page.locator(".record-list-shell > .empty-state");
+    await expect(emptyState).toBeVisible();
+    const layout = await emptyState.evaluate((element) => {
+        const style = getComputedStyle(element);
+        return {
+            height: element.getBoundingClientRect().height,
+            minHeight: style.minHeight,
+            alignItems: style.alignItems,
+            textAlign: style.textAlign,
+        };
+    });
+
+    expect(layout.minHeight).toBe("180px");
+    expect(layout.height).toBeLessThan(260);
+    expect(layout.alignItems).toBe("flex-start");
+    expect(layout.textAlign).toBe("left");
+});
+
+test("keeps every workspace page inside desktop, tablet, and phone viewports", async ({
+    page,
+}, testInfo) => {
+    await page.goto("/");
+    await page.getByRole("button", { name: "Create archive" }).click();
+    await page.getByLabel("Workspace name").fill("Responsive Layout QA");
+    const download = page.waitForEvent("download");
+    await page.getByRole("button", { name: "Create workspace" }).click();
+    await (await download).saveAs(testInfo.outputPath("responsive-layout.tux"));
+
+    const views = [
+        "Journal",
+        "Students",
+        "Sessions",
+        "Record",
+        "Materials",
+        "Observations",
+        "AI workspace",
+        "Study guides",
+        "Evidence",
+        "Trash",
+        "Archive health",
+        "Preferences",
+    ];
+    for (const { width, height } of [
+        { width: 1440, height: 900 },
+        { width: 1024, height: 768 },
+        { width: 820, height: 900 },
+        { width: 390, height: 844 },
+    ]) {
+        await page.setViewportSize({ width, height });
+        for (const label of views) {
+            await navigateToSidebarView(page, label);
+            const dimensions = await page.evaluate(() => ({
+                viewport: window.innerWidth,
+                body: document.body.scrollWidth,
+                document: document.documentElement.scrollWidth,
+            }));
+            expect(
+                Math.max(dimensions.body, dimensions.document),
+                `${label} overflows at ${width}px: ${JSON.stringify(dimensions)}`,
+            ).toBeLessThanOrEqual(dimensions.viewport);
+        }
+    }
 });
 
 test("creates a passphrase-protected workspace that opens authenticated and unlocked", async ({
