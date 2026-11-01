@@ -28,10 +28,7 @@ pub(super) fn backup(
     }
     let destination = resolve_path(args.required_option("output")?);
     if same_path(path, &destination) {
-        return Err(CliError(
-            "Backup output must be a separate archive copy.".to_owned(),
-        )
-        .into());
+        return Err(CliError("Backup output must be a separate archive copy.".to_owned()).into());
     }
     let snapshot = open_archive(path, context.passphrase())?;
     let bytes = read_bytes(&snapshot)?;
@@ -73,13 +70,10 @@ pub(super) fn recover(
         .into());
     }
     if args.flag("inspect") && (recover_unpublished_requested || discard_tail_requested) {
-        return Err(CliError(
-            "Choose --inspect or a recovery action, not both.".to_owned(),
-        )
-        .into());
+        return Err(CliError("Choose --inspect or a recovery action, not both.".to_owned()).into());
     }
-    let inspect_only = args.flag("inspect")
-        || (!recover_unpublished_requested && !discard_tail_requested);
+    let inspect_only =
+        args.flag("inspect") || (!recover_unpublished_requested && !discard_tail_requested);
     let source = Arc::new(FileSource::open(path)?);
     let inspection = inspect_recovery_source(source, context.passphrase())?;
     let mut changed = false;
