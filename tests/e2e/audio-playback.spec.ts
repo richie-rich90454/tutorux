@@ -42,14 +42,28 @@ test("plays the matching archive audio from a transcript timestamp", async ({ pa
 
     await page.goto("/");
     const chooser = page.waitForEvent("filechooser");
-    await page.getByRole("button", { name: "Open", exact: true }).click();
+    await page.getByRole("button", { name: "Open archive", exact: true }).click();
     await (await chooser).setFiles(archivePath);
-    await expect(page.locator(".archive-status.is-open")).toBeVisible();
+    await expect(page.getByRole("button", { name: /Audio test archive/u })).toBeVisible();
 
-    await page.getByRole("button", { name: "Transcripts", exact: true }).click();
+    await page.getByRole("button", { name: "Record", exact: true }).click();
     await expect(page.locator(".transcript-cue-text")).toHaveText(
         "A short audio sample for playback.",
     );
+    const audioPanel = page.locator(".transcript-audio-panel");
+    const waveform = page.locator(".full-track-waveform");
+    await expect(waveform).toBeVisible();
+    await expect
+        .poll(async () => {
+            const panelWidth = await audioPanel.evaluate((element) => element.clientWidth);
+            const waveformWidth = await waveform.evaluate((element) => element.clientWidth);
+            return waveformWidth / panelWidth;
+        })
+        .toBeGreaterThan(0.8);
+    const hasHorizontalOverflow = await page.evaluate(
+        () => document.documentElement.scrollWidth > document.documentElement.clientWidth + 1,
+    );
+    expect(hasHorizontalOverflow).toBe(false);
     await expect(page.locator(".transcript-audio-copy strong")).toHaveText("Microphone");
     await page.getByRole("button", { name: "Listen from cue" }).click();
 
@@ -70,10 +84,10 @@ test("imports a WAV file into a session and plays it from a cue", async ({ page 
 
     await page.goto("/");
     const chooser = page.waitForEvent("filechooser");
-    await page.getByRole("button", { name: "Open", exact: true }).click();
+    await page.getByRole("button", { name: "Open archive", exact: true }).click();
     await (await chooser).setFiles(archivePath);
-    await page.locator(".archive-status.is-open").waitFor();
-    await page.getByRole("button", { name: "Transcripts", exact: true }).click();
+    await expect(page.getByRole("button", { name: /Audio test archive/u })).toBeVisible();
+    await page.getByRole("button", { name: "Record", exact: true }).click();
     await page.getByLabel("Choose WAV audio file").setInputFiles({
         name: "lesson.wav",
         mimeType: "audio/wav",
@@ -107,10 +121,10 @@ test("manages recording take and track names and restores trashed audio", async 
 
     await page.goto("/");
     const chooser = page.waitForEvent("filechooser");
-    await page.getByRole("button", { name: "Open", exact: true }).click();
+    await page.getByRole("button", { name: "Open archive", exact: true }).click();
     await (await chooser).setFiles(archivePath);
-    await page.locator(".archive-status.is-open").waitFor();
-    await page.getByRole("button", { name: "Transcripts", exact: true }).click();
+    await expect(page.getByRole("button", { name: /Audio test archive/u })).toBeVisible();
+    await page.getByRole("button", { name: "Record", exact: true }).click();
 
     await expect(page.getByRole("region", { name: "Recording takes" })).toBeVisible();
     await page.getByLabel("Recording take name").fill("Review take");
