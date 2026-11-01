@@ -569,7 +569,7 @@ function App(): JSX.Element {
                     void openArchive();
                     break;
                 case "save-archive":
-                    void saveCurrentArchive();
+                    void saveCurrentArchiveFromAction();
                     break;
                 case "new-session":
                     openDialog("session");
@@ -630,7 +630,7 @@ function App(): JSX.Element {
                                 void openArchive();
                                 break;
                             case "save":
-                                void saveCurrentArchive();
+                                void saveCurrentArchiveFromAction();
                                 break;
                             case "quick-actions":
                                 if (paletteOpen()) closePalette();
@@ -1144,6 +1144,14 @@ function App(): JSX.Element {
         await saveArchive(false);
     }
 
+    async function saveCurrentArchiveFromAction(): Promise<void> {
+        if (archiveSaveConflict()) {
+            await saveCurrentArchiveAs();
+            return;
+        }
+        await saveCurrentArchive();
+    }
+
     async function saveCurrentArchiveAs(): Promise<void> {
         await saveArchive(true);
     }
@@ -1396,9 +1404,13 @@ function App(): JSX.Element {
                     persisted = Boolean(location);
                     if (persisted && workspace()?.snapshot === nextSnapshot) {
                         setWorkspace({ ...updated, location, dirty: false });
+                        setArchiveSaveConflict(false);
                     }
                 } catch (error) {
                     diskError = errorMessage(error);
+                    if (isArchiveSaveConflictMessage(diskError)) {
+                        setArchiveSaveConflict(true);
+                    }
                     announce(
                         "Notes are saved in the workspace, but the archive file could not be updated.",
                         "error",
@@ -3779,7 +3791,7 @@ function App(): JSX.Element {
             icon: "archive" as const,
             run: () => {
                 closePalette();
-                void saveCurrentArchive();
+                void saveCurrentArchiveFromAction();
             },
         },
         {
@@ -3972,11 +3984,7 @@ function App(): JSX.Element {
                                         "button",
                                     )}
                                     type="button"
-                                    onClick={() =>
-                                        void (archiveSaveConflict()
-                                            ? saveCurrentArchiveAs()
-                                            : saveCurrentArchive())
-                                    }
+                                    onClick={() => void saveCurrentArchiveFromAction()}
                                     disabled={busy() || workspace()?.snapshot.locked}
                                 >
                                     <Icon name="archive" />
@@ -4021,6 +4029,7 @@ function App(): JSX.Element {
                                             "button",
                                         )}
                                         type="button"
+                                        aria-label={item.label}
                                         aria-current={view() === item.id ? "page" : undefined}
                                         onClick={() => navigateToView(item.id)}
                                     >
@@ -4049,6 +4058,7 @@ function App(): JSX.Element {
                                         "button",
                                     )}
                                     type="button"
+                                    aria-label="More workspaces"
                                     aria-haspopup="menu"
                                     aria-expanded={contextualNavOpen()}
                                     onClick={() => setContextualNavOpen((open) => !open)}
@@ -4088,6 +4098,7 @@ function App(): JSX.Element {
                                                     )}
                                                     type="button"
                                                     role="menuitem"
+                                                    aria-label={item.label}
                                                     aria-current={
                                                         view() === item.id ? "page" : undefined
                                                     }
@@ -4621,7 +4632,7 @@ function App(): JSX.Element {
                                         state={state}
                                         busy={busy()}
                                         onApplyMaintenance={applyArchiveMaintenance}
-                                        onSave={() => void saveCurrentArchive()}
+                                        onSave={() => void saveCurrentArchiveFromAction()}
                                         onOpen={() => void openArchive()}
                                         onLock={() => void lockCurrentArchive()}
                                     />
@@ -4635,7 +4646,7 @@ function App(): JSX.Element {
                                         busy={busy()}
                                         onChangePassphrase={() => openDialog("passphrase")}
                                         onEnableEncryption={enableCurrentEncryption}
-                                        onSaveArchive={() => void saveCurrentArchive()}
+                                        onSaveArchive={() => void saveCurrentArchiveFromAction()}
                                         onSaveMarkerKeys={saveMarkerKeys}
                                         onSaveSettings={(records, message) =>
                                             addRecords(records, message)
