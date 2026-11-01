@@ -1,4 +1,4 @@
-import { For, Show, createEffect, createSignal, type JSX } from "solid-js";
+import { For, Show, createEffect, createSignal, untrack, type JSX } from "solid-js";
 import { deterministicUuid } from "./ai/providers";
 import { hasSensitiveCredentialMaterial, sensitiveSettingKey } from "./archive/sanitized-copy";
 import { RecordType, type ArchiveRecord } from "./archive/format";
@@ -63,7 +63,7 @@ async function makeSetting(
 
 /** A graphical editor for ordinary archive settings; credentials remain in the AI workspace. */
 export function ArchiveSettings(props: ArchiveSettingsProps): JSX.Element {
-    const [archiveName, setArchiveName] = createSignal(props.displayName);
+    const [archiveName, setArchiveName] = createSignal(untrack(() => props.displayName));
     const [renameError, setRenameError] = createSignal("");
     const [renameStatus, setRenameStatus] = createSignal("");
     const [renameBusy, setRenameBusy] = createSignal(false);
