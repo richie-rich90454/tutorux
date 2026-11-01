@@ -5,7 +5,7 @@ import { executeCli } from "../../../cli/main";
 
 describe("template CLI parity", () => {
     it("imports plain guidance and applies built-in overrides", async () => {
-        const directory = await mkdtemp(join(process.cwd(), "tmp", "tutorux-template-parity-"));
+        const directory = await mkdtemp(join(process.cwd(), "tutorux-template-parity-"));
         const archivePath = join(directory, "lesson.tux");
         const guidancePath = join(directory, "review-guidance.md");
         const stdout: string[] = [];
