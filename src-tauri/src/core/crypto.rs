@@ -85,19 +85,19 @@ fn validate_kdf_limits(ops_limit: u32, memory_limit: u32) -> Result<()> {
     Ok(())
 }
 
-fn derive_key(passphrase: &[u8], salt: &[u8], ops_limit: u32, memory_limit: u32) -> Result<[u8; 32]> {
-    let params = Params::new(
-        memory_limit / 1024,
-        ops_limit,
-        1,
-        Some(DATA_KEY_BYTES),
-    )
-    .map_err(|_| {
-        CoreError::new(
-            "archive_encryption_parameters_invalid",
-            "Archive encryption parameters are outside the supported safe range.",
-        )
-    })?;
+fn derive_key(
+    passphrase: &[u8],
+    salt: &[u8],
+    ops_limit: u32,
+    memory_limit: u32,
+) -> Result<[u8; 32]> {
+    let params =
+        Params::new(memory_limit / 1024, ops_limit, 1, Some(DATA_KEY_BYTES)).map_err(|_| {
+            CoreError::new(
+                "archive_encryption_parameters_invalid",
+                "Archive encryption parameters are outside the supported safe range.",
+            )
+        })?;
     let argon2 = Argon2::new(Algorithm::Argon2id, Version::V0x13, params);
     let mut output = [0u8; DATA_KEY_BYTES];
     argon2
@@ -119,7 +119,10 @@ fn key_wrap_associated_data(archive_id: &str) -> Result<Vec<u8>> {
 
 fn record_associated_data(context: &RecordEncryptionContext<'_>) -> Result<Vec<u8>> {
     if context.codec > 1 {
-        return err("record_codec_invalid", "Record codec is outside the v1 range.");
+        return err(
+            "record_codec_invalid",
+            "Record codec is outside the v1 range.",
+        );
     }
     let mut bytes = b"TUTORUX-RECORD-V1".to_vec();
     bytes.extend_from_slice(&uuid_to_bytes(context.archive_id)?);
@@ -214,7 +217,12 @@ pub fn wrap_data_key(
                 aad: &associated_data,
             },
         )
-        .map_err(|_| CoreError::new("crypto_key_wrap_failed", "Unable to wrap the archive data key."))?;
+        .map_err(|_| {
+            CoreError::new(
+                "crypto_key_wrap_failed",
+                "Unable to wrap the archive data key.",
+            )
+        })?;
     Ok(ArchiveEnvelope {
         salt,
         nonce,
@@ -302,19 +310,24 @@ impl ArchiveDataKey {
     }
 
     pub fn authenticate_bytes(&self, label: &str, payload: &[u8]) -> Vec<u8> {
-        let mut mac = <Hmac<Sha256> as Mac>::new_from_slice(&self.bytes)
-            .expect("HMAC accepts a 32-byte key");
+        let mut mac =
+            <Hmac<Sha256> as Mac>::new_from_slice(&self.bytes).expect("HMAC accepts a 32-byte key");
         mac.update(label.as_bytes());
         mac.update(payload);
         mac.finalize().into_bytes().to_vec()
     }
 
-    pub fn authentication_matches(&self, label: &str, payload: &[u8], authentication: &[u8]) -> bool {
+    pub fn authentication_matches(
+        &self,
+        label: &str,
+        payload: &[u8],
+        authentication: &[u8],
+    ) -> bool {
         if authentication.len() != HMAC_BYTES {
             return false;
         }
-        let mut mac = <Hmac<Sha256> as Mac>::new_from_slice(&self.bytes)
-            .expect("HMAC accepts a 32-byte key");
+        let mut mac =
+            <Hmac<Sha256> as Mac>::new_from_slice(&self.bytes).expect("HMAC accepts a 32-byte key");
         mac.update(label.as_bytes());
         mac.update(payload);
         mac.verify_slice(authentication).is_ok()
@@ -373,7 +386,11 @@ pub fn envelope_from_record(record: &ArchiveRecord, archive_id: &str) -> Result<
         );
     }
     let envelope = ArchiveEnvelope {
-        salt: decode_hex(record.field("salt").unwrap_or(""), "salt", ENVELOPE_SALT_BYTES)?,
+        salt: decode_hex(
+            record.field("salt").unwrap_or(""),
+            "salt",
+            ENVELOPE_SALT_BYTES,
+        )?,
         nonce: decode_hex(
             record.field("nonce").unwrap_or(""),
             "nonce",
@@ -454,7 +471,8 @@ mod tests {
         let key = ArchiveDataKey::create_random();
         let archive_id = uuid_from_bytes(&[7u8; 16]).unwrap();
         let envelope = wrap_data_key("a sufficiently long phrase", &key, &archive_id).unwrap();
-        let unwrapped = unwrap_data_key("a sufficiently long phrase", &envelope, &archive_id).unwrap();
+        let unwrapped =
+            unwrap_data_key("a sufficiently long phrase", &envelope, &archive_id).unwrap();
         assert_eq!(key.bytes, unwrapped.bytes);
     }
 
