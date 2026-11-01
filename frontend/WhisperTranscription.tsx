@@ -1,5 +1,4 @@
 import { invoke, isTauri } from "@tauri-apps/api/core";
-import { open } from "@tauri-apps/plugin-dialog";
 import { createSignal, onCleanup, Show } from "solid-js";
 import { newUuid } from "./archive/format";
 import type { ArchiveRecord } from "./archive/format";
@@ -21,15 +20,12 @@ interface Props {
     ) => Promise<boolean>;
 }
 
-/** Transcribe the currently loaded audio preview using a locally supplied Whisper runtime. */
+/** Transcribe the current audio preview with the model embedded in the desktop app. */
 export function WhisperTranscription(props: Props) {
-    const [executable, setExecutable] = createSignal("");
-    const [model, setModel] = createSignal("");
     const [language, setLanguage] = createSignal("auto");
     const [busy, setBusy] = createSignal(false);
     const [fullTrack, setFullTrack] = createSignal(true);
     const [refine, setRefine] = createSignal(false);
-    const [diarizeSpeakerTurns, setDiarizeSpeakerTurns] = createSignal(false);
     const [message, setMessage] = createSignal("");
     const [error, setError] = createSignal("");
     let runId: string | undefined;
@@ -39,21 +35,6 @@ export function WhisperTranscription(props: Props) {
         if (runId) void invoke("cancel_whisper_run", { runId }).catch(() => undefined);
     };
     onCleanup(cancel);
-    const choose = async (kind: "executable" | "model") => {
-        try {
-            const path = await open({
-                multiple: false,
-                directory: false,
-                title:
-                    kind === "model"
-                        ? "Choose a Whisper model"
-                        : "Choose the whisper.cpp executable",
-            });
-            if (typeof path === "string") (kind === "model" ? setModel : setExecutable)(path);
-        } catch (reason) {
-            setError(reason instanceof Error ? reason.message : String(reason));
-        }
-    };
     const transcribe = async () => {
         setBusy(true);
         setError("");
@@ -67,11 +48,8 @@ export function WhisperTranscription(props: Props) {
             const sessionId = props.sessionId;
             const trackId = props.trackId;
             const selectedLanguage = language().trim();
-            const selectedExecutable = executable();
-            const selectedModel = model();
             const replacement = refine();
             const wholeTrack = fullTrack();
-            const detectSpeakerTurns = diarizeSpeakerTurns();
             const existing = props.records;
             const provenanceRunId = newUuid();
             const preview =
@@ -115,7 +93,6 @@ export function WhisperTranscription(props: Props) {
             }
             const changes = new Map<string, ArchiveRecord>();
             let skipped = 0;
-            let speakerTurnBoundaries = 0;
             let cursor = 0n;
             let windows = 0;
             const committedIds = new Set<string>();
@@ -160,11 +137,8 @@ export function WhisperTranscription(props: Props) {
                     "transcribe_whisper",
                     {
                         runId,
-                        executable: selectedExecutable,
-                        model: selectedModel,
                         wav: Array.from(whisperAudio(current)),
                         language: selectedLanguage,
-                        diarizeSpeakerTurns: detectSpeakerTurns,
                     },
                 );
                 if (cancelled) throw new Error("Transcription cancelled.");
@@ -188,16 +162,9 @@ export function WhisperTranscription(props: Props) {
                     existing,
                     replaceProvisional: replacement,
                     runId: provenanceRunId,
-                    diarizeSpeakerTurns: detectSpeakerTurns,
                 });
                 for (const record of result.records) {
                     changes.set(record.id, record);
-                    if (
-                        record.fields.get("_deleted") !== "true" &&
-                        record.fields.get("speaker_turn_next") === "true"
-                    ) {
-                        speakerTurnBoundaries++;
-                    }
                 }
                 if (changes.size > 100_000)
                     throw new Error("The transcription produced too many cues for one operation.");
@@ -219,7 +186,7 @@ export function WhisperTranscription(props: Props) {
                     );
                 } else {
                     setMessage(
-                        `Saved ${savedRecords} cue change(s) from ${windows} audio window(s)${skipped ? `; skipped ${skipped} protected or out-of-range cues` : ""}.${detectSpeakerTurns ? ` Tiny diarization marked ${speakerTurnBoundaries} speaker-turn boundaries; assign speaker identities manually.` : ""} Review provisional cues before reuse.`,
+                        `Saved ${savedRecords} cue change(s) from ${windows} audio window(s)${skipped ? `; skipped ${skipped} protected or out-of-range cues` : ""}. Review provisional cues before reuse.`,
                     );
                 }
                 return;
@@ -233,7 +200,7 @@ export function WhisperTranscription(props: Props) {
             }
             if (await props.onSave(records, `Saved local transcription.`, snapshot)) {
                 setMessage(
-                    `Saved transcription${skipped ? `; skipped ${skipped} protected or out-of-range cues` : ""}.${detectSpeakerTurns ? ` Tiny diarization marked ${speakerTurnBoundaries} speaker-turn boundaries; assign speaker identities manually.` : ""} Review provisional cues before reuse.`,
+                    `Saved transcription${skipped ? `; skipped ${skipped} protected or out-of-range cues` : ""}. Review provisional cues before reuse.`,
                 );
             }
         } catch (reason) {
@@ -250,7 +217,7 @@ export function WhisperTranscription(props: Props) {
         }
     };
     return (
-        <div class="transcript-whisper">
+        <div class="transcript-whisper col-span-full min-w-0 rounded-panel border border-line bg-surface-subtle p-4">
             <strong>Transcribe this recording</strong>
             <Show
                 when={isTauri()}
@@ -259,6 +226,9 @@ export function WhisperTranscription(props: Props) {
                 <p>
                     Create timestamped cues from the full recording with Whisper running locally.
                     Review the cues below before using them.
+                </p>
+                <p class="transcript-whisper-model" role="status">
+                    Bundled multilingual Whisper model · runs offline
                 </p>
                 <div class="transcript-whisper-actions">
                     <label>
@@ -280,38 +250,6 @@ export function WhisperTranscription(props: Props) {
                         Replace provisional Whisper cues
                     </label>
                     <label>
-                        <input
-                            type="checkbox"
-                            checked={diarizeSpeakerTurns()}
-                            disabled={busy()}
-                            onChange={(event) =>
-                                setDiarizeSpeakerTurns(event.currentTarget.checked)
-                            }
-                        />{" "}
-                        Detect speaker-turn boundaries
-                    </label>
-                    <p class="transcript-whisper-diarization-note">
-                        Experimental tiny diarization requires a TDRZ-compatible Whisper model. It
-                        marks speaker-turn boundaries only; assign tutor and student identities
-                        manually after review.
-                    </p>
-                    <button
-                        class="button button-outline"
-                        type="button"
-                        disabled={busy()}
-                        onClick={() => void choose("executable")}
-                    >
-                        {executable() ? "Change Whisper executable" : "Choose Whisper executable"}
-                    </button>
-                    <button
-                        class="button button-outline"
-                        type="button"
-                        disabled={busy()}
-                        onClick={() => void choose("model")}
-                    >
-                        {model() ? "Change model" : "Choose model"}
-                    </button>
-                    <label>
                         Language{" "}
                         <input
                             value={language()}
@@ -323,7 +261,7 @@ export function WhisperTranscription(props: Props) {
                     <button
                         class="button button-primary"
                         type="button"
-                        disabled={props.disabled || busy() || !executable() || !model()}
+                        disabled={props.disabled || busy()}
                         onClick={() => void transcribe()}
                     >
                         {busy()
