@@ -120,7 +120,6 @@ impl WindowProcessor {
         params.set_print_realtime(false);
         params.set_print_timestamps(false);
         params.set_print_special(false);
-        params.set_tdrz_enable(options.diarize_speaker_turns);
         let detect_language = options.language == "auto";
         params.set_language((!detect_language).then_some(options.language.as_str()));
         params.set_detect_language(detect_language);
@@ -176,12 +175,7 @@ impl WindowProcessor {
             if start_time_us >= end_time_us || end_time_us > window_end_us {
                 continue;
             }
-            window_cues.push((
-                start_time_us,
-                end_time_us,
-                text,
-                options.diarize_speaker_turns && segment.next_segment_speaker_turn(),
-            ));
+            window_cues.push((start_time_us, end_time_us, text, false));
         }
         window_cues.sort_by_key(|cue| (cue.0, cue.1));
         publish_cues(
@@ -191,7 +185,7 @@ impl WindowProcessor {
             detected_language,
             model_name,
             backend_version,
-            options.diarize_speaker_turns,
+            false,
         )?;
         self.samples.fill(0.0);
         self.samples.clear();
