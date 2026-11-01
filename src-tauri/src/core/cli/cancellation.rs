@@ -82,7 +82,11 @@ mod tests {
             fn stderr(&mut self, _message: &str) {}
         }
 
-        let arguments = vec!["archive".to_owned(), "info".to_owned(), "missing.tux".to_owned()];
+        let arguments = vec![
+            "archive".to_owned(),
+            "info".to_owned(),
+            "missing.tux".to_owned(),
+        ];
         assert_eq!(
             super::super::execute_cli(&arguments, &mut Output, &Flag(true)),
             2
