@@ -23,12 +23,19 @@ pub(super) fn take_list(
         .list_records(RecordType::ASSET_METADATA, args.flag("include-deleted"))?
         .into_iter()
         .filter(|record| record.field("record_role") == Some("recording-take"))
-        .filter(|record| record.field("session_id").map(str::to_lowercase) == Some(session_id.clone()))
+        .filter(|record| {
+            record.field("session_id").map(str::to_lowercase) == Some(session_id.clone())
+        })
         .collect();
     records.sort_by(|left, right| left.id.cmp(&right.id));
     emit(
         output,
-        Value::Array(records.iter().map(crate::core::cli::records::plain).collect()),
+        Value::Array(
+            records
+                .iter()
+                .map(crate::core::cli::records::plain)
+                .collect(),
+        ),
         &format!("{} recording take(s).", records.len()),
         args.json(),
     );
@@ -53,10 +60,13 @@ pub(super) fn take_rename(
         return Err(CliError("Recording take was not found.".to_owned()).into());
     }
     take.fields.insert("label".to_owned(), label);
-    take.fields.insert("updated_at_us".to_owned(), now_us().to_string());
+    take.fields
+        .insert("updated_at_us".to_owned(), now_us().to_string());
     let next = snapshot.append_records(&[take])?;
     crate::core::cli::records::save_replacing(path, &next)?;
-    let saved = next.get_record(RecordType::ASSET_METADATA, &take_id)?.unwrap();
+    let saved = next
+        .get_record(RecordType::ASSET_METADATA, &take_id)?
+        .unwrap();
     emit(
         output,
         Value::Array(vec![crate::core::cli::records::plain(&saved)]),
@@ -84,12 +94,14 @@ pub(super) fn set_take_deleted(
         .ok_or_else(|| CliError("Recording take was not found.".to_owned()))?;
     let currently_deleted = take.deleted();
     if currently_deleted == deleted {
-        return Err(CliError(if deleted {
-            "This recording take is already in Trash."
-        } else {
-            "This recording take is not in Trash."
-        }
-        .to_owned())
+        return Err(CliError(
+            if deleted {
+                "This recording take is already in Trash."
+            } else {
+                "This recording take is not in Trash."
+            }
+            .to_owned(),
+        )
         .into());
     }
     let track_ids = split_ids(take.field("track_ids").unwrap_or(""));
@@ -126,7 +138,10 @@ pub(super) fn set_take_deleted(
             .map(|id| id.to_lowercase())
             .unwrap_or_default();
         if track_ids.contains(&primary) {
-            take_fields.insert("_trash_restore_session_primary_track_id".to_owned(), primary);
+            take_fields.insert(
+                "_trash_restore_session_primary_track_id".to_owned(),
+                primary,
+            );
             session_fields.remove("recording_track_id");
         }
         let imported = session_fields
@@ -207,8 +222,7 @@ pub(super) fn set_take_deleted(
     let mut visible_ids = vec![take.id.clone()];
     for record in snapshot.list_records(RecordType::ASSET_METADATA, true)? {
         if record.field("record_role") == Some("audio-track")
-            && record.field("session_id").map(str::to_lowercase)
-                == Some(session_id.clone())
+            && record.field("session_id").map(str::to_lowercase) == Some(session_id.clone())
             && track_ids.contains(
                 &record
                     .field("track_id")
@@ -227,10 +241,8 @@ pub(super) fn set_take_deleted(
     }
     for track_id in &track_ids {
         for mut chunk in snapshot.list_records(RecordType::AUDIO_CHUNK, true)? {
-            if chunk.field("track_id").map(str::to_lowercase).as_deref()
-                == Some(track_id.as_str())
-                && chunk.field("session_id").map(str::to_lowercase)
-                    == Some(session_id.clone())
+            if chunk.field("track_id").map(str::to_lowercase).as_deref() == Some(track_id.as_str())
+                && chunk.field("session_id").map(str::to_lowercase) == Some(session_id.clone())
                 && should_change_trash_state(&chunk, deleted, &take_id)
             {
                 apply_recording_trash(&mut chunk, deleted, &take_id, &timestamp);
@@ -247,7 +259,7 @@ pub(super) fn set_take_deleted(
     let visible: Vec<Value> = visible_ids
         .iter()
         .filter_map(|id| visible_records.get(&id.to_lowercase()))
-        .map(|record| crate::core::cli::records::plain(record))
+        .map(crate::core::cli::records::plain)
         .collect();
     emit(
         output,
@@ -280,12 +292,18 @@ pub(super) fn track_rename(
                 && record.field("session_id").map(str::to_lowercase).as_deref()
                     == Some(session_id.as_str())
         })
-        .ok_or_else(|| CliError("The selected track does not belong to this session.".to_owned()))?;
+        .ok_or_else(|| {
+            CliError("The selected track does not belong to this session.".to_owned())
+        })?;
     track.fields.insert("label".to_owned(), label);
-    track.fields.insert("updated_at_us".to_owned(), now_us().to_string());
+    track
+        .fields
+        .insert("updated_at_us".to_owned(), now_us().to_string());
     let next = snapshot.append_records(&[track])?;
     crate::core::cli::records::save_replacing(path, &next)?;
-    let saved = next.get_record(RecordType::ASSET_METADATA, &track_id)?.unwrap();
+    let saved = next
+        .get_record(RecordType::ASSET_METADATA, &track_id)?
+        .unwrap();
     emit(
         output,
         Value::Array(vec![crate::core::cli::records::plain(&saved)]),
