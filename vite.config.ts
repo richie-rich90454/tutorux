@@ -23,10 +23,34 @@ export default defineConfig(({ mode }) => ({
     build: {
         target: "es2022",
         sourcemap: true,
-        // libsodium-wrappers-sumo is a single ~534 kB vendor module. It is kept
-        // behind lazy crypto imports, so allow that known chunk while warning
-        // on chunks larger than 535 kB.
-        chunkSizeWarningLimit: 535,
+        rolldownOptions: {
+            output: {
+                // Keep startup and shared dependency chunks comfortably below Vite's
+                // warning threshold while retaining the existing lazy feature boundaries.
+                // Strict execution order protects modules with initialization side effects.
+                strictExecutionOrder: true,
+                codeSplitting: {
+                    groups: [
+                        {
+                            name: "vendor",
+                            test: /node_modules[\\/]/u,
+                            minSize: 32 * 1024,
+                            maxSize: 440 * 1024,
+                            entriesAware: true,
+                            priority: 20,
+                        },
+                        {
+                            name: "initial",
+                            tags: ["$initial"],
+                            minSize: 32 * 1024,
+                            maxSize: 440 * 1024,
+                            entriesAware: true,
+                            priority: 10,
+                        },
+                    ],
+                },
+            },
+        },
     },
     test: {
         environment: "node",
