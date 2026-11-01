@@ -111,10 +111,7 @@ fn import_compressed_audio_blocking(
     }
     let stderr_text = read_bounded_text(&mut stderr, 16 * 1024);
     let status = process.0.wait();
-    let (format, chunks, sample_count, byte_count) = match decoded {
-        Ok(decoded) => decoded,
-        Err(error) => return Err(error),
-    };
+    let (format, chunks, sample_count, byte_count) = decoded?;
     match status {
         Ok(status) if status.success() => {}
         Ok(status) => {
@@ -291,7 +288,7 @@ fn read_wav_format(reader: &mut impl Read) -> Result<WavFormat, String> {
         let chunk_id = &chunk[..4];
         let chunk_size = u32::from_le_bytes([chunk[4], chunk[5], chunk[6], chunk[7]]);
         if chunk_id == b"fmt " {
-            if chunk_size < 16 || chunk_size > MAX_WAV_HEADER_CHUNK_BYTES {
+            if !(16..=MAX_WAV_HEADER_CHUNK_BYTES).contains(&chunk_size) {
                 return Err("FFmpeg returned an invalid WAV format chunk.".to_owned());
             }
             let mut bytes = vec![0u8; chunk_size as usize];
