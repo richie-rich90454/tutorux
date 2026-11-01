@@ -7,9 +7,7 @@ use serde_json::json;
 use crate::core::archive::new_uuid;
 use crate::core::cli::{emit, CliContext, CliError, CliOutput, CliResult, ParsedArguments};
 
-use super::control_files::{
-    clear, read_status, WorkerStatus, PASSPHRASE_ENV, WORKER_ID_ENV,
-};
+use super::control_files::{clear, read_status, WorkerStatus, PASSPHRASE_ENV, WORKER_ID_ENV};
 
 pub(super) fn run(
     args: &ParsedArguments,
@@ -43,9 +41,8 @@ pub(super) fn run(
                 ))
                 .into());
             }
-            let ready = status.state == "recording"
-                || status.state == "paused"
-                || status.is_terminal();
+            let ready =
+                status.state == "recording" || status.state == "paused" || status.is_terminal();
             current = Some(status);
             if ready {
                 break;
@@ -59,10 +56,9 @@ pub(super) fn run(
     }
     if current.is_none() {
         if let Ok(snapshot) = super::open_ready(path, context) {
-            if let Ok(Some(session)) = snapshot.get_record(
-                crate::core::format::RecordType::SESSION,
-                session_id,
-            ) {
+            if let Ok(Some(session)) =
+                snapshot.get_record(crate::core::format::RecordType::SESSION, session_id)
+            {
                 let state = session.field("recording_state").unwrap_or("");
                 if matches!(state, "completed" | "interrupted" | "failed" | "partial") {
                     current = Some(WorkerStatus {
@@ -108,11 +104,13 @@ pub(super) fn run(
         "workerId": status.worker_id,
     });
     emit(output, report, &summary, args.json());
-    Ok(if matches!(state.as_str(), "recording" | "paused" | "completed") {
-        0
-    } else {
-        1
-    })
+    Ok(
+        if matches!(state.as_str(), "recording" | "paused" | "completed") {
+            0
+        } else {
+            1
+        },
+    )
 }
 
 fn spawn_worker(
@@ -153,7 +151,10 @@ fn spawn_worker(
         use std::os::unix::process::CommandExt;
         command.process_group(0);
     }
-    command
-        .spawn()
-        .map_err(|error| CliError(format!("The detached recording worker could not start: {error}")).into())
+    command.spawn().map_err(|error| {
+        CliError(format!(
+            "The detached recording worker could not start: {error}"
+        ))
+        .into()
+    })
 }
