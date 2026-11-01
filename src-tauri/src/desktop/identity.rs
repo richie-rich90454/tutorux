@@ -57,7 +57,9 @@ pub(crate) fn archive_identity(path: &Path) -> Result<ArchiveIdentity, String> {
     archive_identity_and_hasher(path).map(|(identity, _)| identity)
 }
 
-pub(crate) fn archive_identity_and_hasher(path: &Path) -> Result<(ArchiveIdentity, Sha256), String> {
+pub(crate) fn archive_identity_and_hasher(
+    path: &Path,
+) -> Result<(ArchiveIdentity, Sha256), String> {
     let mut file =
         File::open(path).map_err(|error| format!("Could not inspect archive: {error}"))?;
     archive_identity_from_file(&mut file)
@@ -151,7 +153,7 @@ pub(crate) fn archive_location_changed_message() -> String {
 }
 
 pub(crate) fn preserve_backup_error(backup: &Path, target: &Path, reason: String) -> String {
-    match fs::hard_link(backup, target) {
+    match move_file_without_replacing(backup, target) {
         Ok(()) => {
             let _ = fs::remove_file(backup);
             if let Some(directory) = backup.parent() {
@@ -166,9 +168,47 @@ pub(crate) fn preserve_backup_error(backup: &Path, target: &Path, reason: String
     }
 }
 
+/// Move a same-volume file only when its destination does not already exist.
+#[cfg(windows)]
+pub(crate) fn move_file_without_replacing(source: &Path, target: &Path) -> std::io::Result<()> {
+    use std::{io, os::windows::ffi::OsStrExt};
+    use windows_sys::Win32::Storage::FileSystem::MoveFileW;
+
+    fn nul_terminated_path(path: &Path) -> io::Result<Vec<u16>> {
+        let mut encoded: Vec<u16> = path.as_os_str().encode_wide().collect();
+        if encoded.contains(&0) {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "Windows paths cannot contain a null character.",
+            ));
+        }
+        encoded.push(0);
+        Ok(encoded)
+    }
+
+    let source = nul_terminated_path(source)?;
+    let target = nul_terminated_path(target)?;
+
+    // SAFETY: both arguments are valid, NUL-terminated UTF-16 paths kept alive for the call.
+    // MoveFileW reads these paths synchronously and fails if the destination already exists.
+    let result = unsafe { MoveFileW(source.as_ptr(), target.as_ptr()) };
+    if result == 0 {
+        Err(io::Error::last_os_error())
+    } else {
+        Ok(())
+    }
+}
+
+#[cfg(not(windows))]
+pub(crate) fn move_file_without_replacing(source: &Path, target: &Path) -> std::io::Result<()> {
+    // Hard-link creation is atomic and fails if another process recreated the target path.
+    fs::hard_link(source, target)
+}
+
 #[cfg(test)]
 mod tests {
-    use super::normalized_save_location;
+    use super::{move_file_without_replacing, normalized_save_location, preserve_backup_error};
+    use std::fs;
 
     #[test]
     fn save_location_creates_missing_folders() {
@@ -183,6 +223,50 @@ mod tests {
         assert_eq!(
             normalized.file_name().and_then(|name| name.to_str()),
             Some("archive.tux")
+        );
+    }
+
+    #[test]
+    fn restoring_a_backup_never_replaces_a_file_that_appeared_at_the_destination() {
+        let root = tempfile::tempdir().expect("temporary directory");
+        let backup = root.path().join("backup.tux");
+        let target = root.path().join("archive.tux");
+        fs::write(&backup, b"original archive").expect("write recovery archive");
+        fs::write(&target, b"external replacement").expect("write external replacement");
+
+        let message = preserve_backup_error(
+            &backup,
+            &target,
+            "The staged archive could not be published.".to_owned(),
+        );
+
+        assert!(message.contains("could not safely restore"));
+        assert_eq!(
+            fs::read(&backup).expect("read preserved backup"),
+            b"original archive"
+        );
+        assert_eq!(
+            fs::read(&target).expect("read external replacement"),
+            b"external replacement"
+        );
+    }
+
+    #[test]
+    fn move_without_replacing_succeeds_when_the_destination_is_empty() {
+        let root = tempfile::tempdir().expect("temporary directory");
+        let source = root.path().join("source.tux");
+        let target = root.path().join("target.tux");
+        fs::write(&source, b"archive").expect("write staged archive");
+
+        move_file_without_replacing(&source, &target).expect("move archive without replacement");
+
+        #[cfg(windows)]
+        assert!(!source.exists());
+        #[cfg(not(windows))]
+        assert!(source.exists());
+        assert_eq!(
+            fs::read(&target).expect("read published archive"),
+            b"archive"
         );
     }
 }
