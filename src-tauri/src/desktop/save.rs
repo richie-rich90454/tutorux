@@ -1,8 +1,8 @@
 use super::{
     identity::{
         archive_changed_message, archive_identity, archive_identity_and_hasher,
-        archive_location_changed_message, normalized_save_location, preserve_backup_error,
-        resolve_existing_file, same_path,
+        archive_location_changed_message, move_file_without_replacing, normalized_save_location,
+        preserve_backup_error, resolve_existing_file, same_path,
     },
     state::{DesktopState, PendingSave, SavePreparation},
 };
@@ -115,6 +115,38 @@ pub(crate) fn publish_archive_save(
         .archive_locks
         .for_path(&pending.target, LockMode::Exclusive)?;
     let mut archive_write_lock = state.archive_locks.exclusive_guard(&target_lock)?;
+    validate_staged_archive_file(&pending)?;
+    archive_write_lock.prepare_replacement_file(&pending.temporary)?;
+    let backup = publish_staged_archive_file(&pending, &token)?;
+    archive_write_lock.adopt_replacement_file()?;
+
+    if let Some(archive_token) = &pending.source_archive_token {
+        let (identity, hasher) = archive_identity_and_hasher(&pending.target)?;
+        let mut opened_archives = state
+            .opened_archives
+            .lock()
+            .map_err(|_| "Archive access state is unavailable.".to_owned())?;
+        if let Some(archive) = opened_archives.get_mut(archive_token) {
+            archive_write_lock.retain_shared()?;
+            archive.path = pending.target.clone();
+            archive.location = pending.target_location.clone();
+            archive.identity = identity;
+            archive.hasher = hasher;
+            archive.lock = target_lock.clone();
+        }
+    }
+    let _ = fs::remove_file(&pending.temporary);
+    if let Some((backup_directory, backup)) = backup {
+        let _ = fs::remove_file(backup);
+        let _ = fs::remove_dir(backup_directory);
+    }
+    pending_saves.remove(&token);
+    let _ = app.fs_scope().forbid_file(&pending.temporary);
+    Ok(())
+}
+
+/// Revalidate the staged destination under its exclusive archive lock before publication.
+fn validate_staged_archive_file(pending: &PendingSave) -> Result<(), String> {
     OpenOptions::new()
         .write(true)
         .open(&pending.temporary)
@@ -141,8 +173,15 @@ pub(crate) fn publish_archive_save(
         }
     }
 
-    archive_write_lock.prepare_replacement_file(&pending.temporary)?;
+    Ok(())
+}
 
+/// Existing destinations retain a recovery copy until the caller adopts the staged file lock.
+/// Windows publishes with a no-replace same-folder move; other platforms use a no-clobber hard link.
+fn publish_staged_archive_file(
+    pending: &PendingSave,
+    token: &str,
+) -> Result<Option<(std::path::PathBuf, std::path::PathBuf)>, String> {
     let backup_directory = pending
         .target
         .with_file_name(format!(".tutorux-{token}.backup"));
@@ -175,7 +214,8 @@ pub(crate) fn publish_archive_save(
         }
     }
 
-    if let Err(error) = fs::hard_link(&pending.temporary, &pending.target) {
+    let publish = move_file_without_replacing(&pending.temporary, &pending.target);
+    if let Err(error) = publish {
         if pending.target_identity.is_some() {
             return Err(preserve_backup_error(
                 &backup,
@@ -188,31 +228,10 @@ pub(crate) fn publish_archive_save(
         ));
     }
 
-    archive_write_lock.adopt_replacement_file()?;
-
-    let _ = fs::remove_file(&pending.temporary);
-    if pending.target_identity.is_some() {
-        let _ = fs::remove_file(&backup);
-        let _ = fs::remove_dir(&backup_directory);
-    }
-    if let Some(archive_token) = &pending.source_archive_token {
-        let (identity, hasher) = archive_identity_and_hasher(&pending.target)?;
-        let mut opened_archives = state
-            .opened_archives
-            .lock()
-            .map_err(|_| "Archive access state is unavailable.".to_owned())?;
-        if let Some(archive) = opened_archives.get_mut(archive_token) {
-            archive_write_lock.retain_shared()?;
-            archive.path = pending.target.clone();
-            archive.location = pending.target_location.clone();
-            archive.identity = identity;
-            archive.hasher = hasher;
-            archive.lock = target_lock.clone();
-        }
-    }
-    pending_saves.remove(&token);
-    let _ = app.fs_scope().forbid_file(&pending.temporary);
-    Ok(())
+    Ok(pending
+        .target_identity
+        .as_ref()
+        .map(|_| (backup_directory, backup)))
 }
 
 #[tauri::command]
@@ -231,4 +250,135 @@ pub(crate) fn cancel_archive_save(
         let _ = app.fs_scope().forbid_file(&pending.temporary);
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{publish_staged_archive_file, validate_staged_archive_file};
+    use crate::desktop::{
+        identity::{archive_identity, normalized_location_path, resolve_existing_file},
+        state::PendingSave,
+    };
+    use std::{fs, path::Path};
+
+    fn pending_save(
+        target: &Path,
+        temporary: &Path,
+        target_identity: Option<crate::desktop::state::ArchiveIdentity>,
+    ) -> PendingSave {
+        let target_location = normalized_location_path(target).expect("normalize archive path");
+        let target = resolve_existing_file(&target_location)
+            .expect("inspect archive path")
+            .unwrap_or_else(|| target_location.clone());
+        PendingSave {
+            target,
+            target_location,
+            target_identity,
+            temporary: temporary.to_path_buf(),
+            source_archive_token: None,
+            create_only: false,
+        }
+    }
+
+    #[test]
+    fn save_replaces_an_existing_archive_and_keeps_a_recovery_copy_until_adoption() {
+        let root = tempfile::tempdir().expect("temporary directory");
+        let target = root.path().join("lesson.tux");
+        let temporary = root.path().join(".staged-archive.partial");
+        fs::write(&target, b"previous archive").expect("write existing archive");
+        fs::write(&temporary, b"updated archive").expect("write staged archive");
+        let expected = archive_identity(&target).expect("identify existing archive");
+        let pending = pending_save(&target, &temporary, Some(expected));
+
+        validate_staged_archive_file(&pending).expect("validate existing destination");
+        let (backup_directory, backup) = publish_staged_archive_file(&pending, "save-test")
+            .expect("publish updated archive")
+            .expect("existing destination backup");
+
+        assert_eq!(
+            fs::read(&target).expect("read updated archive"),
+            b"updated archive"
+        );
+        assert_eq!(
+            fs::read(&backup).expect("read recovery archive"),
+            b"previous archive"
+        );
+        #[cfg(windows)]
+        assert!(!temporary.exists(), "the staged file is moved into place");
+        #[cfg(not(windows))]
+        assert!(
+            temporary.exists(),
+            "the staged file remains linked until adoption"
+        );
+        fs::remove_file(backup).expect("remove recovery archive");
+        fs::remove_dir(backup_directory).expect("remove recovery folder");
+    }
+
+    #[test]
+    fn save_preserves_external_changes_and_refuses_to_publish_stale_work() {
+        let root = tempfile::tempdir().expect("temporary directory");
+        let target = root.path().join("lesson.tux");
+        let temporary = root.path().join(".staged-archive.partial");
+        fs::write(&target, b"archive at open").expect("write existing archive");
+        let expected = archive_identity(&target).expect("identify existing archive");
+        fs::write(&temporary, b"updated archive").expect("write staged archive");
+        fs::write(&target, b"external edit").expect("simulate external edit");
+        let pending = pending_save(&target, &temporary, Some(expected));
+
+        let error = validate_staged_archive_file(&pending).expect_err("reject stale save");
+
+        assert!(error.contains("changed outside Tutorux"));
+        assert_eq!(
+            fs::read(&target).expect("read externally changed archive"),
+            b"external edit"
+        );
+        assert!(
+            temporary.exists(),
+            "the unsaved work remains available for recovery"
+        );
+    }
+
+    #[test]
+    fn save_as_publishes_a_new_archive() {
+        let root = tempfile::tempdir().expect("temporary directory");
+        let target = root.path().join("lesson.tux");
+        let temporary = root.path().join(".staged-archive.partial");
+        fs::write(&temporary, b"new archive").expect("write staged archive");
+        let pending = pending_save(&target, &temporary, None);
+
+        validate_staged_archive_file(&pending).expect("validate new destination");
+        let backup =
+            publish_staged_archive_file(&pending, "save-as-test").expect("publish new archive");
+
+        assert!(backup.is_none());
+        assert_eq!(fs::read(&target).expect("read new archive"), b"new archive");
+        #[cfg(windows)]
+        assert!(!temporary.exists(), "the staged file is moved into place");
+        #[cfg(not(windows))]
+        assert!(
+            temporary.exists(),
+            "the caller retains the staged-file lock until adoption"
+        );
+    }
+
+    #[test]
+    fn save_as_preserves_a_destination_that_appears_after_validation() {
+        let root = tempfile::tempdir().expect("temporary directory");
+        let target = root.path().join("lesson.tux");
+        let temporary = root.path().join(".staged-archive.partial");
+        fs::write(&temporary, b"new archive").expect("write staged archive");
+        let pending = pending_save(&target, &temporary, None);
+
+        validate_staged_archive_file(&pending).expect("validate new destination");
+        fs::write(&target, b"external archive").expect("simulate racing destination");
+        let error = publish_staged_archive_file(&pending, "save-as-race-test")
+            .expect_err("do not replace a destination created after validation");
+
+        assert!(error.contains("without replacing"));
+        assert_eq!(
+            fs::read(&target).expect("read racing destination"),
+            b"external archive"
+        );
+        assert!(temporary.exists(), "the staged archive remains available");
+    }
 }
