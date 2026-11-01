@@ -80,8 +80,7 @@ fn compress_lz4_block(input: &[u8], maximum_length: usize) -> Option<Vec<u8>> {
             return None;
         }
         output.push(0);
-        output[token_offset] =
-            ((literal_length.min(15) << 4) | match_code.min(15)) as u8;
+        output[token_offset] = ((literal_length.min(15) << 4) | match_code.min(15)) as u8;
         if literal_length >= 15 {
             append_length(&mut output, literal_length - 15, maximum_length)?;
         }
@@ -166,10 +165,7 @@ pub fn decode_lz4_block(stored_payload: &[u8]) -> Result<Vec<u8>> {
         }
         loop {
             if *cursor >= stored_payload.len() {
-                return err(
-                    "record_compression_invalid",
-                    "LZ4 length is truncated.",
-                );
+                return err("record_compression_invalid", "LZ4 length is truncated.");
             }
             let extra = stored_payload[*cursor] as usize;
             *cursor += 1;
@@ -209,10 +205,7 @@ pub fn decode_lz4_block(stored_payload: &[u8]) -> Result<Vec<u8>> {
             | ((stored_payload[source_offset + 1] as usize) << 8);
         source_offset += 2;
         if match_offset == 0 || match_offset > target_offset {
-            return err(
-                "record_compression_invalid",
-                "LZ4 match offset is invalid.",
-            );
+            return err("record_compression_invalid", "LZ4 match offset is invalid.");
         }
         let match_length = read_extended_length((token & 0x0f) as usize, &mut source_offset)? + 4;
         if match_length > decoded_length - target_offset {
