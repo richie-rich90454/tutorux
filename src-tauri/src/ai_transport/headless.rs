@@ -73,8 +73,8 @@ pub async fn send(request: HeadlessAiRequest) -> Result<HeadlessAiResponse, Stri
         let InvokeResponseBody::Json(text) = payload else {
             return Ok(());
         };
-        let value: serde_json::Value =
-            serde_json::from_str(&text).map_err(|error| tauri::Error::AssetNotFound(error.to_string()))?;
+        let value: serde_json::Value = serde_json::from_str(&text)
+            .map_err(|error| tauri::Error::AssetNotFound(error.to_string()))?;
         if value.get("kind").and_then(serde_json::Value::as_str) != Some("chunk") {
             return Ok(());
         }
@@ -99,7 +99,10 @@ pub async fn send(request: HeadlessAiRequest) -> Result<HeadlessAiResponse, Stri
         cancelled,
         error_message,
     } = result;
-    let body = collected.lock().map(|value| value.clone()).unwrap_or_default();
+    let body = collected
+        .lock()
+        .map(|value| value.clone())
+        .unwrap_or_default();
     Ok(HeadlessAiResponse {
         status,
         content_type,
