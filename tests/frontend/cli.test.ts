@@ -12,7 +12,7 @@ import { newUuid, RecordType, type ArchiveRecord } from "../../frontend/archive/
 
 describe("TypeScript CLI", () => {
     it("shows student history and reviews source-backed progress", async () => {
-        const directory = await mkdtemp(join(process.cwd(), "tmp", "tutorux-progress-cli-"));
+        const directory = await mkdtemp(join(process.cwd(), "tutorux-progress-cli-"));
         const archivePath = join(directory, "lesson.tux");
         const stdout: string[] = [];
         const stderr: string[] = [];
@@ -161,7 +161,7 @@ describe("TypeScript CLI", () => {
     });
 
     it("organizes journal entries with collections and tags from the CLI", async () => {
-        const directory = await mkdtemp(join(process.cwd(), "tmp", "tutorux-journal-cli-"));
+        const directory = await mkdtemp(join(process.cwd(), "tutorux-journal-cli-"));
         const archivePath = join(directory, "journal.tux");
         const stdout: string[] = [];
         const stderr: string[] = [];
@@ -329,7 +329,7 @@ describe("TypeScript CLI", () => {
     });
 
     it("creates, updates, lists, and verifies a portable archive", async () => {
-        const directory = await mkdtemp(join(process.cwd(), "tmp", "tutorux-cli-"));
+        const directory = await mkdtemp(join(process.cwd(), "tutorux-cli-"));
         const archivePath = join(directory, "lesson.tux");
         const stdout: string[] = [];
         const stderr: string[] = [];
@@ -452,7 +452,7 @@ describe("TypeScript CLI", () => {
     });
 
     it("previews and applies recovery for a complete unpublished generation", async () => {
-        const directory = await mkdtemp(join(process.cwd(), "tmp", "tutorux-cli-recovery-"));
+        const directory = await mkdtemp(join(process.cwd(), "tutorux-cli-recovery-"));
         const archivePath = join(directory, "lesson.tux");
         const stdout: string[] = [];
         const stderr: string[] = [];
@@ -513,7 +513,7 @@ describe("TypeScript CLI", () => {
     });
 
     it("previews archive compaction with --preview and applies by default", async () => {
-        const directory = await mkdtemp(join(process.cwd(), "tmp", "tutorux-cli-compaction-"));
+        const directory = await mkdtemp(join(process.cwd(), "tutorux-cli-compaction-"));
         const archivePath = join(directory, "lesson.tux");
         const stdout: string[] = [];
         const stderr: string[] = [];
@@ -584,7 +584,7 @@ describe("TypeScript CLI", () => {
     });
 
     it("creates a verified repair copy without changing the damaged source", async () => {
-        const directory = await mkdtemp(join(process.cwd(), "tmp", "tutorux-cli-repair-"));
+        const directory = await mkdtemp(join(process.cwd(), "tutorux-cli-repair-"));
         const archivePath = join(directory, "lesson.tux");
         const outputPath = join(directory, "repaired.tux");
         const stdout: string[] = [];
@@ -693,7 +693,7 @@ describe("TypeScript CLI", () => {
     });
 
     it("refuses to overwrite an existing archive during init", async () => {
-        const directory = await mkdtemp(join(process.cwd(), "tmp", "tutorux-cli-"));
+        const directory = await mkdtemp(join(process.cwd(), "tutorux-cli-"));
         const archivePath = join(directory, "lesson.tux");
         const output = { stdout: () => undefined, stderr: () => undefined };
         try {
@@ -709,7 +709,7 @@ describe("TypeScript CLI", () => {
     });
 
     it("round-trips punctuation in imported custom template headings", async () => {
-        const directory = await mkdtemp(join(process.cwd(), "tmp", "tutorux-template-cli-"));
+        const directory = await mkdtemp(join(process.cwd(), "tutorux-template-cli-"));
         const archivePath = join(directory, "lesson.tux");
         const inputPath = join(directory, "template.json");
         const exportPath = join(directory, "template-export.json");
@@ -783,7 +783,7 @@ describe("TypeScript CLI", () => {
 
     it("refuses template export to a case alias of its archive on Windows", async () => {
         if (process.platform !== "win32") return;
-        const directory = await mkdtemp(join(process.cwd(), "tmp", "tutorux-template-export-"));
+        const directory = await mkdtemp(join(process.cwd(), "tutorux-template-export-"));
         const archivePath = join(directory, "lesson.tux");
         const caseAliasPath = join(directory, "LESSON.TUX");
         const stdout: string[] = [];
@@ -839,7 +839,7 @@ describe("TypeScript CLI", () => {
     });
 
     it("imports, reviews, searches, and exports session transcript cues", async () => {
-        const directory = await mkdtemp(join(process.cwd(), "tmp", "tutorux-transcript-"));
+        const directory = await mkdtemp(join(process.cwd(), "tutorux-transcript-"));
         const archivePath = join(directory, "lesson.tux");
         const sourcePath = join(directory, "lesson.srt");
         const exportPath = join(directory, "reviewed.vtt");
@@ -1033,7 +1033,7 @@ describe("TypeScript CLI", () => {
     });
 
     it("creates, edits, duplicates, lists, and removes session annotations", async () => {
-        const directory = await mkdtemp(join(process.cwd(), "tmp", "tutorux-annotation-"));
+        const directory = await mkdtemp(join(process.cwd(), "tutorux-annotation-"));
         const archivePath = join(directory, "lesson.tux");
         const stdout: string[] = [];
         const stderr: string[] = [];
@@ -1186,7 +1186,7 @@ describe("TypeScript CLI", () => {
     });
 
     it("splits and merges annotation ranges without losing their source records", async () => {
-        const directory = await mkdtemp(join(process.cwd(), "tmp", "tutorux-annotation-shapes-"));
+        const directory = await mkdtemp(join(process.cwd(), "tutorux-annotation-shapes-"));
         const archivePath = join(directory, "lesson.tux");
         const stdout: string[] = [];
         const stderr: string[] = [];
@@ -1290,7 +1290,7 @@ describe("TypeScript CLI", () => {
     });
 
     it("links annotations to session materials and evidence records", async () => {
-        const directory = await mkdtemp(join(process.cwd(), "tmp", "tutorux-annotation-links-"));
+        const directory = await mkdtemp(join(process.cwd(), "tutorux-annotation-links-"));
         const archivePath = join(directory, "lesson.tux");
         const stdout: string[] = [];
         const stderr: string[] = [];
