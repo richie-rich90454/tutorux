@@ -3,7 +3,11 @@ use crate::core::cli::{emit, parse_integer, CliError, CliOutput, CliResult, Pars
 use crate::core::format::{valid_uuid, RecordType};
 use serde_json::json;
 
-fn session_track_ids(session: &crate::core::format::ArchiveRecord, session_id: &str, assets: &[crate::core::format::ArchiveRecord]) -> Vec<String> {
+fn session_track_ids(
+    session: &crate::core::format::ArchiveRecord,
+    session_id: &str,
+    assets: &[crate::core::format::ArchiveRecord],
+) -> Vec<String> {
     let mut track_ids: Vec<String> = Vec::new();
     let mut add = |value: &str| {
         let id = value.trim().to_lowercase();
@@ -11,7 +15,11 @@ fn session_track_ids(session: &crate::core::format::ArchiveRecord, session_id: &
             track_ids.push(id);
         }
     };
-    for field in ["recording_track_ids", "recording_track_id", "audio_import_track_id"] {
+    for field in [
+        "recording_track_ids",
+        "recording_track_id",
+        "audio_import_track_id",
+    ] {
         for value in session.field(field).unwrap_or("").split(',') {
             add(value);
         }
@@ -24,7 +32,10 @@ fn session_track_ids(session: &crate::core::format::ArchiveRecord, session_id: &
                 .as_deref()
                 == Some(session_id)
         {
-            add(metadata.field("track_id").filter(|value| !value.is_empty()).unwrap_or(&metadata.id));
+            add(metadata
+                .field("track_id")
+                .filter(|value| !value.is_empty())
+                .unwrap_or(&metadata.id));
         }
     }
     track_ids
@@ -71,16 +82,17 @@ pub(crate) fn run_annotation_plan(
     let session = match snapshot.get_record(RecordType::SESSION, &session_id)? {
         Some(record) if !record.deleted() => record,
         _ => {
-            return Err(
-                CliError(format!("Record {session_id} was not found in this archive.")).into(),
-            )
+            return Err(CliError(format!(
+                "Record {session_id} was not found in this archive."
+            ))
+            .into())
         }
     };
-    let mut workers = hardware.saturating_sub(1).max(1).min(if threads == 0 {
+    let mut workers =
         hardware
-    } else {
-        threads
-    });
+            .saturating_sub(1)
+            .max(1)
+            .min(if threads == 0 { hardware } else { threads });
     if model_memory == 0 || available_memory == 0 {
         workers = 1;
     } else {
@@ -96,7 +108,7 @@ pub(crate) fn run_annotation_plan(
     let assets = snapshot.list_records(RecordType::ASSET_METADATA, false)?;
     let tracks = session_track_ids(&session, &session_id, &assets)
         .into_iter()
-        .filter(|id| track_id.as_ref().map_or(true, |selected| selected == id));
+        .filter(|id| track_id.as_ref().is_none_or(|selected| selected == id));
     let mut work = Vec::new();
     let mut count = 0u64;
     let mut estimated = 0u128;
@@ -119,12 +131,11 @@ pub(crate) fn run_annotation_plan(
         count += 1;
         let elapsed = duration.div_ceil(workers as u128);
         estimated = estimated.max(elapsed);
-        if (duration + 29_999_999) / 30_000_000 > 100_000u128.saturating_sub(work.len() as u128)
-        {
-            return Err(
-                CliError("Transcription plan exceeds the 100,000 work item limit.".to_owned())
-                    .into(),
-            );
+        if duration.div_ceil(30_000_000) > 100_000u128.saturating_sub(work.len() as u128) {
+            return Err(CliError(
+                "Transcription plan exceeds the 100,000 work item limit.".to_owned(),
+            )
+            .into());
         }
         let mut start = 0u128;
         while start < duration {
@@ -141,10 +152,9 @@ pub(crate) fn run_annotation_plan(
         }
     }
     if count == 0 {
-        return Err(CliError(
-            "The session has no audio chunks for the selected track.".to_owned(),
-        )
-        .into());
+        return Err(
+            CliError("The session has no audio chunks for the selected track.".to_owned()).into(),
+        );
     }
     let summary = format!(
         "Transcription plan: {count} track(s), {} bounded work item(s), {workers} worker(s), estimated {estimated} µs elapsed.\n{}",
