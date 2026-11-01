@@ -29,7 +29,7 @@ pub(crate) fn update_session(
     path: &std::path::Path,
 ) -> CliResult<i32> {
     let id = args.required_position(0, "session ID")?.to_lowercase();
-    let mut current = require_live(&snapshot, RecordType::SESSION, &id)?;
+    let mut current = require_live(snapshot, RecordType::SESSION, &id)?;
     let metadata_options = [
         "title",
         "subject",
@@ -71,7 +71,7 @@ pub(crate) fn update_session(
                 .to_owned()
         });
     if args.option("student-id").is_some() && student_id != "anonymous" {
-        require_live(&snapshot, RecordType::STUDENT, &student_id)?;
+        require_live(snapshot, RecordType::STUDENT, &student_id)?;
     }
     let title = clean(
         args.option("title")
@@ -163,12 +163,12 @@ pub(crate) fn update_session(
     if let Some(destination_id) = args.option("entry-id") {
         let canonical = canonical_uuid(destination_id)
             .ok_or_else(|| CliError("--entry-id must be a valid UUID.".to_owned()))?;
-        let destination = require_live(&snapshot, RecordType::SETTINGS, &canonical)?;
+        let destination = require_live(snapshot, RecordType::SETTINGS, &canonical)?;
         if destination.field("record_role") != Some("journal-entry") {
             return Err(CliError("Destination journal entry was not found.".to_owned()).into());
         }
         if current.field("entry_id").map(str::to_lowercase).as_deref() != Some(canonical.as_str()) {
-            let mut projected = guide_source_records(&snapshot)?;
+            let mut projected = guide_source_records(snapshot)?;
             for record in &changes {
                 if let Some(existing) = projected.iter_mut().find(|existing| {
                     existing.record_type == record.record_type
@@ -203,7 +203,7 @@ pub(crate) fn update_session(
             changes = merged;
         }
     }
-    let saved = mutate(path, &snapshot, &changes)?;
+    let saved = mutate(path, snapshot, &changes)?;
     let session = saved
         .iter()
         .find(|record| record.record_type == RecordType::SESSION)
