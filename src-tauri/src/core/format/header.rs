@@ -30,9 +30,15 @@ pub fn valid_uuid(value: &str) -> bool {
 
 pub fn uuid_to_bytes(value: &str) -> Result<[u8; 16]> {
     if !valid_uuid(value) {
-        return err("id_invalid", "Identifier must be a 128-bit hexadecimal UUID.");
+        return err(
+            "id_invalid",
+            "Identifier must be a 128-bit hexadecimal UUID.",
+        );
     }
-    let hex: String = value.chars().filter(|character| *character != '-').collect();
+    let hex: String = value
+        .chars()
+        .filter(|character| *character != '-')
+        .collect();
     let mut output = [0u8; 16];
     for (index, slot) in output.iter_mut().enumerate() {
         *slot = u8::from_str_radix(&hex[index * 2..index * 2 + 2], 16)
@@ -62,7 +68,10 @@ pub fn inspect_archive_version(bytes: &[u8]) -> Result<(u16, u16)> {
     }
     let expected = read_u32(bytes, 60)?;
     if crc32(&bytes[..60]) != expected {
-        return err("archive_header_checksum", "Archive header checksum is invalid.");
+        return err(
+            "archive_header_checksum",
+            "Archive header checksum is invalid.",
+        );
     }
     if read_u32(bytes, 12)? != ARCHIVE_HEADER_SIZE as u32 {
         return err(
