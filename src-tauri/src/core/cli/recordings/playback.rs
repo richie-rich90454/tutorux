@@ -21,7 +21,9 @@ pub(super) fn play(
     context: &CliContext,
 ) -> CliResult<i32> {
     if !args.positionals.is_empty() {
-        return Err(CliError("record play does not accept positional arguments.".to_owned()).into());
+        return Err(
+            CliError("record play does not accept positional arguments.".to_owned()).into(),
+        );
     }
     let option_value = |name: &str| -> CliResult<Option<String>> {
         if args.flags.contains(name) {
@@ -33,10 +35,8 @@ pub(super) fn play(
             None => Ok(None),
         }
     };
-    let session_id = crate::core::cli::validate_uuid(
-        args.required_option("session")?,
-        "--session",
-    )?;
+    let session_id =
+        crate::core::cli::validate_uuid(args.required_option("session")?, "--session")?;
     let requested_track = option_value("track")?;
     let track_id = match requested_track.as_deref() {
         Some(value) => Some(crate::core::cli::validate_uuid(value, "--track")?),
@@ -66,9 +66,10 @@ pub(super) fn play(
             let tracks = session_track_ids(&snapshot, &session_id)?;
             match tracks.as_slice() {
                 [] => {
-                    return Err(
-                        CliError("The selected session contains no audio tracks.".to_owned()).into(),
+                    return Err(CliError(
+                        "The selected session contains no audio tracks.".to_owned(),
                     )
+                    .into())
                 }
                 [only] => only.clone(),
                 _ => {
@@ -82,9 +83,10 @@ pub(super) fn play(
     };
     let chunks = session_chunks(&snapshot, &session_id, Some(&selected_track))?;
     if chunks.is_empty() {
-        return Err(
-            CliError("The selected session track has no committed audio chunks.".to_owned()).into(),
-        );
+        return Err(CliError(
+            "The selected session track has no committed audio chunks.".to_owned(),
+        )
+        .into());
     }
     let first = &chunks[0];
     let sample_format = first.field("sample_format").unwrap_or("");
@@ -147,7 +149,14 @@ pub(super) fn play(
     let (completed, cancelled, submitted, error) = if played_frames == 0 {
         (true, false, 0, String::new())
     } else {
-        play_pcm(&ffplay, &chunks, start_frame, end_frame, sample_rate, channels)?
+        play_pcm(
+            &ffplay,
+            &chunks,
+            start_frame,
+            end_frame,
+            sample_rate,
+            channels,
+        )?
     };
     if !error.is_empty() {
         return Err(CliError(error).into());
@@ -198,9 +207,7 @@ pub(super) fn play(
 fn session_track_ids(snapshot: &ArchiveSnapshot, session_id: &str) -> CliResult<Vec<String>> {
     let mut tracks = std::collections::BTreeSet::new();
     for chunk in snapshot.list_records(RecordType::AUDIO_CHUNK, false)? {
-        if chunk.field("session_id").map(str::to_lowercase).as_deref()
-            != Some(session_id)
-        {
+        if chunk.field("session_id").map(str::to_lowercase).as_deref() != Some(session_id) {
             continue;
         }
         if let Some(track) = chunk.field("track_id").filter(|value| !value.is_empty()) {
@@ -225,13 +232,20 @@ fn validate_timeline(chunks: &[ArchiveRecord], rate: u32, channels: u16) -> CliR
         let first = field_u64(chunk, "first_sample_index");
         let count = field_u64(chunk, "sample_count");
         if sequence != index as u64
-            || chunk.field("sample_rate_hz").and_then(|value| value.parse::<u32>().ok()) != Some(rate)
-            || chunk.field("channel_count").and_then(|value| value.parse::<u16>().ok()) != Some(channels)
+            || chunk
+                .field("sample_rate_hz")
+                .and_then(|value| value.parse::<u32>().ok())
+                != Some(rate)
+            || chunk
+                .field("channel_count")
+                .and_then(|value| value.parse::<u16>().ok())
+                != Some(channels)
             || chunk.field("sample_format") != Some("pcm_s16le")
             || first != expected_frame.saturating_add(gap)
         {
             return Err(CliError(
-                "Audio chunks contain duplicate sequence numbers or an invalid timeline.".to_owned(),
+                "Audio chunks contain duplicate sequence numbers or an invalid timeline."
+                    .to_owned(),
             )
             .into());
         }
@@ -250,9 +264,10 @@ fn playback_unsigned(args: &ParsedArguments, name: &str) -> CliResult<Option<u64
     if value.is_empty() || !value.bytes().all(|byte| byte.is_ascii_digit()) {
         return Err(CliError(format!("--{name} must be a non-negative integer.")).into());
     }
-    value.parse::<u64>().map(Some).map_err(|_| {
-        CliError(format!("--{name} exceeds the supported playback range.")).into()
-    })
+    value
+        .parse::<u64>()
+        .map(Some)
+        .map_err(|_| CliError(format!("--{name} exceeds the supported playback range.")).into())
 }
 
 fn microseconds_to_frames(value: u64, rate: u32) -> u64 {
@@ -351,9 +366,8 @@ fn play_pcm(
             let offset = ((overlap_start - first) * block_align) as usize;
             let length = ((overlap_end - overlap_start) * block_align) as usize;
             if offset + length > chunk.blob.len() {
-                write_error = Some(
-                    "The selected recording produced an incomplete audio frame.".to_owned(),
-                );
+                write_error =
+                    Some("The selected recording produced an incomplete audio frame.".to_owned());
                 break;
             }
             if let Err(error) = input.write_all(&chunk.blob[offset..offset + length]) {
@@ -373,7 +387,12 @@ fn play_pcm(
     let status = wait_for(&mut child);
     let stderr = stderr_reader.join().unwrap_or_default();
     if let Some(error) = write_error {
-        return Ok((false, cancelled, submitted, format!("Audio stream failed: {error}")));
+        return Ok((
+            false,
+            cancelled,
+            submitted,
+            format!("Audio stream failed: {error}"),
+        ));
     }
     if cancelled {
         return Ok((false, true, submitted, String::new()));
