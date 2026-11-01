@@ -1,5 +1,7 @@
 use super::super::application_audio::ApplicationAudioCapture;
-use super::super::capture::{build_capture_stream, sample_format_name, start_stream, validate_config};
+use super::super::capture::{
+    build_capture_stream, sample_format_name, start_stream, validate_config,
+};
 use super::super::devices::{
     enumerate_devices, resolve_application_audio_target, resolve_device, system_audio_config,
 };
@@ -90,7 +92,9 @@ pub fn begin_capture(
         return Err("Choose at least one native audio source.".to_owned());
     }
     if system_audio_device_id.is_some() && application_audio_device_id.is_some() {
-        return Err("Choose either shared system audio or one application-audio source.".to_owned());
+        return Err(
+            "Choose either shared system audio or one application-audio source.".to_owned(),
+        );
     }
     let devices = enumerate_devices()?;
     let (microphone_sender, microphone_receiver) = mpsc::sync_channel(MAX_QUEUED_CHUNKS_PER_TRACK);
@@ -119,9 +123,9 @@ pub fn begin_capture(
             return Err("The selected microphone is no longer available.".to_owned());
         }
         let device = resolve_device(device_id)?;
-        let config = device
-            .default_input_config()
-            .map_err(|error| format!("The selected microphone stream could not be opened: {error}"))?;
+        let config = device.default_input_config().map_err(|error| {
+            format!("The selected microphone stream could not be opened: {error}")
+        })?;
         validate_config(&config, "microphone")?;
         summaries[0] = summary_for(&config);
         active[0] = true;
@@ -204,10 +208,7 @@ pub fn begin_capture(
     capture.activate()?;
     let backend = microphone_device_id
         .map(|id| id.split_once(':').map_or("native", |(host, _)| host))
-        .or_else(|| {
-            system_audio_device_id
-                .and_then(|id| id.split_once(':').map(|(host, _)| host))
-        })
+        .or_else(|| system_audio_device_id.and_then(|id| id.split_once(':').map(|(host, _)| host)))
         .or(application_backend.as_deref())
         .unwrap_or("native")
         .to_owned();
@@ -318,9 +319,9 @@ impl HeadlessCapture {
         }
         if self.active[0] && self.signals[0].failure_message().is_none() {
             if let Some(stream) = self.microphone_stream.as_ref() {
-                stream
-                    .pause()
-                    .map_err(|error| format!("The microphone stream could not be paused: {error}"))?;
+                stream.pause().map_err(|error| {
+                    format!("The microphone stream could not be paused: {error}")
+                })?;
             }
         }
         if self.active[1] && self.signals[1].failure_message().is_none() {
@@ -369,10 +370,7 @@ impl HeadlessCapture {
         Ok(())
     }
 
-    pub fn finish(
-        &mut self,
-        sink: &mut dyn FnMut(HeadlessChunk),
-    ) -> HeadlessFinished {
+    pub fn finish(&mut self, sink: &mut dyn FnMut(HeadlessChunk)) -> HeadlessFinished {
         drop(self.microphone_stream.take());
         drop(self.system_stream.take());
         if let Some(mut capture) = self.application_capture.take() {
