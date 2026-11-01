@@ -1,8 +1,9 @@
+import { twClasses } from "./tailwind";
+import { jsxTailwindStyles } from "./EvidenceSources.tailwind";
 import { createSignal, For, Show, type JSX } from "solid-js";
 import type { ArchiveSnapshot } from "./archive/archive";
 import { RecordType, type ArchiveRecord } from "./archive/format";
 import { evidenceSourcesAreCurrent } from "./domain/evidence";
-import "./evidence-sources.css";
 
 interface SourceView {
     id: string;
@@ -91,22 +92,28 @@ export function EvidenceSources(props: {
         setOpen((value) => !value);
     }
     return (
-        <section class="evidence-sources">
+        <section class={twClasses("evidence-sources", jsxTailwindStyles, "section")}>
             <button
                 type="button"
-                class="button button-quiet record-action"
+                class={twClasses("button button-quiet record-action", jsxTailwindStyles, "button")}
                 aria-expanded={open()}
                 onClick={toggle}
             >
                 {open() ? "Hide sources" : "Inspect sources"}
             </button>
             <Show when={open()}>
-                <div class="evidence-sources-panel">
-                    <div class="evidence-sources-heading">
-                        <strong>Source records</strong>
+                <div class={twClasses("evidence-sources-panel", jsxTailwindStyles, "div")}>
+                    <div class={twClasses("evidence-sources-heading", jsxTailwindStyles, "div")}>
+                        <strong class={twClasses("", jsxTailwindStyles, "strong")}>
+                            Source records
+                        </strong>
                         <button
                             type="button"
-                            class="button button-quiet record-action"
+                            class={twClasses(
+                                "button button-quiet record-action",
+                                jsxTailwindStyles,
+                                "button",
+                            )}
                             disabled={loading()}
                             onClick={() => void inspect()}
                         >
@@ -114,42 +121,62 @@ export function EvidenceSources(props: {
                         </button>
                     </div>
                     <Show when={loading()}>
-                        <p>Checking sources…</p>
+                        <p class={twClasses("", jsxTailwindStyles, "p")}>Checking sources…</p>
                     </Show>
                     <Show when={error()}>
-                        <p role="alert">{error()}</p>
+                        <p role="alert" class={twClasses("", jsxTailwindStyles, "p")}>
+                            {error()}
+                        </p>
                     </Show>
                     <Show when={!loading() && current() !== null}>
-                        <p role="status">
+                        <p role="status" class={twClasses("", jsxTailwindStyles, "p")}>
                             {current()
                                 ? "Sources are current and belong to this session."
                                 : "One or more sources are missing, changed, or outside this session."}
                         </p>
                     </Show>
                     <Show when={!loading() && sources().length === 0 && !error()}>
-                        <p>No source records were recorded.</p>
+                        <p class={twClasses("", jsxTailwindStyles, "p")}>
+                            No source records were recorded.
+                        </p>
                     </Show>
                     <For each={sources()}>
                         {(source) => (
-                            <article class="evidence-source-item">
-                                <div>
-                                    <strong>{source.label}</strong>
-                                    <small>{source.id}</small>
+                            <article
+                                class={twClasses(
+                                    "evidence-source-item",
+                                    jsxTailwindStyles,
+                                    "article",
+                                )}
+                            >
+                                <div class={twClasses("", jsxTailwindStyles, "div")}>
+                                    <strong class={twClasses("", jsxTailwindStyles, "strong")}>
+                                        {source.label}
+                                    </strong>
+                                    <small class={twClasses("", jsxTailwindStyles, "small")}>
+                                        {source.id}
+                                    </small>
                                 </div>
                                 <Show
                                     when={source.record}
-                                    fallback={<p>{source.error || "Source unavailable"}</p>}
+                                    fallback={
+                                        <p class={twClasses("", jsxTailwindStyles, "p")}>
+                                            {source.error || "Source unavailable"}
+                                        </p>
+                                    }
                                 >
                                     {(record) => (
                                         <>
-                                            <p>
+                                            <p class={twClasses("", jsxTailwindStyles, "p")}>
                                                 {field(record(), "title") ||
                                                     field(record(), "filename") ||
                                                     field(record(), "text") ||
                                                     field(record(), "content") ||
                                                     "Untitled source"}
                                             </p>
-                                            <small>
+                                            <small
+                                                class={twClasses("", jsxTailwindStyles, "small")}
+                                            >
                                                 Current version {record().revision.toString()}
                                                 {source.expected
                                                     ? ` · cited version ${source.expected}`
