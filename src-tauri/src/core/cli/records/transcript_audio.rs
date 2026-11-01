@@ -281,8 +281,14 @@ pub(crate) fn test_mono_layout(samples: &[i16], rate: u32) -> (TrackLayout, Arch
         RecordType::AUDIO_CHUNK,
         "00000000-0000-0000-0000-000000000010",
         [
-            ("session_id", "00000000-0000-0000-0000-000000000001".to_owned()),
-            ("track_id", "00000000-0000-0000-0000-000000000002".to_owned()),
+            (
+                "session_id",
+                "00000000-0000-0000-0000-000000000001".to_owned(),
+            ),
+            (
+                "track_id",
+                "00000000-0000-0000-0000-000000000002".to_owned(),
+            ),
             ("sequence_number", "0".to_owned()),
             ("first_sample_index", "0".to_owned()),
             ("sample_count", samples.len().to_string()),
@@ -363,8 +369,14 @@ mod tests {
             RecordType::AUDIO_CHUNK,
             id,
             [
-                ("session_id", "00000000-0000-0000-0000-000000000001".to_owned()),
-                ("track_id", "00000000-0000-0000-0000-000000000002".to_owned()),
+                (
+                    "session_id",
+                    "00000000-0000-0000-0000-000000000001".to_owned(),
+                ),
+                (
+                    "track_id",
+                    "00000000-0000-0000-0000-000000000002".to_owned(),
+                ),
                 ("sequence_number", sequence.to_string()),
                 ("first_sample_index", first.to_string()),
                 ("sample_count", samples.len().to_string()),
