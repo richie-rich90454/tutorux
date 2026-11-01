@@ -3,8 +3,8 @@ use std::collections::{BTreeMap, HashSet};
 use crate::core::crypto::ArchiveDataKey;
 use crate::core::error::{err, CoreError, Result};
 use crate::core::format::{
-    decode_record_frame, decode_stored_payload, encode_record_frame, ARCHIVE_HEADER_SIZE,
-    RecordType, ZERO_UUID,
+    decode_record_frame, decode_stored_payload, encode_record_frame, RecordType,
+    ARCHIVE_HEADER_SIZE, ZERO_UUID,
 };
 use crate::core::source::ByteSource;
 
@@ -108,10 +108,7 @@ pub fn decode_index_page(payload: &[u8]) -> Result<IndexPage> {
                 .map(|(previous, _)| previous.as_str() >= key.as_str())
                 .unwrap_or(false)
             {
-                return err(
-                    "index_page_order",
-                    "Leaf keys are not strictly ordered.",
-                );
+                return err("index_page_order", "Leaf keys are not strictly ordered.");
             }
             page.entries.push((key, value_offset));
         }
@@ -136,10 +133,7 @@ pub fn decode_index_page(payload: &[u8]) -> Result<IndexPage> {
         }
     }
     if cursor != payload.len() {
-        return err(
-            "index_page_trailing_data",
-            "Index page has trailing bytes.",
-        );
+        return err("index_page_trailing_data", "Index page has trailing bytes.");
     }
     Ok(page)
 }
@@ -155,14 +149,10 @@ pub fn encode_index_page(page: &IndexPage) -> Result<Vec<u8>> {
     };
     for key in &keys {
         if key.is_empty() || key.len() > MAX_INDEX_KEY_BYTES {
-            return err(
-                "index_key_invalid",
-                "Index key exceeds the v1 key limit.",
-            );
+            return err("index_key_invalid", "Index key exceeds the v1 key limit.");
         }
     }
-    if !page.leaf
-        && (page.children.len() != page.separators.len() + 1 || page.children.is_empty())
+    if !page.leaf && (page.children.len() != page.separators.len() + 1 || page.children.is_empty())
     {
         return err(
             "index_page_invalid",
@@ -233,49 +223,42 @@ struct LevelPage {
     payload: Vec<u8>,
 }
 
+type PageAuthenticator<'a> = dyn Fn(&[u8]) -> Vec<u8> + 'a;
+
 pub fn build_index_tree(
     entries: &[(String, u64)],
     initial_offset: u64,
-    authenticate: Option<&dyn Fn(&[u8]) -> Vec<u8>>,
+    authenticate: Option<&PageAuthenticator<'_>>,
 ) -> Result<BuiltIndexTree> {
     let mut frames: Vec<Vec<u8>> = Vec::new();
     let mut offset = initial_offset;
 
-    let append_page = |page: &IndexPage,
-                       offset: &mut u64,
-                       frames: &mut Vec<Vec<u8>>|
-     -> Result<LevelPage> {
-        let page_payload = encode_index_page(page)?;
-        let payload = match authenticate {
-            Some(authenticate) => {
-                let mut authenticated = page_payload.clone();
-                authenticated.extend_from_slice(&authenticate(&page_payload));
-                authenticated
-            }
-            None => page_payload.clone(),
+    let append_page =
+        |page: &IndexPage, offset: &mut u64, frames: &mut Vec<Vec<u8>>| -> Result<LevelPage> {
+            let page_payload = encode_index_page(page)?;
+            let payload = match authenticate {
+                Some(authenticate) => {
+                    let mut authenticated = page_payload.clone();
+                    authenticated.extend_from_slice(&authenticate(&page_payload));
+                    authenticated
+                }
+                None => page_payload.clone(),
+            };
+            let frame =
+                encode_record_frame(RecordType::INDEX_PAGE, ZERO_UUID, 1, 0, &payload, 0, 0)?;
+            let page_offset = *offset;
+            *offset += frame.len() as u64;
+            frames.push(frame);
+            Ok(LevelPage {
+                offset: page_offset,
+                first_key: if page.leaf {
+                    page.entries.first().map(|(key, _)| key.clone())
+                } else {
+                    None
+                },
+                payload,
+            })
         };
-        let frame = encode_record_frame(
-            RecordType::INDEX_PAGE,
-            ZERO_UUID,
-            1,
-            0,
-            &payload,
-            0,
-            0,
-        )?;
-        let page_offset = *offset;
-        *offset += frame.len() as u64;
-        frames.push(frame);
-        Ok(LevelPage {
-            offset: page_offset,
-            first_key: if page.leaf {
-                page.entries.first().map(|(key, _)| key.clone())
-            } else {
-                None
-            },
-            payload,
-        })
-    };
 
     let mut first_level: Vec<LevelPage> = Vec::new();
     if entries.is_empty() {
@@ -424,16 +407,10 @@ pub fn read_index_tree(
                     || value_offset >= commit_offset
                     || value_offset % 8 != 0
                 {
-                    return err(
-                        "index_page_invalid",
-                        "Leaf record offset is invalid.",
-                    );
+                    return err("index_page_invalid", "Leaf record offset is invalid.");
                 }
                 if entries.insert(key, value_offset).is_some() {
-                    return err(
-                        "index_page_order",
-                        "Index keys are not globally unique.",
-                    );
+                    return err("index_page_order", "Index keys are not globally unique.");
                 }
             }
         } else {
@@ -455,8 +432,11 @@ pub fn read_index_tree(
     Ok(entries)
 }
 
-pub fn read_frame_at(source: &dyn ByteSource, offset: u64) -> Result<crate::core::format::RecordFrame> {
-    if offset % 8 != 0 {
+pub fn read_frame_at(
+    source: &dyn ByteSource,
+    offset: u64,
+) -> Result<crate::core::format::RecordFrame> {
+    if !offset.is_multiple_of(8) {
         return err(
             "record_offset_invalid",
             "Record offset is unaligned or outside the archive.",
