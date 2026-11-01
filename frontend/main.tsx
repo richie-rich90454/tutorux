@@ -1,3 +1,6 @@
+import { twClasses, twUtilities } from "./tailwind";
+import { jsxTailwindStyles } from "./main.tailwind";
+import { applyDocumentTailwindUtilities } from "./theme";
 import {
     For,
     Show,
@@ -206,8 +209,6 @@ import type { AiCredentialStorage, BrowserArchiveAutosave } from "./platform/typ
 import { keyboardShortcutRows, resolveKeyboardShortcut } from "./domain/keyboard-shortcuts";
 import brandLogo from "./assets/tutorux.svg";
 import "./styles.css";
-
-import "./workbench.css";
 
 configurePdfWorkerSource(pdfWorkerUrl);
 
@@ -2623,7 +2624,10 @@ function App(): JSX.Element {
                     setGuidePrintContent(null);
                 };
                 setGuidePrintContent(printable.cloneNode(true) as HTMLElement);
-                document.documentElement.classList.add("guide-printing");
+                document.documentElement.classList.add(
+                    "guide-printing",
+                    ...twUtilities(jsxTailwindStyles, ["guide-printing"]),
+                );
                 window.addEventListener("afterprint", finishPrint, { once: true });
                 await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
                 window.print();
@@ -3833,63 +3837,124 @@ function App(): JSX.Element {
     }
 
     return (
-        <div class="app-frame">
-            <a class="skip-link" href="#main-content">
+        <div class={twClasses("app-frame", jsxTailwindStyles, "div")}>
+            <a class={twClasses("skip-link", jsxTailwindStyles, "a")} href="#main-content">
                 Skip to main content
             </a>
-            <div class={`workspace-frame ${workspace() ? "has-archive" : "no-archive"}`}>
+            <div
+                class={twClasses(
+                    `workspace-frame ${workspace() ? "has-archive" : "no-archive"}`,
+                    jsxTailwindStyles,
+                    "div",
+                )}
+            >
                 <aside
-                    class={`sidebar ${workspace() ? "has-archive" : "no-archive"}`}
+                    class={twClasses(
+                        `sidebar ${workspace() ? "has-archive" : "no-archive"}`,
+                        jsxTailwindStyles,
+                        "aside",
+                    )}
                     aria-label="Workspace navigation"
                 >
                     <Show
                         when={workspace()}
                         fallback={
-                            <section class="sidebar-empty-archive" aria-label="Archive actions">
-                                <span class="sidebar-section-label">Archive</span>
+                            <section
+                                class={twClasses(
+                                    "sidebar-empty-archive",
+                                    jsxTailwindStyles,
+                                    "section",
+                                )}
+                                aria-label="Archive actions"
+                            >
+                                <span
+                                    class={twClasses(
+                                        "sidebar-section-label",
+                                        jsxTailwindStyles,
+                                        "span",
+                                    )}
+                                >
+                                    Archive
+                                </span>
                                 <button
-                                    class="sidebar-action"
+                                    class={twClasses("sidebar-action", jsxTailwindStyles, "button")}
                                     type="button"
                                     onClick={() => void openArchive()}
                                     disabled={loading()}
                                 >
                                     <Icon name="folder" />
-                                    <span>Open archive</span>
+                                    <span class={twClasses("", jsxTailwindStyles, "span")}>
+                                        Open archive
+                                    </span>
                                 </button>
                                 <button
-                                    class="sidebar-action sidebar-action-primary"
+                                    class={twClasses(
+                                        "sidebar-action sidebar-action-primary",
+                                        jsxTailwindStyles,
+                                        "button",
+                                    )}
                                     type="button"
                                     onClick={() => openDialog("archive")}
                                     disabled={loading()}
                                 >
                                     <Icon name="plus" />
-                                    <span>Create archive</span>
+                                    <span class={twClasses("", jsxTailwindStyles, "span")}>
+                                        Create archive
+                                    </span>
                                 </button>
                             </section>
                         }
                     >
-                        <div class="sidebar-archive">
+                        <div class={twClasses("sidebar-archive", jsxTailwindStyles, "div")}>
                             <button
-                                class="sidebar-workspace"
+                                class={twClasses("sidebar-workspace", jsxTailwindStyles, "button")}
                                 type="button"
                                 onClick={() => void openArchive()}
                                 title="Open another archive"
                             >
-                                <span class="workspace-monogram" aria-hidden="true">
+                                <span
+                                    class={twClasses(
+                                        "workspace-monogram",
+                                        jsxTailwindStyles,
+                                        "span",
+                                    )}
+                                    aria-hidden="true"
+                                >
                                     <Icon name="archive" />
                                 </span>
-                                <span class="workspace-switcher-copy">
-                                    <span class="eyebrow">Active archive</span>
-                                    <strong>{workspace()!.manifest.displayName}</strong>
+                                <span
+                                    class={twClasses(
+                                        "workspace-switcher-copy",
+                                        jsxTailwindStyles,
+                                        "span",
+                                    )}
+                                >
+                                    <span class={twClasses("eyebrow", jsxTailwindStyles, "span")}>
+                                        Active archive
+                                    </span>
+                                    <strong class={twClasses("", jsxTailwindStyles, "strong")}>
+                                        {workspace()!.manifest.displayName}
+                                    </strong>
                                 </span>
                                 <Icon name="chevron" />
                             </button>
-                            <div class="sidebar-archive-status" aria-live="polite">
+                            <div
+                                class={twClasses(
+                                    "sidebar-archive-status",
+                                    jsxTailwindStyles,
+                                    "div",
+                                )}
+                                aria-live="polite"
+                            >
                                 <span
-                                    class={`status-dot ${workspace()?.dirty ? "is-dirty" : ""} ${archiveSaveConflict() ? "has-conflict" : ""}`}
+                                    class={twClasses(
+                                        `status-dot ${workspace()?.dirty ? "is-dirty" : ""} ${archiveSaveConflict() ? "has-conflict" : ""}`,
+                                        jsxTailwindStyles,
+                                        "span",
+                                    )}
                                     aria-hidden="true"
                                 />
-                                <span>
+                                <span class={twClasses("", jsxTailwindStyles, "span")}>
                                     {archiveSaveConflict()
                                         ? "Archive changed on disk"
                                         : workspace()?.snapshot.locked
@@ -3901,7 +3966,11 @@ function App(): JSX.Element {
                             </div>
                             <Show when={workspace()?.dirty}>
                                 <button
-                                    class="button button-primary sidebar-save-archive"
+                                    class={twClasses(
+                                        "button button-primary sidebar-save-archive",
+                                        jsxTailwindStyles,
+                                        "button",
+                                    )}
                                     type="button"
                                     onClick={() =>
                                         void (archiveSaveConflict()
@@ -3911,7 +3980,7 @@ function App(): JSX.Element {
                                     disabled={busy() || workspace()?.snapshot.locked}
                                 >
                                     <Icon name="archive" />
-                                    <span>
+                                    <span class={twClasses("", jsxTailwindStyles, "span")}>
                                         {archiveSaveConflict()
                                             ? "Save as new copy"
                                             : "Save archive"}
@@ -3922,35 +3991,48 @@ function App(): JSX.Element {
                     </Show>
 
                     <button
-                        class="sidebar-search"
+                        class={twClasses("sidebar-search", jsxTailwindStyles, "button")}
                         type="button"
                         onClick={openPalette}
                         aria-label="Open quick actions"
                         aria-keyshortcuts="Control+K Meta+K"
                     >
                         <Icon name="search" />
-                        <span>Search Tutorux</span>
-                        <kbd>{navigator.platform.includes("Mac") ? "⌘" : "Ctrl"} K</kbd>
+                        <span class={twClasses("", jsxTailwindStyles, "span")}>Search Tutorux</span>
+                        <kbd class={twClasses("", jsxTailwindStyles, "kbd")}>
+                            {navigator.platform.includes("Mac") ? "⌘" : "Ctrl"} K
+                        </kbd>
                     </button>
 
                     <Show when={workspace()}>
-                        <nav class="nav-groups" aria-label="Primary navigation">
-                            <span class="nav-group-title">Workspace</span>
+                        <nav
+                            class={twClasses("nav-groups", jsxTailwindStyles, "nav")}
+                            aria-label="Primary navigation"
+                        >
+                            <span class={twClasses("nav-group-title", jsxTailwindStyles, "span")}>
+                                Workspace
+                            </span>
                             <For each={primaryViews}>
                                 {(item) => (
                                     <button
-                                        class={`nav-item ${view() === item.id ? "is-active" : ""}`}
+                                        class={twClasses(
+                                            `nav-item ${view() === item.id ? "is-active" : ""}`,
+                                            jsxTailwindStyles,
+                                            "button",
+                                        )}
                                         type="button"
                                         aria-current={view() === item.id ? "page" : undefined}
                                         onClick={() => navigateToView(item.id)}
                                     >
                                         <Icon name={item.icon} />
-                                        <span>{item.label}</span>
+                                        <span class={twClasses("", jsxTailwindStyles, "span")}>
+                                            {item.label}
+                                        </span>
                                     </button>
                                 )}
                             </For>
                             <div
-                                class="contextual-navigation"
+                                class={twClasses("contextual-navigation", jsxTailwindStyles, "div")}
                                 onFocusOut={(event) => {
                                     if (
                                         !(event.relatedTarget instanceof Node) ||
@@ -3961,7 +4043,11 @@ function App(): JSX.Element {
                                 }}
                             >
                                 <button
-                                    class={`nav-item contextual-nav-toggle ${contextualViews.some((item) => item.id === view()) ? "is-active" : ""}`}
+                                    class={twClasses(
+                                        `nav-item contextual-nav-toggle ${contextualViews.some((item) => item.id === view()) ? "is-active" : ""}`,
+                                        jsxTailwindStyles,
+                                        "button",
+                                    )}
                                     type="button"
                                     aria-haspopup="menu"
                                     aria-expanded={contextualNavOpen()}
@@ -3971,12 +4057,18 @@ function App(): JSX.Element {
                                     }}
                                 >
                                     <Icon name="more" />
-                                    <span>More</span>
+                                    <span class={twClasses("", jsxTailwindStyles, "span")}>
+                                        More
+                                    </span>
                                     <Icon name="chevron" />
                                 </button>
                                 <Show when={contextualNavOpen()}>
                                     <div
-                                        class="contextual-nav-menu"
+                                        class={twClasses(
+                                            "contextual-nav-menu",
+                                            jsxTailwindStyles,
+                                            "div",
+                                        )}
                                         role="menu"
                                         aria-label="More workspaces"
                                         onKeyDown={(event) => {
@@ -3989,7 +4081,11 @@ function App(): JSX.Element {
                                         <For each={contextualViews}>
                                             {(item) => (
                                                 <button
-                                                    class={`contextual-nav-item ${view() === item.id ? "is-active" : ""}`}
+                                                    class={twClasses(
+                                                        `contextual-nav-item ${view() === item.id ? "is-active" : ""}`,
+                                                        jsxTailwindStyles,
+                                                        "button",
+                                                    )}
                                                     type="button"
                                                     role="menuitem"
                                                     aria-current={
@@ -3998,7 +4094,15 @@ function App(): JSX.Element {
                                                     onClick={() => navigateToView(item.id)}
                                                 >
                                                     <Icon name={item.icon} />
-                                                    <span>{item.label}</span>
+                                                    <span
+                                                        class={twClasses(
+                                                            "",
+                                                            jsxTailwindStyles,
+                                                            "span",
+                                                        )}
+                                                    >
+                                                        {item.label}
+                                                    </span>
                                                 </button>
                                             )}
                                         </For>
@@ -4008,16 +4112,16 @@ function App(): JSX.Element {
                         </nav>
                     </Show>
 
-                    <div class="sidebar-bottom">
+                    <div class={twClasses("sidebar-bottom", jsxTailwindStyles, "div")}>
                         <button
-                            class="sidebar-appearance"
+                            class={twClasses("sidebar-appearance", jsxTailwindStyles, "button")}
                             type="button"
                             onClick={toggleTheme}
                             aria-label={`Switch to ${theme() === "light" ? "dark" : "light"} appearance`}
                             aria-keyshortcuts="Control+Shift+L Meta+Shift+L"
                         >
                             <Icon name={theme() === "light" ? "moon" : "sun"} />
-                            <span>
+                            <span class={twClasses("", jsxTailwindStyles, "span")}>
                                 {theme() === "light" ? "Dark appearance" : "Light appearance"}
                             </span>
                         </button>
@@ -4025,20 +4129,24 @@ function App(): JSX.Element {
                 </aside>
 
                 <main
-                    class="main-content"
+                    class={twClasses("main-content", jsxTailwindStyles, "main")}
                     id="main-content"
                     tabindex="-1"
                     ref={(element) => (mainContentElement = element)}
                     onClick={() => setContextualNavOpen(false)}
                 >
                     <Show when={workspace()}>
-                        <div class="page-toolbar">
-                            <div class="breadcrumbs">
-                                <span>Workspace</span>
+                        <div class={twClasses("page-toolbar", jsxTailwindStyles, "div")}>
+                            <div class={twClasses("breadcrumbs", jsxTailwindStyles, "div")}>
+                                <span class={twClasses("", jsxTailwindStyles, "span")}>
+                                    Workspace
+                                </span>
                                 <Icon name="chevron" />
-                                <strong>{activeView().label}</strong>
+                                <strong class={twClasses("", jsxTailwindStyles, "strong")}>
+                                    {activeView().label}
+                                </strong>
                             </div>
-                            <div class="toolbar-actions">
+                            <div class={twClasses("toolbar-actions", jsxTailwindStyles, "div")}>
                                 <Show
                                     when={
                                         view() === "students" ||
@@ -4050,7 +4158,13 @@ function App(): JSX.Element {
                                         view() === "guides"
                                     }
                                 >
-                                    <label class="inline-search">
+                                    <label
+                                        class={twClasses(
+                                            "inline-search",
+                                            jsxTailwindStyles,
+                                            "label",
+                                        )}
+                                    >
                                         <Icon name="search" />
                                         <input
                                             ref={(element) => (pageSearchInput = element)}
@@ -4059,8 +4173,15 @@ function App(): JSX.Element {
                                             placeholder={`Search ${activeView().label.toLocaleLowerCase()}…`}
                                             aria-label={`Search ${activeView().label}`}
                                             aria-keyshortcuts="Control+F Meta+F"
+                                            class={twClasses("", jsxTailwindStyles, "input")}
                                         />
-                                        <kbd class="inline-search-shortcut">
+                                        <kbd
+                                            class={twClasses(
+                                                "inline-search-shortcut",
+                                                jsxTailwindStyles,
+                                                "kbd",
+                                            )}
+                                        >
                                             {navigator.platform.includes("Mac") ? "⌘F" : "Ctrl F"}
                                         </kbd>
                                     </label>
@@ -4076,11 +4197,27 @@ function App(): JSX.Element {
                         {(state) => (
                             <>
                                 <Show when={state.snapshot.locked}>
-                                    <section class="locked-banner locked-panel">
+                                    <section
+                                        class={twClasses(
+                                            "locked-banner locked-panel",
+                                            jsxTailwindStyles,
+                                            "section",
+                                        )}
+                                    >
                                         <Icon name="shield" />
-                                        <div class="locked-copy">
-                                            <strong>This archive is encrypted</strong>
-                                            <p>
+                                        <div
+                                            class={twClasses(
+                                                "locked-copy",
+                                                jsxTailwindStyles,
+                                                "div",
+                                            )}
+                                        >
+                                            <strong
+                                                class={twClasses("", jsxTailwindStyles, "strong")}
+                                            >
+                                                This archive is encrypted
+                                            </strong>
+                                            <p class={twClasses("", jsxTailwindStyles, "p")}>
                                                 Enter its passphrase to authenticate the archive and
                                                 unlock its records.
                                             </p>
@@ -4514,8 +4651,12 @@ function App(): JSX.Element {
 
             <Show when={notice()}>
                 {(item) => (
-                    <div class={`toast toast-${item().tone}`} role="status" aria-live="polite">
-                        <span class="toast-mark">
+                    <div
+                        class={twClasses(`toast toast-${item().tone}`, jsxTailwindStyles, "div")}
+                        role="status"
+                        aria-live="polite"
+                    >
+                        <span class={twClasses("toast-mark", jsxTailwindStyles, "span")}>
                             <Icon
                                 name={
                                     item().tone === "success"
@@ -4526,11 +4667,14 @@ function App(): JSX.Element {
                                 }
                             />
                         </span>
-                        <span>{item().message}</span>
+                        <span class={twClasses("", jsxTailwindStyles, "span")}>
+                            {item().message}
+                        </span>
                         <button
                             type="button"
                             onClick={() => setNotice(null)}
                             aria-label="Dismiss notification"
+                            class={twClasses("", jsxTailwindStyles, "button")}
                         >
                             <Icon name="close" />
                         </button>
@@ -4541,7 +4685,7 @@ function App(): JSX.Element {
             <Show when={observationPlayback()}>
                 {(playback) => (
                     <section
-                        class="transcript-audio-panel"
+                        class={twClasses("transcript-audio-panel", jsxTailwindStyles, "section")}
                         aria-label="Observation audio playback"
                         style={{
                             position: "fixed",
@@ -4552,9 +4696,13 @@ function App(): JSX.Element {
                             "box-shadow": "0 18px 48px rgba(0, 0, 0, .22)",
                         }}
                     >
-                        <div class="transcript-audio-copy">
-                            <strong>{playback().title}</strong>
-                            <span>Playing from {playback().start}</span>
+                        <div class={twClasses("transcript-audio-copy", jsxTailwindStyles, "div")}>
+                            <strong class={twClasses("", jsxTailwindStyles, "strong")}>
+                                {playback().title}
+                            </strong>
+                            <span class={twClasses("", jsxTailwindStyles, "span")}>
+                                Playing from {playback().start}
+                            </span>
                         </div>
                         <MediaPlayer
                             kind="audio"
@@ -4563,7 +4711,11 @@ function App(): JSX.Element {
                             autoPlay
                         />
                         <button
-                            class="button button-quiet record-action"
+                            class={twClasses(
+                                "button button-quiet record-action",
+                                jsxTailwindStyles,
+                                "button",
+                            )}
                             type="button"
                             onClick={() => {
                                 URL.revokeObjectURL(playback().url);
@@ -4704,20 +4856,20 @@ function App(): JSX.Element {
 
             <Show when={paletteOpen()}>
                 <div
-                    class="palette-backdrop"
+                    class={twClasses("palette-backdrop", jsxTailwindStyles, "div")}
                     onClick={(event) => {
                         if (event.target === event.currentTarget) closePalette();
                     }}
                 >
                     <ManagedDialog
-                        class="command-palette"
+                        class={twClasses("command-palette", jsxTailwindStyles, "")}
                         role="dialog"
                         labelledBy="palette-title"
                         onKeyDown={handlePaletteKeys}
                         onEscape={() => closePalette()}
                         restoreFocus={() => false}
                     >
-                        <div class="palette-search">
+                        <div class={twClasses("palette-search", jsxTailwindStyles, "div")}>
                             <Icon name="search" />
                             <input
                                 placeholder="What would you like to do?"
@@ -4728,27 +4880,48 @@ function App(): JSX.Element {
                                     setPaletteQuery(event.currentTarget.value);
                                     setPaletteIndex(0);
                                 }}
+                                class={twClasses("", jsxTailwindStyles, "input")}
                             />
-                            <kbd>esc</kbd>
+                            <kbd class={twClasses("", jsxTailwindStyles, "kbd")}>esc</kbd>
                         </div>
-                        <h2 id="palette-title">Quick actions</h2>
-                        <div class="palette-actions">
+                        <h2 id="palette-title" class={twClasses("", jsxTailwindStyles, "h2")}>
+                            Quick actions
+                        </h2>
+                        <div class={twClasses("palette-actions", jsxTailwindStyles, "div")}>
                             <For each={matchingActions()}>
                                 {(action, index) => (
                                     <button
                                         type="button"
-                                        class={`palette-action ${paletteIndex() === index() ? "is-active" : ""}`}
+                                        class={twClasses(
+                                            `palette-action ${paletteIndex() === index() ? "is-active" : ""}`,
+                                            jsxTailwindStyles,
+                                            "button",
+                                        )}
                                         data-active={paletteIndex() === index()}
                                         onMouseEnter={() => setPaletteIndex(index())}
                                         onFocus={() => setPaletteIndex(index())}
                                         onClick={() => action.run()}
                                     >
-                                        <span class="palette-action-icon">
+                                        <span
+                                            class={twClasses(
+                                                "palette-action-icon",
+                                                jsxTailwindStyles,
+                                                "span",
+                                            )}
+                                        >
                                             <Icon name={action.icon} />
                                         </span>
-                                        <span>
-                                            <strong>{action.label}</strong>
-                                            <small>{action.detail}</small>
+                                        <span class={twClasses("", jsxTailwindStyles, "span")}>
+                                            <strong
+                                                class={twClasses("", jsxTailwindStyles, "strong")}
+                                            >
+                                                {action.label}
+                                            </strong>
+                                            <small
+                                                class={twClasses("", jsxTailwindStyles, "small")}
+                                            >
+                                                {action.detail}
+                                            </small>
                                         </span>
                                         <Icon name="arrow" />
                                     </button>
@@ -4756,14 +4929,20 @@ function App(): JSX.Element {
                             </For>
                         </div>
                         <Show when={matchingActions().length === 0}>
-                            <p class="palette-empty">No actions match your search.</p>
+                            <p class={twClasses("palette-empty", jsxTailwindStyles, "p")}>
+                                No actions match your search.
+                            </p>
                         </Show>
-                        <div class="palette-footer">
-                            <span>
-                                <kbd>↑</kbd> <kbd>↓</kbd> move <kbd>Tab</kbd> cycle focus
+                        <div class={twClasses("palette-footer", jsxTailwindStyles, "div")}>
+                            <span class={twClasses("", jsxTailwindStyles, "span")}>
+                                <kbd class={twClasses("", jsxTailwindStyles, "kbd")}>↑</kbd>{" "}
+                                <kbd class={twClasses("", jsxTailwindStyles, "kbd")}>↓</kbd> move{" "}
+                                <kbd class={twClasses("", jsxTailwindStyles, "kbd")}>Tab</kbd> cycle
+                                focus
                             </span>
-                            <span>
-                                <kbd>↵</kbd> select <kbd>Esc</kbd> close
+                            <span class={twClasses("", jsxTailwindStyles, "span")}>
+                                <kbd class={twClasses("", jsxTailwindStyles, "kbd")}>↵</kbd> select{" "}
+                                <kbd class={twClasses("", jsxTailwindStyles, "kbd")}>Esc</kbd> close
                             </span>
                         </div>
                     </ManagedDialog>
@@ -4789,7 +4968,7 @@ function App(): JSX.Element {
             <Show when={guidePrintContent()} keyed>
                 {(content) => (
                     <div
-                        class="guide-print-preview"
+                        class={twClasses("guide-print-preview", jsxTailwindStyles, "div")}
                         aria-hidden="true"
                         ref={(element) => element.replaceChildren(content)}
                     />
@@ -4801,11 +4980,16 @@ function App(): JSX.Element {
 
 function Welcome(props: { loading: boolean }): JSX.Element {
     return (
-        <div class="welcome-page">
-            <section class="welcome-invitation" aria-labelledby="welcome-title">
-                <span class="eyebrow">Archive</span>
-                <h1 id="welcome-title">Open or create an archive</h1>
-                <p>
+        <div class={twClasses("welcome-page", jsxTailwindStyles, "div")}>
+            <section
+                class={twClasses("welcome-invitation", jsxTailwindStyles, "section")}
+                aria-labelledby="welcome-title"
+            >
+                <span class={twClasses("eyebrow", jsxTailwindStyles, "span")}>Archive</span>
+                <h1 id="welcome-title" class={twClasses("", jsxTailwindStyles, "h1")}>
+                    Open or create an archive
+                </h1>
+                <p class={twClasses("", jsxTailwindStyles, "p")}>
                     {props.loading
                         ? "Loading your teaching workspace…"
                         : "Choose an archive from the sidebar to continue, or create one for your teaching work."}
@@ -4842,16 +5026,20 @@ function Overview(props: {
     const activity = createMemo(() => activityValues(props.state.sessions, filter()));
 
     return (
-        <div class="page-body overview-page">
-            <section class="overview-heading">
-                <div>
-                    <span class="eyebrow">{formatFullDate(now)}</span>
-                    <h1>{greeting}, teacher.</h1>
-                    <p>Here’s a clear view of the work you’re doing with your learners.</p>
+        <div class={twClasses("page-body overview-page", jsxTailwindStyles, "div")}>
+            <section class={twClasses("overview-heading", jsxTailwindStyles, "section")}>
+                <div class={twClasses("", jsxTailwindStyles, "div")}>
+                    <span class={twClasses("eyebrow", jsxTailwindStyles, "span")}>
+                        {formatFullDate(now)}
+                    </span>
+                    <h1 class={twClasses("", jsxTailwindStyles, "h1")}>{greeting}, teacher.</h1>
+                    <p class={twClasses("", jsxTailwindStyles, "p")}>
+                        Here’s a clear view of the work you’re doing with your learners.
+                    </p>
                 </div>
-                <div class="heading-action-group">
+                <div class={twClasses("heading-action-group", jsxTailwindStyles, "div")}>
                     <button
-                        class="button button-outline"
+                        class={twClasses("button button-outline", jsxTailwindStyles, "button")}
                         type="button"
                         onClick={() => props.onOpen()}
                     >
@@ -4859,7 +5047,7 @@ function Overview(props: {
                         Switch archive
                     </button>
                     <button
-                        class="button button-primary"
+                        class={twClasses("button button-primary", jsxTailwindStyles, "button")}
                         type="button"
                         onClick={() => props.onCreate("session")}
                         disabled={!props.state.snapshot.canMutate}
@@ -4870,7 +5058,10 @@ function Overview(props: {
                 </div>
             </section>
 
-            <section class="overview-stat-grid" aria-label="Workspace summary">
+            <section
+                class={twClasses("overview-stat-grid", jsxTailwindStyles, "section")}
+                aria-label="Workspace summary"
+            >
                 <StatCard
                     label="Students"
                     value={props.state.students.length}
@@ -4905,75 +5096,122 @@ function Overview(props: {
                 />
             </section>
 
-            <div class="overview-content-grid">
-                <section class="surface-card activity-card" aria-labelledby="activity-title">
-                    <div class="card-heading">
-                        <div>
-                            <span class="eyebrow">Teaching rhythm</span>
-                            <h2 id="activity-title">Your sessions</h2>
+            <div class={twClasses("overview-content-grid", jsxTailwindStyles, "div")}>
+                <section
+                    class={twClasses("surface-card activity-card", jsxTailwindStyles, "section")}
+                    aria-labelledby="activity-title"
+                >
+                    <div class={twClasses("card-heading", jsxTailwindStyles, "div")}>
+                        <div class={twClasses("", jsxTailwindStyles, "div")}>
+                            <span class={twClasses("eyebrow", jsxTailwindStyles, "span")}>
+                                Teaching rhythm
+                            </span>
+                            <h2 id="activity-title" class={twClasses("", jsxTailwindStyles, "h2")}>
+                                Your sessions
+                            </h2>
                         </div>
-                        <div class="segmented-control" aria-label="Activity time range">
+                        <div
+                            class={twClasses("segmented-control", jsxTailwindStyles, "div")}
+                            aria-label="Activity time range"
+                        >
                             <button
-                                class={filter() === "week" ? "selected" : ""}
+                                class={twClasses(
+                                    filter() === "week" ? "selected" : "",
+                                    jsxTailwindStyles,
+                                    "button",
+                                )}
                                 onClick={() => setFilter("week")}
                             >
                                 7 days
                             </button>
                             <button
-                                class={filter() === "month" ? "selected" : ""}
+                                class={twClasses(
+                                    filter() === "month" ? "selected" : "",
+                                    jsxTailwindStyles,
+                                    "button",
+                                )}
                                 onClick={() => setFilter("month")}
                             >
                                 4 weeks
                             </button>
                         </div>
                     </div>
-                    <div class="activity-summary">
-                        <strong>{activity().reduce((sum, value) => sum + value.count, 0)}</strong>
-                        <span>sessions recorded in this period</span>
+                    <div class={twClasses("activity-summary", jsxTailwindStyles, "div")}>
+                        <strong class={twClasses("", jsxTailwindStyles, "strong")}>
+                            {activity().reduce((sum, value) => sum + value.count, 0)}
+                        </strong>
+                        <span class={twClasses("", jsxTailwindStyles, "span")}>
+                            sessions recorded in this period
+                        </span>
                     </div>
                     <div
-                        class={`activity-chart ${filter() === "month" ? "is-month" : ""}`}
+                        class={twClasses(
+                            `activity-chart ${filter() === "month" ? "is-month" : ""}`,
+                            jsxTailwindStyles,
+                            "div",
+                        )}
                         role="img"
                         aria-label={`${activity().reduce((sum, value) => sum + value.count, 0)} sessions over the last ${filter() === "week" ? "seven days" : "four weeks"}`}
                     >
-                        <div class="chart-grid">
-                            <span />
-                            <span />
-                            <span />
-                            <span />
+                        <div class={twClasses("chart-grid", jsxTailwindStyles, "div")}>
+                            <span class={twClasses("", jsxTailwindStyles, "span")} />
+                            <span class={twClasses("", jsxTailwindStyles, "span")} />
+                            <span class={twClasses("", jsxTailwindStyles, "span")} />
+                            <span class={twClasses("", jsxTailwindStyles, "span")} />
                         </div>
                         <For each={activity()}>
                             {(item) => (
-                                <div class="chart-column">
-                                    <div class="chart-bar-wrap">
+                                <div class={twClasses("chart-column", jsxTailwindStyles, "div")}>
+                                    <div
+                                        class={twClasses(
+                                            "chart-bar-wrap",
+                                            jsxTailwindStyles,
+                                            "div",
+                                        )}
+                                    >
                                         <div
-                                            class="chart-bar"
+                                            class={twClasses("chart-bar", jsxTailwindStyles, "div")}
                                             style={{ height: `${Math.max(4, item.count * 26)}px` }}
                                             title={`${item.count} sessions`}
                                         >
-                                            <span>{item.count > 0 ? item.count : ""}</span>
+                                            <span class={twClasses("", jsxTailwindStyles, "span")}>
+                                                {item.count > 0 ? item.count : ""}
+                                            </span>
                                         </div>
                                     </div>
-                                    <span class="chart-label">{item.label}</span>
+                                    <span
+                                        class={twClasses("chart-label", jsxTailwindStyles, "span")}
+                                    >
+                                        {item.label}
+                                    </span>
                                 </div>
                             )}
                         </For>
                     </div>
-                    <div class="chart-legend">
-                        <span class="legend-dot" />
+                    <div class={twClasses("chart-legend", jsxTailwindStyles, "div")}>
+                        <span class={twClasses("legend-dot", jsxTailwindStyles, "span")} />
                         Sessions completed{" "}
-                        <span class="chart-note">Your archive stays on this device</span>
+                        <span class={twClasses("chart-note", jsxTailwindStyles, "span")}>
+                            Your archive stays on this device
+                        </span>
                     </div>
                 </section>
 
-                <section class="surface-card focus-card" aria-labelledby="focus-title">
-                    <div class="card-heading">
-                        <div>
-                            <span class="eyebrow">Your learners</span>
-                            <h2 id="focus-title">Students to keep close</h2>
+                <section
+                    class={twClasses("surface-card focus-card", jsxTailwindStyles, "section")}
+                    aria-labelledby="focus-title"
+                >
+                    <div class={twClasses("card-heading", jsxTailwindStyles, "div")}>
+                        <div class={twClasses("", jsxTailwindStyles, "div")}>
+                            <span class={twClasses("eyebrow", jsxTailwindStyles, "span")}>
+                                Your learners
+                            </span>
+                            <h2 id="focus-title" class={twClasses("", jsxTailwindStyles, "h2")}>
+                                Students to keep close
+                            </h2>
                         </div>
                         <button
-                            class="text-action"
+                            class={twClasses("text-action", jsxTailwindStyles, "button")}
                             type="button"
                             onClick={() => props.onNavigate("students")}
                         >
@@ -4991,22 +5229,42 @@ function Overview(props: {
                             />
                         }
                     >
-                        <div class="student-peek-list">
+                        <div class={twClasses("student-peek-list", jsxTailwindStyles, "div")}>
                             <For each={props.state.students.slice(0, 4)}>
                                 {(student, index) => (
                                     <button
-                                        class="student-peek"
+                                        class={twClasses(
+                                            "student-peek",
+                                            jsxTailwindStyles,
+                                            "button",
+                                        )}
                                         type="button"
                                         onClick={() => props.onNavigate("students")}
                                     >
-                                        <span class={`student-avatar avatar-${index() % 5}`}>
+                                        <span
+                                            class={twClasses(
+                                                `student-avatar avatar-${index() % 5}`,
+                                                jsxTailwindStyles,
+                                                "span",
+                                            )}
+                                        >
                                             {initials(field(student, "display_name", "S"))}
                                         </span>
-                                        <span class="student-peek-copy">
-                                            <strong>
+                                        <span
+                                            class={twClasses(
+                                                "student-peek-copy",
+                                                jsxTailwindStyles,
+                                                "span",
+                                            )}
+                                        >
+                                            <strong
+                                                class={twClasses("", jsxTailwindStyles, "strong")}
+                                            >
                                                 {field(student, "display_name", "Student")}
                                             </strong>
-                                            <small>
+                                            <small
+                                                class={twClasses("", jsxTailwindStyles, "small")}
+                                            >
                                                 {[
                                                     field(student, "grade"),
                                                     field(student, "subjects"),
@@ -5023,14 +5281,21 @@ function Overview(props: {
                     </Show>
                 </section>
 
-                <section class="surface-card recent-card" aria-labelledby="recent-title">
-                    <div class="card-heading">
-                        <div>
-                            <span class="eyebrow">Keep the thread</span>
-                            <h2 id="recent-title">Recent sessions</h2>
+                <section
+                    class={twClasses("surface-card recent-card", jsxTailwindStyles, "section")}
+                    aria-labelledby="recent-title"
+                >
+                    <div class={twClasses("card-heading", jsxTailwindStyles, "div")}>
+                        <div class={twClasses("", jsxTailwindStyles, "div")}>
+                            <span class={twClasses("eyebrow", jsxTailwindStyles, "span")}>
+                                Keep the thread
+                            </span>
+                            <h2 id="recent-title" class={twClasses("", jsxTailwindStyles, "h2")}>
+                                Recent sessions
+                            </h2>
                         </div>
                         <button
-                            class="text-action"
+                            class={twClasses("text-action", jsxTailwindStyles, "button")}
                             type="button"
                             onClick={() => props.onNavigate("sessions")}
                         >
@@ -5048,7 +5313,7 @@ function Overview(props: {
                             />
                         }
                     >
-                        <div class="recent-session-list">
+                        <div class={twClasses("recent-session-list", jsxTailwindStyles, "div")}>
                             <For each={recentSessions()}>
                                 {(session) => (
                                     <SessionRow session={session} students={props.state.students} />
@@ -5059,16 +5324,27 @@ function Overview(props: {
                 </section>
 
                 <section
-                    class="surface-card journal-peek-card"
+                    class={twClasses(
+                        "surface-card journal-peek-card",
+                        jsxTailwindStyles,
+                        "section",
+                    )}
                     aria-labelledby="journal-peek-title"
                 >
-                    <div class="card-heading">
-                        <div>
-                            <span class="eyebrow">Small observations, big picture</span>
-                            <h2 id="journal-peek-title">Journal</h2>
+                    <div class={twClasses("card-heading", jsxTailwindStyles, "div")}>
+                        <div class={twClasses("", jsxTailwindStyles, "div")}>
+                            <span class={twClasses("eyebrow", jsxTailwindStyles, "span")}>
+                                Small observations, big picture
+                            </span>
+                            <h2
+                                id="journal-peek-title"
+                                class={twClasses("", jsxTailwindStyles, "h2")}
+                            >
+                                Journal
+                            </h2>
                         </div>
                         <button
-                            class="text-action"
+                            class={twClasses("text-action", jsxTailwindStyles, "button")}
                             type="button"
                             onClick={() => props.onNavigate("journal")}
                         >
@@ -5086,27 +5362,47 @@ function Overview(props: {
                             />
                         }
                     >
-                        <div class="journal-peek-list">
+                        <div class={twClasses("journal-peek-list", jsxTailwindStyles, "div")}>
                             <For each={recentEntries()}>
                                 {(entry) => (
                                     <button
-                                        class="journal-peek"
+                                        class={twClasses(
+                                            "journal-peek",
+                                            jsxTailwindStyles,
+                                            "button",
+                                        )}
                                         type="button"
                                         onClick={() => props.onNavigate("journal")}
                                     >
-                                        <span class="journal-date">
-                                            <strong>
+                                        <span
+                                            class={twClasses(
+                                                "journal-date",
+                                                jsxTailwindStyles,
+                                                "span",
+                                            )}
+                                        >
+                                            <strong
+                                                class={twClasses("", jsxTailwindStyles, "strong")}
+                                            >
                                                 {dateParts(field(entry, "entry_date")).day}
                                             </strong>
-                                            <small>
+                                            <small
+                                                class={twClasses("", jsxTailwindStyles, "small")}
+                                            >
                                                 {dateParts(field(entry, "entry_date")).month}
                                             </small>
                                         </span>
-                                        <span>
-                                            <strong>
+                                        <span class={twClasses("", jsxTailwindStyles, "span")}>
+                                            <strong
+                                                class={twClasses("", jsxTailwindStyles, "strong")}
+                                            >
                                                 {field(entry, "title", "Untitled entry")}
                                             </strong>
-                                            <small>{field(entry, "entry_date")}</small>
+                                            <small
+                                                class={twClasses("", jsxTailwindStyles, "small")}
+                                            >
+                                                {field(entry, "entry_date")}
+                                            </small>
                                         </span>
                                         <Icon name="chevron" />
                                     </button>
@@ -5116,12 +5412,16 @@ function Overview(props: {
                     </Show>
                 </section>
             </div>
-            <div class="overview-footnote">
-                <span>
+            <div class={twClasses("overview-footnote", jsxTailwindStyles, "div")}>
+                <span class={twClasses("", jsxTailwindStyles, "span")}>
                     <Icon name="shield" />
                     Your archive is stored locally
                 </span>
-                <button type="button" onClick={() => props.onNavigate("archive")}>
+                <button
+                    type="button"
+                    onClick={() => props.onNavigate("archive")}
+                    class={twClasses("", jsxTailwindStyles, "button")}
+                >
                     Archive details <Icon name="arrow" />
                 </button>
             </div>
@@ -5149,8 +5449,11 @@ function UnlockArchivePanel(props: {
     };
 
     return (
-        <form class="locked-unlock-form" onSubmit={submit}>
-            <label class="form-field" for="archive-passphrase">
+        <form class={twClasses("locked-unlock-form", jsxTailwindStyles, "form")} onSubmit={submit}>
+            <label
+                class={twClasses("form-field", jsxTailwindStyles, "label")}
+                for="archive-passphrase"
+            >
                 Archive passphrase
                 <input
                     id="archive-passphrase"
@@ -5163,17 +5466,22 @@ function UnlockArchivePanel(props: {
                     aria-invalid={Boolean(error())}
                     aria-describedby="archive-unlock-error"
                     required
+                    class={twClasses("", jsxTailwindStyles, "input")}
                 />
             </label>
             <button
-                class="button button-primary"
+                class={twClasses("button button-primary", jsxTailwindStyles, "button")}
                 type="submit"
                 disabled={props.busy || !passphrase()}
             >
                 {props.busy ? "Unlocking…" : "Unlock archive"}
             </button>
             <Show when={error()}>
-                <p id="archive-unlock-error" class="locked-unlock-error" role="alert">
+                <p
+                    id="archive-unlock-error"
+                    class={twClasses("locked-unlock-error", jsxTailwindStyles, "p")}
+                    role="alert"
+                >
                     {error()}
                 </p>
             </Show>
@@ -5231,61 +5539,79 @@ function ArchivePage(props: {
         }
     };
     return (
-        <div class="page-body archive-page">
-            <section class="record-heading">
-                <div>
-                    <span class="eyebrow">Your data, in your hands</span>
-                    <h1>Archive health</h1>
-                    <p>Review the portable file that holds your tutoring workspace.</p>
+        <div class={twClasses("page-body archive-page", jsxTailwindStyles, "div")}>
+            <section class={twClasses("record-heading", jsxTailwindStyles, "section")}>
+                <div class={twClasses("", jsxTailwindStyles, "div")}>
+                    <span class={twClasses("eyebrow", jsxTailwindStyles, "span")}>
+                        Your data, in your hands
+                    </span>
+                    <h1 class={twClasses("", jsxTailwindStyles, "h1")}>Archive health</h1>
+                    <p class={twClasses("", jsxTailwindStyles, "p")}>
+                        Review the portable file that holds your tutoring workspace.
+                    </p>
                 </div>
-                <button class="button button-primary" type="button" onClick={() => props.onSave()}>
+                <button
+                    class={twClasses("button button-primary", jsxTailwindStyles, "button")}
+                    type="button"
+                    onClick={() => props.onSave()}
+                >
                     <Icon name="check" />
                     {props.state.dirty ? "Save changes" : "Save a copy"}
                 </button>
             </section>
-            <section class="archive-summary-card">
-                <div class="archive-card-art">
-                    <img src={brandLogo} alt="" />
-                    <span class="archive-card-glow" />
+            <section class={twClasses("archive-summary-card", jsxTailwindStyles, "section")}>
+                <div class={twClasses("archive-card-art", jsxTailwindStyles, "div")}>
+                    <img src={brandLogo} alt="" class={twClasses("", jsxTailwindStyles, "img")} />
+                    <span class={twClasses("archive-card-glow", jsxTailwindStyles, "span")} />
                 </div>
-                <div class="archive-summary-copy">
-                    <span class="eyebrow">Tutorux portable archive</span>
-                    <h2>{props.state.manifest.displayName}</h2>
-                    <p>
+                <div class={twClasses("archive-summary-copy", jsxTailwindStyles, "div")}>
+                    <span class={twClasses("eyebrow", jsxTailwindStyles, "span")}>
+                        Tutorux portable archive
+                    </span>
+                    <h2 class={twClasses("", jsxTailwindStyles, "h2")}>
+                        {props.state.manifest.displayName}
+                    </h2>
+                    <p class={twClasses("", jsxTailwindStyles, "p")}>
                         {props.state.manifest.description ||
                             "A private workspace for your tutoring practice."}
                     </p>
-                    <div class="archive-chip-row">
-                        <span>
-                            <i class="dot-green" />
+                    <div class={twClasses("archive-chip-row", jsxTailwindStyles, "div")}>
+                        <span class={twClasses("", jsxTailwindStyles, "span")}>
+                            <i class={twClasses("dot-green", jsxTailwindStyles, "i")} />
                             {props.state.snapshot.locked
                                 ? "Encrypted · locked"
                                 : props.state.snapshot.encrypted
                                   ? "Encrypted · unlocked"
                                   : "Ready to use"}
                         </span>
-                        <span>
+                        <span class={twClasses("", jsxTailwindStyles, "span")}>
                             <Icon name="archive" />
                             Format v{props.state.snapshot.header.majorVersion}.
                             {props.state.snapshot.header.minorVersion}
                         </span>
-                        <span>
+                        <span class={twClasses("", jsxTailwindStyles, "span")}>
                             <Icon name="clock" />
                             Generation {props.state.snapshot.commit.generation.toString()}
                         </span>
                     </div>
                 </div>
-                <div class="archive-size">
-                    <span>File size</span>
-                    <strong>{formatBytes(props.state.snapshot.source.size)}</strong>
-                    <small>{props.state.location ?? "Browser copy"}</small>
+                <div class={twClasses("archive-size", jsxTailwindStyles, "div")}>
+                    <span class={twClasses("", jsxTailwindStyles, "span")}>File size</span>
+                    <strong class={twClasses("", jsxTailwindStyles, "strong")}>
+                        {formatBytes(props.state.snapshot.source.size)}
+                    </strong>
+                    <small class={twClasses("", jsxTailwindStyles, "small")}>
+                        {props.state.location ?? "Browser copy"}
+                    </small>
                 </div>
             </section>
             <Show when={props.state.snapshot.encrypted && !props.state.snapshot.locked}>
-                <div class="archive-lock-action">
-                    <span>Archive contents are unlocked for this session.</span>
+                <div class={twClasses("archive-lock-action", jsxTailwindStyles, "div")}>
+                    <span class={twClasses("", jsxTailwindStyles, "span")}>
+                        Archive contents are unlocked for this session.
+                    </span>
                     <button
-                        class="button button-outline"
+                        class={twClasses("button button-outline", jsxTailwindStyles, "button")}
                         type="button"
                         onClick={() => props.onLock()}
                     >
@@ -5294,7 +5620,7 @@ function ArchivePage(props: {
                     </button>
                 </div>
             </Show>
-            <div class="archive-info-grid">
+            <div class={twClasses("archive-info-grid", jsxTailwindStyles, "div")}>
                 <InfoCard
                     label="Created"
                     value={formatMicroseconds(props.state.snapshot.header.createdAtUs)}
@@ -5317,31 +5643,36 @@ function ArchivePage(props: {
                     mono
                 />
             </div>
-            <section class="surface-card archive-integrity">
-                <div class="integrity-icon">
+            <section
+                class={twClasses("surface-card archive-integrity", jsxTailwindStyles, "section")}
+            >
+                <div class={twClasses("integrity-icon", jsxTailwindStyles, "div")}>
                     <Icon name="shield" />
                 </div>
-                <div class="archive-integrity-copy">
-                    <h2>
+                <div class={twClasses("archive-integrity-copy", jsxTailwindStyles, "div")}>
+                    <h2 class={twClasses("", jsxTailwindStyles, "h2")}>
                         {verification()
                             ? "Every current record passed verification"
                             : props.state.snapshot.locked
                               ? "Unlock to verify archive records"
                               : "Verify every current record"}
                     </h2>
-                    <p>
+                    <p class={twClasses("", jsxTailwindStyles, "p")}>
                         {verification()
                             ? `${verification()!.currentRecords.toLocaleString()} records checked, including ${verification()!.deletedRecords.toLocaleString()} in Trash.`
                             : "Read every indexed record and check its index reference, including records in Trash."}
                     </p>
                     <Show when={verificationError()}>
-                        <p class="archive-integrity-error" role="alert">
+                        <p
+                            class={twClasses("archive-integrity-error", jsxTailwindStyles, "p")}
+                            role="alert"
+                        >
                             {verificationError()}
                         </p>
                     </Show>
                     <Show when={historyVerification()}>
                         {(result) => (
-                            <p>
+                            <p class={twClasses("", jsxTailwindStyles, "p")}>
                                 {result().historicalRevisions.toLocaleString()} historical revisions
                                 and {result().verifiedGenerationRecords.toLocaleString()} indexed
                                 records across {result().verifiedCommits.toLocaleString()} committed
@@ -5351,9 +5682,9 @@ function ArchivePage(props: {
                         )}
                     </Show>
                 </div>
-                <div class="archive-integrity-actions">
+                <div class={twClasses("archive-integrity-actions", jsxTailwindStyles, "div")}>
                     <button
-                        class="button button-outline"
+                        class={twClasses("button button-outline", jsxTailwindStyles, "button")}
                         type="button"
                         disabled={props.state.snapshot.locked || verifying()}
                         onClick={() => void verify()}
@@ -5361,15 +5692,18 @@ function ArchivePage(props: {
                         {verifying() ? "Checking records…" : "Verify archive"}
                     </button>
                     <button
-                        class="button button-outline"
+                        class={twClasses("button button-outline", jsxTailwindStyles, "button")}
                         type="button"
                         disabled={props.state.snapshot.locked || verifying()}
                         onClick={() => void verify(true)}
                     >
                         Verify history
                     </button>
-                    <span class="integrity-status" role="status">
-                        <i />
+                    <span
+                        class={twClasses("integrity-status", jsxTailwindStyles, "span")}
+                        role="status"
+                    >
+                        <i class={twClasses("", jsxTailwindStyles, "i")} />
                         {verification()
                             ? `Generation ${verification()!.generation} verified`
                             : "Header and index checked on open"}
@@ -5382,18 +5716,20 @@ function ArchivePage(props: {
                 onApply={props.onApplyMaintenance}
             />
             <SanitizedCopy snapshot={props.state.snapshot} disabled={props.busy} />
-            <section class="archive-actions-card">
-                <div>
-                    <span class="eyebrow">Portable by design</span>
-                    <h2>Keep a safe copy</h2>
-                    <p>
+            <section class={twClasses("archive-actions-card", jsxTailwindStyles, "section")}>
+                <div class={twClasses("", jsxTailwindStyles, "div")}>
+                    <span class={twClasses("eyebrow", jsxTailwindStyles, "span")}>
+                        Portable by design
+                    </span>
+                    <h2 class={twClasses("", jsxTailwindStyles, "h2")}>Keep a safe copy</h2>
+                    <p class={twClasses("", jsxTailwindStyles, "p")}>
                         Your archive is a single file. Save a copy somewhere you trust, then open it
                         on another supported device when you need it.
                     </p>
                 </div>
-                <div>
+                <div class={twClasses("", jsxTailwindStyles, "div")}>
                     <button
-                        class="button button-outline"
+                        class={twClasses("button button-outline", jsxTailwindStyles, "button")}
                         type="button"
                         onClick={() => props.onOpen()}
                     >
@@ -5401,7 +5737,7 @@ function ArchivePage(props: {
                         Open another archive
                     </button>
                     <button
-                        class="button button-primary"
+                        class={twClasses("button button-primary", jsxTailwindStyles, "button")}
                         type="button"
                         onClick={() => props.onSave()}
                     >
@@ -5432,23 +5768,35 @@ function SettingsPage(props: {
         setKeys(markerKeys(props.state));
     });
     return (
-        <div class="page-body settings-page">
-            <section class="record-heading">
-                <div>
-                    <span class="eyebrow">Make the space yours</span>
-                    <h1>Preferences</h1>
-                    <p>A few small choices for a workspace that feels right to use.</p>
+        <div class={twClasses("page-body settings-page", jsxTailwindStyles, "div")}>
+            <section class={twClasses("record-heading", jsxTailwindStyles, "section")}>
+                <div class={twClasses("", jsxTailwindStyles, "div")}>
+                    <span class={twClasses("eyebrow", jsxTailwindStyles, "span")}>
+                        Make the space yours
+                    </span>
+                    <h1 class={twClasses("", jsxTailwindStyles, "h1")}>Preferences</h1>
+                    <p class={twClasses("", jsxTailwindStyles, "p")}>
+                        A few small choices for a workspace that feels right to use.
+                    </p>
                 </div>
             </section>
-            <section class="settings-section" aria-labelledby="keyboard-shortcuts-title">
-                <div class="settings-section-heading">
-                    <h2 id="keyboard-shortcuts-title">Keyboard shortcuts</h2>
-                    <p>
+            <section
+                class={twClasses("settings-section", jsxTailwindStyles, "section")}
+                aria-labelledby="keyboard-shortcuts-title"
+            >
+                <div class={twClasses("settings-section-heading", jsxTailwindStyles, "div")}>
+                    <h2
+                        id="keyboard-shortcuts-title"
+                        class={twClasses("", jsxTailwindStyles, "h2")}
+                    >
+                        Keyboard shortcuts
+                    </h2>
+                    <p class={twClasses("", jsxTailwindStyles, "p")}>
                         Core commands work throughout Tutorux; observation and note-editing
                         shortcuts are available in their matching workspace pages.
                     </p>
                 </div>
-                <dl class="shortcut-matrix">
+                <dl class={twClasses("shortcut-matrix", jsxTailwindStyles, "dl")}>
                     <For
                         each={keyboardShortcutRows(
                             navigator.platform.includes("Mac"),
@@ -5457,39 +5805,50 @@ function SettingsPage(props: {
                         )}
                     >
                         {(shortcut) => (
-                            <div class="shortcut-matrix-row">
-                                <dt>{shortcut.action}</dt>
-                                <dd>{shortcut.keys}</dd>
+                            <div class={twClasses("shortcut-matrix-row", jsxTailwindStyles, "div")}>
+                                <dt class={twClasses("", jsxTailwindStyles, "dt")}>
+                                    {shortcut.action}
+                                </dt>
+                                <dd class={twClasses("", jsxTailwindStyles, "dd")}>
+                                    {shortcut.keys}
+                                </dd>
                             </div>
                         )}
                     </For>
                 </dl>
             </section>
-            <section class="settings-section">
-                <div class="settings-section-heading">
-                    <h2>Appearance</h2>
-                    <p>Choose the colors you’d like Tutorux to use.</p>
+            <section class={twClasses("settings-section", jsxTailwindStyles, "section")}>
+                <div class={twClasses("settings-section-heading", jsxTailwindStyles, "div")}>
+                    <h2 class={twClasses("", jsxTailwindStyles, "h2")}>Appearance</h2>
+                    <p class={twClasses("", jsxTailwindStyles, "p")}>
+                        Choose the colors you’d like Tutorux to use.
+                    </p>
                 </div>
-                <div class="preference-row">
-                    <div class="preference-icon">
+                <div class={twClasses("preference-row", jsxTailwindStyles, "div")}>
+                    <div class={twClasses("preference-icon", jsxTailwindStyles, "div")}>
                         <Icon name={props.theme === "light" ? "sun" : "moon"} />
                     </div>
-                    <div class="preference-copy">
-                        <strong>Color theme</strong>
-                        <span>
+                    <div class={twClasses("preference-copy", jsxTailwindStyles, "div")}>
+                        <strong class={twClasses("", jsxTailwindStyles, "strong")}>
+                            Color theme
+                        </strong>
+                        <span class={twClasses("", jsxTailwindStyles, "span")}>
                             {props.themeMode === "system"
                                 ? `System appearance · ${props.theme}`
                                 : `${props.themeMode} appearance`}
                         </span>
                     </div>
-                    <label class="theme-mode-control">
-                        <span class="visually-hidden">Color theme</span>
+                    <label class={twClasses("theme-mode-control", jsxTailwindStyles, "label")}>
+                        <span class={twClasses("visually-hidden", jsxTailwindStyles, "span")}>
+                            Color theme
+                        </span>
                         <select
                             aria-label="Color theme"
                             value={props.themeMode}
                             onChange={(event) =>
                                 props.onThemeMode(event.currentTarget.value as ThemeMode)
                             }
+                            class={twClasses("", jsxTailwindStyles, "select")}
                         >
                             <option value="system">System</option>
                             <option value="light">Light</option>
@@ -5498,19 +5857,19 @@ function SettingsPage(props: {
                     </label>
                 </div>
             </section>
-            <section class="settings-section">
-                <div class="settings-section-heading">
-                    <h2>Observation shortcuts</h2>
-                    <p>
+            <section class={twClasses("settings-section", jsxTailwindStyles, "section")}>
+                <div class={twClasses("settings-section-heading", jsxTailwindStyles, "div")}>
+                    <h2 class={twClasses("", jsxTailwindStyles, "h2")}>Observation shortcuts</h2>
+                    <p class={twClasses("", jsxTailwindStyles, "p")}>
                         On the Observations page, use Ctrl on Windows and Linux or Command on macOS
                         with a key to start an observation. These keys travel with your archive. K,
                         O, S, and N are reserved for workspace actions.
                     </p>
                 </div>
-                <div class="marker-shortcuts">
+                <div class={twClasses("marker-shortcuts", jsxTailwindStyles, "div")}>
                     <For each={markerTypes}>
                         {(type, index) => (
-                            <label class="form-field">
+                            <label class={twClasses("form-field", jsxTailwindStyles, "label")}>
                                 {annotationTypeLabel(type)}
                                 <input
                                     value={keys()[index()] ?? ""}
@@ -5527,14 +5886,15 @@ function SettingsPage(props: {
                                             ),
                                         )
                                     }
+                                    class={twClasses("", jsxTailwindStyles, "input")}
                                 />
                             </label>
                         )}
                     </For>
                 </div>
-                <div class="marker-shortcut-actions">
+                <div class={twClasses("marker-shortcut-actions", jsxTailwindStyles, "div")}>
                     <button
-                        class="button button-outline"
+                        class={twClasses("button button-outline", jsxTailwindStyles, "button")}
                         type="button"
                         disabled={
                             props.busy ||
@@ -5546,7 +5906,7 @@ function SettingsPage(props: {
                         Restore defaults
                     </button>
                     <button
-                        class="button button-primary"
+                        class={twClasses("button button-primary", jsxTailwindStyles, "button")}
                         type="button"
                         disabled={
                             props.busy ||
@@ -5559,40 +5919,48 @@ function SettingsPage(props: {
                     </button>
                 </div>
             </section>
-            <section class="settings-section">
-                <div class="settings-section-heading">
-                    <h2>Privacy & storage</h2>
-                    <p>Tutorux keeps your work inside a portable archive you control.</p>
+            <section class={twClasses("settings-section", jsxTailwindStyles, "section")}>
+                <div class={twClasses("settings-section-heading", jsxTailwindStyles, "div")}>
+                    <h2 class={twClasses("", jsxTailwindStyles, "h2")}>Privacy & storage</h2>
+                    <p class={twClasses("", jsxTailwindStyles, "p")}>
+                        Tutorux keeps your work inside a portable archive you control.
+                    </p>
                 </div>
-                <div class="preference-row">
-                    <div class="preference-icon secure">
+                <div class={twClasses("preference-row", jsxTailwindStyles, "div")}>
+                    <div class={twClasses("preference-icon secure", jsxTailwindStyles, "div")}>
                         <Icon name="shield" />
                     </div>
-                    <div class="preference-copy">
-                        <strong>Local-first workspace</strong>
-                        <span>
+                    <div class={twClasses("preference-copy", jsxTailwindStyles, "div")}>
+                        <strong class={twClasses("", jsxTailwindStyles, "strong")}>
+                            Local-first workspace
+                        </strong>
+                        <span class={twClasses("", jsxTailwindStyles, "span")}>
                             {platform.kind === "desktop"
                                 ? "Files are read and written directly on this device."
                                 : "The application does not upload archive files."}
                         </span>
                     </div>
-                    <span class="preference-value">On this device</span>
+                    <span class={twClasses("preference-value", jsxTailwindStyles, "span")}>
+                        On this device
+                    </span>
                 </div>
                 <Show when={props.state.snapshot.encrypted}>
-                    <div class="preference-row">
-                        <div class="preference-icon secure">
+                    <div class={twClasses("preference-row", jsxTailwindStyles, "div")}>
+                        <div class={twClasses("preference-icon secure", jsxTailwindStyles, "div")}>
                             <Icon name="shield" />
                         </div>
-                        <div class="preference-copy">
-                            <strong>Passphrase protection</strong>
-                            <span>
+                        <div class={twClasses("preference-copy", jsxTailwindStyles, "div")}>
+                            <strong class={twClasses("", jsxTailwindStyles, "strong")}>
+                                Passphrase protection
+                            </strong>
+                            <span class={twClasses("", jsxTailwindStyles, "span")}>
                                 {props.state.snapshot.locked
                                     ? "Unlock this archive to change its passphrase."
                                     : "Your records are encrypted in this archive."}
                             </span>
                         </div>
                         <button
-                            class="button button-outline"
+                            class={twClasses("button button-outline", jsxTailwindStyles, "button")}
                             type="button"
                             onClick={() => props.onChangePassphrase()}
                             disabled={props.busy || props.state.snapshot.locked}
@@ -5601,31 +5969,37 @@ function SettingsPage(props: {
                         </button>
                     </div>
                 </Show>
-                <div class="preference-row">
-                    <div class="preference-icon">
+                <div class={twClasses("preference-row", jsxTailwindStyles, "div")}>
+                    <div class={twClasses("preference-icon", jsxTailwindStyles, "div")}>
                         <Icon name="archive" />
                     </div>
-                    <div class="preference-copy">
-                        <strong>Current archive</strong>
-                        <span>{props.state.name}</span>
+                    <div class={twClasses("preference-copy", jsxTailwindStyles, "div")}>
+                        <strong class={twClasses("", jsxTailwindStyles, "strong")}>
+                            Current archive
+                        </strong>
+                        <span class={twClasses("", jsxTailwindStyles, "span")}>
+                            {props.state.name}
+                        </span>
                     </div>
-                    <span class="preference-value">
+                    <span class={twClasses("preference-value", jsxTailwindStyles, "span")}>
                         {formatBytes(props.state.snapshot.source.size)}
                     </span>
                 </div>
                 <Show when={props.state.dirty}>
-                    <div class="preference-row">
-                        <div class="preference-icon">
+                    <div class={twClasses("preference-row", jsxTailwindStyles, "div")}>
+                        <div class={twClasses("preference-icon", jsxTailwindStyles, "div")}>
                             <Icon name="archive" />
                         </div>
-                        <div class="preference-copy">
-                            <strong>Changes waiting to be saved</strong>
-                            <span>
+                        <div class={twClasses("preference-copy", jsxTailwindStyles, "div")}>
+                            <strong class={twClasses("", jsxTailwindStyles, "strong")}>
+                                Changes waiting to be saved
+                            </strong>
+                            <span class={twClasses("", jsxTailwindStyles, "span")}>
                                 The passphrase on disk updates when you save this workspace.
                             </span>
                         </div>
                         <button
-                            class="button button-outline"
+                            class={twClasses("button button-outline", jsxTailwindStyles, "button")}
                             type="button"
                             onClick={() => props.onSaveArchive()}
                             disabled={props.busy}
@@ -5656,11 +6030,13 @@ function SettingsPage(props: {
                 onSave={props.onSaveSettings}
             />
             <DiagnosticsReport snapshot={props.state.snapshot} disabled={props.busy} />
-            <section class="settings-note">
+            <section class={twClasses("settings-note", jsxTailwindStyles, "section")}>
                 <Icon name="book" />
-                <div>
-                    <strong>Built for people who teach</strong>
-                    <p>
+                <div class={twClasses("", jsxTailwindStyles, "div")}>
+                    <strong class={twClasses("", jsxTailwindStyles, "strong")}>
+                        Built for people who teach
+                    </strong>
+                    <p class={twClasses("", jsxTailwindStyles, "p")}>
                         Tutorux helps you notice the details and make room for the work that
                         matters.
                     </p>
@@ -5692,51 +6068,73 @@ function ConfirmSessionTrashDialog(props: {
     ];
     return (
         <div
-            class="dialog-backdrop"
+            class={twClasses("dialog-backdrop", jsxTailwindStyles, "div")}
             onClick={(event) => {
                 if (event.target === event.currentTarget && !props.busy) props.onCancel();
             }}
         >
             <ManagedDialog
-                class="form-dialog confirm-dialog session-trash-dialog"
+                class={twClasses(
+                    "form-dialog confirm-dialog session-trash-dialog",
+                    jsxTailwindStyles,
+                    "",
+                )}
                 role="alertdialog"
                 labelledBy="session-trash-title"
                 describedBy="session-trash-description session-trash-side-effects"
                 onEscape={() => props.onCancel()}
                 canEscape={() => !props.busy}
             >
-                <span class="dialog-icon">
+                <span class={twClasses("dialog-icon", jsxTailwindStyles, "span")}>
                     <Icon name="trash" />
                 </span>
-                <span class="eyebrow">Review session group</span>
-                <h2 id="session-trash-title">Move this session to Trash?</h2>
-                <p id="session-trash-description" class="dialog-description">
-                    <strong>{field(props.session, "title", "Untitled session")}</strong> and its
-                    linked transcripts, observations, recordings, materials, guides, and evidence
-                    will move together. Journal entries stay in place and reconnect when you restore
-                    the group.
+                <span class={twClasses("eyebrow", jsxTailwindStyles, "span")}>
+                    Review session group
+                </span>
+                <h2 id="session-trash-title" class={twClasses("", jsxTailwindStyles, "h2")}>
+                    Move this session to Trash?
+                </h2>
+                <p
+                    id="session-trash-description"
+                    class={twClasses("dialog-description", jsxTailwindStyles, "p")}
+                >
+                    <strong class={twClasses("", jsxTailwindStyles, "strong")}>
+                        {field(props.session, "title", "Untitled session")}
+                    </strong>{" "}
+                    and its linked transcripts, observations, recordings, materials, guides, and
+                    evidence will move together. Journal entries stay in place and reconnect when
+                    you restore the group.
                 </p>
-                <div class="session-trash-total">
-                    <strong>{props.counts.totalRecords}</strong>
-                    <span>records affected</span>
+                <div class={twClasses("session-trash-total", jsxTailwindStyles, "div")}>
+                    <strong class={twClasses("", jsxTailwindStyles, "strong")}>
+                        {props.counts.totalRecords}
+                    </strong>
+                    <span class={twClasses("", jsxTailwindStyles, "span")}>records affected</span>
                 </div>
-                <dl class="session-trash-scope">
+                <dl class={twClasses("session-trash-scope", jsxTailwindStyles, "dl")}>
                     <For each={details()}>
                         {(detail) => (
-                            <div>
-                                <dt>{detail.label}</dt>
-                                <dd>{detail.value}</dd>
+                            <div class={twClasses("", jsxTailwindStyles, "div")}>
+                                <dt class={twClasses("", jsxTailwindStyles, "dt")}>
+                                    {detail.label}
+                                </dt>
+                                <dd class={twClasses("", jsxTailwindStyles, "dd")}>
+                                    {detail.value}
+                                </dd>
                             </div>
                         )}
                     </For>
                 </dl>
-                <p id="session-trash-side-effects" class="session-trash-note">
+                <p
+                    id="session-trash-side-effects"
+                    class={twClasses("session-trash-note", jsxTailwindStyles, "p")}
+                >
                     Journal entries will be detached from this session and reconnected when the
                     group is restored. Existing cross-session source links must be resolved first.
                 </p>
-                <div class="dialog-actions">
+                <div class={twClasses("dialog-actions", jsxTailwindStyles, "div")}>
                     <button
-                        class="button button-outline"
+                        class={twClasses("button button-outline", jsxTailwindStyles, "button")}
                         type="button"
                         disabled={props.busy}
                         onClick={() => props.onCancel()}
@@ -5744,7 +6142,7 @@ function ConfirmSessionTrashDialog(props: {
                         Keep session
                     </button>
                     <button
-                        class="button button-danger"
+                        class={twClasses("button button-danger", jsxTailwindStyles, "button")}
                         type="button"
                         disabled={props.busy}
                         onClick={() => props.onConfirm()}
@@ -5766,34 +6164,39 @@ function ConfirmDeleteDialog(props: {
 }): JSX.Element {
     return (
         <div
-            class="dialog-backdrop"
+            class={twClasses("dialog-backdrop", jsxTailwindStyles, "div")}
             onClick={(event) => {
                 if (event.target === event.currentTarget && !props.busy) props.onCancel();
             }}
         >
             <ManagedDialog
-                class="form-dialog confirm-dialog"
+                class={twClasses("form-dialog confirm-dialog", jsxTailwindStyles, "")}
                 role="alertdialog"
                 labelledBy="trash-dialog-title"
                 describedBy="trash-dialog-description"
                 onEscape={() => props.onCancel()}
                 canEscape={() => !props.busy}
             >
-                <span class="dialog-icon">
+                <span class={twClasses("dialog-icon", jsxTailwindStyles, "span")}>
                     <Icon name="trash" />
                 </span>
-                <span class="eyebrow">Recoverable action</span>
-                <h2 id="trash-dialog-title">
+                <span class={twClasses("eyebrow", jsxTailwindStyles, "span")}>
+                    Recoverable action
+                </span>
+                <h2 id="trash-dialog-title" class={twClasses("", jsxTailwindStyles, "h2")}>
                     Move {props.kind === "student" ? "student" : "observation"} to Trash?
                 </h2>
-                <p id="trash-dialog-description" class="dialog-description">
-                    <strong>{props.name}</strong> will leave the active workspace. You can restore
-                    this
+                <p
+                    id="trash-dialog-description"
+                    class={twClasses("dialog-description", jsxTailwindStyles, "p")}
+                >
+                    <strong class={twClasses("", jsxTailwindStyles, "strong")}>{props.name}</strong>{" "}
+                    will leave the active workspace. You can restore this
                     {props.kind === "student" ? " profile" : " observation"} from Trash later.
                 </p>
-                <div class="dialog-actions">
+                <div class={twClasses("dialog-actions", jsxTailwindStyles, "div")}>
                     <button
-                        class="button button-outline"
+                        class={twClasses("button button-outline", jsxTailwindStyles, "button")}
                         type="button"
                         disabled={props.busy}
                         onClick={() => props.onCancel()}
@@ -5801,7 +6204,7 @@ function ConfirmDeleteDialog(props: {
                         Keep {props.kind === "student" ? "student" : "observation"}
                     </button>
                     <button
-                        class="button button-danger"
+                        class={twClasses("button button-danger", jsxTailwindStyles, "button")}
                         type="button"
                         disabled={props.busy}
                         onClick={() => props.onConfirm()}
@@ -6143,8 +6546,8 @@ function FormDialog(props: {
     function notesAutosaveControl(): JSX.Element {
         return (
             <Show when={initialOwner && noteState.editable}>
-                <div class="notes-autosave">
-                    <label>
+                <div class={twClasses("notes-autosave", jsxTailwindStyles, "div")}>
+                    <label class={twClasses("", jsxTailwindStyles, "label")}>
                         <input
                             type="checkbox"
                             checked={autosaveEnabled()}
@@ -6185,16 +6588,21 @@ function FormDialog(props: {
                                         if (!editorDisposed) setAutosavePermissionPending(false);
                                     });
                             }}
+                            class={twClasses("", jsxTailwindStyles, "input")}
                         />
                         Autosave notes
                     </label>
-                    <small>
+                    <small class={twClasses("", jsxTailwindStyles, "small")}>
                         {platform.kind === "desktop" && props.state?.location
                             ? "Autosave writes all current workspace changes to the open archive file."
                             : "When available, grant file access to save workspace changes to the open archive. Otherwise save the archive manually."}
                     </small>
                     <Show when={autosaveStatus()}>
-                        <small role="status" aria-live="polite">
+                        <small
+                            role="status"
+                            aria-live="polite"
+                            class={twClasses("", jsxTailwindStyles, "small")}
+                        >
                             {autosaveStatus()}
                         </small>
                     </Show>
@@ -6205,20 +6613,20 @@ function FormDialog(props: {
 
     return (
         <div
-            class="dialog-backdrop"
+            class={twClasses("dialog-backdrop", jsxTailwindStyles, "div")}
             onClick={(event) => {
                 if (event.target === event.currentTarget && !props.busy) void closeForm();
             }}
         >
             <ManagedDialog
-                class="form-dialog"
+                class={twClasses("form-dialog", jsxTailwindStyles, "")}
                 role="dialog"
                 labelledBy="form-dialog-title"
                 onEscape={() => void closeForm()}
                 canEscape={() => !props.busy}
             >
                 <button
-                    class="icon-button dialog-close"
+                    class={twClasses("icon-button dialog-close", jsxTailwindStyles, "button")}
                     type="button"
                     onClick={() => void closeForm()}
                     disabled={props.busy}
@@ -6226,15 +6634,21 @@ function FormDialog(props: {
                 >
                     <Icon name="close" />
                 </button>
-                <span class="dialog-icon">
+                <span class={twClasses("dialog-icon", jsxTailwindStyles, "span")}>
                     <Icon name={content().icon} />
                 </span>
-                <span class="eyebrow">{content().eyebrow}</span>
-                <h2 id="form-dialog-title">{content().title}</h2>
-                <p class="dialog-description">{content().description}</p>
-                <form onSubmit={submit}>
+                <span class={twClasses("eyebrow", jsxTailwindStyles, "span")}>
+                    {content().eyebrow}
+                </span>
+                <h2 id="form-dialog-title" class={twClasses("", jsxTailwindStyles, "h2")}>
+                    {content().title}
+                </h2>
+                <p class={twClasses("dialog-description", jsxTailwindStyles, "p")}>
+                    {content().description}
+                </p>
+                <form onSubmit={submit} class={twClasses("", jsxTailwindStyles, "form")}>
                     <Show when={props.kind === "archive"}>
-                        <label class="form-field">
+                        <label class={twClasses("form-field", jsxTailwindStyles, "label")}>
                             Workspace name
                             <input
                                 ref={(element) => {
@@ -6244,32 +6658,48 @@ function FormDialog(props: {
                                 placeholder="e.g. Maya’s tutoring"
                                 maxlength="200"
                                 required
+                                class={twClasses("", jsxTailwindStyles, "input")}
                             />
                         </label>
-                        <label class="form-field">
-                            A short description <span class="optional">Optional</span>
+                        <label class={twClasses("form-field", jsxTailwindStyles, "label")}>
+                            A short description{" "}
+                            <span class={twClasses("optional", jsxTailwindStyles, "span")}>
+                                Optional
+                            </span>
                             <textarea
                                 name="description"
                                 rows="3"
                                 placeholder="What will this workspace hold?"
                                 maxlength="1000"
+                                class={twClasses("", jsxTailwindStyles, "textarea")}
                             />
                         </label>
-                        <label class="archive-encryption-toggle">
+                        <label
+                            class={twClasses(
+                                "archive-encryption-toggle",
+                                jsxTailwindStyles,
+                                "label",
+                            )}
+                        >
                             <input
                                 type="checkbox"
                                 checked={encryptOnCreate()}
                                 onChange={(event) =>
                                     setEncryptOnCreate(event.currentTarget.checked)
                                 }
+                                class={twClasses("", jsxTailwindStyles, "input")}
                             />
-                            <span>
-                                <strong>Protect this workspace with a passphrase</strong>
-                                <small>Encrypt learner records and private notes on disk.</small>
+                            <span class={twClasses("", jsxTailwindStyles, "span")}>
+                                <strong class={twClasses("", jsxTailwindStyles, "strong")}>
+                                    Protect this workspace with a passphrase
+                                </strong>
+                                <small class={twClasses("", jsxTailwindStyles, "small")}>
+                                    Encrypt learner records and private notes on disk.
+                                </small>
                             </span>
                         </label>
                         <Show when={encryptOnCreate()}>
-                            <label class="form-field">
+                            <label class={twClasses("form-field", jsxTailwindStyles, "label")}>
                                 Archive passphrase
                                 <input
                                     type="password"
@@ -6277,9 +6707,10 @@ function FormDialog(props: {
                                     autocomplete="new-password"
                                     maxlength="4096"
                                     required
+                                    class={twClasses("", jsxTailwindStyles, "input")}
                                 />
                             </label>
-                            <label class="form-field">
+                            <label class={twClasses("form-field", jsxTailwindStyles, "label")}>
                                 Confirm passphrase
                                 <input
                                     type="password"
@@ -6287,15 +6718,16 @@ function FormDialog(props: {
                                     autocomplete="new-password"
                                     maxlength="4096"
                                     required
+                                    class={twClasses("", jsxTailwindStyles, "input")}
                                 />
                             </label>
-                            <p class="archive-encryption-help">
+                            <p class={twClasses("archive-encryption-help", jsxTailwindStyles, "p")}>
                                 Keep this passphrase safe. Tutorux cannot recover it if it is lost.
                             </p>
                         </Show>
                     </Show>
                     <Show when={props.kind === "passphrase"}>
-                        <label class="form-field">
+                        <label class={twClasses("form-field", jsxTailwindStyles, "label")}>
                             Current passphrase
                             <input
                                 ref={(element) => {
@@ -6306,9 +6738,10 @@ function FormDialog(props: {
                                 autocomplete="current-password"
                                 maxlength="4096"
                                 required
+                                class={twClasses("", jsxTailwindStyles, "input")}
                             />
                         </label>
-                        <label class="form-field">
+                        <label class={twClasses("form-field", jsxTailwindStyles, "label")}>
                             New passphrase
                             <input
                                 ref={(element) => {
@@ -6319,9 +6752,10 @@ function FormDialog(props: {
                                 autocomplete="new-password"
                                 maxlength="4096"
                                 required
+                                class={twClasses("", jsxTailwindStyles, "input")}
                             />
                         </label>
-                        <label class="form-field">
+                        <label class={twClasses("form-field", jsxTailwindStyles, "label")}>
                             Confirm new passphrase
                             <input
                                 type="password"
@@ -6329,16 +6763,17 @@ function FormDialog(props: {
                                 autocomplete="new-password"
                                 maxlength="4096"
                                 required
+                                class={twClasses("", jsxTailwindStyles, "input")}
                             />
                         </label>
-                        <p class="archive-encryption-help">
+                        <p class={twClasses("archive-encryption-help", jsxTailwindStyles, "p")}>
                             Use 12–4096 UTF-8 bytes. Save the workspace after changing it; the
                             previous passphrase remains active on disk until then. Older backup
                             files keep their original passphrase.
                         </p>
                     </Show>
                     <Show when={props.kind === "student"}>
-                        <label class="form-field">
+                        <label class={twClasses("form-field", jsxTailwindStyles, "label")}>
                             Student name
                             <input
                                 ref={(element) => {
@@ -6349,29 +6784,32 @@ function FormDialog(props: {
                                 maxlength="256"
                                 value={props.record ? field(props.record, "display_name") : ""}
                                 required
+                                class={twClasses("", jsxTailwindStyles, "input")}
                             />
                         </label>
-                        <div class="form-field-grid">
-                            <label class="form-field">
+                        <div class={twClasses("form-field-grid", jsxTailwindStyles, "div")}>
+                            <label class={twClasses("form-field", jsxTailwindStyles, "label")}>
                                 Grade or level
                                 <input
                                     name="grade"
                                     placeholder="e.g. Year 8"
                                     maxlength="128"
                                     value={props.record ? field(props.record, "grade") : ""}
+                                    class={twClasses("", jsxTailwindStyles, "input")}
                                 />
                             </label>
-                            <label class="form-field">
+                            <label class={twClasses("form-field", jsxTailwindStyles, "label")}>
                                 Subjects
                                 <input
                                     name="subjects"
                                     placeholder="e.g. Algebra, Science"
                                     maxlength="2048"
                                     value={props.record ? field(props.record, "subjects") : ""}
+                                    class={twClasses("", jsxTailwindStyles, "input")}
                                 />
                             </label>
                         </div>
-                        <label class="form-field">
+                        <label class={twClasses("form-field", jsxTailwindStyles, "label")}>
                             Learning goals
                             <textarea
                                 name="objectives"
@@ -6381,10 +6819,11 @@ function FormDialog(props: {
                                 value={
                                     props.record ? field(props.record, "learning_objectives") : ""
                                 }
+                                class={twClasses("", jsxTailwindStyles, "textarea")}
                             />
                         </label>
-                        <div class="form-field-grid">
-                            <label class="form-field">
+                        <div class={twClasses("form-field-grid", jsxTailwindStyles, "div")}>
+                            <label class={twClasses("form-field", jsxTailwindStyles, "label")}>
                                 Areas to revisit
                                 <textarea
                                     name="difficulties"
@@ -6396,9 +6835,10 @@ function FormDialog(props: {
                                             ? field(props.record, "known_difficulties")
                                             : ""
                                     }
+                                    class={twClasses("", jsxTailwindStyles, "textarea")}
                                 />
                             </label>
-                            <label class="form-field">
+                            <label class={twClasses("form-field", jsxTailwindStyles, "label")}>
                                 Demonstrated improvements
                                 <textarea
                                     name="demonstratedImprovements"
@@ -6410,11 +6850,15 @@ function FormDialog(props: {
                                             ? field(props.record, "demonstrated_improvements")
                                             : ""
                                     }
+                                    class={twClasses("", jsxTailwindStyles, "textarea")}
                                 />
                             </label>
                         </div>
-                        <label class="form-field">
-                            Preferred study-guide structure <span class="optional">Optional</span>
+                        <label class={twClasses("form-field", jsxTailwindStyles, "label")}>
+                            Preferred study-guide structure{" "}
+                            <span class={twClasses("optional", jsxTailwindStyles, "span")}>
+                                Optional
+                            </span>
                             <select
                                 name="preferredGuideTemplate"
                                 value={
@@ -6422,6 +6866,7 @@ function FormDialog(props: {
                                         ? field(props.record, "preferred_guide_template")
                                         : ""
                                 }
+                                class={twClasses("", jsxTailwindStyles, "select")}
                             >
                                 <option value="">Choose when creating a guide</option>
                                 <Show
@@ -6462,11 +6907,14 @@ function FormDialog(props: {
                             </select>
                         </label>
                         <details
-                            class="optional-fields"
+                            class={twClasses("optional-fields", jsxTailwindStyles, "details")}
                             open={Boolean(props.record && field(props.record, "tutor_notes"))}
                         >
-                            <summary>
-                                Private tutor notes <span>Only in this archive</span>
+                            <summary class={twClasses("", jsxTailwindStyles, "summary")}>
+                                Private tutor notes{" "}
+                                <span class={twClasses("", jsxTailwindStyles, "span")}>
+                                    Only in this archive
+                                </span>
                             </summary>
                             <textarea
                                 name="notes"
@@ -6474,11 +6922,12 @@ function FormDialog(props: {
                                 placeholder="Anything useful to keep in mind?"
                                 maxlength="16384"
                                 value={props.record ? field(props.record, "tutor_notes") : ""}
+                                class={twClasses("", jsxTailwindStyles, "textarea")}
                             />
                         </details>
                     </Show>
                     <Show when={props.kind === "session"}>
-                        <label class="form-field">
+                        <label class={twClasses("form-field", jsxTailwindStyles, "label")}>
                             Session title
                             <input
                                 ref={(element) => {
@@ -6489,14 +6938,16 @@ function FormDialog(props: {
                                 maxlength="240"
                                 value={props.record ? field(props.record, "title") : ""}
                                 required
+                                class={twClasses("", jsxTailwindStyles, "input")}
                             />
                         </label>
-                        <div class="form-field-grid">
-                            <label class="form-field">
+                        <div class={twClasses("form-field-grid", jsxTailwindStyles, "div")}>
+                            <label class={twClasses("form-field", jsxTailwindStyles, "label")}>
                                 Student
                                 <select
                                     name="student"
                                     value={props.record ? field(props.record, "student_id") : ""}
+                                    class={twClasses("", jsxTailwindStyles, "select")}
                                 >
                                     <option value="">Independent session</option>
                                     <For each={props.state?.students ?? []}>
@@ -6508,17 +6959,18 @@ function FormDialog(props: {
                                     </For>
                                 </select>
                             </label>
-                            <label class="form-field">
+                            <label class={twClasses("form-field", jsxTailwindStyles, "label")}>
                                 Subject
                                 <input
                                     name="subject"
                                     placeholder="e.g. Algebra"
                                     maxlength="200"
                                     value={props.record ? field(props.record, "subject") : ""}
+                                    class={twClasses("", jsxTailwindStyles, "input")}
                                 />
                             </label>
                         </div>
-                        <label class="form-field">
+                        <label class={twClasses("form-field", jsxTailwindStyles, "label")}>
                             Learning objective
                             <input
                                 name="objectives"
@@ -6527,14 +6979,23 @@ function FormDialog(props: {
                                 value={
                                     props.record ? field(props.record, "learning_objectives") : ""
                                 }
+                                class={twClasses("", jsxTailwindStyles, "input")}
                             />
                         </label>
-                        <div class="form-field document-form-field">
-                            <span>Session notes</span>
+                        <div
+                            class={twClasses(
+                                "form-field document-form-field",
+                                jsxTailwindStyles,
+                                "div",
+                            )}
+                        >
+                            <span class={twClasses("", jsxTailwindStyles, "span")}>
+                                Session notes
+                            </span>
                             <Show
                                 when={noteState.editable}
                                 fallback={
-                                    <span class="form-help">
+                                    <span class={twClasses("form-help", jsxTailwindStyles, "span")}>
                                         These notes contain content this editor cannot safely
                                         change. They remain preserved while you edit the other
                                         session details.
@@ -6551,7 +7012,7 @@ function FormDialog(props: {
                         </div>
                     </Show>
                     <Show when={props.kind === "journal"}>
-                        <label class="form-field">
+                        <label class={twClasses("form-field", jsxTailwindStyles, "label")}>
                             Entry title
                             <input
                                 ref={(element) => {
@@ -6562,11 +7023,18 @@ function FormDialog(props: {
                                 maxlength="240"
                                 value={props.record ? field(props.record, "title") : ""}
                                 required
+                                class={twClasses("", jsxTailwindStyles, "input")}
                             />
                         </label>
-                        <div class="form-field">
-                            <span>Date</span>
-                            <div class="journal-date-field-controls">
+                        <div class={twClasses("form-field", jsxTailwindStyles, "div")}>
+                            <span class={twClasses("", jsxTailwindStyles, "span")}>Date</span>
+                            <div
+                                class={twClasses(
+                                    "journal-date-field-controls",
+                                    jsxTailwindStyles,
+                                    "div",
+                                )}
+                            >
                                 <DatePicker
                                     id="journal-entry-date"
                                     value={journalDate()}
@@ -6574,7 +7042,11 @@ function FormDialog(props: {
                                     onChange={setJournalDate}
                                 />
                                 <button
-                                    class="button button-quiet record-action"
+                                    class={twClasses(
+                                        "button button-quiet record-action",
+                                        jsxTailwindStyles,
+                                        "button",
+                                    )}
                                     type="button"
                                     disabled={!journalDate()}
                                     onClick={() => setJournalDate("")}
@@ -6582,16 +7054,22 @@ function FormDialog(props: {
                                     Clear date
                                 </button>
                             </div>
-                            <span class="form-help">
+                            <span class={twClasses("form-help", jsxTailwindStyles, "span")}>
                                 Leave the date empty for an undated reflection.
                             </span>
                         </div>
-                        <div class="form-field document-form-field">
-                            <span>Reflection</span>
+                        <div
+                            class={twClasses(
+                                "form-field document-form-field",
+                                jsxTailwindStyles,
+                                "div",
+                            )}
+                        >
+                            <span class={twClasses("", jsxTailwindStyles, "span")}>Reflection</span>
                             <Show
                                 when={noteState.editable}
                                 fallback={
-                                    <span class="form-help">
+                                    <span class={twClasses("form-help", jsxTailwindStyles, "span")}>
                                         These notes contain content this editor cannot safely
                                         change. They remain preserved while you edit the other entry
                                         details.
@@ -6606,13 +7084,21 @@ function FormDialog(props: {
                                 {notesAutosaveControl()}
                             </Show>
                         </div>
-                        <div class="journal-link-fields">
-                            <fieldset class="journal-link-group">
-                                <legend>Collections</legend>
+                        <div class={twClasses("journal-link-fields", jsxTailwindStyles, "div")}>
+                            <fieldset
+                                class={twClasses(
+                                    "journal-link-group",
+                                    jsxTailwindStyles,
+                                    "fieldset",
+                                )}
+                            >
+                                <legend class={twClasses("", jsxTailwindStyles, "legend")}>
+                                    Collections
+                                </legend>
                                 <Show
                                     when={(props.state?.collections.length ?? 0) > 0}
                                     fallback={
-                                        <p class="form-help">
+                                        <p class={twClasses("form-help", jsxTailwindStyles, "p")}>
                                             Create a collection in the journal to group related
                                             reflections.
                                         </p>
@@ -6620,7 +7106,13 @@ function FormDialog(props: {
                                 >
                                     <For each={props.state?.collections ?? []}>
                                         {(item) => (
-                                            <label class="journal-check-label">
+                                            <label
+                                                class={twClasses(
+                                                    "journal-check-label",
+                                                    jsxTailwindStyles,
+                                                    "label",
+                                                )}
+                                            >
                                                 <input
                                                     type="checkbox"
                                                     name="collectionIds"
@@ -6628,9 +7120,18 @@ function FormDialog(props: {
                                                     checked={journalIds("collection_ids").includes(
                                                         item.id,
                                                     )}
+                                                    class={twClasses(
+                                                        "",
+                                                        jsxTailwindStyles,
+                                                        "input",
+                                                    )}
                                                 />
                                                 <span
-                                                    class="journal-label-dot"
+                                                    class={twClasses(
+                                                        "journal-label-dot",
+                                                        jsxTailwindStyles,
+                                                        "span",
+                                                    )}
                                                     style={{
                                                         "--label-color": safeJournalColor(item),
                                                     }}
@@ -6649,23 +7150,42 @@ function FormDialog(props: {
                                     )}
                                 >
                                     {(id) => (
-                                        <input type="hidden" name="collectionIds" value={id} />
+                                        <input
+                                            type="hidden"
+                                            name="collectionIds"
+                                            value={id}
+                                            class={twClasses("", jsxTailwindStyles, "input")}
+                                        />
                                     )}
                                 </For>
                             </fieldset>
-                            <fieldset class="journal-link-group">
-                                <legend>Tags</legend>
+                            <fieldset
+                                class={twClasses(
+                                    "journal-link-group",
+                                    jsxTailwindStyles,
+                                    "fieldset",
+                                )}
+                            >
+                                <legend class={twClasses("", jsxTailwindStyles, "legend")}>
+                                    Tags
+                                </legend>
                                 <Show
                                     when={(props.state?.tags.length ?? 0) > 0}
                                     fallback={
-                                        <p class="form-help">
+                                        <p class={twClasses("form-help", jsxTailwindStyles, "p")}>
                                             Create a tag in the journal to mark a useful detail.
                                         </p>
                                     }
                                 >
                                     <For each={props.state?.tags ?? []}>
                                         {(item) => (
-                                            <label class="journal-check-label">
+                                            <label
+                                                class={twClasses(
+                                                    "journal-check-label",
+                                                    jsxTailwindStyles,
+                                                    "label",
+                                                )}
+                                            >
                                                 <input
                                                     type="checkbox"
                                                     name="tagIds"
@@ -6673,9 +7193,18 @@ function FormDialog(props: {
                                                     checked={journalIds("tag_ids").includes(
                                                         item.id,
                                                     )}
+                                                    class={twClasses(
+                                                        "",
+                                                        jsxTailwindStyles,
+                                                        "input",
+                                                    )}
                                                 />
                                                 <span
-                                                    class="journal-label-dot"
+                                                    class={twClasses(
+                                                        "journal-label-dot",
+                                                        jsxTailwindStyles,
+                                                        "span",
+                                                    )}
                                                     style={{
                                                         "--label-color": safeJournalColor(item),
                                                     }}
@@ -6690,7 +7219,14 @@ function FormDialog(props: {
                                         (id) => !props.state?.tags.some((item) => item.id === id),
                                     )}
                                 >
-                                    {(id) => <input type="hidden" name="tagIds" value={id} />}
+                                    {(id) => (
+                                        <input
+                                            type="hidden"
+                                            name="tagIds"
+                                            value={id}
+                                            class={twClasses("", jsxTailwindStyles, "input")}
+                                        />
+                                    )}
                                 </For>
                             </fieldset>
                         </div>
@@ -6705,25 +7241,25 @@ function FormDialog(props: {
                                 )
                             }
                         >
-                            <span class="form-help">
+                            <span class={twClasses("form-help", jsxTailwindStyles, "span")}>
                                 Unavailable legacy labels remain linked when this entry is saved.
                             </span>
                         </Show>
                         <Show when={props.record && !noteState.editable}>
-                            <span class="form-help">
+                            <span class={twClasses("form-help", jsxTailwindStyles, "span")}>
                                 This reflection contains structured blocks. They are preserved while
                                 you edit the title or date.
                             </span>
                         </Show>
                     </Show>
                     <Show when={validationError()}>
-                        <p class="form-error" role="alert">
+                        <p class={twClasses("form-error", jsxTailwindStyles, "p")} role="alert">
                             {validationError()}
                         </p>
                     </Show>
-                    <div class="dialog-actions">
+                    <div class={twClasses("dialog-actions", jsxTailwindStyles, "div")}>
                         <button
-                            class="button button-outline"
+                            class={twClasses("button button-outline", jsxTailwindStyles, "button")}
                             type="button"
                             onClick={() => void closeForm()}
                             disabled={props.busy}
@@ -6731,7 +7267,7 @@ function FormDialog(props: {
                             Cancel
                         </button>
                         <button
-                            class="button button-primary"
+                            class={twClasses("button button-primary", jsxTailwindStyles, "button")}
                             type="submit"
                             disabled={
                                 props.busy ||
@@ -6744,7 +7280,7 @@ function FormDialog(props: {
                         </button>
                     </div>
                 </form>
-                <span class="dialog-privacy">
+                <span class={twClasses("dialog-privacy", jsxTailwindStyles, "span")}>
                     <Icon name="shield" />
                     Stored locally in your archive
                 </span>
@@ -6761,14 +7297,20 @@ function StatCard(props: {
     onClick: () => void;
 }): JSX.Element {
     return (
-        <button class="stat-card" type="button" onClick={() => props.onClick()}>
-            <span class={`stat-icon stat-${props.icon}`}>
+        <button
+            class={twClasses("stat-card", jsxTailwindStyles, "button")}
+            type="button"
+            onClick={() => props.onClick()}
+        >
+            <span class={twClasses(`stat-icon stat-${props.icon}`, jsxTailwindStyles, "span")}>
                 <Icon name={props.icon} />
             </span>
-            <span class="stat-copy">
-                <span>{props.label}</span>
-                <strong>{props.value.toLocaleString()}</strong>
-                <small>{props.detail}</small>
+            <span class={twClasses("stat-copy", jsxTailwindStyles, "span")}>
+                <span class={twClasses("", jsxTailwindStyles, "span")}>{props.label}</span>
+                <strong class={twClasses("", jsxTailwindStyles, "strong")}>
+                    {props.value.toLocaleString()}
+                </strong>
+                <small class={twClasses("", jsxTailwindStyles, "small")}>{props.detail}</small>
             </span>
             <Icon name="arrow" />
         </button>
@@ -6782,14 +7324,18 @@ function EmptyMini(props: {
     onAction: () => void;
 }): JSX.Element {
     return (
-        <div class="empty-mini">
-            <span class="empty-mini-mark">
+        <div class={twClasses("empty-mini", jsxTailwindStyles, "div")}>
+            <span class={twClasses("empty-mini-mark", jsxTailwindStyles, "span")}>
                 <Icon name="spark" />
             </span>
-            <div>
-                <strong>{props.title}</strong>
-                <p>{props.text}</p>
-                <button class="text-action" type="button" onClick={() => props.onAction()}>
+            <div class={twClasses("", jsxTailwindStyles, "div")}>
+                <strong class={twClasses("", jsxTailwindStyles, "strong")}>{props.title}</strong>
+                <p class={twClasses("", jsxTailwindStyles, "p")}>{props.text}</p>
+                <button
+                    class={twClasses("text-action", jsxTailwindStyles, "button")}
+                    type="button"
+                    onClick={() => props.onAction()}
+                >
                     {props.action}
                     <Icon name="arrow" />
                 </button>
@@ -6805,12 +7351,15 @@ function InfoCard(props: {
     mono?: boolean;
 }): JSX.Element {
     return (
-        <article class="archive-info-card">
-            <span class="info-card-icon">
+        <article class={twClasses("archive-info-card", jsxTailwindStyles, "article")}>
+            <span class={twClasses("info-card-icon", jsxTailwindStyles, "span")}>
                 <Icon name={props.icon} />
             </span>
-            <span class="eyebrow">{props.label}</span>
-            <strong class={props.mono ? "mono" : ""} title={props.value}>
+            <span class={twClasses("eyebrow", jsxTailwindStyles, "span")}>{props.label}</span>
+            <strong
+                class={twClasses(props.mono ? "mono" : "", jsxTailwindStyles, "strong")}
+                title={props.value}
+            >
                 {props.value}
             </strong>
         </article>
@@ -6894,4 +7443,5 @@ function recoveredArchiveName(name: string): string {
     return `${safeFileName(`${stem} - recovered`)}.tux`;
 }
 
+applyDocumentTailwindUtilities();
 render(() => <App />, document.getElementById("root")!);
