@@ -29,6 +29,10 @@ pub(super) fn list_devices(window: &WebviewWindow) -> Result<SynchronizedAudioDe
     enumerate_devices()
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Capture validation receives separately selected microphone and optional audio-source identifiers."
+)]
 pub(super) fn begin(
     window: &WebviewWindow,
     state: &SynchronizedAudioCaptureState,
@@ -107,7 +111,7 @@ pub(super) fn begin(
         let sample_rate_hz = config.sample_rate();
         let stream = build_capture_stream(
             &device,
-            config.clone(),
+            config,
             TrackKind::Microphone,
             microphone_sender,
             Arc::clone(&signals[0]),
@@ -150,7 +154,7 @@ pub(super) fn begin(
                     let sample_rate_hz = config.sample_rate();
                     let stream = build_capture_stream(
                         &device,
-                        config.clone(),
+                        config,
                         TrackKind::SystemAudio,
                         system_sender,
                         Arc::clone(&signals[1]),
