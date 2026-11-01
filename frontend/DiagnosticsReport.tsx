@@ -1,3 +1,5 @@
+import { twClasses } from "./tailwind";
+import { jsxTailwindStyles } from "./DiagnosticsReport.tailwind";
 import { Show, createSignal, type JSX } from "solid-js";
 import {
     verifyArchiveHistory,
@@ -7,7 +9,6 @@ import {
 import { ArchiveFormatError } from "./archive/format";
 import { platform } from "@platform";
 import type { DesktopDiagnostics, DiagnosticMetric, EndpointAvailability } from "./platform/types";
-import "./diagnostics-report.css";
 
 interface DiagnosticsReportProps {
     snapshot: ArchiveSnapshot;
@@ -276,15 +277,19 @@ export function DiagnosticsReport(props: DiagnosticsReportProps): JSX.Element {
 
     return (
         <section
-            class="settings-section diagnostics-report"
+            class={twClasses("settings-section diagnostics-report", jsxTailwindStyles, "section")}
             aria-labelledby="diagnostics-report-title"
         >
-            <div class="settings-section-heading">
-                <h2 id="diagnostics-report-title">Diagnostics and support reports</h2>
-                <p>Run local integrity checks or save a redacted report for support.</p>
+            <div class={twClasses("settings-section-heading", jsxTailwindStyles, "div")}>
+                <h2 id="diagnostics-report-title" class={twClasses("", jsxTailwindStyles, "h2")}>
+                    Diagnostics and support reports
+                </h2>
+                <p class={twClasses("", jsxTailwindStyles, "p")}>
+                    Run local integrity checks or save a redacted report for support.
+                </p>
             </div>
-            <div class="diagnostics-report-body">
-                <p class="diagnostics-report-privacy">
+            <div class={twClasses("diagnostics-report-body", jsxTailwindStyles, "div")}>
+                <p class={twClasses("diagnostics-report-privacy", jsxTailwindStyles, "p")}>
                     The report includes the archive ID, format, generation, verification counts, and
                     app runtime and user-agent details. Native desktop diagnostics add process
                     uptime, CPU time, resident and available memory, and microphone, system-audio,
@@ -297,17 +302,20 @@ export function DiagnosticsReport(props: DiagnosticsReportProps): JSX.Element {
                     report omits file paths, credentials, transcripts, recordings, and record
                     contents.
                 </p>
-                <label class="diagnostics-report-history">
+                <label class={twClasses("diagnostics-report-history", jsxTailwindStyles, "label")}>
                     <input
                         type="checkbox"
                         checked={includeHistory()}
                         disabled={unavailable()}
                         onChange={(event) => setIncludeHistory(event.currentTarget.checked)}
+                        class={twClasses("", jsxTailwindStyles, "input")}
                     />
                     Verify historical revisions and include full history counts
                 </label>
                 <Show when={platform.kind === "desktop"}>
-                    <label class="diagnostics-report-history">
+                    <label
+                        class={twClasses("diagnostics-report-history", jsxTailwindStyles, "label")}
+                    >
                         <input
                             type="checkbox"
                             checked={probeAudioEndpoints()}
@@ -315,15 +323,16 @@ export function DiagnosticsReport(props: DiagnosticsReportProps): JSX.Element {
                             onChange={(event) =>
                                 setProbeAudioEndpoints(event.currentTarget.checked)
                             }
+                            class={twClasses("", jsxTailwindStyles, "input")}
                         />
                         Open supported microphone, system-audio, and per-application endpoints
                         briefly to check capture access; endpoint names are omitted, callback audio
                         is discarded, and nothing is saved
                     </label>
                 </Show>
-                <div class="diagnostics-report-actions">
+                <div class={twClasses("diagnostics-report-actions", jsxTailwindStyles, "div")}>
                     <button
-                        class="button button-outline"
+                        class={twClasses("button button-outline", jsxTailwindStyles, "button")}
                         type="button"
                         disabled={unavailable()}
                         onClick={() => void runDiagnostics()}
@@ -331,7 +340,7 @@ export function DiagnosticsReport(props: DiagnosticsReportProps): JSX.Element {
                         {working() ? "Checking archive…" : "Run diagnostics"}
                     </button>
                     <button
-                        class="button button-outline"
+                        class={twClasses("button button-outline", jsxTailwindStyles, "button")}
                         type="button"
                         disabled={unavailable()}
                         onClick={() => void exportReport()}
@@ -339,7 +348,7 @@ export function DiagnosticsReport(props: DiagnosticsReportProps): JSX.Element {
                         {working() ? "Preparing report…" : "Export report"}
                     </button>
                     <Show when={working()}>
-                        <span role="status">
+                        <span role="status" class={twClasses("", jsxTailwindStyles, "span")}>
                             {probeAudioEndpoints()
                                 ? "Verifying the archive and checking approved audio endpoints…"
                                 : "Reading and verifying archive records…"}
@@ -347,39 +356,60 @@ export function DiagnosticsReport(props: DiagnosticsReportProps): JSX.Element {
                     </Show>
                 </div>
                 <Show when={error()}>
-                    <p class="diagnostics-report-error" role="alert">
+                    <p
+                        class={twClasses("diagnostics-report-error", jsxTailwindStyles, "p")}
+                        role="alert"
+                    >
                         {error()}
                     </p>
                 </Show>
                 <Show when={status()}>
-                    <p class="diagnostics-report-status" role="status">
+                    <p
+                        class={twClasses("diagnostics-report-status", jsxTailwindStyles, "p")}
+                        role="status"
+                    >
                         {status()}
                     </p>
                 </Show>
                 <Show when={summary()}>
                     {(result) => (
-                        <dl class="diagnostics-report-summary" aria-label="Diagnostic results">
-                            <div>
-                                <dt>Archive integrity</dt>
-                                <dd>{result().archiveValid ? "Valid" : "Issue found"}</dd>
+                        <dl
+                            class={twClasses("diagnostics-report-summary", jsxTailwindStyles, "dl")}
+                            aria-label="Diagnostic results"
+                        >
+                            <div class={twClasses("", jsxTailwindStyles, "div")}>
+                                <dt class={twClasses("", jsxTailwindStyles, "dt")}>
+                                    Archive integrity
+                                </dt>
+                                <dd class={twClasses("", jsxTailwindStyles, "dd")}>
+                                    {result().archiveValid ? "Valid" : "Issue found"}
+                                </dd>
                             </div>
-                            <div>
-                                <dt>Generation</dt>
-                                <dd>{result().generation}</dd>
+                            <div class={twClasses("", jsxTailwindStyles, "div")}>
+                                <dt class={twClasses("", jsxTailwindStyles, "dt")}>Generation</dt>
+                                <dd class={twClasses("", jsxTailwindStyles, "dd")}>
+                                    {result().generation}
+                                </dd>
                             </div>
-                            <div>
-                                <dt>Records checked</dt>
-                                <dd>{result().recordsChecked}</dd>
+                            <div class={twClasses("", jsxTailwindStyles, "div")}>
+                                <dt class={twClasses("", jsxTailwindStyles, "dt")}>
+                                    Records checked
+                                </dt>
+                                <dd class={twClasses("", jsxTailwindStyles, "dd")}>
+                                    {result().recordsChecked}
+                                </dd>
                             </div>
-                            <div>
-                                <dt>Live / in Trash</dt>
-                                <dd>
+                            <div class={twClasses("", jsxTailwindStyles, "div")}>
+                                <dt class={twClasses("", jsxTailwindStyles, "dt")}>
+                                    Live / in Trash
+                                </dt>
+                                <dd class={twClasses("", jsxTailwindStyles, "dd")}>
                                     {result().liveRecords} / {result().deletedRecords}
                                 </dd>
                             </div>
-                            <div>
-                                <dt>Runtime</dt>
-                                <dd>
+                            <div class={twClasses("", jsxTailwindStyles, "div")}>
+                                <dt class={twClasses("", jsxTailwindStyles, "dt")}>Runtime</dt>
+                                <dd class={twClasses("", jsxTailwindStyles, "dd")}>
                                     {result().os}
                                     {result().architecture ? ` · ${result().architecture}` : ""}
                                     {result().availableThreads === null
@@ -387,49 +417,77 @@ export function DiagnosticsReport(props: DiagnosticsReportProps): JSX.Element {
                                         : ` · ${result().availableThreads} threads`}
                                 </dd>
                             </div>
-                            <div>
-                                <dt>Process uptime / CPU time</dt>
-                                <dd>
+                            <div class={twClasses("", jsxTailwindStyles, "div")}>
+                                <dt class={twClasses("", jsxTailwindStyles, "dt")}>
+                                    Process uptime / CPU time
+                                </dt>
+                                <dd class={twClasses("", jsxTailwindStyles, "dd")}>
                                     {result().processUptime} · {result().processCpuTime}
                                 </dd>
                             </div>
-                            <div>
-                                <dt>Resident / peak memory</dt>
-                                <dd>
+                            <div class={twClasses("", jsxTailwindStyles, "div")}>
+                                <dt class={twClasses("", jsxTailwindStyles, "dt")}>
+                                    Resident / peak memory
+                                </dt>
+                                <dd class={twClasses("", jsxTailwindStyles, "dd")}>
                                     {result().residentMemory} · {result().peakResidentMemory}
                                 </dd>
                             </div>
-                            <div>
-                                <dt>Available system memory</dt>
-                                <dd>{result().availableMemory}</dd>
+                            <div class={twClasses("", jsxTailwindStyles, "div")}>
+                                <dt class={twClasses("", jsxTailwindStyles, "dt")}>
+                                    Available system memory
+                                </dt>
+                                <dd class={twClasses("", jsxTailwindStyles, "dd")}>
+                                    {result().availableMemory}
+                                </dd>
                             </div>
-                            <div>
-                                <dt>Microphone endpoint probes</dt>
-                                <dd>{result().microphoneProbes}</dd>
+                            <div class={twClasses("", jsxTailwindStyles, "div")}>
+                                <dt class={twClasses("", jsxTailwindStyles, "dt")}>
+                                    Microphone endpoint probes
+                                </dt>
+                                <dd class={twClasses("", jsxTailwindStyles, "dd")}>
+                                    {result().microphoneProbes}
+                                </dd>
                             </div>
-                            <div>
-                                <dt>System-audio endpoint probes</dt>
-                                <dd>{result().systemAudioProbes}</dd>
+                            <div class={twClasses("", jsxTailwindStyles, "div")}>
+                                <dt class={twClasses("", jsxTailwindStyles, "dt")}>
+                                    System-audio endpoint probes
+                                </dt>
+                                <dd class={twClasses("", jsxTailwindStyles, "dd")}>
+                                    {result().systemAudioProbes}
+                                </dd>
                             </div>
-                            <div>
-                                <dt>Per-application audio endpoint probes</dt>
-                                <dd>{result().applicationAudioProbes}</dd>
+                            <div class={twClasses("", jsxTailwindStyles, "div")}>
+                                <dt class={twClasses("", jsxTailwindStyles, "dt")}>
+                                    Per-application audio endpoint probes
+                                </dt>
+                                <dd class={twClasses("", jsxTailwindStyles, "dd")}>
+                                    {result().applicationAudioProbes}
+                                </dd>
                             </div>
-                            <div>
-                                <dt>Network</dt>
-                                <dd>Not checked</dd>
+                            <div class={twClasses("", jsxTailwindStyles, "div")}>
+                                <dt class={twClasses("", jsxTailwindStyles, "dt")}>Network</dt>
+                                <dd class={twClasses("", jsxTailwindStyles, "dd")}>Not checked</dd>
                             </div>
                             <Show when={result().issues}>
-                                <div class="diagnostics-report-issues">
-                                    <dt>Issues</dt>
-                                    <dd>{result().issues}</dd>
+                                <div
+                                    class={twClasses(
+                                        "diagnostics-report-issues",
+                                        jsxTailwindStyles,
+                                        "div",
+                                    )}
+                                >
+                                    <dt class={twClasses("", jsxTailwindStyles, "dt")}>Issues</dt>
+                                    <dd class={twClasses("", jsxTailwindStyles, "dd")}>
+                                        {result().issues}
+                                    </dd>
                                 </div>
                             </Show>
                         </dl>
                     )}
                 </Show>
                 <Show when={props.snapshot.locked}>
-                    <p class="diagnostics-report-muted">
+                    <p class={twClasses("diagnostics-report-muted", jsxTailwindStyles, "p")}>
                         Unlock this archive to verify and export a report.
                     </p>
                 </Show>
