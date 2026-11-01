@@ -33,7 +33,11 @@ pnpm run desktop:dev
 pnpm run desktop:build
 ```
 
-`pnpm run build` produces the static site in `dist/`. `pnpm run desktop:build` packages the Tauri application for the host operating system. The desktop executable is a single process: the web UI, archive tools, native audio capture, Whisper, cloud AI transport, and local GGUF inference are all linked into it. It does not create a runtime directory or require Node, helper executables, or adjacent files. Build release bundles on matching operating-system runners; one host does not cross-package all three desktop targets.
+`pnpm run build` produces the static site in `dist/`. `pnpm run desktop:build` typechecks, builds, packages, and collects the Tauri artifacts into `release/`. On Windows it produces an MSI installer, an NSIS setup installer, and `Tutorux_<version>_x64_portable.exe`. The portable EXE is the desktop executable with its frontend assets embedded; it does not unpack itself into a runtime directory or need companion application files. It still uses the installed system WebView2 runtime. Build release bundles on matching operating-system runners; one host does not cross-package all three desktop targets.
+
+The desktop app uses per-user application state for archive locks and detached-recording controls. Transcription and compressed-audio import use uniquely named temporary files in the operating-system temp location and clean them up; the desktop app does not create a temporary workspace directory. The separate Node.js CLI has its own runtime and temporary-file behavior and is not included in the portable EXE.
+
+See [Desktop release builds](docs/development/RELEASING.md) for artifact names, runtime requirements, and the distinction between the portable desktop executable and the standalone CLI.
 
 The only platform runtime the desktop app relies on is the system WebView (WebView2 on Windows). Whisper and GGUF model files, FFmpeg, and the user's `.tux` archives remain user-supplied data or tools. The command-line interface remains available as a separate developer tool through `pnpm run cli`; it is not embedded in the desktop executable.
 
