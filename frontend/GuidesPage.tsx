@@ -6,6 +6,7 @@ import {
     createSignal,
     onCleanup,
     onMount,
+    untrack,
     type JSX,
 } from "solid-js";
 import { RecordType, type ArchiveRecord } from "./archive/format";
@@ -56,9 +57,10 @@ interface GuideDialogProps {
 }
 
 function GuideDialog(props: GuideDialogProps): JSX.Element {
+    const initialReturnFocus = untrack(() => props.returnFocus);
     const returnFocus =
-        props.returnFocus !== undefined
-            ? props.returnFocus
+        initialReturnFocus !== undefined
+            ? initialReturnFocus
             : document.activeElement instanceof HTMLElement
               ? document.activeElement
               : null;
