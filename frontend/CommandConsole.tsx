@@ -1,4 +1,4 @@
-import { For, Show, createSignal, onCleanup, onMount, type JSX } from "solid-js";
+import { For, Show, createSignal, onCleanup, onMount, untrack, type JSX } from "solid-js";
 import type { ArchiveByteSource } from "./archive/source";
 import { platform } from "@platform";
 import type { CommandConsoleResult, CommandConsoleRun } from "./platform/command-console";
@@ -173,7 +173,7 @@ export function CommandConsole(props: CommandConsoleProps): JSX.Element {
                 input,
                 passphrase(),
                 newPassphrase(),
-                (text) => appendOutput(text, "stdout"),
+                (text) => untrack(() => appendOutput(text, "stdout")),
             );
             setPassphrase("");
             setNewPassphrase("");
