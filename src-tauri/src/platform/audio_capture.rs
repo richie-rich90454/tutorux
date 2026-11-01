@@ -132,7 +132,7 @@ pub fn append_audio_capture_chunk(
 ) -> Result<(), String> {
     main_window(&window)?;
     let samples = Zeroizing::new(samples);
-    if samples.is_empty() || samples.len() > MAX_CHUNK_BYTES || samples.len() % 2 != 0 {
+    if samples.is_empty() || samples.len() > MAX_CHUNK_BYTES || !samples.len().is_multiple_of(2) {
         return Err(
             "A microphone chunk must contain aligned 16-bit PCM and stay below 32 KiB.".into(),
         );
