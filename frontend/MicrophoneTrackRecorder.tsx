@@ -1,6 +1,5 @@
 import { createEffect, createSignal, onCleanup, For, Show, untrack } from "solid-js";
 import { isTauri } from "@tauri-apps/api/core";
-import { open } from "@tauri-apps/plugin-dialog";
 import type { ArchiveSnapshot } from "./archive/archive";
 import { newUuid, RecordType, type ArchiveRecord } from "./archive/format";
 import {
@@ -96,13 +95,9 @@ export function MicrophoneTrackRecorder(props: Props) {
     const [status, setStatus] = createSignal("");
     const savedLiveSettings = loadLiveWhisperSettings();
     const [liveTranscription, setLiveTranscription] = createSignal(false);
-    const [liveModelPath, setLiveModelPath] = createSignal(savedLiveSettings.modelPath);
     const [liveLanguage, setLiveLanguage] = createSignal(savedLiveSettings.language);
     const [liveWindowSeconds, setLiveWindowSeconds] = createSignal(savedLiveSettings.windowSeconds);
     const [liveThreadCount, setLiveThreadCount] = createSignal(savedLiveSettings.threadCount);
-    const [liveDiarization, setLiveDiarization] = createSignal(
-        savedLiveSettings.diarizeSpeakerTurns,
-    );
     const [liveStatus, setLiveStatus] = createSignal("");
     const [liveError, setLiveError] = createSignal("");
     const [liveSavedCueCount, setLiveSavedCueCount] = createSignal(0);
@@ -129,11 +124,9 @@ export function MicrophoneTrackRecorder(props: Props) {
 
     createEffect(() => {
         const settings = {
-            modelPath: liveModelPath(),
             language: liveLanguage(),
             windowSeconds: liveWindowSeconds(),
             threadCount: liveThreadCount(),
-            diarizeSpeakerTurns: liveDiarization(),
         };
         try {
             localStorage.setItem("tutorux.live-whisper.settings.v1", JSON.stringify(settings));
@@ -459,11 +452,9 @@ export function MicrophoneTrackRecorder(props: Props) {
         setLiveError("");
         setLiveStatus("Loading the local Whisper model before audio capture starts…");
         const settings: LiveWhisperSettings = {
-            modelPath: liveModelPath(),
             language: liveLanguage().trim() || "auto",
             windowSeconds: liveWindowSeconds(),
             threadCount: liveThreadCount(),
-            diarizeSpeakerTurns: liveDiarization(),
         };
         try {
             const started = await beginLiveWhisper({ settings, sampleRateHz, firstSampleIndex });
@@ -1040,23 +1031,6 @@ export function MicrophoneTrackRecorder(props: Props) {
         }
     };
 
-    const chooseLiveModel = async () => {
-        try {
-            const path = await open({
-                multiple: false,
-                directory: false,
-                title: "Choose a local Whisper model",
-                filters: [{ name: "Whisper models", extensions: ["bin", "ggml", "gguf"] }],
-            });
-            if (typeof path === "string") {
-                setLiveModelPath(path);
-                setLiveError("");
-            }
-        } catch (cause) {
-            setLiveError(cause instanceof Error ? cause.message : String(cause));
-        }
-    };
-
     return (
         <section class="transcript-capture-panel" aria-label="Record a session track">
             <div class="transcript-capture-copy">
@@ -1112,17 +1086,9 @@ export function MicrophoneTrackRecorder(props: Props) {
                         </label>
                         <Show when={liveTranscription()}>
                             <div class="transcript-whisper-actions">
-                                <button
-                                    class="button button-outline"
-                                    type="button"
-                                    disabled={state() !== "idle" || liveRunActive()}
-                                    onClick={() => void chooseLiveModel()}
-                                >
-                                    {liveModelPath() ? "Change local model" : "Choose local model"}
-                                </button>
-                                <Show when={liveModelPath()}>
-                                    <span>{liveModelPath().split(/[\\/]/u).at(-1)}</span>
-                                </Show>
+                                <span class="transcript-model-badge">
+                                    Bundled multilingual model · runs offline
+                                </span>
                                 <label>
                                     Language{" "}
                                     <input
@@ -1168,23 +1134,7 @@ export function MicrophoneTrackRecorder(props: Props) {
                                         </For>
                                     </select>
                                 </label>
-                                <label>
-                                    <input
-                                        type="checkbox"
-                                        checked={liveDiarization()}
-                                        disabled={state() !== "idle" || liveRunActive()}
-                                        onChange={(event) =>
-                                            setLiveDiarization(event.currentTarget.checked)
-                                        }
-                                    />{" "}
-                                    Detect speaker-turn boundaries
-                                </label>
                             </div>
-                            <p class="transcript-whisper-diarization-note">
-                                The selected model stays loaded for the take. Tiny diarization needs
-                                a TDRZ-compatible model and marks boundaries only; assign speaker
-                                identities after review.
-                            </p>
                         </Show>
                     </div>
                 </Show>
@@ -1328,11 +1278,9 @@ function incrementCounter(value: string | undefined): string {
 
 function loadLiveWhisperSettings(): LiveWhisperSettings {
     const defaults: LiveWhisperSettings = {
-        modelPath: "",
         language: "auto",
         windowSeconds: 5,
         threadCount: 4,
-        diarizeSpeakerTurns: false,
     };
     try {
         const value: unknown = JSON.parse(
@@ -1341,7 +1289,6 @@ function loadLiveWhisperSettings(): LiveWhisperSettings {
         if (!value || typeof value !== "object") return defaults;
         const stored = value as Partial<LiveWhisperSettings>;
         return {
-            modelPath: typeof stored.modelPath === "string" ? stored.modelPath : defaults.modelPath,
             language: typeof stored.language === "string" ? stored.language : defaults.language,
             windowSeconds:
                 typeof stored.windowSeconds === "number" &&
@@ -1353,10 +1300,6 @@ function loadLiveWhisperSettings(): LiveWhisperSettings {
                 [1, 2, 4, 8, 16, 32, 64].includes(stored.threadCount)
                     ? stored.threadCount
                     : defaults.threadCount,
-            diarizeSpeakerTurns:
-                typeof stored.diarizeSpeakerTurns === "boolean"
-                    ? stored.diarizeSpeakerTurns
-                    : defaults.diarizeSpeakerTurns,
         };
     } catch {
         return defaults;
