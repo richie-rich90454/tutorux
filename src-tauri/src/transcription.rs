@@ -1,7 +1,8 @@
 use serde::Serialize;
 use std::{
     collections::HashMap,
-    fs,
+    fs::{self, File, OpenOptions},
+    io::Write,
     path::{Path, PathBuf},
     process::{Command, Stdio},
     sync::{
@@ -76,12 +77,41 @@ pub struct WhisperOutput {
     pub model_name: String,
 }
 
-struct TemporaryDirectory(PathBuf);
+struct TemporaryFiles {
+    audio: PathBuf,
+    transcript_json: PathBuf,
+}
 
-impl Drop for TemporaryDirectory {
+impl Drop for TemporaryFiles {
     fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.0);
+        let _ = fs::remove_file(&self.audio);
+        let _ = fs::remove_file(&self.transcript_json);
     }
+}
+
+fn create_temporary_transcription_files() -> Result<(TemporaryFiles, File, PathBuf), String> {
+    let root = std::env::temp_dir();
+    for _ in 0..8 {
+        let id = Uuid::new_v4();
+        let audio = root.join(format!("tutorux-whisper-{id}.wav"));
+        let output = root.join(format!("tutorux-whisper-{id}"));
+        let transcript_json = output.with_extension("json");
+        match OpenOptions::new().write(true).create_new(true).open(&audio) {
+            Ok(file) => {
+                return Ok((
+                    TemporaryFiles {
+                        audio,
+                        transcript_json,
+                    },
+                    file,
+                    output,
+                ));
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(_) => return Err("Could not create temporary transcription files.".to_owned()),
+        }
+    }
+    Err("Could not create unique temporary transcription files.".to_owned())
 }
 
 fn regular_file(path: &str, label: &str) -> Result<PathBuf, String> {
@@ -126,28 +156,17 @@ fn transcribe(
         .and_then(|name| name.to_str())
         .unwrap_or("Whisper model")
         .to_owned();
-    let directory = std::env::temp_dir().join(format!("tutorux-whisper-{}", Uuid::new_v4()));
-    let builder = fs::DirBuilder::new();
-    #[cfg(unix)]
-    let builder = {
-        use std::os::unix::fs::DirBuilderExt;
-        let mut builder = builder;
-        builder.mode(0o700);
-        builder
-    };
-    builder
-        .create(&directory)
-        .map_err(|_| "Could not create a temporary transcription workspace.".to_owned())?;
-    let directory = TemporaryDirectory(directory);
-    let audio = directory.0.join("audio.wav");
-    let output = directory.0.join("transcript");
-    fs::write(&audio, wav).map_err(|_| "Could not prepare audio for transcription.".to_owned())?;
+    let (temporary_files, mut audio_file, output) = create_temporary_transcription_files()?;
+    audio_file
+        .write_all(&wav)
+        .map_err(|_| "Could not prepare audio for transcription.".to_owned())?;
+    drop(audio_file);
     let mut command = Command::new(executable);
     command
         .arg("-m")
         .arg(model)
         .arg("-f")
-        .arg(audio)
+        .arg(&temporary_files.audio)
         .arg("-l")
         .arg(language)
         .arg("-oj")
@@ -272,8 +291,9 @@ pub struct WhisperCue {
 }
 
 /// Parse whisper.cpp `-oj` output into bounded cue offsets.
-pub fn parse_whisper_json(json: &str) -> Result<Vec<WhisperCue>, String> {    let parsed: serde_json::Value =
-        serde_json::from_str(json).map_err(|_| "Whisper returned an invalid transcript.".to_owned())?;
+pub fn parse_whisper_json(json: &str) -> Result<Vec<WhisperCue>, String> {
+    let parsed: serde_json::Value = serde_json::from_str(json)
+        .map_err(|_| "Whisper returned an invalid transcript.".to_owned())?;
     let transcription = parsed
         .get("transcription")
         .and_then(serde_json::Value::as_array)
@@ -313,7 +333,6 @@ pub fn parse_whisper_json(json: &str) -> Result<Vec<WhisperCue>, String> {    le
     Ok(cues)
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::parse_whisper_json;
@@ -333,7 +352,13 @@ mod tests {
     #[test]
     fn rejects_invalid_whisper_segments() {
         assert!(parse_whisper_json("{}").is_err());
-        assert!(parse_whisper_json(r#"{"transcription":[{"offsets":{"from":5,"to":5},"text":"x"}]}"#).is_err());
-        assert!(parse_whisper_json(r#"{"transcription":[{"offsets":{"from":0,"to":5},"text":42}]}"#).is_err());
+        assert!(parse_whisper_json(
+            r#"{"transcription":[{"offsets":{"from":5,"to":5},"text":"x"}]}"#
+        )
+        .is_err());
+        assert!(parse_whisper_json(
+            r#"{"transcription":[{"offsets":{"from":0,"to":5},"text":42}]}"#
+        )
+        .is_err());
     }
 }
