@@ -4,8 +4,8 @@ This guide covers the SolidJS, Vite, Tauri, Rust host, and CLI code.
 
 ## Toolchain
 
-- Node.js 24+
-- pnpm 10+
+- Node.js 22.13+
+- pnpm 12.14.0 (the version pinned by `packageManager`)
 - Rust stable for desktop development and packaging
 - On Linux, the Tauri WebKitGTK development libraries listed in `.github/workflows/tauri-cross-platform.yml`
 
@@ -29,6 +29,8 @@ pnpm run preview
 ```
 
 The static build is written to `dist/`. Do not import `@tauri-apps/*` from a domain module or the browser adapter; Vite selects `frontend/platform/browser.ts` for the web build.
+
+Tailwind CSS v4 is integrated through `@tailwindcss/vite`. `frontend/styles.css` imports Tailwind, scans the frontend source and HTML entry, and maps the existing light/dark design tokens into `@theme`. Use the shared token names for utility-class styling; component stylesheets still own complex layouts and interaction states.
 
 ## Desktop workflow
 
