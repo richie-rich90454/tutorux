@@ -256,7 +256,7 @@ fn whisper_pcm_samples(wav: &[u8]) -> Result<Vec<f32>, String> {
         || sample_rate != 16_000
         || bits_per_sample != 16
         || data_len == 0
-        || data_len % 2 != 0
+        || !data_len.is_multiple_of(2)
         || data_len != wav.len() - 44
     {
         return Err("Whisper audio must contain 16 kHz mono 16-bit PCM samples.".to_owned());
