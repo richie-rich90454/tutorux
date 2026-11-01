@@ -199,33 +199,29 @@ pub(super) fn repair(
         .map(|extension| extension.eq_ignore_ascii_case("tux"))
         .unwrap_or(false)
     {
-        return Err(CliError(
-            "Repaired archive copies must use the .tux extension.".to_owned(),
-        )
-        .into());
+        return Err(
+            CliError("Repaired archive copies must use the .tux extension.".to_owned()).into(),
+        );
     }
     if same_path(path, &destination) {
-        return Err(CliError(
-            "Repaired output must be a separate archive copy.".to_owned(),
-        )
-        .into());
+        return Err(CliError("Repaired output must be a separate archive copy.".to_owned()).into());
     }
     let passphrase = context.passphrase();
     cancellation::check("Archive repair")?;
     let source: Arc<dyn ByteSource> = Arc::new(FileSource::open(path)?);
-    let (snapshot, reconstructed_header) = match ArchiveSnapshot::open_for_recovery(Arc::clone(&source))
-    {
-        Ok(snapshot) => (snapshot, false),
-        Err(error) if error.code == "archive_header_checksum" => (
-            recover_damaged_header(Arc::clone(&source), passphrase, false)?,
-            true,
-        ),
-        Err(error) if error.code == "archive_magic_invalid" => (
-            recover_damaged_header(Arc::clone(&source), passphrase, true)?,
-            true,
-        ),
-        Err(error) => return Err(error.into()),
-    };
+    let (snapshot, reconstructed_header) =
+        match ArchiveSnapshot::open_for_recovery(Arc::clone(&source)) {
+            Ok(snapshot) => (snapshot, false),
+            Err(error) if error.code == "archive_header_checksum" => (
+                recover_damaged_header(Arc::clone(&source), passphrase, false)?,
+                true,
+            ),
+            Err(error) if error.code == "archive_magic_invalid" => (
+                recover_damaged_header(Arc::clone(&source), passphrase, true)?,
+                true,
+            ),
+            Err(error) => return Err(error.into()),
+        };
     let snapshot = unlock_for_cli(
         snapshot,
         passphrase,
@@ -312,10 +308,9 @@ pub(super) fn rebuild_index(
         .into());
     }
     if same_path(path, &destination) {
-        return Err(CliError(
-            "Index rebuild output must be a separate archive copy.".to_owned(),
-        )
-        .into());
+        return Err(
+            CliError("Index rebuild output must be a separate archive copy.".to_owned()).into(),
+        );
     }
     let source: Arc<dyn ByteSource> = Arc::new(FileSource::open(path)?);
     cancellation::check("Archive index rebuild")?;
@@ -384,14 +379,19 @@ pub(super) fn purge_trash(
     if applied {
         let result = purge_trashed_archive_snapshot(&snapshot)?;
         cancellation::check("Trash purge")?;
-        compacted_generation = ArchiveSnapshot::open_bytes(result.bytes.clone())?.commit.generation;
+        compacted_generation = ArchiveSnapshot::open_bytes(result.bytes.clone())?
+            .commit
+            .generation;
         purge = Some(result);
     }
     drop(snapshot);
     if let Some(result) = &purge {
         save::save_bytes(path, &result.bytes)?;
     }
-    let compacted_bytes = purge.as_ref().map(|result| result.compacted_bytes).unwrap_or(0);
+    let compacted_bytes = purge
+        .as_ref()
+        .map(|result| result.compacted_bytes)
+        .unwrap_or(0);
     let value = json!({
         "path": path.display().to_string(),
         "status": if applied { "purged" } else { "preview" },
@@ -412,8 +412,14 @@ pub(super) fn purge_trash(
         format!(
             "Purged Trash from {}: removed {} deleted records and preserved {} records.",
             path.display(),
-            purge.as_ref().map(|result| result.purge_removed_records).unwrap_or(0),
-            purge.as_ref().map(|result| result.preserved_records).unwrap_or(0)
+            purge
+                .as_ref()
+                .map(|result| result.purge_removed_records)
+                .unwrap_or(0),
+            purge
+                .as_ref()
+                .map(|result| result.preserved_records)
+                .unwrap_or(0)
         )
     } else {
         format!(
