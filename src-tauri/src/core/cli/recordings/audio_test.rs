@@ -1,17 +1,23 @@
 use serde_json::{json, Value};
 
 use crate::core::cli::{emit, CliError, CliOutput, CliResult, ParsedArguments};
-use crate::platform::synchronized_audio::headless::{enumerate_devices, probe_input, HeadlessDevice};
+use crate::platform::synchronized_audio::headless::{
+    enumerate_devices, probe_input, HeadlessDevice,
+};
 
 use super::ffmpeg::{self, FfmpegDevice};
 use super::native_probe::{application_limitation, microphone_limitation, system_limitation};
 
 pub fn run_test(args: ParsedArguments, output: &mut dyn CliOutput) -> CliResult<i32> {
     if !args.positionals.is_empty() {
-        return Err(CliError("record test does not accept positional arguments.".to_owned()).into());
+        return Err(
+            CliError("record test does not accept positional arguments.".to_owned()).into(),
+        );
     }
     if args.options.contains_key("system-audio") {
-        return Err(CliError("--system-audio is a flag and does not accept a value.".to_owned()).into());
+        return Err(
+            CliError("--system-audio is a flag and does not accept a value.".to_owned()).into(),
+        );
     }
     let option_value = |name: &str| -> CliResult<Option<String>> {
         if args.flags.contains(name) {
@@ -30,8 +36,14 @@ pub fn run_test(args: ParsedArguments, output: &mut dyn CliOutput) -> CliResult<
             "microphone".to_owned()
         }
     });
-    if !["microphone", "system-audio", "loopback", "application", "both"]
-        .contains(&requested_source.as_str())
+    if ![
+        "microphone",
+        "system-audio",
+        "loopback",
+        "application",
+        "both",
+    ]
+    .contains(&requested_source.as_str())
     {
         return Err(CliError(
             "Recording test source must be 'microphone', 'system-audio', 'application', or 'both'."
@@ -55,7 +67,8 @@ pub fn run_test(args: ParsedArguments, output: &mut dyn CliOutput) -> CliResult<
     }
     if application.is_some() && playback.is_some() {
         return Err(CliError(
-            "Select one synchronized secondary track with '--application' or '--playback'.".to_owned(),
+            "Select one synchronized secondary track with '--application' or '--playback'."
+                .to_owned(),
         )
         .into());
     }
@@ -131,14 +144,18 @@ pub fn run_test(args: ParsedArguments, output: &mut dyn CliOutput) -> CliResult<
         )
     });
     let (report, available) = if source == "application" {
-        probe_application_source(native.as_ref(), application.as_deref().or(device.as_deref()))
+        probe_application_source(
+            native.as_ref(),
+            application.as_deref().or(device.as_deref()),
+        )
     } else if source == "both" {
-        let microphone = microphone_probe
-            .unwrap_or_else(|| unavailable("microphone", microphone_limitation()));
+        let microphone =
+            microphone_probe.unwrap_or_else(|| unavailable("microphone", microphone_limitation()));
         let secondary = match application.as_deref() {
             Some(requested) => probe_application_source(native.as_ref(), Some(requested)).0,
-            None => system_probe
-                .unwrap_or_else(|| unavailable("system-audio", system_limitation())),
+            None => {
+                system_probe.unwrap_or_else(|| unavailable("system-audio", system_limitation()))
+            }
         };
         let available = microphone["available"].as_bool().unwrap_or(false)
             && secondary["available"].as_bool().unwrap_or(false);
@@ -225,33 +242,30 @@ fn probe_input_source(
                 .or_else(|| (candidates.len() == 1).then(|| candidates[0])),
         };
         if let Some(device) = selected {
-            match probe_input(source, &device.id) {
-                Ok(probe) => {
-                    let mut report = json!({
-                        "available": true,
-                        "source": source,
-                        "device_id": probe.id,
-                        "device_name": probe.name,
-                        "backend": probe.backend,
-                        "sample_format": probe.sample_format,
-                        "sample_rate_hz": probe.sample_rate_hz,
-                        "channel_count": probe.channel_count,
-                        "sample_count": probe.sample_count,
-                        "duration_ms": probe.duration_ms,
-                        "rms": probe.rms,
-                        "peak": probe.peak,
-                        "dbfs": probe.dbfs,
-                        "signal_detected": probe.signal_detected,
-                        "probe": "native-stream-opened-and-signal-measured",
-                    });
-                    if !probe.signal_detected {
-                        report["limitation"] = json!(
-                            "The stream opened, but no signal above the detection threshold was measured."
-                        );
-                    }
-                    return report;
+            if let Ok(probe) = probe_input(source, &device.id) {
+                let mut report = json!({
+                    "available": true,
+                    "source": source,
+                    "device_id": probe.id,
+                    "device_name": probe.name,
+                    "backend": probe.backend,
+                    "sample_format": probe.sample_format,
+                    "sample_rate_hz": probe.sample_rate_hz,
+                    "channel_count": probe.channel_count,
+                    "sample_count": probe.sample_count,
+                    "duration_ms": probe.duration_ms,
+                    "rms": probe.rms,
+                    "peak": probe.peak,
+                    "dbfs": probe.dbfs,
+                    "signal_detected": probe.signal_detected,
+                    "probe": "native-stream-opened-and-signal-measured",
+                });
+                if !probe.signal_detected {
+                    report["limitation"] = json!(
+                        "The stream opened, but no signal above the detection threshold was measured."
+                    );
                 }
-                Err(_) => {}
+                return report;
             }
         }
     }
@@ -368,7 +382,7 @@ fn probe_application_source(
                 "signal_detected": probe.signal_detected,
                 "probe": "native-stream-opened-and-signal-measured",
             });
-            if probe.signal_detected == false {
+            if !probe.signal_detected {
                 report["limitation"] = json!(
                     "The application stream opened, but no signal above the detection threshold was measured."
                 );
