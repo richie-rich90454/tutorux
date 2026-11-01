@@ -3,6 +3,7 @@ import type { ArchiveSnapshot } from "./archive/archive";
 import type { ArchiveRecord } from "./archive/format";
 import type { StudentProgressClassification } from "./domain/student-progress";
 import type { SessionTransitionAction } from "./domain/records";
+import { DatePicker } from "./DatePicker";
 import { GUIDE_TEMPLATES } from "./domain/guides";
 import {
     JournalHistory,
@@ -321,18 +322,20 @@ export function RecordPage(props: {
                     </label>
                     <label>
                         <span>From date</span>
-                        <input
-                            type="date"
+                        <DatePicker
+                            id="journal-from-date"
                             value={journalFrom()}
-                            onChange={(event) => setJournalFrom(event.currentTarget.value)}
+                            aria-label="Filter from date"
+                            onChange={setJournalFrom}
                         />
                     </label>
                     <label>
                         <span>To date</span>
-                        <input
-                            type="date"
+                        <DatePicker
+                            id="journal-to-date"
                             value={journalTo()}
-                            onChange={(event) => setJournalTo(event.currentTarget.value)}
+                            aria-label="Filter to date"
+                            onChange={setJournalTo}
                         />
                     </label>
                     <label>
@@ -981,7 +984,7 @@ export function SessionRow(props: {
                                     class="session-document-link"
                                     onClick={() => props.onOpenTranscript?.(props.session)}
                                 >
-                                    Transcript
+                                    Record & transcript
                                 </button>
                             </Show>
                             <Show when={props.onOpenStudyGuide}>
