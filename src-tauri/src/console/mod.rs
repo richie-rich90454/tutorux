@@ -51,7 +51,7 @@ pub fn command_console_availability(window: WebviewWindow) -> Result<ConsoleAvai
 }
 
 #[tauri::command]
-pub async fn run_command_console(
+pub(crate) async fn run_command_console(
     app: AppHandle,
     window: WebviewWindow,
     desktop: State<'_, DesktopState>,
