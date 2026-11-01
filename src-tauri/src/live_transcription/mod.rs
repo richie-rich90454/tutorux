@@ -6,8 +6,6 @@ mod worker;
 use serde::Serialize;
 use std::{
     collections::HashMap,
-    fs,
-    path::Path,
     sync::{
         atomic::AtomicBool,
         mpsc::{self, RecvTimeoutError},
@@ -19,6 +17,7 @@ use tauri::WebviewWindow;
 use uuid::Uuid;
 use zeroize::Zeroizing;
 
+use crate::transcription::EMBEDDED_WHISPER_MODEL_NAME;
 use session::{LiveWhisperHandle, LiveWhisperOptions, QueuedAudioChunk, SharedOutput};
 use worker::start_worker;
 
@@ -114,14 +113,12 @@ fn get_session(run_id: &str) -> Result<(Uuid, Arc<LiveWhisperHandle>), String> {
 #[tauri::command]
 pub async fn begin_live_whisper(
     window: WebviewWindow,
-    model_path: String,
     language: String,
     window_seconds: u32,
     thread_count: u32,
     sample_rate_hz: u32,
     first_sample_index: String,
     timeline_base_sample_index: String,
-    diarize_speaker_turns: bool,
 ) -> Result<LiveWhisperStarted, String> {
     main_window(&window)?;
     if window_seconds == 0 || window_seconds > MAX_WINDOW_SECONDS {
@@ -143,24 +140,7 @@ pub async fn begin_live_whisper(
     if first_sample_index < timeline_base_sample_index {
         return Err("The recording starts before its transcript timeline.".to_owned());
     }
-    let selected_path = Path::new(&model_path);
-    let original_metadata = fs::symlink_metadata(selected_path)
-        .map_err(|_| "Cannot inspect the selected Whisper model file.".to_owned())?;
-    if original_metadata.file_type().is_symlink()
-        || !original_metadata.is_file()
-        || original_metadata.len() == 0
-    {
-        return Err(
-            "Choose a non-empty, regular Whisper model file without a symbolic link.".to_owned(),
-        );
-    }
-    let model_path = fs::canonicalize(selected_path)
-        .map_err(|_| "Cannot open the selected Whisper model file.".to_owned())?;
-    let model_name = model_path
-        .file_name()
-        .and_then(|name| name.to_str())
-        .unwrap_or("Whisper model")
-        .to_owned();
+    let model_name = EMBEDDED_WHISPER_MODEL_NAME.to_owned();
     let run_id = Uuid::new_v4();
     let shared = Arc::new(Mutex::new(SharedOutput {
         status: "loading".to_owned(),
@@ -186,7 +166,6 @@ pub async fn begin_live_whisper(
         sessions.insert(run_id, Arc::clone(&handle));
     }
     let options = LiveWhisperOptions {
-        model_path,
         model_name,
         language,
         window_seconds,
@@ -194,7 +173,6 @@ pub async fn begin_live_whisper(
         sample_rate_hz,
         first_sample_index,
         timeline_base_sample_index,
-        diarize_speaker_turns,
     };
     start_worker(
         options,
