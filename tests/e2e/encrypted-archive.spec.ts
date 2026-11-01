@@ -58,7 +58,7 @@ test("unlocks, edits, saves, verifies, and relocks a C++ encrypted archive", asy
 
     await page
         .getByRole("navigation", { name: "Primary navigation" })
-        .getByRole("button", { name: "More", exact: true })
+        .getByRole("button", { name: "More workspaces", exact: true })
         .click();
     await page.getByRole("menuitem", { name: "Archive health", exact: true }).click();
     await page.getByRole("button", { name: "Verify archive" }).click();
