@@ -1,3 +1,5 @@
+import { twClasses } from "./tailwind";
+import { jsxTailwindStyles } from "./MicrophoneTrackRecorder.tailwind";
 import { createEffect, createSignal, onCleanup, For, Show, untrack } from "solid-js";
 import { isTauri } from "@tauri-apps/api/core";
 import type { ArchiveSnapshot } from "./archive/archive";
@@ -1032,16 +1034,24 @@ export function MicrophoneTrackRecorder(props: Props) {
     };
 
     return (
-        <section class="transcript-capture-panel" aria-label="Record a session track">
-            <div class="transcript-capture-copy">
-                <strong>Record a microphone track</strong>
-                <p>Save a recording as a session take for playback, mixing, and transcription.</p>
-                <label>
+        <section
+            class={twClasses("transcript-capture-panel", jsxTailwindStyles, "section")}
+            aria-label="Record a session track"
+        >
+            <div class={twClasses("transcript-capture-copy", jsxTailwindStyles, "div")}>
+                <strong class={twClasses("", jsxTailwindStyles, "strong")}>
+                    Record a microphone track
+                </strong>
+                <p class={twClasses("", jsxTailwindStyles, "p")}>
+                    Save a recording as a session take for playback, mixing, and transcription.
+                </p>
+                <label class={twClasses("", jsxTailwindStyles, "label")}>
                     Microphone{" "}
                     <select
                         value={deviceId()}
                         disabled={state() !== "idle"}
                         onChange={(event) => setDeviceId(event.currentTarget.value)}
+                        class={twClasses("", jsxTailwindStyles, "select")}
                     >
                         <option value="">System default</option>
                         <For each={devices()}>
@@ -1054,26 +1064,29 @@ export function MicrophoneTrackRecorder(props: Props) {
                     </select>
                 </label>
                 <button
-                    class="button button-outline"
+                    class={twClasses("button button-outline", jsxTailwindStyles, "button")}
                     type="button"
                     disabled={state() !== "idle"}
                     onClick={() => void refreshDevices()}
                 >
                     Refresh microphones
                 </button>
-                <label class="transcript-capture-consent">
+                <label class={twClasses("transcript-capture-consent", jsxTailwindStyles, "label")}>
                     <input
                         type="checkbox"
                         checked={consent()}
                         disabled={state() !== "idle"}
                         onChange={(event) => setConsent(event.currentTarget.checked)}
+                        class={twClasses("", jsxTailwindStyles, "input")}
                     />{" "}
                     Everyone being recorded has agreed.
                 </label>
                 <Show when={isTauri()}>
-                    <div class="transcript-whisper">
-                        <strong>Live local transcription</strong>
-                        <label>
+                    <div class={twClasses("transcript-whisper", jsxTailwindStyles, "div")}>
+                        <strong class={twClasses("", jsxTailwindStyles, "strong")}>
+                            Live local transcription
+                        </strong>
+                        <label class={twClasses("", jsxTailwindStyles, "label")}>
                             <input
                                 type="checkbox"
                                 checked={liveTranscription()}
@@ -1081,15 +1094,28 @@ export function MicrophoneTrackRecorder(props: Props) {
                                 onChange={(event) =>
                                     setLiveTranscription(event.currentTarget.checked)
                                 }
+                                class={twClasses("", jsxTailwindStyles, "input")}
                             />{" "}
                             Add provisional transcript cues while recording
                         </label>
                         <Show when={liveTranscription()}>
-                            <div class="transcript-whisper-actions">
-                                <span class="transcript-model-badge">
+                            <div
+                                class={twClasses(
+                                    "transcript-whisper-actions",
+                                    jsxTailwindStyles,
+                                    "div",
+                                )}
+                            >
+                                <span
+                                    class={twClasses(
+                                        "transcript-model-badge",
+                                        jsxTailwindStyles,
+                                        "span",
+                                    )}
+                                >
                                     Bundled multilingual model · runs offline
                                 </span>
-                                <label>
+                                <label class={twClasses("", jsxTailwindStyles, "label")}>
                                     Language{" "}
                                     <input
                                         value={liveLanguage()}
@@ -1098,9 +1124,10 @@ export function MicrophoneTrackRecorder(props: Props) {
                                         onInput={(event) =>
                                             setLiveLanguage(event.currentTarget.value)
                                         }
+                                        class={twClasses("", jsxTailwindStyles, "input")}
                                     />
                                 </label>
-                                <label>
+                                <label class={twClasses("", jsxTailwindStyles, "label")}>
                                     Window{" "}
                                     <select
                                         value={String(liveWindowSeconds())}
@@ -1109,6 +1136,7 @@ export function MicrophoneTrackRecorder(props: Props) {
                                         onChange={(event) =>
                                             setLiveWindowSeconds(Number(event.currentTarget.value))
                                         }
+                                        class={twClasses("", jsxTailwindStyles, "select")}
                                     >
                                         <For each={[1, 3, 5, 10, 15, 20, 27]}>
                                             {(seconds) => (
@@ -1117,7 +1145,7 @@ export function MicrophoneTrackRecorder(props: Props) {
                                         </For>
                                     </select>
                                 </label>
-                                <label>
+                                <label class={twClasses("", jsxTailwindStyles, "label")}>
                                     Threads{" "}
                                     <select
                                         value={String(liveThreadCount())}
@@ -1126,6 +1154,7 @@ export function MicrophoneTrackRecorder(props: Props) {
                                         onChange={(event) =>
                                             setLiveThreadCount(Number(event.currentTarget.value))
                                         }
+                                        class={twClasses("", jsxTailwindStyles, "select")}
                                     >
                                         <For each={[1, 2, 4, 8, 16, 32, 64]}>
                                             {(threads) => (
@@ -1139,10 +1168,10 @@ export function MicrophoneTrackRecorder(props: Props) {
                     </div>
                 </Show>
             </div>
-            <div class="transcript-capture-actions">
+            <div class={twClasses("transcript-capture-actions", jsxTailwindStyles, "div")}>
                 <Show when={state() === "idle" && !pending()}>
                     <button
-                        class="button button-primary"
+                        class={twClasses("button button-primary", jsxTailwindStyles, "button")}
                         type="button"
                         disabled={props.disabled || !consent() || liveRunActive()}
                         onClick={() => void start()}
@@ -1152,16 +1181,16 @@ export function MicrophoneTrackRecorder(props: Props) {
                 </Show>
                 <Show when={state() === "idle" && !pending() && recoverable()}>
                     <div
-                        class="transcript-capture-recovery"
+                        class={twClasses("transcript-capture-recovery", jsxTailwindStyles, "div")}
                         role="group"
                         aria-label="Recover microphone take"
                     >
-                        <span>
+                        <span class={twClasses("", jsxTailwindStyles, "span")}>
                             {recoverable()?.label} has saved audio checkpoints. Verify them to
                             resume, or move the take to Trash.
                         </span>
                         <button
-                            class="button button-outline"
+                            class={twClasses("button button-outline", jsxTailwindStyles, "button")}
                             type="button"
                             disabled={props.disabled || !consent() || liveRunActive()}
                             onClick={() => void resumeSaved()}
@@ -1169,7 +1198,7 @@ export function MicrophoneTrackRecorder(props: Props) {
                             Verify and resume take
                         </button>
                         <button
-                            class="button button-outline"
+                            class={twClasses("button button-outline", jsxTailwindStyles, "button")}
                             type="button"
                             disabled={props.disabled}
                             onClick={() => void discardSaved()}
@@ -1180,17 +1209,21 @@ export function MicrophoneTrackRecorder(props: Props) {
                 </Show>
                 <Show when={state() === "recording" || state() === "paused"}>
                     <button
-                        class="button button-outline"
+                        class={twClasses("button button-outline", jsxTailwindStyles, "button")}
                         type="button"
                         onClick={() => void togglePause()}
                     >
                         {state() === "paused" ? "Resume recording" : "Pause recording"}
                     </button>
-                    <button class="button button-outline" type="button" onClick={() => void stop()}>
+                    <button
+                        class={twClasses("button button-outline", jsxTailwindStyles, "button")}
+                        type="button"
+                        onClick={() => void stop()}
+                    >
                         Stop and save
                     </button>
                     <button
-                        class="button button-outline"
+                        class={twClasses("button button-outline", jsxTailwindStyles, "button")}
                         type="button"
                         onClick={() => void discardActive()}
                     >
@@ -1198,7 +1231,7 @@ export function MicrophoneTrackRecorder(props: Props) {
                     </button>
                     <Show when={liveStreaming()}>
                         <button
-                            class="button button-outline"
+                            class={twClasses("button button-outline", jsxTailwindStyles, "button")}
                             type="button"
                             onClick={() => void cancelLiveTranscription()}
                         >
@@ -1208,7 +1241,7 @@ export function MicrophoneTrackRecorder(props: Props) {
                 </Show>
                 <Show when={liveRunActive() && state() === "idle"}>
                     <button
-                        class="button button-outline"
+                        class={twClasses("button button-outline", jsxTailwindStyles, "button")}
                         type="button"
                         onClick={() => void finalizeLiveWhisper()}
                     >
@@ -1216,20 +1249,28 @@ export function MicrophoneTrackRecorder(props: Props) {
                     </button>
                 </Show>
                 <Show when={state() === "paused"}>
-                    <span role="status">Recording paused; microphone muted.</span>
+                    <span role="status" class={twClasses("", jsxTailwindStyles, "span")}>
+                        Recording paused; microphone muted.
+                    </span>
                 </Show>
                 <Show when={state() === "pausing" || state() === "resuming"}>
-                    <span role="status">Changing recording state…</span>
+                    <span role="status" class={twClasses("", jsxTailwindStyles, "span")}>
+                        Changing recording state…
+                    </span>
                 </Show>
                 <Show when={state() === "requesting"}>
-                    <span role="status">Waiting for microphone permission…</span>
+                    <span role="status" class={twClasses("", jsxTailwindStyles, "span")}>
+                        Waiting for microphone permission…
+                    </span>
                 </Show>
                 <Show when={state() === "stopping" || state() === "saving"}>
-                    <span role="status">Preparing recording…</span>
+                    <span role="status" class={twClasses("", jsxTailwindStyles, "span")}>
+                        Preparing recording…
+                    </span>
                 </Show>
                 <Show when={state() === "idle" && pending()}>
                     <button
-                        class="button button-primary"
+                        class={twClasses("button button-primary", jsxTailwindStyles, "button")}
                         type="button"
                         disabled={props.disabled}
                         onClick={() => {
@@ -1240,7 +1281,7 @@ export function MicrophoneTrackRecorder(props: Props) {
                         Retry saving
                     </button>
                     <button
-                        class="button button-outline"
+                        class={twClasses("button button-outline", jsxTailwindStyles, "button")}
                         type="button"
                         onClick={() => {
                             setPending(undefined);
@@ -1252,16 +1293,24 @@ export function MicrophoneTrackRecorder(props: Props) {
                 </Show>
             </div>
             <Show when={status()}>
-                <p role="status">{status()}</p>
+                <p role="status" class={twClasses("", jsxTailwindStyles, "p")}>
+                    {status()}
+                </p>
             </Show>
             <Show when={liveStatus()}>
-                <p role="status">{liveStatus()}</p>
+                <p role="status" class={twClasses("", jsxTailwindStyles, "p")}>
+                    {liveStatus()}
+                </p>
             </Show>
             <Show when={liveError()}>
-                <p role="alert">{liveError()}</p>
+                <p role="alert" class={twClasses("", jsxTailwindStyles, "p")}>
+                    {liveError()}
+                </p>
             </Show>
             <Show when={error()}>
-                <p role="alert">{error()}</p>
+                <p role="alert" class={twClasses("", jsxTailwindStyles, "p")}>
+                    {error()}
+                </p>
             </Show>
         </section>
     );
