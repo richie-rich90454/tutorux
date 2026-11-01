@@ -45,11 +45,7 @@ pub(crate) fn mutate_staged_assets(
     records: Vec<ArchiveRecord>,
 ) -> CliResult<Vec<ArchiveRecord>> {
     let mut staging = MemoryStaging { bytes: Vec::new() };
-    let next = crate::core::archive::append_staged_asset_records(
-        snapshot,
-        records.into_iter(),
-        &mut staging,
-    )?;
+    let next = crate::core::archive::append_staged_asset_records(snapshot, records, &mut staging)?;
     let bytes = next.source.read(0, next.source.size() as usize)?;
     crate::core::cli::archive::save::save_bytes(path, &bytes)?;
     let mut saved = Vec::new();
