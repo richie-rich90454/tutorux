@@ -1,12 +1,13 @@
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "vitest/config";
+import tailwindcss from "@tailwindcss/vite";
 import solid from "vite-plugin-solid";
 
 const projectRoot = fileURLToPath(new URL(".", import.meta.url));
 
 export default defineConfig(({ mode }) => ({
-    plugins: [solid()],
+    plugins: [tailwindcss(), solid()],
     resolve: {
         alias: {
             "@platform": resolve(
@@ -22,7 +23,9 @@ export default defineConfig(({ mode }) => ({
     },
     build: {
         target: "es2022",
-        sourcemap: true,
+        // Tailwind's Vite generator does not emit source maps; disabling output maps avoids
+        // publishing broken maps and keeps desktop release files smaller.
+        sourcemap: false,
         rolldownOptions: {
             output: {
                 // Keep startup and shared dependency chunks comfortably below Vite's
