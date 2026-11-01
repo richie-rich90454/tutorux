@@ -141,7 +141,10 @@ export function FullTrackWaveform(props: Props) {
     };
 
     return (
-        <section class="full-track-waveform" aria-label="Full recording waveform">
+        <section
+            class="full-track-waveform col-span-full min-w-0 w-full rounded-panel border border-line bg-surface-subtle p-4"
+            aria-label="Full recording waveform"
+        >
             <div class="full-track-waveform-header">
                 <div>
                     <strong>Full recording waveform</strong>
