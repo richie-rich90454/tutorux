@@ -38,7 +38,9 @@ fn append_marks_cited_guide_blocks_stale() {
             "stale_block_count" => "0"
         },
     );
-    let source_archive = archive.append_records(&[source.clone()]).unwrap();
+    let source_archive = archive
+        .append_records(std::slice::from_ref(&source))
+        .unwrap();
     let created = source_archive.append_records(&[guide]).unwrap();
     let changed = created
         .append_records(&[record(
