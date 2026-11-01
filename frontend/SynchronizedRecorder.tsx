@@ -585,6 +585,7 @@ export function SynchronizedRecorder(props: Props) {
         const consentAtUs = (BigInt(Date.now()) * 1000n).toString();
         const sessionId = props.session.id;
         const archiveId = props.snapshot.header.id;
+        const initialTrackIds = untrack(() => props.trackIds);
         captureSessionId = sessionId;
         captureArchiveId = archiveId;
         archiveCommitFailure = undefined;
@@ -609,7 +610,7 @@ export function SynchronizedRecorder(props: Props) {
                 const selectedSecondaryAudio = systemAudioDevices().find(
                     (device) => device.id === systemAudioDeviceId(),
                 );
-                const nativeRecorder = await startNativeSynchronizedAudioCapture({
+                const initialNativeRecorder = await startNativeSynchronizedAudioCapture({
                     consentConfirmed: true,
                     consentAtUs,
                     microphoneDeviceId: deviceId(),
@@ -694,7 +695,7 @@ export function SynchronizedRecorder(props: Props) {
                                         session,
                                         takeId: nativeTakeId,
                                         tracks,
-                                        knownTrackIds: props.trackIds,
+                                        knownTrackIds: initialTrackIds,
                                         startedAtUs: started.startedAtUs,
                                         consentAtUs: started.consentAtUs,
                                         captureSourceBackend: started.backend,
@@ -765,16 +766,19 @@ export function SynchronizedRecorder(props: Props) {
                 details = {
                     sessionId,
                     archiveId,
-                    startedAtUs: nativeRecorder.started.startedAtUs,
-                    consentAtUs: nativeRecorder.started.consentAtUs,
-                    captureSourceBackend: nativeRecorder.started.backend,
+                    startedAtUs: initialNativeRecorder.started.startedAtUs,
+                    consentAtUs: initialNativeRecorder.started.consentAtUs,
+                    captureSourceBackend: initialNativeRecorder.started.backend,
                     consentConfirmedBy: "tutorux-desktop-consent-checkbox",
                 };
                 recorder = {
-                    pause: () => nativeRecorder.pause(),
-                    resume: () => nativeRecorder.resume(),
-                    stop: async () => ({ ...(await nativeRecorder.stop()), files: [null, null] }),
-                    discard: () => nativeRecorder.discard(),
+                    pause: () => initialNativeRecorder.pause(),
+                    resume: () => initialNativeRecorder.resume(),
+                    stop: async () => ({
+                        ...(await initialNativeRecorder.stop()),
+                        files: [null, null],
+                    }),
+                    discard: () => initialNativeRecorder.discard(),
                 };
             } else {
                 const browserWarnings: string[] = [];
@@ -785,7 +789,7 @@ export function SynchronizedRecorder(props: Props) {
                     if (!browserWarnings.includes(warning)) browserWarnings.push(warning);
                     void untrack(() => stop(warning));
                 };
-                const browserRecorder = await SynchronizedRecording.start(
+                const initialBrowserRecorder = await SynchronizedRecording.start(
                     deviceId(),
                     stopAtMemoryLimit,
                     (track) =>
@@ -811,13 +815,13 @@ export function SynchronizedRecorder(props: Props) {
                     consentConfirmedBy: "tutorux-browser-consent-checkbox",
                 };
                 recorder = {
-                    pause: () => browserRecorder.pause(),
-                    resume: () => browserRecorder.resume(),
+                    pause: () => initialBrowserRecorder.pause(),
+                    resume: () => initialBrowserRecorder.resume(),
                     stop: async () => {
-                        const result = await browserRecorder.stop();
+                        const result = await initialBrowserRecorder.stop();
                         return { ...result, warnings: [...browserWarnings] };
                     },
-                    discard: () => browserRecorder.discard(),
+                    discard: () => initialBrowserRecorder.discard(),
                 };
             }
 
