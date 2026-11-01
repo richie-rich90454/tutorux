@@ -15,6 +15,14 @@ struct WaveData {
     data: Vec<u8>,
 }
 
+struct TemporaryAudioFile(std::path::PathBuf);
+
+impl Drop for TemporaryAudioFile {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.0);
+    }
+}
+
 pub(super) fn record_import(
     args: &ParsedArguments,
     output: &mut dyn CliOutput,
@@ -35,12 +43,17 @@ pub(super) fn record_import(
     let metadata = std::fs::symlink_metadata(&input)
         .map_err(|_| CliError("Audio source file could not be opened.".to_owned()))?;
     if metadata.file_type().is_symlink() || !metadata.is_file() {
-        return Err(CliError("Audio source must be a regular, non-symlink file.".to_owned()).into());
+        return Err(
+            CliError("Audio source must be a regular, non-symlink file.".to_owned()).into(),
+        );
     }
     if args.flags.contains("ffmpeg") {
         return Err(CliError("--ffmpeg requires an executable path.".to_owned()).into());
     }
-    if args.option("ffmpeg").is_some_and(|value| value.trim().is_empty()) {
+    if args
+        .option("ffmpeg")
+        .is_some_and(|value| value.trim().is_empty())
+    {
         return Err(CliError("--ffmpeg cannot be empty.".to_owned()).into());
     }
     let filename = input
@@ -53,17 +66,21 @@ pub(super) fn record_import(
         .and_then(|value| value.to_str())
         .unwrap_or("")
         .to_ascii_lowercase();
-    let (source_codec, decoded, workspace) = match extension.as_str() {
+    let (source_codec, decoded, temporary_audio) = match extension.as_str() {
         "wav" | "wave" => (String::new(), input.clone(), None),
         "flac" | "mp3" | "m4a" => {
-            let workspace = tempfile::Builder::new()
-                .prefix("tutorux-audio-import-")
-                .tempdir()
-                .map_err(|error| CliError(format!("Could not create an import workspace: {error}")))?;
-            let decoded = workspace.path().join("decoded.wav");
+            let decoded =
+                std::env::temp_dir().join(format!("tutorux-audio-import-{}.wav", new_uuid()));
+            let reservation = std::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&decoded)
+                .map_err(|error| CliError(format!("Could not create an import file: {error}")))?;
+            drop(reservation);
+            let temporary_audio = TemporaryAudioFile(decoded.clone());
             let executable = ffmpeg::resolve_executable(args.option("ffmpeg"));
             ffmpeg::decode_to_wav(&executable, &input, &decoded).map_err(CliError)?;
-            (extension.clone(), decoded, Some(workspace))
+            (extension.clone(), decoded, Some(temporary_audio))
         }
         _ => {
             return Err(CliError(
@@ -73,14 +90,15 @@ pub(super) fn record_import(
         }
     };
     let wave = read_wave(&decoded)?;
-    drop(workspace);
+    drop(temporary_audio);
     let timestamp = now_us().to_string();
     let track_id = new_uuid();
     let take_id = new_uuid();
     let chunk_id = new_uuid();
     let track_blob_id = new_uuid();
     let take_blob_id = new_uuid();
-    let duration_us = (u128::from(wave.sample_count) * 1_000_000 / u128::from(wave.sample_rate_hz)) as u64;
+    let duration_us =
+        (u128::from(wave.sample_count) * 1_000_000 / u128::from(wave.sample_rate_hz)) as u64;
     let byte_count = wave.data.len() as u64;
     let mut chunk = ArchiveRecord::new(
         RecordType::AUDIO_CHUNK,
@@ -169,20 +187,28 @@ pub(super) fn record_import(
         .entry("recording_track_id".to_owned())
         .or_insert_with(|| track_id.clone());
     if !had_prior_tracks {
-        session.fields.insert("recording_source".to_owned(), "imported-file".to_owned());
-        session.fields.insert("recording_sample_format".to_owned(), wave.sample_format.clone());
         session
             .fields
-            .insert("recording_sample_rate_hz".to_owned(), wave.sample_rate_hz.to_string());
-        session
-            .fields
-            .insert("recording_channel_count".to_owned(), wave.channel_count.to_string());
+            .insert("recording_source".to_owned(), "imported-file".to_owned());
+        session.fields.insert(
+            "recording_sample_format".to_owned(),
+            wave.sample_format.clone(),
+        );
+        session.fields.insert(
+            "recording_sample_rate_hz".to_owned(),
+            wave.sample_rate_hz.to_string(),
+        );
+        session.fields.insert(
+            "recording_channel_count".to_owned(),
+            wave.channel_count.to_string(),
+        );
         session
             .fields
             .insert("recording_started_at_us".to_owned(), timestamp.clone());
-        session
-            .fields
-            .insert("recording_samples".to_owned(), wave.sample_count.to_string());
+        session.fields.insert(
+            "recording_samples".to_owned(),
+            wave.sample_count.to_string(),
+        );
         session.fields.insert(
             "recording_timeline_samples".to_owned(),
             wave.sample_count.to_string(),
@@ -223,24 +249,35 @@ pub(super) fn record_import(
                 .insert("recording_duration_us".to_owned(), duration_us.to_string());
         }
     }
-    session.fields.insert("audio_import_track_id".to_owned(), track_id.clone());
-    session.fields.insert("audio_import_take_id".to_owned(), take_id.clone());
+    session
+        .fields
+        .insert("audio_import_track_id".to_owned(), track_id.clone());
+    session
+        .fields
+        .insert("audio_import_take_id".to_owned(), take_id.clone());
     session
         .fields
         .insert("audio_import_expected_chunks".to_owned(), "1".to_owned());
-    session
-        .fields
-        .insert("audio_import_expected_samples".to_owned(), wave.sample_count.to_string());
-    session
-        .fields
-        .insert("audio_import_expected_bytes".to_owned(), byte_count.to_string());
-    session
-        .fields
-        .insert("audio_import_sample_rate_hz".to_owned(), wave.sample_rate_hz.to_string());
-    session
-        .fields
-        .insert("audio_import_channel_count".to_owned(), wave.channel_count.to_string());
-    session.fields.insert("audio_import_sample_format".to_owned(), wave.sample_format.clone());
+    session.fields.insert(
+        "audio_import_expected_samples".to_owned(),
+        wave.sample_count.to_string(),
+    );
+    session.fields.insert(
+        "audio_import_expected_bytes".to_owned(),
+        byte_count.to_string(),
+    );
+    session.fields.insert(
+        "audio_import_sample_rate_hz".to_owned(),
+        wave.sample_rate_hz.to_string(),
+    );
+    session.fields.insert(
+        "audio_import_channel_count".to_owned(),
+        wave.channel_count.to_string(),
+    );
+    session.fields.insert(
+        "audio_import_sample_format".to_owned(),
+        wave.sample_format.clone(),
+    );
     session
         .fields
         .insert("audio_import_source_codec".to_owned(), source_codec.clone());
@@ -250,10 +287,13 @@ pub(super) fn record_import(
     session
         .fields
         .insert("audio_chunks_imported".to_owned(), "1".to_owned());
+    session.fields.insert(
+        "audio_samples_imported".to_owned(),
+        wave.sample_count.to_string(),
+    );
     session
         .fields
-        .insert("audio_samples_imported".to_owned(), wave.sample_count.to_string());
-    session.fields.insert("audio_import_state".to_owned(), "completed".to_owned());
+        .insert("audio_import_state".to_owned(), "completed".to_owned());
     session
         .fields
         .insert("updated_at_us".to_owned(), timestamp.clone());
@@ -336,10 +376,9 @@ fn read_wave(path: &std::path::Path) -> CliResult<WaveData> {
         (1, 32) => "pcm_s32le",
         (3, 32) => "pcm_f32le",
         _ => {
-            return Err(CliError(
-                "The WAV file uses an unsupported sample format.".to_owned(),
+            return Err(
+                CliError("The WAV file uses an unsupported sample format.".to_owned()).into(),
             )
-            .into())
         }
     };
     let width = usize::from(bits / 8);
