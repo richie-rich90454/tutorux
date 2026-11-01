@@ -4,9 +4,9 @@ use std::sync::mpsc::{self, Receiver, SyncSender};
 use std::sync::Arc;
 use std::time::Duration;
 
+use super::whisper_wav::{build_wav, sample_width};
 use crate::core::archive::{new_uuid, now_us, ArchiveSnapshot};
 use crate::core::format::{ArchiveRecord, RecordType};
-use super::whisper_wav::{build_wav, sample_width};
 use crate::transcription::{parse_whisper_json, transcribe_wav};
 
 const QUEUE_WINDOWS: usize = 4;
@@ -54,6 +54,10 @@ pub(super) struct LiveTranscriber {
 }
 
 impl LiveTranscriber {
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "The live transcription worker needs explicit capture identity and audio-format metadata."
+    )]
     pub(super) fn new(
         path: &Path,
         request: WhisperCapture,
@@ -144,13 +148,14 @@ impl LiveTranscriber {
             if first_sample_index > expected {
                 let missing = (first_sample_index - expected) as usize;
                 if missing.saturating_mul(self.frame_bytes) > MAX_PCM_BYTES {
-                    self.error = Some(
-                        "The live Whisper window contained an unusable audio gap.".to_owned(),
-                    );
+                    self.error =
+                        Some("The live Whisper window contained an unusable audio gap.".to_owned());
                     return;
                 }
-                self.pending
-                    .extend(std::iter::repeat(0u8).take(missing.saturating_mul(self.frame_bytes)));
+                self.pending.extend(std::iter::repeat_n(
+                    0u8,
+                    missing.saturating_mul(self.frame_bytes),
+                ));
             }
         }
         self.pending.extend_from_slice(pcm);
@@ -168,9 +173,8 @@ impl LiveTranscriber {
                 self.pending.clear();
                 return;
             }
-            self.pending_start = Some(
-                start.saturating_add((self.window_bytes / self.frame_bytes) as u64),
-            );
+            self.pending_start =
+                Some(start.saturating_add((self.window_bytes / self.frame_bytes) as u64));
         }
     }
 
@@ -316,7 +320,12 @@ fn transcribe_window(
     if job.pcm.len() > MAX_PCM_BYTES {
         return Err("The live Whisper window exceeded the bounded transcription queue.".to_owned());
     }
-    let wav = build_wav(&job.pcm, job.sample_rate_hz, job.channel_count, &job.sample_format)?;
+    let wav = build_wav(
+        &job.pcm,
+        job.sample_rate_hz,
+        job.channel_count,
+        &job.sample_format,
+    )?;
     let output = transcribe_wav(
         &request.executable,
         &request.model,
@@ -327,11 +336,12 @@ fn transcribe_window(
         Arc::clone(cancelled),
     )?;
     let cues = parse_whisper_json(&output.json)?;
-    let start_us = (job.first_sample_index as u128)
-        .saturating_mul(1_000_000)
+    let start_us = (job.first_sample_index as u128).saturating_mul(1_000_000)
         / u128::from(job.sample_rate_hz.max(1));
-    let frame_us = (u128::from(job.sample_rate_hz.max(1)) as u128).max(1);
-    let window_frames = (job.pcm.len() / (sample_width(&job.sample_format).max(1) * usize::from(job.channel_count.max(1)))) as u128;
+    let frame_us = u128::from(job.sample_rate_hz.max(1)).max(1);
+    let window_frames = (job.pcm.len()
+        / (sample_width(&job.sample_format).max(1) * usize::from(job.channel_count.max(1))))
+        as u128;
     let end_us = start_us + (window_frames.saturating_mul(1_000_000) / frame_us);
     let language = detected_language(&output.json).unwrap_or_else(|| request.language.clone());
     let model_name = Path::new(&request.model)
@@ -390,9 +400,10 @@ fn transcribe_window(
                 "diarization_scope".to_owned(),
                 "experimental-speaker-turn-boundaries-only".to_owned(),
             );
-            record
-                .fields
-                .insert("diarization_method".to_owned(), "whisper.cpp-tinydiarize".to_owned());
+            record.fields.insert(
+                "diarization_method".to_owned(),
+                "whisper.cpp-tinydiarize".to_owned(),
+            );
             record.fields.insert(
                 "diarization_model_requirement".to_owned(),
                 "TDRZ-compatible Whisper model required".to_owned(),
