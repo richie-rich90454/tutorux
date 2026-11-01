@@ -13,10 +13,28 @@ use std::{
     time::Duration,
 };
 use uuid::Uuid;
+use whisper_rs::{FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters};
 
 const MAX_AUDIO_BYTES: usize = 32 * 1024 * 1024;
 const MAX_OUTPUT_BYTES: u64 = 8 * 1024 * 1024;
+pub const EMBEDDED_WHISPER_MODEL_NAME: &str = "Whisper Base multilingual (Q5_1)";
+pub static EMBEDDED_WHISPER_MODEL: &[u8] =
+    include_bytes!("../../resources/whisper/ggml-base-q5_1.bin");
 static RUNS: OnceLock<Mutex<HashMap<Uuid, Arc<AtomicBool>>>> = OnceLock::new();
+static EMBEDDED_CONTEXT: OnceLock<Result<WhisperContext, String>> = OnceLock::new();
+
+pub fn embedded_whisper_context() -> Result<&'static WhisperContext, String> {
+    match EMBEDDED_CONTEXT.get_or_init(|| {
+        WhisperContext::new_from_buffer_with_params(
+            EMBEDDED_WHISPER_MODEL,
+            WhisperContextParameters::default(),
+        )
+        .map_err(|error| format!("The bundled Whisper model could not be loaded: {error:?}"))
+    }) {
+        Ok(context) => Ok(context),
+        Err(error) => Err(error.clone()),
+    }
+}
 
 fn runs() -> &'static Mutex<HashMap<Uuid, Arc<AtomicBool>>> {
     RUNS.get_or_init(|| Mutex::new(HashMap::new()))
@@ -218,15 +236,121 @@ fn transcribe(
     Ok(WhisperOutput { json, model_name })
 }
 
+fn whisper_pcm_samples(wav: &[u8]) -> Result<Vec<f32>, String> {
+    if wav.len() < 46
+        || wav.len() > MAX_AUDIO_BYTES
+        || &wav[..4] != b"RIFF"
+        || &wav[8..12] != b"WAVE"
+        || &wav[12..16] != b"fmt "
+        || &wav[36..40] != b"data"
+    {
+        return Err("Whisper audio must be a bounded PCM WAV file.".to_owned());
+    }
+    let format = u16::from_le_bytes([wav[20], wav[21]]);
+    let channels = u16::from_le_bytes([wav[22], wav[23]]);
+    let sample_rate = u32::from_le_bytes([wav[24], wav[25], wav[26], wav[27]]);
+    let bits_per_sample = u16::from_le_bytes([wav[34], wav[35]]);
+    let data_len = u32::from_le_bytes([wav[40], wav[41], wav[42], wav[43]]) as usize;
+    if format != 1
+        || channels != 1
+        || sample_rate != 16_000
+        || bits_per_sample != 16
+        || data_len == 0
+        || data_len % 2 != 0
+        || data_len != wav.len() - 44
+    {
+        return Err("Whisper audio must contain 16 kHz mono 16-bit PCM samples.".to_owned());
+    }
+    Ok(wav[44..]
+        .chunks_exact(2)
+        .map(|sample| i16::from_le_bytes([sample[0], sample[1]]) as f32 / 32_768.0)
+        .collect())
+}
+
+fn transcribe_embedded(
+    wav: Vec<u8>,
+    language: String,
+    cancelled: Arc<AtomicBool>,
+) -> Result<WhisperOutput, String> {
+    if cancelled.load(Ordering::Acquire) {
+        return Err("Transcription cancelled.".to_owned());
+    }
+    if language.is_empty()
+        || language.len() > 16
+        || !language
+            .bytes()
+            .all(|character| character.is_ascii_alphabetic() || character == b'-')
+    {
+        return Err("Enter a valid Whisper language code, or auto.".to_owned());
+    }
+    let mut samples = whisper_pcm_samples(&wav)?;
+    let context = embedded_whisper_context()?;
+    let mut state = context
+        .create_state()
+        .map_err(|error| format!("Whisper could not initialize its model state: {error:?}"))?;
+    let detect_language = language.eq_ignore_ascii_case("auto");
+    let mut parameters = FullParams::new(SamplingStrategy::Greedy { best_of: 1 });
+    parameters.set_n_threads(default_threads() as i32);
+    parameters.set_no_context(true);
+    parameters.set_translate(false);
+    parameters.set_print_progress(false);
+    parameters.set_print_realtime(false);
+    parameters.set_print_timestamps(false);
+    parameters.set_print_special(false);
+    parameters.set_language((!detect_language).then_some(language.as_str()));
+    parameters.set_detect_language(detect_language);
+    let abort_flag = Arc::clone(&cancelled);
+    parameters.set_abort_callback_safe(move || abort_flag.load(Ordering::Acquire));
+    let full_result = state.full(parameters, &samples);
+    samples.fill(0.0);
+    full_result.map_err(|error| {
+        if cancelled.load(Ordering::Acquire) {
+            "Transcription cancelled.".to_owned()
+        } else {
+            format!("The bundled Whisper model could not transcribe this audio: {error:?}")
+        }
+    })?;
+    if cancelled.load(Ordering::Acquire) {
+        return Err("Transcription cancelled.".to_owned());
+    }
+
+    let detected_language = if detect_language {
+        whisper_rs::get_lang_str(state.full_lang_id_from_state()).unwrap_or("auto")
+    } else {
+        language.as_str()
+    };
+    let transcription = state
+        .as_iter()
+        .filter_map(|segment| {
+            let text = segment.to_str_lossy().ok()?.trim().to_owned();
+            let start = segment.start_timestamp();
+            let end = segment.end_timestamp();
+            if text.is_empty() || start < 0 || end <= start {
+                return None;
+            }
+            Some(serde_json::json!({
+                "offsets": { "from": start.saturating_mul(10), "to": end.saturating_mul(10) },
+                "text": text,
+            }))
+        })
+        .collect::<Vec<_>>();
+    let json = serde_json::to_string(&serde_json::json!({
+        "result": { "language": detected_language },
+        "transcription": transcription,
+    }))
+    .map_err(|_| "Whisper could not format its transcript.".to_owned())?;
+    Ok(WhisperOutput {
+        json,
+        model_name: EMBEDDED_WHISPER_MODEL_NAME.to_owned(),
+    })
+}
+
 #[tauri::command]
 pub async fn transcribe_whisper(
     window: tauri::WebviewWindow,
     run_id: String,
-    executable: String,
-    model: String,
     wav: Vec<u8>,
     language: String,
-    diarize_speaker_turns: bool,
 ) -> Result<WhisperOutput, String> {
     main_window(&window)?;
     let id = Uuid::parse_str(&run_id).map_err(|_| "Invalid transcription job.".to_owned())?;
@@ -236,19 +360,9 @@ pub async fn transcribe_whisper(
         .get(&id)
         .cloned()
         .ok_or_else(|| "Transcription job has ended.".to_owned())?;
-    tauri::async_runtime::spawn_blocking(move || {
-        transcribe(
-            executable,
-            model,
-            wav,
-            language,
-            diarize_speaker_turns,
-            default_threads(),
-            cancelled,
-        )
-    })
-    .await
-    .map_err(|_| "The transcription task could not finish.".to_owned())?
+    tauri::async_runtime::spawn_blocking(move || transcribe_embedded(wav, language, cancelled))
+        .await
+        .map_err(|_| "The transcription task could not finish.".to_owned())?
 }
 
 fn default_threads() -> u32 {
@@ -335,7 +449,31 @@ pub fn parse_whisper_json(json: &str) -> Result<Vec<WhisperCue>, String> {
 
 #[cfg(test)]
 mod tests {
-    use super::parse_whisper_json;
+    use super::{
+        embedded_whisper_context, parse_whisper_json, transcribe_embedded, EMBEDDED_WHISPER_MODEL,
+        EMBEDDED_WHISPER_MODEL_NAME,
+    };
+    use std::sync::{atomic::AtomicBool, Arc};
+
+    fn silence_wav(duration_seconds: u32) -> Vec<u8> {
+        let sample_count = duration_seconds * 16_000;
+        let data_bytes = sample_count * 2;
+        let mut wav = Vec::with_capacity((44 + data_bytes) as usize);
+        wav.extend_from_slice(b"RIFF");
+        wav.extend_from_slice(&(36 + data_bytes).to_le_bytes());
+        wav.extend_from_slice(b"WAVEfmt ");
+        wav.extend_from_slice(&16u32.to_le_bytes());
+        wav.extend_from_slice(&1u16.to_le_bytes());
+        wav.extend_from_slice(&1u16.to_le_bytes());
+        wav.extend_from_slice(&16_000u32.to_le_bytes());
+        wav.extend_from_slice(&32_000u32.to_le_bytes());
+        wav.extend_from_slice(&2u16.to_le_bytes());
+        wav.extend_from_slice(&16u16.to_le_bytes());
+        wav.extend_from_slice(b"data");
+        wav.extend_from_slice(&data_bytes.to_le_bytes());
+        wav.resize((44 + data_bytes) as usize, 0);
+        wav
+    }
 
     #[test]
     fn parses_bounded_whisper_offsets_into_microseconds() {
@@ -360,5 +498,26 @@ mod tests {
             r#"{"transcription":[{"offsets":{"from":0,"to":5},"text":42}]}"#
         )
         .is_err());
+    }
+
+    #[test]
+    fn embedded_model_is_packaged_and_initializes_without_external_files() {
+        assert_eq!(EMBEDDED_WHISPER_MODEL.len(), 59_707_625);
+        let context = embedded_whisper_context().expect("bundled Whisper model loads");
+        context.create_state().expect("Whisper state initializes");
+    }
+
+    #[test]
+    fn embedded_model_transcribes_bounded_pcm_without_temp_files() {
+        let output = transcribe_embedded(
+            silence_wav(1),
+            "auto".to_owned(),
+            Arc::new(AtomicBool::new(false)),
+        )
+        .expect("bundled model transcribes its input");
+        assert_eq!(output.model_name, EMBEDDED_WHISPER_MODEL_NAME);
+        let parsed: serde_json::Value =
+            serde_json::from_str(&output.json).expect("native transcription emits JSON");
+        assert!(parsed["transcription"].is_array());
     }
 }
