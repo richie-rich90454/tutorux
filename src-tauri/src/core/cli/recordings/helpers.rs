@@ -3,7 +3,10 @@ use crate::core::cli::{open_archive, CliContext, CliError, CliResult};
 use crate::core::error::Result;
 use crate::core::format::{ArchiveRecord, RecordType};
 
-pub(super) fn open_unlocked(path: &std::path::Path, context: &CliContext) -> CliResult<ArchiveSnapshot> {
+pub(super) fn open_unlocked(
+    path: &std::path::Path,
+    context: &CliContext,
+) -> CliResult<ArchiveSnapshot> {
     let snapshot = open_archive(path, context.passphrase())?;
     if snapshot.locked() {
         return Err(CliError(
@@ -21,7 +24,11 @@ pub(super) fn require_session(snapshot: &ArchiveSnapshot, id: &str) -> CliResult
     }
 }
 
-pub(super) fn should_change_trash_state(record: &ArchiveRecord, deleted: bool, group: &str) -> bool {
+pub(super) fn should_change_trash_state(
+    record: &ArchiveRecord,
+    deleted: bool,
+    group: &str,
+) -> bool {
     let currently = record.field("_deleted") == Some("true");
     if deleted {
         !currently
@@ -81,22 +88,35 @@ pub(super) fn session_chunks(
         .list_records(RecordType::AUDIO_CHUNK, false)?
         .into_iter()
         .filter(|record| {
-            record.field("session_id").map(str::to_lowercase)
-                == Some(session_id.to_lowercase())
+            record.field("session_id").map(str::to_lowercase) == Some(session_id.to_lowercase())
                 && track_id
-                    .map(|track| record.field("track_id").map(str::to_lowercase) == Some(track.to_lowercase()))
+                    .map(|track| {
+                        record.field("track_id").map(str::to_lowercase)
+                            == Some(track.to_lowercase())
+                    })
                     .unwrap_or(true)
         })
         .collect();
     chunks.sort_by(|left, right| {
-        let left_sequence = left.field("sequence_number").unwrap_or("0").parse::<u64>().unwrap_or(0);
-        let right_sequence = right.field("sequence_number").unwrap_or("0").parse::<u64>().unwrap_or(0);
+        let left_sequence = left
+            .field("sequence_number")
+            .unwrap_or("0")
+            .parse::<u64>()
+            .unwrap_or(0);
+        let right_sequence = right
+            .field("sequence_number")
+            .unwrap_or("0")
+            .parse::<u64>()
+            .unwrap_or(0);
         left_sequence.cmp(&right_sequence)
     });
     Ok(chunks)
 }
 
-pub(super) fn session_track_ids(snapshot: &ArchiveSnapshot, session: &ArchiveRecord) -> Vec<String> {
+pub(super) fn session_track_ids(
+    snapshot: &ArchiveSnapshot,
+    session: &ArchiveRecord,
+) -> Vec<String> {
     let mut track_ids: Vec<String> = split_ids(session.field("recording_track_ids").unwrap_or(""));
     for id in split_ids(session.field("recording_track_id").unwrap_or("")) {
         if !track_ids.contains(&id) {
@@ -135,10 +155,11 @@ pub(super) fn select_track(
         if tracks.iter().any(|track| track == &requested) {
             return Ok(requested);
         }
-        return Err(CliError("Select an available audio track for this session.".to_owned()).into());
+        return Err(
+            CliError("Select an available audio track for this session.".to_owned()).into(),
+        );
     }
-    tracks
-        .into_iter()
-        .next()
-        .ok_or_else(|| CliError("Select an available audio track for this session.".to_owned()).into())
+    tracks.into_iter().next().ok_or_else(|| {
+        CliError("Select an available audio track for this session.".to_owned()).into()
+    })
 }
