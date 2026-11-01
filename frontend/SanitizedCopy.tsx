@@ -1,3 +1,5 @@
+import { twClasses } from "./tailwind";
+import { jsxTailwindStyles } from "./SanitizedCopy.tailwind";
 import { For, Show, createEffect, createSignal, onCleanup, type JSX } from "solid-js";
 import {
     createSanitizedCopy,
@@ -9,7 +11,6 @@ import { RecordType, type ArchiveRecord } from "./archive/format";
 import type { ArchiveSnapshot } from "./archive/archive";
 import type { SanitizedCopyDestination } from "./platform/types";
 import { platform } from "@platform";
-import "./sanitized-copy.css";
 
 type SelectionMode = "all" | "include" | "exclude";
 type RecordingMode = "none" | "all" | "include" | "exclude";
@@ -473,18 +474,28 @@ export function SanitizedCopy(props: SanitizedCopyProps): JSX.Element {
     ];
 
     return (
-        <section class="surface-card sanitized-copy" aria-labelledby="sanitized-copy-title">
-            <header class="sanitized-copy-heading">
-                <span class="eyebrow">Privacy workflow</span>
-                <h2 id="sanitized-copy-title">Create a reviewed copy</h2>
-                <p>
+        <section
+            class={twClasses("surface-card sanitized-copy", jsxTailwindStyles, "section")}
+            aria-labelledby="sanitized-copy-title"
+        >
+            <header class={twClasses("sanitized-copy-heading", jsxTailwindStyles, "header")}>
+                <span class={twClasses("eyebrow", jsxTailwindStyles, "span")}>
+                    Privacy workflow
+                </span>
+                <h2 id="sanitized-copy-title" class={twClasses("", jsxTailwindStyles, "h2")}>
+                    Create a reviewed copy
+                </h2>
+                <p class={twClasses("", jsxTailwindStyles, "p")}>
                     Build a separate archive from selected students, sessions, and records. The
                     source stays untouched, and nothing is written until you approve the preview.
                 </p>
             </header>
 
-            <div class="sanitized-copy-destination">
-                <label class="form-field" for="sanitized-copy-filename">
+            <div class={twClasses("sanitized-copy-destination", jsxTailwindStyles, "div")}>
+                <label
+                    class={twClasses("form-field", jsxTailwindStyles, "label")}
+                    for="sanitized-copy-filename"
+                >
                     Copy file name
                     <input
                         id="sanitized-copy-filename"
@@ -496,11 +507,14 @@ export function SanitizedCopy(props: SanitizedCopyProps): JSX.Element {
                             clearDestination();
                             invalidatePreview();
                         }}
+                        class={twClasses("", jsxTailwindStyles, "input")}
                     />
                 </label>
-                <div class="sanitized-copy-destination-action">
+                <div
+                    class={twClasses("sanitized-copy-destination-action", jsxTailwindStyles, "div")}
+                >
                     <button
-                        class="button button-outline"
+                        class={twClasses("button button-outline", jsxTailwindStyles, "button")}
                         type="button"
                         disabled={unavailable()}
                         onClick={() => void chooseDestination()}
@@ -512,10 +526,20 @@ export function SanitizedCopy(props: SanitizedCopyProps): JSX.Element {
                               : "Use this download name"}
                     </button>
                     <Show when={destination()}>
-                        {(target) => <span class="sanitized-copy-target">{target().label}</span>}
+                        {(target) => (
+                            <span
+                                class={twClasses(
+                                    "sanitized-copy-target",
+                                    jsxTailwindStyles,
+                                    "span",
+                                )}
+                            >
+                                {target().label}
+                            </span>
+                        )}
                     </Show>
                 </div>
-                <p class="sanitized-copy-subtle">
+                <p class={twClasses("sanitized-copy-subtle", jsxTailwindStyles, "p")}>
                     {platform.kind === "desktop"
                         ? "Tutorux refuses to replace an existing archive at the destination."
                         : "Your browser download keeps the open archive separate; duplicate names may be adjusted by the browser."}
@@ -523,23 +547,26 @@ export function SanitizedCopy(props: SanitizedCopyProps): JSX.Element {
             </div>
 
             <Show when={props.snapshot.locked}>
-                <p class="sanitized-copy-notice" role="status">
+                <p class={twClasses("sanitized-copy-notice", jsxTailwindStyles, "p")} role="status">
                     Unlock this archive to review a sanitized copy. Encrypted sources stay encrypted
                     in the new file.
                 </p>
             </Show>
             <Show when={inventoryError()}>
-                <p class="sanitized-copy-error" role="alert">
+                <p class={twClasses("sanitized-copy-error", jsxTailwindStyles, "p")} role="alert">
                     {inventoryError()}
                 </p>
             </Show>
 
-            <div class="sanitized-copy-selection-grid">
-                <fieldset class="sanitized-copy-choice">
-                    <legend>
-                        Students <span>{inventory()?.students.length ?? "—"}</span>
+            <div class={twClasses("sanitized-copy-selection-grid", jsxTailwindStyles, "div")}>
+                <fieldset class={twClasses("sanitized-copy-choice", jsxTailwindStyles, "fieldset")}>
+                    <legend class={twClasses("", jsxTailwindStyles, "legend")}>
+                        Students{" "}
+                        <span class={twClasses("", jsxTailwindStyles, "span")}>
+                            {inventory()?.students.length ?? "—"}
+                        </span>
                     </legend>
-                    <label class="form-field">
+                    <label class={twClasses("form-field", jsxTailwindStyles, "label")}>
                         Student selection
                         <select
                             value={students().mode}
@@ -550,6 +577,7 @@ export function SanitizedCopy(props: SanitizedCopyProps): JSX.Element {
                                     mode: event.currentTarget.value as SelectionMode,
                                 })
                             }
+                            class={twClasses("", jsxTailwindStyles, "select")}
                         >
                             <option value="all">Include all students</option>
                             <option value="include">Include selected students</option>
@@ -557,12 +585,21 @@ export function SanitizedCopy(props: SanitizedCopyProps): JSX.Element {
                         </select>
                     </label>
                     <Show when={students().mode !== "all"}>
-                        <div class="sanitized-copy-checklist" aria-label="Choose students">
+                        <div
+                            class={twClasses("sanitized-copy-checklist", jsxTailwindStyles, "div")}
+                            aria-label="Choose students"
+                        >
                             <For each={inventory()?.students ?? []}>
                                 {(record) => {
                                     const id = record.id.toLowerCase();
                                     return (
-                                        <label class="sanitized-copy-check-row">
+                                        <label
+                                            class={twClasses(
+                                                "sanitized-copy-check-row",
+                                                jsxTailwindStyles,
+                                                "label",
+                                            )}
+                                        >
                                             <input
                                                 type="checkbox"
                                                 checked={students().ids.has(id)}
@@ -573,8 +610,9 @@ export function SanitizedCopy(props: SanitizedCopyProps): JSX.Element {
                                                     else ids.delete(id);
                                                     updateStudents({ ...students(), ids });
                                                 }}
+                                                class={twClasses("", jsxTailwindStyles, "input")}
                                             />
-                                            <span>
+                                            <span class={twClasses("", jsxTailwindStyles, "span")}>
                                                 {title(record, `Student ${record.id.slice(0, 8)}`)}
                                             </span>
                                         </label>
@@ -582,7 +620,13 @@ export function SanitizedCopy(props: SanitizedCopyProps): JSX.Element {
                                 }}
                             </For>
                             <Show when={!inventory()?.students.length}>
-                                <p class="sanitized-copy-empty">
+                                <p
+                                    class={twClasses(
+                                        "sanitized-copy-empty",
+                                        jsxTailwindStyles,
+                                        "p",
+                                    )}
+                                >
                                     No active students are in this archive.
                                 </p>
                             </Show>
@@ -590,11 +634,14 @@ export function SanitizedCopy(props: SanitizedCopyProps): JSX.Element {
                     </Show>
                 </fieldset>
 
-                <fieldset class="sanitized-copy-choice">
-                    <legend>
-                        Sessions <span>{inventory()?.sessions.length ?? "—"}</span>
+                <fieldset class={twClasses("sanitized-copy-choice", jsxTailwindStyles, "fieldset")}>
+                    <legend class={twClasses("", jsxTailwindStyles, "legend")}>
+                        Sessions{" "}
+                        <span class={twClasses("", jsxTailwindStyles, "span")}>
+                            {inventory()?.sessions.length ?? "—"}
+                        </span>
                     </legend>
-                    <label class="form-field">
+                    <label class={twClasses("form-field", jsxTailwindStyles, "label")}>
                         Session selection
                         <select
                             value={sessions().mode}
@@ -605,6 +652,7 @@ export function SanitizedCopy(props: SanitizedCopyProps): JSX.Element {
                                     mode: event.currentTarget.value as SelectionMode,
                                 })
                             }
+                            class={twClasses("", jsxTailwindStyles, "select")}
                         >
                             <option value="all">Include all sessions</option>
                             <option value="include">Include selected sessions</option>
@@ -612,12 +660,21 @@ export function SanitizedCopy(props: SanitizedCopyProps): JSX.Element {
                         </select>
                     </label>
                     <Show when={sessions().mode !== "all"}>
-                        <div class="sanitized-copy-checklist" aria-label="Choose sessions">
+                        <div
+                            class={twClasses("sanitized-copy-checklist", jsxTailwindStyles, "div")}
+                            aria-label="Choose sessions"
+                        >
                             <For each={inventory()?.sessions ?? []}>
                                 {(record) => {
                                     const id = record.id.toLowerCase();
                                     return (
-                                        <label class="sanitized-copy-check-row">
+                                        <label
+                                            class={twClasses(
+                                                "sanitized-copy-check-row",
+                                                jsxTailwindStyles,
+                                                "label",
+                                            )}
+                                        >
                                             <input
                                                 type="checkbox"
                                                 checked={sessions().ids.has(id)}
@@ -628,8 +685,9 @@ export function SanitizedCopy(props: SanitizedCopyProps): JSX.Element {
                                                     else ids.delete(id);
                                                     updateSessions({ ...sessions(), ids });
                                                 }}
+                                                class={twClasses("", jsxTailwindStyles, "input")}
                                             />
-                                            <span>
+                                            <span class={twClasses("", jsxTailwindStyles, "span")}>
                                                 {title(record, `Session ${record.id.slice(0, 8)}`)}
                                             </span>
                                         </label>
@@ -637,7 +695,13 @@ export function SanitizedCopy(props: SanitizedCopyProps): JSX.Element {
                                 }}
                             </For>
                             <Show when={!inventory()?.sessions.length}>
-                                <p class="sanitized-copy-empty">
+                                <p
+                                    class={twClasses(
+                                        "sanitized-copy-empty",
+                                        jsxTailwindStyles,
+                                        "p",
+                                    )}
+                                >
                                     No active sessions are in this archive.
                                 </p>
                             </Show>
@@ -645,11 +709,20 @@ export function SanitizedCopy(props: SanitizedCopyProps): JSX.Element {
                     </Show>
                 </fieldset>
 
-                <fieldset class="sanitized-copy-choice sanitized-copy-recordings">
-                    <legend>
-                        Recording tracks <span>{visibleTracks().length}</span>
+                <fieldset
+                    class={twClasses(
+                        "sanitized-copy-choice sanitized-copy-recordings",
+                        jsxTailwindStyles,
+                        "fieldset",
+                    )}
+                >
+                    <legend class={twClasses("", jsxTailwindStyles, "legend")}>
+                        Recording tracks{" "}
+                        <span class={twClasses("", jsxTailwindStyles, "span")}>
+                            {visibleTracks().length}
+                        </span>
                     </legend>
-                    <label class="form-field">
+                    <label class={twClasses("form-field", jsxTailwindStyles, "label")}>
                         Recording selection
                         <select
                             value={tracks().mode}
@@ -661,6 +734,7 @@ export function SanitizedCopy(props: SanitizedCopyProps): JSX.Element {
                                 });
                                 invalidatePreview();
                             }}
+                            class={twClasses("", jsxTailwindStyles, "select")}
                         >
                             <option value="none">Omit all recordings</option>
                             <option value="all">Include all available recordings</option>
@@ -669,10 +743,19 @@ export function SanitizedCopy(props: SanitizedCopyProps): JSX.Element {
                         </select>
                     </label>
                     <Show when={tracks().mode === "include" || tracks().mode === "exclude"}>
-                        <div class="sanitized-copy-checklist" aria-label="Choose recording tracks">
+                        <div
+                            class={twClasses("sanitized-copy-checklist", jsxTailwindStyles, "div")}
+                            aria-label="Choose recording tracks"
+                        >
                             <For each={visibleTracks()}>
                                 {(track) => (
-                                    <label class="sanitized-copy-check-row sanitized-copy-track-row">
+                                    <label
+                                        class={twClasses(
+                                            "sanitized-copy-check-row sanitized-copy-track-row",
+                                            jsxTailwindStyles,
+                                            "label",
+                                        )}
+                                    >
                                         <input
                                             type="checkbox"
                                             checked={tracks().ids.has(track.id)}
@@ -684,10 +767,17 @@ export function SanitizedCopy(props: SanitizedCopyProps): JSX.Element {
                                                 setTracks({ ...tracks(), ids });
                                                 invalidatePreview();
                                             }}
+                                            class={twClasses("", jsxTailwindStyles, "input")}
                                         />
-                                        <span>
-                                            <strong>{track.label}</strong>
-                                            <small>
+                                        <span class={twClasses("", jsxTailwindStyles, "span")}>
+                                            <strong
+                                                class={twClasses("", jsxTailwindStyles, "strong")}
+                                            >
+                                                {track.label}
+                                            </strong>
+                                            <small
+                                                class={twClasses("", jsxTailwindStyles, "small")}
+                                            >
                                                 {track.sessionName} ·{" "}
                                                 {track.chunks.toLocaleString()} chunks
                                             </small>
@@ -696,7 +786,13 @@ export function SanitizedCopy(props: SanitizedCopyProps): JSX.Element {
                                 )}
                             </For>
                             <Show when={tracks().mode !== "none" && !visibleTracks().length}>
-                                <p class="sanitized-copy-empty">
+                                <p
+                                    class={twClasses(
+                                        "sanitized-copy-empty",
+                                        jsxTailwindStyles,
+                                        "p",
+                                    )}
+                                >
                                     No recordings belong to the currently retained sessions.
                                 </p>
                             </Show>
@@ -705,9 +801,11 @@ export function SanitizedCopy(props: SanitizedCopyProps): JSX.Element {
                 </fieldset>
             </div>
 
-            <fieldset class="sanitized-copy-options">
-                <legend>Optional private data</legend>
-                <label class="sanitized-copy-toggle">
+            <fieldset class={twClasses("sanitized-copy-options", jsxTailwindStyles, "fieldset")}>
+                <legend class={twClasses("", jsxTailwindStyles, "legend")}>
+                    Optional private data
+                </legend>
+                <label class={twClasses("sanitized-copy-toggle", jsxTailwindStyles, "label")}>
                     <input
                         type="checkbox"
                         checked={includePrivate()}
@@ -716,13 +814,18 @@ export function SanitizedCopy(props: SanitizedCopyProps): JSX.Element {
                             setIncludePrivate(event.currentTarget.checked);
                             invalidatePreview();
                         }}
+                        class={twClasses("", jsxTailwindStyles, "input")}
                     />
-                    <span>
-                        <strong>Include private annotations</strong>
-                        <small>Private and restricted observations are omitted by default.</small>
+                    <span class={twClasses("", jsxTailwindStyles, "span")}>
+                        <strong class={twClasses("", jsxTailwindStyles, "strong")}>
+                            Include private annotations
+                        </strong>
+                        <small class={twClasses("", jsxTailwindStyles, "small")}>
+                            Private and restricted observations are omitted by default.
+                        </small>
                     </span>
                 </label>
-                <label class="sanitized-copy-toggle">
+                <label class={twClasses("sanitized-copy-toggle", jsxTailwindStyles, "label")}>
                     <input
                         type="checkbox"
                         checked={includeGenerationLogs()}
@@ -731,15 +834,18 @@ export function SanitizedCopy(props: SanitizedCopyProps): JSX.Element {
                             setIncludeGenerationLogs(event.currentTarget.checked);
                             invalidatePreview();
                         }}
+                        class={twClasses("", jsxTailwindStyles, "input")}
                     />
-                    <span>
-                        <strong>Include AI generation logs</strong>
-                        <small>
+                    <span class={twClasses("", jsxTailwindStyles, "span")}>
+                        <strong class={twClasses("", jsxTailwindStyles, "strong")}>
+                            Include AI generation logs
+                        </strong>
+                        <small class={twClasses("", jsxTailwindStyles, "small")}>
                             Keep prompts and provider response metadata linked to retained sessions.
                         </small>
                     </span>
                 </label>
-                <label class="sanitized-copy-toggle">
+                <label class={twClasses("sanitized-copy-toggle", jsxTailwindStyles, "label")}>
                     <input
                         type="checkbox"
                         checked={includeCredentials()}
@@ -748,10 +854,13 @@ export function SanitizedCopy(props: SanitizedCopyProps): JSX.Element {
                             setIncludeCredentials(event.currentTarget.checked);
                             invalidatePreview();
                         }}
+                        class={twClasses("", jsxTailwindStyles, "input")}
                     />
-                    <span>
-                        <strong>Include encrypted provider credentials</strong>
-                        <small>
+                    <span class={twClasses("", jsxTailwindStyles, "span")}>
+                        <strong class={twClasses("", jsxTailwindStyles, "strong")}>
+                            Include encrypted provider credentials
+                        </strong>
+                        <small class={twClasses("", jsxTailwindStyles, "small")}>
                             Explicit opt-in. Available only from an encrypted source and requires a
                             new output passphrase.
                         </small>
@@ -759,9 +868,9 @@ export function SanitizedCopy(props: SanitizedCopyProps): JSX.Element {
                 </label>
             </fieldset>
 
-            <div class="sanitized-copy-actions">
+            <div class={twClasses("sanitized-copy-actions", jsxTailwindStyles, "div")}>
                 <button
-                    class="button button-outline"
+                    class={twClasses("button button-outline", jsxTailwindStyles, "button")}
                     type="button"
                     disabled={unavailable() || !destination() || Boolean(selectionError())}
                     onClick={() => void reviewCopy()}
@@ -772,26 +881,49 @@ export function SanitizedCopy(props: SanitizedCopyProps): JSX.Element {
 
             <Show when={preview()} keyed>
                 {(reviewed) => (
-                    <div class="sanitized-copy-review">
-                        <div class="sanitized-copy-review-heading">
-                            <span class="eyebrow">Review before creating</span>
-                            <h3>What the new archive will contain</h3>
-                            <p>
+                    <div class={twClasses("sanitized-copy-review", jsxTailwindStyles, "div")}>
+                        <div
+                            class={twClasses(
+                                "sanitized-copy-review-heading",
+                                jsxTailwindStyles,
+                                "div",
+                            )}
+                        >
+                            <span class={twClasses("eyebrow", jsxTailwindStyles, "span")}>
+                                Review before creating
+                            </span>
+                            <h3 class={twClasses("", jsxTailwindStyles, "h3")}>
+                                What the new archive will contain
+                            </h3>
+                            <p class={twClasses("", jsxTailwindStyles, "p")}>
                                 Source generation {reviewed.summary.sourceGeneration.toString()} ·
-                                reviewed output <strong>{reviewed.destination.label}</strong>
+                                reviewed output{" "}
+                                <strong class={twClasses("", jsxTailwindStyles, "strong")}>
+                                    {reviewed.destination.label}
+                                </strong>
                             </p>
                         </div>
-                        <div class="sanitized-copy-counts">
+                        <div class={twClasses("sanitized-copy-counts", jsxTailwindStyles, "div")}>
                             <For each={summaryItems(reviewed.summary)}>
                                 {(item) => (
-                                    <div class="sanitized-copy-count">
-                                        <strong>{item.count.toLocaleString()}</strong>
-                                        <span>{item.label}</span>
+                                    <div
+                                        class={twClasses(
+                                            "sanitized-copy-count",
+                                            jsxTailwindStyles,
+                                            "div",
+                                        )}
+                                    >
+                                        <strong class={twClasses("", jsxTailwindStyles, "strong")}>
+                                            {item.count.toLocaleString()}
+                                        </strong>
+                                        <span class={twClasses("", jsxTailwindStyles, "span")}>
+                                            {item.label}
+                                        </span>
                                     </div>
                                 )}
                             </For>
                         </div>
-                        <p class="sanitized-copy-protection">
+                        <p class={twClasses("sanitized-copy-protection", jsxTailwindStyles, "p")}>
                             {props.snapshot.encrypted
                                 ? "This encrypted source will remain protected in the new archive."
                                 : includeCredentials()
@@ -799,13 +931,21 @@ export function SanitizedCopy(props: SanitizedCopyProps): JSX.Element {
                                   : "The source remains unchanged. Only the new file receives this selection."}
                         </p>
                         <form
-                            class="sanitized-copy-finalize"
+                            class={twClasses("sanitized-copy-finalize", jsxTailwindStyles, "form")}
                             ref={(element) => (securityForm = element)}
                             onSubmit={(event) => void createCopy(event)}
                         >
                             <Show when={passphraseRequired()}>
-                                <div class="sanitized-copy-passphrase-grid">
-                                    <label class="form-field">
+                                <div
+                                    class={twClasses(
+                                        "sanitized-copy-passphrase-grid",
+                                        jsxTailwindStyles,
+                                        "div",
+                                    )}
+                                >
+                                    <label
+                                        class={twClasses("form-field", jsxTailwindStyles, "label")}
+                                    >
                                         New output passphrase
                                         <input
                                             name="destinationPassphrase"
@@ -815,9 +955,12 @@ export function SanitizedCopy(props: SanitizedCopyProps): JSX.Element {
                                             maxlength="4096"
                                             required
                                             disabled={unavailable()}
+                                            class={twClasses("", jsxTailwindStyles, "input")}
                                         />
                                     </label>
-                                    <label class="form-field">
+                                    <label
+                                        class={twClasses("form-field", jsxTailwindStyles, "label")}
+                                    >
                                         Confirm output passphrase
                                         <input
                                             name="destinationPassphraseConfirmation"
@@ -827,30 +970,54 @@ export function SanitizedCopy(props: SanitizedCopyProps): JSX.Element {
                                             maxlength="4096"
                                             required
                                             disabled={unavailable()}
+                                            class={twClasses("", jsxTailwindStyles, "input")}
                                         />
                                     </label>
                                 </div>
-                                <p class="sanitized-copy-subtle">
+                                <p
+                                    class={twClasses(
+                                        "sanitized-copy-subtle",
+                                        jsxTailwindStyles,
+                                        "p",
+                                    )}
+                                >
                                     Use 12–4096 UTF-8 bytes. Tutorux cannot recover a lost
                                     passphrase.
                                 </p>
                             </Show>
-                            <label class="sanitized-copy-confirm">
+                            <label
+                                class={twClasses(
+                                    "sanitized-copy-confirm",
+                                    jsxTailwindStyles,
+                                    "label",
+                                )}
+                            >
                                 <input
                                     type="checkbox"
                                     checked={confirmed()}
                                     disabled={unavailable()}
                                     onChange={(event) => setConfirmed(event.currentTarget.checked)}
                                     required
+                                    class={twClasses("", jsxTailwindStyles, "input")}
                                 />
-                                <span>
+                                <span class={twClasses("", jsxTailwindStyles, "span")}>
                                     I reviewed these counts and confirm creating a separate archive
                                     file with this exact privacy selection.
                                 </span>
                             </label>
-                            <div class="sanitized-copy-actions">
+                            <div
+                                class={twClasses(
+                                    "sanitized-copy-actions",
+                                    jsxTailwindStyles,
+                                    "div",
+                                )}
+                            >
                                 <button
-                                    class="button button-primary"
+                                    class={twClasses(
+                                        "button button-primary",
+                                        jsxTailwindStyles,
+                                        "button",
+                                    )}
                                     type="submit"
                                     disabled={
                                         unavailable() ||
@@ -869,22 +1036,26 @@ export function SanitizedCopy(props: SanitizedCopyProps): JSX.Element {
             </Show>
 
             <Show when={selectionError()}>
-                <p class="sanitized-copy-error" role="status">
+                <p class={twClasses("sanitized-copy-error", jsxTailwindStyles, "p")} role="status">
                     {selectionError()}
                 </p>
             </Show>
             <Show when={error()}>
-                <p class="sanitized-copy-error" role="alert">
+                <p class={twClasses("sanitized-copy-error", jsxTailwindStyles, "p")} role="alert">
                     {error()}
                 </p>
             </Show>
             <Show when={status()}>
-                <p class="sanitized-copy-status" role="status" aria-live="polite">
+                <p
+                    class={twClasses("sanitized-copy-status", jsxTailwindStyles, "p")}
+                    role="status"
+                    aria-live="polite"
+                >
                     {status()}
                 </p>
             </Show>
             <Show when={working() === "inventory"}>
-                <p class="sanitized-copy-subtle" role="status">
+                <p class={twClasses("sanitized-copy-subtle", jsxTailwindStyles, "p")} role="status">
                     Reading archive selections…
                 </p>
             </Show>
