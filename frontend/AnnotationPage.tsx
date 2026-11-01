@@ -6,8 +6,10 @@ import {
     onCleanup,
     Show,
     useContext,
+    type Accessor,
     type JSX,
 } from "solid-js";
+import { Dynamic } from "solid-js/web";
 import { RecordType, type ArchiveRecord } from "./archive/format";
 import { mergeObservations, setObservationLink, splitObservation } from "./annotation-operations";
 import {
@@ -18,12 +20,11 @@ import {
 import { formatTranscriptTimestampUs } from "./domain/transcript";
 
 type IconName = "annotations" | "sessions" | "plus" | "clock" | "check";
-const IconContext = createContext<{ icon: (props: { name: IconName }) => JSX.Element }>({
-    icon: () => null,
-});
+type IconRenderer = (props: { name: IconName }) => JSX.Element;
+const IconContext = createContext<Accessor<IconRenderer>>(() => () => null);
 function Icon(props: { name: IconName }): JSX.Element {
     const context = useContext(IconContext);
-    return <context.icon name={props.name} />;
+    return <Dynamic component={context()} name={props.name} />;
 }
 
 export function AnnotationPage(props: {
@@ -123,8 +124,9 @@ export function AnnotationPage(props: {
         return saved;
     }
 
+    const iconRenderer = createMemo(() => props.icon);
     return (
-        <IconContext.Provider value={{ icon: props.icon }}>
+        <IconContext.Provider value={iconRenderer}>
             <div class="page-body annotation-page">
                 <section class="record-heading annotation-heading">
                     <div>
@@ -957,3 +959,5 @@ function formatTimestamp(value: string): string {
         return "Date not set";
     }
 }
+
+import "./annotation.css";
