@@ -5,9 +5,9 @@ mod guide_docx;
 #[path = "guide_pdf.rs"]
 mod guide_pdf;
 pub(crate) use guide_docx::render_guide_docx;
-pub(crate) use guide_pdf::render_guide_pdf_with_images;
 #[cfg(test)]
 pub(crate) use guide_pdf::render_guide_pdf;
+pub(crate) use guide_pdf::render_guide_pdf_with_images;
 
 pub(crate) struct GuideExportImage {
     pub(crate) mime_type: String,
