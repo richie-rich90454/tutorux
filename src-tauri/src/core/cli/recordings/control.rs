@@ -58,7 +58,9 @@ pub(super) fn configure(
     let configured_playback = playback
         .clone()
         .unwrap_or_else(|| read("recording.playback_device_id"));
-    let configured_durability = durability.clone().unwrap_or_else(|| read("recording.durability"));
+    let configured_durability = durability
+        .clone()
+        .unwrap_or_else(|| read("recording.durability"));
     let configured = json!({
         "microphone_device_id": configured_microphone,
         "playback_device_id": configured_playback,
@@ -110,12 +112,13 @@ pub(super) fn recover(
     let session_id = args.required_option("session")?.to_lowercase();
     let session = require_session(&snapshot, &session_id)?;
     let has_tracks = !session.field("recording_track_id").unwrap_or("").is_empty()
-        || !session.field("recording_track_ids").unwrap_or("").is_empty();
+        || !session
+            .field("recording_track_ids")
+            .unwrap_or("")
+            .is_empty();
     if !has_tracks {
         let import_state = session.field("audio_import_state").unwrap_or("");
-        if !["importing", "finalizing", "interrupted", "completed"]
-            .contains(&import_state)
-        {
+        if !["importing", "finalizing", "interrupted", "completed"].contains(&import_state) {
             return Err(CoreError::new(
                 "audio_recovery_unavailable",
                 "This session has no recoverable WAV import metadata.",
@@ -124,7 +127,8 @@ pub(super) fn recover(
         }
     }
     if has_tracks {
-        let mut track_ids: Vec<String> = split_ids(session.field("recording_track_ids").unwrap_or(""));
+        let mut track_ids: Vec<String> =
+            split_ids(session.field("recording_track_ids").unwrap_or(""));
         for id in split_ids(session.field("recording_track_id").unwrap_or("")) {
             if !track_ids.contains(&id) {
                 track_ids.push(id);
@@ -145,10 +149,16 @@ pub(super) fn recover(
             };
             let device_id = metadata
                 .as_ref()
-                .and_then(|record| record.field("source_device_id").or_else(|| record.field("device_id")))
+                .and_then(|record| {
+                    record
+                        .field("source_device_id")
+                        .or_else(|| record.field("device_id"))
+                })
                 .or_else(|| session.field("recording_device_id"))
                 .unwrap_or("");
-            let sample_format = metadata.as_ref().and_then(|record| record.field("sample_format"));
+            let sample_format = metadata
+                .as_ref()
+                .and_then(|record| record.field("sample_format"));
             let sample_rate = metadata
                 .as_ref()
                 .and_then(|record| record.field("sample_rate_hz"))
@@ -164,8 +174,12 @@ pub(super) fn recover(
             let valid_format = matches!(
                 sample_format,
                 Some("pcm_s16le") | Some("pcm_s24le") | Some("pcm_s32le") | Some("pcm_f32le")
-            ) && sample_rate.map(|rate| (8_000..=384_000).contains(&rate)).unwrap_or(false)
-                && channels.map(|count| (1..=8).contains(&count)).unwrap_or(false)
+            ) && sample_rate
+                .map(|rate| (8_000..=384_000).contains(&rate))
+                .unwrap_or(false)
+                && channels
+                    .map(|count| (1..=8).contains(&count))
+                    .unwrap_or(false)
                 && channel_mask.is_some();
             if !valid_format {
                 all_completed = false;
@@ -206,16 +220,16 @@ pub(super) fn recover(
                 track_chunks += 1;
                 track_bytes = track_bytes.saturating_add(chunk.blob.len() as u64);
             }
-            let track_duration = if rate == 0 {
-                0
-            } else {
-                track_samples.saturating_mul(1_000_000) / rate
-            };
+            let track_duration = track_samples
+                .saturating_mul(1_000_000)
+                .checked_div(rate)
+                .unwrap_or_default();
             sample_count = sample_count.saturating_add(track_samples);
             chunk_count += track_chunks;
             byte_count = byte_count.saturating_add(track_bytes);
             duration_us = duration_us.max(track_duration);
-            let completed = session.field("recording_state") == Some("completed") && track_chunks > 0;
+            let completed =
+                session.field("recording_state") == Some("completed") && track_chunks > 0;
             if !completed {
                 all_completed = false;
             }
@@ -240,8 +254,17 @@ pub(super) fn recover(
             });
             if state == "failed" {
                 if let serde_json::Value::Object(map) = &mut report {
-                    map.insert("errorCode".to_owned(), serde_json::Value::String("audio_recovery_failed".to_owned()));
-                    map.insert("errorMessage".to_owned(), serde_json::Value::String("No committed native audio chunk was available for recovery.".to_owned()));
+                    map.insert(
+                        "errorCode".to_owned(),
+                        serde_json::Value::String("audio_recovery_failed".to_owned()),
+                    );
+                    map.insert(
+                        "errorMessage".to_owned(),
+                        serde_json::Value::String(
+                            "No committed native audio chunk was available for recovery."
+                                .to_owned(),
+                        ),
+                    );
                 }
             }
             tracks.push(report);
