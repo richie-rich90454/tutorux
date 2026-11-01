@@ -1,6 +1,8 @@
-use super::super::devices::{enumerate_devices as enumerate_native_devices, resolve_device};
-use super::super::model::{SynchronizedAudioDevice, APPLICATION_AUDIO_CHANNELS, APPLICATION_AUDIO_SAMPLE_RATE_HZ};
 use super::super::devices::system_audio_config;
+use super::super::devices::{enumerate_devices as enumerate_native_devices, resolve_device};
+use super::super::model::{
+    SynchronizedAudioDevice, APPLICATION_AUDIO_CHANNELS, APPLICATION_AUDIO_SAMPLE_RATE_HZ,
+};
 use cpal::traits::DeviceTrait;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -34,7 +36,11 @@ pub fn enumerate_devices() -> Result<HeadlessDevices, String> {
         devices.push(enrich(device));
     }
     for device in native.application_audio {
-        devices.push(from_native(device, Some(APPLICATION_AUDIO_SAMPLE_RATE_HZ), Some(APPLICATION_AUDIO_CHANNELS)));
+        devices.push(from_native(
+            device,
+            Some(APPLICATION_AUDIO_SAMPLE_RATE_HZ),
+            Some(APPLICATION_AUDIO_CHANNELS),
+        ));
     }
     Ok(HeadlessDevices {
         devices,
