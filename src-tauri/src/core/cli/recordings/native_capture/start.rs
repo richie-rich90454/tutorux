@@ -9,7 +9,9 @@ use crate::core::archive::new_uuid;
 use crate::core::cli::{
     cancellation, emit, CliContext, CliError, CliOutput, CliResult, ParsedArguments,
 };
-use crate::platform::synchronized_audio::headless::{enumerate_devices, HeadlessDevice, HeadlessDevices};
+use crate::platform::synchronized_audio::headless::{
+    enumerate_devices, HeadlessDevice, HeadlessDevices,
+};
 
 use super::control_files::{WorkerControl, WORKER_ID_ENV};
 use super::ffmpeg_capture::{FfmpegPlan, FfmpegTrack};
@@ -38,7 +40,7 @@ pub fn run_start(
     }
     let native = enumerate_devices().ok();
     let mut ffmpeg_devices: Option<Result<Vec<FfmpegDevice>, String>> = None;
-    let mut ffmpeg_executable = ffmpeg::resolve_executable(args.option("ffmpeg"));
+    let ffmpeg_executable = ffmpeg::resolve_executable(args.option("ffmpeg"));
     if args.options.contains_key("ffmpeg") && ffmpeg_executable.trim().is_empty() {
         return Err(CliError("--ffmpeg cannot be empty.".to_owned()).into());
     }
@@ -47,13 +49,15 @@ pub fn run_start(
         Some(select_source(
             &native,
             &mut ffmpeg_devices,
-            &mut ffmpeg_executable,
+            &ffmpeg_executable,
             "microphone",
-            options.microphone.as_deref().or(if options.needs_system || options.needs_application {
-                None
-            } else {
-                options.device.as_deref()
-            }),
+            options.microphone.as_deref().or(
+                if options.needs_system || options.needs_application {
+                    None
+                } else {
+                    options.device.as_deref()
+                },
+            ),
         )?)
     } else {
         None
@@ -62,7 +66,7 @@ pub fn run_start(
         Some(select_source(
             &native,
             &mut ffmpeg_devices,
-            &mut ffmpeg_executable,
+            &ffmpeg_executable,
             "system-audio",
             options.playback.as_deref().or(if options.needs_microphone {
                 None
@@ -74,11 +78,14 @@ pub fn run_start(
         None
     };
     let application = if options.needs_application {
-        let devices = native.as_ref().ok_or_else(|| {
-            CliError(super::super::native_probe::application_limitation())
-        })?;
-        select_application(&devices.devices, options.application.as_deref().or(options.device.as_deref()))?
-            .map(Selected::Native)
+        let devices = native
+            .as_ref()
+            .ok_or_else(|| CliError(super::super::native_probe::application_limitation()))?;
+        select_application(
+            &devices.devices,
+            options.application.as_deref().or(options.device.as_deref()),
+        )?
+        .map(Selected::Native)
     } else {
         None
     };
@@ -107,14 +114,19 @@ pub fn run_start(
             Selected::Ffmpeg(device) => {
                 if index == 2 {
                     return Err(CliError(
-                        "Per-application audio capture requires the native audio backend.".to_owned(),
+                        "Per-application audio capture requires the native audio backend."
+                            .to_owned(),
                     )
                     .into());
                 }
                 device_names[index] = device.name.clone();
                 device_ids[index] = Some(device.id.clone());
                 ffmpeg_tracks.push(FfmpegTrack {
-                    source: if index == 0 { "microphone" } else { "system-audio" },
+                    source: if index == 0 {
+                        "microphone"
+                    } else {
+                        "system-audio"
+                    },
                     device,
                 });
             }
@@ -215,10 +227,7 @@ pub fn run_start(
         }
     }
     if let Ok(mut map) = registry().lock() {
-        map.insert(
-            session_id.clone(),
-            RegistryEntry { commands },
-        );
+        map.insert(session_id.clone(), RegistryEntry { commands });
     }
     install_interrupt_handler();
     loop {
@@ -232,7 +241,11 @@ pub fn run_start(
             }
             Err(mpsc::RecvTimeoutError::Timeout) => {
                 if cancellation::is_cancelled() {
-                    if let Some(entry) = registry().lock().ok().and_then(|mut map| map.remove(&session_id)) {
+                    if let Some(entry) = registry()
+                        .lock()
+                        .ok()
+                        .and_then(|mut map| map.remove(&session_id))
+                    {
                         let (sender, receiver) = mpsc::channel();
                         let _ = entry.commands.send(CaptureCommand::Stop(sender));
                         let _ = receiver.recv_timeout(Duration::from_secs(10));
@@ -240,7 +253,11 @@ pub fn run_start(
                     return Err(CliError("Recording was cancelled.".to_owned()).into());
                 }
                 if STOP_REQUESTED.swap(false, Ordering::AcqRel) {
-                    if let Some(entry) = registry().lock().ok().and_then(|mut map| map.remove(&session_id)) {
+                    if let Some(entry) = registry()
+                        .lock()
+                        .ok()
+                        .and_then(|mut map| map.remove(&session_id))
+                    {
                         let (sender, receiver) = mpsc::channel();
                         let _ = entry.commands.send(CaptureCommand::Stop(sender));
                         let _ = receiver.recv_timeout(Duration::from_secs(10));
@@ -251,7 +268,9 @@ pub fn run_start(
                 if let Ok(mut map) = registry().lock() {
                     map.remove(&session_id);
                 }
-                return Err(CliError("The recording worker stopped unexpectedly.".to_owned()).into());
+                return Err(
+                    CliError("The recording worker stopped unexpectedly.".to_owned()).into(),
+                );
             }
         }
     }
@@ -260,7 +279,7 @@ pub fn run_start(
 fn select_source(
     native: &Option<HeadlessDevices>,
     ffmpeg_devices: &mut Option<Result<Vec<FfmpegDevice>, String>>,
-    ffmpeg_executable: &mut String,
+    ffmpeg_executable: &str,
     source: &str,
     requested: Option<&str>,
 ) -> CliResult<Selected> {
@@ -272,13 +291,17 @@ fn select_source(
     if source == "application" {
         return Err(CliError(super::super::native_probe::application_limitation()).into());
     }
-    let devices = ffmpeg_devices.get_or_insert_with(|| ffmpeg::enumerate(ffmpeg_executable.as_str()));
+    let devices = ffmpeg_devices.get_or_insert_with(|| ffmpeg::enumerate(ffmpeg_executable));
     let devices = match devices {
         Ok(devices) => devices.clone(),
         Err(error) => {
             return Err(CliError(format!(
                 "No native {} device is available and FFmpeg could not list inputs: {error}",
-                if source == "microphone" { "microphone" } else { "system-audio" }
+                if source == "microphone" {
+                    "microphone"
+                } else {
+                    "system-audio"
+                }
             ))
             .into())
         }
