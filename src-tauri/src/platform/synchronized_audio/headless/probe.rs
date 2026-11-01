@@ -8,7 +8,7 @@ use super::super::model::{PcmChunk, TrackKind, TrackSignal, APPLICATION_AUDIO_CH
 use super::device::{enumerate_devices, HeadlessDevice};
 use cpal::traits::{DeviceTrait, StreamTrait};
 use std::sync::{
-    mpsc::{self, Receiver, TryRecvError},
+    mpsc::{self, Receiver},
     Arc,
 };
 use std::thread;
@@ -45,9 +45,9 @@ pub fn probe_input(source: &str, device_id: &str) -> Result<HeadlessProbe, Strin
     let config = if source == "system-audio" {
         system_audio_config(&device)?
     } else {
-        device
-            .default_input_config()
-            .map_err(|error| format!("The selected microphone stream could not be opened: {error}"))?
+        device.default_input_config().map_err(|error| {
+            format!("The selected microphone stream could not be opened: {error}")
+        })?
     };
     validate_config(&config, source)?;
     let rate = config.sample_rate();
@@ -82,7 +82,9 @@ pub fn probe_application(device_id: &str) -> Result<HeadlessProbe, String> {
     let descriptor = devices
         .iter()
         .find(|device| device.device_id == device_id)
-        .ok_or_else(|| "The selected application-audio source is no longer available.".to_owned())?;
+        .ok_or_else(|| {
+            "The selected application-audio source is no longer available.".to_owned()
+        })?;
     let target = resolve_application_audio_target(device_id, &devices)?;
     let signal = Arc::new(TrackSignal::new());
     let (sender, receiver) = mpsc::sync_channel::<PcmChunk>(64);
@@ -136,16 +138,23 @@ fn collect_metrics(
         if let Some(error) = signal.failure_message() {
             return Err(error);
         }
-        loop {
-            match receiver.try_recv() {
-                Ok(chunk) => accumulate(&mut metrics, &chunk.pcm, chunk.sample_format, chunk.channel_count),
-                Err(TryRecvError::Empty) | Err(TryRecvError::Disconnected) => break,
-            }
+        while let Ok(chunk) = receiver.try_recv() {
+            accumulate(
+                &mut metrics,
+                &chunk.pcm,
+                chunk.sample_format,
+                chunk.channel_count,
+            );
         }
         thread::sleep(Duration::from_millis(10));
     }
     while let Ok(chunk) = receiver.try_recv() {
-        accumulate(&mut metrics, &chunk.pcm, chunk.sample_format, chunk.channel_count);
+        accumulate(
+            &mut metrics,
+            &chunk.pcm,
+            chunk.sample_format,
+            chunk.channel_count,
+        );
     }
     if let Some(error) = signal.failure_message() {
         return Err(error);
@@ -183,13 +192,19 @@ fn report(
     metrics: ProbeMetrics,
     started: Instant,
 ) -> HeadlessProbe {
-    let samples = metrics.frame_count.saturating_mul(u64::from(channel_count.max(1)));
+    let samples = metrics
+        .frame_count
+        .saturating_mul(u64::from(channel_count.max(1)));
     let rms = if samples == 0 {
         0.0
     } else {
         (metrics.sum_squares / samples as f64).sqrt()
     };
-    let dbfs = if rms > 0.0 { 20.0 * rms.log10() } else { -120.0 };
+    let dbfs = if rms > 0.0 {
+        20.0 * rms.log10()
+    } else {
+        -120.0
+    };
     HeadlessProbe {
         id: device.id,
         name: device.name,
@@ -222,7 +237,8 @@ fn sample_to_f32(sample: &[u8], format: &str) -> Option<f32> {
         "pcm_u8" => Some((f32::from(sample[0]) - 128.0) / 128.0),
         "pcm_s16le" => Some(f32::from(i16::from_le_bytes([sample[0], sample[1]])) / 32_768.0),
         "pcm_s24le" => {
-            let raw = i32::from(sample[0]) | (i32::from(sample[1]) << 8) | (i32::from(sample[2]) << 16);
+            let raw =
+                i32::from(sample[0]) | (i32::from(sample[1]) << 8) | (i32::from(sample[2]) << 16);
             let value = (raw << 8) >> 8;
             Some(value as f32 / 8_388_608.0)
         }
@@ -230,7 +246,9 @@ fn sample_to_f32(sample: &[u8], format: &str) -> Option<f32> {
             i32::from_le_bytes([sample[0], sample[1], sample[2], sample[3]]) as f32
                 / 2_147_483_648.0,
         ),
-        "pcm_f32le" => Some(f32::from_le_bytes([sample[0], sample[1], sample[2], sample[3]])),
+        "pcm_f32le" => Some(f32::from_le_bytes([
+            sample[0], sample[1], sample[2], sample[3],
+        ])),
         _ => None,
     }
 }
@@ -241,7 +259,9 @@ mod tests {
 
     #[test]
     fn decodes_supported_native_pcm_widths() {
-        assert!((sample_to_f32(&[0x00, 0x00, 0x00, 0x40], "pcm_f32le").unwrap() - 2.0).abs() < 0.001);
+        assert!(
+            (sample_to_f32(&[0x00, 0x00, 0x00, 0x40], "pcm_f32le").unwrap() - 2.0).abs() < 0.001
+        );
         assert!((sample_to_f32(&[0x00, 0x40], "pcm_s16le").unwrap() - 0.5).abs() < 0.001);
         assert!((sample_to_f32(&[0x00, 0x00, 0x40], "pcm_s24le").unwrap() - 0.5).abs() < 0.001);
         assert!((sample_to_f32(&[192], "pcm_u8").unwrap() - 0.5).abs() < 0.001);
