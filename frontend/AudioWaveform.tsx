@@ -1,7 +1,8 @@
+import { twClasses } from "./tailwind";
+import { jsxTailwindStyles } from "./AudioWaveform.tailwind";
 import { createMemo, createSignal, For, Show } from "solid-js";
 import type { AudioPreview } from "./domain/audio";
 import { Icon } from "./shared-ui";
-import "./audio-waveform.css";
 
 interface AudioWaveformProps {
     preview: AudioPreview;
@@ -47,11 +48,15 @@ export function AudioWaveform(props: AudioWaveformProps) {
     };
 
     return (
-        <div class="audio-waveform">
-            <div class="audio-waveform-visual" aria-hidden="true">
+        <div class={twClasses("audio-waveform", jsxTailwindStyles, "div")}>
+            <div
+                class={twClasses("audio-waveform-visual", jsxTailwindStyles, "div")}
+                aria-hidden="true"
+            >
                 <For each={peaks()}>
                     {(peak, index) => (
                         <span
+                            class={twClasses("", jsxTailwindStyles, "span", ["played"])}
                             classList={{
                                 played: index() / peaks().length < position() / (duration() || 1),
                             }}
@@ -61,7 +66,7 @@ export function AudioWaveform(props: AudioWaveformProps) {
                 </For>
             </div>
             <input
-                class="audio-waveform-seek"
+                class={twClasses("audio-waveform-seek", jsxTailwindStyles, "input")}
                 type="range"
                 min="0"
                 max={duration() || 0}
@@ -94,9 +99,9 @@ export function AudioWaveform(props: AudioWaveformProps) {
                     setPosition(time);
                 }}
             />
-            <div class="audio-waveform-controls">
+            <div class={twClasses("audio-waveform-controls", jsxTailwindStyles, "div")}>
                 <button
-                    class="audio-waveform-play"
+                    class={twClasses("audio-waveform-play", jsxTailwindStyles, "button")}
                     type="button"
                     aria-label={playing() ? "Pause audio preview" : "Play audio preview"}
                     onClick={() => {
@@ -112,10 +117,14 @@ export function AudioWaveform(props: AudioWaveformProps) {
                 >
                     <Icon name={playing() ? "pause" : "play"} />
                 </button>
-                <span class="audio-waveform-time">{timeLabel(position())}</span>
-                <span class="audio-waveform-time">{timeLabel(duration())}</span>
+                <span class={twClasses("audio-waveform-time", jsxTailwindStyles, "span")}>
+                    {timeLabel(position())}
+                </span>
+                <span class={twClasses("audio-waveform-time", jsxTailwindStyles, "span")}>
+                    {timeLabel(duration())}
+                </span>
                 <button
-                    class="audio-waveform-volume-toggle"
+                    class={twClasses("audio-waveform-volume-toggle", jsxTailwindStyles, "button")}
                     type="button"
                     aria-label={muted() || volume() === 0 ? "Unmute" : "Mute"}
                     aria-pressed={muted()}
@@ -132,7 +141,7 @@ export function AudioWaveform(props: AudioWaveformProps) {
                     <Icon name={muted() || volume() === 0 ? "volumeMuted" : "volume"} />
                 </button>
                 <input
-                    class="audio-waveform-volume"
+                    class={twClasses("audio-waveform-volume", jsxTailwindStyles, "input")}
                     type="range"
                     min="0"
                     max="1"
@@ -151,7 +160,7 @@ export function AudioWaveform(props: AudioWaveformProps) {
                 />
             </div>
             <audio
-                class="audio-waveform-source"
+                class={twClasses("audio-waveform-source", jsxTailwindStyles, "audio")}
                 ref={(element) => {
                     player = element;
                     element.volume = volume();
@@ -170,7 +179,7 @@ export function AudioWaveform(props: AudioWaveformProps) {
                 onError={() => setError("Audio preview could not be decoded for playback.")}
             />
             <Show when={error()}>
-                <p class="audio-waveform-error" role="alert">
+                <p class={twClasses("audio-waveform-error", jsxTailwindStyles, "p")} role="alert">
                     {error()}
                 </p>
             </Show>
