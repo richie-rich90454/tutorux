@@ -188,7 +188,7 @@ export function makeWhisperRecords(options: {
             ["origin", "local-whisper"],
             ["source_audio_track_id", options.trackId],
             ["source_model", options.modelName],
-            ["source_backend_version", "whisper.cpp CLI"],
+            ["source_backend_version", "whisper.cpp native (bundled)"],
             ["source_run_id", runId],
             ["source_window_start_us", start.toString()],
             ["language", language],
