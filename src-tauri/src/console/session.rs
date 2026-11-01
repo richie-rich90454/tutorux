@@ -6,12 +6,12 @@ use super::{
     },
     ConsoleRunResult,
 };
+use crate::core::cli::{execute_cli, Cancellation};
 use std::{
     path::Path,
     sync::atomic::{AtomicBool, Ordering},
 };
 use tauri::AppHandle;
-use crate::core::cli::{execute_cli, Cancellation};
 use zeroize::Zeroizing;
 
 /// Removes the short-lived passphrase variables even if the command unwinds.
