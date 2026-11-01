@@ -31,7 +31,7 @@ fn collect_history(
     }
     if history
         .last()
-        .and_then(|record| Some(record.previous_offset))
+        .map(|record| record.previous_offset)
         .is_some_and(|offset| offset != 0)
     {
         return Err(CliError(
@@ -216,9 +216,9 @@ pub(crate) fn export_session_package(
                order: &mut Vec<(u16, String)>,
                records: &mut BTreeMap<(u16, String), ArchiveRecord>| {
         let key = (record.record_type, record.id.to_lowercase());
-        if !records.contains_key(&key) {
-            order.push(key.clone());
-            records.insert(key, record.clone());
+        if let std::collections::btree_map::Entry::Vacant(entry) = records.entry(key) {
+            order.push(entry.key().clone());
+            entry.insert(record.clone());
         }
     };
     add(&session, &mut order, &mut records);
