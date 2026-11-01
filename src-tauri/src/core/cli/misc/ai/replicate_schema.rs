@@ -80,25 +80,25 @@ fn parse_schema(root: &Value) -> CliResult<ReplicateSchema> {
     let latest = root
         .get("latest_version")
         .and_then(Value::as_object)
-        .ok_or_else(|| invalid_schema())?;
+        .ok_or_else(invalid_schema)?;
     let version = latest
         .get("id")
         .and_then(Value::as_str)
         .filter(|value| {
             !value.is_empty() && value.len() <= 256 && !value.chars().any(char::is_control)
         })
-        .ok_or_else(|| invalid_schema())?;
+        .ok_or_else(invalid_schema)?;
     let input = latest
         .get("openapi_schema")
         .and_then(|value| value.get("components"))
         .and_then(|value| value.get("schemas"))
         .and_then(|value| value.get("Input"))
         .and_then(Value::as_object)
-        .ok_or_else(|| invalid_schema())?;
+        .ok_or_else(invalid_schema)?;
     let properties = input
         .get("properties")
         .and_then(Value::as_object)
-        .ok_or_else(|| invalid_schema())?;
+        .ok_or_else(invalid_schema)?;
     let prompt = properties
         .get("prompt")
         .and_then(Value::as_object)
@@ -130,7 +130,7 @@ fn parse_schema(root: &Value) -> CliResult<ReplicateSchema> {
             .map(|name| {
                 name.as_str()
                     .filter(|value| !value.is_empty() && value.len() <= 128)
-                    .ok_or_else(|| invalid_schema())
+                    .ok_or_else(invalid_schema)
             })
             .collect::<Result<Vec<_>, CliError>>()?,
         Some(_) => return Err(invalid_schema().into()),
