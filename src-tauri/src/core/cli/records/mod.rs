@@ -61,32 +61,37 @@ pub(crate) use sessions::*;
 pub(crate) use settings::*;
 pub(crate) use students::*;
 pub(crate) use template_custom::*;
+pub use templates::run_builtin_templates;
 pub(crate) use templates::*;
 pub(crate) use transcript_edit::*;
 pub(crate) use transcript_model::*;
 pub(crate) use transcripts::*;
-pub use templates::run_builtin_templates;
 
-pub fn run_record_command(
-    group: &str,
-    action: &str,
-    args: ParsedArguments,
-    output: &mut dyn CliOutput,
-    path: &std::path::Path,
-    context: &CliContext,
-) -> CliResult<i32> {
-    match group {
-        "student" => run_student(action, args, output, path, context),
-        "session" => run_session(action, args, output, path, context),
-        "journal" => run_journal(action, args, output, path, context),
-        "annotation" => run_annotation(action, args, output, path, context),
-        "template" => run_template(action, args, output, path, context),
-        "settings" => run_settings(action, args, output, path, context),
-        "asset" => run_asset(action, args, output, path, context),
-        "evidence" => run_evidence(action, args, output, path, context),
-        "guide" => run_guide(action, args, output, path, context),
-        "transcript" => run_transcript(action, args, output, path, context),
-        "ai" | "model" => super::misc::run_record_ai_command(group, action, args, output, path, context),
-        _ => Err(CliError(format!("{group} {action} is not implemented in the Rust CLI yet.")).into()),
-    }
-}
+pub fn run_record_command(
+    group: &str,
+    action: &str,
+    args: ParsedArguments,
+    output: &mut dyn CliOutput,
+    path: &std::path::Path,
+    context: &CliContext,
+) -> CliResult<i32> {
+    match group {
+        "student" => run_student(action, args, output, path, context),
+        "session" => run_session(action, args, output, path, context),
+        "journal" => run_journal(action, args, output, path, context),
+        "annotation" => run_annotation(action, args, output, path, context),
+        "template" => run_template(action, args, output, path, context),
+        "settings" => run_settings(action, args, output, path, context),
+        "asset" => run_asset(action, args, output, path, context),
+        "evidence" => run_evidence(action, args, output, path, context),
+        "guide" => run_guide(action, args, output, path, context),
+        "transcript" => run_transcript(action, args, output, path, context),
+        "ai" | "model" => {
+            super::misc::run_record_ai_command(group, action, args, output, path, context)
+        }
+        _ => Err(CliError(format!(
+            "{group} {action} is not implemented in the Rust CLI yet."
+        ))
+        .into()),
+    }
+}
