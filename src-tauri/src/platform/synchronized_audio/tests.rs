@@ -1,5 +1,5 @@
-use super::capture::{encode_f32, encode_i16, DiscontinuityTracker};
-use cpal::StreamInstant;
+use super::capture::{encode_f32, encode_i16, stream_error_is_fatal, DiscontinuityTracker};
+use cpal::{Error, ErrorKind, StreamInstant};
 use std::time::Duration;
 
 fn instant(milliseconds: u64) -> StreamInstant {
@@ -42,4 +42,15 @@ fn pcm_encoders_keep_every_interleaved_channel() {
     assert_eq!(stereo.len(), 8);
     assert_eq!(f32::from_le_bytes(stereo[0..4].try_into().unwrap()), 0.5);
     assert_eq!(f32::from_le_bytes(stereo[4..8].try_into().unwrap()), -0.5);
+}
+
+#[test]
+fn capture_keeps_recording_after_recoverable_xruns_and_device_changes() {
+    assert!(!stream_error_is_fatal(&Error::new(ErrorKind::Xrun)));
+    assert!(!stream_error_is_fatal(&Error::new(
+        ErrorKind::DeviceChanged
+    )));
+    assert!(stream_error_is_fatal(&Error::new(
+        ErrorKind::DeviceNotAvailable
+    )));
 }
