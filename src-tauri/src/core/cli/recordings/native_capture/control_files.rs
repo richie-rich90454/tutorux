@@ -63,33 +63,29 @@ impl WorkerStatus {
     }
 }
 
-pub(super) fn status_path(archive: &Path, session_id: &str) -> PathBuf {
-    state_directory().join(format!("{}.status.json", key(archive, session_id)))
+pub(super) fn status_path(archive: &Path, session_id: &str) -> Result<PathBuf, String> {
+    Ok(state_directory()?.join(format!("{}.status.json", key(archive, session_id))))
 }
 
-pub(super) fn command_path(archive: &Path, session_id: &str) -> PathBuf {
-    state_directory().join(format!("{}.command.json", key(archive, session_id)))
+pub(super) fn command_path(archive: &Path, session_id: &str) -> Result<PathBuf, String> {
+    Ok(state_directory()?.join(format!("{}.command.json", key(archive, session_id))))
 }
 
 pub(crate) fn read_status(archive: &Path, session_id: &str) -> Option<WorkerStatus> {
-    let bytes = std::fs::read(status_path(archive, session_id)).ok()?;
+    let bytes = std::fs::read(status_path(archive, session_id).ok()?).ok()?;
     let value: Value = serde_json::from_slice(&bytes).ok()?;
     let status = WorkerStatus::from_value(&value)?;
     (status.session_id.eq_ignore_ascii_case(session_id)).then_some(status)
 }
 
-fn write_status(
-    archive: &Path,
-    session_id: &str,
-    status: &WorkerStatus,
-) -> Result<(), String> {
-    let directory = state_directory();
+fn write_status(archive: &Path, session_id: &str, status: &WorkerStatus) -> Result<(), String> {
+    let directory = state_directory()?;
     std::fs::create_dir_all(&directory)
         .map_err(|error| format!("Could not create the recording state directory: {error}"))?;
     restrict_directory(&directory)?;
     let bytes = serde_json::to_vec_pretty(&status.to_value())
         .map_err(|error| format!("Could not encode recording worker state: {error}"))?;
-    crate::core::cli::write_file_atomically(&status_path(archive, session_id), &bytes)
+    crate::core::cli::write_file_atomically(&status_path(archive, session_id)?, &bytes)
         .map_err(|error| error.message)
 }
 
@@ -127,7 +123,9 @@ impl WorkerControl {
             last_pause: false,
             terminal: false,
         };
-        let _ = std::fs::remove_file(command_path(archive, session_id));
+        if let Ok(path) = command_path(archive, session_id) {
+            let _ = std::fs::remove_file(path);
+        }
         control.write("starting", "The detached recording worker is starting.")?;
         Ok(control)
     }
@@ -159,7 +157,10 @@ impl WorkerControl {
     }
 
     pub(super) fn poll(&mut self) -> ControlRequest {
-        let Some(bytes) = std::fs::read(command_path(&self.archive, &self.session_id)).ok() else {
+        let Some(path) = command_path(&self.archive, &self.session_id).ok() else {
+            return ControlRequest::None;
+        };
+        let Some(bytes) = std::fs::read(path).ok() else {
             return ControlRequest::None;
         };
         let Ok(value) = serde_json::from_slice::<Value>(&bytes) else {
@@ -186,8 +187,12 @@ impl WorkerControl {
         }
         let _ = self.write(state, message);
         self.terminal = true;
-        let _ = std::fs::remove_file(status_path(&self.archive, &self.session_id));
-        let _ = std::fs::remove_file(command_path(&self.archive, &self.session_id));
+        if let Ok(path) = status_path(&self.archive, &self.session_id) {
+            let _ = std::fs::remove_file(path);
+        }
+        if let Ok(path) = command_path(&self.archive, &self.session_id) {
+            let _ = std::fs::remove_file(path);
+        }
     }
 }
 
@@ -197,7 +202,7 @@ pub(crate) fn write_command(
     pause: bool,
     stop: bool,
 ) -> Result<(), String> {
-    let directory = state_directory();
+    let directory = state_directory()?;
     std::fs::create_dir_all(&directory)
         .map_err(|error| format!("Could not create the recording state directory: {error}"))?;
     restrict_directory(&directory)?;
@@ -209,52 +214,61 @@ pub(crate) fn write_command(
     });
     let bytes = serde_json::to_vec_pretty(&value)
         .map_err(|error| format!("Could not encode the recording control request: {error}"))?;
-    crate::core::cli::write_file_atomically(&command_path(archive, session_id), &bytes)
+    crate::core::cli::write_file_atomically(&command_path(archive, session_id)?, &bytes)
         .map_err(|error| error.message)
 }
 
 pub(crate) fn clear(archive: &Path, session_id: &str) {
-    let _ = std::fs::remove_file(status_path(archive, session_id));
-    let _ = std::fs::remove_file(command_path(archive, session_id));
+    if let Ok(path) = status_path(archive, session_id) {
+        let _ = std::fs::remove_file(path);
+    }
+    if let Ok(path) = command_path(archive, session_id) {
+        let _ = std::fs::remove_file(path);
+    }
 }
 
-fn state_directory() -> PathBuf {
+fn state_directory() -> Result<PathBuf, String> {
     if let Ok(value) = std::env::var("TUTORUX_STATE_DIR") {
         let trimmed = value.trim();
         if !trimmed.is_empty() {
-            return PathBuf::from(trimmed).join("recordings");
+            return Ok(PathBuf::from(trimmed).join("recordings"));
         }
     }
     #[cfg(windows)]
     {
-        if let Ok(value) = std::env::var("LOCALAPPDATA") {
-            if !value.trim().is_empty() {
-                return PathBuf::from(value).join("tutorux").join("recordings");
-            }
-        }
-        return std::env::temp_dir().join("tutorux").join("recordings");
+        let root = std::env::var_os("LOCALAPPDATA")
+            .map(PathBuf::from)
+            .or_else(|| {
+                std::env::var_os("USERPROFILE")
+                    .map(PathBuf::from)
+                    .map(|home| home.join("AppData").join("Local"))
+            })
+            .ok_or_else(|| {
+                "Could not locate the current user's local state directory.".to_owned()
+            })?;
+        return Ok(root.join("tutorux").join("recordings"));
     }
     #[cfg(unix)]
     {
         if let Ok(value) = std::env::var("XDG_STATE_HOME") {
             if !value.trim().is_empty() {
-                return PathBuf::from(value).join("tutorux").join("recordings");
+                return Ok(PathBuf::from(value).join("tutorux").join("recordings"));
             }
         }
         if let Ok(home) = std::env::var("HOME") {
             if !home.trim().is_empty() {
-                return PathBuf::from(home)
+                return Ok(PathBuf::from(home)
                     .join(".local")
                     .join("state")
                     .join("tutorux")
-                    .join("recordings");
+                    .join("recordings"));
             }
         }
-        std::env::temp_dir().join("tutorux").join("recordings")
+        Err("Could not locate the current user's local state directory.".to_owned())
     }
     #[cfg(not(any(windows, unix)))]
     {
-        std::env::temp_dir().join("tutorux").join("recordings")
+        Err("Could not locate the current user's local state directory.".to_owned())
     }
 }
 
@@ -280,10 +294,9 @@ fn restrict_directory(directory: &Path) -> Result<(), String> {
         }
         let mode = metadata.permissions().mode() & 0o777;
         if mode & 0o077 != 0 {
-            std::fs::set_permissions(directory, std::fs::Permissions::from_mode(0o700))
-                .map_err(|error| {
-                    format!("Could not secure the recording state directory: {error}")
-                })?;
+            std::fs::set_permissions(directory, std::fs::Permissions::from_mode(0o700)).map_err(
+                |error| format!("Could not secure the recording state directory: {error}"),
+            )?;
         }
     }
     #[cfg(not(unix))]
