@@ -1,6 +1,7 @@
 import { createEffect, createMemo, createSignal, For, Show, type JSX } from "solid-js";
 import { RecordType, type ArchiveRecord } from "./archive/format";
 import type { ArchiveSnapshot } from "./archive/archive";
+import { DatePicker } from "./DatePicker";
 import { GUIDE_TEMPLATES, guideDraftFromRecord, makeGuideRecord } from "./domain/guides";
 import { makeSessionRecords, makeStudentRecord } from "./domain/records";
 import {
@@ -638,11 +639,11 @@ export function JournalRelations(props: {
                     <div class="journal-relations-action journal-session-timeline-filter">
                         <label>
                             Timeline date (UTC)
-                            <input
-                                type="date"
+                            <DatePicker
+                                id="journal-session-timeline-date"
                                 value={timelineDate()}
                                 aria-label="Filter linked sessions by UTC date"
-                                onInput={(event) => setTimelineDate(event.currentTarget.value)}
+                                onChange={setTimelineDate}
                             />
                         </label>
                         <button
