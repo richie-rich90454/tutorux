@@ -3,12 +3,7 @@ use super::*;
 fn issue_text(issues: &[RegistryIssue]) -> String {
     issues
         .iter()
-        .map(|issue| {
-            format!(
-                "{} {:?}: {}",
-                issue.capability_id, issue.kind, issue.detail
-            )
-        })
+        .map(|issue| format!("{} {:?}: {}", issue.capability_id, issue.kind, issue.detail))
         .collect::<Vec<_>>()
         .join("\n")
 }
@@ -16,7 +11,11 @@ fn issue_text(issues: &[RegistryIssue]) -> String {
 #[test]
 fn registry_is_valid() {
     let issues = validate();
-    assert!(issues.is_empty(), "registry issues:\n{}", issue_text(&issues));
+    assert!(
+        issues.is_empty(),
+        "registry issues:\n{}",
+        issue_text(&issues)
+    );
 }
 
 #[test]
@@ -45,7 +44,10 @@ fn canonical_cli_mappings_are_unique() {
                 .map(|previous| format!("{key} ({previous} and {})", capability.id))
         })
         .collect();
-    assert!(duplicates.is_empty(), "duplicate CLI mappings: {duplicates:?}");
+    assert!(
+        duplicates.is_empty(),
+        "duplicate CLI mappings: {duplicates:?}"
+    );
 }
 
 #[test]
@@ -72,9 +74,11 @@ fn required_legacy_aliases_are_registered() {
     assert!(transcribe.cli_aliases.contains(&"transcript generate"));
     assert!(find("transcript.refine").is_some());
 
-    for action in ["create", "update", "list", "search", "show", "delete", "restore"] {
-        let capability = find(&format!("journal.{action}"))
-            .unwrap_or_else(|| panic!("journal {action}"));
+    for action in [
+        "create", "update", "list", "search", "show", "delete", "restore",
+    ] {
+        let capability =
+            find(&format!("journal.{action}")).unwrap_or_else(|| panic!("journal {action}"));
         let alias = format!("journal entry {action}");
         assert!(
             capability.cli_aliases.contains(&alias.as_str()),
@@ -86,10 +90,13 @@ fn required_legacy_aliases_are_registered() {
 #[test]
 fn every_capability_declares_ports_and_an_integration_test() {
     for capability in CAPABILITIES {
-        assert!(!capability.ports.is_empty(), "{} has no ports", capability.id);
         assert!(
-            capability.integration_test.contains("::")
-                || capability.integration_test.contains('#'),
+            !capability.ports.is_empty(),
+            "{} has no ports",
+            capability.id
+        );
+        assert!(
+            capability.integration_test.contains("::") || capability.integration_test.contains('#'),
             "{} has no integration test",
             capability.id
         );
@@ -109,7 +116,9 @@ fn counts_by_family_cover_the_registry() {
 fn port_index_finds_archive_capabilities() {
     let archive = capabilities_for_port(Port::Archive);
     assert!(archive.len() > 20);
-    assert!(archive.iter().any(|capability| capability.id == "archive.verify"));
+    assert!(archive
+        .iter()
+        .any(|capability| capability.id == "archive.verify"));
 }
 
 #[test]
@@ -148,4 +157,4 @@ fn validation_rejects_missing_and_duplicate_mappings() {
             issue_text(&issues)
         );
     }
-    }
+}
