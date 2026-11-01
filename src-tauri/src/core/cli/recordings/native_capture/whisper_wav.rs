@@ -19,7 +19,7 @@ pub(super) fn build_wav(
     let width = sample_width(sample_format);
     let channels = usize::from(channel_count.max(1));
     let frame_bytes = width * channels;
-    if frame_bytes == 0 || pcm.len() % frame_bytes != 0 {
+    if frame_bytes == 0 || !pcm.len().is_multiple_of(frame_bytes) {
         return Err("The live Whisper window contains incomplete PCM frames.".to_owned());
     }
     let frames = pcm.len() / frame_bytes;
@@ -37,7 +37,8 @@ pub(super) fn build_wav(
         .unwrap_or(0) as usize;
     let mut output = Vec::with_capacity(count.saturating_mul(2));
     for index in 0..count {
-        let position = (index as f64) * f64::from(sample_rate_hz.max(1)) / f64::from(TARGET_RATE_HZ);
+        let position =
+            (index as f64) * f64::from(sample_rate_hz.max(1)) / f64::from(TARGET_RATE_HZ);
         let frame = (position.floor() as usize).min(mono.len().saturating_sub(1));
         let next = (frame + 1).min(mono.len().saturating_sub(1));
         let fraction = (position - position.floor()) as f32;
@@ -61,16 +62,17 @@ fn decode_sample(sample: &[u8], format: &str) -> Result<f32, String> {
         "pcm_u8" => Ok((f32::from(sample[0]) - 128.0) / 128.0),
         "pcm_s16le" => Ok(f32::from(i16::from_le_bytes([sample[0], sample[1]])) / 32_768.0),
         "pcm_s24le" => {
-            let raw = i32::from(sample[0])
-                | (i32::from(sample[1]) << 8)
-                | (i32::from(sample[2]) << 16);
+            let raw =
+                i32::from(sample[0]) | (i32::from(sample[1]) << 8) | (i32::from(sample[2]) << 16);
             Ok(((raw << 8) >> 8) as f32 / 8_388_608.0)
         }
         "pcm_s32le" => Ok(
             i32::from_le_bytes([sample[0], sample[1], sample[2], sample[3]]) as f32
                 / 2_147_483_648.0,
         ),
-        "pcm_f32le" => Ok(f32::from_le_bytes([sample[0], sample[1], sample[2], sample[3]])),
+        "pcm_f32le" => Ok(f32::from_le_bytes([
+            sample[0], sample[1], sample[2], sample[3],
+        ])),
         _ => Err("The live Whisper window has an unsupported sample format.".to_owned()),
     }
 }
@@ -109,7 +111,10 @@ mod tests {
         let wav = write_wav_pcm(&[0, 0, 1, 0]);
         assert_eq!(&wav[..4], b"RIFF");
         assert_eq!(&wav[8..12], b"WAVE");
-        assert_eq!(u32::from_le_bytes([wav[24], wav[25], wav[26], wav[27]]), 16_000);
+        assert_eq!(
+            u32::from_le_bytes([wav[24], wav[25], wav[26], wav[27]]),
+            16_000
+        );
         assert_eq!(u16::from_le_bytes([wav[22], wav[23]]), 1);
         assert_eq!(u16::from_le_bytes([wav[34], wav[35]]), 16);
         assert_eq!(wav.len(), 48);
