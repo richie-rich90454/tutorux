@@ -1,12 +1,12 @@
 # CLI live audio recording
 
-The TypeScript CLI can capture microphone, system-loopback, and application audio into an existing session in a `.tux` archive. It prefers Tutorux's native audio helper for microphone and system audio, then falls back to FFmpeg when the helper or selected native endpoint is unavailable. Capture appends ordered audio checkpoints while recording. Stop a foreground capture with Ctrl+C; detached captures also support `record status`, `record pause`, `record resume`, and `record stop`. An optional duration limit is available. Tracks are saved at the source's native sample rate, channel count, and sample format.
+The TypeScript CLI can capture microphone, system-loopback, and application audio into an existing session in a `.tux` archive. It prefers Tutorux's native audio helper for microphone and system audio, then falls back to FFmpeg when the helper or selected native endpoint is unavailable. Capture appends ordered audio checkpoints while recording. Stop a foreground capture with Ctrl+C; detached captures also support `record status`, `record pause`, `record resume`, and `record stop`. An optional duration limit is available. Tracks are saved at the source's native sample rate, channel count, and sample format. The desktop Record workspace uses native capture inside the desktop host; it does not launch this CLI helper.
 
 `archive unlock <file.tux>` checks an encrypted archive with the passphrase named by `--passphrase-env`; the CLI verifies it for that command and does not persist an unlocked state.
 
 ## Native helper and FFmpeg fallback
 
-The desktop bundle includes Tutorux's native audio helper. For a standalone CLI, build it with `pnpm run build:audio-helper` or set `TUTORUX_AUDIO_HELPER` to its executable path. The helper uses Windows WASAPI, macOS CoreAudio, and Linux PipeWire for native microphone and system-audio capture. It preserves the selected endpoint's sample rate, channel count, and supported sample format for the archive. Whisper windows are downmixed and resampled to 16 kHz mono only for transcription.
+The standalone CLI can use Tutorux's native audio helper. Build it with `pnpm run build:audio-helper` or set `TUTORUX_AUDIO_HELPER` to its executable path. The helper uses Windows WASAPI, macOS CoreAudio, and Linux PipeWire for native microphone and system-audio capture. The desktop host has its own native capture implementation and does not need a helper executable. Both paths preserve the selected endpoint's sample rate, channel count, and supported sample format for the archive. Whisper windows are downmixed and resampled to 16 kHz mono only for transcription.
 
 Install FFmpeg for fallback microphone/system-audio capture and for playback. The CLI invokes the host's FFmpeg executable directly and does not bundle it. The default executable name is `ffmpeg`, resolved through `PATH`. Use `--ffmpeg <executable>` to select another command or executable path. The FFmpeg build must include the selected operating system's input backend.
 
@@ -71,7 +71,7 @@ pnpm run cli -- --archive Lesson.tux record recover --session <session-uuid>
 
 An optional maximum duration can be set with `--duration-seconds <seconds>` (1 second to 7 days). `record start` accepts `--json` for a machine-readable result.
 
-## Optional live local Whisper
+## Optional live local Whisper in the standalone CLI
 
 To generate provisional transcript cues as audio is checkpointed, add a local whisper.cpp executable and model and explicitly consent to processing the captured audio with them:
 
@@ -80,6 +80,6 @@ pnpm run cli -- --archive Lesson.tux record start --session <session-uuid> --con
   --live-transcribe --whisper <whisper-cli> --model <model-file> --consent-local-audio
 ```
 
-The executable and model must be regular files. The standalone Node.js CLI invokes the selected executable on bounded audio windows staged in a temporary directory, then removes the temporary files after each invocation. The desktop host instead stages each window and JSON result in uniquely named files directly under the OS temp location; its temporary files are removed after use without making a per-job directory. Tutorux does not send this recording to a cloud transcription provider; the selected executable is external software running on the host, so use an executable you trust. Cues are saved as provisional and require tutor review. If a Whisper invocation fails, reaches its time limit, or falls more than 8 MiB behind the recording, live transcription stops, recording continues, and the transcription issue is reported separately. Waiting audio windows are released; audio checkpoints continue to be saved in the archive.
+The executable and model must be regular files. The standalone Node.js CLI invokes the selected executable on bounded audio windows staged in a temporary directory, then removes the temporary files after each invocation. The desktop Record workspace instead uses the multilingual Whisper Base Q5_1 model embedded in the desktop executable. It performs live and full-track transcription in process, works offline, and keeps the model and audio windows in memory without creating transcription temp files. Neither path sends recordings to a cloud transcription provider. Cues are saved as provisional and require tutor review. If a CLI Whisper invocation fails, reaches its time limit, or falls more than 8 MiB behind the recording, live transcription stops, recording continues, and the transcription issue is reported separately. Waiting audio windows are released; audio checkpoints continue to be saved in the archive.
 
 Live transcription defaults to automatic language detection, five-second windows, and the executable's default thread count. `--language <auto|code>`, `--window-seconds <1..27>`, and `--threads <1..64>` are optional. `--diarize` passes whisper.cpp's `-tdrz` option to the selected executable; the build must support that mode. It produces only speaker-turn boundaries and does not assign tutor or student identities. Local Whisper processing requires the separate `--consent-local-audio` flag in addition to recording's `--consent`.
