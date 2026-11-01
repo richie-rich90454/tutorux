@@ -74,7 +74,7 @@ pub(super) fn build_capture_stream(
                     .sample_format()
                     .sample_size()
                     .saturating_mul(channels);
-                if bytes_per_frame == 0 || data.bytes().len() % bytes_per_frame != 0 {
+                if bytes_per_frame == 0 || !data.bytes().len().is_multiple_of(bytes_per_frame) {
                     callback_signal.fail("The audio device returned an incomplete PCM frame.");
                     return;
                 }
