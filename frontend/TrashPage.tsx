@@ -1,3 +1,5 @@
+import { twClasses } from "./tailwind";
+import { jsxTailwindStyles } from "./TrashPage.tailwind";
 import { For, Show, type JSX } from "solid-js";
 import type { ArchiveRecord } from "./archive/format";
 import { RecordType } from "./archive/format";
@@ -50,28 +52,37 @@ export function TrashPage(props: {
     };
     const total = () => trashed().length + props.noteBlocks.length;
     return (
-        <div class="page-body record-page">
-            <section class="record-heading">
-                <div>
-                    <span class="eyebrow">Recoverable archive items</span>
-                    <h1>Trash</h1>
-                    <p>
+        <div class={twClasses("page-body record-page", jsxTailwindStyles, "div")}>
+            <section class={twClasses("record-heading", jsxTailwindStyles, "section")}>
+                <div class={twClasses("", jsxTailwindStyles, "div")}>
+                    <span class={twClasses("eyebrow", jsxTailwindStyles, "span")}>
+                        Recoverable archive items
+                    </span>
+                    <h1 class={twClasses("", jsxTailwindStyles, "h1")}>Trash</h1>
+                    <p class={twClasses("", jsxTailwindStyles, "p")}>
                         Restore a session or journal entry with its linked records, or bring back an
                         individual item.
                     </p>
                 </div>
             </section>
-            <section class="record-list-shell">
-                <div class="record-list-toolbar">
-                    <span>
-                        <strong>{total()}</strong> recoverable groups and items
+            <section class={twClasses("record-list-shell", jsxTailwindStyles, "section")}>
+                <div class={twClasses("record-list-toolbar", jsxTailwindStyles, "div")}>
+                    <span class={twClasses("", jsxTailwindStyles, "span")}>
+                        <strong class={twClasses("", jsxTailwindStyles, "strong")}>
+                            {total()}
+                        </strong>{" "}
+                        recoverable groups and items
                     </span>
-                    <span class="list-view-label">
+                    <span class={twClasses("list-view-label", jsxTailwindStyles, "span")}>
                         <Icon name="shield" />
                         Recoverable
                     </span>
                     <button
-                        class="button button-danger trash-purge-start"
+                        class={twClasses(
+                            "button button-danger trash-purge-start",
+                            jsxTailwindStyles,
+                            "button",
+                        )}
                         type="button"
                         disabled={props.disabled}
                         onClick={() => props.onBeginPurge()}
@@ -82,13 +93,17 @@ export function TrashPage(props: {
                 <Show when={props.pendingPurge}>
                     {(review) => (
                         <section
-                            class="trash-purge-review"
+                            class={twClasses("trash-purge-review", jsxTailwindStyles, "section")}
                             aria-label="Permanent Trash purge review"
                         >
-                            <div>
-                                <span class="eyebrow">Permanent action</span>
-                                <h2>Review permanent purge</h2>
-                                <p>
+                            <div class={twClasses("", jsxTailwindStyles, "div")}>
+                                <span class={twClasses("eyebrow", jsxTailwindStyles, "span")}>
+                                    Permanent action
+                                </span>
+                                <h2 class={twClasses("", jsxTailwindStyles, "h2")}>
+                                    Review permanent purge
+                                </h2>
+                                <p class={twClasses("", jsxTailwindStyles, "p")}>
                                     This removes {review().plan.deletedRecords.toLocaleString()}{" "}
                                     trashed archive records and their saved revisions from the
                                     workspace. Material content is preserved. It cannot be undone
@@ -96,18 +111,41 @@ export function TrashPage(props: {
                                 </p>
                             </div>
                             <Show when={review().plan.blockers.length > 0}>
-                                <div class="trash-purge-blockers" role="alert">
-                                    <strong>Active links block this purge.</strong>
-                                    <p>
+                                <div
+                                    class={twClasses(
+                                        "trash-purge-blockers",
+                                        jsxTailwindStyles,
+                                        "div",
+                                    )}
+                                    role="alert"
+                                >
+                                    <strong class={twClasses("", jsxTailwindStyles, "strong")}>
+                                        Active links block this purge.
+                                    </strong>
+                                    <p class={twClasses("", jsxTailwindStyles, "p")}>
                                         Restore these items or remove the active links before
                                         purging Trash.
                                     </p>
-                                    <ul>
+                                    <ul class={twClasses("", jsxTailwindStyles, "ul")}>
                                         <For each={review().plan.blockers}>
                                             {(blocker) => (
-                                                <li>
-                                                    <strong>{blocker.label}</strong>
-                                                    <span>
+                                                <li class={twClasses("", jsxTailwindStyles, "li")}>
+                                                    <strong
+                                                        class={twClasses(
+                                                            "",
+                                                            jsxTailwindStyles,
+                                                            "strong",
+                                                        )}
+                                                    >
+                                                        {blocker.label}
+                                                    </strong>
+                                                    <span
+                                                        class={twClasses(
+                                                            "",
+                                                            jsxTailwindStyles,
+                                                            "span",
+                                                        )}
+                                                    >
                                                         {blocker.recordType} {blocker.recordId} is
                                                         linked from{" "}
                                                         {blocker.references
@@ -125,15 +163,26 @@ export function TrashPage(props: {
                                 </div>
                             </Show>
                             <Show when={review().plan.opaqueRecords > 0}>
-                                <p class="trash-purge-blockers" role="alert">
+                                <p
+                                    class={twClasses(
+                                        "trash-purge-blockers",
+                                        jsxTailwindStyles,
+                                        "p",
+                                    )}
+                                    role="alert"
+                                >
                                     {review().plan.opaqueRecords} record(s) from a newer archive
                                     version cannot be checked for active links. Open the archive in
                                     a compatible version before purging Trash.
                                 </p>
                             </Show>
-                            <div class="trash-purge-actions">
+                            <div class={twClasses("trash-purge-actions", jsxTailwindStyles, "div")}>
                                 <button
-                                    class="button button-outline"
+                                    class={twClasses(
+                                        "button button-outline",
+                                        jsxTailwindStyles,
+                                        "button",
+                                    )}
                                     type="button"
                                     disabled={props.disabled}
                                     onClick={props.onCancelPurge}
@@ -141,7 +190,11 @@ export function TrashPage(props: {
                                     Cancel
                                 </button>
                                 <button
-                                    class="button button-danger"
+                                    class={twClasses(
+                                        "button button-danger",
+                                        jsxTailwindStyles,
+                                        "button",
+                                    )}
                                     type="button"
                                     disabled={
                                         props.disabled ||
@@ -172,17 +225,42 @@ export function TrashPage(props: {
                     }
                 >
                     <Show when={props.noteBlocks.length > 0}>
-                        <div class="record-list" aria-label="Removed note blocks">
+                        <div
+                            class={twClasses("record-list", jsxTailwindStyles, "div")}
+                            aria-label="Removed note blocks"
+                        >
                             <For each={props.noteBlocks}>
                                 {(block) => (
-                                    <article class="library-record-card trash-record">
-                                        <span class="library-icon">
+                                    <article
+                                        class={twClasses(
+                                            "library-record-card trash-record",
+                                            jsxTailwindStyles,
+                                            "article",
+                                        )}
+                                    >
+                                        <span
+                                            class={twClasses(
+                                                "library-icon",
+                                                jsxTailwindStyles,
+                                                "span",
+                                            )}
+                                        >
                                             <Icon name="journal" />
                                         </span>
-                                        <div>
-                                            <span class="eyebrow">Removed note block</span>
-                                            <h2>{block.text || "Empty note block"}</h2>
-                                            <p>
+                                        <div class={twClasses("", jsxTailwindStyles, "div")}>
+                                            <span
+                                                class={twClasses(
+                                                    "eyebrow",
+                                                    jsxTailwindStyles,
+                                                    "span",
+                                                )}
+                                            >
+                                                Removed note block
+                                            </span>
+                                            <h2 class={twClasses("", jsxTailwindStyles, "h2")}>
+                                                {block.text || "Empty note block"}
+                                            </h2>
+                                            <p class={twClasses("", jsxTailwindStyles, "p")}>
                                                 {block.kind} block removed from{" "}
                                                 {block.sessionId
                                                     ? "session notes"
@@ -190,7 +268,11 @@ export function TrashPage(props: {
                                             </p>
                                         </div>
                                         <button
-                                            class="button button-outline record-action"
+                                            class={twClasses(
+                                                "button button-outline record-action",
+                                                jsxTailwindStyles,
+                                                "button",
+                                            )}
                                             type="button"
                                             disabled={props.disabled}
                                             onClick={() => props.onRestoreNoteBlock(block)}
@@ -202,7 +284,7 @@ export function TrashPage(props: {
                             </For>
                         </div>
                     </Show>
-                    <div class="record-list">
+                    <div class={twClasses("record-list", jsxTailwindStyles, "div")}>
                         <For each={trashed()}>
                             {(record) => {
                                 const journalEntry =
@@ -210,8 +292,20 @@ export function TrashPage(props: {
                                     field(record, "record_role") === "journal-entry";
                                 const evidenceEdge = record.type === RecordType.evidenceEdge;
                                 return (
-                                    <article class="library-record-card trash-record">
-                                        <span class="library-icon">
+                                    <article
+                                        class={twClasses(
+                                            "library-record-card trash-record",
+                                            jsxTailwindStyles,
+                                            "article",
+                                        )}
+                                    >
+                                        <span
+                                            class={twClasses(
+                                                "library-icon",
+                                                jsxTailwindStyles,
+                                                "span",
+                                            )}
+                                        >
                                             <Icon
                                                 name={
                                                     journalEntry
@@ -231,8 +325,14 @@ export function TrashPage(props: {
                                                 }
                                             />
                                         </span>
-                                        <div>
-                                            <span class="eyebrow">
+                                        <div class={twClasses("", jsxTailwindStyles, "div")}>
+                                            <span
+                                                class={twClasses(
+                                                    "eyebrow",
+                                                    jsxTailwindStyles,
+                                                    "span",
+                                                )}
+                                            >
                                                 {journalEntry
                                                     ? "JOURNAL ENTRY GROUP"
                                                     : record.type === RecordType.session
@@ -247,7 +347,7 @@ export function TrashPage(props: {
                                                               ? "EVIDENCE RELATIONSHIP"
                                                               : "STUDENT PROFILE"}
                                             </span>
-                                            <h2>
+                                            <h2 class={twClasses("", jsxTailwindStyles, "h2")}>
                                                 {journalEntry
                                                     ? field(record, "title", "Untitled entry")
                                                     : record.type === RecordType.session
@@ -280,7 +380,7 @@ export function TrashPage(props: {
                                                                     "Unnamed student",
                                                                 )}
                                             </h2>
-                                            <p>
+                                            <p class={twClasses("", jsxTailwindStyles, "p")}>
                                                 {journalEntry
                                                     ? "Journal reflection"
                                                     : record.type === RecordType.session
@@ -304,20 +404,36 @@ export function TrashPage(props: {
                                                     : " · Deletion date unavailable"}
                                             </p>
                                             <Show when={record.type === RecordType.session}>
-                                                <span class="session-trash-detail">
+                                                <span
+                                                    class={twClasses(
+                                                        "session-trash-detail",
+                                                        jsxTailwindStyles,
+                                                        "span",
+                                                    )}
+                                                >
                                                     Notes, recordings, transcripts, observations,
                                                     materials, guides, and evidence restore
                                                     together; journal links reconnect automatically.
                                                 </span>
                                             </Show>
                                             <Show when={journalEntry}>
-                                                <span class="session-trash-detail">
+                                                <span
+                                                    class={twClasses(
+                                                        "session-trash-detail",
+                                                        jsxTailwindStyles,
+                                                        "span",
+                                                    )}
+                                                >
                                                     The entry and its linked notes restore together.
                                                 </span>
                                             </Show>
                                         </div>
                                         <button
-                                            class="button button-outline record-action"
+                                            class={twClasses(
+                                                "button button-outline record-action",
+                                                jsxTailwindStyles,
+                                                "button",
+                                            )}
                                             type="button"
                                             disabled={props.disabled}
                                             onClick={() =>
