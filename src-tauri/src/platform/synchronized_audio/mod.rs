@@ -24,9 +24,9 @@ mod tests;
 #[allow(unused_imports)]
 pub use model::SynchronizedAudioDevice;
 pub use model::{SynchronizedAudioDevices, SynchronizedAudioFinished, SynchronizedAudioStarted};
+pub use probe::inspect_application_audio_endpoints;
 #[allow(unused_imports)]
 pub use probe::ApplicationAudioProbeSummary;
-pub use probe::inspect_application_audio_endpoints;
 pub use session::SynchronizedAudioCaptureState;
 
 pub(super) use devices::resolve_device;
@@ -41,6 +41,10 @@ pub fn list_synchronized_audio_devices(
 }
 
 #[tauri::command]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Tauri provides command inputs and injected window/state handles as individual parameters."
+)]
 pub fn begin_synchronized_audio_capture(
     window: WebviewWindow,
     state: State<'_, SynchronizedAudioCaptureState>,
