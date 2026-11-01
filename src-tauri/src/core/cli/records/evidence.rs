@@ -112,7 +112,10 @@ pub(crate) fn run_evidence(
                     .retain(|record| record.field("verification_state") != Some("human-verified"));
             }
             let count = records.len();
-            if args.json() { output.stdout(&super::ordered_json::records_json(&records)); return Ok(0); }
+            if args.json() {
+                output.stdout(&super::ordered_json::records_json(&records));
+                return Ok(0);
+            }
             emit(
                 output,
                 plain_array(&records),
