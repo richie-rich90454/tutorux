@@ -51,7 +51,11 @@ pub(super) fn status(
         clear_control_files(path, &session_id);
         if matches!(
             session.field("recording_state"),
-            Some("starting") | Some("initializing") | Some("recording") | Some("paused") | Some("finalizing")
+            Some("starting")
+                | Some("initializing")
+                | Some("recording")
+                | Some("paused")
+                | Some("finalizing")
         ) {
             expire(path, &snapshot, &session_id)?;
             let message = "The detached recording worker exited unexpectedly; committed audio chunks can be recovered.";
@@ -137,9 +141,7 @@ pub(super) fn action(
             }
             write_worker_command(path, &session_id, false, true).map_err(CliError)?;
         }
-        _ => {
-            return Err(CliError(format!("Unknown recording control action: {action}.")).into())
-        }
+        _ => return Err(CliError(format!("Unknown recording control action: {action}.")).into()),
     }
     let expected = match action {
         "pause" => Some("paused"),
@@ -211,7 +213,11 @@ fn expire(path: &Path, snapshot: &ArchiveSnapshot, session_id: &str) -> CliResul
     };
     if !matches!(
         session.field("recording_state"),
-        Some("starting") | Some("initializing") | Some("recording") | Some("paused") | Some("finalizing")
+        Some("starting")
+            | Some("initializing")
+            | Some("recording")
+            | Some("paused")
+            | Some("finalizing")
     ) {
         return Ok(());
     }
