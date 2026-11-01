@@ -385,7 +385,7 @@ export function DocumentEditor(props: {
         );
         if (blocks) publish(blocks);
         const selected = matchIndex();
-        queueMicrotask(() => selectMatch(selected));
+        queueMicrotask(() => untrack(() => selectMatch(selected)));
     }
     function replaceAll(): void {
         const needle = query();
