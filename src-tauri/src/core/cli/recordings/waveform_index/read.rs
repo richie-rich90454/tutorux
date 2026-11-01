@@ -44,7 +44,8 @@ pub(super) fn read(record: &ArchiveRecord) -> CliResult<Vec<Vec<Bucket>>> {
         }
         let mut buckets = Vec::with_capacity(count);
         for _ in 0..count {
-            let start_frame = u64::from_le_bytes(record.blob[offset..offset + 8].try_into().unwrap());
+            let start_frame =
+                u64::from_le_bytes(record.blob[offset..offset + 8].try_into().unwrap());
             let end_frame =
                 u64::from_le_bytes(record.blob[offset + 8..offset + 16].try_into().unwrap());
             let minimum = i16::from_le_bytes([record.blob[offset + 16], record.blob[offset + 17]]);
@@ -137,4 +138,3 @@ pub(super) fn is_current(record: &ArchiveRecord, chunks: &[ArchiveRecord]) -> bo
     hex::encode(crate::core::archive::sha256(signature.as_bytes()))
         == record.field("source_fingerprint").unwrap_or("")
 }
-
