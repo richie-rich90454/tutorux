@@ -48,7 +48,7 @@ pub(crate) fn run() -> Result<(), String> {
                 let device = application_devices()?
                     .into_iter()
                     .find(|device| device.id == id)
-                    .ok_or_else(|| application_probe_unavailable_reason())?;
+                    .ok_or_else(application_probe_unavailable_reason)?;
                 return probe_application_audio(&device);
             }
             let source = arguments.next();
@@ -102,7 +102,10 @@ pub(crate) fn run() -> Result<(), String> {
     }
 }
 
-pub(crate) fn capture_source<'a>(source: Option<&'a str>, command: &str) -> Result<&'a str, String> {
+pub(crate) fn capture_source<'a>(
+    source: Option<&'a str>,
+    command: &str,
+) -> Result<&'a str, String> {
     match source {
         Some(value @ ("microphone" | "system-audio")) => Ok(value),
         _ => Err(format!(
