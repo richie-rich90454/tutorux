@@ -79,9 +79,7 @@ fn inline_sources(text: &str) -> Option<(Vec<String>, bool)> {
     while let Some(start) = lower[cursor..].find("[[source:") {
         let start = cursor + start;
         let id_start = start + "[[source:".len();
-        let Some(id_end) = id_start.checked_add(36) else {
-            return None;
-        };
+        let id_end = id_start.checked_add(36)?;
         if id_end + 2 > lower.len() || &lower[id_end..id_end + 2] != "]]" {
             return None;
         }
