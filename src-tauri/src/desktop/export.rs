@@ -1,3 +1,4 @@
+use super::identity::move_file_without_replacing;
 use std::{
     fs::{self, OpenOptions},
     io::Write,
@@ -58,9 +59,16 @@ pub(crate) fn write_export_file(path: String, contents: String) -> Result<(), St
             return Err(format!("Could not preserve the existing export: {error}"));
         }
     }
-    if let Err(error) = fs::rename(&temporary, &target) {
+    if let Err(error) = move_file_without_replacing(&temporary, &target) {
         if had_target {
-            let _ = fs::rename(&backup, &target);
+            if let Err(restore_error) = move_file_without_replacing(&backup, &target) {
+                let _ = fs::remove_file(&temporary);
+                return Err(format!(
+                    "Could not publish transcript export: {error}. The previous export remains at {} because it could not be safely restored: {restore_error}",
+                    backup.display()
+                ));
+            }
+            let _ = fs::remove_file(&backup);
         }
         let _ = fs::remove_file(&temporary);
         return Err(format!("Could not publish transcript export: {error}"));
@@ -68,6 +76,7 @@ pub(crate) fn write_export_file(path: String, contents: String) -> Result<(), St
     if had_target {
         let _ = fs::remove_file(backup);
     }
+    let _ = fs::remove_file(&temporary);
     Ok(())
 }
 
@@ -87,6 +96,24 @@ mod tests {
         assert_eq!(
             std::fs::read_to_string(&target).expect("read export"),
             "<p>guide</p>"
+        );
+    }
+
+    #[test]
+    fn export_replaces_an_existing_file_through_a_staged_copy() {
+        let root = tempfile::tempdir().expect("temp dir");
+        let target = root.path().join("guide.html");
+        std::fs::write(&target, "old export").expect("write existing export");
+
+        write_export_file(
+            target.to_string_lossy().into_owned(),
+            "<p>updated guide</p>".to_owned(),
+        )
+        .expect("replace export");
+
+        assert_eq!(
+            std::fs::read_to_string(&target).expect("read updated export"),
+            "<p>updated guide</p>"
         );
     }
 }
