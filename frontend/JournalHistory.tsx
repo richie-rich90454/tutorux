@@ -1,8 +1,9 @@
+import { twClasses } from "./tailwind";
+import { jsxTailwindStyles } from "./JournalHistory.tailwind";
 import { createSignal, For, Show, type JSX } from "solid-js";
 import type { ArchiveSnapshot } from "./archive/archive";
 import { RecordType, type ArchiveRecord } from "./archive/format";
 import { notesEditState } from "./domain/records";
-import "./journal-history.css";
 
 const field = (record: ArchiveRecord, key: string) => record.fields.get(key) ?? "";
 function date(value: string): string {
@@ -116,45 +117,67 @@ export function JournalHistory(props: {
         }
     }
     return (
-        <section class="journal-history">
+        <section class={twClasses("journal-history", jsxTailwindStyles, "section")}>
             <button
                 type="button"
-                class="button button-quiet record-action"
+                class={twClasses("button button-quiet record-action", jsxTailwindStyles, "button")}
                 aria-expanded={open()}
                 onClick={() => void toggle()}
             >
                 {open() ? "Hide history" : "View history"}
             </button>
             <Show when={open()}>
-                <div class="journal-history-content">
+                <div class={twClasses("journal-history-content", jsxTailwindStyles, "div")}>
                     <Show when={loading()}>
-                        <p>Loading versions…</p>
+                        <p class={twClasses("", jsxTailwindStyles, "p")}>Loading versions…</p>
                     </Show>
                     <Show when={error()}>
-                        <p role="alert">{error()}</p>
+                        <p role="alert" class={twClasses("", jsxTailwindStyles, "p")}>
+                            {error()}
+                        </p>
                     </Show>
                     <Show when={!loading()}>
-                        <h3>Entry details</h3>
-                        <p>Restoring details changes the title and date and keeps current links.</p>
+                        <h3 class={twClasses("", jsxTailwindStyles, "h3")}>Entry details</h3>
+                        <p class={twClasses("", jsxTailwindStyles, "p")}>
+                            Restoring details changes the title and date and keeps current links.
+                        </p>
                         <Show
                             when={entries().length > 1}
-                            fallback={<p>No earlier entry versions.</p>}
+                            fallback={
+                                <p class={twClasses("", jsxTailwindStyles, "p")}>
+                                    No earlier entry versions.
+                                </p>
+                            }
                         >
                             <For each={entries().slice(1)}>
                                 {(revision) => (
-                                    <article class="journal-history-version">
-                                        <div>
-                                            <strong>
+                                    <article
+                                        class={twClasses(
+                                            "journal-history-version",
+                                            jsxTailwindStyles,
+                                            "article",
+                                        )}
+                                    >
+                                        <div class={twClasses("", jsxTailwindStyles, "div")}>
+                                            <strong
+                                                class={twClasses("", jsxTailwindStyles, "strong")}
+                                            >
                                                 {field(revision, "title") || "Untitled entry"}
                                             </strong>
-                                            <small>
+                                            <small
+                                                class={twClasses("", jsxTailwindStyles, "small")}
+                                            >
                                                 {field(revision, "entry_date")} ·{" "}
                                                 {date(field(revision, "updated_at_us"))}
                                             </small>
                                         </div>
                                         <button
                                             type="button"
-                                            class="button button-outline record-action"
+                                            class={twClasses(
+                                                "button button-outline record-action",
+                                                jsxTailwindStyles,
+                                                "button",
+                                            )}
                                             disabled={
                                                 props.disabled ||
                                                 field(revision, "_deleted") === "true"
@@ -167,10 +190,14 @@ export function JournalHistory(props: {
                                 )}
                             </For>
                         </Show>
-                        <h3>Notes</h3>
+                        <h3 class={twClasses("", jsxTailwindStyles, "h3")}>Notes</h3>
                         <Show
                             when={notes().length > 1}
-                            fallback={<p>No earlier notes versions.</p>}
+                            fallback={
+                                <p class={twClasses("", jsxTailwindStyles, "p")}>
+                                    No earlier notes versions.
+                                </p>
+                            }
                         >
                             <For each={notes().slice(1)}>
                                 {(revision) => {
@@ -179,15 +206,33 @@ export function JournalHistory(props: {
                                         sessionId: "",
                                     });
                                     return (
-                                        <article class="journal-history-version">
-                                            <div>
-                                                <strong>
+                                        <article
+                                            class={twClasses(
+                                                "journal-history-version",
+                                                jsxTailwindStyles,
+                                                "article",
+                                            )}
+                                        >
+                                            <div class={twClasses("", jsxTailwindStyles, "div")}>
+                                                <strong
+                                                    class={twClasses(
+                                                        "",
+                                                        jsxTailwindStyles,
+                                                        "strong",
+                                                    )}
+                                                >
                                                     Version {revision.revision.toString()}
                                                 </strong>
-                                                <small>
+                                                <small
+                                                    class={twClasses(
+                                                        "",
+                                                        jsxTailwindStyles,
+                                                        "small",
+                                                    )}
+                                                >
                                                     {date(field(revision, "updated_at_us"))}
                                                 </small>
-                                                <p>
+                                                <p class={twClasses("", jsxTailwindStyles, "p")}>
                                                     {state.editable
                                                         ? state.blocks
                                                               .map((block) => block.text)
@@ -197,7 +242,11 @@ export function JournalHistory(props: {
                                             </div>
                                             <button
                                                 type="button"
-                                                class="button button-outline record-action"
+                                                class={twClasses(
+                                                    "button button-outline record-action",
+                                                    jsxTailwindStyles,
+                                                    "button",
+                                                )}
                                                 disabled={
                                                     props.disabled ||
                                                     field(revision, "_deleted") === "true"
