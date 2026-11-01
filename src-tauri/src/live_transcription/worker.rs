@@ -1,3 +1,8 @@
+use super::{
+    resampler::Resampler,
+    session::{is_terminal, LiveWhisperHandle, LiveWhisperOptions, SharedOutput, WorkerMessage},
+    window::WindowProcessor,
+};
 use std::{
     sync::{
         atomic::{AtomicBool, Ordering},
@@ -5,13 +10,6 @@ use std::{
         Arc, Mutex,
     },
     thread,
-};
-use whisper_rs::{WhisperContext, WhisperContextParameters};
-
-use super::{
-    resampler::Resampler,
-    session::{is_terminal, LiveWhisperHandle, LiveWhisperOptions, SharedOutput, WorkerMessage},
-    window::WindowProcessor,
 };
 
 fn set_terminal(shared: &Mutex<SharedOutput>, status: &str, error: Option<String>) {
@@ -31,7 +29,6 @@ pub(super) fn start_worker(
     ready: mpsc::Sender<Result<(), String>>,
     handle: &LiveWhisperHandle,
 ) {
-    let model_path = options.model_path.clone();
     let model_name = options.model_name.clone();
     let thread_shared = Arc::clone(&shared);
     let thread_cancelled = Arc::clone(&cancelled);
@@ -39,10 +36,9 @@ pub(super) fn start_worker(
     let spawn_result = thread::Builder::new()
         .name("tutorux-live-whisper".to_owned())
         .spawn(move || {
-            let context = match WhisperContext::new_with_params(&model_path, WhisperContextParameters::default()) {
+            let context = match crate::transcription::embedded_whisper_context() {
                 Ok(context) => context,
-                Err(error) => {
-                    let message = format!("Could not load the selected Whisper model: {error:?}");
+                Err(message) => {
                     set_terminal(&thread_shared, "failed", Some(message.clone()));
                     let _ = worker_ready.send(Err(message));
                     return;
@@ -137,7 +133,7 @@ pub(super) fn start_worker(
                             }
                         };
                         if let Err(error) = windows.consume(
-                            &context,
+                            context,
                             &mut state,
                             &options,
                             &model_name,
@@ -156,7 +152,7 @@ pub(super) fn start_worker(
                     WorkerMessage::Finish(reply) => {
                         if !thread_cancelled.load(Ordering::Acquire) {
                             if let Err(error) = windows.finish(
-                                &context,
+                                context,
                                 &mut state,
                                 &options,
                                 &model_name,
