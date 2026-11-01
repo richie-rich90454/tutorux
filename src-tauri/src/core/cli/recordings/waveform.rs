@@ -19,7 +19,10 @@ fn each_sample(bytes: &[u8], sample_format: &str, mut visit: impl FnMut(i64)) {
         }
         "pcm_s24le" => {
             for chunk in bytes.chunks_exact(3) {
-                let raw = (i32::from(chunk[0]) | (i32::from(chunk[1]) << 8) | (i32::from(chunk[2]) << 16)) << 8;
+                let raw = (i32::from(chunk[0])
+                    | (i32::from(chunk[1]) << 8)
+                    | (i32::from(chunk[2]) << 16))
+                    << 8;
                 visit(i64::from(raw >> 8));
             }
         }
@@ -71,7 +74,11 @@ pub(super) fn record_waveform(
         });
         total += count;
     }
-    let bucket_size = if total == 0 { 1 } else { total.div_ceil(buckets) };
+    let bucket_size = if total == 0 {
+        1
+    } else {
+        total.div_ceil(buckets)
+    };
     let mut rows = Vec::new();
     let mut index = 0usize;
     let mut bucket = 0usize;
@@ -94,6 +101,11 @@ pub(super) fn record_waveform(
         index = end;
         bucket += 1;
     }
-    emit(output, Value::Array(rows), "Recording waveform generated.", args.json());
+    emit(
+        output,
+        Value::Array(rows),
+        "Recording waveform generated.",
+        args.json(),
+    );
     Ok(0)
 }
