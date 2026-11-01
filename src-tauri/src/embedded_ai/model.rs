@@ -311,8 +311,8 @@ fn scalar_size(value_type: u32) -> Result<u32, String> {
     match value_type {
         0 | 1 | 7 => Ok(1),
         2 | 3 => Ok(2),
-        4 | 5 | 6 => Ok(4),
-        10 | 11 | 12 => Ok(8),
+        4..=6 => Ok(4),
+        10..=12 => Ok(8),
         _ => Err("The GGUF metadata contains an unsupported value type.".to_owned()),
     }
 }
