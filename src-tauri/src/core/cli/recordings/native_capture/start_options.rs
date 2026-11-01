@@ -1,6 +1,8 @@
 use crate::core::cli::{CliContext, CliError, CliResult, ParsedArguments};
 
-use super::{open_ready, require_session, WhisperRequest, DEFAULT_DURATION_SECONDS, MAX_DURATION_SECONDS};
+use super::{
+    open_ready, require_session, WhisperRequest, DEFAULT_DURATION_SECONDS, MAX_DURATION_SECONDS,
+};
 
 pub(super) struct StartOptions {
     pub(super) session_id: String,
@@ -24,10 +26,15 @@ pub(super) fn parse(
     context: &CliContext,
 ) -> CliResult<StartOptions> {
     if !args.positionals.is_empty() {
-        return Err(CliError("record start does not accept positional arguments.".to_owned()).into());
+        return Err(
+            CliError("record start does not accept positional arguments.".to_owned()).into(),
+        );
     }
     if !args.flags.contains("consent") {
-        return Err(CliError("Recording requires explicit confirmation with --consent.".to_owned()).into());
+        return Err(CliError(
+            "Recording requires explicit confirmation with --consent.".to_owned(),
+        )
+        .into());
     }
     for name in [
         "source",
@@ -50,7 +57,9 @@ pub(super) fn parse(
         }
     }
     if args.options.contains_key("system-audio") {
-        return Err(CliError("--system-audio is a flag and does not accept a value.".to_owned()).into());
+        return Err(
+            CliError("--system-audio is a flag and does not accept a value.".to_owned()).into(),
+        );
     }
     if args.options.contains_key("input-format") {
         return Err(CliError(
@@ -66,14 +75,26 @@ pub(super) fn parse(
         } else {
             "microphone"
         });
-    if !["microphone", "system-audio", "loopback", "both", "application"].contains(&source) {
+    if ![
+        "microphone",
+        "system-audio",
+        "loopback",
+        "both",
+        "application",
+    ]
+    .contains(&source)
+    {
         return Err(CliError(
             "Recording source must be 'microphone', 'system-audio', 'application', or 'both'."
                 .to_owned(),
         )
         .into());
     }
-    let source = if source == "loopback" { "system-audio" } else { source };
+    let source = if source == "loopback" {
+        "system-audio"
+    } else {
+        source
+    };
     let device = args.option("device").map(str::to_owned);
     let microphone_request = args.option("microphone").map(str::to_owned);
     let playback_request = args.option("playback").map(str::to_owned);
@@ -118,7 +139,11 @@ pub(super) fn parse(
                 )
                 .into());
             }
-            (true, application_request.is_none(), application_request.is_some())
+            (
+                true,
+                application_request.is_none(),
+                application_request.is_some(),
+            )
         }
         "microphone" => {
             if application_request.is_some() {
@@ -190,9 +215,13 @@ pub(super) fn parse(
         let language = args.option("language").unwrap_or("auto").to_owned();
         if language.is_empty()
             || language.len() > 16
-            || !language.bytes().all(|byte| byte.is_ascii_alphabetic() || byte == b'-')
+            || !language
+                .bytes()
+                .all(|byte| byte.is_ascii_alphabetic() || byte == b'-')
         {
-            return Err(CliError("Enter a valid Whisper language code, or auto.".to_owned()).into());
+            return Err(
+                CliError("Enter a valid Whisper language code, or auto.".to_owned()).into(),
+            );
         }
         let window_seconds = match args.option("window-seconds") {
             Some(value) => value
@@ -236,7 +265,11 @@ pub(super) fn parse(
             })?,
         None => DEFAULT_DURATION_SECONDS,
     };
-    let confirmed_by = args.option("confirmed-by").unwrap_or("CLI user").trim().to_owned();
+    let confirmed_by = args
+        .option("confirmed-by")
+        .unwrap_or("CLI user")
+        .trim()
+        .to_owned();
     if confirmed_by.is_empty()
         || confirmed_by.len() > 256
         || confirmed_by.contains(['\r', '\n', '\0'])
@@ -247,10 +280,8 @@ pub(super) fn parse(
         )
         .into());
     }
-    let session_id = crate::core::cli::validate_uuid(
-        args.required_option("session")?,
-        "--session",
-    )?;
+    let session_id =
+        crate::core::cli::validate_uuid(args.required_option("session")?, "--session")?;
     let durability = args.option("durability").unwrap_or("default").to_owned();
     if !["default", "maximum", "reduced-write"].contains(&durability.as_str()) {
         return Err(CliError(
