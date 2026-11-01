@@ -1,21 +1,21 @@
-use std::time::{Duration, Instant};
 #[cfg(any(target_os = "windows", target_os = "linux"))]
 use std::thread;
 #[cfg(target_os = "macos")]
 use std::thread;
+use std::time::{Duration, Instant};
 
 #[cfg(target_os = "macos")]
 use std::sync::{Arc, Mutex};
 
+#[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
+use crate::application::platform_limitation;
 use crate::application::{
-    application_probe_unavailable_reason, write_application_probe, ApplicationDevice,
-    ProbeMetrics, APPLICATION_CHANNELS, APPLICATION_PROBE_DURATION, APPLICATION_SAMPLE_FORMAT,
+    application_probe_unavailable_reason, write_application_probe, ApplicationDevice, ProbeMetrics,
+    APPLICATION_CHANNELS, APPLICATION_PROBE_DURATION, APPLICATION_SAMPLE_FORMAT,
     APPLICATION_SAMPLE_RATE_HZ,
 };
 #[cfg(any(target_os = "windows", target_os = "linux"))]
 use crate::application::{MAX_FRAMES_PER_CHUNK, MAX_QUEUED_CHUNKS};
-#[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
-use crate::application::platform_limitation;
 
 #[cfg(any(target_os = "windows", target_os = "linux"))]
 pub(crate) fn probe_application_audio(device: &ApplicationDevice) -> Result<(), String> {
@@ -46,8 +46,7 @@ pub(crate) fn probe_application_audio(device: &ApplicationDevice) -> Result<(), 
     let mut metrics = ProbeMetrics::default();
     while started.elapsed() < APPLICATION_PROBE_DURATION {
         while let Some(chunk) = stream.poll_chunk() {
-            let frame_count = usize::try_from(chunk.frames)
-                .map_err(|_| "the application-audio backend returned an invalid frame count")?;
+            let frame_count = chunk.frames;
             if frame_count == 0
                 || frame_count > MAX_FRAMES_PER_CHUNK
                 || frame_count.checked_mul(usize::from(APPLICATION_CHANNELS))
