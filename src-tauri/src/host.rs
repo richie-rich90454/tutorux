@@ -4,7 +4,10 @@ use tauri::{Emitter, Manager};
 
 use crate::console::ConsoleState;
 use crate::desktop::{archive_launch_path, install_native_menu, DesktopState};
-use crate::{ai_transport, audio_import, credentials, diagnostics, embedded_ai, live_transcription, platform, transcription};
+use crate::{
+    ai_transport, audio_import, credentials, diagnostics, embedded_ai, live_transcription,
+    platform, transcription,
+};
 
 pub fn run() {
     tauri::Builder::default()
