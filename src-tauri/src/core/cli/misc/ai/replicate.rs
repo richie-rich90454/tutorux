@@ -23,6 +23,10 @@ struct PredictionSummary {
     output_urls: Vec<String>,
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "The Replicate flow keeps its independent CLI, archive, provider, and output context explicit."
+)]
 pub(super) fn generate(
     args: &ParsedArguments,
     output: &mut dyn CliOutput,
