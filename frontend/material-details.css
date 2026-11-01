@@ -58,9 +58,6 @@
     margin: 0;
     accent-color: var(--accent);
 }
-.material-audio-preview audio {
-    width: 100%;
-}
 .material-audio-metadata {
     margin: 0;
     color: var(--muted);
