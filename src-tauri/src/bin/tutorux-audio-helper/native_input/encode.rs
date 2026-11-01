@@ -1,6 +1,4 @@
-use cpal::{
-    Data, Sample, SampleFormat, SizedSample,
-};
+use cpal::{Data, Sample, SampleFormat, SizedSample};
 
 use super::device::CaptureFormat;
 
