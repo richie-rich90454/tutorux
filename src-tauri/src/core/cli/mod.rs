@@ -81,7 +81,12 @@ impl ParsedArguments {
     }
 
     pub fn required_position(&self, index: usize, label: &str) -> CliResult<&str> {
-        match self.positionals.get(index).map(String::as_str).map(str::trim) {
+        match self
+            .positionals
+            .get(index)
+            .map(String::as_str)
+            .map(str::trim)
+        {
             Some(value) if !value.is_empty() => Ok(value),
             _ => Err(CliError(format!("{label} is required.")).into()),
         }
@@ -143,9 +148,7 @@ pub fn take_global_option(args: &mut Vec<String>, name: &str) -> CliResult<Optio
         return Ok(None);
     };
     let argument = &args[index];
-    let inline = argument
-        .split_once('=')
-        .map(|(_, value)| value.to_owned());
+    let inline = argument.split_once('=').map(|(_, value)| value.to_owned());
     let value = inline.or_else(|| args.get(index + 1).cloned());
     let Some(value) = value else {
         return Err(CliError(format!("{option} requires a value.")).into());
@@ -157,12 +160,7 @@ pub fn take_global_option(args: &mut Vec<String>, name: &str) -> CliResult<Optio
     Ok(Some(value))
 }
 
-pub fn emit(
-    output: &mut dyn CliOutput,
-    value: serde_json::Value,
-    summary: &str,
-    json: bool,
-) {
+pub fn emit(output: &mut dyn CliOutput, value: serde_json::Value, summary: &str, json: bool) {
     if json {
         output.stdout(&serde_json::to_string_pretty(&value).unwrap_or_else(|_| "null".to_owned()));
     } else {
@@ -212,7 +210,13 @@ pub fn option_id_list(args: &ParsedArguments, name: &str) -> CliResult<Option<Ve
     Ok(Some(ids.into_iter().collect()))
 }
 
-pub fn parse_integer(raw: Option<&str>, name: &str, fallback: u64, min: u64, max: u64) -> CliResult<u64> {
+pub fn parse_integer(
+    raw: Option<&str>,
+    name: &str,
+    fallback: u64,
+    min: u64,
+    max: u64,
+) -> CliResult<u64> {
     let Some(raw) = raw else {
         return Ok(fallback);
     };
@@ -222,9 +226,11 @@ pub fn parse_integer(raw: Option<&str>, name: &str, fallback: u64, min: u64, max
         ))
         .into());
     }
-    let value: u64 = raw
-        .parse()
-        .map_err(|_| CliError(format!("--{name} must be an integer from {min} through {max}.")))?;
+    let value: u64 = raw.parse().map_err(|_| {
+        CliError(format!(
+            "--{name} must be an integer from {min} through {max}."
+        ))
+    })?;
     if !(min..=max).contains(&value) {
         return Err(CliError(format!(
             "--{name} must be an integer from {min} through {max}."
@@ -236,7 +242,11 @@ pub fn parse_integer(raw: Option<&str>, name: &str, fallback: u64, min: u64, max
 
 pub const VERSION: &str = "Tutorux 1.0.0 (TypeScript)";
 
-pub fn execute_cli(arguments: &[String], output: &mut dyn CliOutput, cancellation: &dyn Cancellation) -> i32 {
+pub fn execute_cli(
+    arguments: &[String],
+    output: &mut dyn CliOutput,
+    cancellation: &dyn Cancellation,
+) -> i32 {
     match execute_inner(arguments, output, cancellation) {
         Ok(code) => code,
         Err(Failure::Usage(message)) => {
@@ -262,7 +272,9 @@ fn execute_inner(
         output.stdout(help::HELP);
         return Ok(0);
     }
-    if argv.iter().any(|value| value == "--version" || value == "-v")
+    if argv
+        .iter()
+        .any(|value| value == "--version" || value == "-v")
         || argv.first().map(String::as_str) == Some("version")
     {
         output.stdout(VERSION);
@@ -330,9 +342,7 @@ fn execute_inner(
             )
             .into());
         }
-        parsed
-            .options
-            .insert("directory".to_owned(), directory);
+        parsed.options.insert("directory".to_owned(), directory);
     }
 
     let context = CliContext {
@@ -390,20 +400,22 @@ impl CliContext {
     }
 }
 
-pub fn open_archive(path: &Path, passphrase: Option<&str>) -> CoreResult<crate::core::archive::ArchiveSnapshot> {
+pub fn open_archive(
+    path: &Path,
+    passphrase: Option<&str>,
+) -> CoreResult<crate::core::archive::ArchiveSnapshot> {
     let source = std::sync::Arc::new(crate::core::source::FileSource::open(path)?);
-    crate::core::archive::ArchiveSnapshot::open(source)
-        .and_then(|snapshot| {
-            if snapshot.locked() {
-                if let Some(passphrase) = passphrase {
-                    snapshot.unlock(passphrase)
-                } else {
-                    Ok(snapshot)
-                }
+    crate::core::archive::ArchiveSnapshot::open(source).and_then(|snapshot| {
+        if snapshot.locked() {
+            if let Some(passphrase) = passphrase {
+                snapshot.unlock(passphrase)
             } else {
                 Ok(snapshot)
             }
-        })
+        } else {
+            Ok(snapshot)
+        }
+    })
 }
 
 pub fn require_unlocked(
