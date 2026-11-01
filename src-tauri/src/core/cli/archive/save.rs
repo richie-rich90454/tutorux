@@ -61,11 +61,7 @@ pub(crate) fn save_bytes(path: &Path, bytes: &[u8]) -> Result<()> {
 
 pub(super) fn write_new_archive(path: &Path, bytes: &[u8]) -> CliResult<()> {
     if path.exists() {
-        return Err(CliError(format!(
-            "Archive output already exists: {}",
-            path.display()
-        ))
-        .into());
+        return Err(CliError(format!("Archive output already exists: {}", path.display())).into());
     }
     save_bytes(path, bytes)?;
     Ok(())
