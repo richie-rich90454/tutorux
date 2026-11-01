@@ -140,10 +140,7 @@ fn parse_dshow_audio(section: &str) -> Vec<FfmpegDevice> {
         };
         let raw_name = rest[..end].trim();
         let after = rest[end + 1..].trim();
-        if raw_name.is_empty()
-            || raw_name.starts_with("@device_")
-            || !after.contains("(audio)")
-        {
+        if raw_name.is_empty() || raw_name.starts_with("@device_") || !after.contains("(audio)") {
             index += 1;
             continue;
         }
@@ -266,12 +263,7 @@ pub(super) fn input_arguments(device: &FfmpegDevice) -> Vec<String> {
             } else {
                 format!("audio=\"{}\"", device.id)
             };
-            vec![
-                "-f".to_owned(),
-                "dshow".to_owned(),
-                "-i".to_owned(),
-                input,
-            ]
+            vec!["-f".to_owned(), "dshow".to_owned(), "-i".to_owned(), input]
         }
         "avfoundation" => vec![
             "-f".to_owned(),
@@ -325,13 +317,7 @@ pub(super) fn decode_to_wav(
     destination: &std::path::Path,
 ) -> Result<(), String> {
     let mut child = hidden_command(executable)
-        .args([
-            "-nostdin",
-            "-hide_banner",
-            "-loglevel",
-            "error",
-            "-i",
-        ])
+        .args(["-nostdin", "-hide_banner", "-loglevel", "error", "-i"])
         .arg(input)
         .args([
             "-map",
@@ -343,7 +329,7 @@ pub(super) fn decode_to_wav(
             "pcm_s16le",
             "-f",
             "wav",
-            "-n",
+            "-y",
         ])
         .arg(destination)
         .stdin(Stdio::null())
