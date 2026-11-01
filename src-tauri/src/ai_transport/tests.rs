@@ -13,8 +13,6 @@ fn request(provider_id: &str, endpoint: &str, model: &str, accept: &str) -> AiTr
         accept: accept.to_owned(),
         request_body: if provider_id == "google-gemini" {
             r#"{"contents":[],"generationConfig":{"maxOutputTokens":64}}"#.to_owned()
-        } else if provider_id == "ollama" {
-            format!(r#"{{"model":"{model}","stream":true,"messages":[]}}"#)
         } else {
             format!(r#"{{"model":"{model}","stream":true,"messages":[]}}"#)
         },
