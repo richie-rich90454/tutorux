@@ -10,10 +10,9 @@ pub(super) fn environment_name<'a>(
 ) -> CliResult<Option<&'a str>> {
     let Some(environment) = args.option(name) else {
         if args.flag(name) {
-            return Err(CliError(format!(
-                "--{name} requires an environment variable name."
-            ))
-            .into());
+            return Err(
+                CliError(format!("--{name} requires an environment variable name.")).into(),
+            );
         }
         return Ok(None);
     };
@@ -33,10 +32,7 @@ pub(super) fn environment_name<'a>(
     Ok(Some(environment))
 }
 
-pub(super) fn passphrase_from_env(
-    args: &ParsedArguments,
-    name: &str,
-) -> CliResult<Option<String>> {
+pub(super) fn passphrase_from_env(args: &ParsedArguments, name: &str) -> CliResult<Option<String>> {
     let Some(environment) = environment_name(args, name)? else {
         return Ok(None);
     };
@@ -123,9 +119,7 @@ fn revision_counts(snapshot: &ArchiveSnapshot) -> Result<(usize, usize)> {
         let Some(record_type) = crate::core::format::record_type_from_name(type_name) else {
             continue;
         };
-        let revisions = snapshot
-            .get_record_history(record_type, id, 10_000)?
-            .len();
+        let revisions = snapshot.get_record_history(record_type, id, 10_000)?.len();
         total += revisions;
         historical += revisions.saturating_sub(1);
     }
