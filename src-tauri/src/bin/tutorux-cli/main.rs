@@ -1,6 +1,6 @@
 use std::io::Write;
 
-use tutorux_desktop::core::cli::{execute_cli, Cancellation, CliOutput, NoCancellation};
+use tutorux_desktop::core::cli::{execute_cli, Cancellation, CliOutput};
 
 struct StdioOutput;
 
