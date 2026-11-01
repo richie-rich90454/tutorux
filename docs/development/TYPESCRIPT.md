@@ -32,6 +32,8 @@ The static build is written to `dist/`. Do not import `@tauri-apps/*` from a dom
 
 Tailwind CSS v4 is integrated through `@tailwindcss/vite`. `frontend/styles.css` imports Tailwind, scans the frontend source and HTML entry, and exposes the shared light/dark tokens through `@theme`. Component styling lives in the component's `.tailwind.tsx` utility map and is applied from its TSX with `twClasses`/`twUtilities` from `frontend/tailwind.ts`; this keeps generated utility names visible to Tailwind's scanner while preserving existing semantic classes used by state and DOM behavior. Add new component styling to its TSX utility map and JSX, not a component stylesheet. `frontend/styles.css` is limited to Tailwind setup, font faces, keyframes, print page settings, and reduced-motion rules that are global or browser-native.
 
+Keep utility maps scoped when the same semantic class has different layouts in different contexts. For example, the journal's compact empty list uses `frontend/empty-state.tailwind.tsx`, separate from the full-page welcome layout; merging those rules into one utility map can let generated utility ordering expand the journal list and leave a large blank area. The workspace end-to-end sweep checks all workspace routes at desktop, tablet, and phone widths; run it with `pnpm exec playwright test tests/e2e/workspace.spec.ts --workers=1` after changing shared layout or navigation.
+
 ## Desktop workflow
 
 ```sh
