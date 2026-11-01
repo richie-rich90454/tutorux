@@ -35,7 +35,9 @@ pub(super) fn record_export_wav(
     let track = select_track(&snapshot, &session, args.option("track"))?;
     let chunks = session_chunks(&snapshot, &session_id, Some(&track))?;
     if chunks.is_empty() {
-        return Err(CliError("Select an available audio track for this session.".to_owned()).into());
+        return Err(
+            CliError("Select an available audio track for this session.".to_owned()).into(),
+        );
     }
     let sample_rate = chunks
         .first()
@@ -76,7 +78,7 @@ pub(super) fn record_export_wav(
             .unwrap_or(0);
         if gap > 0 {
             let silence = gap.saturating_mul(block_align);
-            data.extend(std::iter::repeat(0u8).take(silence as usize));
+            data.extend(std::iter::repeat_n(0u8, silence as usize));
             sample_count = sample_count.saturating_add(gap);
         }
         data.extend_from_slice(&chunk.blob);
@@ -87,11 +89,7 @@ pub(super) fn record_export_wav(
     }
     let destination = crate::core::cli::resolve_path(args.required_option("output")?);
     if destination.exists() && !args.flag("overwrite") {
-        return Err(CliError(format!(
-            "Output already exists: {}",
-            destination.display()
-        ))
-        .into());
+        return Err(CliError(format!("Output already exists: {}", destination.display())).into());
     }
     let wav = write_wav(sample_rate, channels, bits, &data);
     crate::core::cli::write_file_atomically(&destination, &wav)?;
