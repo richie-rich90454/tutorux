@@ -209,6 +209,10 @@ pub(super) fn generate(
     Ok(0)
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "The generator consumes distinct CLI, archive, provider, and output context at this boundary."
+)]
 fn generate_embedded(
     args: &ParsedArguments,
     output: &mut dyn CliOutput,
