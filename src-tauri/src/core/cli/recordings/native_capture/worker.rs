@@ -16,9 +16,7 @@ use super::control_files::{ControlRequest, WorkerControl};
 use super::ffmpeg_capture::FfmpegCapture;
 use super::whisper::{LiveTranscriber, WhisperCapture};
 use super::writer::CaptureWriter;
-use super::{
-    CaptureCommand, CaptureConfig, CaptureSources, CaptureStatus, STOP_REQUESTED,
-};
+use super::{CaptureCommand, CaptureConfig, CaptureSources, CaptureStatus, STOP_REQUESTED};
 
 pub(super) struct CaptureOutcome {
     pub(super) report: Value,
@@ -26,6 +24,10 @@ pub(super) struct CaptureOutcome {
     pub(super) completed: bool,
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "The worker entry point transfers independent archive, capture, channel, and status handles."
+)]
 pub(super) fn capture_worker(
     path: &Path,
     passphrase: Option<&str>,
@@ -64,7 +66,10 @@ pub(super) fn capture_worker(
     result
 }
 
-#[allow(clippy::too_many_arguments)]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "The capture loop coordinates independent worker resources whose lifetimes must remain explicit."
+)]
 fn capture_run(
     path: &Path,
     passphrase: Option<&str>,
@@ -133,12 +138,28 @@ fn capture_run(
         LiveTranscriber::new(
             path,
             WhisperCapture {
-                executable: config.whisper.as_ref().map(|w| w.executable.clone()).unwrap_or_default(),
-                model: config.whisper.as_ref().map(|w| w.model.clone()).unwrap_or_default(),
-                language: config.whisper.as_ref().map(|w| w.language.clone()).unwrap_or_default(),
+                executable: config
+                    .whisper
+                    .as_ref()
+                    .map(|w| w.executable.clone())
+                    .unwrap_or_default(),
+                model: config
+                    .whisper
+                    .as_ref()
+                    .map(|w| w.model.clone())
+                    .unwrap_or_default(),
+                language: config
+                    .whisper
+                    .as_ref()
+                    .map(|w| w.language.clone())
+                    .unwrap_or_default(),
                 threads: config.whisper.as_ref().and_then(|w| w.threads),
                 diarize: config.whisper.as_ref().map(|w| w.diarize).unwrap_or(false),
-                window_seconds: config.whisper.as_ref().map(|w| w.window_seconds).unwrap_or(27),
+                window_seconds: config
+                    .whisper
+                    .as_ref()
+                    .map(|w| w.window_seconds)
+                    .unwrap_or(27),
             },
             &config.session_id,
             &config.track_ids[index],
@@ -177,7 +198,7 @@ fn capture_run(
                 capture.drain(&mut feed);
             }
         }
-        while let Ok(CaptureCommand::Stop(reply)) = commands.try_recv() {
+        if let Ok(CaptureCommand::Stop(reply)) = commands.try_recv() {
             let _ = reply.send(());
             break;
         }
@@ -188,7 +209,9 @@ fn capture_run(
                         .as_mut()
                         .map(HeadlessCapture::pause)
                         .unwrap_or(Ok(()))
-                        .and_then(|()| ffmpeg.as_mut().map(|value| value.pause()).unwrap_or(Ok(())));
+                        .and_then(|()| {
+                            ffmpeg.as_mut().map(|value| value.pause()).unwrap_or(Ok(()))
+                        });
                     if result.is_ok() {
                         paused = true;
                         paused_at = Some(Instant::now());
@@ -204,7 +227,12 @@ fn capture_run(
                         .as_mut()
                         .map(HeadlessCapture::resume)
                         .unwrap_or(Ok(()))
-                        .and_then(|()| ffmpeg.as_mut().map(|value| value.resume()).unwrap_or(Ok(())));
+                        .and_then(|()| {
+                            ffmpeg
+                                .as_mut()
+                                .map(|value| value.resume())
+                                .unwrap_or(Ok(()))
+                        });
                     if result.is_ok() {
                         if let Some(at) = paused_at.take() {
                             paused_duration = paused_duration.saturating_add(at.elapsed());
@@ -249,7 +277,10 @@ fn capture_run(
     }
     update_status(status, "finalizing", "Saving native audio tracks.");
     if let Some(control) = control.as_mut() {
-        let _ = control.write("finalizing", "Saving the recording and closing the capture processes.");
+        let _ = control.write(
+            "finalizing",
+            "Saving the recording and closing the capture processes.",
+        );
     }
     let mut finished = if let Some(capture) = native.as_mut() {
         capture.finish(&mut |chunk| pending.push(chunk))
@@ -261,7 +292,10 @@ fn capture_run(
         }
     };
     if let Some(capture) = ffmpeg.as_mut() {
-        merge_finished(&mut finished, capture.finish(&mut |chunk| pending.push(chunk)));
+        merge_finished(
+            &mut finished,
+            capture.finish(&mut |chunk| pending.push(chunk)),
+        );
     }
     snapshot = writer.write_chunks(&snapshot, &mut pending)?;
     if let Some(live) = live.as_mut() {
@@ -352,7 +386,10 @@ fn apply_processing_state(
         .map_err(|error| error.message)
 }
 
-fn live_track(config: &CaptureConfig, started: &HeadlessCaptureStarted) -> Option<(usize, &'static str)> {
+fn live_track(
+    config: &CaptureConfig,
+    started: &HeadlessCaptureStarted,
+) -> Option<(usize, &'static str)> {
     config.whisper.as_ref()?;
     if started.microphone_sample_rate_hz > 0 {
         Some((0, "microphone"))
@@ -365,10 +402,7 @@ fn live_track(config: &CaptureConfig, started: &HeadlessCaptureStarted) -> Optio
     }
 }
 
-fn started_format(
-    started: &HeadlessCaptureStarted,
-    index: usize,
-) -> (u32, u16, String) {
+fn started_format(started: &HeadlessCaptureStarted, index: usize) -> (u32, u16, String) {
     match index {
         0 => (
             started.microphone_sample_rate_hz,
