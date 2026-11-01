@@ -15,6 +15,7 @@ export type IconName =
     | "settings"
     | "plus"
     | "microphone"
+    | "calendar"
     | "search"
     | "sun"
     | "moon"
@@ -27,7 +28,11 @@ export type IconName =
     | "shield"
     | "close"
     | "check"
-    | "more";
+    | "more"
+    | "play"
+    | "pause"
+    | "volume"
+    | "volumeMuted";
 
 export function EmptyState(props: {
     icon: IconName;
@@ -155,6 +160,28 @@ export function Icon(props: { name: IconName }): JSX.Element {
                 <>
                     <rect x="9" y="3" width="6" height="12" rx="3" />
                     <path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21M9 21h6" />
+                </>
+            )}
+            {props.name === "calendar" && (
+                <>
+                    <rect x="3.5" y="5" width="17" height="15.5" rx="2" />
+                    <path d="M7.5 3v4M16.5 3v4M3.5 9.5h17M7.5 13h.01M12 13h.01M16.5 13h.01M7.5 16.5h.01M12 16.5h.01" />
+                </>
+            )}
+            {props.name === "play" && (
+                <path d="M8 5.5v13l10-6.5z" fill="currentColor" stroke="none" />
+            )}
+            {props.name === "pause" && (
+                <path d="M7 5.5h3.5v13H7zM13.5 5.5H17v13h-3.5z" fill="currentColor" stroke="none" />
+            )}
+            {(props.name === "volume" || props.name === "volumeMuted") && (
+                <>
+                    <path d="M4 9v6h4l5 4V5L8 9z" />
+                    {props.name === "volume" ? (
+                        <path d="M16 9a4 4 0 0 1 0 6m2-9a8 8 0 0 1 0 12" />
+                    ) : (
+                        <path d="m16 9 5 6m0-6-5 6" />
+                    )}
                 </>
             )}
             {props.name === "search" && (
