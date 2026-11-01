@@ -6,8 +6,6 @@ mod asset_import;
 mod asset_import_actions;
 #[path = "asset_verify.rs"]
 mod asset_verify;
-#[path = "ordered_json.rs"]
-mod ordered_json;
 pub(crate) use asset_import::*;
 pub(crate) use asset_verify::*;
 
@@ -92,7 +90,7 @@ pub(crate) fn run_asset(
             });
             let count = records.len();
             if args.json() {
-                output.stdout(&ordered_json::records_json(&records));
+                output.stdout(&super::ordered_json::records_json(&records));
                 return Ok(0);
             }
             emit(
