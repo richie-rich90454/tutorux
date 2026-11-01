@@ -212,7 +212,7 @@ test("creates, updates, exports, and reopens a portable tutoring workspace", asy
     });
     await expect(page.getByText("lesson-notes.txt", { exact: true })).toBeVisible();
 
-    await navigateToSidebarView(page, "Transcripts");
+    await navigateToSidebarView(page, "Record");
     await page.getByLabel("Choose transcript source file").setInputFiles({
         name: "lesson.srt",
         mimeType: "application/x-subrip",
