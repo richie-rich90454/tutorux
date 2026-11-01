@@ -22,10 +22,7 @@ pub fn validate_record_payload_size(
     }
     for (key, value) in fields {
         if key.is_empty() || key.len() > 0xffff {
-            return err(
-                "record_field_limit",
-                "Record field exceeds format limits.",
-            );
+            return err("record_field_limit", "Record field exceeds format limits.");
         }
         total += 6 + key.len() as u64 + value.len() as u64;
         if total > maximum {
@@ -39,7 +36,8 @@ pub fn validate_record_payload_size(
 }
 
 pub fn encode_record_payload(record: &ArchiveRecord) -> Result<Vec<u8>> {
-    let total = validate_record_payload_size(&record.fields, record.blob.len(), MAX_RECORD_PAYLOAD)?;
+    let total =
+        validate_record_payload_size(&record.fields, record.blob.len(), MAX_RECORD_PAYLOAD)?;
     let mut output = vec![0u8; total as usize];
     output[..4].copy_from_slice(b"TXMD");
     output[4..6].copy_from_slice(&1u16.to_le_bytes());
@@ -84,10 +82,7 @@ pub fn decode_record_payload(
         let value_length = read_u32(payload, cursor + 2)? as usize;
         cursor += 6;
         if key_length == 0 || cursor + key_length + value_length > payload.len() {
-            return err(
-                "record_field_invalid",
-                "Record field exceeds its payload.",
-            );
+            return err("record_field_invalid", "Record field exceeds its payload.");
         }
         let key = std::str::from_utf8(&payload[cursor..cursor + key_length])
             .map_err(|_| CoreError::new("record_text_invalid", "Record text is not valid UTF-8."))?
@@ -105,10 +100,7 @@ pub fn decode_record_payload(
         }
     }
     if blob_length != (payload.len() - cursor) as u64 {
-        return err(
-            "record_blob_invalid",
-            "Record blob length is inconsistent.",
-        );
+        return err("record_blob_invalid", "Record blob length is inconsistent.");
     }
     Ok(ArchiveRecord {
         record_type,
