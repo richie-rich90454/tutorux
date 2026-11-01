@@ -22,6 +22,7 @@ mod journal;
 mod journal_document;
 mod journal_list;
 mod journal_organizer;
+mod ordered_json;
 mod packages;
 mod progress;
 mod session_clone;
