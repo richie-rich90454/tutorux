@@ -79,7 +79,7 @@ fn make_identifier_map(
             }
         }
         types.insert(old_id.clone(), record.record_type);
-        if !identifiers.contains_key(&old_id) {
+        if let std::collections::btree_map::Entry::Vacant(entry) = identifiers.entry(old_id) {
             let next_id = crate::core::archive::new_uuid();
             if !generated.insert(next_id.clone()) {
                 return Err(CliError(
@@ -87,7 +87,7 @@ fn make_identifier_map(
                 )
                 .into());
             }
-            identifiers.insert(old_id, next_id);
+            entry.insert(next_id);
         }
     }
     let mut historical: BTreeSet<String> = records
