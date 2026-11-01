@@ -48,10 +48,7 @@ pub(super) fn poll_process_audio(
             continue;
         }
         let channels = usize::from(APPLICATION_AUDIO_CHANNELS);
-        let Some(frame_count) = usize::try_from(chunk.frames).ok() else {
-            signal.fail("The application-audio backend returned an invalid PCM frame count.");
-            continue;
-        };
+        let frame_count = chunk.frames;
         if frame_count == 0 || frame_count.checked_mul(channels) != Some(chunk.data.len()) {
             signal.fail("The application-audio backend returned an incomplete PCM frame.");
             continue;
