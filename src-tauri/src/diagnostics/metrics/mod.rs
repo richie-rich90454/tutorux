@@ -2,21 +2,21 @@ use serde::Serialize;
 #[cfg(target_os = "linux")]
 use std::fs;
 
-#[cfg(target_os = "windows")]
-mod windows;
-#[cfg(target_os = "macos")]
-mod macos;
-#[cfg(target_os = "linux")]
-mod linux;
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 mod command;
-
-#[cfg(target_os = "windows")]
-use windows::windows_process_metrics;
+#[cfg(target_os = "linux")]
+mod linux;
 #[cfg(target_os = "macos")]
-use macos::macos_process_metrics;
+mod macos;
+#[cfg(target_os = "windows")]
+mod windows;
+
 #[cfg(target_os = "linux")]
 use linux::linux_process_metrics;
+#[cfg(target_os = "macos")]
+use macos::macos_process_metrics;
+#[cfg(target_os = "windows")]
+use windows::windows_process_metrics;
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -83,14 +83,16 @@ pub(crate) fn total_system_memory_bytes() -> Result<u64, String> {
     {
         use windows_sys::Win32::System::SystemInformation::{GlobalMemoryStatusEx, MEMORYSTATUSEX};
 
-        let mut memory = MEMORYSTATUSEX::default();
-        memory.dwLength = std::mem::size_of::<MEMORYSTATUSEX>() as u32;
+        let mut memory = MEMORYSTATUSEX {
+            dwLength: std::mem::size_of::<MEMORYSTATUSEX>() as u32,
+            ..Default::default()
+        };
         // SAFETY: memory is a live, uniquely borrowed MEMORYSTATUSEX whose dwLength
         // states its own size, as GlobalMemoryStatusEx requires.
         if unsafe { GlobalMemoryStatusEx(&mut memory) } == 0 {
             return Err("GlobalMemoryStatusEx did not return the system memory status.".to_owned());
         }
-        return Ok(memory.ullTotalPhys);
+        Ok(memory.ullTotalPhys)
     }
     #[cfg(target_os = "linux")]
     {
@@ -152,14 +154,16 @@ pub(crate) fn available_system_memory_bytes() -> Result<u64, String> {
     {
         use windows_sys::Win32::System::SystemInformation::{GlobalMemoryStatusEx, MEMORYSTATUSEX};
 
-        let mut memory = MEMORYSTATUSEX::default();
-        memory.dwLength = std::mem::size_of::<MEMORYSTATUSEX>() as u32;
+        let mut memory = MEMORYSTATUSEX {
+            dwLength: std::mem::size_of::<MEMORYSTATUSEX>() as u32,
+            ..Default::default()
+        };
         // SAFETY: memory is a live, uniquely borrowed MEMORYSTATUSEX whose dwLength
         // states its own size, as GlobalMemoryStatusEx requires.
         if unsafe { GlobalMemoryStatusEx(&mut memory) } == 0 {
             return Err("GlobalMemoryStatusEx did not return the system memory status.".to_owned());
         }
-        return Ok(memory.ullAvailPhys);
+        Ok(memory.ullAvailPhys)
     }
     #[cfg(target_os = "linux")]
     {
