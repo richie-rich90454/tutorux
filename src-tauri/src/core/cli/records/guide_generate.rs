@@ -164,12 +164,7 @@ fn order_sections(draft: &mut GuideDraft, preferred: &[String]) {
             })
             .unwrap_or(preferred.len())
     };
-    let mut indexed: Vec<(usize, GuideSection)> = draft
-        .sections
-        .drain(..)
-        .enumerate()
-        .map(|(index, section)| (index, section))
-        .collect();
+    let mut indexed: Vec<(usize, GuideSection)> = draft.sections.drain(..).enumerate().collect();
     indexed.sort_by(|left, right| {
         rank(&left.1)
             .cmp(&rank(&right.1))
