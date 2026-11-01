@@ -1,3 +1,24 @@
+@import "tailwindcss" source(none);
+@source "./";
+@source "../index.html";
+
+@theme inline {
+    --font-sans: "Noto Sans", sans-serif;
+    --color-canvas: var(--canvas);
+    --color-surface: var(--surface);
+    --color-surface-subtle: var(--surface-subtle);
+    --color-ink: var(--ink);
+    --color-ink-soft: var(--ink-soft);
+    --color-muted: var(--muted);
+    --color-faint: var(--faint);
+    --color-line: var(--line);
+    --color-accent: var(--accent);
+    --color-accent-hover: var(--accent-hover);
+    --color-accent-soft: var(--accent-soft);
+    --color-danger: var(--danger);
+    --radius-panel: var(--radius-large);
+}
+
 @font-face {
     font-family: "Noto Sans";
     src: url("./assets/fonts/NotoSans-Regular.ttf") format("truetype");
