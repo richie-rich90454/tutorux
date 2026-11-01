@@ -394,12 +394,9 @@ pub(super) fn cancel_replicate_request(request_id: &str) {
         state.pending.retain(|_, expires_at| *expires_at > now);
         if let Some(cancelled) = state.active.get(request_id) {
             cancelled.store(true, Ordering::Release);
-        } else if state.pending.contains_key(request_id) {
-            state.pending.insert(
-                request_id.to_owned(),
-                now + PENDING_REPLICATE_CANCELLATION_TTL,
-            );
-        } else if state.pending.len() < MAX_PENDING_REPLICATE_CANCELLATIONS {
+        } else if state.pending.contains_key(request_id)
+            || state.pending.len() < MAX_PENDING_REPLICATE_CANCELLATIONS
+        {
             state.pending.insert(
                 request_id.to_owned(),
                 now + PENDING_REPLICATE_CANCELLATION_TTL,
