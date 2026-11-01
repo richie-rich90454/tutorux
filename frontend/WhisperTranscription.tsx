@@ -9,7 +9,7 @@ import { makeWhisperRecords, whisperAudio } from "./domain/whisper";
 
 interface Props {
     snapshot: ArchiveSnapshot;
-    preview: AudioPreview;
+    preview: AudioPreview | null;
     sessionId: string;
     trackId: string;
     records: readonly ArchiveRecord[];
@@ -27,7 +27,7 @@ export function WhisperTranscription(props: Props) {
     const [model, setModel] = createSignal("");
     const [language, setLanguage] = createSignal("auto");
     const [busy, setBusy] = createSignal(false);
-    const [fullTrack, setFullTrack] = createSignal(false);
+    const [fullTrack, setFullTrack] = createSignal(true);
     const [refine, setRefine] = createSignal(false);
     const [diarizeSpeakerTurns, setDiarizeSpeakerTurns] = createSignal(false);
     const [message, setMessage] = createSignal("");
@@ -62,7 +62,7 @@ export function WhisperTranscription(props: Props) {
         let savedRecords = 0;
         let committedWindows = 0;
         try {
-            const preview = props.preview;
+            const sourcePreview = props.preview;
             let snapshot = props.snapshot;
             const sessionId = props.sessionId;
             const trackId = props.trackId;
@@ -74,6 +74,11 @@ export function WhisperTranscription(props: Props) {
             const detectSpeakerTurns = diarizeSpeakerTurns();
             const existing = props.records;
             const provenanceRunId = newUuid();
+            const preview =
+                sourcePreview ??
+                (!wholeTrack
+                    ? await buildAudioPreview(snapshot, sessionId, trackId, 0n, 30_000_000n)
+                    : null);
             let endUs = 0n;
             let windowUs = 20_000_000n;
             if (wholeTrack) {
@@ -150,7 +155,7 @@ export function WhisperTranscription(props: Props) {
                           cursor,
                           cursor + windowUs,
                       )
-                    : preview;
+                    : preview!;
                 const output = await invoke<{ json: string; modelName: string }>(
                     "transcribe_whisper",
                     {
@@ -165,7 +170,7 @@ export function WhisperTranscription(props: Props) {
                 if (cancelled) throw new Error("Transcription cancelled.");
                 if (
                     props.snapshot !== snapshot ||
-                    props.preview !== preview ||
+                    props.preview !== sourcePreview ||
                     props.sessionId !== sessionId ||
                     props.trackId !== trackId
                 ) {
@@ -246,14 +251,14 @@ export function WhisperTranscription(props: Props) {
     };
     return (
         <div class="transcript-whisper">
-            <strong>Local transcription</strong>
+            <strong>Transcribe this recording</strong>
             <Show
                 when={isTauri()}
                 fallback={<p>Local Whisper transcription is available in the desktop app.</p>}
             >
                 <p>
-                    Transcribe locally using your whisper.cpp executable and model. Review the
-                    resulting cues.
+                    Create timestamped cues from the full recording with Whisper running locally.
+                    Review the cues below before using them.
                 </p>
                 <div class="transcript-whisper-actions">
                     <label>
@@ -324,7 +329,7 @@ export function WhisperTranscription(props: Props) {
                         {busy()
                             ? "Transcribing…"
                             : fullTrack()
-                              ? "Transcribe track"
+                              ? "Transcribe full recording"
                               : "Transcribe preview"}
                     </button>
                     <Show when={busy()}>
