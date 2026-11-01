@@ -1,11 +1,9 @@
 import { invoke, isTauri } from "@tauri-apps/api/core";
 
 export interface LiveWhisperSettings {
-    modelPath: string;
     language: string;
     windowSeconds: number;
     threadCount: number;
-    diarizeSpeakerTurns: boolean;
 }
 
 export interface LiveWhisperChunk {
@@ -43,7 +41,6 @@ export async function beginLiveWhisper(options: {
     firstSampleIndex: string;
 }): Promise<{ runId: string; modelName: string; backendVersion: string }> {
     if (!isTauri()) throw new Error("Live local transcription requires the Tutorux desktop app.");
-    if (!options.settings.modelPath.trim()) throw new Error("Choose a local Whisper model first.");
     if (!/^(auto|[a-z-]{2,16})$/iu.test(options.settings.language.trim())) {
         throw new Error("Enter a Whisper language code, or auto.");
     }
@@ -64,14 +61,12 @@ export async function beginLiveWhisper(options: {
     return invoke<{ runId: string; modelName: string; backendVersion: string }>(
         "begin_live_whisper",
         {
-            modelPath: options.settings.modelPath,
             language: options.settings.language.trim(),
             windowSeconds: options.settings.windowSeconds,
             threadCount: options.settings.threadCount,
             sampleRateHz: options.sampleRateHz,
             firstSampleIndex: options.firstSampleIndex,
             timelineBaseSampleIndex: "0",
-            diarizeSpeakerTurns: options.settings.diarizeSpeakerTurns,
         },
     );
 }
