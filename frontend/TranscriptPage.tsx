@@ -876,37 +876,42 @@ export function TranscriptPage(props: {
                 )}
             </Show>
             <Show when={sessionTracks().length > 0}>
-                <section class="transcript-audio-panel" aria-label="Session recording playback">
-                    <div class="transcript-audio-copy">
+                <section
+                    class="transcript-audio-panel grid min-w-0 gap-4 rounded-panel border border-line bg-surface p-4"
+                    aria-label="Session recording playback"
+                >
+                    <div class="transcript-audio-copy min-w-0">
                         <span class="eyebrow">Session recording</span>
                         <strong>{selectedTrack()?.label ?? "Recording"}</strong>
                         <span>Load up to 30 seconds from the beginning or a transcript cue.</span>
                     </div>
-                    <Show when={sessionTracks().length > 1}>
-                        <label class="transcript-audio-picker">
-                            <span class="visually-hidden">Audio track</span>
-                            <select
-                                value={selectedTrack()?.id ?? ""}
-                                aria-label="Audio track"
-                                onChange={(event) => {
-                                    clearAudio();
-                                    setTrackId(event.currentTarget.value);
-                                }}
-                            >
-                                <For each={sessionTracks()}>
-                                    {(track) => <option value={track.id}>{track.label}</option>}
-                                </For>
-                            </select>
-                        </label>
-                    </Show>
-                    <button
-                        class="button button-outline"
-                        type="button"
-                        disabled={!selectedTrack()}
-                        onClick={() => void playAudioAt("0")}
-                    >
-                        Play from start
-                    </button>
+                    <div class="transcript-audio-controls flex min-w-0 flex-wrap items-center justify-end gap-2">
+                        <Show when={sessionTracks().length > 1}>
+                            <label class="transcript-audio-picker min-w-0">
+                                <span class="visually-hidden">Audio track</span>
+                                <select
+                                    value={selectedTrack()?.id ?? ""}
+                                    aria-label="Audio track"
+                                    onChange={(event) => {
+                                        clearAudio();
+                                        setTrackId(event.currentTarget.value);
+                                    }}
+                                >
+                                    <For each={sessionTracks()}>
+                                        {(track) => <option value={track.id}>{track.label}</option>}
+                                    </For>
+                                </select>
+                            </label>
+                        </Show>
+                        <button
+                            class="button button-outline"
+                            type="button"
+                            disabled={!selectedTrack()}
+                            onClick={() => void playAudioAt("0")}
+                        >
+                            Play from start
+                        </button>
+                    </div>
                     <div class="transcript-audio-export-actions">
                         <button
                             class="button button-outline transcript-audio-export"
