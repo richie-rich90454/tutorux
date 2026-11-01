@@ -71,7 +71,7 @@ async function writeAudioArchive(
 
 describe("CLI legacy parity", () => {
     it("uses flat record JSON, default journal fields, and document block preservation", async () => {
-        const directory = await mkdtemp(join(process.cwd(), "tmp", "tutorux-cli-parity-journal-"));
+        const directory = await mkdtemp(join(process.cwd(), "tutorux-cli-parity-journal-"));
         const archivePath = join(directory, "journal.tux");
         const stdout: string[] = [];
         const stderr: string[] = [];
@@ -151,7 +151,7 @@ describe("CLI legacy parity", () => {
     });
 
     it("trashes and restores the journal entry and its notes as one group", async () => {
-        const directory = await mkdtemp(join(process.cwd(), "tmp", "tutorux-cli-parity-trash-"));
+        const directory = await mkdtemp(join(process.cwd(), "tutorux-cli-parity-trash-"));
         const archivePath = join(directory, "journal.tux");
         const stdout: string[] = [];
         const stderr: string[] = [];
@@ -216,7 +216,7 @@ describe("CLI legacy parity", () => {
     });
 
     it("reports benchmark index scalars and audio export metadata as legacy strings", async () => {
-        const directory = await mkdtemp(join(process.cwd(), "tmp", "tutorux-cli-parity-audio-"));
+        const directory = await mkdtemp(join(process.cwd(), "tutorux-cli-parity-audio-"));
         const archivePath = join(directory, "audio.tux");
         const sessionId = newUuid();
         const trackId = newUuid();
@@ -269,7 +269,7 @@ describe("CLI legacy parity", () => {
                 "--output",
                 destination,
             ]);
-            expect(exported.code).toBe(0);
+            expect(exported.code, stderr.at(-1)).toBe(0);
             expect(exported.value).toMatchObject({
                 sample_rate_hz: "8000",
                 channel_count: "1",
@@ -290,7 +290,7 @@ describe("CLI legacy parity", () => {
     });
 
     it("overwrites an existing asset export destination atomically", async () => {
-        const directory = await mkdtemp(join(process.cwd(), "tmp", "tutorux-cli-parity-asset-"));
+        const directory = await mkdtemp(join(process.cwd(), "tutorux-cli-parity-asset-"));
         const archivePath = join(directory, "asset.tux");
         const sourcePath = join(directory, "material.txt");
         const destination = join(directory, "material-out.txt");
