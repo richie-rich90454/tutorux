@@ -1,6 +1,7 @@
+import { twClasses } from "./tailwind";
+import { jsxTailwindStyles } from "./MediaPlayer.tailwind";
 import { createEffect, createSignal, onCleanup, Show, type JSX } from "solid-js";
 import { Icon } from "./shared-ui";
-import "./media-player.css";
 
 interface MediaPlayerProps {
     src: string;
@@ -84,7 +85,7 @@ export function MediaPlayer(props: MediaPlayerProps): JSX.Element {
     }
 
     return (
-        <div class={"media-player media-player-" + props.kind}>
+        <div class={twClasses("media-player media-player-" + props.kind, jsxTailwindStyles, "div")}>
             <Show
                 when={props.kind === "audio"}
                 fallback={
@@ -101,6 +102,7 @@ export function MediaPlayer(props: MediaPlayerProps): JSX.Element {
                         onPause={() => setPlaying(false)}
                         onEnded={() => setPlaying(false)}
                         onError={() => setError("This video could not be played.")}
+                        class={twClasses("", jsxTailwindStyles, "video")}
                     />
                 }
             >
@@ -120,22 +122,30 @@ export function MediaPlayer(props: MediaPlayerProps): JSX.Element {
                         setPlaying(false);
                     }}
                     onError={() => setError("This audio could not be played.")}
+                    class={twClasses("", jsxTailwindStyles, "audio")}
                 />
             </Show>
-            <div class="media-player-controls" role="group" aria-label={props.label + " controls"}>
+            <div
+                class={twClasses("media-player-controls", jsxTailwindStyles, "div")}
+                role="group"
+                aria-label={props.label + " controls"}
+            >
                 <button
-                    class="media-player-play"
+                    class={twClasses("media-player-play", jsxTailwindStyles, "button")}
                     type="button"
                     aria-label={(playing() ? "Pause " : "Play ") + props.kind}
                     onClick={() => void togglePlayback()}
                 >
                     <Icon name={playing() ? "pause" : "play"} />
                 </button>
-                <span class="media-player-time" aria-live="off">
+                <span
+                    class={twClasses("media-player-time", jsxTailwindStyles, "span")}
+                    aria-live="off"
+                >
                     {formatTime(position())}
                 </span>
                 <input
-                    class="media-player-seek"
+                    class={twClasses("media-player-seek", jsxTailwindStyles, "input")}
                     type="range"
                     min="0"
                     max={duration() || 0}
@@ -146,9 +156,11 @@ export function MediaPlayer(props: MediaPlayerProps): JSX.Element {
                     disabled={!duration()}
                     onInput={(event) => seek(Number(event.currentTarget.value))}
                 />
-                <span class="media-player-time">{formatTime(duration())}</span>
+                <span class={twClasses("media-player-time", jsxTailwindStyles, "span")}>
+                    {formatTime(duration())}
+                </span>
                 <button
-                    class="media-player-volume-toggle"
+                    class={twClasses("media-player-volume-toggle", jsxTailwindStyles, "button")}
                     type="button"
                     aria-label={muted() || volume() === 0 ? "Unmute" : "Mute"}
                     aria-pressed={muted()}
@@ -166,7 +178,7 @@ export function MediaPlayer(props: MediaPlayerProps): JSX.Element {
                     <Icon name={muted() || volume() === 0 ? "volumeMuted" : "volume"} />
                 </button>
                 <input
-                    class="media-player-volume"
+                    class={twClasses("media-player-volume", jsxTailwindStyles, "input")}
                     type="range"
                     min="0"
                     max="1"
@@ -185,7 +197,7 @@ export function MediaPlayer(props: MediaPlayerProps): JSX.Element {
                 />
             </div>
             <Show when={error()}>
-                <p class="media-player-error" role="alert">
+                <p class={twClasses("media-player-error", jsxTailwindStyles, "p")} role="alert">
                     {error()}
                 </p>
             </Show>
