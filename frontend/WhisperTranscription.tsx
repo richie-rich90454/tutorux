@@ -1,3 +1,5 @@
+import { twClasses } from "./tailwind";
+import { jsxTailwindStyles } from "./WhisperTranscription.tailwind";
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import { createSignal, onCleanup, Show } from "solid-js";
 import { newUuid } from "./archive/format";
@@ -217,49 +219,67 @@ export function WhisperTranscription(props: Props) {
         }
     };
     return (
-        <div class="transcript-whisper col-span-full min-w-0 rounded-panel border border-line bg-surface-subtle p-4">
-            <strong>Transcribe this recording</strong>
+        <div
+            class={twClasses(
+                "transcript-whisper col-span-full min-w-0 rounded-panel border border-line bg-surface-subtle p-4",
+                jsxTailwindStyles,
+                "div",
+            )}
+        >
+            <strong class={twClasses("", jsxTailwindStyles, "strong")}>
+                Transcribe this recording
+            </strong>
             <Show
                 when={isTauri()}
-                fallback={<p>Local Whisper transcription is available in the desktop app.</p>}
+                fallback={
+                    <p class={twClasses("", jsxTailwindStyles, "p")}>
+                        Local Whisper transcription is available in the desktop app.
+                    </p>
+                }
             >
-                <p>
+                <p class={twClasses("", jsxTailwindStyles, "p")}>
                     Create timestamped cues from the full recording with Whisper running locally.
                     Review the cues below before using them.
                 </p>
-                <p class="transcript-whisper-model" role="status">
+                <p
+                    class={twClasses("transcript-whisper-model", jsxTailwindStyles, "p")}
+                    role="status"
+                >
                     Bundled multilingual Whisper model · runs offline
                 </p>
-                <div class="transcript-whisper-actions">
-                    <label>
+                <div class={twClasses("transcript-whisper-actions", jsxTailwindStyles, "div")}>
+                    <label class={twClasses("", jsxTailwindStyles, "label")}>
                         <input
                             type="checkbox"
                             checked={fullTrack()}
                             disabled={busy()}
                             onChange={(event) => setFullTrack(event.currentTarget.checked)}
+                            class={twClasses("", jsxTailwindStyles, "input")}
                         />{" "}
                         Entire track
                     </label>
-                    <label>
+                    <label class={twClasses("", jsxTailwindStyles, "label")}>
                         <input
                             type="checkbox"
                             checked={refine()}
                             disabled={busy()}
                             onChange={(event) => setRefine(event.currentTarget.checked)}
+                            class={twClasses("", jsxTailwindStyles, "input")}
                         />{" "}
                         Replace provisional Whisper cues
                     </label>
-                    <label>
+                    <label class={twClasses("", jsxTailwindStyles, "label")}>
                         Language{" "}
                         <input
                             value={language()}
                             disabled={busy()}
                             onInput={(event) => setLanguage(event.currentTarget.value)}
                             aria-label="Whisper language code"
+                            class={twClasses("", jsxTailwindStyles, "input")}
                         />
                     </label>
                     <button
-                        class="button button-primary"
+                        class={twClasses("button button-primary", jsxTailwindStyles, "button")}
                         type="button"
                         disabled={props.disabled || busy()}
                         onClick={() => void transcribe()}
@@ -271,16 +291,24 @@ export function WhisperTranscription(props: Props) {
                               : "Transcribe preview"}
                     </button>
                     <Show when={busy()}>
-                        <button class="button button-outline" type="button" onClick={cancel}>
+                        <button
+                            class={twClasses("button button-outline", jsxTailwindStyles, "button")}
+                            type="button"
+                            onClick={cancel}
+                        >
                             Cancel transcription
                         </button>
                     </Show>
                 </div>
                 <Show when={message()}>
-                    <p role="status">{message()}</p>
+                    <p role="status" class={twClasses("", jsxTailwindStyles, "p")}>
+                        {message()}
+                    </p>
                 </Show>
                 <Show when={error()}>
-                    <p role="alert">{error()}</p>
+                    <p role="alert" class={twClasses("", jsxTailwindStyles, "p")}>
+                        {error()}
+                    </p>
                 </Show>
             </Show>
         </div>
