@@ -51,6 +51,10 @@ pub fn command_console_availability(window: WebviewWindow) -> Result<ConsoleAvai
 }
 
 #[tauri::command]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Tauri injects command state and IPC arguments as separate parameters."
+)]
 pub(crate) async fn run_command_console(
     app: AppHandle,
     window: WebviewWindow,
