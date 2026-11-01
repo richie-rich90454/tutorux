@@ -28,7 +28,10 @@ pub(super) struct CaptureSession {
     pub(super) application_audio_sample_rate_hz: u32,
 }
 
-pub(super) fn close_session(session: &CaptureSession, discard: bool) -> Result<WorkerSummary, String> {
+pub(super) fn close_session(
+    session: &CaptureSession,
+    discard: bool,
+) -> Result<WorkerSummary, String> {
     if discard {
         session.discarded.store(true, Ordering::Release);
     }
