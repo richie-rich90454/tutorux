@@ -1,3 +1,5 @@
+#![cfg_attr(all(windows, not(clippy)), allow(linker_messages))]
+
 pub mod ai_transport;
 pub mod archive_lock;
 pub mod archive_lock_support;
