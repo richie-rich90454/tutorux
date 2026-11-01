@@ -1,6 +1,5 @@
 use std::{
     collections::VecDeque,
-    path::PathBuf,
     sync::{
         atomic::{AtomicBool, Ordering},
         mpsc::{self, SyncSender, TrySendError},
@@ -163,7 +162,6 @@ pub(super) struct SharedOutput {
 }
 
 pub(super) struct LiveWhisperOptions {
-    pub(super) model_path: PathBuf,
     pub(super) model_name: String,
     pub(super) language: String,
     pub(super) window_seconds: u32,
@@ -171,7 +169,6 @@ pub(super) struct LiveWhisperOptions {
     pub(super) sample_rate_hz: u32,
     pub(super) first_sample_index: u64,
     pub(super) timeline_base_sample_index: u64,
-    pub(super) diarize_speaker_turns: bool,
 }
 
 pub(super) struct QueuedAudioChunk {
