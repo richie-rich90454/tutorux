@@ -10,9 +10,9 @@ The Windows release directory contains three distributable files:
 - `Tutorux_<version>_x64-setup.exe` installs the desktop application with NSIS.
 - `Tutorux_<version>_x64_portable.exe` is the Tauri desktop executable copied from `src-tauri/target/release/tutorux-desktop.exe`.
 
-The portable executable embeds the Vite frontend and native host in one application file. It does not unpack an application runtime directory and does not need adjacent Tutorux files. Windows still needs the system WebView2 runtime. Whisper and GGUF models and FFmpeg remain optional user-supplied tools or data; they are not bundled into this executable.
+The portable executable embeds the Vite frontend, native host, and multilingual Whisper Base Q5_1 model in one application file. The model is compiled into the executable and loaded directly from memory, so full-track and live transcription work offline without an external Whisper executable/model and without model extraction. The MSI and NSIS installers package the same model-enabled desktop executable. Windows still needs the system WebView2 runtime. GGUF models and FFmpeg remain optional user-supplied tools or data; they are not bundled into this executable.
 
-The portable application may create per-user state under `%LOCALAPPDATA%` for archive locks and detached recording controls. It uses uniquely named temporary files directly under the OS temp location for desktop transcription and compressed-audio import, then removes them. These workflows do not create a temporary workspace directory. The system credential service and WebView2 application data are used when the corresponding credential or preference features are selected.
+The portable application may create per-user state under `%LOCALAPPDATA%` for archive locks and detached recording controls. Compressed-audio import uses uniquely named temporary files directly under the OS temp location and removes them. Whisper transcription uses the embedded model and in-memory audio; neither workflow creates a temporary workspace directory. The system credential service and WebView2 application data are used when the corresponding credential or preference features are selected.
 
 ## Other operating systems
 
