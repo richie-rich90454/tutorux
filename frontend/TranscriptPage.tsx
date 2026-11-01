@@ -26,6 +26,8 @@ import {
 import { platform } from "@platform";
 import { EmptyState, Icon } from "./shared-ui";
 import { errorMessage, field, formatTimestamp, safeBigInt, safeFileName } from "./shared-utils";
+import "./transcript.css";
+
 export function TranscriptPage(props: {
     snapshot: ArchiveSnapshot;
     sessions: ArchiveRecord[];
@@ -459,97 +461,124 @@ export function TranscriptPage(props: {
         <div class="page-body transcript-page">
             <section class="record-heading transcript-heading">
                 <div>
-                    <span class="eyebrow">Listen closely, keep the words</span>
-                    <h1>Transcripts</h1>
+                    <span class="eyebrow">Capture a lesson, then keep the useful words</span>
+                    <h1>Record and transcribe</h1>
                     <p>
-                        Bring in text or subtitle cues, correct the wording, and mark what you’ve
-                        reviewed. Imported speech stays provisional until you verify it.
+                        Choose a session, record or import its audio, then create and review
+                        transcript cues alongside the recording.
                     </p>
                 </div>
-                <span class="transcript-page-mark" aria-hidden="true">
-                    <Icon name="transcripts" />
-                </span>
+                <div class="transcript-heading-actions">
+                    <Show when={props.sessions.length > 0}>
+                        <button
+                            class="button button-outline"
+                            type="button"
+                            disabled={props.disabled}
+                            onClick={() => props.onNewSession()}
+                        >
+                            <Icon name="plus" />
+                            New session
+                        </button>
+                    </Show>
+                    <span class="transcript-page-mark" aria-hidden="true">
+                        <Icon name="microphone" />
+                    </span>
+                </div>
             </section>
 
-            <section class="transcript-controls" aria-label="Transcript actions">
-                <label class="transcript-session-picker">
-                    <span class="eyebrow">Session</span>
-                    <select
-                        value={selectedSession()?.id ?? ""}
-                        disabled={props.sessions.length === 0 || captureState() !== "idle"}
-                        onChange={(event) => {
-                            clearAudio();
-                            setAddSeparateTrack(false);
-                            setSelectedCueIds([]);
-                            setCaptureConsent(false);
-                            setCaptureError("");
-                            setCaptureElapsed(0);
-                            props.onSelectSession(event.currentTarget.value);
-                        }}
-                        aria-label="Transcript session"
-                    >
-                        <Show when={props.sessions.length === 0}>
-                            <option value="">No sessions yet</option>
-                        </Show>
-                        <For each={props.sessions}>
-                            {(session) => (
-                                <option value={session.id}>
-                                    {field(session, "title", "Untitled session")}
-                                </option>
-                            )}
-                        </For>
-                    </select>
-                </label>
-                <Show when={sessionHasAudio()}>
-                    <label class="transcript-audio-add-checkbox">
-                        <input
-                            type="checkbox"
-                            checked={addSeparateTrack()}
-                            disabled={props.disabled}
-                            onChange={(event) => setAddSeparateTrack(event.currentTarget.checked)}
-                        />
-                        <span>Keep existing audio and add this as a separate track</span>
-                    </label>
-                </Show>
-                <div class="transcript-control-actions">
-                    <input
-                        ref={(element) => (fileInput = element)}
-                        class="visually-hidden"
-                        type="file"
-                        accept=".txt,.srt,.vtt,text/plain,text/vtt,application/x-subrip"
-                        onChange={receiveFile}
-                        aria-label="Choose transcript source file"
-                    />
-                    <input
-                        ref={(element) => (audioFileInput = element)}
-                        class="visually-hidden"
-                        type="file"
-                        accept=".wav,audio/wav,audio/x-wav"
-                        onChange={receiveAudioFile}
-                        aria-label="Choose WAV audio file"
-                    />
+            <Show when={props.sessions.length === 0}>
+                <section class="record-onboarding" aria-labelledby="record-onboarding-title">
+                    <span class="record-onboarding-mark" aria-hidden="true">
+                        <Icon name="microphone" />
+                    </span>
+                    <div>
+                        <h2 id="record-onboarding-title">Start with a tutoring session</h2>
+                        <p>
+                            Create the session first. Tutorux will keep its recording, transcript,
+                            notes, and materials together in this archive.
+                        </p>
+                    </div>
                     <button
                         class="button button-primary"
                         type="button"
-                        disabled={props.disabled || !selectedSession()}
-                        onClick={chooseImport}
+                        disabled={props.disabled}
+                        onClick={() => props.onNewSession()}
                     >
                         <Icon name="plus" />
-                        Import cues
+                        Create session
                     </button>
-                    <button
-                        class="button button-outline"
-                        type="button"
-                        disabled={
-                            props.disabled ||
-                            !selectedSession() ||
-                            (sessionHasAudio() && !addSeparateTrack())
-                        }
-                        onClick={chooseAudioImport}
-                    >
-                        {sessionHasAudio() ? "Add WAV track" : "Import WAV"}
-                    </button>
-                    <Show when={platform.kind === "desktop"}>
+                </section>
+            </Show>
+
+            <Show when={props.sessions.length > 0}>
+                <section class="transcript-controls" aria-label="Transcript actions">
+                    <label class="transcript-session-picker">
+                        <span class="eyebrow">Session</span>
+                        <select
+                            value={selectedSession()?.id ?? ""}
+                            disabled={props.sessions.length === 0 || captureState() !== "idle"}
+                            onChange={(event) => {
+                                clearAudio();
+                                setAddSeparateTrack(false);
+                                setSelectedCueIds([]);
+                                setCaptureConsent(false);
+                                setCaptureError("");
+                                setCaptureElapsed(0);
+                                props.onSelectSession(event.currentTarget.value);
+                            }}
+                            aria-label="Transcript session"
+                        >
+                            <Show when={props.sessions.length === 0}>
+                                <option value="">No sessions yet</option>
+                            </Show>
+                            <For each={props.sessions}>
+                                {(session) => (
+                                    <option value={session.id}>
+                                        {field(session, "title", "Untitled session")}
+                                    </option>
+                                )}
+                            </For>
+                        </select>
+                    </label>
+                    <Show when={sessionHasAudio()}>
+                        <label class="transcript-audio-add-checkbox">
+                            <input
+                                type="checkbox"
+                                checked={addSeparateTrack()}
+                                disabled={props.disabled}
+                                onChange={(event) =>
+                                    setAddSeparateTrack(event.currentTarget.checked)
+                                }
+                            />
+                            <span>Keep existing audio and add this as a separate track</span>
+                        </label>
+                    </Show>
+                    <div class="transcript-control-actions">
+                        <input
+                            ref={(element) => (fileInput = element)}
+                            class="visually-hidden"
+                            type="file"
+                            accept=".txt,.srt,.vtt,text/plain,text/vtt,application/x-subrip"
+                            onChange={receiveFile}
+                            aria-label="Choose transcript source file"
+                        />
+                        <input
+                            ref={(element) => (audioFileInput = element)}
+                            class="visually-hidden"
+                            type="file"
+                            accept=".wav,audio/wav,audio/x-wav"
+                            onChange={receiveAudioFile}
+                            aria-label="Choose WAV audio file"
+                        />
+                        <button
+                            class="button button-primary"
+                            type="button"
+                            disabled={props.disabled || !selectedSession()}
+                            onClick={chooseImport}
+                        >
+                            <Icon name="plus" />
+                            Import cues
+                        </button>
                         <button
                             class="button button-outline"
                             type="button"
@@ -558,167 +587,183 @@ export function TranscriptPage(props: {
                                 !selectedSession() ||
                                 (sessionHasAudio() && !addSeparateTrack())
                             }
-                            onClick={() => {
-                                const session = selectedSession();
-                                if (session) {
-                                    props.onImportCompressedAudio(
-                                        session.id,
-                                        sessionHasAudio() && addSeparateTrack(),
-                                    );
-                                }
-                            }}
+                            onClick={chooseAudioImport}
                         >
-                            Import FLAC, MP3, or M4A
+                            {sessionHasAudio() ? "Add WAV track" : "Import WAV"}
                         </button>
-                    </Show>
-                    <Show when={recoverableWavImport()}>
-                        <button
-                            class="button button-outline"
-                            type="button"
-                            disabled={props.disabled || !selectedSession()}
-                            onClick={() => {
-                                const session = selectedSession();
-                                if (session) props.onRecoverAudio(session.id);
-                            }}
-                        >
-                            {selectedSession()?.fields.get("audio_import_state") === "completed"
-                                ? "Verify WAV import"
-                                : "Recover WAV import"}
-                        </button>
-                    </Show>
-                    <Show when={recoverableNativeCapture()}>
-                        <button
-                            class="button button-outline"
-                            type="button"
-                            disabled={props.disabled || captureRecorder?.state === "recording"}
-                            onClick={() => {
-                                const session = selectedSession();
-                                if (session) props.onRecoverNativeAudio(session.id);
-                            }}
-                        >
-                            Recover saved recording
-                        </button>
-                    </Show>
-                    <label class="transcript-export-picker">
-                        <span class="visually-hidden">Export format</span>
-                        <select
-                            value={exportFormat()}
-                            disabled={props.disabled || !selectedSession()}
-                            onChange={(event) =>
-                                setExportFormat(event.currentTarget.value as TranscriptExportFormat)
-                            }
-                            aria-label="Transcript export format"
-                        >
-                            <option value="text">Text</option>
-                            <option value="srt">SubRip</option>
-                            <option value="vtt">WebVTT</option>
-                            <option value="json">JSON</option>
-                        </select>
-                    </label>
-                    <button
-                        class="button button-outline"
-                        type="button"
-                        disabled={props.disabled || !selectedSession()}
-                        onClick={() => {
-                            const session = selectedSession();
-                            if (session) props.onExport(session.id, exportFormat());
-                        }}
-                    >
-                        Export
-                    </button>
-                </div>
-            </section>
-
-            <section class="transcript-capture-panel" aria-label="Microphone recording">
-                <div class="transcript-capture-copy">
-                    <span class="eyebrow">Session audio</span>
-                    <strong>Record from microphone</strong>
-                    <span>
-                        Saved locally as an audio material for playback, export, or cue links.
-                        Recording stops and saves when you leave this view.
-                    </span>
-                </div>
-                <label class="transcript-capture-consent">
-                    <input
-                        type="checkbox"
-                        checked={captureConsent()}
-                        disabled={props.disabled || captureState() !== "idle"}
-                        onChange={(event) => setCaptureConsent(event.currentTarget.checked)}
-                    />
-                    <span>I have permission to record this session</span>
-                </label>
-                <div class="transcript-capture-state">
-                    <Show when={captureState() === "recording"}>
-                        <span class="transcript-capture-live" role="timer" aria-live="off">
-                            <i aria-hidden="true" />
-                            Recording
-                            <strong>
-                                {`${Math.floor(captureElapsed() / 60)
-                                    .toString()
-                                    .padStart(
-                                        2,
-                                        "0",
-                                    )}:${(captureElapsed() % 60).toString().padStart(2, "0")}`}
-                            </strong>
-                        </span>
-                    </Show>
-                    <div class="transcript-capture-actions">
-                        <Show when={captureState() === "idle"}>
+                        <Show when={platform.kind === "desktop"}>
                             <button
-                                class="button button-primary"
+                                class="button button-outline"
                                 type="button"
                                 disabled={
                                     props.disabled ||
                                     !selectedSession() ||
-                                    !captureConsent() ||
-                                    !microphoneAvailable()
+                                    (sessionHasAudio() && !addSeparateTrack())
                                 }
-                                onClick={() => void startCapture()}
+                                onClick={() => {
+                                    const session = selectedSession();
+                                    if (session) {
+                                        props.onImportCompressedAudio(
+                                            session.id,
+                                            sessionHasAudio() && addSeparateTrack(),
+                                        );
+                                    }
+                                }}
                             >
-                                <Icon name="microphone" />
-                                Record
+                                Import FLAC, MP3, or M4A
                             </button>
                         </Show>
-                        <Show when={captureState() === "recording"}>
+                        <Show when={recoverableWavImport()}>
                             <button
-                                class="button button-danger"
+                                class="button button-outline"
                                 type="button"
-                                onClick={stopCapture}
+                                disabled={props.disabled || !selectedSession()}
+                                onClick={() => {
+                                    const session = selectedSession();
+                                    if (session) props.onRecoverAudio(session.id);
+                                }}
                             >
-                                Stop and save
+                                {selectedSession()?.fields.get("audio_import_state") === "completed"
+                                    ? "Verify WAV import"
+                                    : "Recover WAV import"}
                             </button>
                         </Show>
-                        <Show when={captureState() === "saving"}>
-                            <span
-                                class="transcript-capture-saving"
-                                role="status"
-                                aria-live="polite"
+                        <Show when={recoverableNativeCapture()}>
+                            <button
+                                class="button button-outline"
+                                type="button"
+                                disabled={props.disabled || captureRecorder?.state === "recording"}
+                                onClick={() => {
+                                    const session = selectedSession();
+                                    if (session) props.onRecoverNativeAudio(session.id);
+                                }}
                             >
-                                Saving recording…
-                            </span>
+                                Recover saved recording
+                            </button>
                         </Show>
-                        <Show when={captureState() === "requesting"}>
-                            <span
-                                class="transcript-capture-saving"
-                                role="status"
-                                aria-live="polite"
+                        <label class="transcript-export-picker">
+                            <span class="visually-hidden">Export format</span>
+                            <select
+                                value={exportFormat()}
+                                disabled={props.disabled || !selectedSession()}
+                                onChange={(event) =>
+                                    setExportFormat(
+                                        event.currentTarget.value as TranscriptExportFormat,
+                                    )
+                                }
+                                aria-label="Transcript export format"
                             >
-                                Waiting for microphone permission…
-                            </span>
-                        </Show>
+                                <option value="text">Text</option>
+                                <option value="srt">SubRip</option>
+                                <option value="vtt">WebVTT</option>
+                                <option value="json">JSON</option>
+                            </select>
+                        </label>
+                        <button
+                            class="button button-outline"
+                            type="button"
+                            disabled={props.disabled || !selectedSession()}
+                            onClick={() => {
+                                const session = selectedSession();
+                                if (session) props.onExport(session.id, exportFormat());
+                            }}
+                        >
+                            Export
+                        </button>
                     </div>
-                </div>
-                <Show when={!microphoneAvailable()}>
-                    <span class="transcript-capture-note">
-                        Microphone recording is not available in this window.
-                    </span>
-                </Show>
-                <Show when={captureError()}>
-                    <span class="transcript-capture-error" role="alert">
-                        {captureError()}
-                    </span>
-                </Show>
-            </section>
+                </section>
+
+                <section class="transcript-capture-panel" aria-label="Microphone recording">
+                    <div class="transcript-capture-copy">
+                        <span class="eyebrow">Session audio</span>
+                        <strong>Record from microphone</strong>
+                        <span>
+                            Save the recording to this session, then use “Transcribe this recording”
+                            below to create timestamped cues.
+                        </span>
+                    </div>
+                    <label class="transcript-capture-consent">
+                        <input
+                            type="checkbox"
+                            checked={captureConsent()}
+                            disabled={props.disabled || captureState() !== "idle"}
+                            onChange={(event) => setCaptureConsent(event.currentTarget.checked)}
+                        />
+                        <span>I have permission to record this session</span>
+                    </label>
+                    <div class="transcript-capture-state">
+                        <Show when={captureState() === "recording"}>
+                            <span class="transcript-capture-live" role="timer" aria-live="off">
+                                <i aria-hidden="true" />
+                                Recording
+                                <strong>
+                                    {`${Math.floor(captureElapsed() / 60)
+                                        .toString()
+                                        .padStart(
+                                            2,
+                                            "0",
+                                        )}:${(captureElapsed() % 60).toString().padStart(2, "0")}`}
+                                </strong>
+                            </span>
+                        </Show>
+                        <div class="transcript-capture-actions">
+                            <Show when={captureState() === "idle"}>
+                                <button
+                                    class="button button-primary"
+                                    type="button"
+                                    disabled={
+                                        props.disabled ||
+                                        !selectedSession() ||
+                                        !captureConsent() ||
+                                        !microphoneAvailable()
+                                    }
+                                    onClick={() => void startCapture()}
+                                >
+                                    <Icon name="microphone" />
+                                    Record
+                                </button>
+                            </Show>
+                            <Show when={captureState() === "recording"}>
+                                <button
+                                    class="button button-danger"
+                                    type="button"
+                                    onClick={stopCapture}
+                                >
+                                    Stop and save
+                                </button>
+                            </Show>
+                            <Show when={captureState() === "saving"}>
+                                <span
+                                    class="transcript-capture-saving"
+                                    role="status"
+                                    aria-live="polite"
+                                >
+                                    Saving recording…
+                                </span>
+                            </Show>
+                            <Show when={captureState() === "requesting"}>
+                                <span
+                                    class="transcript-capture-saving"
+                                    role="status"
+                                    aria-live="polite"
+                                >
+                                    Waiting for microphone permission…
+                                </span>
+                            </Show>
+                        </div>
+                    </div>
+                    <Show when={!microphoneAvailable()}>
+                        <span class="transcript-capture-note">
+                            Microphone recording is not available in this window.
+                        </span>
+                    </Show>
+                    <Show when={captureError()}>
+                        <span class="transcript-capture-error" role="alert">
+                            {captureError()}
+                        </span>
+                    </Show>
+                </section>
+            </Show>
 
             <Show
                 when={
@@ -915,10 +960,10 @@ export function TranscriptPage(props: {
                             onSelectTime={(timeUs) => void playAudioAt(timeUs.toString())}
                         />
                     </Show>
-                    <Show when={audioPreview() && selectedSession() && selectedTrack()}>
+                    <Show when={selectedSession() && selectedTrack()}>
                         <WhisperTranscription
                             snapshot={props.snapshot}
-                            preview={audioPreview()!}
+                            preview={audioPreview()}
                             sessionId={selectedSession()!.id}
                             trackId={selectedTrack()!.id}
                             records={sessionRecords()}
@@ -934,89 +979,91 @@ export function TranscriptPage(props: {
                 </section>
             </Show>
 
-            <section class="record-list-shell transcript-list-shell">
-                <div class="record-list-toolbar">
-                    <span>
-                        <strong>{sessionRecords().length}</strong> transcript cues
-                        <Show when={selectedSession()}>
-                            {(session) => (
-                                <span> · {field(session(), "title", "Untitled session")}</span>
-                            )}
-                        </Show>
-                    </span>
-                    <span class="list-view-label">
-                        <Icon name="shield" />
-                        Review before reuse
-                    </span>
-                    <button
-                        class="button button-outline transcript-merge-button"
-                        type="button"
-                        disabled={props.disabled || selectedCues().length < 2}
-                        onClick={async () => {
-                            if (await props.onMerge(selectedCues())) setSelectedCueIds([]);
-                        }}
-                    >
-                        Merge{" "}
-                        {selectedCues().length ? `(${selectedCues().length})` : "selected cues"}
-                    </button>
-                </div>
-                <Show
-                    when={selectedSession()}
-                    fallback={
-                        <EmptyState
-                            icon="sessions"
-                            title="Start with a session"
-                            text="Transcript cues belong to a tutoring session, so create or open one first."
-                            action="Create a session"
-                            onAction={props.onNewSession}
-                            disabled={props.disabled}
-                        />
-                    }
-                >
+            <Show when={props.sessions.length > 0}>
+                <section class="record-list-shell transcript-list-shell">
+                    <div class="record-list-toolbar">
+                        <span>
+                            <strong>{sessionRecords().length}</strong> transcript cues
+                            <Show when={selectedSession()}>
+                                {(session) => (
+                                    <span> · {field(session(), "title", "Untitled session")}</span>
+                                )}
+                            </Show>
+                        </span>
+                        <span class="list-view-label">
+                            <Icon name="shield" />
+                            Review before reuse
+                        </span>
+                        <button
+                            class="button button-outline transcript-merge-button"
+                            type="button"
+                            disabled={props.disabled || selectedCues().length < 2}
+                            onClick={async () => {
+                                if (await props.onMerge(selectedCues())) setSelectedCueIds([]);
+                            }}
+                        >
+                            Merge{" "}
+                            {selectedCues().length ? `(${selectedCues().length})` : "selected cues"}
+                        </button>
+                    </div>
                     <Show
-                        when={sessionRecords().length > 0}
+                        when={selectedSession()}
                         fallback={
                             <EmptyState
-                                icon="transcripts"
-                                title="No transcript cues yet"
-                                text="Import a plain text, SubRip, or WebVTT file to begin reviewing what was said."
-                                action="Import a transcript"
-                                onAction={chooseImport}
+                                icon="sessions"
+                                title="Start with a session"
+                                text="Transcript cues belong to a tutoring session, so create or open one first."
+                                action="Create a session"
+                                onAction={props.onNewSession}
                                 disabled={props.disabled}
                             />
                         }
                     >
-                        <div class="transcript-list">
-                            <For each={sessionRecords()}>
-                                {(record, index) => (
-                                    <TranscriptCueCard
-                                        record={record}
-                                        displayIndex={index() + 1}
-                                        disabled={props.disabled}
-                                        audioAvailable={sessionTracks().length > 0}
-                                        selected={selectedCueIds().includes(record.id)}
-                                        assets={sessionAssets()}
-                                        onListen={(cue) => void playFromCue(cue)}
-                                        onToggleSelection={(cue, selected) =>
-                                            setSelectedCueIds((current) =>
-                                                selected
-                                                    ? [...new Set([...current, cue.id])]
-                                                    : current.filter((id) => id !== cue.id),
-                                            )
-                                        }
-                                        onSave={props.onSave}
-                                        onVerify={props.onVerify}
-                                        onHistory={props.onHistory}
-                                        onRestore={props.onRestore}
-                                        onSplit={props.onSplit}
-                                        onLinkAssets={props.onLinkAssets}
-                                    />
-                                )}
-                            </For>
-                        </div>
+                        <Show
+                            when={sessionRecords().length > 0}
+                            fallback={
+                                <EmptyState
+                                    icon="transcripts"
+                                    title="No transcript cues yet"
+                                    text="Import a plain text, SubRip, or WebVTT file to begin reviewing what was said."
+                                    action="Import a transcript"
+                                    onAction={chooseImport}
+                                    disabled={props.disabled}
+                                />
+                            }
+                        >
+                            <div class="transcript-list">
+                                <For each={sessionRecords()}>
+                                    {(record, index) => (
+                                        <TranscriptCueCard
+                                            record={record}
+                                            displayIndex={index() + 1}
+                                            disabled={props.disabled}
+                                            audioAvailable={sessionTracks().length > 0}
+                                            selected={selectedCueIds().includes(record.id)}
+                                            assets={sessionAssets()}
+                                            onListen={(cue) => void playFromCue(cue)}
+                                            onToggleSelection={(cue, selected) =>
+                                                setSelectedCueIds((current) =>
+                                                    selected
+                                                        ? [...new Set([...current, cue.id])]
+                                                        : current.filter((id) => id !== cue.id),
+                                                )
+                                            }
+                                            onSave={props.onSave}
+                                            onVerify={props.onVerify}
+                                            onHistory={props.onHistory}
+                                            onRestore={props.onRestore}
+                                            onSplit={props.onSplit}
+                                            onLinkAssets={props.onLinkAssets}
+                                        />
+                                    )}
+                                </For>
+                            </div>
+                        </Show>
                     </Show>
-                </Show>
-            </section>
+                </section>
+            </Show>
         </div>
     );
 }
