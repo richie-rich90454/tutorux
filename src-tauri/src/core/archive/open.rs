@@ -192,11 +192,13 @@ impl ArchiveSnapshot {
     }
 }
 
+type ScannedCommitRoot = Option<(CommitInfo, BTreeMap<String, u64>, u64)>;
+
 fn scan_for_committed_root(
     source: &dyn ByteSource,
     search_start: u64,
     header: &ArchiveHeader,
-) -> Result<Option<(CommitInfo, BTreeMap<String, u64>, u64)>> {
+) -> Result<ScannedCommitRoot> {
     let chunk_size = 64 * 1024u64;
     let mut chunk_end = source.size();
     while chunk_end > search_start {
