@@ -12,6 +12,7 @@ This branch fixes the Windows desktop Save path and makes staged archive/export 
 - Keep the previous archive in a recovery location until the replacement lock is adopted and the opened archive state is updated. Preserve both the prior archive and staged work if safe publication or recovery fails.
 - Apply the same no-replace publication rule to transcript exports and CLI audio exports.
 - Add Rust regression coverage for existing-file replacement, Save As, concurrent destination creation, stale external edits, and recovery backups. Browser tests cover saving and reopening workspaces.
+- Route every save entry point through the conflict-aware action, including native shortcuts, quick actions, Preferences, and Archive health. Journal autosave now raises the same conflict status when the disk changed and clears it after a successful write.
 
 ### Recording and transcription
 
@@ -25,6 +26,8 @@ This branch fixes the Windows desktop Save path and makes staged archive/export 
 
 - Remove the 27 component CSS files. Their presentation rules now live as Tailwind v4 utility strings in per-component `.tailwind.tsx` modules and are applied from the related TSX through `frontend/tailwind.ts`. The remaining `frontend/styles.css` contains Tailwind setup/theme tokens, font faces, keyframes, print-page settings, and reduced-motion rules only.
 - Preserve the existing palette, typography, component geometry, themes, state selectors, and flat backgrounds; no intentional visual redesign was introduced by the CSS migration. No linear, radial, or conic gradients are used.
+- Keep the compact journal empty state in a separately scoped Tailwind utility map so it does not inherit the taller, centered welcome layout. Add regression coverage for its measured height and alignment.
+- Retain accessible names for navigation controls when their visible text is collapsed on narrow screens. Keep Materials reachable in the phone navigation; exercise every workspace at 1440, 1024, 820, and 390 pixel widths and assert there is no horizontal page overflow.
 - Disable Windows WebView2 general address/contact autofill suggestions so stored browser form data does not overlay app inputs. The app uses its normal Tauri/WebView2 runtime and does not spoof another browser's user agent.
 - Keep the default 500 kB JavaScript chunk warning. Rolldown splits route utilities, entry code, and vendor modules; route pages and PDF/cryptography features remain lazy-loaded. The current largest JavaScript chunk is 431.01 kB, below the warning threshold.
 - Keep generated source maps disabled for the Tailwind build output, avoiding broken-map warnings and reducing packaged output.
@@ -42,9 +45,9 @@ This branch fixes the Windows desktop Save path and makes staged archive/export 
 - `pnpm typecheck` — passed.
 - `pnpm format:check` — passed.
 - `pnpm test` — passed: 40 files and 246 tests.
-- `pnpm exec playwright test --workers=1 --reporter=list` — passed: all 13 browser end-to-end tests, including save/reopen, recording playback and take management, encrypted archives, workspace flows, and guide print preview.
+- `pnpm exec playwright test --workers=1 --reporter=list` — passed: all 15 browser end-to-end tests, including the compact journal empty state, responsive workspace navigation, save/reopen, recording playback and take management, encrypted archives, workspace flows, and guide print preview.
 - `cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets --all-features --locked -- -D warnings` — passed with warnings denied.
-- `cargo test --manifest-path src-tauri/Cargo.toml --lib -- --test-threads=1` — passed: 187 tests, including archive save publication and embedded Whisper model initialization/transcription.
+- `cargo test --manifest-path src-tauri/Cargo.toml --lib -- --test-threads=1` — passed: 187 tests, including archive save publication and embedded Whisper model initialization/transcription. On Windows, run with permission to create/move temporary files and bind loopback test servers.
 - `pnpm build` — passed with no Babel deoptimization or JavaScript chunk-size warning. The largest JavaScript chunk was the 431.01 kB PDF vendor chunk (129.98 kB gzip).
 - `pnpm desktop:build` — passed on Windows and collected both installers and the portable EXE. The Rust release build emitted no source warnings.
 
