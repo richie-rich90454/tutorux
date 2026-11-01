@@ -90,8 +90,8 @@ pub(crate) fn enumerate() -> Result<Vec<NativeCaptureDevice>, String> {
             }
         }
     }
-    microphones.sort_by(|left, right| left.name.to_lowercase().cmp(&right.name.to_lowercase()));
-    system_audio.sort_by(|left, right| left.name.to_lowercase().cmp(&right.name.to_lowercase()));
+    microphones.sort_by_key(|left| left.name.to_lowercase());
+    system_audio.sort_by_key(|left| left.name.to_lowercase());
     microphones.dedup_by(|left, right| left.backend == right.backend && left.id == right.id);
     system_audio.dedup_by(|left, right| left.backend == right.backend && left.id == right.id);
     microphones.extend(system_audio);
