@@ -14,7 +14,8 @@ const IMAGE_HEIGHT_LIMIT: f64 = 600.0;
 
 fn win_ansi(character: char) -> Option<u8> {
     let code = character as u32;
-    let mapped = match code {
+
+    match code {
         0x20..=0x7e => Some(code as u8),
         0xa0..=0xff => Some(code as u8),
         0x20ac => Some(0x80),
@@ -45,8 +46,7 @@ fn win_ansi(character: char) -> Option<u8> {
         0x017e => Some(0x9e),
         0x0178 => Some(0x9f),
         _ => None,
-    };
-    mapped
+    }
 }
 
 fn literal_string(text: &str) -> Option<Vec<u8>> {
