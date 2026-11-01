@@ -9,8 +9,8 @@ use crate::core::format::{ArchiveRecord, RecordType};
 
 use super::super::providers::ProviderDef;
 use super::package::create_package;
-use super::response::create as create_proposal;
 use super::ready;
+use super::response::create as create_proposal;
 
 pub(super) fn package(
     args: &ParsedArguments,
@@ -20,7 +20,9 @@ pub(super) fn package(
 ) -> CliResult<i32> {
     let format = args.option("format").unwrap_or("json");
     if !["json", "markdown", "md", "parts", "zip"].contains(&format) {
-        return Err(CliError("Package format must be json, markdown, parts, or zip.".to_owned()).into());
+        return Err(
+            CliError("Package format must be json, markdown, parts, or zip.".to_owned()).into(),
+        );
     }
     let mode = args.option("mode").unwrap_or("manual");
     if !matches!(mode, "manual" | "local") {
@@ -31,7 +33,8 @@ pub(super) fn package(
     }
     if format == "zip" && !args.flag("confirm-sensitive") {
         return Err(CliError(
-            "ZIP packages include session materials; use --confirm-sensitive to export them.".to_owned(),
+            "ZIP packages include session materials; use --confirm-sensitive to export them."
+                .to_owned(),
         )
         .into());
     }
@@ -52,13 +55,16 @@ pub(super) fn package(
         &image_ids,
     )?;
     let mut job = summary.job.clone();
-    job.fields.insert("requested_mode".to_owned(), mode.to_owned());
+    job.fields
+        .insert("requested_mode".to_owned(), mode.to_owned());
     let next = snapshot.append_records(&[job.clone()])?;
     crate::core::cli::records::save_replacing(path, &next)?;
     let destination = args.option("output").map(crate::core::cli::resolve_path);
     if let Some(destination) = &destination {
         if crate::core::cli::records::same_path_public(destination, path) {
-            return Err(CliError("Package output cannot replace its source archive.".to_owned()).into());
+            return Err(
+                CliError("Package output cannot replace its source archive.".to_owned()).into(),
+            );
         }
         crate::core::cli::write_file_atomically(destination, &job.blob)?;
     }
@@ -76,7 +82,10 @@ pub(super) fn package(
             "assets": summary.asset_count,
             "output": destination.as_ref().map(|value| value.to_string_lossy().into_owned()).unwrap_or_default(),
         }),
-        &format!("AI package {} prepared. SHA-256: {}.", job.id, summary.content_hash),
+        &format!(
+            "AI package {} prepared. SHA-256: {}.",
+            job.id, summary.content_hash
+        ),
         args.json(),
     );
     Ok(0)
@@ -110,9 +119,17 @@ pub(super) fn import(
         .map_err(|_| CliError("The response was not valid UTF-8.".to_owned()))?;
     let response_template = serde_json::from_str::<Value>(&text)
         .ok()
-        .and_then(|value| value.get("template_id").and_then(Value::as_str).map(str::to_owned))
+        .and_then(|value| {
+            value
+                .get("template_id")
+                .and_then(Value::as_str)
+                .map(str::to_owned)
+        })
         .unwrap_or_else(|| "general".to_owned());
-    let expected_template = args.option("template").unwrap_or(&response_template).to_owned();
+    let expected_template = args
+        .option("template")
+        .unwrap_or(&response_template)
+        .to_owned();
     let mut proposal = create_proposal(&text, &session_id, &expected_template);
     if let Some(title) = args.option("title") {
         proposal.draft.title = title.to_owned();
@@ -148,11 +165,12 @@ pub(super) fn import(
         }
     };
     if source_validation == "passed"
-        && !proposal
-            .draft
-            .sections
-            .iter()
-            .any(|section| section.blocks.iter().any(|block| !block.source_ids.is_empty()))
+        && !proposal.draft.sections.iter().any(|section| {
+            section
+                .blocks
+                .iter()
+                .any(|block| !block.source_ids.is_empty())
+        })
     {
         source_validation = "missing-evidence";
     }
@@ -197,7 +215,10 @@ pub(super) fn import(
             "source_validation": source_validation,
             "warnings": proposal.warnings,
         }),
-        &format!("Imported response as unapproved guide {} ({status}).", guide.id),
+        &format!(
+            "Imported response as unapproved guide {} ({status}).",
+            guide.id
+        ),
         args.json(),
     );
     Ok(0)
@@ -213,7 +234,12 @@ pub(super) fn jobs(
     let records = snapshot.list_records(RecordType::AI_JOB, args.flag("include-deleted"))?;
     emit(
         output,
-        Value::Array(records.iter().map(crate::core::cli::records::plain).collect()),
+        Value::Array(
+            records
+                .iter()
+                .map(crate::core::cli::records::plain)
+                .collect(),
+        ),
         &format!("{} AI job(s).", records.len()),
         args.json(),
     );
@@ -261,7 +287,9 @@ pub(super) fn resolve_credential(
             if !name.bytes().enumerate().all(|(index, byte)| {
                 byte == b'_' || byte.is_ascii_alphabetic() || (index > 0 && byte.is_ascii_digit())
             }) {
-                return Err(CliError("Invalid API key environment variable name.".to_owned()).into());
+                return Err(
+                    CliError("Invalid API key environment variable name.".to_owned()).into(),
+                );
             }
             if let Ok(value) = std::env::var(&name) {
                 if !value.is_empty() {
@@ -288,4 +316,3 @@ pub(super) fn resolve_credential(
     }
     Ok(String::new())
 }
-
