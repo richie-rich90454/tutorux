@@ -55,10 +55,7 @@ pub(super) fn rename(
         .ok_or_else(|| CliError("Archive manifest is missing.".to_owned()))?;
     let mut fields = manifest.fields.clone();
     fields.insert("display_name".to_owned(), name.clone());
-    let updated = ArchiveRecord {
-        fields,
-        ..manifest
-    };
+    let updated = ArchiveRecord { fields, ..manifest };
     let next = snapshot.append_records(&[updated])?;
     let bytes = super::helpers::read_bytes(&next)?;
     drop(next);
