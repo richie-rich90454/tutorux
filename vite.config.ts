@@ -23,6 +23,10 @@ export default defineConfig(({ mode }) => ({
     build: {
         target: "es2022",
         sourcemap: true,
+        // libsodium-wrappers-sumo is a single ~534 kB vendor module. It is kept
+        // behind lazy crypto imports, so allow that known chunk while warning
+        // on chunks larger than 535 kB.
+        chunkSizeWarningLimit: 535,
     },
     test: {
         environment: "node",
