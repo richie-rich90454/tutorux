@@ -1,3 +1,5 @@
+import { twClasses, twUtilities } from "./tailwind";
+import { jsxTailwindStyles } from "./DocumentEditor.tailwind";
 import {
     For,
     Index,
@@ -23,7 +25,6 @@ import {
 } from "./domain/document-export";
 import { platform } from "@platform";
 import { PieceTable } from "./domain/piece-table";
-import "./document-editor.css";
 
 const blockLabels: Record<JournalNoteBlockKind, string> = {
     paragraph: "Paragraph",
@@ -553,10 +554,13 @@ export function DocumentEditor(props: {
                     .querySelector("main.note-document");
                 if (!printable) throw new Error("The document could not be prepared for printing.");
                 const preview = document.createElement("div");
-                preview.className = "note-print-preview";
+                preview.className = twClasses("note-print-preview", jsxTailwindStyles);
                 preview.append(printable.cloneNode(true));
                 document.body.append(preview);
-                document.documentElement.classList.add("note-printing");
+                document.documentElement.classList.add(
+                    "note-printing",
+                    ...twUtilities(jsxTailwindStyles, ["note-printing"]),
+                );
                 const cleanup = (): void => {
                     preview.remove();
                     document.documentElement.classList.remove("note-printing");
@@ -609,7 +613,7 @@ export function DocumentEditor(props: {
             ref={(element) => {
                 editorElement = element;
             }}
-            class="document-editor"
+            class={twClasses("document-editor", jsxTailwindStyles, "section")}
             aria-label="Note document editor"
             onKeyDown={(event) => {
                 if (event.isComposing || !(event.ctrlKey || event.metaKey) || event.altKey) return;
@@ -647,21 +651,24 @@ export function DocumentEditor(props: {
                 else undo();
             }}
         >
-            <div class="document-editor-toolbar">
-                <div class="document-editor-summary">
-                    <span class="document-editor-mark" aria-hidden="true">
+            <div class={twClasses("document-editor-toolbar", jsxTailwindStyles, "div")}>
+                <div class={twClasses("document-editor-summary", jsxTailwindStyles, "div")}>
+                    <span
+                        class={twClasses("document-editor-mark", jsxTailwindStyles, "span")}
+                        aria-hidden="true"
+                    >
                         ¶
                     </span>
-                    <div>
-                        <strong>Document</strong>
-                        <small>
+                    <div class={twClasses("", jsxTailwindStyles, "div")}>
+                        <strong class={twClasses("", jsxTailwindStyles, "strong")}>Document</strong>
+                        <small class={twClasses("", jsxTailwindStyles, "small")}>
                             {props.blocks.length} {props.blocks.length === 1 ? "block" : "blocks"}
                         </small>
                     </div>
                 </div>
-                <div class="document-editor-tools">
+                <div class={twClasses("document-editor-tools", jsxTailwindStyles, "div")}>
                     <button
-                        class="button button-quiet"
+                        class={twClasses("button button-quiet", jsxTailwindStyles, "button")}
                         type="button"
                         onClick={openFind}
                         title="Find in notes (Ctrl or Command + F)"
@@ -669,7 +676,7 @@ export function DocumentEditor(props: {
                         Find
                     </button>
                     <button
-                        class="button button-quiet"
+                        class={twClasses("button button-quiet", jsxTailwindStyles, "button")}
                         type="button"
                         onClick={undo}
                         disabled={!canUndo()}
@@ -678,7 +685,7 @@ export function DocumentEditor(props: {
                         Undo
                     </button>
                     <button
-                        class="button button-quiet"
+                        class={twClasses("button button-quiet", jsxTailwindStyles, "button")}
                         type="button"
                         onClick={redo}
                         disabled={!canRedo()}
@@ -686,13 +693,20 @@ export function DocumentEditor(props: {
                     >
                         Redo
                     </button>
-                    <details class="document-export-menu">
-                        <summary class="button button-quiet">Export</summary>
-                        <div class="document-export-options">
+                    <details
+                        class={twClasses("document-export-menu", jsxTailwindStyles, "details")}
+                    >
+                        <summary
+                            class={twClasses("button button-quiet", jsxTailwindStyles, "summary")}
+                        >
+                            Export
+                        </summary>
+                        <div class={twClasses("document-export-options", jsxTailwindStyles, "div")}>
                             <button
                                 type="button"
                                 disabled={exporting()}
                                 onClick={() => void exportDocument("markdown")}
+                                class={twClasses("", jsxTailwindStyles, "button")}
                             >
                                 Markdown
                             </button>
@@ -700,6 +714,7 @@ export function DocumentEditor(props: {
                                 type="button"
                                 disabled={exporting()}
                                 onClick={() => void exportDocument("html")}
+                                class={twClasses("", jsxTailwindStyles, "button")}
                             >
                                 HTML
                             </button>
@@ -707,6 +722,7 @@ export function DocumentEditor(props: {
                                 type="button"
                                 disabled={exporting()}
                                 onClick={() => void exportDocument("docx")}
+                                class={twClasses("", jsxTailwindStyles, "button")}
                             >
                                 Word document
                             </button>
@@ -714,15 +730,16 @@ export function DocumentEditor(props: {
                                 type="button"
                                 disabled={exporting()}
                                 onClick={() => void exportDocument("pdf")}
+                                class={twClasses("", jsxTailwindStyles, "button")}
                             >
                                 PDF / Print
                             </button>
                         </div>
                     </details>
                 </div>
-                <div class="document-editor-add">
+                <div class={twClasses("document-editor-add", jsxTailwindStyles, "div")}>
                     <label
-                        class="sr-only"
+                        class={twClasses("sr-only", jsxTailwindStyles, "label")}
                         for={`new-block-kind-${props.label.replace(/\W+/gu, "-").toLowerCase()}`}
                     >
                         New block type
@@ -733,13 +750,18 @@ export function DocumentEditor(props: {
                         onChange={(event) =>
                             setNextKind(event.currentTarget.value as JournalNoteBlockKind)
                         }
+                        class={twClasses("", jsxTailwindStyles, "select")}
                     >
                         <For each={JOURNAL_NOTE_BLOCK_KINDS}>
                             {(kind) => <option value={kind}>{blockLabels[kind]}</option>}
                         </For>
                     </select>
                     <button
-                        class="button button-outline document-editor-add-button"
+                        class={twClasses(
+                            "button button-outline document-editor-add-button",
+                            jsxTailwindStyles,
+                            "button",
+                        )}
                         type="button"
                         disabled={props.blocks.length >= MAX_JOURNAL_NOTE_BLOCKS}
                         onClick={addBlock}
@@ -750,12 +772,12 @@ export function DocumentEditor(props: {
             </div>
 
             <div
-                class="document-editor-formatting"
+                class={twClasses("document-editor-formatting", jsxTailwindStyles, "div")}
                 role="group"
                 aria-label="Format selected note text"
             >
-                <span>Format selection</span>
-                <div>
+                <span class={twClasses("", jsxTailwindStyles, "span")}>Format selection</span>
+                <div class={twClasses("", jsxTailwindStyles, "div")}>
                     <For each={inlineFormatting}>
                         {(item) => {
                             const shortcut = item.key
@@ -775,10 +797,15 @@ export function DocumentEditor(props: {
                                     title={shortcut ? `${item.label} (${shortcut})` : item.label}
                                     onMouseDown={(event) => event.preventDefault()}
                                     onClick={() => applyInlineFormat(item.format)}
+                                    class={twClasses("", jsxTailwindStyles, "button")}
                                 >
-                                    <span>{item.label}</span>
+                                    <span class={twClasses("", jsxTailwindStyles, "span")}>
+                                        {item.label}
+                                    </span>
                                     <Show when={shortcut}>
-                                        <kbd>{shortcut}</kbd>
+                                        <kbd class={twClasses("", jsxTailwindStyles, "kbd")}>
+                                            {shortcut}
+                                        </kbd>
                                     </Show>
                                 </button>
                             );
@@ -788,8 +815,12 @@ export function DocumentEditor(props: {
             </div>
 
             <Show when={finding()}>
-                <div class="document-find" role="search" aria-label="Find and replace in notes">
-                    <label>
+                <div
+                    class={twClasses("document-find", jsxTailwindStyles, "div")}
+                    role="search"
+                    aria-label="Find and replace in notes"
+                >
+                    <label class={twClasses("", jsxTailwindStyles, "label")}>
                         Find
                         <input
                             ref={(element) => (findInput = element)}
@@ -798,22 +829,25 @@ export function DocumentEditor(props: {
                                 setQuery(event.currentTarget.value);
                                 setMatchIndex(-1);
                             }}
+                            class={twClasses("", jsxTailwindStyles, "input")}
                         />
                     </label>
-                    <label>
+                    <label class={twClasses("", jsxTailwindStyles, "label")}>
                         Replace with
                         <input
                             value={replacement()}
                             onInput={(event) => setReplacement(event.currentTarget.value)}
+                            class={twClasses("", jsxTailwindStyles, "input")}
                         />
                     </label>
-                    <span aria-live="polite">
+                    <span aria-live="polite" class={twClasses("", jsxTailwindStyles, "span")}>
                         {matches().length} {matches().length === 1 ? "match" : "matches"}
                     </span>
                     <button
                         type="button"
                         disabled={!matches().length}
                         onClick={() => selectMatch(matchIndex() - 1)}
+                        class={twClasses("", jsxTailwindStyles, "button")}
                     >
                         Previous
                     </button>
@@ -821,43 +855,80 @@ export function DocumentEditor(props: {
                         type="button"
                         disabled={!matches().length}
                         onClick={() => selectMatch(matchIndex() + 1)}
+                        class={twClasses("", jsxTailwindStyles, "button")}
                     >
                         Next
                     </button>
-                    <button type="button" disabled={!matches().length} onClick={replaceMatch}>
+                    <button
+                        type="button"
+                        disabled={!matches().length}
+                        onClick={replaceMatch}
+                        class={twClasses("", jsxTailwindStyles, "button")}
+                    >
                         Replace
                     </button>
-                    <button type="button" disabled={!matches().length} onClick={replaceAll}>
+                    <button
+                        type="button"
+                        disabled={!matches().length}
+                        onClick={replaceAll}
+                        class={twClasses("", jsxTailwindStyles, "button")}
+                    >
                         Replace all
                     </button>
                     <button
                         type="button"
                         onClick={() => setFinding(false)}
                         aria-label="Close find and replace"
+                        class={twClasses("", jsxTailwindStyles, "button")}
                     >
                         Close
                     </button>
                 </div>
             </Show>
 
-            <div class="document-editor-pages">
+            <div class={twClasses("document-editor-pages", jsxTailwindStyles, "div")}>
                 <Show
                     when={props.blocks.length > 0}
                     fallback={
-                        <div class="document-editor-empty">
-                            <span aria-hidden="true">＋</span>
-                            <p>Your document is clear. Add a block when you are ready to begin.</p>
+                        <div class={twClasses("document-editor-empty", jsxTailwindStyles, "div")}>
+                            <span
+                                aria-hidden="true"
+                                class={twClasses("", jsxTailwindStyles, "span")}
+                            >
+                                ＋
+                            </span>
+                            <p class={twClasses("", jsxTailwindStyles, "p")}>
+                                Your document is clear. Add a block when you are ready to begin.
+                            </p>
                         </div>
                     }
                 >
                     <Index each={props.blocks}>
                         {(block, index) => (
-                            <article class="document-block" data-kind={block().kind}>
-                                <div class="document-block-heading">
-                                    <span class="document-block-number">
+                            <article
+                                class={twClasses("document-block", jsxTailwindStyles, "article")}
+                                data-kind={block().kind}
+                            >
+                                <div
+                                    class={twClasses(
+                                        "document-block-heading",
+                                        jsxTailwindStyles,
+                                        "div",
+                                    )}
+                                >
+                                    <span
+                                        class={twClasses(
+                                            "document-block-number",
+                                            jsxTailwindStyles,
+                                            "span",
+                                        )}
+                                    >
                                         {String(index + 1).padStart(2, "0")}
                                     </span>
-                                    <label class="sr-only" for={editorId(index)}>
+                                    <label
+                                        class={twClasses("sr-only", jsxTailwindStyles, "label")}
+                                        for={editorId(index)}
+                                    >
                                         Block {index + 1} type
                                     </label>
                                     <select
@@ -869,6 +940,7 @@ export function DocumentEditor(props: {
                                                     .value as JournalNoteBlockKind,
                                             })
                                         }
+                                        class={twClasses("", jsxTailwindStyles, "select")}
                                     >
                                         <For each={JOURNAL_NOTE_BLOCK_KINDS}>
                                             {(kind) => (
@@ -876,7 +948,13 @@ export function DocumentEditor(props: {
                                             )}
                                         </For>
                                     </select>
-                                    <div class="document-block-actions">
+                                    <div
+                                        class={twClasses(
+                                            "document-block-actions",
+                                            jsxTailwindStyles,
+                                            "div",
+                                        )}
+                                    >
                                         <button
                                             type="button"
                                             aria-label={`Split block ${index + 1} at cursor`}
@@ -884,6 +962,7 @@ export function DocumentEditor(props: {
                                                 props.blocks.length >= MAX_JOURNAL_NOTE_BLOCKS
                                             }
                                             onClick={() => splitBlock(index)}
+                                            class={twClasses("", jsxTailwindStyles, "button")}
                                         >
                                             Split
                                         </button>
@@ -895,6 +974,7 @@ export function DocumentEditor(props: {
                                                 block().kind !== props.blocks[index + 1]?.kind
                                             }
                                             onClick={() => mergeNextBlock(index)}
+                                            class={twClasses("", jsxTailwindStyles, "button")}
                                         >
                                             Merge
                                         </button>
@@ -903,6 +983,7 @@ export function DocumentEditor(props: {
                                             aria-label={`Move block ${index + 1} up`}
                                             disabled={index === 0}
                                             onClick={() => moveBlock(index, -1)}
+                                            class={twClasses("", jsxTailwindStyles, "button")}
                                         >
                                             ↑
                                         </button>
@@ -911,11 +992,16 @@ export function DocumentEditor(props: {
                                             aria-label={`Move block ${index + 1} down`}
                                             disabled={index === props.blocks.length - 1}
                                             onClick={() => moveBlock(index, 1)}
+                                            class={twClasses("", jsxTailwindStyles, "button")}
                                         >
                                             ↓
                                         </button>
                                         <button
-                                            class="document-block-remove"
+                                            class={twClasses(
+                                                "document-block-remove",
+                                                jsxTailwindStyles,
+                                                "button",
+                                            )}
                                             type="button"
                                             aria-label={`Remove block ${index + 1}`}
                                             onClick={() => removeBlock(index)}
@@ -943,6 +1029,7 @@ export function DocumentEditor(props: {
                                     onBlur={() => {
                                         history.breakGroup();
                                     }}
+                                    class={twClasses("", jsxTailwindStyles, "textarea")}
                                 />
                             </article>
                         )}
@@ -950,11 +1037,11 @@ export function DocumentEditor(props: {
                 </Show>
             </div>
             <Show when={exportError()}>
-                <p class="document-editor-error" role="alert">
+                <p class={twClasses("document-editor-error", jsxTailwindStyles, "p")} role="alert">
                     {exportError()}
                 </p>
             </Show>
-            <p class="document-editor-footnote">
+            <p class={twClasses("document-editor-footnote", jsxTailwindStyles, "p")}>
                 Changes save with this record and stay inside your workspace.
             </p>
         </section>
