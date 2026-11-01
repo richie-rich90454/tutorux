@@ -68,7 +68,10 @@ impl Source {
         let mut samples = Vec::with_capacity(usize::from(self.channels));
         for channel in 0..usize::from(self.channels) {
             let at = self.offset + channel * self.width;
-            samples.push(decode_sample(&chunk.blob[at..at + self.width], &self.format));
+            samples.push(decode_sample(
+                &chunk.blob[at..at + self.width],
+                &self.format,
+            ));
         }
         Some(samples)
     }
@@ -84,8 +87,7 @@ impl Source {
             return false;
         }
         self.offset = 0;
-        self.sample_index = self
-            .chunks[self.chunk_index]
+        self.sample_index = self.chunks[self.chunk_index]
             .field("first_sample_index")
             .and_then(|value| value.parse::<u64>().ok())
             .unwrap_or(self.sample_index);
@@ -98,14 +100,18 @@ fn decode_sample(bytes: &[u8], format: &str) -> i32 {
         "pcm_u8" => (f64::from(bytes[0]) - 128.0) * 256.0,
         "pcm_s16le" => f64::from(i16::from_le_bytes([bytes[0], bytes[1]])),
         "pcm_s24le" => {
-            let raw = i32::from(bytes[0]) | (i32::from(bytes[1]) << 8) | (i32::from(bytes[2]) << 16);
-            let signed = if raw & 0x80_0000 != 0 { raw | !0xff_ffff } else { raw };
+            let raw =
+                i32::from(bytes[0]) | (i32::from(bytes[1]) << 8) | (i32::from(bytes[2]) << 16);
+            let signed = if raw & 0x80_0000 != 0 {
+                raw | !0xff_ffff
+            } else {
+                raw
+            };
             (f64::from(signed) / 256.0).round()
         }
-        "pcm_s32le" => {
-            (f64::from(i32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]])) / 65_536.0)
-                .round()
-        }
+        "pcm_s32le" => (f64::from(i32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]))
+            / 65_536.0)
+            .round(),
         "pcm_f32le" => {
             let sample = f32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]);
             if sample.is_finite() {
