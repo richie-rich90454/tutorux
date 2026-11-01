@@ -13,6 +13,13 @@ use std::sync::{
     Arc,
 };
 
+pub(super) fn stream_error_is_fatal(error: &cpal::Error) -> bool {
+    !matches!(
+        error.kind(),
+        cpal::ErrorKind::Xrun | cpal::ErrorKind::DeviceChanged
+    )
+}
+
 pub(super) fn start_stream(
     stream: &mut Option<cpal::Stream>,
     track: TrackKind,
@@ -142,7 +149,9 @@ pub(super) fn build_capture_stream(
                 }
             },
             move |error| {
-                error_signal.fail(device_error(track.as_str(), error));
+                if stream_error_is_fatal(&error) {
+                    error_signal.fail(device_error(track.as_str(), error));
+                }
             },
             None,
         )
@@ -168,7 +177,12 @@ impl DiscontinuityTracker {
 
     /// Returns the missing frames before this callback and whether the callback timeline jumped.
     /// `None` when the gap exceeds the bounded recovery window.
-    pub(super) fn observe(&mut self, at: StreamInstant, frames: u64, epoch: u64) -> Option<(u64, bool)> {
+    pub(super) fn observe(
+        &mut self,
+        at: StreamInstant,
+        frames: u64,
+        epoch: u64,
+    ) -> Option<(u64, bool)> {
         if self.anchor.is_none() || self.epoch != epoch {
             self.epoch = epoch;
             self.anchor = Some(at);
@@ -315,7 +329,10 @@ pub(super) fn sample_format_name(format: SampleFormat) -> &'static str {
     }
 }
 
-pub(super) fn validate_config(config: &cpal::SupportedStreamConfig, source: &str) -> Result<(), String> {
+pub(super) fn validate_config(
+    config: &cpal::SupportedStreamConfig,
+    source: &str,
+) -> Result<(), String> {
     let rate = config.sample_rate();
     if !(MIN_SAMPLE_RATE_HZ..=MAX_SAMPLE_RATE_HZ).contains(&rate) {
         return Err(format!(
