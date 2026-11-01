@@ -28,7 +28,8 @@ impl CliOutput for Output {
 
 impl Output {
     fn json(&self) -> Value {
-        serde_json::from_str(self.stdout.last().expect("stdout is empty")).expect("stdout is not JSON")
+        serde_json::from_str(self.stdout.last().expect("stdout is empty"))
+            .expect("stdout is not JSON")
     }
 }
 
@@ -48,11 +49,7 @@ fn context() -> CliContext {
     }
 }
 
-fn run(
-    action: &str,
-    args: ParsedArguments,
-    output: &mut Output,
-) -> CliResult<i32> {
+fn run(action: &str, args: ParsedArguments, output: &mut Output) -> CliResult<i32> {
     super::run_archive_command(action, args, output, &context())
 }
 
@@ -99,7 +96,9 @@ fn seeded_archive(directory: &Path) -> (PathBuf, u64) {
             ("text", "Hello".to_owned()),
         ],
     );
-    let next = snapshot.append_records(&[student, session, annotation]).unwrap();
+    let next = snapshot
+        .append_records(&[student, session, annotation])
+        .unwrap();
     std::fs::write(
         &path,
         next.source.read(0, next.source.size() as usize).unwrap(),
@@ -115,17 +114,17 @@ fn init_reports_created_without_an_encrypted_field() {
     let mut output = Output::default();
     let code = expect_ok(run(
         "init",
-        arguments(&[
-            path.to_str().unwrap(),
-            "--name",
-            "Test archive",
-            "--json",
-        ]),
+        arguments(&[path.to_str().unwrap(), "--name", "Test archive", "--json"]),
         &mut output,
     ));
     assert_eq!(code, 0);
     let value = output.json();
-    let keys: Vec<&str> = value.as_object().unwrap().keys().map(String::as_str).collect();
+    let keys: Vec<&str> = value
+        .as_object()
+        .unwrap()
+        .keys()
+        .map(String::as_str)
+        .collect();
     assert_eq!(keys, ["bytes", "created", "name", "path"]);
     assert_eq!(value["name"], "Test archive");
     assert_eq!(value["created"], true);
@@ -151,7 +150,11 @@ fn info_reports_verified_for_a_healthy_archive() {
     let directory = tempfile::tempdir().unwrap();
     let (path, _) = seeded_archive(directory.path());
     let mut output = Output::default();
-    let code = expect_ok(run("info", arguments(&[path.to_str().unwrap(), "--json"]), &mut output));
+    let code = expect_ok(run(
+        "info",
+        arguments(&[path.to_str().unwrap(), "--json"]),
+        &mut output,
+    ));
     assert_eq!(code, 0);
     let value = output.json();
     assert_eq!(value["verified"], true);
@@ -191,10 +194,7 @@ fn sanitize_preview_reports_counts_without_writing() {
     assert_eq!(value["credentials"], 0);
     assert_eq!(value["encrypted_output"], false);
     assert_eq!(value["source_generation"], generation.to_string());
-    assert_eq!(
-        value["selection_fingerprint"].as_str().unwrap().len(),
-        64
-    );
+    assert_eq!(value["selection_fingerprint"].as_str().unwrap().len(), 64);
     assert!(!destination.exists());
 }
 
@@ -215,7 +215,10 @@ fn sanitize_confirmation_publishes_the_reviewed_selection() {
         &mut preview,
     ));
     let preview = preview.json();
-    let fingerprint = preview["selection_fingerprint"].as_str().unwrap().to_owned();
+    let fingerprint = preview["selection_fingerprint"]
+        .as_str()
+        .unwrap()
+        .to_owned();
     let mut output = Output::default();
     let code = expect_ok(run(
         "sanitize",
@@ -244,9 +247,15 @@ fn sanitize_confirmation_publishes_the_reviewed_selection() {
     assert_eq!(value["annotations"], 1);
     assert!(destination.is_file());
     let copied = ArchiveSnapshot::open_bytes(std::fs::read(&destination).unwrap()).unwrap();
-    let students = copied.list_record_metadata(RecordType::STUDENT, true).unwrap();
-    let sessions = copied.list_record_metadata(RecordType::SESSION, true).unwrap();
-    let annotations = copied.list_record_metadata(RecordType::ANNOTATION, true).unwrap();
+    let students = copied
+        .list_record_metadata(RecordType::STUDENT, true)
+        .unwrap();
+    let sessions = copied
+        .list_record_metadata(RecordType::SESSION, true)
+        .unwrap();
+    let annotations = copied
+        .list_record_metadata(RecordType::ANNOTATION, true)
+        .unwrap();
     assert_eq!(students.len(), 1);
     assert_eq!(sessions.len(), 1);
     assert_eq!(annotations.len(), 1);
