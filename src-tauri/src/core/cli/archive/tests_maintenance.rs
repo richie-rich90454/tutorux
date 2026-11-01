@@ -2,9 +2,7 @@ use std::path::{Path, PathBuf};
 
 use serde_json::Value;
 
-use crate::core::archive::{
-    create_archive_bytes, new_uuid, now_us, verify_full, ArchiveSnapshot,
-};
+use crate::core::archive::{create_archive_bytes, new_uuid, now_us, verify_full, ArchiveSnapshot};
 use crate::core::cli::{
     parse_arguments, CliContext, CliOutput, CliResult, Failure, ParsedArguments,
 };
@@ -86,7 +84,10 @@ fn with_blob(mut record: ArchiveRecord, blob: Vec<u8>) -> ArchiveRecord {
 }
 
 fn write_snapshot(path: &Path, snapshot: &ArchiveSnapshot) {
-    let bytes = snapshot.source.read(0, snapshot.source.size() as usize).unwrap();
+    let bytes = snapshot
+        .source
+        .read(0, snapshot.source.size() as usize)
+        .unwrap();
     std::fs::write(path, bytes).unwrap();
 }
 
@@ -98,7 +99,11 @@ fn seeded_archive(directory: &Path) -> (PathBuf, ArchiveSnapshot) {
     let session_id = new_uuid();
     let archive = archive
         .append_records(&[
-            record(RecordType::STUDENT, &student_id, &[("display_name", "Mina")]),
+            record(
+                RecordType::STUDENT,
+                &student_id,
+                &[("display_name", "Mina")],
+            ),
             record(
                 RecordType::SESSION,
                 &session_id,
@@ -286,7 +291,10 @@ fn backfill_reports_conflicting_counts_without_writing() {
     assert_eq!(preview["conflictingEntries"], 1);
     assert_eq!(preview["schemaVersionsUpdated"], false);
     assert_eq!(preview["applied"], false);
-    assert_eq!(preview["previousGeneration"], preview["resultingGeneration"]);
+    assert_eq!(
+        preview["previousGeneration"],
+        preview["resultingGeneration"]
+    );
     assert_eq!(std::fs::read(&path).unwrap(), original);
 
     let mut applied = Output::default();
