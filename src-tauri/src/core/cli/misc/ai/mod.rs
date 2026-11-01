@@ -118,7 +118,7 @@ fn configure(
             ("credential_storage", "memory-only".to_owned()),
         ],
     );
-    let next = snapshot.append_records(&[record.clone()])?;
+    let next = snapshot.append_records(std::slice::from_ref(&record))?;
     crate::core::cli::records::save_replacing(path, &next)?;
     emit(
         output,
