@@ -41,7 +41,9 @@ pub(super) fn pack(
         .get_record(RecordType::SESSION, session_id)?
         .is_some_and(|record| !record.deleted())
     {
-        return Err(CliError("Choose an active session before packing AI context.".to_owned()).into());
+        return Err(
+            CliError("Choose an active session before packing AI context.".to_owned()).into(),
+        );
     }
     let transcripts = snapshot.list_records(RecordType::TRANSCRIPT_SEGMENT, false)?;
     let annotations = snapshot.list_records(RecordType::ANNOTATION, false)?;
@@ -50,7 +52,10 @@ pub(super) fn pack(
     let mut candidates = Vec::new();
     let mut total_source_bytes = 0usize;
 
-    for record in transcripts.iter().filter(|record| belongs_to(record, session_id)) {
+    for record in transcripts
+        .iter()
+        .filter(|record| belongs_to(record, session_id))
+    {
         add(
             &mut candidates,
             &mut total_source_bytes,
@@ -67,7 +72,10 @@ pub(super) fn pack(
             false,
         )?;
     }
-    for record in annotations.iter().filter(|record| belongs_to(record, session_id)) {
+    for record in annotations
+        .iter()
+        .filter(|record| belongs_to(record, session_id))
+    {
         let title = record.field("title").unwrap_or("");
         let content = record.field("content").unwrap_or("");
         let text = if title.is_empty() {
@@ -87,10 +95,17 @@ pub(super) fn pack(
             record.field("type") == Some("explicit-instruction"),
         )?;
     }
-    for record in evidence.iter().filter(|record| belongs_to(record, session_id)) {
-        let has_sources = ["source_annotation_id", "source_segment_ids", "source_asset_ids"]
-            .iter()
-            .any(|name| !record.field(name).unwrap_or("").is_empty());
+    for record in evidence
+        .iter()
+        .filter(|record| belongs_to(record, session_id))
+    {
+        let has_sources = [
+            "source_annotation_id",
+            "source_segment_ids",
+            "source_asset_ids",
+        ]
+        .iter()
+        .any(|name| !record.field(name).unwrap_or("").is_empty());
         if (has_sources || record.field("origin") == Some("transcript-derived-candidate"))
             && !evidence_sources_are_current(snapshot, record)?
         {
@@ -116,7 +131,10 @@ pub(super) fn pack(
             false,
         )?;
     }
-    for record in assets.iter().filter(|record| belongs_to(record, session_id)) {
+    for record in assets
+        .iter()
+        .filter(|record| belongs_to(record, session_id))
+    {
         if INTERNAL_ASSET_ROLES.contains(&record.field("record_role").unwrap_or("")) {
             continue;
         }
@@ -168,11 +186,15 @@ pub(super) fn pack(
             || candidate.confidence < 0.0
             || candidate.confidence > 1.0
         {
-            return Err(CliError("AI context confidence must be between zero and one.".to_owned()).into());
+            return Err(
+                CliError("AI context confidence must be between zero and one.".to_owned()).into(),
+            );
         }
         let characters: Vec<char> = candidate.content.chars().collect();
         for (fragment_index, (start, end, byte_start, byte_end)) in
-            split_by_token_limit(&characters, maximum_item_tokens as usize).into_iter().enumerate()
+            split_by_token_limit(&characters, maximum_item_tokens as usize)
+                .into_iter()
+                .enumerate()
         {
             let content: String = characters[start..end].iter().collect();
             let estimated_tokens = estimate_tokens(&content);
@@ -219,6 +241,10 @@ pub(super) fn default_token_budget() -> u64 {
     DEFAULT_TOKEN_BUDGET as u64
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "This local builder validates each candidate's independent provenance fields."
+)]
 fn add(
     candidates: &mut Vec<Candidate>,
     total_source_bytes: &mut usize,
@@ -231,14 +257,23 @@ fn add(
     required: bool,
 ) -> CliResult<()> {
     if candidates.len() >= MAX_CANDIDATES {
-        return Err(CliError("AI context contains too many source records to pack safely.".to_owned()).into());
+        return Err(CliError(
+            "AI context contains too many source records to pack safely.".to_owned(),
+        )
+        .into());
     }
     let content_bytes = content.len();
     if content_bytes > MAX_SOURCE_BYTES {
-        return Err(CliError("An AI context source exceeds the 64 MiB per-record limit.".to_owned()).into());
+        return Err(CliError(
+            "An AI context source exceeds the 64 MiB per-record limit.".to_owned(),
+        )
+        .into());
     }
     if *total_source_bytes > MAX_SOURCE_BYTES - content_bytes {
-        return Err(CliError("The selected AI context sources exceed the 64 MiB total limit.".to_owned()).into());
+        return Err(CliError(
+            "The selected AI context sources exceed the 64 MiB total limit.".to_owned(),
+        )
+        .into());
     }
     *total_source_bytes += content_bytes;
     candidates.push(Candidate {
@@ -278,30 +313,29 @@ fn evidence_sources_are_current(
 ) -> CliResult<bool> {
     let session_id = record.field("session_id").unwrap_or("");
     let mut has_sources = false;
-    let mut validate = |record_type: u16,
-                        ids: &[String],
-                        revisions: &BTreeMap<String, u64>|
-     -> CliResult<bool> {
-        for id in ids {
-            has_sources = true;
-            if !crate::core::format::valid_uuid(id) {
-                return Ok(false);
-            }
-            let Some(source) = snapshot.get_record(record_type, id)? else {
-                return Ok(false);
-            };
-            let source_session = source.field("session_id").unwrap_or("");
-            if source.deleted() || (!source_session.is_empty() && source_session != session_id) {
-                return Ok(false);
-            }
-            if let Some(expected) = revisions.get(&id.to_lowercase()) {
-                if source.revision != *expected {
+    let mut validate =
+        |record_type: u16, ids: &[String], revisions: &BTreeMap<String, u64>| -> CliResult<bool> {
+            for id in ids {
+                has_sources = true;
+                if !crate::core::format::valid_uuid(id) {
                     return Ok(false);
                 }
+                let Some(source) = snapshot.get_record(record_type, id)? else {
+                    return Ok(false);
+                };
+                let source_session = source.field("session_id").unwrap_or("");
+                if source.deleted() || (!source_session.is_empty() && source_session != session_id)
+                {
+                    return Ok(false);
+                }
+                if let Some(expected) = revisions.get(&id.to_lowercase()) {
+                    if source.revision != *expected {
+                        return Ok(false);
+                    }
+                }
             }
-        }
-        Ok(true)
-    };
+            Ok(true)
+        };
 
     let annotation_id = record.field("source_annotation_id").unwrap_or("");
     if !annotation_id.is_empty() {
@@ -312,7 +346,11 @@ fn evidence_sources_are_current(
             };
             revisions.insert(annotation_id.to_lowercase(), value);
         }
-        if !validate(RecordType::ANNOTATION, &[annotation_id.to_owned()], &revisions)? {
+        if !validate(
+            RecordType::ANNOTATION,
+            &[annotation_id.to_owned()],
+            &revisions,
+        )? {
             return Ok(false);
         }
     }
@@ -333,7 +371,11 @@ fn evidence_sources_are_current(
         .into_iter()
         .map(|id| id.to_owned())
         .collect();
-    if !validate(RecordType::TRANSCRIPT_SEGMENT, &segments, &segment_revisions)? {
+    if !validate(
+        RecordType::TRANSCRIPT_SEGMENT,
+        &segments,
+        &segment_revisions,
+    )? {
         return Ok(false);
     }
     let assets: Vec<String> = split_comma(record.field("source_asset_ids").unwrap_or(""))
@@ -367,10 +409,16 @@ fn estimate_tokens(value: &str) -> usize {
 
 fn validate_limits(token_budget: u64, maximum_item_tokens: u64) -> CliResult<()> {
     if token_budget < 1 || token_budget > MAX_TOKEN_BUDGET as u64 {
-        return Err(CliError("AI context token budget must be between 1 and 10,000,000.".to_owned()).into());
+        return Err(CliError(
+            "AI context token budget must be between 1 and 10,000,000.".to_owned(),
+        )
+        .into());
     }
     if maximum_item_tokens < 1 || maximum_item_tokens > token_budget {
-        return Err(CliError("Maximum AI context item tokens must be between 1 and its context budget.".to_owned()).into());
+        return Err(CliError(
+            "Maximum AI context item tokens must be between 1 and its context budget.".to_owned(),
+        )
+        .into());
     }
     Ok(())
 }
