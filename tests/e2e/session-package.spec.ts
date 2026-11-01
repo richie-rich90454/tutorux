@@ -67,9 +67,9 @@ test("imports a portable session into the selected profile and exports it again"
 
     await page.goto("/");
     const archiveChooser = page.waitForEvent("filechooser");
-    await page.getByRole("button", { name: "Open", exact: true }).click();
+    await page.getByRole("button", { name: "Open archive", exact: true }).click();
     await (await archiveChooser).setFiles(destinationPath);
-    await page.locator(".archive-status.is-open").waitFor();
+    await expect(page.getByRole("button", { name: /Package destination/u })).toBeVisible();
     await page.getByRole("button", { name: "Sessions", exact: true }).click();
     await page.getByLabel("Student for imported session").selectOption(destinationStudentId);
 
