@@ -245,7 +245,10 @@ pub fn enqueue_live_whisper_audio(
     samples: Vec<u8>,
 ) -> Result<(), String> {
     main_window(&window)?;
-    if samples.is_empty() || samples.len() > MAX_AUDIO_CHUNK_BYTES || samples.len() % 2 != 0 {
+    if samples.is_empty()
+        || samples.len() > MAX_AUDIO_CHUNK_BYTES
+        || !samples.len().is_multiple_of(2)
+    {
         return Err(
             "Live Whisper audio chunks must contain aligned 16-bit PCM under 32 KiB.".to_owned(),
         );
