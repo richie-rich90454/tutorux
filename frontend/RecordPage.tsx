@@ -1,3 +1,5 @@
+import { twClasses } from "./tailwind";
+import { jsxTailwindStyles } from "./RecordPage.tailwind";
 import { For, Show, createMemo, createSignal, type JSX } from "solid-js";
 import type { ArchiveSnapshot } from "./archive/archive";
 import type { ArchiveRecord } from "./archive/format";
@@ -23,8 +25,6 @@ import {
     safeJournalColor,
 } from "./shared-utils";
 import type { Workspace } from "./main";
-
-import "./journal.css";
 
 export function RecordPage(props: {
     kind: "students" | "sessions" | "journal" | "guides" | "evidence" | "assets";
@@ -200,17 +200,27 @@ export function RecordPage(props: {
         () => props.kind === "students" || props.kind === "sessions" || props.kind === "journal",
     );
     return (
-        <div class="page-body record-page">
-            <section class="record-heading">
-                <div>
-                    <span class="eyebrow">{heading().eyebrow}</span>
-                    <h1>{heading().title}</h1>
-                    <p>{heading().description}</p>
+        <div class={twClasses("page-body record-page", jsxTailwindStyles, "div")}>
+            <section class={twClasses("record-heading", jsxTailwindStyles, "section")}>
+                <div class={twClasses("", jsxTailwindStyles, "div")}>
+                    <span class={twClasses("eyebrow", jsxTailwindStyles, "span")}>
+                        {heading().eyebrow}
+                    </span>
+                    <h1 class={twClasses("", jsxTailwindStyles, "h1")}>{heading().title}</h1>
+                    <p class={twClasses("", jsxTailwindStyles, "p")}>{heading().description}</p>
                 </div>
-                <div class="record-heading-actions">
+                <div class={twClasses("record-heading-actions", jsxTailwindStyles, "div")}>
                     <Show when={props.kind === "sessions" && props.onImportSessionPackage}>
-                        <label class="session-package-student-picker">
-                            <span>Link imported session to</span>
+                        <label
+                            class={twClasses(
+                                "session-package-student-picker",
+                                jsxTailwindStyles,
+                                "label",
+                            )}
+                        >
+                            <span class={twClasses("", jsxTailwindStyles, "span")}>
+                                Link imported session to
+                            </span>
                             <select
                                 value={sessionPackageStudentId()}
                                 disabled={!props.state.snapshot.canMutate || props.busy}
@@ -218,6 +228,7 @@ export function RecordPage(props: {
                                     setSessionPackageStudentId(event.currentTarget.value)
                                 }
                                 aria-label="Student for imported session"
+                                class={twClasses("", jsxTailwindStyles, "select")}
                             >
                                 <option value="">Automatically match or leave independent</option>
                                 <For each={props.state.students}>
@@ -230,7 +241,7 @@ export function RecordPage(props: {
                             </select>
                         </label>
                         <button
-                            class="button button-outline"
+                            class={twClasses("button button-outline", jsxTailwindStyles, "button")}
                             type="button"
                             disabled={!props.state.snapshot.canMutate || props.busy}
                             onClick={() =>
@@ -244,7 +255,7 @@ export function RecordPage(props: {
                     </Show>
                     <Show when={canAdd()}>
                         <button
-                            class="button button-primary"
+                            class={twClasses("button button-primary", jsxTailwindStyles, "button")}
                             type="button"
                             disabled={!props.state.snapshot.canMutate || props.busy}
                             onClick={() => props.onAdd?.()}
@@ -272,12 +283,18 @@ export function RecordPage(props: {
                     onArchive={(record) => props.onArchiveOrganizer?.(record)}
                     onRestore={(record) => props.onRestoreOrganizer?.(record)}
                 />
-                <div class="journal-filter-row" aria-label="Filter journal entries">
-                    <label>
-                        <span>Filter by collection</span>
+                <div
+                    class={twClasses("journal-filter-row", jsxTailwindStyles, "div")}
+                    aria-label="Filter journal entries"
+                >
+                    <label class={twClasses("", jsxTailwindStyles, "label")}>
+                        <span class={twClasses("", jsxTailwindStyles, "span")}>
+                            Filter by collection
+                        </span>
                         <select
                             value={collectionFilter()}
                             onChange={(event) => setCollectionFilter(event.currentTarget.value)}
+                            class={twClasses("", jsxTailwindStyles, "select")}
                         >
                             <option value="">All collections</option>
                             <For each={props.state.collections}>
@@ -289,11 +306,12 @@ export function RecordPage(props: {
                             </For>
                         </select>
                     </label>
-                    <label>
-                        <span>Filter by tag</span>
+                    <label class={twClasses("", jsxTailwindStyles, "label")}>
+                        <span class={twClasses("", jsxTailwindStyles, "span")}>Filter by tag</span>
                         <select
                             value={tagFilter()}
                             onChange={(event) => setTagFilter(event.currentTarget.value)}
+                            class={twClasses("", jsxTailwindStyles, "select")}
                         >
                             <option value="">All tags</option>
                             <For each={props.state.tags}>
@@ -305,8 +323,8 @@ export function RecordPage(props: {
                             </For>
                         </select>
                     </label>
-                    <label>
-                        <span>Sort</span>
+                    <label class={twClasses("", jsxTailwindStyles, "label")}>
+                        <span class={twClasses("", jsxTailwindStyles, "span")}>Sort</span>
                         <select
                             value={journalSort()}
                             onChange={(event) =>
@@ -314,14 +332,15 @@ export function RecordPage(props: {
                                     event.currentTarget.value as "newest" | "oldest" | "title",
                                 )
                             }
+                            class={twClasses("", jsxTailwindStyles, "select")}
                         >
                             <option value="newest">Newest first</option>
                             <option value="oldest">Oldest first</option>
                             <option value="title">Title</option>
                         </select>
                     </label>
-                    <label>
-                        <span>From date</span>
+                    <label class={twClasses("", jsxTailwindStyles, "label")}>
+                        <span class={twClasses("", jsxTailwindStyles, "span")}>From date</span>
                         <DatePicker
                             id="journal-from-date"
                             value={journalFrom()}
@@ -329,8 +348,8 @@ export function RecordPage(props: {
                             onChange={setJournalFrom}
                         />
                     </label>
-                    <label>
-                        <span>To date</span>
+                    <label class={twClasses("", jsxTailwindStyles, "label")}>
+                        <span class={twClasses("", jsxTailwindStyles, "span")}>To date</span>
                         <DatePicker
                             id="journal-to-date"
                             value={journalTo()}
@@ -338,13 +357,14 @@ export function RecordPage(props: {
                             onChange={setJournalTo}
                         />
                     </label>
-                    <label>
-                        <span>Has sessions</span>
+                    <label class={twClasses("", jsxTailwindStyles, "label")}>
+                        <span class={twClasses("", jsxTailwindStyles, "span")}>Has sessions</span>
                         <select
                             value={hasSessions()}
                             onChange={(event) =>
                                 setHasSessions(event.currentTarget.value as "all" | "yes" | "no")
                             }
+                            class={twClasses("", jsxTailwindStyles, "select")}
                         >
                             <option value="all">Any entry</option>
                             <option value="yes">Linked to a session</option>
@@ -361,7 +381,7 @@ export function RecordPage(props: {
                         }
                     >
                         <button
-                            class="text-action"
+                            class={twClasses("text-action", jsxTailwindStyles, "button")}
                             type="button"
                             onClick={() => {
                                 setCollectionFilter("");
@@ -376,39 +396,54 @@ export function RecordPage(props: {
                     </Show>
                 </div>
             </Show>
-            <section class="record-list-shell">
+            <section class={twClasses("record-list-shell", jsxTailwindStyles, "section")}>
                 <div
-                    class={`record-list-toolbar ${props.kind === "sessions" ? "session-list-toolbar" : ""}`}
+                    class={twClasses(
+                        `record-list-toolbar ${props.kind === "sessions" ? "session-list-toolbar" : ""}`,
+                        jsxTailwindStyles,
+                        "div",
+                    )}
                 >
-                    <span>
-                        <strong>{visibleRecords().length}</strong> {heading().title.toLowerCase()}
+                    <span class={twClasses("", jsxTailwindStyles, "span")}>
+                        <strong class={twClasses("", jsxTailwindStyles, "strong")}>
+                            {visibleRecords().length}
+                        </strong>{" "}
+                        {heading().title.toLowerCase()}
                     </span>
                     <Show when={props.kind === "sessions"}>
                         <div
-                            class="session-view-switch"
+                            class={twClasses("session-view-switch", jsxTailwindStyles, "div")}
                             role="group"
                             aria-label="Session archive view"
                         >
                             <button
                                 type="button"
                                 aria-pressed={sessionArchiveView() === "current"}
+                                class={twClasses("", jsxTailwindStyles, "button", ["is-selected"])}
                                 classList={{ "is-selected": sessionArchiveView() === "current" }}
                                 onClick={() => setSessionArchiveView("current")}
                             >
-                                Current <span>{props.state.sessions.length}</span>
+                                Current{" "}
+                                <span class={twClasses("", jsxTailwindStyles, "span")}>
+                                    {props.state.sessions.length}
+                                </span>
                             </button>
                             <button
                                 type="button"
                                 aria-pressed={sessionArchiveView() === "archived"}
+                                class={twClasses("", jsxTailwindStyles, "button", ["is-selected"])}
                                 classList={{ "is-selected": sessionArchiveView() === "archived" }}
                                 onClick={() => setSessionArchiveView("archived")}
                             >
-                                Archived <span>{props.state.archivedSessions.length}</span>
+                                Archived{" "}
+                                <span class={twClasses("", jsxTailwindStyles, "span")}>
+                                    {props.state.archivedSessions.length}
+                                </span>
                             </button>
                         </div>
                     </Show>
                     <Show when={props.kind !== "sessions"}>
-                        <span class="list-view-label">
+                        <span class={twClasses("list-view-label", jsxTailwindStyles, "span")}>
                             <Icon name="more" />
                             Latest first
                         </span>
@@ -443,7 +478,13 @@ export function RecordPage(props: {
                         />
                     }
                 >
-                    <div class={`record-list record-list-${props.kind}`}>
+                    <div
+                        class={twClasses(
+                            `record-list record-list-${props.kind}`,
+                            jsxTailwindStyles,
+                            "div",
+                        )}
+                    >
                         <For each={displayedRecords()}>
                             {(record) => (
                                 <RecordCard
@@ -550,16 +591,26 @@ function RecordCard(props: {
                 ? props.students.findIndex((item) => item.id === record.id) + 1
                 : 1;
             return (
-                <article class="student-record-card">
-                    <div class={`student-avatar avatar-${count % 5}`}>
+                <article class={twClasses("student-record-card", jsxTailwindStyles, "article")}>
+                    <div
+                        class={twClasses(
+                            `student-avatar avatar-${count % 5}`,
+                            jsxTailwindStyles,
+                            "div",
+                        )}
+                    >
                         {initials(field(record, "display_name", "S"))}
                     </div>
-                    <div class="student-record-main">
-                        <div class="record-card-title">
-                            <h2>{field(record, "display_name", "Student")}</h2>
-                            <span class="record-badge">{field(record, "grade", "Learner")}</span>
+                    <div class={twClasses("student-record-main", jsxTailwindStyles, "div")}>
+                        <div class={twClasses("record-card-title", jsxTailwindStyles, "div")}>
+                            <h2 class={twClasses("", jsxTailwindStyles, "h2")}>
+                                {field(record, "display_name", "Student")}
+                            </h2>
+                            <span class={twClasses("record-badge", jsxTailwindStyles, "span")}>
+                                {field(record, "grade", "Learner")}
+                            </span>
                         </div>
-                        <p>
+                        <p class={twClasses("", jsxTailwindStyles, "p")}>
                             {field(
                                 record,
                                 "learning_objectives",
@@ -567,9 +618,19 @@ function RecordCard(props: {
                             )}
                         </p>
                         <Show when={subjects.length}>
-                            <div class="chip-row">
+                            <div class={twClasses("chip-row", jsxTailwindStyles, "div")}>
                                 <For each={subjects}>
-                                    {(subject) => <span class="subject-chip">{subject}</span>}
+                                    {(subject) => (
+                                        <span
+                                            class={twClasses(
+                                                "subject-chip",
+                                                jsxTailwindStyles,
+                                                "span",
+                                            )}
+                                        >
+                                            {subject}
+                                        </span>
+                                    )}
                                 </For>
                             </div>
                         </Show>
@@ -580,23 +641,33 @@ function RecordCard(props: {
                                 field(record, "preferred_guide_template")
                             }
                         >
-                            <details class="record-detail">
-                                <summary>Learning context</summary>
+                            <details
+                                class={twClasses("record-detail", jsxTailwindStyles, "details")}
+                            >
+                                <summary class={twClasses("", jsxTailwindStyles, "summary")}>
+                                    Learning context
+                                </summary>
                                 <Show when={field(record, "known_difficulties")}>
-                                    <p>
-                                        <strong>Areas to revisit</strong>
+                                    <p class={twClasses("", jsxTailwindStyles, "p")}>
+                                        <strong class={twClasses("", jsxTailwindStyles, "strong")}>
+                                            Areas to revisit
+                                        </strong>
                                         {field(record, "known_difficulties")}
                                     </p>
                                 </Show>
                                 <Show when={field(record, "demonstrated_improvements")}>
-                                    <p>
-                                        <strong>Demonstrated improvements</strong>
+                                    <p class={twClasses("", jsxTailwindStyles, "p")}>
+                                        <strong class={twClasses("", jsxTailwindStyles, "strong")}>
+                                            Demonstrated improvements
+                                        </strong>
                                         {field(record, "demonstrated_improvements")}
                                     </p>
                                 </Show>
                                 <Show when={field(record, "preferred_guide_template")}>
-                                    <p>
-                                        <strong>Preferred guide structure</strong>
+                                    <p class={twClasses("", jsxTailwindStyles, "p")}>
+                                        <strong class={twClasses("", jsxTailwindStyles, "strong")}>
+                                            Preferred guide structure
+                                        </strong>
                                         {GUIDE_TEMPLATES.find(
                                             (template) =>
                                                 template.id ===
@@ -615,9 +686,15 @@ function RecordCard(props: {
                             </details>
                         </Show>
                         <Show when={field(record, "tutor_notes")}>
-                            <details class="record-detail">
-                                <summary>Private tutor notes</summary>
-                                <p>{field(record, "tutor_notes")}</p>
+                            <details
+                                class={twClasses("record-detail", jsxTailwindStyles, "details")}
+                            >
+                                <summary class={twClasses("", jsxTailwindStyles, "summary")}>
+                                    Private tutor notes
+                                </summary>
+                                <p class={twClasses("", jsxTailwindStyles, "p")}>
+                                    {field(record, "tutor_notes")}
+                                </p>
                             </details>
                         </Show>
                         <Show when={props.onProgressReview}>
@@ -642,16 +719,24 @@ function RecordCard(props: {
                         </Show>
                     </div>
                     <Show when={props.onEdit || props.onTrash}>
-                        <div class="record-actions">
+                        <div class={twClasses("record-actions", jsxTailwindStyles, "div")}>
                             <button
-                                class="button button-outline record-action"
+                                class={twClasses(
+                                    "button button-outline record-action",
+                                    jsxTailwindStyles,
+                                    "button",
+                                )}
                                 type="button"
                                 onClick={() => props.onEdit?.(record)}
                             >
                                 Edit
                             </button>
                             <button
-                                class="icon-button record-menu"
+                                class={twClasses(
+                                    "icon-button record-menu",
+                                    jsxTailwindStyles,
+                                    "button",
+                                )}
                                 type="button"
                                 title="Move to Trash"
                                 aria-label={`Move ${field(record, "display_name", "student")} to Trash`}
@@ -698,38 +783,64 @@ function RecordCard(props: {
                 ];
             });
             return (
-                <article class="journal-record-card">
-                    <div class="journal-date journal-date-large">
-                        <strong>{undated ? "–" : date.day}</strong>
-                        <small>{undated ? "NO DATE" : date.month}</small>
+                <article class={twClasses("journal-record-card", jsxTailwindStyles, "article")}>
+                    <div
+                        class={twClasses(
+                            "journal-date journal-date-large",
+                            jsxTailwindStyles,
+                            "div",
+                        )}
+                    >
+                        <strong class={twClasses("", jsxTailwindStyles, "strong")}>
+                            {undated ? "–" : date.day}
+                        </strong>
+                        <small class={twClasses("", jsxTailwindStyles, "small")}>
+                            {undated ? "NO DATE" : date.month}
+                        </small>
                     </div>
-                    <div class="journal-record-main">
-                        <span class="eyebrow">{undated ? "UNDATED" : date.year}</span>
-                        <h2>{field(record, "title", "Untitled entry")}</h2>
-                        <p>
+                    <div class={twClasses("journal-record-main", jsxTailwindStyles, "div")}>
+                        <span class={twClasses("eyebrow", jsxTailwindStyles, "span")}>
+                            {undated ? "UNDATED" : date.year}
+                        </span>
+                        <h2 class={twClasses("", jsxTailwindStyles, "h2")}>
+                            {field(record, "title", "Untitled entry")}
+                        </h2>
+                        <p class={twClasses("", jsxTailwindStyles, "p")}>
                             {record.fields.get("session_ids")
                                 ? "Linked to a tutoring session"
                                 : "A teaching reflection"}
                         </p>
-                        <div class="record-inline-meta">
-                            <span>
+                        <div class={twClasses("record-inline-meta", jsxTailwindStyles, "div")}>
+                            <span class={twClasses("", jsxTailwindStyles, "span")}>
                                 <Icon name="clock" />
                                 {field(record, "entry_date") || "No date"}
                             </span>
-                            <span>
+                            <span class={twClasses("", jsxTailwindStyles, "span")}>
                                 <Icon name="book" />
                                 Journal entry
                             </span>
                         </div>
                         <Show when={labels().length > 0}>
-                            <div class="chip-row journal-label-chips">
+                            <div
+                                class={twClasses(
+                                    "chip-row journal-label-chips",
+                                    jsxTailwindStyles,
+                                    "div",
+                                )}
+                            >
                                 <For each={labels()}>
                                     {(item) => (
                                         <span
-                                            class="journal-label-chip"
+                                            class={twClasses(
+                                                "journal-label-chip",
+                                                jsxTailwindStyles,
+                                                "span",
+                                            )}
                                             style={{ "--label-color": safeJournalColor(item) }}
                                         >
-                                            <span />
+                                            <span
+                                                class={twClasses("", jsxTailwindStyles, "span")}
+                                            />
                                             {field(item, "name", "Untitled label")}
                                         </span>
                                     )}
@@ -774,7 +885,11 @@ function RecordCard(props: {
                     </div>
                     <Show when={props.onEdit}>
                         <button
-                            class="button button-outline record-action"
+                            class={twClasses(
+                                "button button-outline record-action",
+                                jsxTailwindStyles,
+                                "button",
+                            )}
                             type="button"
                             onClick={() => props.onEdit?.(record)}
                         >
@@ -786,44 +901,56 @@ function RecordCard(props: {
         }
         if (props.kind === "guides")
             return (
-                <article class="library-record-card">
-                    <span class="library-icon guide-icon">
+                <article class={twClasses("library-record-card", jsxTailwindStyles, "article")}>
+                    <span class={twClasses("library-icon guide-icon", jsxTailwindStyles, "span")}>
                         <Icon name="guides" />
                     </span>
-                    <div>
-                        <span class="eyebrow">Study guide</span>
-                        <h2>{field(record, "title", "Untitled guide")}</h2>
-                        <p>
+                    <div class={twClasses("", jsxTailwindStyles, "div")}>
+                        <span class={twClasses("eyebrow", jsxTailwindStyles, "span")}>
+                            Study guide
+                        </span>
+                        <h2 class={twClasses("", jsxTailwindStyles, "h2")}>
+                            {field(record, "title", "Untitled guide")}
+                        </h2>
+                        <p class={twClasses("", jsxTailwindStyles, "p")}>
                             {field(
                                 record,
                                 "summary",
                                 field(record, "description", "A reusable structure for learning."),
                             )}
                         </p>
-                        <small>Updated {formatTimestamp(field(record, "updated_at_us"))}</small>
+                        <small class={twClasses("", jsxTailwindStyles, "small")}>
+                            Updated {formatTimestamp(field(record, "updated_at_us"))}
+                        </small>
                     </div>
-                    <span class="record-badge">{field(record, "status", "Draft")}</span>
+                    <span class={twClasses("record-badge", jsxTailwindStyles, "span")}>
+                        {field(record, "status", "Draft")}
+                    </span>
                 </article>
             );
         if (props.kind === "evidence")
             return (
-                <article class="library-record-card">
-                    <span class="library-icon evidence-icon">
+                <article class={twClasses("library-record-card", jsxTailwindStyles, "article")}>
+                    <span
+                        class={twClasses("library-icon evidence-icon", jsxTailwindStyles, "span")}
+                    >
                         <Icon name="evidence" />
                     </span>
-                    <div>
-                        <span class="eyebrow">Learning observation</span>
-                        <h2>
+                    <div class={twClasses("", jsxTailwindStyles, "div")}>
+                        <span class={twClasses("eyebrow", jsxTailwindStyles, "span")}>
+                            Learning observation
+                        </span>
+                        <h2 class={twClasses("", jsxTailwindStyles, "h2")}>
                             {field(record, "title", field(record, "skill", "Untitled observation"))}
                         </h2>
-                        <p>
+                        <p class={twClasses("", jsxTailwindStyles, "p")}>
                             {field(
                                 record,
                                 "description",
                                 field(record, "note", "Evidence linked to a learner’s progress."),
                             )}
                         </p>
-                        <small>
+                        <small class={twClasses("", jsxTailwindStyles, "small")}>
                             {field(record, "classification", "Observation")} ·{" "}
                             {formatTimestamp(field(record, "created_at_us"))}
                         </small>
@@ -831,20 +958,22 @@ function RecordCard(props: {
                 </article>
             );
         return (
-            <article class="library-record-card">
-                <span class="library-icon asset-icon">
+            <article class={twClasses("library-record-card", jsxTailwindStyles, "article")}>
+                <span class={twClasses("library-icon asset-icon", jsxTailwindStyles, "span")}>
                     <Icon name="assets" />
                 </span>
-                <div>
-                    <span class="eyebrow">Archive material</span>
-                    <h2>
+                <div class={twClasses("", jsxTailwindStyles, "div")}>
+                    <span class={twClasses("eyebrow", jsxTailwindStyles, "span")}>
+                        Archive material
+                    </span>
+                    <h2 class={twClasses("", jsxTailwindStyles, "h2")}>
                         {field(
                             record,
                             "display_name",
                             field(record, "file_name", "Untitled material"),
                         )}
                     </h2>
-                    <p>
+                    <p class={twClasses("", jsxTailwindStyles, "p")}>
                         {field(
                             record,
                             "media_type",
@@ -855,12 +984,14 @@ function RecordCard(props: {
                             ),
                         )}
                     </p>
-                    <small>
+                    <small class={twClasses("", jsxTailwindStyles, "small")}>
                         {formatBytes(BigInt(field(record, "size_bytes", "0")))} ·{" "}
                         {formatTimestamp(field(record, "created_at_us"))}
                     </small>
                 </div>
-                <span class="record-badge">{field(record, "status", "Stored")}</span>
+                <span class={twClasses("record-badge", jsxTailwindStyles, "span")}>
+                    {field(record, "status", "Stored")}
+                </span>
             </article>
         );
     });
@@ -896,24 +1027,40 @@ export function SessionRow(props: {
         sessionState() === "in-progress" ? "active" : sessionState(),
     );
     return (
-        <article class={`session-record ${props.expanded ? "is-expanded" : ""}`}>
-            <div class="session-date">
-                <strong>
+        <article
+            class={twClasses(
+                `session-record ${props.expanded ? "is-expanded" : ""}`,
+                jsxTailwindStyles,
+                "article",
+            )}
+        >
+            <div class={twClasses("session-date", jsxTailwindStyles, "div")}>
+                <strong class={twClasses("", jsxTailwindStyles, "strong")}>
                     {dateParts(formatTimestamp(field(props.session, "started_at_us"))).day}
                 </strong>
-                <span>
+                <span class={twClasses("", jsxTailwindStyles, "span")}>
                     {dateParts(formatTimestamp(field(props.session, "started_at_us"))).month}
                 </span>
             </div>
-            <span class="session-kind-icon">
+            <span class={twClasses("session-kind-icon", jsxTailwindStyles, "span")}>
                 <Icon name="sessions" />
             </span>
-            <div class="session-record-main">
-                <div class="record-card-title">
-                    <h2>{field(props.session, "title", "Untitled session")}</h2>
-                    <span class={`session-state state-${displayState()}`}>{displayState()}</span>
+            <div class={twClasses("session-record-main", jsxTailwindStyles, "div")}>
+                <div class={twClasses("record-card-title", jsxTailwindStyles, "div")}>
+                    <h2 class={twClasses("", jsxTailwindStyles, "h2")}>
+                        {field(props.session, "title", "Untitled session")}
+                    </h2>
+                    <span
+                        class={twClasses(
+                            `session-state state-${displayState()}`,
+                            jsxTailwindStyles,
+                            "span",
+                        )}
+                    >
+                        {displayState()}
+                    </span>
                 </div>
-                <p>
+                <p class={twClasses("", jsxTailwindStyles, "p")}>
                     {[
                         student() ? field(student()!, "display_name") : "Independent session",
                         field(props.session, "subject"),
@@ -922,17 +1069,17 @@ export function SessionRow(props: {
                         .join(" · ")}
                 </p>
                 <Show when={field(props.session, "learning_objectives")}>
-                    <span class="session-objective">
+                    <span class={twClasses("session-objective", jsxTailwindStyles, "span")}>
                         {field(props.session, "learning_objectives")}
                     </span>
                 </Show>
-                <div class="record-inline-meta">
-                    <span>
+                <div class={twClasses("record-inline-meta", jsxTailwindStyles, "div")}>
+                    <span class={twClasses("", jsxTailwindStyles, "span")}>
                         <Icon name="clock" />
                         {formatTimestamp(field(props.session, "started_at_us"))}
                     </span>
                     <Show when={field(props.session, "notes_document_id")}>
-                        <span>
+                        <span class={twClasses("", jsxTailwindStyles, "span")}>
                             <Icon name="journal" />
                             Notes attached
                         </span>
@@ -958,7 +1105,7 @@ export function SessionRow(props: {
                         props.onArchive)
                 }
             >
-                <div class="record-actions session-actions">
+                <div class={twClasses("record-actions session-actions", jsxTailwindStyles, "div")}>
                     <Show
                         when={
                             props.onEdit ||
@@ -967,11 +1114,18 @@ export function SessionRow(props: {
                             props.onOpenStudyGuide
                         }
                     >
-                        <div class="session-document-links" aria-label="Session documents">
+                        <div
+                            class={twClasses("session-document-links", jsxTailwindStyles, "div")}
+                            aria-label="Session documents"
+                        >
                             <Show when={props.onEdit}>
                                 <button
                                     type="button"
-                                    class="session-document-link"
+                                    class={twClasses(
+                                        "session-document-link",
+                                        jsxTailwindStyles,
+                                        "button",
+                                    )}
                                     disabled={props.disabled}
                                     onClick={() => props.onEdit?.(props.session)}
                                 >
@@ -981,7 +1135,11 @@ export function SessionRow(props: {
                             <Show when={props.onOpenTranscript}>
                                 <button
                                     type="button"
-                                    class="session-document-link"
+                                    class={twClasses(
+                                        "session-document-link",
+                                        jsxTailwindStyles,
+                                        "button",
+                                    )}
                                     onClick={() => props.onOpenTranscript?.(props.session)}
                                 >
                                     Record & transcript
@@ -990,7 +1148,11 @@ export function SessionRow(props: {
                             <Show when={props.onOpenStudyGuide}>
                                 <button
                                     type="button"
-                                    class="session-document-link"
+                                    class={twClasses(
+                                        "session-document-link",
+                                        jsxTailwindStyles,
+                                        "button",
+                                    )}
                                     onClick={() => props.onOpenStudyGuide?.(props.session)}
                                 >
                                     Study guide
@@ -1000,7 +1162,11 @@ export function SessionRow(props: {
                     </Show>
                     <Show when={props.onOpenObservations}>
                         <button
-                            class="button button-quiet record-action"
+                            class={twClasses(
+                                "button button-quiet record-action",
+                                jsxTailwindStyles,
+                                "button",
+                            )}
                             type="button"
                             onClick={() => props.onOpenObservations?.(props.session)}
                         >
@@ -1009,7 +1175,11 @@ export function SessionRow(props: {
                     </Show>
                     <Show when={props.onTransition && sessionState() === "created"}>
                         <button
-                            class="button button-outline record-action"
+                            class={twClasses(
+                                "button button-outline record-action",
+                                jsxTailwindStyles,
+                                "button",
+                            )}
                             type="button"
                             disabled={props.disabled}
                             onClick={() => props.onTransition?.(props.session, "start")}
@@ -1024,7 +1194,11 @@ export function SessionRow(props: {
                         }
                     >
                         <button
-                            class="button button-outline record-action"
+                            class={twClasses(
+                                "button button-outline record-action",
+                                jsxTailwindStyles,
+                                "button",
+                            )}
                             type="button"
                             disabled={
                                 props.disabled ||
@@ -1048,7 +1222,11 @@ export function SessionRow(props: {
                     >
                         <Show when={sessionState() === "completed"}>
                             <button
-                                class="button button-outline record-action"
+                                class={twClasses(
+                                    "button button-outline record-action",
+                                    jsxTailwindStyles,
+                                    "button",
+                                )}
                                 type="button"
                                 disabled={props.disabled}
                                 onClick={() => props.onTransition?.(props.session, "review")}
@@ -1057,7 +1235,11 @@ export function SessionRow(props: {
                             </button>
                         </Show>
                         <button
-                            class="button button-outline record-action"
+                            class={twClasses(
+                                "button button-outline record-action",
+                                jsxTailwindStyles,
+                                "button",
+                            )}
                             type="button"
                             disabled={props.disabled}
                             onClick={() => props.onTransition?.(props.session, "resume")}
@@ -1067,7 +1249,11 @@ export function SessionRow(props: {
                     </Show>
                     <Show when={props.onClone}>
                         <button
-                            class="button button-outline record-action"
+                            class={twClasses(
+                                "button button-outline record-action",
+                                jsxTailwindStyles,
+                                "button",
+                            )}
                             type="button"
                             title="Create a fresh session from these details"
                             disabled={props.disabled}
@@ -1078,7 +1264,11 @@ export function SessionRow(props: {
                     </Show>
                     <Show when={props.onExportPackage}>
                         <button
-                            class="button button-outline record-action"
+                            class={twClasses(
+                                "button button-outline record-action",
+                                jsxTailwindStyles,
+                                "button",
+                            )}
                             type="button"
                             disabled={props.disabled}
                             onClick={() => props.onExportPackage?.(props.session)}
@@ -1088,7 +1278,11 @@ export function SessionRow(props: {
                     </Show>
                     <Show when={props.onArchive}>
                         <button
-                            class="button button-outline record-action"
+                            class={twClasses(
+                                "button button-outline record-action",
+                                jsxTailwindStyles,
+                                "button",
+                            )}
                             type="button"
                             disabled={
                                 props.disabled ||
@@ -1113,7 +1307,11 @@ export function SessionRow(props: {
                     </Show>
                     <Show when={props.onTrash}>
                         <button
-                            class="icon-button record-menu"
+                            class={twClasses(
+                                "icon-button record-menu",
+                                jsxTailwindStyles,
+                                "button",
+                            )}
                             type="button"
                             title="Review session and linked records before moving them to Trash"
                             aria-label={`Review moving ${field(props.session, "title", "session")} and linked records to Trash`}
