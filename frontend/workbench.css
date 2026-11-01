@@ -169,6 +169,11 @@ a:focus-visible {
     background: var(--warning);
 }
 
+.status-dot.has-conflict {
+    background: var(--danger);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--danger) 15%, transparent);
+}
+
 .sidebar-empty-archive {
     display: grid;
     gap: 7px;
@@ -448,6 +453,7 @@ a:focus-visible {
 
 .page-body {
     width: min(1320px, 100%);
+    margin-inline: auto;
     padding: 30px clamp(22px, 3vw, 42px) 44px;
 }
 
@@ -491,7 +497,7 @@ a:focus-visible {
     min-height: 36px;
     gap: 8px;
     padding: 0 12px;
-    border-radius: 5px;
+    border-radius: 7px;
     font-size: 13px;
     font-weight: 600;
 }
@@ -503,8 +509,50 @@ a:focus-visible {
 
 .button-primary {
     border-color: var(--accent);
-    color: #fff;
+    color: var(--surface);
     background: var(--accent);
+}
+
+.main-content select {
+    appearance: none;
+    background-image:
+        linear-gradient(45deg, transparent 50%, var(--muted) 50%),
+        linear-gradient(135deg, var(--muted) 50%, transparent 50%);
+    background-position:
+        calc(100% - 14px) 50%,
+        calc(100% - 9px) 50%;
+    background-size:
+        5px 5px,
+        5px 5px;
+    background-repeat: no-repeat;
+}
+
+.main-content input[type="range"] {
+    appearance: none;
+    height: 4px;
+    margin: 0;
+    border-radius: 99px;
+    background: var(--line-strong);
+    cursor: pointer;
+}
+
+.main-content input[type="range"]::-webkit-slider-thumb {
+    appearance: none;
+    width: 12px;
+    height: 12px;
+    border: 2px solid var(--surface);
+    border-radius: 50%;
+    background: var(--accent);
+    box-shadow: 0 0 0 1px var(--accent);
+}
+
+.main-content input[type="range"]::-moz-range-thumb {
+    width: 9px;
+    height: 9px;
+    border: 2px solid var(--surface);
+    border-radius: 50%;
+    background: var(--accent);
+    box-shadow: 0 0 0 1px var(--accent);
 }
 
 .button-outline {
@@ -557,6 +605,15 @@ a:focus-visible {
     font-size: 13px;
 }
 
+.page-body .record-heading,
+.page-body .transcript-controls,
+.page-body .transcript-capture-panel,
+.page-body .transcript-audio-panel,
+.page-body .journal-organizer,
+.page-body .record-onboarding {
+    border-radius: 10px;
+}
+
 .record-list-toolbar strong {
     color: var(--ink-soft);
     font-size: 13px;
@@ -582,12 +639,11 @@ a:focus-visible {
     line-height: 1.35;
 }
 
-.page-body .journal-filter-row select,
-.page-body .journal-filter-row input {
+.page-body .journal-filter-row select {
     width: 100%;
     min-width: 0;
     height: 36px;
-    padding: 0 9px;
+    padding: 0 28px 0 10px;
     border: 1px solid var(--line-strong);
     border-radius: 5px;
     color: var(--ink-soft);
@@ -873,16 +929,16 @@ a:focus-visible {
 .transcript-capture-copy > p,
 .transcript-capture-consent,
 .transcript-capture-saving {
-    color: #c5cbcd;
+    color: var(--muted);
 }
 
 .main-content .transcript-capture-panel .transcript-capture-copy > span,
 .main-content .transcript-capture-panel .transcript-capture-consent {
-    color: #c5cbcd;
+    color: var(--muted);
 }
 
 .transcript-capture-copy strong {
-    color: #fff;
+    color: var(--ink);
     font-size: 15px;
 }
 
@@ -894,19 +950,13 @@ a:focus-visible {
 }
 
 .transcript-capture-panel .button-outline {
-    border-color: #565e60;
-    color: #fff;
-    background: #151818;
-}
-
-.transcript-capture-panel .button-primary {
-    border-color: #f5f6f6;
-    color: #101212;
-    background: #f5f6f6;
+    border-color: var(--line-strong);
+    color: var(--ink-soft);
+    background: var(--surface);
 }
 
 .transcript-capture-panel .eyebrow {
-    color: #aeb6b8;
+    color: var(--muted);
 }
 
 .ai-intro-card,
@@ -1175,14 +1225,14 @@ a:focus-visible {
 .command-palette,
 .form-dialog,
 .command-console-dialog {
-    border-radius: 5px;
-    box-shadow: none;
+    border-radius: 12px;
+    box-shadow: 0 24px 80px color-mix(in srgb, var(--ink) 18%, transparent);
 }
 
 .recording-transport,
 .transcript-capture-panel,
 .audio-transport {
-    background: #080909;
+    background: color-mix(in srgb, var(--accent-soft) 48%, var(--surface));
 }
 
 @media (max-width: 1160px) {
@@ -1246,12 +1296,12 @@ a:focus-visible {
         bottom: 0;
         left: 0;
         width: 100%;
-        height: 58px;
-        min-height: 58px;
+        height: calc(58px + env(safe-area-inset-bottom));
+        min-height: calc(58px + env(safe-area-inset-bottom));
         flex-direction: row;
         align-items: center;
         justify-content: center;
-        padding: 4px 8px;
+        padding: 4px max(8px, env(safe-area-inset-left)) calc(4px + env(safe-area-inset-bottom));
         border-top: 1px solid var(--line);
         border-right: 0;
         background: var(--surface);
@@ -1261,9 +1311,15 @@ a:focus-visible {
     .sidebar-empty-archive,
     .sidebar-search,
     .sidebar-bottom,
-    .nav-group-title,
-    .contextual-navigation {
+    .nav-group-title {
         display: none;
+    }
+
+    .contextual-navigation {
+        position: relative;
+        display: block;
+        flex: 1;
+        min-width: 0;
     }
 
     .nav-groups {
@@ -1271,19 +1327,46 @@ a:focus-visible {
         display: flex;
         align-items: center;
         justify-content: space-around;
-        gap: 2px;
+        gap: 1px;
     }
 
     .nav-item {
         width: auto;
-        min-width: 54px;
+        min-width: 0;
+        max-width: 76px;
+        flex: 1;
         height: 46px;
         display: grid;
         justify-items: center;
         align-content: center;
         gap: 2px;
-        padding: 3px 6px;
-        font-size: 12px;
+        padding: 3px 2px;
+        font-size: 10px;
+        line-height: 1.15;
+    }
+
+    .nav-item > span {
+        display: inline;
+    }
+
+    .nav-item:nth-of-type(n + 5) {
+        display: grid;
+    }
+
+    .contextual-nav-toggle > .icon:last-child {
+        display: none;
+    }
+
+    .contextual-nav-menu {
+        position: fixed;
+        top: auto;
+        right: 10px;
+        bottom: calc(58px + 8px);
+        left: auto;
+        width: min(320px, calc(100vw - 20px));
+        max-height: calc(100dvh - 96px);
+        border-radius: 10px;
+        box-shadow: 0 16px 40px color-mix(in srgb, var(--ink) 20%, transparent);
     }
 
     .nav-item .icon {
