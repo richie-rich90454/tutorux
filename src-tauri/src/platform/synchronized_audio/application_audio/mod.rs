@@ -1,6 +1,4 @@
-use super::model::{
-    ApplicationAudioCounters, ApplicationAudioTarget, PcmChunk, TrackSignal,
-};
+use super::model::{ApplicationAudioCounters, ApplicationAudioTarget, PcmChunk, TrackSignal};
 use std::{
     sync::{
         atomic::Ordering,
@@ -11,17 +9,17 @@ use std::{
     time::Duration,
 };
 
-#[cfg(any(target_os = "windows", target_os = "linux"))]
-mod windows_linux;
 #[cfg(target_os = "macos")]
 mod macos;
+#[cfg(any(target_os = "windows", target_os = "linux"))]
+mod windows_linux;
 
+#[cfg(target_os = "macos")]
+use macos::{start_application_audio_stream, stop_application_audio_stream};
 #[cfg(any(target_os = "windows", target_os = "linux"))]
 use windows_linux::{
     poll_process_audio, start_application_audio_stream, stop_application_audio_stream,
 };
-#[cfg(target_os = "macos")]
-use macos::{start_application_audio_stream, stop_application_audio_stream};
 
 enum ApplicationAudioCommand {
     Start(SyncSender<Result<(), String>>),
@@ -53,15 +51,15 @@ impl ApplicationAudioCapture {
     }
 
     pub(super) fn start(&self) -> Result<(), String> {
-        self.request(|reply| ApplicationAudioCommand::Start(reply))
+        self.request(ApplicationAudioCommand::Start)
     }
 
     pub(super) fn pause(&self) -> Result<(), String> {
-        self.request(|reply| ApplicationAudioCommand::Pause(reply))
+        self.request(ApplicationAudioCommand::Pause)
     }
 
     pub(super) fn resume(&self) -> Result<(), String> {
-        self.request(|reply| ApplicationAudioCommand::Resume(reply))
+        self.request(ApplicationAudioCommand::Resume)
     }
 
     fn request(
