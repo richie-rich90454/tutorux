@@ -22,8 +22,8 @@ pub(super) use control_files::{
     clear as clear_control_files, read_status as read_worker_status,
     write_command as write_worker_command, WorkerStatus,
 };
-pub use start::run_start;
 use ffmpeg_capture::FfmpegPlan;
+pub use start::run_start;
 use worker::capture_worker;
 
 pub(super) const DEFAULT_DURATION_SECONDS: u64 = 0;
@@ -86,8 +86,10 @@ pub(super) fn select_device(
     source: &str,
     requested: Option<&str>,
 ) -> CliResult<Option<HeadlessDevice>> {
-    let candidates: Vec<&HeadlessDevice> =
-        devices.iter().filter(|device| device.source == source).collect();
+    let candidates: Vec<&HeadlessDevice> = devices
+        .iter()
+        .filter(|device| device.source == source)
+        .collect();
     if candidates.is_empty() {
         return Err(CliError(if source == "system-audio" {
             "No native system-audio loopback device is available on this platform.".to_owned()
