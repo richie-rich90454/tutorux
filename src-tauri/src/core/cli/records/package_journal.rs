@@ -27,10 +27,11 @@ pub(crate) fn ensure_journal_links(
         }
     }
     let mut entry_id = session.field("entry_id").unwrap_or("").to_lowercase();
-    let mut entry = entry_id
-        .is_empty()
-        .then_some(None)
-        .unwrap_or_else(|| settings.get(&entry_id).cloned());
+    let mut entry = if entry_id.is_empty() {
+        None
+    } else {
+        settings.get(&entry_id).cloned()
+    };
     if entry
         .as_ref()
         .is_none_or(|entry| entry.deleted() || entry.field("record_role") != Some("journal-entry"))
