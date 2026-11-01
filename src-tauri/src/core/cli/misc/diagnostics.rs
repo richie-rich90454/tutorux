@@ -106,11 +106,16 @@ pub fn run_diagnostics_command(
             }
             let base = snapshot.verify()?;
             let mut report = serde_json::Map::new();
-            report.insert("archive_generation".to_owned(), json!(base.generation.to_string()));
+            report.insert(
+                "archive_generation".to_owned(),
+                json!(base.generation.to_string()),
+            );
             report.insert("archive_valid".to_owned(), json!(issues.is_empty()));
             report.insert(
                 "records_checked".to_owned(),
-                json!(verification.as_ref().map_or(0, |value| value.verified_generation_records)),
+                json!(verification
+                    .as_ref()
+                    .map_or(0, |value| value.verified_generation_records)),
             );
             report.insert(
                 "index_pages_checked".to_owned(),
@@ -147,11 +152,19 @@ pub fn run_diagnostics_command(
                 let audio_count = audio_rows().len();
                 report.insert(
                     "audio_device_count".to_owned(),
-                    if audio_count == 0 { json!("unavailable") } else { json!(audio_count) },
+                    if audio_count == 0 {
+                        json!("unavailable")
+                    } else {
+                        json!(audio_count)
+                    },
                 );
                 report.insert(
                     "audio_status".to_owned(),
-                    if audio_count == 0 { json!("unavailable") } else { json!("checked") },
+                    if audio_count == 0 {
+                        json!("unavailable")
+                    } else {
+                        json!("checked")
+                    },
                 );
                 report.insert("audio_samples_retained".to_owned(), json!(false));
                 report.insert("network_checked".to_owned(), json!(false));
@@ -255,4 +268,3 @@ pub(crate) fn audio_rows() -> Vec<Value> {
         })
         .collect()
 }
-
