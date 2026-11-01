@@ -44,7 +44,7 @@ fn count_pages(bytes: &[u8]) -> usize {
 }
 
 fn pdf_string_text(bytes: &[u8], utf16: bool) -> String {
-    if utf16 && bytes.len() % 2 == 0 {
+    if utf16 && bytes.len().is_multiple_of(2) {
         let units: Vec<u16> = bytes
             .chunks_exact(2)
             .map(|pair| ((pair[0] as u16) << 8) | pair[1] as u16)
@@ -399,9 +399,6 @@ pub(super) fn extract_pdf(bytes: &[u8]) -> Result<Extraction> {
     if sink.exceeded {
         return Ok(size_limit());
     }
-    let text = sink
-        .text
-        .trim_end_matches(|character| character == '\r' || character == '\n')
-        .to_owned();
+    let text = sink.text.trim_end_matches(['\r', '\n']).to_owned();
     Ok(finish_text(text, Some(pages), None))
 }
