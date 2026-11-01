@@ -6,9 +6,7 @@ use crate::core::cli::{
     emit, open_archive, require_unlocked, resolve_path, CliContext, CliError, CliOutput, CliResult,
     ParsedArguments,
 };
-use crate::core::sanitize::{
-    create_sanitized_copy, preview_sanitized_copy, SanitizedCopySummary,
-};
+use crate::core::sanitize::{create_sanitized_copy, preview_sanitized_copy, SanitizedCopySummary};
 
 use super::helpers::{environment_name, passphrase_from_env, read_bytes, same_path};
 use super::save;
@@ -26,18 +24,16 @@ pub(super) fn run(
         .map(|extension| extension.eq_ignore_ascii_case("tux"))
         .unwrap_or(false)
     {
-        return Err(CliError(
-            "Sanitized archive copies must use the .tux extension.".to_owned(),
-        )
-        .into());
+        return Err(
+            CliError("Sanitized archive copies must use the .tux extension.".to_owned()).into(),
+        );
     }
     let options = selection::options(args)?;
     let new_passphrase_environment = environment_name(args, "new-passphrase-env")?;
     if same_path(path, &destination) {
-        return Err(CliError(
-            "Sanitized output must be a separate archive copy.".to_owned(),
-        )
-        .into());
+        return Err(
+            CliError("Sanitized output must be a separate archive copy.".to_owned()).into(),
+        );
     }
     let parent = destination
         .parent()
@@ -105,7 +101,9 @@ pub(super) fn run(
     }
 
     let expected_generation = args.option("expected-generation").unwrap_or_default();
-    if !expected_generation.bytes().all(|byte| byte.is_ascii_digit())
+    if !expected_generation
+        .bytes()
+        .all(|byte| byte.is_ascii_digit())
         || expected_generation != summary.source_generation.to_string()
     {
         return Err(CliError(
@@ -119,7 +117,8 @@ pub(super) fn run(
         )
         .into());
     }
-    if args.option("expected-encrypted-output") != Some(if encrypted_output { "yes" } else { "no" }) {
+    if args.option("expected-encrypted-output") != Some(if encrypted_output { "yes" } else { "no" })
+    {
         return Err(CliError(
             "The output encryption choice differs from the reviewed preview; preview again."
                 .to_owned(),
