@@ -19,6 +19,8 @@ The Vite production build reports uncompressed and gzip JavaScript/CSS sizes. Th
 
 The first recorded build emitted roughly 103 kB of web JavaScript before gzip. The exact size changes with the current source and dependency lockfile; rerun `pnpm run build` for the current number.
 
+The desktop build now lazy-loads page modules and their page styles, and loads the large hashing and PDF code only when needed. A Windows desktop build on 2026-11-01 produced a 480.23 kB initial JavaScript entry (136.60 kB gzip), a 430.21 kB PDF chunk (129.32 kB gzip), and a 533.96 kB `libsodium-wrappers-sumo` chunk (189.08 kB gzip). The sodium distribution is one vendor module and remains lazy-loaded for hashing/encryption operations. `vite.config.ts` sets `chunkSizeWarningLimit` to 535 kB for this known vendor chunk; application entry and route chunks remain below the default 500 kB warning threshold. Re-run `pnpm run build:desktop` for current measurements.
+
 One Windows run on 2026-10-26 with Node v24.13.0 / V8 13.6.233.17-node.37 produced:
 
 | Workload                                        |            Result |
