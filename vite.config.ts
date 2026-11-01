@@ -35,6 +35,14 @@ export default defineConfig(({ mode }) => ({
                 codeSplitting: {
                     groups: [
                         {
+                            name: "tailwind-styles",
+                            test: /[.]tailwind[.]tsx?$/u,
+                            minSize: 32 * 1024,
+                            maxSize: 440 * 1024,
+                            entriesAware: true,
+                            priority: 30,
+                        },
+                        {
                             name: "vendor",
                             test: /node_modules[\\/]/u,
                             minSize: 32 * 1024,
