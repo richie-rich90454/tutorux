@@ -119,7 +119,7 @@ pub(crate) fn run_transcript_transcription(
     let start_frame = ((start_us.max(0) as u128) * u128::from(rate) / 1_000_000) as u64;
     let end_frame = match end_us {
         Some(end) => {
-            let requested = ((end.max(0) as u128 * u128::from(rate) + 999_999) / 1_000_000) as u64;
+            let requested = (end.max(0) as u128 * u128::from(rate)).div_ceil(1_000_000) as u64;
             requested.min(layout.frames)
         }
         None => layout.frames,
