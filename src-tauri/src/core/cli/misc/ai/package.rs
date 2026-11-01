@@ -61,18 +61,24 @@ pub(super) fn create_package(
     let session = snapshot
         .get_record(RecordType::SESSION, session_id)?
         .filter(|record| !record.deleted())
-        .ok_or_else(|| CliError("Choose an active session before preparing an AI package.".to_owned()))?;
+        .ok_or_else(|| {
+            CliError("Choose an active session before preparing an AI package.".to_owned())
+        })?;
     let settings = snapshot.list_records(RecordType::SETTINGS, false)?;
-    let transcripts = session_records(snapshot.list_records(RecordType::TRANSCRIPT_SEGMENT, false)?, session_id);
-    let annotations = session_records(snapshot.list_records(RecordType::ANNOTATION, false)?, session_id);
+    let transcripts = session_records(
+        snapshot.list_records(RecordType::TRANSCRIPT_SEGMENT, false)?,
+        session_id,
+    );
+    let annotations = session_records(
+        snapshot.list_records(RecordType::ANNOTATION, false)?,
+        session_id,
+    );
     let assets: Vec<ArchiveRecord> = session_records(
         snapshot.list_records(RecordType::ASSET_METADATA, false)?,
         session_id,
     )
     .into_iter()
-    .filter(|record| {
-        !INTERNAL_ASSET_ROLES.contains(&record.field("record_role").unwrap_or(""))
-    })
+    .filter(|record| !INTERNAL_ASSET_ROLES.contains(&record.field("record_role").unwrap_or("")))
     .collect();
     let session_evidence = session_records(
         snapshot.list_records(RecordType::EVIDENCE_NODE, false)?,
@@ -272,7 +278,9 @@ fn resolve_template(
         return Ok(template.clone());
     }
     if !requested.is_empty() && !requested.eq_ignore_ascii_case("auto") {
-        return Err(CliError("Choose a built-in or active custom guide template.".to_owned()).into());
+        return Err(
+            CliError("Choose a built-in or active custom guide template.".to_owned()).into(),
+        );
     }
     Ok(get_guide_template(&inferred))
 }
@@ -329,8 +337,7 @@ fn student_progress(
                 .map(|source| source.field("session_id").unwrap_or("").to_owned())
                 .collect();
             let passed = valid.len() == item.evidence_source_ids.len();
-            let unverified =
-                item.classification == "unverified-improvement" || !passed;
+            let unverified = item.classification == "unverified-improvement" || !passed;
             Json::Obj(vec![
                 ("skill", Json::str(item.skill.clone())),
                 ("classification", Json::str(item.classification.clone())),
@@ -422,7 +429,9 @@ fn image_attachments(assets: &[ArchiveRecord], ids: &[String]) -> CliResult<Vec<
         }
         total += byte_size;
         if total > MAX_ATTACHMENT_BYTES {
-            return Err(CliError("AI image attachments cannot exceed 4 MiB total.".to_owned()).into());
+            return Err(
+                CliError("AI image attachments cannot exceed 4 MiB total.".to_owned()).into(),
+            );
         }
         images.push(Attachment {
             id: asset.id.to_lowercase(),
