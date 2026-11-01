@@ -1,4 +1,3 @@
-import sodium from "libsodium-wrappers-sumo";
 import { ArchiveFormatError, RecordType, newUuid, type ArchiveRecord } from "../archive/format";
 import type { ArchiveSnapshot } from "../archive/archive";
 import {
@@ -8,6 +7,7 @@ import {
     MAX_ASSET_BYTES,
 } from "./assets";
 import { extractDocumentText } from "./document-text";
+import { loadSodium } from "./sodium";
 
 const CHUNK_BYTES = 8 * 1024 * 1024;
 const EXTRACT_LIMIT = 16 * 1024 * 1024;
@@ -75,7 +75,7 @@ export async function prepareStreamingAssetImport(
         throw new Error("Session ID must be a valid UUID.");
     }
     const filename = cleanFilename(source.name);
-    await sodium.ready;
+    const sodium = await loadSodium();
     const firstHash = sodium.crypto_hash_sha256_init();
     let firstFinalized = false;
     let prefix = new Uint8Array();
