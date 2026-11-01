@@ -177,8 +177,12 @@ fn json_depth_exceeded(value: &Value, depth: usize) -> bool {
         return true;
     }
     match value {
-        Value::Array(items) => items.iter().any(|item| json_depth_exceeded(item, depth + 1)),
-        Value::Object(object) => object.values().any(|item| json_depth_exceeded(item, depth + 1)),
+        Value::Array(items) => items
+            .iter()
+            .any(|item| json_depth_exceeded(item, depth + 1)),
+        Value::Object(object) => object
+            .values()
+            .any(|item| json_depth_exceeded(item, depth + 1)),
         _ => false,
     }
 }
@@ -192,7 +196,10 @@ mod tests {
         let proposal = create("{\"title\":\"x\"}", "session", "general");
         assert!(!proposal.schema_valid);
         assert_eq!(proposal.draft.title, "AI response — review required");
-        assert_eq!(proposal.draft.sections[0].blocks[0].text, "{\"title\":\"x\"}");
+        assert_eq!(
+            proposal.draft.sections[0].blocks[0].text,
+            "{\"title\":\"x\"}"
+        );
         assert_eq!(proposal.warnings.len(), 1);
     }
 
