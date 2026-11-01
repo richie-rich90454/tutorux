@@ -12,6 +12,7 @@ use super::waveform_index;
 
 const BLOCK_FRAMES: usize = 2048;
 const CHUNKS_PER_COMMIT: usize = 16;
+type MixFailure = (CliError, Box<ArchiveSnapshot>, u64);
 
 pub(super) fn mix(
     args: ParsedArguments,
@@ -34,12 +35,20 @@ pub(super) fn mix(
     }
     if track_ids.len() < 2
         || track_ids.len() > 8
-        || track_ids.iter().collect::<std::collections::BTreeSet<_>>().len() != track_ids.len()
+        || track_ids
+            .iter()
+            .collect::<std::collections::BTreeSet<_>>()
+            .len()
+            != track_ids.len()
     {
         return Err(CliError("Select between two and eight distinct tracks.".to_owned()).into());
     }
     let label = args.option("label").unwrap_or("Mixdown").trim().to_owned();
-    let label = if label.is_empty() { "Mixdown".to_owned() } else { label };
+    let label = if label.is_empty() {
+        "Mixdown".to_owned()
+    } else {
+        label
+    };
     if label.len() > 120 || label.contains(['\r', '\n', '\0']) {
         return Err(CliError(
             "Mix name must fit on one line and contain at most 120 bytes.".to_owned(),
@@ -49,7 +58,9 @@ pub(super) fn mix(
     let take = snapshot
         .get_record(RecordType::ASSET_METADATA, &take_id)?
         .filter(|record| record.field("record_role") == Some("recording-take"))
-        .filter(|record| record.field("session_id").map(str::to_lowercase).as_deref() == Some(&session_id))
+        .filter(|record| {
+            record.field("session_id").map(str::to_lowercase).as_deref() == Some(&session_id)
+        })
         .ok_or_else(|| CliError("Choose a saved take in this session.".to_owned()))?;
     let linked = take
         .field("track_ids")
@@ -63,13 +74,22 @@ pub(super) fn mix(
     for id in &track_ids {
         let track = snapshot
             .get_record(RecordType::ASSET_METADATA, id)?
-            .ok_or_else(|| CliError("Every selected track must belong to the chosen take.".to_owned()))?;
+            .ok_or_else(|| {
+                CliError("Every selected track must belong to the chosen take.".to_owned())
+            })?;
         if !linked.contains(id)
             || track.field("record_role") != Some("audio-track")
             || track.field("session_id").map(str::to_lowercase).as_deref() != Some(&session_id)
-            || track.field("recording_take_id").map(str::to_lowercase).as_deref() != Some(&take_id)
+            || track
+                .field("recording_take_id")
+                .map(str::to_lowercase)
+                .as_deref()
+                != Some(&take_id)
         {
-            return Err(CliError("Every selected track must belong to the chosen take.".to_owned()).into());
+            return Err(CliError(
+                "Every selected track must belong to the chosen take.".to_owned(),
+            )
+            .into());
         }
         let chunks = session_chunks(&snapshot, &session_id, Some(id))?;
         if chunks.is_empty() {
@@ -85,7 +105,10 @@ pub(super) fn mix(
             .and_then(|value| value.parse::<u16>().ok())
             .filter(|value| *value > 0)
             .ok_or_else(|| CliError("A selected track has an invalid timeline.".to_owned()))?;
-        let format = chunks[0].field("sample_format").unwrap_or("pcm_s16le").to_owned();
+        let format = chunks[0]
+            .field("sample_format")
+            .unwrap_or("pcm_s16le")
+            .to_owned();
         let width = match format.as_str() {
             "pcm_u8" => 1,
             "pcm_s16le" => 2,
@@ -103,11 +126,19 @@ pub(super) fn mix(
             if sequence != index as u64
                 || first != expected.saturating_add(gap)
                 || count == 0
-                || chunk.field("sample_rate_hz").and_then(|value| value.parse::<u32>().ok()) != Some(rate)
-                || chunk.field("channel_count").and_then(|value| value.parse::<u16>().ok()) != Some(channels)
+                || chunk
+                    .field("sample_rate_hz")
+                    .and_then(|value| value.parse::<u32>().ok())
+                    != Some(rate)
+                || chunk
+                    .field("channel_count")
+                    .and_then(|value| value.parse::<u16>().ok())
+                    != Some(channels)
                 || chunk.field("sample_format") != Some(format.as_str())
             {
-                return Err(CliError("A selected track has an invalid timeline.".to_owned()).into());
+                return Err(
+                    CliError("A selected track has an invalid timeline.".to_owned()).into(),
+                );
             }
             if gap > 0 {
                 gaps.push((expected, first));
@@ -125,7 +156,11 @@ pub(super) fn mix(
             chunks,
         ));
     }
-    let target_rate = sources.iter().map(|source| source.rate).max().unwrap_or(48_000);
+    let target_rate = sources
+        .iter()
+        .map(|source| source.rate)
+        .max()
+        .unwrap_or(48_000);
     let duration_us = sources
         .iter()
         .map(|source| (u128::from(source.total_frames) * 1_000_000) / u128::from(source.rate))
@@ -142,7 +177,19 @@ pub(super) fn mix(
         path,
         &snapshot,
         &[
-            track_record(&session_id, &take_id, &track_id, &track_ids, &label, target_rate, 0, 0, 0, "mixing", &timestamp),
+            track_record(
+                &session_id,
+                &take_id,
+                &track_id,
+                &track_ids,
+                &label,
+                target_rate,
+                0,
+                0,
+                0,
+                "mixing",
+                &timestamp,
+            ),
             take_record(&take, &linked, &track_id, &timestamp),
             session_record(
                 &snapshot
@@ -168,8 +215,17 @@ pub(super) fn mix(
         Ok((snapshot_after, chunk_count)) => {
             let waveform = waveform_index::build(&snapshot_after, &session_id, &track_id)?;
             let final_track = track_record(
-                &session_id, &take_id, &track_id, &track_ids, &label, target_rate, frames,
-                duration_us as u64, chunk_count, "completed", &now_us().to_string(),
+                &session_id,
+                &take_id,
+                &track_id,
+                &track_ids,
+                &label,
+                target_rate,
+                frames,
+                duration_us as u64,
+                chunk_count,
+                "completed",
+                &now_us().to_string(),
             );
             let take = snapshot_after
                 .get_record(RecordType::ASSET_METADATA, &take_id)?
@@ -211,8 +267,17 @@ pub(super) fn mix(
                 path,
                 &current,
                 &[track_record(
-                    &session_id, &take_id, &track_id, &track_ids, &label, target_rate, frames,
-                    duration_us as u64, chunk_count, state, &now_us().to_string(),
+                    &session_id,
+                    &take_id,
+                    &track_id,
+                    &track_ids,
+                    &label,
+                    target_rate,
+                    frames,
+                    duration_us as u64,
+                    chunk_count,
+                    state,
+                    &now_us().to_string(),
                 )],
             );
             Err(error.into())
@@ -220,7 +285,10 @@ pub(super) fn mix(
     }
 }
 
-#[allow(clippy::too_many_arguments)]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "The streaming mix operation keeps the archive, source tracks, timeline, and output identity explicit."
+)]
 fn mix_frames(
     path: &Path,
     snapshot: &ArchiveSnapshot,
@@ -231,7 +299,7 @@ fn mix_frames(
     label: &str,
     target_rate: u32,
     frames: u64,
-) -> Result<(ArchiveSnapshot, u64), (CliError, ArchiveSnapshot, u64)> {
+) -> Result<(ArchiveSnapshot, u64), MixFailure> {
     let mut active: Vec<i16> = Vec::with_capacity(BLOCK_FRAMES * 2);
     let mut active_start = 0u64;
     let mut active_gap = 0u64;
@@ -239,7 +307,11 @@ fn mix_frames(
     let mut sequence = 0u64;
     let mut batch: Vec<ArchiveRecord> = Vec::new();
     let mut current = snapshot.clone();
-    let flush = |active: &mut Vec<i16>, active_start: u64, active_gap: u64, sequence: &mut u64, batch: &mut Vec<ArchiveRecord>| {
+    let flush = |active: &mut Vec<i16>,
+                 active_start: u64,
+                 active_gap: u64,
+                 sequence: &mut u64,
+                 batch: &mut Vec<ArchiveRecord>| {
         if active.is_empty() {
             return;
         }
@@ -264,7 +336,9 @@ fn mix_frames(
                 ),
                 (
                     "timeline_end_us",
-                    ((u128::from(active_start + count as u64) * 1_000_000) / u128::from(target_rate)).to_string(),
+                    ((u128::from(active_start + count as u64) * 1_000_000)
+                        / u128::from(target_rate))
+                    .to_string(),
                 ),
                 ("sample_format", "pcm_s16le".to_owned()),
                 ("sample_rate_hz", target_rate.to_string()),
@@ -272,7 +346,10 @@ fn mix_frames(
                 ("channel_mask", "3".to_owned()),
                 ("codec", "none".to_owned()),
                 ("source", "mixdown".to_owned()),
-                ("payload_checksum", crate::core::format::crc32(&bytes).to_string()),
+                (
+                    "payload_checksum",
+                    crate::core::format::crc32(&bytes).to_string(),
+                ),
             ],
         );
         chunk.blob = bytes;
@@ -285,7 +362,8 @@ fn mix_frames(
         let mut right = 0i64;
         let mut contributors = 0i64;
         for source in sources.iter_mut() {
-            let source_frame = ((u128::from(frame) * u128::from(source.rate)) / u128::from(target_rate)) as u64;
+            let source_frame =
+                ((u128::from(frame) * u128::from(source.rate)) / u128::from(target_rate)) as u64;
             if source_frame >= source.total_frames {
                 continue;
             }
@@ -293,9 +371,16 @@ fn mix_frames(
                 continue;
             };
             let mut l = i64::from(samples[0]);
-            let mut r = if source.channels == 1 { l } else { i64::from(samples[1]) };
+            let mut r = if source.channels == 1 {
+                l
+            } else {
+                i64::from(samples[1])
+            };
             if source.channels > 2 {
-                let extra = samples[2..].iter().map(|value| i64::from(*value)).sum::<i64>()
+                let extra = samples[2..]
+                    .iter()
+                    .map(|value| i64::from(*value))
+                    .sum::<i64>()
                     / i64::from(source.channels - 2);
                 l = (l + extra) / 2;
                 r = (r + extra) / 2;
@@ -305,9 +390,15 @@ fn mix_frames(
             contributors += 1;
         }
         if contributors == 0 {
-            flush(&mut active, active_start, active_gap, &mut sequence, &mut batch);
+            flush(
+                &mut active,
+                active_start,
+                active_gap,
+                &mut sequence,
+                &mut batch,
+            );
             commit_batch(path, &mut current, &mut batch)
-                .map_err(|error| (error, current.clone(), sequence))?;
+                .map_err(|error| (error, Box::new(current.clone()), sequence))?;
             pending_gap = pending_gap.saturating_add(1);
             continue;
         }
@@ -319,18 +410,30 @@ fn mix_frames(
         active.push((left / contributors) as i16);
         active.push((right / contributors) as i16);
         if active.len() >= BLOCK_FRAMES * 2 {
-            flush(&mut active, active_start, active_gap, &mut sequence, &mut batch);
+            flush(
+                &mut active,
+                active_start,
+                active_gap,
+                &mut sequence,
+                &mut batch,
+            );
             commit_batch(path, &mut current, &mut batch)
-                .map_err(|error| (error, current.clone(), sequence))?;
+                .map_err(|error| (error, Box::new(current.clone()), sequence))?;
         }
     }
-    flush(&mut active, active_start, active_gap, &mut sequence, &mut batch);
+    flush(
+        &mut active,
+        active_start,
+        active_gap,
+        &mut sequence,
+        &mut batch,
+    );
     flush_batch(path, &mut current, &mut batch)
-        .map_err(|error| (error, current.clone(), sequence))?;
+        .map_err(|error| (error, Box::new(current.clone()), sequence))?;
     if sequence == 0 {
         return Err((
             CliError("The chosen tracks have no overlapping saved audio.".to_owned()),
-            current,
+            Box::new(current),
             0,
         ));
     }
@@ -388,6 +491,10 @@ fn integer(record: &ArchiveRecord, name: &str) -> u64 {
         .unwrap_or(0)
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "This serializer maps each independent audio-track metadata field into the archive record."
+)]
 fn track_record(
     session_id: &str,
     take_id: &str,
@@ -450,19 +557,23 @@ fn take_record(
 
 fn session_record(session: &ArchiveRecord, track_id: &str, timestamp: &str) -> ArchiveRecord {
     let mut record = session.clone();
-    let mut tracks: Vec<String> = ["recording_track_ids", "recording_track_id", "audio_import_track_id"]
-        .iter()
-        .flat_map(|key| {
-            record
-                .field(key)
-                .unwrap_or("")
-                .split(',')
-                .map(str::trim)
-                .filter(|value| !value.is_empty())
-                .map(str::to_owned)
-                .collect::<Vec<_>>()
-        })
-        .collect();
+    let mut tracks: Vec<String> = [
+        "recording_track_ids",
+        "recording_track_id",
+        "audio_import_track_id",
+    ]
+    .iter()
+    .flat_map(|key| {
+        record
+            .field(key)
+            .unwrap_or("")
+            .split(',')
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_owned)
+            .collect::<Vec<_>>()
+    })
+    .collect();
     if !tracks.iter().any(|id| id == track_id) {
         tracks.push(track_id.to_owned());
     }
