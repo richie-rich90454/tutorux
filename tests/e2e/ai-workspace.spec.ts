@@ -1,7 +1,14 @@
 import { expect, test } from "@playwright/test";
+import type { Page } from "@playwright/test";
 import { readFile } from "node:fs/promises";
 import { openArchiveBytes, verifyArchiveSnapshot } from "../../frontend/archive/archive";
 import { RecordType } from "../../frontend/archive/format";
+
+async function openAiWorkspace(page: Page): Promise<void> {
+    const navigation = page.getByRole("navigation", { name: "Primary navigation" });
+    await navigation.getByRole("button", { name: "More", exact: true }).click();
+    await page.getByRole("menuitem", { name: "AI workspace", exact: true }).click();
+}
 
 test.beforeEach(async ({ page }) => {
     await page.addInitScript(() => {
@@ -18,7 +25,7 @@ test.beforeEach(async ({ page }) => {
 
 test("reviews, saves, exports, and reopens a private manual AI package", async ({ page }, info) => {
     await page.goto("/");
-    await page.getByRole("button", { name: "Create your workspace" }).click();
+    await page.getByRole("button", { name: "Create archive" }).click();
     await page.getByLabel("Workspace name").fill("AI package QA");
     const initialDownload = page.waitForEvent("download");
     await page.getByRole("button", { name: "Create workspace" }).click();
@@ -49,7 +56,7 @@ test("reviews, saves, exports, and reopens a private manual AI package", async (
     });
     await expect(page.getByText("leaf-cell.png", { exact: true })).toBeVisible();
 
-    await page.getByRole("navigation").getByRole("button", { name: "AI workspace" }).click();
+    await openAiWorkspace(page);
     await page.getByLabel("AI model ID").fill("gpt-4.1");
     await page.getByRole("button", { name: "Save provider settings" }).click();
     await expect(page.getByText("Configured", { exact: true })).toBeVisible();
@@ -123,7 +130,7 @@ test("saves provider preferences and keeps API keys inside encrypted archives", 
     page,
 }, info) => {
     await page.goto("/");
-    await page.getByRole("button", { name: "Create your workspace" }).click();
+    await page.getByRole("button", { name: "Create archive" }).click();
     await page.getByLabel("Workspace name").fill("Encrypted AI settings");
     await page.getByLabel(/Protect this workspace with a passphrase/u).check();
     await page.getByLabel("Archive passphrase").fill("encrypted-ai-test-passphrase");
@@ -132,7 +139,7 @@ test("saves provider preferences and keeps API keys inside encrypted archives", 
     await page.getByRole("button", { name: "Create workspace" }).click();
     await (await initialDownload).saveAs(info.outputPath("ai-encrypted-initial.tux"));
 
-    await page.getByRole("navigation").getByRole("button", { name: "AI workspace" }).click();
+    await openAiWorkspace(page);
     await page.getByLabel("AI model ID").fill("gpt-4.1");
     await page.getByRole("button", { name: "Save provider settings" }).click();
     await expect(page.getByText("Configured", { exact: true })).toBeVisible();
@@ -255,7 +262,7 @@ test("archives successful and HTTP-error responses after explicit request confir
     });
 
     await page.goto("/");
-    await page.getByRole("button", { name: "Create your workspace" }).click();
+    await page.getByRole("button", { name: "Create archive" }).click();
     await page.getByLabel("Workspace name").fill("Provider execution QA");
     await page.getByRole("checkbox", { name: /Protect this workspace with a passphrase/u }).check();
     await page.getByLabel("Archive passphrase").fill("provider-execution-test-passphrase");
@@ -287,7 +294,7 @@ test("archives successful and HTTP-error responses after explicit request confir
         buffer: Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3]),
     });
 
-    await page.getByRole("navigation").getByRole("button", { name: "AI workspace" }).click();
+    await openAiWorkspace(page);
     await page.getByLabel("AI model ID").fill("gpt-4.1");
     await page.getByRole("button", { name: "Save provider settings" }).click();
     await page.getByLabel("Provider API key").fill(apiKey);
@@ -345,14 +352,15 @@ test("archives successful and HTTP-error responses after explicit request confir
     await page.getByRole("button", { name: "Save archive" }).click();
     await (await archiveDownload).saveAs(info.outputPath("ai-run-saved.tux"));
 
-    await page.getByRole("navigation").getByRole("button", { name: "Archive health" }).click();
+    await page.getByRole("navigation").getByRole("button", { name: "More" }).click();
+    await page.getByRole("menuitem", { name: "Archive health" }).click();
     await page.getByRole("button", { name: "Lock archive" }).click();
     const lockedPassphrase = page.getByLabel("Archive passphrase");
     await expect(lockedPassphrase).toBeVisible();
     await lockedPassphrase.fill("provider-execution-test-passphrase");
     await page.getByRole("button", { name: "Unlock archive" }).click();
     await expect(lockedPassphrase).toHaveCount(0);
-    await page.getByRole("navigation").getByRole("button", { name: "AI workspace" }).click();
+    await openAiWorkspace(page);
     await expect(page.getByRole("heading", { name: "Proposed study guide is ready" })).toHaveCount(
         0,
     );
