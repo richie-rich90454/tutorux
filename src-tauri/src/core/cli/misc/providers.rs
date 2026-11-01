@@ -38,6 +38,10 @@ const fn provider(
     }
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Each provider's persisted protocol metadata is declared explicitly in this const table."
+)]
 const fn provider_with_placeholder(
     id: &'static str,
     name: &'static str,
@@ -169,10 +173,7 @@ pub(super) fn open_code_zen_protocol(model: &str) -> &'static str {
     }
 }
 
-pub(super) fn authentication(
-    provider: &ProviderDef,
-    model: &str,
-) -> Option<(&'static str, bool)> {
+pub(super) fn authentication(provider: &ProviderDef, model: &str) -> Option<(&'static str, bool)> {
     match provider.id {
         "anthropic" => Some(("x-api-key", true)),
         "google-gemini" => Some(("x-goog-api-key", true)),
@@ -205,7 +206,11 @@ pub(super) fn validate_endpoint(value: &str, provider: &ProviderDef) -> Result<S
     }
     let url = reqwest::Url::parse(endpoint)
         .map_err(|_| "Enter a valid provider endpoint URL.".to_owned())?;
-    if !url.username().is_empty() || url.password().is_some() || url.query().is_some() || url.fragment().is_some() {
+    if !url.username().is_empty()
+        || url.password().is_some()
+        || url.query().is_some()
+        || url.fragment().is_some()
+    {
         return Err(
             "Endpoint URLs cannot contain credentials, query parameters, or fragments.".to_owned(),
         );
@@ -217,7 +222,8 @@ pub(super) fn validate_endpoint(value: &str, provider: &ProviderDef) -> Result<S
             || !matches!(url.path(), "/v1" | "/v1/")
         {
             return Err(
-                "Replicate requests must use the official https://api.replicate.com/v1 API.".to_owned(),
+                "Replicate requests must use the official https://api.replicate.com/v1 API."
+                    .to_owned(),
             );
         }
         return Ok("https://api.replicate.com/v1".to_owned());
@@ -270,7 +276,10 @@ pub(crate) fn run_diagnostics_providers(
             row.insert("name".to_owned(), json!(provider.name));
             row.insert("description".to_owned(), json!(provider.description));
             row.insert("protocol".to_owned(), json!(provider.protocol));
-            row.insert("defaultEndpoint".to_owned(), json!(provider.default_endpoint));
+            row.insert(
+                "defaultEndpoint".to_owned(),
+                json!(provider.default_endpoint),
+            );
             if !provider.endpoint_placeholder.is_empty() {
                 row.insert(
                     "endpointPlaceholder".to_owned(),
@@ -307,7 +316,10 @@ pub fn run_ai_providers(args: ParsedArguments, output: &mut dyn CliOutput) -> Cl
             catalog.insert("name".to_owned(), json!(provider.name));
             catalog.insert("description".to_owned(), json!(provider.description));
             catalog.insert("protocol".to_owned(), json!(provider.protocol));
-            catalog.insert("defaultEndpoint".to_owned(), json!(provider.default_endpoint));
+            catalog.insert(
+                "defaultEndpoint".to_owned(),
+                json!(provider.default_endpoint),
+            );
             if !provider.endpoint_placeholder.is_empty() {
                 catalog.insert(
                     "endpointPlaceholder".to_owned(),
@@ -354,16 +366,29 @@ mod tests {
     #[test]
     fn catalog_matches_the_desktop_provider_surface() {
         assert_eq!(PROVIDERS.len(), 39);
-        assert!(PROVIDERS.iter().any(|provider| provider.id == "embedded-gguf" && provider.local));
+        assert!(PROVIDERS
+            .iter()
+            .any(|provider| provider.id == "embedded-gguf" && provider.local));
         assert!(PROVIDERS.iter().any(|provider| provider.id == "replicate"));
-        assert!(PROVIDERS.iter().any(|provider| provider.id == "opencode-go" && !provider.generation_available));
+        assert!(PROVIDERS
+            .iter()
+            .any(|provider| provider.id == "opencode-go" && !provider.generation_available));
     }
 
     #[test]
     fn provider_aliases_resolve_to_catalog_entries() {
-        assert_eq!(provider_by_id("llama.cpp-embedded").map(|provider| provider.id), Some("embedded-gguf"));
-        assert_eq!(provider_by_id("LM Studio").map(|provider| provider.id), Some("lm-studio"));
-        assert_eq!(provider_by_id("cloudflare").map(|provider| provider.id), Some("cloudflare-workers-ai"));
+        assert_eq!(
+            provider_by_id("llama.cpp-embedded").map(|provider| provider.id),
+            Some("embedded-gguf")
+        );
+        assert_eq!(
+            provider_by_id("LM Studio").map(|provider| provider.id),
+            Some("lm-studio")
+        );
+        assert_eq!(
+            provider_by_id("cloudflare").map(|provider| provider.id),
+            Some("cloudflare-workers-ai")
+        );
         assert!(provider_by_id("not-a-provider").is_none());
     }
 
