@@ -34,16 +34,22 @@ fn sample_to_pcm16(bytes: &[u8], format: &str) -> i16 {
         "pcm_u8" => (f64::from(bytes[0]) - 128.0) / 128.0,
         "pcm_s16le" => f64::from(i16::from_le_bytes([bytes[0], bytes[1]])) / 32768.0,
         "pcm_s24le" => {
-            let raw = i32::from(bytes[0]) | (i32::from(bytes[1]) << 8) | (i32::from(bytes[2]) << 16);
-            let signed = if raw & 0x80_0000 != 0 { raw | !0xff_ffff } else { raw };
+            let raw =
+                i32::from(bytes[0]) | (i32::from(bytes[1]) << 8) | (i32::from(bytes[2]) << 16);
+            let signed = if raw & 0x80_0000 != 0 {
+                raw | !0xff_ffff
+            } else {
+                raw
+            };
             f64::from(signed) / 8_388_608.0
         }
         "pcm_s32le" => {
             let raw = i32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]);
             f64::from(raw) / 2_147_483_648.0
         }
-        "pcm_f32le" => f32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]])
-            .clamp(-1.0, 1.0) as f64,
+        "pcm_f32le" => {
+            f32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]).clamp(-1.0, 1.0) as f64
+        }
         _ => 0.0,
     };
     if scaled <= -1.0 {
@@ -60,9 +66,7 @@ fn integer(record: &ArchiveRecord, name: &str, optional: bool) -> CliResult<u64>
         .field(name)
         .unwrap_or(if optional { "0" } else { "" });
     if value.is_empty() || !value.bytes().all(|byte| byte.is_ascii_digit()) {
-        return Err(
-            CliError(format!("Invalid waveform source metadata: {name}.")).into(),
-        );
+        return Err(CliError(format!("Invalid waveform source metadata: {name}.")).into());
     }
     value
         .parse::<u64>()
@@ -83,7 +87,9 @@ pub(super) fn build(
     let rate = integer(&chunks[0], "sample_rate_hz", false)?;
     let channels = integer(&chunks[0], "channel_count", false)?;
     if channels == 0 {
-        return Err(CliError("The audio track has inconsistent timeline metadata.".to_owned()).into());
+        return Err(
+            CliError("The audio track has inconsistent timeline metadata.".to_owned()).into(),
+        );
     }
     let mut timeline = 0u64;
     let mut stored = 0u64;
@@ -114,7 +120,11 @@ pub(super) fn build(
         stored = stored
             .checked_add(count)
             .ok_or_else(|| CliError("The audio timeline is too large to index.".to_owned()))?;
-        let revision = if chunk.revision == 0 { 1 } else { chunk.revision };
+        let revision = if chunk.revision == 0 {
+            1
+        } else {
+            chunk.revision
+        };
         signatures.push_str(&format!(
             "{}:{revision}:{sequence}:{start}:{count}:{gap}\n",
             chunk.id.to_lowercase()
@@ -141,8 +151,7 @@ pub(super) fn build(
             end_frame,
             minimum: 32767,
             maximum: -32768,
-            contains_gap: gap_index < gaps.len()
-                && gaps[gap_index].0 < u128::from(end_frame),
+            contains_gap: gap_index < gaps.len() && gaps[gap_index].0 < u128::from(end_frame),
         });
     }
 
@@ -151,9 +160,7 @@ pub(super) fn build(
     let mut bucket_index = 0usize;
     let mut visit = |samples: &[u8], bucket_index: &mut usize, frame: &mut u64| {
         for offset in (0..samples.len()).step_by(stride) {
-            while *bucket_index + 1 < count
-                && *frame >= base[*bucket_index].end_frame
-            {
+            while *bucket_index + 1 < count && *frame >= base[*bucket_index].end_frame {
                 *bucket_index += 1;
             }
             let bucket = &mut base[*bucket_index];
@@ -243,16 +250,8 @@ pub(super) fn build(
         .into_iter()
         .find(|record| {
             record.field("record_role") == Some("waveform-pyramid")
-                && record
-                    .field("session_id")
-                    .map(str::to_lowercase)
-                    .as_deref()
-                    == Some(session_id)
-                && record
-                    .field("track_id")
-                    .map(str::to_lowercase)
-                    .as_deref()
-                    == Some(track_id)
+                && record.field("session_id").map(str::to_lowercase).as_deref() == Some(session_id)
+                && record.field("track_id").map(str::to_lowercase).as_deref() == Some(track_id)
         });
     let id = previous
         .as_ref()
@@ -323,15 +322,9 @@ pub(super) fn run(
         .into_iter()
         .find(|record| {
             record.field("record_role") == Some("waveform-pyramid")
-                && record
-                    .field("session_id")
-                    .map(str::to_lowercase)
-                    .as_deref()
+                && record.field("session_id").map(str::to_lowercase).as_deref()
                     == Some(session_id.as_str())
-                && record
-                    .field("track_id")
-                    .map(str::to_lowercase)
-                    .as_deref()
+                && record.field("track_id").map(str::to_lowercase).as_deref()
                     == Some(track_id.as_str())
         })
         .ok_or_else(|| {
@@ -399,7 +392,10 @@ mod tests {
         assert_eq!(sample_to_pcm16(&[0], "pcm_u8"), -32768);
         assert_eq!(sample_to_pcm16(&[128], "pcm_u8"), 0);
         assert_eq!(sample_to_pcm16(&1.0f32.to_le_bytes(), "pcm_f32le"), 32767);
-        assert_eq!(sample_to_pcm16(&(-1.0f32).to_le_bytes(), "pcm_f32le"), -32768);
+        assert_eq!(
+            sample_to_pcm16(&(-1.0f32).to_le_bytes(), "pcm_f32le"),
+            -32768
+        );
     }
 
     #[test]
