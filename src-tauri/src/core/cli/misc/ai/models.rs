@@ -15,7 +15,6 @@ use super::{
 };
 
 pub(super) fn models(
-    
     action: &str,
     args: &ParsedArguments,
     output: &mut dyn CliOutput,
@@ -46,7 +45,9 @@ pub(super) fn models(
     let endpoint = validate_endpoint(&endpoint, provider).map_err(CliError)?;
     let credential = zeroize::Zeroizing::new(resolve_credential(&snapshot, provider, args)?);
     if !provider.local && credential.is_empty() {
-        return Err(CliError("A provider API key is required for model discovery.".to_owned()).into());
+        return Err(
+            CliError("A provider API key is required for model discovery.".to_owned()).into(),
+        );
     }
     let model_ids = discover_models(provider, &endpoint, &credential)?;
     if action == "test" {
@@ -57,7 +58,11 @@ pub(super) fn models(
                 "status": "connected",
                 "model_count": model_ids.len(),
             }),
-            &format!("Connected to {}; {} model(s) available.", provider.name, model_ids.len()),
+            &format!(
+                "Connected to {}; {} model(s) available.",
+                provider.name,
+                model_ids.len()
+            ),
             args.json(),
         );
         return Ok(0);
@@ -100,7 +105,11 @@ pub(super) fn models(
     emit(
         output,
         Value::Array(rows),
-        &format!("{} model(s) discovered for {}.", model_ids.len(), provider.name),
+        &format!(
+            "{} model(s) discovered for {}.",
+            model_ids.len(),
+            provider.name
+        ),
         args.json(),
     );
     Ok(0)
@@ -134,19 +143,23 @@ pub(super) fn embedded_models(
                         || record.field("model_id") == Some(requested_model))
             })
             .ok_or_else(|| {
-                CliError("Select an embedded GGUF model before checking the local runtime.".to_owned())
+                CliError(
+                    "Select an embedded GGUF model before checking the local runtime.".to_owned(),
+                )
             })?;
         let model_path = selected.field("path").unwrap_or("");
         if model_path.is_empty() {
-            return Err(CliError("The selected embedded model has no file path.".to_owned()).into());
-        }
-        let inspected = inspect_model(&resolve_from_archive(archive, model_path))
-            .map_err(CliError)?;
-        if !inspected.available {
             return Err(
-                CliError("Selected model path is missing or is not a regular non-symlink file.".to_owned())
-                    .into(),
+                CliError("The selected embedded model has no file path.".to_owned()).into(),
             );
+        }
+        let inspected =
+            inspect_model(&resolve_from_archive(archive, model_path)).map_err(CliError)?;
+        if !inspected.available {
+            return Err(CliError(
+                "Selected model path is missing or is not a regular non-symlink file.".to_owned(),
+            )
+            .into());
         }
         if inspected.format != "GGUF"
             || inspected.architecture.is_empty()
@@ -154,7 +167,8 @@ pub(super) fn embedded_models(
             || inspected.layer_count.is_empty()
         {
             return Err(CliError(
-                "The GGUF model is missing a valid architecture or required context metadata.".to_owned(),
+                "The GGUF model is missing a valid architecture or required context metadata."
+                    .to_owned(),
             )
             .into());
         }
@@ -205,9 +219,9 @@ pub(super) fn embedded_models(
         let checked_at_us = now_us();
         let context_window = positive_integer(reference.field("context_tokens"))
             .or_else(|| {
-                inspection
-                    .as_ref()
-                    .and_then(|value| positive_integer(Some(value.training_context_tokens.as_str())))
+                inspection.as_ref().and_then(|value| {
+                    positive_integer(Some(value.training_context_tokens.as_str()))
+                })
             })
             .map(|value| value.to_string())
             .unwrap_or_default();
@@ -254,7 +268,11 @@ pub(super) fn embedded_models(
                 "{}  {}{}",
                 row["model_id"].as_str().unwrap_or(""),
                 row["path"].as_str().unwrap_or(""),
-                if row["active"] == "true" { "  selected" } else { "" }
+                if row["active"] == "true" {
+                    "  selected"
+                } else {
+                    ""
+                }
             )
         })
         .collect::<Vec<_>>()
@@ -302,7 +320,11 @@ fn inspect_model(path: &Path) -> Result<ModelInspection, String> {
     let size_bytes = std::fs::metadata(path)
         .map_err(|_| "The selected model file could not be inspected.".to_owned())?
         .len();
-    if !path.to_string_lossy().to_ascii_lowercase().ends_with(".gguf") {
+    if !path
+        .to_string_lossy()
+        .to_ascii_lowercase()
+        .ends_with(".gguf")
+    {
         return Ok(ModelInspection {
             available: true,
             size_bytes,
@@ -391,7 +413,11 @@ fn discover_models(
     let mut headers: Vec<(&'static str, String)> = Vec::new();
     if !credential.is_empty() {
         let (name, raw) = authentication(provider, "").unwrap_or(("Authorization", false));
-        let value = if raw || name.eq_ignore_ascii_case("api-key") || name.eq_ignore_ascii_case("x-goog-api-key") || name.eq_ignore_ascii_case("x-api-key") {
+        let value = if raw
+            || name.eq_ignore_ascii_case("api-key")
+            || name.eq_ignore_ascii_case("x-goog-api-key")
+            || name.eq_ignore_ascii_case("x-api-key")
+        {
             credential.to_owned()
         } else {
             format!("Bearer {credential}")
@@ -463,7 +489,9 @@ pub(super) fn block_http(
 ) -> CliResult<Value> {
     let result: Result<Value, CliError> = tauri::async_runtime::block_on(async {
         let response = make(reqwest::Client::new()).send().await.map_err(|error| {
-            CliError(format!("The provider request could not be completed: {error}"))
+            CliError(format!(
+                "The provider request could not be completed: {error}"
+            ))
         })?;
         if !response.status().is_success() {
             return Err(CliError(format!(
@@ -472,17 +500,20 @@ pub(super) fn block_http(
             )));
         }
         if response.content_length().unwrap_or(0) as usize > limit {
-            return Err(CliError("The provider response exceeded the supported limit.".to_owned()));
+            return Err(CliError(
+                "The provider response exceeded the supported limit.".to_owned(),
+            ));
         }
         let bytes = response.bytes().await.map_err(|error| {
             CliError(format!("The provider response could not be read: {error}"))
         })?;
         if bytes.len() > limit {
-            return Err(CliError("The provider response exceeded the supported limit.".to_owned()));
+            return Err(CliError(
+                "The provider response exceeded the supported limit.".to_owned(),
+            ));
         }
         serde_json::from_slice(&bytes)
             .map_err(|_| CliError("The provider returned invalid JSON.".to_owned()))
     });
     result.map_err(Into::into)
 }
-
