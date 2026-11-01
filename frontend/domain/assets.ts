@@ -1,7 +1,7 @@
 import { ArchiveFormatError, RecordType, newUuid, type ArchiveRecord } from "../archive/format";
 import type { ArchiveSnapshot } from "../archive/archive";
 import { extractDocumentText } from "./document-text";
-import sodium from "libsodium-wrappers-sumo";
+import { loadSodium } from "./sodium";
 
 export const MAX_ASSET_BYTES = 256 * 1024 * 1024;
 const ASSET_CHUNK_BYTES = 8 * 1024 * 1024;
@@ -256,7 +256,7 @@ export async function* iterateVerifiedAssetChunks(
             "Material chunk count does not match its metadata.",
         );
     }
-    await sodium.ready;
+    const sodium = await loadSodium();
     const digest = sodium.crypto_hash_sha256_init();
     let total = 0;
     let completed = false;
