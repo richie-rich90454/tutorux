@@ -5,12 +5,17 @@ use crate::platform::synchronized_audio::headless::{enumerate_devices, HeadlessD
 
 pub fn run_devices(args: ParsedArguments, output: &mut dyn CliOutput) -> CliResult<i32> {
     if !args.positionals.is_empty() {
-        return Err(CliError("record devices does not accept positional arguments.".to_owned()).into());
+        return Err(
+            CliError("record devices does not accept positional arguments.".to_owned()).into(),
+        );
     }
     if args.flags.contains("ffmpeg") {
         return Err(CliError("--ffmpeg requires an executable path.".to_owned()).into());
     }
-    if args.option("ffmpeg").is_some_and(|value| value.trim().is_empty()) {
+    if args
+        .option("ffmpeg")
+        .is_some_and(|value| value.trim().is_empty())
+    {
         return Err(CliError("--ffmpeg cannot be empty.".to_owned()).into());
     }
     let ffmpeg = resolve_ffmpeg(args.option("ffmpeg"));
@@ -76,7 +81,9 @@ pub fn run_devices(args: ParsedArguments, output: &mut dyn CliOutput) -> CliResu
                 row.get("id")?.as_str()?,
                 row.get("name")?.as_str()?,
                 row.get("backend")?.as_str()?,
-                row.get("source").and_then(Value::as_str).unwrap_or("native"),
+                row.get("source")
+                    .and_then(Value::as_str)
+                    .unwrap_or("native"),
                 if row.get("is_default").and_then(Value::as_bool) == Some(true) {
                     " · default"
                 } else {
@@ -89,10 +96,14 @@ pub fn run_devices(args: ParsedArguments, output: &mut dyn CliOutput) -> CliResu
         summary.push(format!("FFmpeg unavailable: {ffmpeg_reason}"));
     }
     if !native_reason.is_empty() {
-        summary.push(format!("Native microphone/system audio unavailable: {native_reason}"));
+        summary.push(format!(
+            "Native microphone/system audio unavailable: {native_reason}"
+        ));
     }
     if !application_reason.is_empty() {
-        summary.push(format!("Application audio unavailable: {application_reason}"));
+        summary.push(format!(
+            "Application audio unavailable: {application_reason}"
+        ));
     }
     if rows.is_empty() {
         summary.push(
