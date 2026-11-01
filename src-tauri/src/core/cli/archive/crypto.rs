@@ -82,7 +82,7 @@ pub(super) fn change_passphrase(
         )
         .into());
     }
-    if new_passphrase.as_bytes().len() < 12 {
+    if new_passphrase.len() < 12 {
         return Err(CoreError::new(
             "archive_passphrase_too_short",
             "Archive passphrases must contain at least 12 UTF-8 bytes.",
