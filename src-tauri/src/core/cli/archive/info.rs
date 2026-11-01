@@ -133,8 +133,16 @@ pub(super) fn run(
     if action == "verify" {
         cancellation::check("Archive verification")?;
     }
-    let student_count = counter(manifest_record.as_ref().and_then(|record| record.field("student_count")));
-    let session_count = counter(manifest_record.as_ref().and_then(|record| record.field("session_count")));
+    let student_count = counter(
+        manifest_record
+            .as_ref()
+            .and_then(|record| record.field("student_count")),
+    );
+    let session_count = counter(
+        manifest_record
+            .as_ref()
+            .and_then(|record| record.field("session_count")),
+    );
     let valid = verification_error.is_none()
         && (history.is_some()
             || full
