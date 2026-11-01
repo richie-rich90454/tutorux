@@ -182,7 +182,7 @@ fn preflight_microphone_inner(
                 MicrophonePreflightLevel {
                     probe_id: probe_id.clone(),
                     elapsed_ms: elapsed.as_millis() as u64,
-                    frames_in_interval: sample_count as u64 / channels as u64,
+                    frames_in_interval: sample_count / channels as u64,
                     frames_measured,
                     peak_level: peak,
                     rms_level: rms,
