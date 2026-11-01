@@ -106,7 +106,10 @@ impl ArchiveRecord {
             id: id.into(),
             revision: 0,
             previous_offset: 0,
-            fields: fields.into_iter().map(|(k, v)| (k.into(), v.into())).collect(),
+            fields: fields
+                .into_iter()
+                .map(|(k, v)| (k.into(), v.into()))
+                .collect(),
             blob: Vec::new(),
         }
     }
