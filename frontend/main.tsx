@@ -27,6 +27,8 @@ import {
     type ArchiveTrashPurgePlan,
 } from "./archive/archive";
 import { RecordType, type ArchiveRecord } from "./archive/format";
+import { DatePicker } from "./DatePicker";
+import { MediaPlayer } from "./MediaPlayer";
 import { sourceStream, type ArchiveByteSource } from "./archive/source";
 import { createAiPackageRecord, type AiPackageSummary } from "./ai/package";
 import { createAiRequestPreview, type AiRequestPreview } from "./ai/request";
@@ -303,7 +305,7 @@ const views: readonly ViewDefinition[] = [
     { id: "assets", label: "Materials", icon: "assets", group: "library" },
     { id: "sessions", label: "Sessions", icon: "sessions", group: "workspace" },
     { id: "annotations", label: "Observations", icon: "annotations", group: "workspace" },
-    { id: "transcripts", label: "Transcripts", icon: "transcripts", group: "workspace" },
+    { id: "transcripts", label: "Record", icon: "microphone", group: "workspace" },
     { id: "ai", label: "AI workspace", icon: "spark", group: "workspace" },
     { id: "guides", label: "Study guides", icon: "guides", group: "library" },
     { id: "evidence", label: "Evidence", icon: "evidence", group: "library" },
@@ -311,9 +313,13 @@ const views: readonly ViewDefinition[] = [
     { id: "archive", label: "Archive health", icon: "archive", group: "system" },
     { id: "settings", label: "Preferences", icon: "settings", group: "system" },
 ];
-const primaryViews = views.filter((item) => ["journal", "students", "assets"].includes(item.id));
+const primaryViewIds = ["journal", "students", "sessions", "transcripts", "assets"];
+const primaryViews = primaryViewIds.flatMap((id) => {
+    const item = views.find((candidate) => candidate.id === id);
+    return item ? [item] : [];
+});
 const contextualViews = views.filter(
-    (item) => item.id !== "home" && !["journal", "students", "assets"].includes(item.id),
+    (item) => item.id !== "home" && !primaryViewIds.includes(item.id),
 );
 
 const [workspace, setWorkspace] = createSignal<Workspace | null>(null);
@@ -333,6 +339,7 @@ const [commandConsoleOpen, setCommandConsoleOpen] = createSignal(false);
 const [paletteQuery, setPaletteQuery] = createSignal("");
 const [paletteIndex, setPaletteIndex] = createSignal(0);
 const [notice, setNotice] = createSignal<{ message: string; tone: Tone } | null>(null);
+const [archiveSaveConflict, setArchiveSaveConflict] = createSignal(false);
 const [busy, setBusy] = createSignal(false);
 const [selectedTranscriptSessionId, setSelectedTranscriptSessionId] = createSignal("");
 const [selectedAnnotationSessionId, setSelectedAnnotationSessionId] = createSignal("");
@@ -880,6 +887,7 @@ function App(): JSX.Element {
             const next = await readWorkspace(snapshot, name, location);
             const previous = workspace();
             setWorkspace(next);
+            setArchiveSaveConflict(false);
             applyWorkspaceTheme(next);
             browserAutosaveBinding = browserAutosave
                 ? {
@@ -934,6 +942,7 @@ function App(): JSX.Element {
                 return;
             }
             setWorkspace(next);
+            setArchiveSaveConflict(false);
             applyWorkspaceTheme(next);
             setView("journal");
             announce(
@@ -1040,6 +1049,7 @@ function App(): JSX.Element {
             }
 
             setWorkspace(next);
+            setArchiveSaveConflict(false);
             applyWorkspaceTheme(next);
             browserAutosaveBinding = undefined;
             current.snapshot.lock();
@@ -1106,6 +1116,7 @@ function App(): JSX.Element {
             const next = await readWorkspace(snapshot, suggestedName, savedLocation);
             const previous = workspace();
             setWorkspace(next);
+            setArchiveSaveConflict(false);
             applyWorkspaceTheme(next);
             browserAutosaveBinding = undefined;
             accepted = true;
@@ -1129,14 +1140,22 @@ function App(): JSX.Element {
     }
 
     async function saveCurrentArchive(): Promise<void> {
+        await saveArchive(false);
+    }
+
+    async function saveCurrentArchiveAs(): Promise<void> {
+        await saveArchive(true);
+    }
+
+    async function saveArchive(asNewCopy: boolean): Promise<void> {
         const state = workspace();
         if (!state || busy()) return;
         setBusy(true);
         try {
             const path = await platform.saveArchive(
                 state.snapshot.source,
-                state.name,
-                state.location,
+                asNewCopy ? recoveredArchiveName(state.name) : state.name,
+                asNewCopy ? null : state.location,
             );
             if (!path) return;
             if (platform.kind === "browser") browserAutosaveBinding = undefined;
@@ -1145,8 +1164,15 @@ function App(): JSX.Element {
                 location: platform.kind === "desktop" ? path : null,
                 dirty: false,
             });
-            announce("Your archive is saved.", "success");
+            setArchiveSaveConflict(false);
+            announce(
+                asNewCopy ? "A separate copy of your archive is saved." : "Your archive is saved.",
+                "success",
+            );
         } catch (error) {
+            if (isArchiveSaveConflictMessage(errorMessage(error))) {
+                setArchiveSaveConflict(true);
+            }
             announce(errorMessage(error), "error");
         } finally {
             setBusy(false);
@@ -1405,6 +1431,9 @@ function App(): JSX.Element {
                         rebased?.lock();
                         binding.authorized = false;
                         diskError = errorMessage(error);
+                        if (isArchiveSaveConflictMessage(diskError)) {
+                            setArchiveSaveConflict(true);
+                        }
                         announce(
                             "Notes are saved in the workspace, but the archive file could not be updated.",
                             "error",
@@ -3857,26 +3886,36 @@ function App(): JSX.Element {
                             </button>
                             <div class="sidebar-archive-status" aria-live="polite">
                                 <span
-                                    class={`status-dot ${workspace()?.dirty ? "is-dirty" : ""}`}
+                                    class={`status-dot ${workspace()?.dirty ? "is-dirty" : ""} ${archiveSaveConflict() ? "has-conflict" : ""}`}
                                     aria-hidden="true"
                                 />
                                 <span>
-                                    {workspace()?.snapshot.locked
-                                        ? "Archive locked"
-                                        : workspace()?.dirty
-                                          ? "Unsaved changes"
-                                          : "Archive ready"}
+                                    {archiveSaveConflict()
+                                        ? "Archive changed on disk"
+                                        : workspace()?.snapshot.locked
+                                          ? "Archive locked"
+                                          : workspace()?.dirty
+                                            ? "Unsaved changes"
+                                            : "Archive ready"}
                                 </span>
                             </div>
                             <Show when={workspace()?.dirty}>
                                 <button
                                     class="button button-primary sidebar-save-archive"
                                     type="button"
-                                    onClick={() => void saveCurrentArchive()}
+                                    onClick={() =>
+                                        void (archiveSaveConflict()
+                                            ? saveCurrentArchiveAs()
+                                            : saveCurrentArchive())
+                                    }
                                     disabled={busy() || workspace()?.snapshot.locked}
                                 >
                                     <Icon name="archive" />
-                                    <span>Save archive</span>
+                                    <span>
+                                        {archiveSaveConflict()
+                                            ? "Save as new copy"
+                                            : "Save archive"}
+                                    </span>
                                 </button>
                             </Show>
                         </div>
@@ -4517,13 +4556,11 @@ function App(): JSX.Element {
                             <strong>{playback().title}</strong>
                             <span>Playing from {playback().start}</span>
                         </div>
-                        <audio
-                            controls
-                            autoplay
+                        <MediaPlayer
+                            kind="audio"
                             src={playback().url}
-                            ref={(element) =>
-                                queueMicrotask(() => void element.play().catch(() => undefined))
-                            }
+                            label="Observation audio"
+                            autoPlay
                         />
                         <button
                             class="button button-quiet record-action"
@@ -4583,14 +4620,24 @@ function App(): JSX.Element {
                                       (item) => item.id === field(latest, "notes_document_id"),
                                   ) ?? null)
                                 : notesDocument;
+                            const changes = latest
+                                ? updateSessionRecords(latest, input, latestNotes, updateNotes)
+                                : makeSessionRecords(input, {
+                                      ensureJournalRoot: !(workspace()?.journals.length ?? 0),
+                                  } satisfies SessionCreateOptions);
+                            const createdSession = latest
+                                ? undefined
+                                : changes.find((item) => item.type === RecordType.session);
                             void addRecords(
-                                latest
-                                    ? updateSessionRecords(latest, input, latestNotes, updateNotes)
-                                    : makeSessionRecords(input, {
-                                          ensureJournalRoot: !(workspace()?.journals.length ?? 0),
-                                      } satisfies SessionCreateOptions),
+                                changes,
                                 record ? "Session details updated." : undefined,
-                            ).catch((error: unknown) => announce(errorMessage(error), "error"));
+                            )
+                                .then((saved) => {
+                                    if (saved && createdSession && view() === "transcripts") {
+                                        setSelectedTranscriptSessionId(createdSession.id);
+                                    }
+                                })
+                                .catch((error: unknown) => announce(errorMessage(error), "error"));
                         }}
                         onSaveJournal={(input, record, notesDocument, updateNotes) => {
                             const state = workspace();
@@ -6519,15 +6566,12 @@ function FormDialog(props: {
                         </label>
                         <div class="form-field">
                             <span>Date</span>
-                            <div
-                                style={{ display: "flex", gap: "0.5rem", "align-items": "center" }}
-                            >
-                                <input
-                                    type="date"
-                                    name="date"
+                            <div class="journal-date-field-controls">
+                                <DatePicker
+                                    id="journal-entry-date"
                                     value={journalDate()}
-                                    onInput={(event) => setJournalDate(event.currentTarget.value)}
-                                    style={{ flex: "1" }}
+                                    aria-label="Journal entry date"
+                                    onChange={setJournalDate}
                                 />
                                 <button
                                     class="button button-quiet record-action"
@@ -6834,6 +6878,20 @@ function sameLocalDate(left: Date, right: Date): boolean {
 
 function isCancelled(error: unknown): boolean {
     return error instanceof DOMException && error.name === "AbortError";
+}
+
+function isArchiveSaveConflictMessage(message: string): boolean {
+    const normalized = message.toLocaleLowerCase();
+    return (
+        normalized.includes("archive changed outside tutorux") ||
+        normalized.includes("archive destination now points to a different file") ||
+        normalized.includes("selected archive location changed")
+    );
+}
+
+function recoveredArchiveName(name: string): string {
+    const stem = name.toLocaleLowerCase().endsWith(".tux") ? name.slice(0, -4) : name;
+    return `${safeFileName(`${stem} - recovered`)}.tux`;
 }
 
 render(() => <App />, document.getElementById("root")!);
