@@ -10,6 +10,7 @@ import {
     MaterialImportControls,
     MaterialTrash,
 } from "./lazy-components";
+import { MediaPlayer } from "./MediaPlayer";
 import { Icon, ManagedDialog } from "./shared-ui";
 import { errorMessage, field, formatBytes, formatTimestamp } from "./shared-utils";
 
@@ -404,10 +405,26 @@ export function AssetPage(props: {
                                                     url={active().url}
                                                 />
                                             ) : (
-                                                <audio controls src={active().url} />
+                                                <MediaPlayer
+                                                    kind="audio"
+                                                    src={active().url}
+                                                    label={field(
+                                                        active().record,
+                                                        "filename",
+                                                        "Audio material",
+                                                    )}
+                                                />
                                             )
                                         ) : active().mimeType.startsWith("video/") ? (
-                                            <video controls src={active().url} />
+                                            <MediaPlayer
+                                                kind="video"
+                                                src={active().url}
+                                                label={field(
+                                                    active().record,
+                                                    "filename",
+                                                    "Video material",
+                                                )}
+                                            />
                                         ) : active().mimeType.startsWith("text/") ||
                                           active().mimeType === "application/json" ? (
                                             <div class="material-preview-unavailable">
