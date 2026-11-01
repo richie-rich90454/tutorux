@@ -1,8 +1,9 @@
+import { twClasses } from "./tailwind";
+import { jsxTailwindStyles } from "./GuideVersionHistory.tailwind";
 import { For, Show, createMemo, createSignal, type JSX } from "solid-js";
 import type { ArchiveSnapshot } from "./archive/archive";
 import { RecordType, type ArchiveRecord } from "./archive/format";
 import { guideDraftFromRecord, renderGuideMarkdown } from "./domain/guides";
-import "./guide-version-history.css";
 
 interface GuideVersionHistoryProps {
     guide: ArchiveRecord;
@@ -133,7 +134,7 @@ export function GuideVersionHistory(props: GuideVersionHistoryProps): JSX.Elemen
 
     return (
         <details
-            class="guide-version-history"
+            class={twClasses("guide-version-history", jsxTailwindStyles, "details")}
             onToggle={(event) => {
                 if (event.currentTarget.open && !history()) void load();
                 if (!event.currentTarget.open) {
@@ -142,19 +143,22 @@ export function GuideVersionHistory(props: GuideVersionHistoryProps): JSX.Elemen
                 }
             }}
         >
-            <summary>Guide versions</summary>
-            <div class="guide-version-content">
-                <p>
+            <summary class={twClasses("", jsxTailwindStyles, "summary")}>Guide versions</summary>
+            <div class={twClasses("guide-version-content", jsxTailwindStyles, "div")}>
+                <p class={twClasses("", jsxTailwindStyles, "p")}>
                     Compare an earlier version with the current guide. Restoring saves a new
                     version.
                 </p>
                 <Show when={error()}>
-                    <p class="guide-version-error" role="alert">
+                    <p
+                        class={twClasses("guide-version-error", jsxTailwindStyles, "p")}
+                        role="alert"
+                    >
                         {error()}
                     </p>
                     <button
                         type="button"
-                        class="button button-outline"
+                        class={twClasses("button button-outline", jsxTailwindStyles, "button")}
                         disabled={loading()}
                         onClick={() => void load()}
                     >
@@ -162,15 +166,27 @@ export function GuideVersionHistory(props: GuideVersionHistoryProps): JSX.Elemen
                     </button>
                 </Show>
                 <Show when={loading()}>
-                    <p role="status">Loading guide versions…</p>
+                    <p role="status" class={twClasses("", jsxTailwindStyles, "p")}>
+                        Loading guide versions…
+                    </p>
                 </Show>
                 <Show when={!loading() && history()}>
                     {(revisions) => (
                         <Show
                             when={revisions().length > 1}
-                            fallback={<p>No earlier versions yet.</p>}
+                            fallback={
+                                <p class={twClasses("", jsxTailwindStyles, "p")}>
+                                    No earlier versions yet.
+                                </p>
+                            }
                         >
-                            <label class="guide-version-selector">
+                            <label
+                                class={twClasses(
+                                    "guide-version-selector",
+                                    jsxTailwindStyles,
+                                    "label",
+                                )}
+                            >
                                 Earlier version
                                 <select
                                     value={selectedIndex()}
@@ -178,6 +194,7 @@ export function GuideVersionHistory(props: GuideVersionHistoryProps): JSX.Elemen
                                         setSelectedIndex(Number(event.currentTarget.value));
                                         setConfirming(false);
                                     }}
+                                    class={twClasses("", jsxTailwindStyles, "select")}
                                 >
                                     <For each={revisions().slice(1)}>
                                         {(record, index) => (
@@ -189,25 +206,59 @@ export function GuideVersionHistory(props: GuideVersionHistoryProps): JSX.Elemen
                                     </For>
                                 </select>
                             </label>
-                            <p class="guide-version-summary">{changeSummary()}</p>
-                            <div class="guide-version-comparison">
-                                <section aria-label="Earlier guide version">
-                                    <h3>Earlier version</h3>
-                                    <pre>{selectedMarkdown()}</pre>
+                            <p class={twClasses("guide-version-summary", jsxTailwindStyles, "p")}>
+                                {changeSummary()}
+                            </p>
+                            <div
+                                class={twClasses(
+                                    "guide-version-comparison",
+                                    jsxTailwindStyles,
+                                    "div",
+                                )}
+                            >
+                                <section
+                                    aria-label="Earlier guide version"
+                                    class={twClasses("", jsxTailwindStyles, "section")}
+                                >
+                                    <h3 class={twClasses("", jsxTailwindStyles, "h3")}>
+                                        Earlier version
+                                    </h3>
+                                    <pre class={twClasses("", jsxTailwindStyles, "pre")}>
+                                        {selectedMarkdown()}
+                                    </pre>
                                 </section>
-                                <section aria-label="Current guide version">
-                                    <h3>Current version</h3>
-                                    <pre>{currentMarkdown()}</pre>
+                                <section
+                                    aria-label="Current guide version"
+                                    class={twClasses("", jsxTailwindStyles, "section")}
+                                >
+                                    <h3 class={twClasses("", jsxTailwindStyles, "h3")}>
+                                        Current version
+                                    </h3>
+                                    <pre class={twClasses("", jsxTailwindStyles, "pre")}>
+                                        {currentMarkdown()}
+                                    </pre>
                                 </section>
                             </div>
                             <Show
                                 when={!confirming()}
                                 fallback={
-                                    <div class="guide-version-confirm">
-                                        <span>Restore this version as a new revision?</span>
+                                    <div
+                                        class={twClasses(
+                                            "guide-version-confirm",
+                                            jsxTailwindStyles,
+                                            "div",
+                                        )}
+                                    >
+                                        <span class={twClasses("", jsxTailwindStyles, "span")}>
+                                            Restore this version as a new revision?
+                                        </span>
                                         <button
                                             type="button"
-                                            class="button button-primary"
+                                            class={twClasses(
+                                                "button button-primary",
+                                                jsxTailwindStyles,
+                                                "button",
+                                            )}
                                             disabled={props.disabled || loading()}
                                             onClick={() => void restore()}
                                         >
@@ -215,7 +266,11 @@ export function GuideVersionHistory(props: GuideVersionHistoryProps): JSX.Elemen
                                         </button>
                                         <button
                                             type="button"
-                                            class="button button-outline"
+                                            class={twClasses(
+                                                "button button-outline",
+                                                jsxTailwindStyles,
+                                                "button",
+                                            )}
                                             onClick={() => setConfirming(false)}
                                         >
                                             Cancel
@@ -225,7 +280,11 @@ export function GuideVersionHistory(props: GuideVersionHistoryProps): JSX.Elemen
                             >
                                 <button
                                     type="button"
-                                    class="button button-outline"
+                                    class={twClasses(
+                                        "button button-outline",
+                                        jsxTailwindStyles,
+                                        "button",
+                                    )}
                                     disabled={props.disabled || loading()}
                                     onClick={() => setConfirming(true)}
                                 >
