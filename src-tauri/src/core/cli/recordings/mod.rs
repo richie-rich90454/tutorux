@@ -28,9 +28,10 @@ pub fn run_recording_test(args: ParsedArguments, output: &mut dyn CliOutput) -> 
 
 fn validate_control(action: &str, args: &ParsedArguments) -> CliResult<()> {
     if !args.positionals.is_empty() {
-        return Err(
-            CliError(format!("record {action} does not accept positional arguments.")).into(),
-        );
+        return Err(CliError(format!(
+            "record {action} does not accept positional arguments."
+        ))
+        .into());
     }
     for flag in &args.flags {
         if flag != "json" && flag != "session" {
@@ -52,9 +53,7 @@ fn validate_control(action: &str, args: &ParsedArguments) -> CliResult<()> {
             }
         }
         None if action != "status" => {
-            return Err(
-                CliError("Recording control requires '--session UUID'.".to_owned()).into(),
-            )
+            return Err(CliError("Recording control requires '--session UUID'.".to_owned()).into())
         }
         None => {}
     }
@@ -74,7 +73,9 @@ pub fn run_record_command(
     match action {
         "take-list" => takes::take_list(args, output, path, context),
         "take-rename" => takes::take_rename(args, output, path, context),
-        "take-delete" | "take-restore" => takes::set_take_deleted(action, args, output, path, context),
+        "take-delete" | "take-restore" => {
+            takes::set_take_deleted(action, args, output, path, context)
+        }
         "track-rename" => takes::track_rename(args, output, path, context),
         "waveform" => waveform::record_waveform(&args, output, path, context),
         "export-wav" => wav::record_export_wav(&args, output, path, context),
@@ -89,6 +90,9 @@ pub fn run_record_command(
         "waveform-index-build" | "waveform-index-show" => {
             waveform_index::run(action, &args, output, path, context)
         }
-        _ => Err(CliError(format!("record {action} is not implemented in the Rust CLI yet.")).into()),
+        _ => Err(CliError(format!(
+            "record {action} is not implemented in the Rust CLI yet."
+        ))
+        .into()),
     }
 }
