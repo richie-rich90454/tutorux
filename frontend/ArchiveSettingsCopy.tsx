@@ -1,9 +1,10 @@
+import { twClasses } from "./tailwind";
+import { jsxTailwindStyles } from "./ArchiveSettingsCopy.tailwind";
 import { For, Show, createEffect, createSignal, onCleanup, type JSX } from "solid-js";
 import { openArchiveSource, verifyArchiveSnapshot, type ArchiveSnapshot } from "./archive/archive";
 import { RecordType, type ArchiveRecord } from "./archive/format";
 import { prepareArchiveSettingsCopy, type ArchiveSettingsCopyPlan } from "./archive-settings-copy";
 import { platform } from "@platform";
-import "./archive-settings-copy.css";
 
 interface ArchiveSettingsCopyProps {
     archiveId: string;
@@ -186,37 +187,52 @@ export function ArchiveSettingsCopy(props: ArchiveSettingsCopyProps): JSX.Elemen
 
     return (
         <section
-            class="settings-section archive-settings-copy"
+            class={twClasses(
+                "settings-section archive-settings-copy",
+                jsxTailwindStyles,
+                "section",
+            )}
             aria-labelledby="settings-copy-title"
         >
-            <div class="settings-section-heading">
-                <h2 id="settings-copy-title">Copy settings from another archive</h2>
-                <p>
+            <div class={twClasses("settings-section-heading", jsxTailwindStyles, "div")}>
+                <h2 id="settings-copy-title" class={twClasses("", jsxTailwindStyles, "h2")}>
+                    Copy settings from another archive
+                </h2>
+                <p class={twClasses("", jsxTailwindStyles, "p")}>
                     Bring ordinary preferences into this archive. Tutorux verifies the selected
                     archive and keeps API credentials out of the transfer.
                 </p>
             </div>
             <Show when={error()}>
-                <p class="archive-settings-copy-error" role="alert">
+                <p
+                    class={twClasses("archive-settings-copy-error", jsxTailwindStyles, "p")}
+                    role="alert"
+                >
                     {error()}
                 </p>
             </Show>
             <Show when={status()}>
-                <p class="archive-settings-copy-status" role="status" aria-live="polite">
+                <p
+                    class={twClasses("archive-settings-copy-status", jsxTailwindStyles, "p")}
+                    role="status"
+                    aria-live="polite"
+                >
                     {status()}
                 </p>
             </Show>
             <Show when={!plan() && !sourceSnapshot()}>
-                <div class="archive-settings-copy-start">
-                    <div>
-                        <strong>Transfer archive-specific preferences</strong>
-                        <span>
+                <div class={twClasses("archive-settings-copy-start", jsxTailwindStyles, "div")}>
+                    <div class={twClasses("", jsxTailwindStyles, "div")}>
+                        <strong class={twClasses("", jsxTailwindStyles, "strong")}>
+                            Transfer archive-specific preferences
+                        </strong>
+                        <span class={twClasses("", jsxTailwindStyles, "span")}>
                             Existing keys are shown for review and replaced only after you confirm.
                             Credentials are never copied by this workflow.
                         </span>
                     </div>
                     <button
-                        class="button button-outline"
+                        class={twClasses("button button-outline", jsxTailwindStyles, "button")}
                         type="button"
                         disabled={props.disabled || opening() || saving()}
                         onClick={() => void chooseSource()}
@@ -227,15 +243,21 @@ export function ArchiveSettingsCopy(props: ArchiveSettingsCopyProps): JSX.Elemen
             </Show>
             <Show when={sourceSnapshot()}>
                 <form
-                    class="archive-settings-copy-unlock"
+                    class={twClasses("archive-settings-copy-unlock", jsxTailwindStyles, "form")}
                     onSubmit={(event) => void unlockSource(event)}
                 >
-                    <p>
-                        <strong>{sourceName()}</strong> is protected with a passphrase. Unlock it to
-                        review its ordinary settings. The passphrase is used only to unlock this
-                        review and is never written into either archive.
+                    <p class={twClasses("", jsxTailwindStyles, "p")}>
+                        <strong class={twClasses("", jsxTailwindStyles, "strong")}>
+                            {sourceName()}
+                        </strong>{" "}
+                        is protected with a passphrase. Unlock it to review its ordinary settings.
+                        The passphrase is used only to unlock this review and is never written into
+                        either archive.
                     </p>
-                    <label class="form-field" for="settings-copy-source-passphrase">
+                    <label
+                        class={twClasses("form-field", jsxTailwindStyles, "label")}
+                        for="settings-copy-source-passphrase"
+                    >
                         Source archive passphrase
                         <input
                             ref={(element) => (passphraseInput = element)}
@@ -246,11 +268,12 @@ export function ArchiveSettingsCopy(props: ArchiveSettingsCopyProps): JSX.Elemen
                             disabled={opening() || saving()}
                             onInput={(event) => setSourcePassphrase(event.currentTarget.value)}
                             required
+                            class={twClasses("", jsxTailwindStyles, "input")}
                         />
                     </label>
-                    <div class="archive-setting-actions">
+                    <div class={twClasses("archive-setting-actions", jsxTailwindStyles, "div")}>
                         <button
-                            class="button button-quiet"
+                            class={twClasses("button button-quiet", jsxTailwindStyles, "button")}
                             type="button"
                             disabled={opening() || saving()}
                             onClick={() => void discard()}
@@ -258,7 +281,7 @@ export function ArchiveSettingsCopy(props: ArchiveSettingsCopyProps): JSX.Elemen
                             Cancel
                         </button>
                         <button
-                            class="button button-primary"
+                            class={twClasses("button button-primary", jsxTailwindStyles, "button")}
                             type="submit"
                             disabled={opening() || saving() || !sourcePassphrase()}
                         >
@@ -270,19 +293,38 @@ export function ArchiveSettingsCopy(props: ArchiveSettingsCopyProps): JSX.Elemen
             <Show when={plan()} keyed>
                 {(review) => (
                     <div
-                        class="archive-settings-copy-review"
+                        class={twClasses("archive-settings-copy-review", jsxTailwindStyles, "div")}
                         aria-labelledby="settings-copy-review-title"
                     >
-                        <div class="archive-settings-copy-review-heading">
-                            <div>
-                                <span class="eyebrow">Review transfer</span>
-                                <h3 id="settings-copy-review-title">{sourceName()}</h3>
+                        <div
+                            class={twClasses(
+                                "archive-settings-copy-review-heading",
+                                jsxTailwindStyles,
+                                "div",
+                            )}
+                        >
+                            <div class={twClasses("", jsxTailwindStyles, "div")}>
+                                <span class={twClasses("eyebrow", jsxTailwindStyles, "span")}>
+                                    Review transfer
+                                </span>
+                                <h3
+                                    id="settings-copy-review-title"
+                                    class={twClasses("", jsxTailwindStyles, "h3")}
+                                >
+                                    {sourceName()}
+                                </h3>
                             </div>
-                            <span class="archive-settings-copy-count">
+                            <span
+                                class={twClasses(
+                                    "archive-settings-copy-count",
+                                    jsxTailwindStyles,
+                                    "span",
+                                )}
+                            >
                                 {review.records.length} settings
                             </span>
                         </div>
-                        <p>
+                        <p class={twClasses("", jsxTailwindStyles, "p")}>
                             {review.additions} new · {review.replacements} existing key
                             {review.replacements === 1 ? "" : "s"} will be replaced in the open
                             archive.
@@ -292,23 +334,45 @@ export function ArchiveSettingsCopy(props: ArchiveSettingsCopyProps): JSX.Elemen
                         </p>
                         <Show when={review.records.length > 0}>
                             <ul
-                                class="archive-settings-copy-key-list"
+                                class={twClasses(
+                                    "archive-settings-copy-key-list",
+                                    jsxTailwindStyles,
+                                    "ul",
+                                )}
                                 aria-label="Settings to copy"
                             >
-                                <For each={summarizedKeys()}>{(key) => <li>{key}</li>}</For>
+                                <For each={summarizedKeys()}>
+                                    {(key) => (
+                                        <li class={twClasses("", jsxTailwindStyles, "li")}>
+                                            {key}
+                                        </li>
+                                    )}
+                                </For>
                                 <Show when={review.keys.length > 8}>
-                                    <li>and {review.keys.length - 8} more</li>
+                                    <li class={twClasses("", jsxTailwindStyles, "li")}>
+                                        and {review.keys.length - 8} more
+                                    </li>
                                 </Show>
                             </ul>
                         </Show>
                         <Show when={review.records.length === 0}>
-                            <p class="archive-settings-copy-empty">
+                            <p
+                                class={twClasses(
+                                    "archive-settings-copy-empty",
+                                    jsxTailwindStyles,
+                                    "p",
+                                )}
+                            >
                                 No transferable ordinary settings were found in this source archive.
                             </p>
                         </Show>
-                        <div class="archive-setting-actions">
+                        <div class={twClasses("archive-setting-actions", jsxTailwindStyles, "div")}>
                             <button
-                                class="button button-quiet"
+                                class={twClasses(
+                                    "button button-quiet",
+                                    jsxTailwindStyles,
+                                    "button",
+                                )}
                                 type="button"
                                 disabled={saving()}
                                 onClick={() => void discard()}
@@ -316,7 +380,11 @@ export function ArchiveSettingsCopy(props: ArchiveSettingsCopyProps): JSX.Elemen
                                 Cancel
                             </button>
                             <button
-                                class="button button-primary"
+                                class={twClasses(
+                                    "button button-primary",
+                                    jsxTailwindStyles,
+                                    "button",
+                                )}
                                 type="button"
                                 disabled={props.disabled || saving() || review.records.length === 0}
                                 onClick={() => void copySettings()}
@@ -330,7 +398,11 @@ export function ArchiveSettingsCopy(props: ArchiveSettingsCopyProps): JSX.Elemen
                 )}
             </Show>
             <Show when={opening() && !sourceSnapshot() && !plan()}>
-                <p class="archive-settings-copy-progress" role="status" aria-live="polite">
+                <p
+                    class={twClasses("archive-settings-copy-progress", jsxTailwindStyles, "p")}
+                    role="status"
+                    aria-live="polite"
+                >
                     Verifying source archive…
                 </p>
             </Show>
