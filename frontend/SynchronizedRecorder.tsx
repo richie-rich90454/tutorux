@@ -1,3 +1,5 @@
+import { twClasses } from "./tailwind";
+import { jsxTailwindStyles } from "./SynchronizedRecorder.tailwind";
 import { createSignal, For, onCleanup, onMount, Show, untrack } from "solid-js";
 import { newUuid, RecordType } from "./archive/format";
 import type { ArchiveSnapshot } from "./archive/archive";
@@ -850,26 +852,31 @@ export function SynchronizedRecorder(props: Props) {
     const nativeDesktop = () => platform.kind === "desktop";
 
     return (
-        <section class="transcript-capture-panel" aria-label="Synchronized audio recording">
-            <div class="transcript-capture-copy">
-                <strong>Record microphone with shared or application audio</strong>
+        <section
+            class={twClasses("transcript-capture-panel", jsxTailwindStyles, "section")}
+            aria-label="Synchronized audio recording"
+        >
+            <div class={twClasses("transcript-capture-copy", jsxTailwindStyles, "div")}>
+                <strong class={twClasses("", jsxTailwindStyles, "strong")}>
+                    Record microphone with shared or application audio
+                </strong>
                 <Show
                     when={nativeDesktop()}
                     fallback={
-                        <p>
+                        <p class={twClasses("", jsxTailwindStyles, "p")}>
                             Choose a screen or window and enable audio sharing when prompted. Video
                             is not saved; the microphone and selected shared audio are kept as
                             separate tracks.
                         </p>
                     }
                 >
-                    <p>
+                    <p class={twClasses("", jsxTailwindStyles, "p")}>
                         The desktop app records from your selected microphone and can add shared
                         system audio or one selected application audio stream. Video is never saved.
                     </p>
                 </Show>
 
-                <label>
+                <label class={twClasses("", jsxTailwindStyles, "label")}>
                     Microphone{" "}
                     <select
                         value={deviceId()}
@@ -878,6 +885,7 @@ export function SynchronizedRecorder(props: Props) {
                             setDeviceId(event.currentTarget.value);
                             resetMicrophonePreflight();
                         }}
+                        class={twClasses("", jsxTailwindStyles, "select")}
                     >
                         <Show when={!nativeDesktop()}>
                             <option value="">System default</option>
@@ -889,12 +897,13 @@ export function SynchronizedRecorder(props: Props) {
                 </label>
 
                 <Show when={nativeDesktop()}>
-                    <label>
+                    <label class={twClasses("", jsxTailwindStyles, "label")}>
                         Second audio source{" "}
                         <select
                             value={systemAudioDeviceId()}
                             disabled={state() !== "idle"}
                             onChange={(event) => setSystemAudioDeviceId(event.currentTarget.value)}
+                            class={twClasses("", jsxTailwindStyles, "select")}
                         >
                             <option value="">Microphone only</option>
                             <For each={systemAudioDevices()}>
@@ -903,21 +912,27 @@ export function SynchronizedRecorder(props: Props) {
                         </select>
                     </label>
                     <Show when={secondaryAudioUnavailableReason()}>
-                        <p class="recording-capability-note" role="note">
+                        <p
+                            class={twClasses("recording-capability-note", jsxTailwindStyles, "p")}
+                            role="note"
+                        >
                             {secondaryAudioUnavailableReason()} Microphone-only recording remains
                             available.
                         </p>
                     </Show>
                 </Show>
                 <Show when={microphoneUnavailableReason()}>
-                    <p class="recording-capability-note" role="note">
+                    <p
+                        class={twClasses("recording-capability-note", jsxTailwindStyles, "p")}
+                        role="note"
+                    >
                         {microphoneUnavailableReason()}
                     </p>
                 </Show>
 
-                <div class="transcript-capture-preflight">
+                <div class={twClasses("transcript-capture-preflight", jsxTailwindStyles, "div")}>
                     <button
-                        class="button button-outline"
+                        class={twClasses("button button-outline", jsxTailwindStyles, "button")}
                         type="button"
                         disabled={
                             state() !== "idle" ||
@@ -932,7 +947,7 @@ export function SynchronizedRecorder(props: Props) {
                             : "Check microphone"}
                     </button>
                     <div
-                        class="transcript-capture-meter"
+                        class={twClasses("transcript-capture-meter", jsxTailwindStyles, "div")}
                         role="meter"
                         aria-label="Microphone input level"
                         aria-valuemin="0"
@@ -942,10 +957,15 @@ export function SynchronizedRecorder(props: Props) {
                     >
                         <div
                             style={{ width: `${Math.min(100, Math.round(inputPeak() * 100))}%` }}
+                            class={twClasses("", jsxTailwindStyles, "div")}
                         />
                     </div>
                     <p
-                        class="transcript-capture-preflight-message"
+                        class={twClasses(
+                            "transcript-capture-preflight-message",
+                            jsxTailwindStyles,
+                            "p",
+                        )}
                         role={preflightState() === "checking" ? "status" : "note"}
                     >
                         {preflightMessage()}
@@ -953,28 +973,29 @@ export function SynchronizedRecorder(props: Props) {
                 </div>
 
                 <button
-                    class="button button-outline"
+                    class={twClasses("button button-outline", jsxTailwindStyles, "button")}
                     type="button"
                     disabled={state() !== "idle" || preflightState() === "checking"}
                     onClick={() => void refresh()}
                 >
                     Refresh audio devices
                 </button>
-                <label class="transcript-capture-consent">
+                <label class={twClasses("transcript-capture-consent", jsxTailwindStyles, "label")}>
                     <input
                         type="checkbox"
                         checked={consent()}
                         disabled={state() !== "idle"}
                         onChange={(event) => setConsent(event.currentTarget.checked)}
+                        class={twClasses("", jsxTailwindStyles, "input")}
                     />{" "}
                     Everyone being recorded has agreed.
                 </label>
             </div>
 
-            <div class="transcript-capture-actions">
+            <div class={twClasses("transcript-capture-actions", jsxTailwindStyles, "div")}>
                 <Show when={state() === "idle" && !pending()}>
                     <button
-                        class="button button-primary"
+                        class={twClasses("button button-primary", jsxTailwindStyles, "button")}
                         type="button"
                         disabled={
                             !consent() ||
@@ -991,31 +1012,43 @@ export function SynchronizedRecorder(props: Props) {
                 </Show>
                 <Show when={state() === "recording" || state() === "paused"}>
                     <button
-                        class="button button-outline"
+                        class={twClasses("button button-outline", jsxTailwindStyles, "button")}
                         type="button"
                         onClick={() => void togglePause()}
                     >
                         {state() === "paused" ? "Resume recording" : "Pause recording"}
                     </button>
-                    <button class="button button-outline" type="button" onClick={() => void stop()}>
+                    <button
+                        class={twClasses("button button-outline", jsxTailwindStyles, "button")}
+                        type="button"
+                        onClick={() => void stop()}
+                    >
                         Stop and save
                     </button>
                 </Show>
                 <Show when={state() === "paused"}>
-                    <span role="status">Recording paused; selected audio sources are muted.</span>
+                    <span role="status" class={twClasses("", jsxTailwindStyles, "span")}>
+                        Recording paused; selected audio sources are muted.
+                    </span>
                 </Show>
                 <Show when={state() === "pausing" || state() === "resuming"}>
-                    <span role="status">Changing recording state…</span>
+                    <span role="status" class={twClasses("", jsxTailwindStyles, "span")}>
+                        Changing recording state…
+                    </span>
                 </Show>
                 <Show when={state() === "requesting"}>
-                    <span role="status">Waiting for source permissions…</span>
+                    <span role="status" class={twClasses("", jsxTailwindStyles, "span")}>
+                        Waiting for source permissions…
+                    </span>
                 </Show>
                 <Show when={state() === "saving"}>
-                    <span role="status">Preparing recording…</span>
+                    <span role="status" class={twClasses("", jsxTailwindStyles, "span")}>
+                        Preparing recording…
+                    </span>
                 </Show>
                 <Show when={state() === "idle" && pending()}>
                     <button
-                        class="button button-primary"
+                        class={twClasses("button button-primary", jsxTailwindStyles, "button")}
                         type="button"
                         onClick={() => {
                             const item = pending();
@@ -1025,7 +1058,7 @@ export function SynchronizedRecorder(props: Props) {
                         Retry saving
                     </button>
                     <button
-                        class="button button-outline"
+                        class={twClasses("button button-outline", jsxTailwindStyles, "button")}
                         type="button"
                         onClick={() => {
                             setPending(undefined);
@@ -1038,10 +1071,14 @@ export function SynchronizedRecorder(props: Props) {
             </div>
 
             <Show when={status()}>
-                <p role="status">{status()}</p>
+                <p role="status" class={twClasses("", jsxTailwindStyles, "p")}>
+                    {status()}
+                </p>
             </Show>
             <Show when={error()}>
-                <p role="alert">{error()}</p>
+                <p role="alert" class={twClasses("", jsxTailwindStyles, "p")}>
+                    {error()}
+                </p>
             </Show>
         </section>
     );
