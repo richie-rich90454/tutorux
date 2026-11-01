@@ -1,8 +1,9 @@
+import { twClasses } from "./tailwind";
+import { jsxTailwindStyles } from "./StudentVersionHistory.tailwind";
 import { For, Show, createSignal, type JSX } from "solid-js";
 import type { ArchiveSnapshot } from "./archive/archive";
 import { RecordType, type ArchiveRecord } from "./archive/format";
 import { classificationLabel, decodeStudentProgress } from "./domain/student-progress";
-import "./student-version-history.css";
 
 interface StudentVersionHistoryProps {
     student: ArchiveRecord;
@@ -114,7 +115,7 @@ export function StudentVersionHistory(props: StudentVersionHistoryProps): JSX.El
     }
     return (
         <details
-            class="student-version-history"
+            class={twClasses("student-version-history", jsxTailwindStyles, "details")}
             onToggle={(event) => {
                 if (event.currentTarget.open && !history()) void load();
                 else if (!event.currentTarget.open) {
@@ -123,18 +124,21 @@ export function StudentVersionHistory(props: StudentVersionHistoryProps): JSX.El
                 }
             }}
         >
-            <summary>Profile versions</summary>
-            <div class="student-versions-content">
-                <p>
+            <summary class={twClasses("", jsxTailwindStyles, "summary")}>Profile versions</summary>
+            <div class={twClasses("student-versions-content", jsxTailwindStyles, "div")}>
+                <p class={twClasses("", jsxTailwindStyles, "p")}>
                     Earlier versions include profile details and tutor progress reviews. Restoring a
                     version creates a new revision.
                 </p>
                 <Show when={error()}>
-                    <p class="student-versions-error" role="alert">
+                    <p
+                        class={twClasses("student-versions-error", jsxTailwindStyles, "p")}
+                        role="alert"
+                    >
                         {error()}
                     </p>
                     <button
-                        class="button button-outline"
+                        class={twClasses("button button-outline", jsxTailwindStyles, "button")}
                         type="button"
                         disabled={loading()}
                         onClick={() => void load()}
@@ -143,49 +147,133 @@ export function StudentVersionHistory(props: StudentVersionHistoryProps): JSX.El
                     </button>
                 </Show>
                 <Show when={loading()}>
-                    <p role="status">Loading profile history…</p>
+                    <p role="status" class={twClasses("", jsxTailwindStyles, "p")}>
+                        Loading profile history…
+                    </p>
                 </Show>
                 <Show when={!loading() && history()}>
                     {(revisions) => (
                         <>
                             <Show
                                 when={revisions().length > 1}
-                                fallback={<p>No earlier profile versions yet.</p>}
+                                fallback={
+                                    <p class={twClasses("", jsxTailwindStyles, "p")}>
+                                        No earlier profile versions yet.
+                                    </p>
+                                }
                             >
-                                <ol class="student-versions-list">
+                                <ol
+                                    class={twClasses(
+                                        "student-versions-list",
+                                        jsxTailwindStyles,
+                                        "ol",
+                                    )}
+                                >
                                     <For each={revisions()}>
                                         {(version, index) => (
-                                            <li>
-                                                <details>
-                                                    <summary>
-                                                        <strong>
+                                            <li class={twClasses("", jsxTailwindStyles, "li")}>
+                                                <details
+                                                    class={twClasses(
+                                                        "",
+                                                        jsxTailwindStyles,
+                                                        "details",
+                                                    )}
+                                                >
+                                                    <summary
+                                                        class={twClasses(
+                                                            "",
+                                                            jsxTailwindStyles,
+                                                            "summary",
+                                                        )}
+                                                    >
+                                                        <strong
+                                                            class={twClasses(
+                                                                "",
+                                                                jsxTailwindStyles,
+                                                                "strong",
+                                                            )}
+                                                        >
                                                             {index() === 0
                                                                 ? "Current profile"
                                                                 : `Version ${version.revision}`}
                                                         </strong>
-                                                        <span>
+                                                        <span
+                                                            class={twClasses(
+                                                                "",
+                                                                jsxTailwindStyles,
+                                                                "span",
+                                                            )}
+                                                        >
                                                             {dateLabel(
                                                                 field(version, "updated_at_us") ||
                                                                     field(version, "created_at_us"),
                                                             )}
                                                         </span>
                                                     </summary>
-                                                    <dl>
+                                                    <dl
+                                                        class={twClasses(
+                                                            "",
+                                                            jsxTailwindStyles,
+                                                            "dl",
+                                                        )}
+                                                    >
                                                         <For each={fields}>
                                                             {([name, label]) => (
                                                                 <Show when={field(version, name)}>
-                                                                    <div>
-                                                                        <dt>{label}</dt>
-                                                                        <dd>
+                                                                    <div
+                                                                        class={twClasses(
+                                                                            "",
+                                                                            jsxTailwindStyles,
+                                                                            "div",
+                                                                        )}
+                                                                    >
+                                                                        <dt
+                                                                            class={twClasses(
+                                                                                "",
+                                                                                jsxTailwindStyles,
+                                                                                "dt",
+                                                                            )}
+                                                                        >
+                                                                            {label}
+                                                                        </dt>
+                                                                        <dd
+                                                                            class={twClasses(
+                                                                                "",
+                                                                                jsxTailwindStyles,
+                                                                                "dd",
+                                                                            )}
+                                                                        >
                                                                             {field(version, name)}
                                                                         </dd>
                                                                     </div>
                                                                 </Show>
                                                             )}
                                                         </For>
-                                                        <div>
-                                                            <dt>Progress</dt>
-                                                            <dd>{progress(version)}</dd>
+                                                        <div
+                                                            class={twClasses(
+                                                                "",
+                                                                jsxTailwindStyles,
+                                                                "div",
+                                                            )}
+                                                        >
+                                                            <dt
+                                                                class={twClasses(
+                                                                    "",
+                                                                    jsxTailwindStyles,
+                                                                    "dt",
+                                                                )}
+                                                            >
+                                                                Progress
+                                                            </dt>
+                                                            <dd
+                                                                class={twClasses(
+                                                                    "",
+                                                                    jsxTailwindStyles,
+                                                                    "dd",
+                                                                )}
+                                                            >
+                                                                {progress(version)}
+                                                            </dd>
                                                         </div>
                                                     </dl>
                                                     <Show when={index() > 0}>
@@ -193,7 +281,11 @@ export function StudentVersionHistory(props: StudentVersionHistoryProps): JSX.El
                                                             when={confirmIndex() === index()}
                                                             fallback={
                                                                 <button
-                                                                    class="button button-outline"
+                                                                    class={twClasses(
+                                                                        "button button-outline",
+                                                                        jsxTailwindStyles,
+                                                                        "button",
+                                                                    )}
                                                                     type="button"
                                                                     disabled={
                                                                         props.disabled || loading()
@@ -206,14 +298,30 @@ export function StudentVersionHistory(props: StudentVersionHistoryProps): JSX.El
                                                                 </button>
                                                             }
                                                         >
-                                                            <div class="student-versions-confirm">
-                                                                <p>
+                                                            <div
+                                                                class={twClasses(
+                                                                    "student-versions-confirm",
+                                                                    jsxTailwindStyles,
+                                                                    "div",
+                                                                )}
+                                                            >
+                                                                <p
+                                                                    class={twClasses(
+                                                                        "",
+                                                                        jsxTailwindStyles,
+                                                                        "p",
+                                                                    )}
+                                                                >
                                                                     Restore profile details and
                                                                     progress reviews from this
                                                                     version?
                                                                 </p>
                                                                 <button
-                                                                    class="button button-quiet"
+                                                                    class={twClasses(
+                                                                        "button button-quiet",
+                                                                        jsxTailwindStyles,
+                                                                        "button",
+                                                                    )}
                                                                     type="button"
                                                                     onClick={() =>
                                                                         setConfirmIndex(null)
@@ -222,7 +330,11 @@ export function StudentVersionHistory(props: StudentVersionHistoryProps): JSX.El
                                                                     Cancel
                                                                 </button>
                                                                 <button
-                                                                    class="button button-primary"
+                                                                    class={twClasses(
+                                                                        "button button-primary",
+                                                                        jsxTailwindStyles,
+                                                                        "button",
+                                                                    )}
                                                                     type="button"
                                                                     disabled={
                                                                         props.disabled || loading()
