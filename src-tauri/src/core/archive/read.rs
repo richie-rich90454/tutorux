@@ -212,14 +212,12 @@ impl ArchiveSnapshot {
             &payload,
         )?;
         if self.encrypted()
-            && self.data_key.is_some()
             && frame.record_type == RecordType::SETTINGS
             && frame.id.eq_ignore_ascii_case(&self.header.id)
         {
-            return crate::core::crypto::verify_manifest_authentication(
-                record,
-                self.data_key.as_ref().unwrap(),
-            );
+            if let Some(data_key) = self.data_key.as_ref() {
+                return crate::core::crypto::verify_manifest_authentication(record, data_key);
+            }
         }
         Ok(record)
     }
