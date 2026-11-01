@@ -125,7 +125,10 @@ fn inspect_candidate(path: &std::path::Path) -> Option<Value> {
 fn discovery_text(value: &Value) -> String {
     let mut lines = vec![
         format!("{}", value["name"].as_str().unwrap_or("Archive")),
-        format!("  Format: {}.{}", value["format_major"], value["format_minor"]),
+        format!(
+            "  Format: {}.{}",
+            value["format_major"], value["format_minor"]
+        ),
         format!("  Size: {} bytes", value["size_bytes"]),
         format!(
             "  Access: {}",
@@ -137,12 +140,24 @@ fn discovery_text(value: &Value) -> String {
         ),
         format!("  Name: {}", value["name"].as_str().unwrap_or("Archive")),
         format!("  ID: {}", value["id"].as_str().unwrap_or("")),
-        format!("  Generation: {}", value["generation"].as_str().unwrap_or("0")),
-        format!("  Students: {}", value["student_count"].as_str().unwrap_or("0")),
-        format!("  Sessions: {}", value["session_count"].as_str().unwrap_or("0")),
+        format!(
+            "  Generation: {}",
+            value["generation"].as_str().unwrap_or("0")
+        ),
+        format!(
+            "  Students: {}",
+            value["student_count"].as_str().unwrap_or("0")
+        ),
+        format!(
+            "  Sessions: {}",
+            value["session_count"].as_str().unwrap_or("0")
+        ),
     ];
     if value["health"].as_str() != Some("healthy") {
-        lines.push(format!("  Health: {}", value["health"].as_str().unwrap_or("unknown")));
+        lines.push(format!(
+            "  Health: {}",
+            value["health"].as_str().unwrap_or("unknown")
+        ));
     }
     if let Some(description) = value["description"].as_str() {
         if !description.is_empty() {
