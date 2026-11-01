@@ -21,7 +21,8 @@
                 "center": true,
                 "resizable": true,
                 "decorations": true,
-                "useHttpsScheme": true
+                "useHttpsScheme": true,
+                "generalAutofillEnabled": false
             }
         ],
         "security": {
