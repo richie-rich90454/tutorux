@@ -62,7 +62,8 @@ Usage:
   tutorux --archive <file.tux> session show|verify <uuid> [--json]
   tutorux --archive <file.tux> session update <uuid> [--title <title>] [--subject <subject>] [--objectives <text>] [--student-id <uuid>] [--entry-id <uuid>] [--notes <text>]
   tutorux --archive <file.tux> session clone <uuid> [--title <title>] [--type notes-only|record-audio|import-recording]
-  tutorux --archive <file.tux> session export <uuid> --output <package.tux> [--force]
+  tutorux --archive <file.tux> session export <uuid> --output <package.tux>
+    refuses an existing destination; --force requires --confirm-sensitive and is rejected for .tux outputs
   tutorux --archive <file.tux> session import <package.tux>|--input <package.tux> [--student-id <uuid>]
   tutorux --archive <file.tux> session archive|unarchive <uuid>
   tutorux --archive <file.tux> session start|complete|review|resume <uuid>
@@ -94,6 +95,7 @@ Usage:
   tutorux --archive <file.tux> asset history <id> [--limit <1..10000>] [--json]
   tutorux --archive <file.tux> asset restore <id> --revision <history-index>
   tutorux --archive <file.tux> asset extract|export <id> --output <file>
+    refuses an existing destination file
   tutorux --archive <file.tux> asset link|unlink <id> --to annotation|transcript --target-id <uuid>
   tutorux --archive <file.tux> evidence extract --session <uuid>
   tutorux --archive <file.tux> evidence list|review [--session <uuid>] [--json]
