@@ -58,7 +58,7 @@ The GUI rewrite is feature-complete. The SolidJS, TypeScript, Tauri, and Rust im
 - `src-tauri` pins `libc = "0.2.186"` because `flexaudio-os-macos` requires that exact version.
 - `src-tauri/Cargo.toml` adds `windows-sys` for native process and memory diagnostics and `dasp_sample` for microphone level conversion.
 - `.cargo/config.toml` disables llama.cpp's optional OpenSSL discovery so MSVC does not ingest MSYS2 headers.
-- `cargo check --bins` and `cargo test --bins` pass. `pnpm run desktop:build` produces MSI and NSIS installers containing only `tutorux-desktop.exe`; the desktop process has no runtime extraction, Node dependency, or helper sidecars.
+- `cargo check --locked --bins` and `cargo test --locked --features cli` are the Rust verification entry points; the CLI parity harness runs after the debug CLI and the audio-helper sidecar are built. `pnpm run desktop:build` produces MSI and NSIS installers containing only `tutorux-desktop.exe`; the desktop process has no runtime extraction, Node dependency, or helper sidecars.
 - GGUF inference now runs in the desktop process. The vendored `whisper-rs-sys` prefixes whisper.cpp's `ggml`/`gguf` symbols so whisper.cpp and llama.cpp can link together without the retired `tutorux-embedded-ai` sidecar. The vendored `whisper-rs` binding calls the prefixed log setter.
 - The Windows release binary uses the `windows` GUI subsystem, so it launches without an accompanying console window.
 - The in-app command console is not part of the desktop executable; the standalone CLI remains available through `pnpm run cli` and `pnpm run build:audio-helper`.
@@ -78,11 +78,15 @@ pnpm run test:e2e
 pnpm run build
 pnpm run build:audio-helper
 pnpm run desktop:build
-cargo check --manifest-path src-tauri/Cargo.toml --bins
-cargo test --manifest-path src-tauri/Cargo.toml --bins
+node scripts/collect-release.mjs --check-versions
+cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check
+cargo clippy --locked --manifest-path src-tauri/Cargo.toml --all-targets --all-features -- -D warnings
+cargo check --locked --manifest-path src-tauri/Cargo.toml --bins
+cargo test --locked --manifest-path src-tauri/Cargo.toml --features cli
+cargo test --locked --manifest-path src-tauri/Cargo.toml --features audio-helper --bin tutorux-audio-helper
 ```
 
-Latest passed checks: `pnpm run typecheck`, `pnpm run lint` (0 errors, 46 Solid reactivity warnings), `pnpm run format:check` (oxfmt), `pnpm run test` (39 files, 245 tests), `pnpm exec playwright test` (12/12), `pnpm run build`, `cargo check --bins`, `cargo test --bins` (20 desktop tests) plus `cargo test --features audio-helper --bin tutorux-audio-helper` (5 tests), `pnpm run build:audio-helper`, and `pnpm run desktop:build` (MSI 12.1 MiB, NSIS 9.3 MiB). Both installers contain only `tutorux-desktop.exe`; the release executable is a Windows GUI-subsystem binary and creates no application-data runtime directory. The in-process llama.cpp and whisper.cpp link was verified; real-model inference, live-microphone Whisper, and device matrices remain release qualification work. `pnpm audit` still reports advisories through `node-llama-cpp@3.22.2` -> `simple-git@3.36.0` / `@simple-git/argv-parser`; the suggested fix downgrades to `node-llama-cpp@2.0.0`, which is not acceptable. Track an upstream release instead of forcing an override.
+Test inventory: `pnpm run test` collects 40 files and 248 tests; `pnpm exec playwright test --list` reports 15 tests in 6 files. CI runs those suites plus the Rust formatting, Clippy, unit, audio-helper, and CLI parity gates. `pnpm run desktop:build` produces MSI and NSIS installers; both contain only `tutorux-desktop.exe`. The release executable is a Windows GUI-subsystem binary and creates no application-data runtime directory. The in-process llama.cpp and whisper.cpp link was verified; real-model inference, live-microphone Whisper, and device matrices remain release qualification work. `pnpm audit` still reports advisories through `node-llama-cpp@3.22.2` -> `simple-git@3.36.0` / `@simple-git/argv-parser`; the suggested fix downgrades to `node-llama-cpp@2.0.0`, which is not acceptable. Track an upstream release instead of forcing an override.
 
 ## Commit requirements
 
