@@ -1,5 +1,4 @@
-import { twClasses } from "./tailwind";
-import { jsxTailwindStyles } from "./EvidenceSources.tailwind";
+import { cn } from "./ui";
 import { createSignal, For, Show, type JSX } from "solid-js";
 import type { ArchiveSnapshot } from "./archive/archive";
 import { RecordType, type ArchiveRecord } from "./archive/format";
@@ -92,27 +91,37 @@ export function EvidenceSources(props: {
         setOpen((value) => !value);
     }
     return (
-        <section class={twClasses("evidence-sources", jsxTailwindStyles, "section")}>
+        <section class={cn("evidence-sources", "mt-2")}>
             <button
                 type="button"
-                class={twClasses("button button-quiet record-action", jsxTailwindStyles, "button")}
+                class={cn(
+                    "button button-quiet record-action",
+                    "active:translate-y-px items-center rounded-[7px] border border-transparent cursor-pointer inline-flex font-semibold gap-2 justify-center no-underline transition-colors whitespace-nowrap hover:bg-accent-soft bg-transparent text-xs min-h-[30px] py-0 px-[9px] focus-visible:outline-offset-0.5 focus-visible:outline-3 focus-visible:outline-[color-mix(in_srgb,_var(--accent)_42%,_transparent)] text-inherit disabled:cursor-not-allowed! disabled:opacity-0.56",
+                )}
                 aria-expanded={open()}
                 onClick={toggle}
             >
                 {open() ? "Hide sources" : "Inspect sources"}
             </button>
             <Show when={open()}>
-                <div class={twClasses("evidence-sources-panel", jsxTailwindStyles, "div")}>
-                    <div class={twClasses("evidence-sources-heading", jsxTailwindStyles, "div")}>
-                        <strong class={twClasses("", jsxTailwindStyles, "strong")}>
-                            Source records
-                        </strong>
+                <div
+                    class={cn(
+                        "evidence-sources-panel",
+                        "bg-surface-subtle rounded-[5px] border border-line grid gap-2.5 mt-2 p-3",
+                    )}
+                >
+                    <div
+                        class={cn(
+                            "evidence-sources-heading",
+                            "items-center flex gap-2 justify-between",
+                        )}
+                    >
+                        <strong>Source records</strong>
                         <button
                             type="button"
-                            class={twClasses(
+                            class={cn(
                                 "button button-quiet record-action",
-                                jsxTailwindStyles,
-                                "button",
+                                "active:translate-y-px items-center rounded-[7px] border border-transparent cursor-pointer inline-flex font-semibold gap-2 justify-center no-underline transition-colors whitespace-nowrap hover:bg-accent-soft bg-transparent text-xs min-h-[30px] py-0 px-[9px] focus-visible:outline-offset-0.5 focus-visible:outline-3 focus-visible:outline-[color-mix(in_srgb,_var(--accent)_42%,_transparent)] text-inherit disabled:cursor-not-allowed! disabled:opacity-0.56",
                             )}
                             disabled={loading()}
                             onClick={() => void inspect()}
@@ -121,62 +130,63 @@ export function EvidenceSources(props: {
                         </button>
                     </div>
                     <Show when={loading()}>
-                        <p class={twClasses("", jsxTailwindStyles, "p")}>Checking sources…</p>
+                        <p class="text-muted text-[0.8rem] m-0 wrap-anywhere whitespace-pre-wrap">
+                            Checking sources…
+                        </p>
                     </Show>
                     <Show when={error()}>
-                        <p role="alert" class={twClasses("", jsxTailwindStyles, "p")}>
+                        <p
+                            role="alert"
+                            class="text-muted text-[0.8rem] m-0 wrap-anywhere whitespace-pre-wrap"
+                        >
                             {error()}
                         </p>
                     </Show>
                     <Show when={!loading() && current() !== null}>
-                        <p role="status" class={twClasses("", jsxTailwindStyles, "p")}>
+                        <p
+                            role="status"
+                            class="text-muted text-[0.8rem] m-0 wrap-anywhere whitespace-pre-wrap"
+                        >
                             {current()
                                 ? "Sources are current and belong to this session."
                                 : "One or more sources are missing, changed, or outside this session."}
                         </p>
                     </Show>
                     <Show when={!loading() && sources().length === 0 && !error()}>
-                        <p class={twClasses("", jsxTailwindStyles, "p")}>
+                        <p class="text-muted text-[0.8rem] m-0 wrap-anywhere whitespace-pre-wrap">
                             No source records were recorded.
                         </p>
                     </Show>
                     <For each={sources()}>
                         {(source) => (
                             <article
-                                class={twClasses(
+                                class={cn(
                                     "evidence-source-item",
-                                    jsxTailwindStyles,
-                                    "article",
+                                    "border-t border-t-line grid gap-[5px] pt-2",
                                 )}
                             >
-                                <div class={twClasses("", jsxTailwindStyles, "div")}>
-                                    <strong class={twClasses("", jsxTailwindStyles, "strong")}>
-                                        {source.label}
-                                    </strong>
-                                    <small class={twClasses("", jsxTailwindStyles, "small")}>
-                                        {source.id}
-                                    </small>
+                                <div class="flex flex-wrap gap-1.5 justify-between">
+                                    <strong>{source.label}</strong>
+                                    <small class="text-muted wrap-anywhere">{source.id}</small>
                                 </div>
                                 <Show
                                     when={source.record}
                                     fallback={
-                                        <p class={twClasses("", jsxTailwindStyles, "p")}>
+                                        <p class="text-muted text-[0.8rem] m-0 wrap-anywhere whitespace-pre-wrap">
                                             {source.error || "Source unavailable"}
                                         </p>
                                     }
                                 >
                                     {(record) => (
                                         <>
-                                            <p class={twClasses("", jsxTailwindStyles, "p")}>
+                                            <p class="text-muted text-[0.8rem] m-0 wrap-anywhere whitespace-pre-wrap">
                                                 {field(record(), "title") ||
                                                     field(record(), "filename") ||
                                                     field(record(), "text") ||
                                                     field(record(), "content") ||
                                                     "Untitled source"}
                                             </p>
-                                            <small
-                                                class={twClasses("", jsxTailwindStyles, "small")}
-                                            >
+                                            <small class="text-muted wrap-anywhere">
                                                 Current version {record().revision.toString()}
                                                 {source.expected
                                                     ? ` · cited version ${source.expected}`
