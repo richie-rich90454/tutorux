@@ -54,6 +54,17 @@ describe("document text extraction", () => {
         expect(result).toEqual({ status: "extracted", text: "Filename fallback" });
     });
 
+    it("prefers an explicit MIME type over a conflicting extension", async () => {
+        const result = await extractDocumentText(
+            "misleading.pdf",
+            DOCX_MIME,
+            makeDocx(
+                "<w:document><w:body><w:p><w:r><w:t>MIME wins</w:t></w:r></w:p></w:body></w:document>",
+            ),
+        );
+        expect(result).toEqual({ status: "extracted", text: "MIME wins" });
+    });
+
     it("reports a valid Word document with no readable text", async () => {
         const result = await extractDocumentText(
             "blank.docx",
