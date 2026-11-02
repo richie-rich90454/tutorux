@@ -27,6 +27,7 @@ pub(super) fn encrypt(
     }
     let previous_generation = snapshot.commit.generation;
     let history = count_historical_revisions(&snapshot)?;
+    let expected = super::helpers::read_bytes(&snapshot)?;
     let bytes = enable_encryption(&snapshot, &passphrase)?;
     let next = ArchiveSnapshot::open_bytes(bytes.clone())?;
     let unlocked = next.unlock(&passphrase)?;
@@ -36,7 +37,7 @@ pub(super) fn encrypt(
     drop(unlocked);
     drop(next);
     drop(snapshot);
-    save::save_bytes(path, &bytes)?;
+    save::replace_existing(path, &expected, &bytes)?;
     let value = json!({
         "path": path.display().to_string(),
         "archive_id": archive_id,
@@ -88,6 +89,7 @@ pub(super) fn change_passphrase(
         return Err(CliError("This archive is not encrypted.".to_owned()).into());
     }
     let previous_generation = snapshot.commit.generation;
+    let expected = super::helpers::read_bytes(&snapshot)?;
     let bytes = rekey(&snapshot, &new_passphrase)?;
     let next = ArchiveSnapshot::open_bytes(bytes.clone())?;
     let unlocked = next.unlock(&new_passphrase)?;
@@ -96,7 +98,7 @@ pub(super) fn change_passphrase(
     drop(unlocked);
     drop(next);
     drop(snapshot);
-    save::save_bytes(path, &bytes)?;
+    save::replace_existing(path, &expected, &bytes)?;
     let value = json!({
         "path": path.display().to_string(),
         "previous_generation": previous_generation.to_string(),
