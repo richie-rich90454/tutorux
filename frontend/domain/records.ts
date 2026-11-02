@@ -1,4 +1,5 @@
 import { RecordType, type ArchiveRecord, validateRecordPayloadSize } from "../archive/format";
+import { currentJournalDate } from "../shared-utils";
 
 let lastTimestampUs = 0n;
 
@@ -353,7 +354,7 @@ export function cloneSessionRecords(
             );
         }
         const entryNotesId = crypto.randomUUID();
-        const entryDate = currentUtcJournalDate();
+        const entryDate = currentJournalDate();
         records.push(
             record(RecordType.settings, entryId, {
                 record_role: "journal-entry",
@@ -481,7 +482,7 @@ export function makeSessionRecords(
     }
 
     const entryNotesId = crypto.randomUUID();
-    const entryDate = currentUtcJournalDate();
+    const entryDate = currentJournalDate();
     if (options.ensureJournalRoot ?? true) {
         records.push(
             record(RecordType.settings, crypto.randomUUID(), {
@@ -1266,13 +1267,6 @@ function validateJournalDate(value: string): void {
     if (year === 0 || month < 1 || month > 12 || day < 1 || day > monthLengths[month - 1]!) {
         throw new Error("Choose a valid journal date.");
     }
-}
-
-function currentUtcJournalDate(): string {
-    const today = new Date();
-    return [today.getUTCFullYear(), today.getUTCMonth() + 1, today.getUTCDate()]
-        .map((part, index) => (index === 0 ? String(part) : String(part).padStart(2, "0")))
-        .join("-");
 }
 
 function requiredText(value: string, label: string, maximum: number): string {

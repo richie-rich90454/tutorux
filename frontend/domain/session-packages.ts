@@ -6,6 +6,7 @@ import {
     verifyArchiveSnapshot,
 } from "../archive/archive";
 import { RecordType, newUuid, type ArchiveRecord } from "../archive/format";
+import { currentJournalDate } from "../shared-utils";
 
 const PACKAGE_ROLE = "tutorux-session-package";
 const PACKAGE_VERSION = "1";
@@ -578,7 +579,7 @@ function makeJournalEntry(
     return makeSettingsRecord(id, {
         record_role: "journal-entry",
         title: field(session, "title", "Imported tutoring session"),
-        entry_date: new Date().toISOString().slice(0, 10),
+        entry_date: currentJournalDate(),
         collection_ids: "",
         tag_ids: "",
         notes_document_id: notesId,

@@ -80,6 +80,12 @@ export function initials(name: string): string {
     );
 }
 
+export function currentJournalDate(now = new Date()): string {
+    return [now.getFullYear(), now.getMonth() + 1, now.getDate()]
+        .map((part, index) => (index === 0 ? String(part) : String(part).padStart(2, "0")))
+        .join("-");
+}
+
 export function dateParts(value: string): { day: string; month: string; year: string } {
     const date = new Date(`${value}T12:00:00`);
     if (Number.isNaN(date.getTime())) return { day: "–", month: "---", year: "" };
