@@ -78,7 +78,7 @@ export async function buildWaveformIndex(
     options: { signal?: AbortSignal; onProgress?: (fraction: number) => void } = {},
 ): Promise<ArchiveRecord> {
     const check = () => {
-        if (options.signal?.aborted) throw new Error("Waveform generation cancelled.");
+        if (options.signal?.aborted) throw new Error("Waveform generation canceled.");
     };
     check();
     const metadata = await snapshot.listAudioChunkMetadata(sessionId, trackId);
@@ -175,7 +175,7 @@ async function buildWaveformIndexFromStream(
     options: { signal?: AbortSignal; onProgress?: (fraction: number) => void },
 ): Promise<ArchiveRecord> {
     const check = () => {
-        if (options.signal?.aborted) throw new Error("Waveform generation cancelled.");
+        if (options.signal?.aborted) throw new Error("Waveform generation canceled.");
     };
     check();
     const first = metadata[0]!;
