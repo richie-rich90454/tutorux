@@ -1,5 +1,5 @@
 import { lstat, readdir, stat } from "node:fs/promises";
-import { basename, join, resolve } from "node:path";
+import { join, relative, resolve } from "node:path";
 import { ArchiveFormatError, RecordType, type ArchiveRecord } from "../../frontend/archive/format";
 import { type ArchiveSnapshot } from "../../frontend/archive/archive";
 import { appendCliAssetFile, exportCliAssetAtomically } from "../assets-stream";
@@ -52,21 +52,28 @@ export async function runAssetCommand(
             if (!directoryInfo.isDirectory()) {
                 throw new CliError("Import source must be a directory.");
             }
-            const entries = await readdir(inputDirectory, { withFileTypes: true });
+            const pending = [inputDirectory];
             inputPaths = [];
-            for (const entry of entries) {
-                const entryPath = join(inputDirectory, entry.name);
-                const fileInfo = await lstat(entryPath);
-                if (fileInfo.isFile() && !fileInfo.isSymbolicLink()) inputPaths.push(entryPath);
-                if (inputPaths.length > 10_000) {
-                    throw new CliError("Folder import is limited to 10,000 regular files.");
+            while (pending.length > 0) {
+                const directory = pending.pop()!;
+                const entries = await readdir(directory, { withFileTypes: true });
+                for (const entry of entries) {
+                    const entryPath = join(directory, entry.name);
+                    const fileInfo = await lstat(entryPath);
+                    if (fileInfo.isSymbolicLink()) continue;
+                    if (fileInfo.isDirectory()) {
+                        pending.push(entryPath);
+                    } else if (fileInfo.isFile()) {
+                        inputPaths.push(entryPath);
+                        if (inputPaths.length > 10_000) {
+                            throw new CliError("Folder import is limited to 10,000 regular files.");
+                        }
+                    }
                 }
             }
-            inputPaths.sort((left, right) => {
-                const leftName = basename(left);
-                const rightName = basename(right);
-                return leftName < rightName ? -1 : leftName > rightName ? 1 : 0;
-            });
+            inputPaths.sort((left, right) =>
+                relative(inputDirectory, left).localeCompare(relative(inputDirectory, right)),
+            );
         }
         const sessionId = args.options.get("session") ?? "";
         const captureSource = args.options.get("capture-source");
