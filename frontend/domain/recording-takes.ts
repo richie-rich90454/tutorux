@@ -155,6 +155,7 @@ export async function setRecordingTrackDeleted(
 
     takeFields.set("updated_at_us", time);
     sessionFields.set("recording_track_ids", sessionTrackIds.join(","));
+    sessionFields.set("recording_track_count", String(sessionTrackIds.length));
     sessionFields.set("updated_at_us", time);
     trackFields.set("updated_at_us", time);
 
