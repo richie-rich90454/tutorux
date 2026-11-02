@@ -12,10 +12,16 @@
     --color-muted: var(--muted);
     --color-faint: var(--faint);
     --color-line: var(--line);
+    --color-line-soft: var(--line-soft);
+    --color-line-strong: var(--line-strong);
+    --color-surface-inset: var(--surface-inset);
     --color-accent: var(--accent);
     --color-accent-hover: var(--accent-hover);
     --color-accent-soft: var(--accent-soft);
     --color-danger: var(--danger);
+    --color-danger-soft: var(--danger-soft);
+    --color-warning: var(--warning);
+    --color-success: var(--success);
     --radius-panel: var(--radius-large);
 }
 
