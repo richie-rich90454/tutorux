@@ -512,7 +512,7 @@ describe("TypeScript CLI", () => {
         }
     });
 
-    it("previews archive compaction with --preview and applies by default", async () => {
+    it("previews archive compaction with --preview and applies with --apply", async () => {
         const directory = await mkdtemp(join(process.cwd(), "tutorux-cli-compaction-"));
         const archivePath = join(directory, "lesson.tux");
         const stdout: string[] = [];
@@ -566,6 +566,21 @@ describe("TypeScript CLI", () => {
             expect(await readFile(archivePath)).toEqual(Buffer.from(originalBytes));
 
             expect(await executeCli(["archive", "compact", archivePath, "--json"], io)).toBe(0);
+            expect(JSON.parse(stdout.at(-1)!)).toMatchObject({ applied: false });
+            expect(await readFile(archivePath)).toEqual(Buffer.from(originalBytes));
+
+            expect(
+                await executeCli(
+                    ["archive", "compact", archivePath, "--apply", "--preview", "--json"],
+                    io,
+                ),
+            ).toBe(0);
+            expect(JSON.parse(stdout.at(-1)!)).toMatchObject({ applied: false });
+            expect(await readFile(archivePath)).toEqual(Buffer.from(originalBytes));
+
+            expect(
+                await executeCli(["archive", "compact", archivePath, "--apply", "--json"], io),
+            ).toBe(0);
             const compactedBytes = await readFile(archivePath);
             expect(compactedBytes.byteLength).toBe(Number(preview.compactedBytes));
             const compacted = await openArchiveBytes(compactedBytes);
@@ -1423,6 +1438,164 @@ describe("TypeScript CLI", () => {
             expect(linkedEvidence.revision).toBe("4");
             expect(linkedEvidence["linked_evidence_ids"]).toBe(targets[1]!.id);
             expect(stderr).toEqual([]);
+        } finally {
+            await rm(directory, { recursive: true, force: true });
+        }
+    });
+
+    it("keeps inline option values that contain an equals sign", async () => {
+        const directory = await mkdtemp(join(process.cwd(), "tutorux-cli-inline-value-"));
+        const archivePath = join(directory, "lesson.tux");
+        const stdout: string[] = [];
+        const stderr: string[] = [];
+        const io = {
+            stdout: (value: string) => stdout.push(value),
+            stderr: (value: string) => stderr.push(value),
+        };
+
+        try {
+            expect(
+                await executeCli(["archive", "init", archivePath, "--name", "Inline value"], io),
+            ).toBe(0);
+            expect(
+                await executeCli(
+                    [
+                        "--json",
+                        "--archive",
+                        archivePath,
+                        "student",
+                        "create",
+                        "--name=Guardian = parent",
+                    ],
+                    io,
+                ),
+            ).toBe(0);
+            expect(JSON.parse(stdout.at(-1)!)).toMatchObject({
+                display_name: "Guardian = parent",
+            });
+            expect(stderr).toEqual([]);
+        } finally {
+            await rm(directory, { recursive: true, force: true });
+        }
+    });
+
+    it("canonicalizes session list student filters", async () => {
+        const directory = await mkdtemp(join(process.cwd(), "tutorux-cli-student-filter-"));
+        const archivePath = join(directory, "lesson.tux");
+        const stdout: string[] = [];
+        const stderr: string[] = [];
+        const io = {
+            stdout: (value: string) => stdout.push(value),
+            stderr: (value: string) => stderr.push(value),
+        };
+
+        try {
+            expect(
+                await executeCli(["archive", "init", archivePath, "--name", "Student filter"], io),
+            ).toBe(0);
+            expect(
+                await executeCli(
+                    ["--json", "--archive", archivePath, "student", "create", "--name", "Mina"],
+                    io,
+                ),
+            ).toBe(0);
+            const studentId = (JSON.parse(stdout.at(-1)!) as { id: string }).id;
+            expect(
+                await executeCli(
+                    [
+                        "--json",
+                        "--archive",
+                        archivePath,
+                        "session",
+                        "create",
+                        "--title",
+                        "Fractions",
+                        "--student-id",
+                        studentId,
+                    ],
+                    io,
+                ),
+            ).toBe(0);
+
+            expect(
+                await executeCli(
+                    [
+                        "--json",
+                        "--archive",
+                        archivePath,
+                        "session",
+                        "list",
+                        "--student-id",
+                        studentId.toUpperCase(),
+                    ],
+                    io,
+                ),
+            ).toBe(0);
+            expect(JSON.parse(stdout.at(-1)!)).toHaveLength(1);
+
+            expect(
+                await executeCli(
+                    [
+                        "--json",
+                        "--archive",
+                        archivePath,
+                        "session",
+                        "list",
+                        "--student-id",
+                        "not-a-uuid",
+                    ],
+                    io,
+                ),
+            ).toBe(2);
+            expect(stderr.at(-1)).toContain("--student-id must be a valid UUID");
+        } finally {
+            await rm(directory, { recursive: true, force: true });
+        }
+    });
+
+    it("requires a new passphrase environment to encrypt an archive", async () => {
+        const directory = await mkdtemp(join(process.cwd(), "tutorux-cli-encrypt-"));
+        const archivePath = join(directory, "lesson.tux");
+        const stdout: string[] = [];
+        const stderr: string[] = [];
+        const io = {
+            stdout: (value: string) => stdout.push(value),
+            stderr: (value: string) => stderr.push(value),
+        };
+
+        try {
+            expect(
+                await executeCli(["archive", "init", archivePath, "--name", "Encrypt"], io),
+            ).toBe(0);
+            const plaintext = await readFile(archivePath);
+
+            expect(await executeCli(["archive", "encrypt", archivePath], io)).toBe(2);
+            expect(stderr.at(-1)).toContain("archive encrypt requires --new-passphrase-env");
+
+            process.env["TUTORUX_TEST_CURRENT_PASSPHRASE"] = "current passphrase";
+            try {
+                expect(
+                    await executeCli(
+                        [
+                            "--passphrase-env",
+                            "TUTORUX_TEST_CURRENT_PASSPHRASE",
+                            "archive",
+                            "encrypt",
+                            archivePath,
+                        ],
+                        io,
+                    ),
+                ).toBe(2);
+            } finally {
+                delete process.env["TUTORUX_TEST_CURRENT_PASSPHRASE"];
+            }
+            expect(stderr.at(-1)).toContain("archive encrypt requires --new-passphrase-env");
+            expect(await readFile(archivePath)).toEqual(plaintext);
+
+            expect(await executeCli(["--help"], io)).toBe(0);
+            expect(stdout.at(-1)).toContain(
+                "archive encrypt <file.tux> --new-passphrase-env <name>",
+            );
         } finally {
             await rm(directory, { recursive: true, force: true });
         }
