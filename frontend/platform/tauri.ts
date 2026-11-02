@@ -245,6 +245,7 @@ export const platform: ArchivePlatform = {
                 targetPath: path,
                 archiveToken: findArchiveToken(source) ?? null,
                 createOnly: false,
+                kind: "archive",
             },
         );
         try {
@@ -333,7 +334,7 @@ export const platform: ArchivePlatform = {
         if (!path) return null;
         const { token, temporaryPath } = await invoke<{ token: string; temporaryPath: string }>(
             "prepare_archive_save",
-            { targetPath: path, archiveToken: null, createOnly: false },
+            { targetPath: path, archiveToken: null, createOnly: false, kind: "export" },
         );
         try {
             const payload = typeof contents === "function" ? await contents() : contents;
@@ -370,7 +371,12 @@ export const platform: ArchivePlatform = {
                 if (!preparation) {
                     preparation = await invoke<{ token: string; temporaryPath: string }>(
                         "prepare_archive_save",
-                        { targetPath: path, archiveToken: null, createOnly: true },
+                        {
+                            targetPath: path,
+                            archiveToken: null,
+                            createOnly: true,
+                            kind: "archive",
+                        },
                     );
                     file = await openFile(preparation.temporaryPath, {
                         append: true,
