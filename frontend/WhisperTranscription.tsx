@@ -1,5 +1,4 @@
-import { twClasses } from "./tailwind";
-import { jsxTailwindStyles } from "./WhisperTranscription.tailwind";
+import { buttonOutline, buttonPrimary, cn } from "./ui";
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import { createSignal, onCleanup, Show } from "solid-js";
 import { newUuid } from "./archive/format";
@@ -91,7 +90,7 @@ export function WhisperTranscription(props: Props) {
             runId = await invoke<string>("begin_whisper_run");
             if (cancelled) {
                 await invoke("cancel_whisper_run", { runId });
-                throw new Error("Transcription cancelled.");
+                throw new Error("Transcription canceled.");
             }
             const changes = new Map<string, ArchiveRecord>();
             let skipped = 0;
@@ -125,7 +124,7 @@ export function WhisperTranscription(props: Props) {
                 committedWindows += 1;
             };
             do {
-                if (cancelled) throw new Error("Transcription cancelled.");
+                if (cancelled) throw new Error("Transcription canceled.");
                 const current = wholeTrack
                     ? await buildAudioPreview(
                           snapshot,
@@ -143,7 +142,7 @@ export function WhisperTranscription(props: Props) {
                         language: selectedLanguage,
                     },
                 );
-                if (cancelled) throw new Error("Transcription cancelled.");
+                if (cancelled) throw new Error("Transcription canceled.");
                 if (
                     props.snapshot !== snapshot ||
                     props.preview !== sourcePreview ||
@@ -220,66 +219,71 @@ export function WhisperTranscription(props: Props) {
     };
     return (
         <div
-            class={twClasses(
+            class={cn(
                 "transcript-whisper col-span-full min-w-0 rounded-panel border border-line bg-surface-subtle p-4",
-                jsxTailwindStyles,
-                "div",
+                "[&_[role='alert']]:text-danger [&_[role='status']]:text-[var(--success)] max-[650px]:p-3.5 rounded-[9px] grid gap-[9px] mt-3.5 py-[17px] px-4.5",
             )}
         >
-            <strong class={twClasses("", jsxTailwindStyles, "strong")}>
-                Transcribe this recording
-            </strong>
+            <strong class="text-ink text-sm font-semibold">Transcribe this recording</strong>
             <Show
                 when={isTauri()}
                 fallback={
-                    <p class={twClasses("", jsxTailwindStyles, "p")}>
+                    <p class="text-muted text-xs leading-[1.55] m-0 max-w-[72ch]">
                         Local Whisper transcription is available in the desktop app.
                     </p>
                 }
             >
-                <p class={twClasses("", jsxTailwindStyles, "p")}>
+                <p class="text-muted text-xs leading-[1.55] m-0 max-w-[72ch]">
                     Create timestamped cues from the full recording with Whisper running locally.
                     Review the cues below before using them.
                 </p>
                 <p
-                    class={twClasses("transcript-whisper-model", jsxTailwindStyles, "p")}
+                    class={cn(
+                        "transcript-whisper-model",
+                        "bg-accent-soft rounded-md border border-line-soft py-1.5 px-[9px] w-[fit-content] text-muted text-xs leading-[1.55] m-0 max-w-[72ch]",
+                    )}
                     role="status"
                 >
                     Bundled multilingual Whisper model · runs offline
                 </p>
-                <div class={twClasses("transcript-whisper-actions", jsxTailwindStyles, "div")}>
-                    <label class={twClasses("", jsxTailwindStyles, "label")}>
+                <div
+                    class={cn(
+                        "transcript-whisper-actions",
+                        "max-[650px]:items-stretch items-center flex flex-wrap gap-y-2 gap-x-3 mt-0.5",
+                    )}
+                >
+                    <label class="[.transcript-whisper-actions_>_&:has(input:not([type='checkbox']))]:bg-transparent [.transcript-whisper-actions_>_&:has(input:not([type='checkbox']))]:border-0 [.transcript-whisper-actions_>_&:has(input:not([type='checkbox']))]:p-0 items-center bg-surface rounded-[7px] border border-line-soft text-ink-soft inline-flex text-[11px] gap-[7px] min-h-[34px] py-0 px-[9px]">
                         <input
                             type="checkbox"
                             checked={fullTrack()}
                             disabled={busy()}
                             onChange={(event) => setFullTrack(event.currentTarget.checked)}
-                            class={twClasses("", jsxTailwindStyles, "input")}
+                            class="focus-visible:outline-offset-0.5 focus-visible:outline-3 focus-visible:outline-[color-mix(in_srgb,_var(--accent)_42%,_transparent)] [.transcript-whisper-actions_>_label_&:not([type='checkbox'])]:bg-surface [.transcript-whisper-actions_>_label_&:not([type='checkbox'])]:rounded-md [.transcript-whisper-actions_>_label_&:not([type='checkbox'])]:border [.transcript-whisper-actions_>_label_&:not([type='checkbox'])]:border-line-strong [.transcript-whisper-actions_>_label_&:not([type='checkbox'])]:text-ink [.transcript-whisper-actions_>_label_&:not([type='checkbox'])]:h-[32px] [.transcript-whisper-actions_>_label_&:not([type='checkbox'])]:min-w-[64px] [.transcript-whisper-actions_>_label_&:not([type='checkbox'])]:py-0 [.transcript-whisper-actions_>_label_&:not([type='checkbox'])]:px-2 [.transcript-whisper-actions_>_label_&[type='checkbox']]:accent-accent"
                         />{" "}
                         Entire track
                     </label>
-                    <label class={twClasses("", jsxTailwindStyles, "label")}>
+                    <label class="[.transcript-whisper-actions_>_&:has(input:not([type='checkbox']))]:bg-transparent [.transcript-whisper-actions_>_&:has(input:not([type='checkbox']))]:border-0 [.transcript-whisper-actions_>_&:has(input:not([type='checkbox']))]:p-0 items-center bg-surface rounded-[7px] border border-line-soft text-ink-soft inline-flex text-[11px] gap-[7px] min-h-[34px] py-0 px-[9px]">
                         <input
                             type="checkbox"
                             checked={refine()}
                             disabled={busy()}
                             onChange={(event) => setRefine(event.currentTarget.checked)}
-                            class={twClasses("", jsxTailwindStyles, "input")}
+                            class="focus-visible:outline-offset-0.5 focus-visible:outline-3 focus-visible:outline-[color-mix(in_srgb,_var(--accent)_42%,_transparent)] [.transcript-whisper-actions_>_label_&:not([type='checkbox'])]:bg-surface [.transcript-whisper-actions_>_label_&:not([type='checkbox'])]:rounded-md [.transcript-whisper-actions_>_label_&:not([type='checkbox'])]:border [.transcript-whisper-actions_>_label_&:not([type='checkbox'])]:border-line-strong [.transcript-whisper-actions_>_label_&:not([type='checkbox'])]:text-ink [.transcript-whisper-actions_>_label_&:not([type='checkbox'])]:h-[32px] [.transcript-whisper-actions_>_label_&:not([type='checkbox'])]:min-w-[64px] [.transcript-whisper-actions_>_label_&:not([type='checkbox'])]:py-0 [.transcript-whisper-actions_>_label_&:not([type='checkbox'])]:px-2 [.transcript-whisper-actions_>_label_&[type='checkbox']]:accent-accent"
                         />{" "}
                         Replace provisional Whisper cues
                     </label>
-                    <label class={twClasses("", jsxTailwindStyles, "label")}>
+                    <label class="[.transcript-whisper-actions_>_&:has(input:not([type='checkbox']))]:bg-transparent [.transcript-whisper-actions_>_&:has(input:not([type='checkbox']))]:border-0 [.transcript-whisper-actions_>_&:has(input:not([type='checkbox']))]:p-0 items-center bg-surface rounded-[7px] border border-line-soft text-ink-soft inline-flex text-[11px] gap-[7px] min-h-[34px] py-0 px-[9px]">
                         Language{" "}
                         <input
                             value={language()}
                             disabled={busy()}
                             onInput={(event) => setLanguage(event.currentTarget.value)}
                             aria-label="Whisper language code"
-                            class={twClasses("", jsxTailwindStyles, "input")}
+                            class="focus-visible:outline-offset-0.5 focus-visible:outline-3 focus-visible:outline-[color-mix(in_srgb,_var(--accent)_42%,_transparent)] [.transcript-whisper-actions_>_label_&:not([type='checkbox'])]:bg-surface [.transcript-whisper-actions_>_label_&:not([type='checkbox'])]:rounded-md [.transcript-whisper-actions_>_label_&:not([type='checkbox'])]:border [.transcript-whisper-actions_>_label_&:not([type='checkbox'])]:border-line-strong [.transcript-whisper-actions_>_label_&:not([type='checkbox'])]:text-ink [.transcript-whisper-actions_>_label_&:not([type='checkbox'])]:h-[32px] [.transcript-whisper-actions_>_label_&:not([type='checkbox'])]:min-w-[64px] [.transcript-whisper-actions_>_label_&:not([type='checkbox'])]:py-0 [.transcript-whisper-actions_>_label_&:not([type='checkbox'])]:px-2 [.transcript-whisper-actions_>_label_&[type='checkbox']]:accent-accent"
                         />
                     </label>
                     <button
-                        class={twClasses("button button-primary", jsxTailwindStyles, "button")}
+                        class={cn("button button-primary", buttonPrimary)}
                         type="button"
                         disabled={props.disabled || busy()}
                         onClick={() => void transcribe()}
@@ -292,7 +296,7 @@ export function WhisperTranscription(props: Props) {
                     </button>
                     <Show when={busy()}>
                         <button
-                            class={twClasses("button button-outline", jsxTailwindStyles, "button")}
+                            class={cn("button button-outline", buttonOutline)}
                             type="button"
                             onClick={cancel}
                         >
@@ -301,12 +305,12 @@ export function WhisperTranscription(props: Props) {
                     </Show>
                 </div>
                 <Show when={message()}>
-                    <p role="status" class={twClasses("", jsxTailwindStyles, "p")}>
+                    <p role="status" class="text-muted text-xs leading-[1.55] m-0 max-w-[72ch]">
                         {message()}
                     </p>
                 </Show>
                 <Show when={error()}>
-                    <p role="alert" class={twClasses("", jsxTailwindStyles, "p")}>
+                    <p role="alert" class="text-muted text-xs leading-[1.55] m-0 max-w-[72ch]">
                         {error()}
                     </p>
                 </Show>
