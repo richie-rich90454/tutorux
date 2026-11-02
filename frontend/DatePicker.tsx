@@ -280,7 +280,7 @@ export function DatePicker(props: DatePickerProps) {
                 <section
                     class={cn(
                         "date-picker-popover",
-                        "bg-surface rounded-[10px] border border-line-strong shadow-[0_14px_35px_color-mix(in_srgb,_var(--ink)_14%,_transparent)] p-3 absolute right-0 w-[min(286px,_calc(100vw_-_32px))] z-[20]",
+                        "bg-surface rounded-[10px] border border-line-strong shadow-[0_14px_35px_color-mix(in_srgb,_var(--ink)_14%,_transparent)] p-3 absolute left-0 right-auto sm:left-auto sm:right-0 w-[min(286px,_calc(100vw_-_32px))] z-[20]",
                     )}
                     id={`${props.id}-calendar`}
                     role="dialog"
