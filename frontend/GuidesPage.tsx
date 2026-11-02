@@ -1,5 +1,3 @@
-import { twClasses } from "./tailwind";
-import { jsxTailwindStyles } from "./GuidesPage.tailwind";
 import {
     For,
     Show,
@@ -47,6 +45,38 @@ import {
     parseGuideTemplateImport,
     type GuideTemplateInput,
 } from "./domain/templates";
+import { cn, heading1, pageBody } from "./ui";
+
+const denseButton =
+    "button inline-flex min-h-[30px] items-center justify-center gap-1.5 whitespace-nowrap rounded-[5px] border border-transparent px-[9px] text-xs font-semibold leading-none transition-colors active:translate-y-px disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent";
+const densePrimary = cn(
+    denseButton,
+    "button-primary border-accent bg-accent text-white hover:border-accent-hover hover:bg-accent-hover",
+);
+const denseOutline = cn(
+    denseButton,
+    "button-outline border-[var(--line-strong)] bg-surface text-ink-soft hover:bg-[var(--surface-inset)] hover:text-ink",
+);
+const denseQuiet = cn(
+    denseButton,
+    "button-quiet bg-transparent text-ink-soft hover:bg-accent-soft hover:text-ink",
+);
+const denseDanger = cn(
+    denseButton,
+    "button-danger-quiet border-danger/30 bg-[var(--danger-soft)] text-danger hover:border-danger",
+);
+const moveButton =
+    "button button-quiet guide-section-move grid min-h-8 w-8 place-items-center rounded-[5px] border border-transparent bg-transparent p-0 text-sm text-ink-soft transition-colors hover:bg-accent-soft hover:text-ink disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent";
+const formIconButton =
+    "icon-button grid h-8 w-8 shrink-0 place-items-center rounded-[5px] text-muted transition-colors hover:bg-[var(--surface-inset)] hover:text-ink disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent";
+const trashIconButton =
+    "guide-trash-button grid h-7 w-7 shrink-0 place-items-center rounded-[5px] text-[18px] text-muted transition-colors hover:bg-[var(--danger-soft)] hover:text-danger disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent";
+const eyebrowText = "eyebrow text-xs font-medium tracking-wide text-muted";
+const fieldLabel = "form-field grid min-w-0 gap-[5px] text-xs font-semibold text-muted";
+const textInput =
+    "w-full min-w-0 rounded-[5px] border border-line bg-surface px-2.5 text-xs text-ink placeholder:text-faint focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-accent/55 disabled:cursor-not-allowed disabled:bg-surface-subtle disabled:text-muted";
+const textArea =
+    "w-full min-w-0 resize-y rounded-[5px] border border-line bg-surface px-2.5 py-[9px] text-xs leading-normal text-ink placeholder:text-faint focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-accent/55";
 
 interface GuideDialogProps {
     children: JSX.Element;
@@ -160,7 +190,10 @@ function GuideDialog(props: GuideDialogProps): JSX.Element {
             ref={(element) => {
                 dialogElement = element;
             }}
-            class={twClasses(`${props.class} modal-focus-scope`, jsxTailwindStyles, "section")}
+            class={cn(
+                props.class,
+                "modal-focus-scope overscroll-contain focus-visible:outline-2 focus-visible:outline-offset-[3px] focus-visible:outline-accent/40",
+            )}
             role="dialog"
             aria-modal="true"
             aria-labelledby={props.labelledBy}
@@ -508,16 +541,14 @@ export function GuidesPage(props: GuidePageProps): JSX.Element {
     }
 
     return (
-        <div class={twClasses("page-body guides-page", jsxTailwindStyles, "div")}>
-            <section
-                class={twClasses("record-heading guides-heading", jsxTailwindStyles, "section")}
-            >
-                <div class={twClasses("", jsxTailwindStyles, "div")}>
-                    <span class={twClasses("eyebrow", jsxTailwindStyles, "span")}>
+        <div class={cn("page-body guides-page", pageBody)}>
+            <section class="record-heading guides-heading mt-[5px] mb-[-3px] flex items-end justify-between gap-5 rounded-[10px]">
+                <div>
+                    <span class="eyebrow text-xs font-medium tracking-wide text-accent">
                         Structure that leaves room
                     </span>
-                    <h1 class={twClasses("", jsxTailwindStyles, "h1")}>Study guides</h1>
-                    <p class={twClasses("", jsxTailwindStyles, "p")}>
+                    <h1 class={cn(heading1, "mt-1 mb-[7px] text-balance")}>Study guides</h1>
+                    <p class="max-w-[66ch] text-sm leading-relaxed text-muted">
                         Turn session notes into clear, reusable learning material, with its sources
                         kept close.
                     </p>
@@ -527,52 +558,46 @@ export function GuidesPage(props: GuidePageProps): JSX.Element {
             <Show when={generation()} keyed>
                 {(selection) => (
                     <div
-                        class={twClasses(
-                            "dialog-backdrop guide-editor-backdrop",
-                            jsxTailwindStyles,
-                            "div",
-                        )}
+                        class={
+                            "dialog-backdrop guide-editor-backdrop fixed inset-0 z-30 grid items-stretch justify-items-center bg-[rgb(10_16_12_/_43%)] p-[22px] [animation:fade-in_0.14s_ease-out] max-[680px]:p-0"
+                        }
                         onClick={(event) => {
                             if (event.target === event.currentTarget && !props.busy)
                                 setGeneration(null);
                         }}
                     >
                         <GuideDialog
-                            class={twClasses("guide-generation-dialog", jsxTailwindStyles, "")}
+                            class={
+                                "guide-generation-dialog max-h-full w-[min(620px,100%)] overflow-auto rounded-[5px] border border-line bg-surface shadow-none max-[680px]:max-h-[100dvh] max-[680px]:w-full max-[680px]:self-center"
+                            }
                             labelledBy="guide-generation-title"
                             onEscape={() => setGeneration(null)}
                             canEscape={() => !props.busy}
                         >
                             <header
-                                class={twClasses(
-                                    "guide-editor-header",
-                                    jsxTailwindStyles,
-                                    "header",
-                                )}
+                                class={
+                                    "guide-editor-header flex justify-between gap-[18px] border-b border-[var(--line-soft)] bg-surface px-[25px] pb-[18px] pt-[22px] max-[680px]:px-4"
+                                }
                             >
-                                <div class={twClasses("", jsxTailwindStyles, "div")}>
-                                    <span class={twClasses("eyebrow", jsxTailwindStyles, "span")}>
+                                <div>
+                                    <span class={eyebrowText}>
                                         A draft grounded in your archive
                                     </span>
                                     <h2
                                         id="guide-generation-title"
-                                        class={twClasses("", jsxTailwindStyles, "h2")}
+                                        class="mt-[5px] mb-[5px] text-[23px] font-semibold tracking-[-0.04em] text-ink"
                                     >
                                         {selection.record
                                             ? "Regenerate a study guide"
                                             : "Generate a study guide"}
                                     </h2>
-                                    <p class={twClasses("", jsxTailwindStyles, "p")}>
+                                    <p class="m-0 text-xs text-muted">
                                         Choose a source and structure. The result opens as an
                                         editable draft for tutor review before it is saved.
                                     </p>
                                 </div>
                                 <button
-                                    class={twClasses(
-                                        "icon-button guide-trash-button",
-                                        jsxTailwindStyles,
-                                        "button",
-                                    )}
+                                    class={trashIconButton}
                                     type="button"
                                     aria-label="Close guide generation"
                                     disabled={props.busy}
@@ -581,23 +606,10 @@ export function GuidesPage(props: GuidePageProps): JSX.Element {
                                     ×
                                 </button>
                             </header>
-                            <form
-                                onSubmit={generateSelectedGuide}
-                                class={twClasses("", jsxTailwindStyles, "form")}
-                            >
-                                <div
-                                    class={twClasses(
-                                        "guide-generation-fields",
-                                        jsxTailwindStyles,
-                                        "div",
-                                    )}
-                                >
-                                    <label
-                                        class={twClasses("form-field", jsxTailwindStyles, "label")}
-                                    >
-                                        <span class={twClasses("", jsxTailwindStyles, "span")}>
-                                            Source type
-                                        </span>
+                            <form onSubmit={generateSelectedGuide}>
+                                <div class="guide-generation-fields grid gap-[13px] px-[25px] pb-2 pt-[18px] max-[680px]:px-4">
+                                    <label class={fieldLabel}>
+                                        <span>Source type</span>
                                         <select
                                             value={selection.scope}
                                             disabled={Boolean(selection.record)}
@@ -618,7 +630,10 @@ export function GuidesPage(props: GuidePageProps): JSX.Element {
                                                     };
                                                 })
                                             }
-                                            class={twClasses("", jsxTailwindStyles, "select")}
+                                            class={cn(
+                                                textInput,
+                                                "min-h-[38px] cursor-pointer pr-8",
+                                            )}
                                         >
                                             <option
                                                 value="session"
@@ -631,10 +646,8 @@ export function GuidesPage(props: GuidePageProps): JSX.Element {
                                             </option>
                                         </select>
                                     </label>
-                                    <label
-                                        class={twClasses("form-field", jsxTailwindStyles, "label")}
-                                    >
-                                        <span class={twClasses("", jsxTailwindStyles, "span")}>
+                                    <label class={fieldLabel}>
+                                        <span>
                                             {selection.scope === "session"
                                                 ? "Session"
                                                 : "Journal entry"}
@@ -653,7 +666,10 @@ export function GuidesPage(props: GuidePageProps): JSX.Element {
                                                         : current,
                                                 )
                                             }
-                                            class={twClasses("", jsxTailwindStyles, "select")}
+                                            class={cn(
+                                                textInput,
+                                                "min-h-[38px] cursor-pointer pr-8",
+                                            )}
                                         >
                                             <Show when={selection.scope === "session"}>
                                                 <For each={props.sessions}>
@@ -682,12 +698,8 @@ export function GuidesPage(props: GuidePageProps): JSX.Element {
                                             </Show>
                                         </select>
                                     </label>
-                                    <label
-                                        class={twClasses("form-field", jsxTailwindStyles, "label")}
-                                    >
-                                        <span class={twClasses("", jsxTailwindStyles, "span")}>
-                                            Structure
-                                        </span>
+                                    <label class={fieldLabel}>
+                                        <span>Structure</span>
                                         <select
                                             value={selection.templateId}
                                             onChange={(event) =>
@@ -700,7 +712,10 @@ export function GuidesPage(props: GuidePageProps): JSX.Element {
                                                         : current,
                                                 )
                                             }
-                                            class={twClasses("", jsxTailwindStyles, "select")}
+                                            class={cn(
+                                                textInput,
+                                                "min-h-[38px] cursor-pointer pr-8",
+                                            )}
                                         >
                                             <option value="auto">
                                                 Automatic · use the source subject
@@ -717,15 +732,12 @@ export function GuidesPage(props: GuidePageProps): JSX.Element {
                                 </div>
                                 <Show when={selection.record}>
                                     <label
-                                        class={twClasses(
-                                            "form-field guide-regeneration-title",
-                                            jsxTailwindStyles,
-                                            "label",
+                                        class={cn(
+                                            fieldLabel,
+                                            "guide-regeneration-title mx-[25px] mt-1 gap-[6px] max-[680px]:mx-4",
                                         )}
                                     >
-                                        <span class={twClasses("", jsxTailwindStyles, "span")}>
-                                            Guide title
-                                        </span>
+                                        <span>Guide title</span>
                                         <input
                                             required
                                             maxlength="240"
@@ -733,18 +745,12 @@ export function GuidesPage(props: GuidePageProps): JSX.Element {
                                             onInput={(event) =>
                                                 setRegenerationTitle(event.currentTarget.value)
                                             }
-                                            class={twClasses("", jsxTailwindStyles, "input")}
+                                            class={cn(textInput, "min-h-[38px]")}
                                         />
                                     </label>
                                 </Show>
                                 <Show when={selection.scope === "session"}>
-                                    <label
-                                        class={twClasses(
-                                            "guide-generation-entry-evidence",
-                                            jsxTailwindStyles,
-                                            "label",
-                                        )}
-                                    >
+                                    <label class="guide-generation-entry-evidence mx-[25px] mt-2.5 flex cursor-pointer items-start gap-[9px] rounded-[5px] border border-line px-3 py-[11px] text-xs leading-normal text-ink max-[680px]:mx-4">
                                         <input
                                             type="checkbox"
                                             checked={selection.includeEntryEvidence}
@@ -759,13 +765,11 @@ export function GuidesPage(props: GuidePageProps): JSX.Element {
                                                         : current,
                                                 )
                                             }
-                                            class={twClasses("", jsxTailwindStyles, "input")}
+                                            class="mt-0.5 h-3.5 w-3.5 flex-none accent-accent"
                                         />
-                                        <span class={twClasses("", jsxTailwindStyles, "span")}>
+                                        <span class="grid gap-[3px]">
                                             Include notes from the linked journal entry
-                                            <small
-                                                class={twClasses("", jsxTailwindStyles, "small")}
-                                            >
+                                            <small class="text-xs text-muted">
                                                 Bring in reflection notes saved with this entry and
                                                 its sessions.
                                             </small>
@@ -773,11 +777,9 @@ export function GuidesPage(props: GuidePageProps): JSX.Element {
                                     </label>
                                 </Show>
                                 <p
-                                    class={twClasses(
-                                        "guide-generation-note",
-                                        jsxTailwindStyles,
-                                        "p",
-                                    )}
+                                    class={
+                                        "guide-generation-note mx-[25px] mt-2 border-l-2 border-accent bg-[var(--surface-inset)] px-3 py-2.5 text-xs leading-[1.6] text-muted max-[680px]:mx-4"
+                                    }
                                 >
                                     {selection.scope === "entry"
                                         ? "Gather linked sessions and the entry’s own notes into one cited guide. Transcript excerpts stay marked for review; transcript-derived claims appear only after a tutor verifies them."
@@ -791,29 +793,15 @@ export function GuidesPage(props: GuidePageProps): JSX.Element {
                                 </p>
                                 <Show when={generationError()}>
                                     <p
-                                        class={twClasses(
-                                            "guide-editor-error",
-                                            jsxTailwindStyles,
-                                            "p",
-                                        )}
+                                        class="guide-editor-error mx-[25px] mb-3 text-xs text-danger max-[680px]:ml-4"
                                         role="alert"
                                     >
                                         {generationError()}
                                     </p>
                                 </Show>
-                                <footer
-                                    class={twClasses(
-                                        "guide-generation-footer",
-                                        jsxTailwindStyles,
-                                        "footer",
-                                    )}
-                                >
+                                <footer class="guide-generation-footer flex justify-end gap-2 px-[25px] pb-5 pt-4 max-[680px]:px-4">
                                     <button
-                                        class={twClasses(
-                                            "button button-quiet",
-                                            jsxTailwindStyles,
-                                            "button",
-                                        )}
+                                        class={denseQuiet}
                                         type="button"
                                         disabled={props.busy}
                                         onClick={() => setGeneration(null)}
@@ -821,11 +809,7 @@ export function GuidesPage(props: GuidePageProps): JSX.Element {
                                         Cancel
                                     </button>
                                     <button
-                                        class={twClasses(
-                                            "button button-primary",
-                                            jsxTailwindStyles,
-                                            "button",
-                                        )}
+                                        class={densePrimary}
                                         type="submit"
                                         disabled={
                                             props.disabled || props.busy || !selection.sourceId
@@ -841,33 +825,23 @@ export function GuidesPage(props: GuidePageProps): JSX.Element {
             </Show>
 
             <section
-                class={twClasses("guide-template-section", jsxTailwindStyles, "section")}
+                class="guide-template-section grid gap-3"
                 aria-labelledby="guide-templates-title"
             >
-                <div class={twClasses("guide-section-heading", jsxTailwindStyles, "div")}>
-                    <div class={twClasses("", jsxTailwindStyles, "div")}>
-                        <span class={twClasses("eyebrow", jsxTailwindStyles, "span")}>
-                            A thoughtful place to start
-                        </span>
+                <div class="guide-section-heading flex items-end justify-between gap-4">
+                    <div>
+                        <span class={eyebrowText}>A thoughtful place to start</span>
                         <h2
                             id="guide-templates-title"
-                            class={twClasses("", jsxTailwindStyles, "h2")}
+                            class="mt-1 mb-0 text-[19px] font-semibold tracking-[-0.035em] text-ink"
                         >
                             Choose a structure
                         </h2>
                     </div>
-                    <div
-                        class={twClasses(
-                            "guide-template-heading-actions",
-                            jsxTailwindStyles,
-                            "div",
-                        )}
-                    >
-                        <span class={twClasses("", jsxTailwindStyles, "span")}>
-                            {allTemplates().length} structures
-                        </span>
+                    <div class="guide-template-heading-actions flex items-center justify-end gap-[7px] max-[680px]:flex-col max-[680px]:items-start">
+                        <span class="text-xs text-muted">{allTemplates().length} structures</span>
                         <button
-                            class={twClasses("button button-primary", jsxTailwindStyles, "button")}
+                            class={densePrimary}
                             type="button"
                             disabled={!canCreate() || props.busy}
                             onClick={openGeneration}
@@ -875,7 +849,7 @@ export function GuidesPage(props: GuidePageProps): JSX.Element {
                             Generate from a session
                         </button>
                         <button
-                            class={twClasses("button button-outline", jsxTailwindStyles, "button")}
+                            class={denseOutline}
                             type="button"
                             disabled={!canCreateEntry() || props.busy}
                             onClick={openEntryGeneration}
@@ -883,7 +857,7 @@ export function GuidesPage(props: GuidePageProps): JSX.Element {
                             Generate from a journal entry
                         </button>
                         <button
-                            class={twClasses("button button-quiet", jsxTailwindStyles, "button")}
+                            class={denseQuiet}
                             type="button"
                             aria-expanded={props.templateManagerOpen}
                             onClick={() => {
@@ -896,20 +870,18 @@ export function GuidesPage(props: GuidePageProps): JSX.Element {
                     </div>
                 </div>
                 <div
-                    class={twClasses("guide-template-browser", jsxTailwindStyles, "div")}
+                    class={
+                        "guide-template-browser flex items-center justify-between gap-3.5 rounded-[5px] border border-line bg-[var(--surface-inset)] px-2.5 py-2 max-[980px]:flex-col max-[980px]:items-stretch"
+                    }
                     aria-label="Browse guide structures"
                 >
                     <div
-                        class={twClasses("guide-template-search", jsxTailwindStyles, "div")}
+                        class="guide-template-search flex min-w-[180px] max-w-[420px] flex-[1_1_280px] items-center gap-2 text-muted focus-within:text-accent max-[980px]:max-w-none"
                         role="search"
                     >
                         <span
                             aria-hidden="true"
-                            class={twClasses(
-                                "guide-template-search-icon",
-                                jsxTailwindStyles,
-                                "span",
-                            )}
+                            class="guide-template-search-icon flex-none text-[20px] leading-none"
                         >
                             ⌕
                         </span>
@@ -919,16 +891,12 @@ export function GuidesPage(props: GuidePageProps): JSX.Element {
                             placeholder="Search by name, subject, or section"
                             value={templateSearch()}
                             onInput={(event) => setTemplateSearch(event.currentTarget.value)}
-                            class={twClasses("", jsxTailwindStyles, "input")}
+                            class="min-w-0 flex-auto border-0 bg-transparent px-0 py-1.5 text-xs text-ink outline-none placeholder:text-faint"
                         />
                         <Show when={templateSearch()}>
                             <button
                                 type="button"
-                                class={twClasses(
-                                    "guide-template-search-clear",
-                                    jsxTailwindStyles,
-                                    "button",
-                                )}
+                                class="guide-template-search-clear h-[25px] w-[25px] flex-none cursor-pointer rounded-[5px] border-0 bg-transparent text-[16px] text-muted hover:bg-surface hover:text-ink"
                                 aria-label="Clear template search"
                                 onClick={() => setTemplateSearch("")}
                             >
@@ -937,7 +905,9 @@ export function GuidesPage(props: GuidePageProps): JSX.Element {
                         </Show>
                     </div>
                     <div
-                        class={twClasses("guide-template-filters", jsxTailwindStyles, "div")}
+                        class={
+                            "guide-template-filters flex items-center gap-[3px] rounded-[5px] bg-[color-mix(in_srgb,var(--line)_28%,transparent)] p-[3px] max-[680px]:w-full"
+                        }
                         role="group"
                         aria-label="Template type"
                     >
@@ -956,13 +926,12 @@ export function GuidesPage(props: GuidePageProps): JSX.Element {
                             {(filter) => (
                                 <button
                                     type="button"
-                                    class={twClasses(
-                                        "guide-template-filter",
-                                        jsxTailwindStyles,
-                                        "button",
-                                        ["is-active"],
+                                    class={cn(
+                                        "guide-template-filter min-h-[27px] cursor-pointer rounded-[5px] border-0 px-[9px] text-xs transition-colors max-[680px]:flex-[1_1_auto] max-[680px]:px-[5px]",
+                                        templateKind() === filter.id
+                                            ? "is-active bg-surface text-ink"
+                                            : "text-muted hover:text-ink",
                                     )}
-                                    classList={{ "is-active": templateKind() === filter.id }}
                                     aria-pressed={templateKind() === filter.id}
                                     onClick={() => setTemplateKind(filter.id)}
                                 >
@@ -972,44 +941,34 @@ export function GuidesPage(props: GuidePageProps): JSX.Element {
                         </For>
                     </div>
                 </div>
-                <div class={twClasses("guide-template-grid", jsxTailwindStyles, "div")}>
+                <div class="guide-template-grid grid grid-cols-2 gap-x-[22px] gap-y-0 max-[680px]:grid-cols-1">
                     <Show
                         when={visibleTemplates().length > 0}
                         fallback={
                             <div
-                                class={twClasses(
-                                    "guide-template-no-results",
-                                    jsxTailwindStyles,
-                                    "div",
-                                )}
+                                class={
+                                    "guide-template-no-results col-span-full flex min-h-[100px] items-center gap-[13px] rounded-[5px] border border-dashed border-line bg-[var(--surface-inset)] p-[17px] text-muted max-[680px]:flex-wrap max-[680px]:items-start"
+                                }
                             >
                                 <span
-                                    class={twClasses(
-                                        "guide-template-no-results-mark",
-                                        jsxTailwindStyles,
-                                        "span",
-                                    )}
+                                    class="guide-template-no-results-mark text-[28px] text-accent"
                                     aria-hidden="true"
                                 >
                                     ⌕
                                 </span>
-                                <div class={twClasses("", jsxTailwindStyles, "div")}>
-                                    <strong class={twClasses("", jsxTailwindStyles, "strong")}>
+                                <div>
+                                    <strong class="text-xs text-ink">
                                         {templateSearch()
                                             ? "No structures match that search"
                                             : "No templates in this view"}
                                     </strong>
-                                    <p class={twClasses("", jsxTailwindStyles, "p")}>
+                                    <p class="mt-[3px] text-xs">
                                         Try another word or switch the template type filter.
                                     </p>
                                 </div>
                                 <Show when={templateSearch()}>
                                     <button
-                                        class={twClasses(
-                                            "button button-quiet",
-                                            jsxTailwindStyles,
-                                            "button",
-                                        )}
+                                        class={denseQuiet}
                                         type="button"
                                         onClick={() => setTemplateSearch("")}
                                     >
@@ -1030,84 +989,56 @@ export function GuidesPage(props: GuidePageProps): JSX.Element {
                                     );
                                 return (
                                     <article
-                                        class={twClasses(
-                                            "guide-template-card",
-                                            jsxTailwindStyles,
-                                            "article",
-                                        )}
+                                        class={
+                                            "guide-template-card grid min-w-0 grid-cols-[28px_minmax(0,1fr)] items-start gap-[11px] rounded-[5px] border-b border-[var(--line-soft)] bg-transparent px-0 py-3.5 transition-colors hover:bg-[var(--surface-inset)]"
+                                        }
                                     >
                                         <span
-                                            class={twClasses(
-                                                `guide-template-number guide-template-number-${index() % 5}`,
-                                                jsxTailwindStyles,
-                                                "span",
+                                            class={cn(
+                                                "guide-template-number grid h-7 w-7 flex-none place-items-center rounded-[5px] text-xs font-bold tracking-[0.05em]",
+                                                `guide-template-number-${index() % 5}`,
+                                                index() % 5 === 1
+                                                    ? "bg-[#f3eee1] text-[#705e3d]"
+                                                    : index() % 5 === 2
+                                                      ? "bg-[#e9eff4] text-[#4c6382]"
+                                                      : index() % 5 === 3
+                                                        ? "bg-[#eef0e6] text-[#5b6542]"
+                                                        : index() % 5 === 4
+                                                          ? "bg-[#f3ebea] text-[#735454]"
+                                                          : "bg-[#eaf1e9] text-[#47604e]",
                                             )}
                                             aria-hidden="true"
                                         >
                                             {String(index() + 1).padStart(2, "0")}
                                         </span>
-                                        <div
-                                            class={twClasses(
-                                                "guide-template-copy",
-                                                jsxTailwindStyles,
-                                                "div",
-                                            )}
-                                        >
-                                            <div
-                                                class={twClasses(
-                                                    "guide-template-title-line",
-                                                    jsxTailwindStyles,
-                                                    "div",
-                                                )}
-                                            >
-                                                <strong
-                                                    class={twClasses(
-                                                        "",
-                                                        jsxTailwindStyles,
-                                                        "strong",
-                                                    )}
-                                                >
+                                        <div class="guide-template-copy grid min-w-0 gap-1.5">
+                                            <div class="guide-template-title-line flex min-w-0 items-start justify-between gap-2">
+                                                <strong class="text-xs font-semibold text-ink">
                                                     {template.name}
                                                 </strong>
                                                 <span
-                                                    class={twClasses(
-                                                        `guide-template-kind${isBuiltIn() ? " is-built-in" : " is-custom"}`,
-                                                        jsxTailwindStyles,
-                                                        "span",
+                                                    class={cn(
+                                                        "guide-template-kind flex-none rounded-[5px] border px-1.5 py-[3px] text-xs font-semibold leading-none",
+                                                        isBuiltIn()
+                                                            ? "is-built-in border-line bg-[var(--surface-inset)] text-muted"
+                                                            : "is-custom border-[color-mix(in_srgb,var(--accent)_18%,var(--line))] bg-[color-mix(in_srgb,var(--accent)_7%,var(--surface))] text-accent",
                                                     )}
                                                 >
                                                     {isBuiltIn() ? "Built in" : "Custom"}
                                                 </span>
                                             </div>
-                                            <small
-                                                class={twClasses("", jsxTailwindStyles, "small")}
-                                            >
+                                            <small class="min-h-[29px] text-xs leading-[1.45] text-muted">
                                                 {template.description ||
                                                     "A reusable structure for your next study guide."}
                                             </small>
-                                            <span class={twClasses("", jsxTailwindStyles, "span")}>
+                                            <span class="text-xs font-semibold text-accent">
                                                 {template.subject || "General"}{" "}
-                                                <span
-                                                    aria-hidden="true"
-                                                    class={twClasses("", jsxTailwindStyles, "span")}
-                                                >
-                                                    ·
-                                                </span>{" "}
+                                                <span aria-hidden="true">·</span>{" "}
                                                 {template.sections.length} sections
                                             </span>
-                                            <div
-                                                class={twClasses(
-                                                    "guide-template-card-actions",
-                                                    jsxTailwindStyles,
-                                                    "div",
-                                                )}
-                                            >
+                                            <div class="guide-template-card-actions mt-0.5 flex flex-wrap items-center gap-[3px]">
                                                 <button
-                                                    class={twClasses(
-                                                        "button button-primary",
-                                                        jsxTailwindStyles,
-                                                        "button",
-                                                    )}
+                                                    class={densePrimary}
                                                     type="button"
                                                     disabled={!canCreateGuide() || props.busy}
                                                     onClick={() =>
@@ -1120,11 +1051,7 @@ export function GuidesPage(props: GuidePageProps): JSX.Element {
                                                     Use structure
                                                 </button>
                                                 <button
-                                                    class={twClasses(
-                                                        "button button-quiet",
-                                                        jsxTailwindStyles,
-                                                        "button",
-                                                    )}
+                                                    class={denseQuiet}
                                                     type="button"
                                                     aria-expanded={
                                                         previewTemplateId() === template.id
@@ -1143,10 +1070,9 @@ export function GuidesPage(props: GuidePageProps): JSX.Element {
                                                         : "Preview"}
                                                 </button>
                                                 <button
-                                                    class={twClasses(
-                                                        "button button-quiet guide-template-export-card",
-                                                        jsxTailwindStyles,
-                                                        "button",
+                                                    class={cn(
+                                                        denseQuiet,
+                                                        "guide-template-export-card",
                                                     )}
                                                     type="button"
                                                     disabled={props.busy}
@@ -1156,11 +1082,7 @@ export function GuidesPage(props: GuidePageProps): JSX.Element {
                                                 </button>
                                                 <Show when={isBuiltIn()}>
                                                     <button
-                                                        class={twClasses(
-                                                            "button button-outline",
-                                                            jsxTailwindStyles,
-                                                            "button",
-                                                        )}
+                                                        class={denseOutline}
                                                         type="button"
                                                         disabled={props.disabled || props.busy}
                                                         onClick={() => {
@@ -1188,42 +1110,30 @@ export function GuidesPage(props: GuidePageProps): JSX.Element {
                 >
                     {(template) => (
                         <section
-                            class={twClasses(
-                                "guide-template-preview",
-                                jsxTailwindStyles,
-                                "section",
-                            )}
+                            class={
+                                "guide-template-preview grid gap-4 rounded-[5px] border border-[color-mix(in_srgb,var(--accent)_23%,var(--line))] bg-[var(--surface-inset)] p-[18px] [animation:guide-manager-enter_180ms_ease-out_both]"
+                            }
                             id="guide-template-preview"
                             aria-labelledby="guide-template-preview-title"
                         >
-                            <div
-                                class={twClasses(
-                                    "guide-template-preview-heading",
-                                    jsxTailwindStyles,
-                                    "div",
-                                )}
-                            >
-                                <div class={twClasses("", jsxTailwindStyles, "div")}>
-                                    <span class={twClasses("eyebrow", jsxTailwindStyles, "span")}>
+                            <div class="guide-template-preview-heading flex items-start justify-between gap-5 max-[680px]:flex-col">
+                                <div>
+                                    <span class={eyebrowText}>
                                         TEMPLATE PREVIEW · {template.subject || "GENERAL"}
                                     </span>
                                     <h3
                                         id="guide-template-preview-title"
-                                        class={twClasses("", jsxTailwindStyles, "h3")}
+                                        class="my-[5px] text-[19px] font-semibold tracking-[-0.035em] text-ink"
                                     >
                                         {template.name}
                                     </h3>
-                                    <p class={twClasses("", jsxTailwindStyles, "p")}>
+                                    <p class="m-0 max-w-[720px] whitespace-pre-wrap text-xs leading-[1.6] text-muted">
                                         {template.description ||
                                             "A reusable guide structure with your chosen editorial guidance."}
                                     </p>
                                 </div>
                                 <button
-                                    class={twClasses(
-                                        "button button-primary",
-                                        jsxTailwindStyles,
-                                        "button",
-                                    )}
+                                    class={densePrimary}
                                     type="button"
                                     disabled={!canCreateGuide() || props.busy}
                                     onClick={() =>
@@ -1234,34 +1144,26 @@ export function GuidesPage(props: GuidePageProps): JSX.Element {
                                 </button>
                             </div>
                             <div
-                                class={twClasses(
-                                    "guide-template-preview-content",
-                                    jsxTailwindStyles,
-                                    "div",
-                                )}
+                                class={
+                                    "guide-template-preview-content grid grid-cols-[minmax(180px,0.65fr)_minmax(0,1.35fr)] gap-[25px] border-t border-line pt-3.5 max-[680px]:grid-cols-1 max-[680px]:gap-4"
+                                }
                             >
-                                <div class={twClasses("", jsxTailwindStyles, "div")}>
-                                    <span class={twClasses("eyebrow", jsxTailwindStyles, "span")}>
+                                <div>
+                                    <span class="eyebrow text-xs font-medium tracking-wide text-faint">
                                         Ordered sections
                                     </span>
-                                    <ol class={twClasses("", jsxTailwindStyles, "ol")}>
+                                    <ol class="mt-2 grid gap-[5px] pl-[21px] text-xs leading-normal text-ink">
                                         <For each={template.sections}>
-                                            {(section) => (
-                                                <li class={twClasses("", jsxTailwindStyles, "li")}>
-                                                    {section}
-                                                </li>
-                                            )}
+                                            {(section) => <li>{section}</li>}
                                         </For>
                                     </ol>
                                 </div>
                                 <Show when={template.body}>
-                                    <div class={twClasses("", jsxTailwindStyles, "div")}>
-                                        <span
-                                            class={twClasses("eyebrow", jsxTailwindStyles, "span")}
-                                        >
+                                    <div>
+                                        <span class="eyebrow text-xs font-medium tracking-wide text-faint">
                                             Writing guidance
                                         </span>
-                                        <p class={twClasses("", jsxTailwindStyles, "p")}>
+                                        <p class="m-0 max-w-[720px] whitespace-pre-wrap text-xs leading-[1.6] text-muted">
                                             {template.body}
                                         </p>
                                     </div>
@@ -1272,39 +1174,26 @@ export function GuidesPage(props: GuidePageProps): JSX.Element {
                 </Show>
                 <Show when={props.templateManagerOpen}>
                     <section
-                        class={twClasses("guide-template-manager", jsxTailwindStyles, "section")}
+                        class={
+                            "guide-template-manager grid gap-3 rounded-[5px] border border-line bg-[var(--surface-inset)] p-4 [animation:guide-manager-enter_180ms_ease-out_both]"
+                        }
                         aria-labelledby="guide-template-manager-title"
                     >
-                        <div
-                            class={twClasses(
-                                "guide-template-manager-heading",
-                                jsxTailwindStyles,
-                                "div",
-                            )}
-                        >
-                            <div class={twClasses("", jsxTailwindStyles, "div")}>
-                                <span class={twClasses("eyebrow", jsxTailwindStyles, "span")}>
-                                    Your archive
-                                </span>
+                        <div class="guide-template-manager-heading flex items-center justify-between gap-3.5 max-[680px]:flex-col max-[680px]:items-start">
+                            <div>
+                                <span class={eyebrowText}>Your archive</span>
                                 <h3
                                     id="guide-template-manager-title"
-                                    class={twClasses("", jsxTailwindStyles, "h3")}
+                                    class="mt-1 mb-0 text-base font-semibold tracking-[-0.025em] text-ink"
                                 >
                                     Custom templates
                                 </h3>
                             </div>
-                            <div
-                                class={twClasses(
-                                    "guide-template-manager-actions",
-                                    jsxTailwindStyles,
-                                    "div",
-                                )}
-                            >
+                            <div class="guide-template-manager-actions flex items-center justify-end gap-[7px] max-[680px]:w-full max-[680px]:justify-start">
                                 <label
-                                    class={twClasses(
-                                        "button button-outline guide-template-import",
-                                        jsxTailwindStyles,
-                                        "label",
+                                    class={cn(
+                                        denseOutline,
+                                        "guide-template-import relative cursor-pointer overflow-hidden",
                                     )}
                                 >
                                     Import
@@ -1314,15 +1203,11 @@ export function GuidesPage(props: GuidePageProps): JSX.Element {
                                         aria-label="Import a study guide template JSON or Markdown file"
                                         onChange={(event) => void importTemplate(event)}
                                         disabled={props.disabled || props.busy}
-                                        class={twClasses("", jsxTailwindStyles, "input")}
+                                        class="absolute inset-0 h-full w-full cursor-pointer opacity-0"
                                     />
                                 </label>
                                 <button
-                                    class={twClasses(
-                                        "button button-primary",
-                                        jsxTailwindStyles,
-                                        "button",
-                                    )}
+                                    class={densePrimary}
                                     type="button"
                                     disabled={props.disabled || props.busy}
                                     onClick={() => {
@@ -1336,7 +1221,7 @@ export function GuidesPage(props: GuidePageProps): JSX.Element {
                         </div>
                         <Show when={templateNotice()}>
                             <p
-                                class={twClasses("guide-template-notice", jsxTailwindStyles, "p")}
+                                class="guide-template-notice m-0 text-xs leading-[1.55] text-accent"
                                 role="status"
                             >
                                 {templateNotice()}
@@ -1347,26 +1232,14 @@ export function GuidesPage(props: GuidePageProps): JSX.Element {
                                 props.customTemplates.length > 0 || templateOverrides().length > 0
                             }
                             fallback={
-                                <p
-                                    class={twClasses(
-                                        "guide-template-empty",
-                                        jsxTailwindStyles,
-                                        "p",
-                                    )}
-                                >
+                                <p class="guide-template-empty m-0 text-xs leading-[1.55] text-muted">
                                     Your archive has no custom structures yet. Create one for a
                                     teaching approach you return to, or import a Tutorux template
                                     JSON, Markdown, or text file.
                                 </p>
                             }
                         >
-                            <div
-                                class={twClasses(
-                                    "guide-template-manage-list",
-                                    jsxTailwindStyles,
-                                    "div",
-                                )}
-                            >
+                            <div class="guide-template-manage-list grid border-t border-line">
                                 <For each={visibleCustomTemplateRecords()}>
                                     {(record) => {
                                         const template = () => guideTemplateFromRecord(record);
@@ -1374,62 +1247,26 @@ export function GuidesPage(props: GuidePageProps): JSX.Element {
                                             armedTemplateDeleteId() === record.id;
                                         return (
                                             <article
-                                                class={twClasses(
-                                                    "guide-template-manage-row",
-                                                    jsxTailwindStyles,
-                                                    "article",
-                                                )}
+                                                class={
+                                                    "guide-template-manage-row grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3.5 border-b border-[var(--line-soft)] py-[11px] max-[680px]:grid-cols-1"
+                                                }
                                             >
-                                                <div
-                                                    class={twClasses(
-                                                        "guide-template-manage-copy",
-                                                        jsxTailwindStyles,
-                                                        "div",
-                                                    )}
-                                                >
-                                                    <strong
-                                                        class={twClasses(
-                                                            "",
-                                                            jsxTailwindStyles,
-                                                            "strong",
-                                                        )}
-                                                    >
+                                                <div class="guide-template-manage-copy grid min-w-0 gap-[3px]">
+                                                    <strong class="truncate text-xs font-semibold text-ink">
                                                         {field(record, "name", "Untitled template")}
                                                     </strong>
-                                                    <span
-                                                        class={twClasses(
-                                                            "",
-                                                            jsxTailwindStyles,
-                                                            "span",
-                                                        )}
-                                                    >
+                                                    <span class="truncate text-xs text-muted">
                                                         {field(record, "subject", "General")} ·{" "}
                                                         {template().sections.length} sections
                                                     </span>
-                                                    <small
-                                                        class={twClasses(
-                                                            "",
-                                                            jsxTailwindStyles,
-                                                            "small",
-                                                        )}
-                                                    >
+                                                    <small class="truncate text-xs text-faint">
                                                         {field(record, "description") ||
                                                             "No description"}
                                                     </small>
                                                 </div>
-                                                <div
-                                                    class={twClasses(
-                                                        "guide-template-manage-actions",
-                                                        jsxTailwindStyles,
-                                                        "div",
-                                                    )}
-                                                >
+                                                <div class="guide-template-manage-actions flex items-center justify-end gap-[7px] max-[680px]:flex-wrap max-[680px]:justify-start">
                                                     <button
-                                                        class={twClasses(
-                                                            "button button-quiet",
-                                                            jsxTailwindStyles,
-                                                            "button",
-                                                        )}
+                                                        class={denseQuiet}
                                                         type="button"
                                                         disabled={props.busy}
                                                         onClick={() =>
@@ -1439,11 +1276,7 @@ export function GuidesPage(props: GuidePageProps): JSX.Element {
                                                         Export
                                                     </button>
                                                     <button
-                                                        class={twClasses(
-                                                            "button button-quiet",
-                                                            jsxTailwindStyles,
-                                                            "button",
-                                                        )}
+                                                        class={denseQuiet}
                                                         type="button"
                                                         disabled={props.disabled || props.busy}
                                                         onClick={() =>
@@ -1453,11 +1286,7 @@ export function GuidesPage(props: GuidePageProps): JSX.Element {
                                                         Duplicate
                                                     </button>
                                                     <button
-                                                        class={twClasses(
-                                                            "button button-outline",
-                                                            jsxTailwindStyles,
-                                                            "button",
-                                                        )}
+                                                        class={denseOutline}
                                                         type="button"
                                                         disabled={props.disabled || props.busy}
                                                         onClick={() => {
@@ -1471,11 +1300,7 @@ export function GuidesPage(props: GuidePageProps): JSX.Element {
                                                         when={deleteArmed()}
                                                         fallback={
                                                             <button
-                                                                class={twClasses(
-                                                                    "button button-quiet",
-                                                                    jsxTailwindStyles,
-                                                                    "button",
-                                                                )}
+                                                                class={denseQuiet}
                                                                 type="button"
                                                                 disabled={
                                                                     props.disabled || props.busy
@@ -1491,11 +1316,7 @@ export function GuidesPage(props: GuidePageProps): JSX.Element {
                                                         }
                                                     >
                                                         <button
-                                                            class={twClasses(
-                                                                "button button-danger-quiet",
-                                                                jsxTailwindStyles,
-                                                                "button",
-                                                            )}
+                                                            class={denseDanger}
                                                             type="button"
                                                             disabled={props.disabled || props.busy}
                                                             onClick={() => {
@@ -1506,11 +1327,7 @@ export function GuidesPage(props: GuidePageProps): JSX.Element {
                                                             Confirm move
                                                         </button>
                                                         <button
-                                                            class={twClasses(
-                                                                "button button-quiet",
-                                                                jsxTailwindStyles,
-                                                                "button",
-                                                            )}
+                                                            class={denseQuiet}
                                                             type="button"
                                                             onClick={() =>
                                                                 setArmedTemplateDeleteId("")
@@ -1526,29 +1343,15 @@ export function GuidesPage(props: GuidePageProps): JSX.Element {
                                 </For>
                             </div>
                             <Show when={visibleCustomTemplateRecords().length === 0}>
-                                <p
-                                    class={twClasses(
-                                        "guide-template-empty",
-                                        jsxTailwindStyles,
-                                        "p",
-                                    )}
-                                >
+                                <p class="guide-template-empty m-0 text-xs leading-[1.55] text-muted">
                                     No custom templates match this search. Clear the search to
                                     browse every saved template.
                                 </p>
                             </Show>
                         </Show>
                         <Show when={templateOverrides().length > 0}>
-                            <div
-                                class={twClasses(
-                                    "guide-template-manage-list",
-                                    jsxTailwindStyles,
-                                    "div",
-                                )}
-                            >
-                                <span class={twClasses("eyebrow", jsxTailwindStyles, "span")}>
-                                    Built-in overrides
-                                </span>
+                            <div class="guide-template-manage-list grid border-t border-line">
+                                <span class={eyebrowText}>Built-in overrides</span>
                                 <For each={templateOverrides()}>
                                     {(record) => {
                                         const builtin = () =>
@@ -1567,62 +1370,26 @@ export function GuidesPage(props: GuidePageProps): JSX.Element {
                                         };
                                         return (
                                             <article
-                                                class={twClasses(
-                                                    "guide-template-manage-row",
-                                                    jsxTailwindStyles,
-                                                    "article",
-                                                )}
+                                                class={
+                                                    "guide-template-manage-row grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3.5 border-b border-[var(--line-soft)] py-[11px] max-[680px]:grid-cols-1"
+                                                }
                                             >
-                                                <div
-                                                    class={twClasses(
-                                                        "guide-template-manage-copy",
-                                                        jsxTailwindStyles,
-                                                        "div",
-                                                    )}
-                                                >
-                                                    <strong
-                                                        class={twClasses(
-                                                            "",
-                                                            jsxTailwindStyles,
-                                                            "strong",
-                                                        )}
-                                                    >
+                                                <div class="guide-template-manage-copy grid min-w-0 gap-[3px]">
+                                                    <strong class="truncate text-xs font-semibold text-ink">
                                                         {effective().name}
                                                     </strong>
-                                                    <span
-                                                        class={twClasses(
-                                                            "",
-                                                            jsxTailwindStyles,
-                                                            "span",
-                                                        )}
-                                                    >
+                                                    <span class="truncate text-xs text-muted">
                                                         Built-in override ·{" "}
                                                         {effective().sections.length} sections
                                                     </span>
-                                                    <small
-                                                        class={twClasses(
-                                                            "",
-                                                            jsxTailwindStyles,
-                                                            "small",
-                                                        )}
-                                                    >
+                                                    <small class="truncate text-xs text-faint">
                                                         {effective().description ||
                                                             "No description"}
                                                     </small>
                                                 </div>
-                                                <div
-                                                    class={twClasses(
-                                                        "guide-template-manage-actions",
-                                                        jsxTailwindStyles,
-                                                        "div",
-                                                    )}
-                                                >
+                                                <div class="guide-template-manage-actions flex items-center justify-end gap-[7px] max-[680px]:flex-wrap max-[680px]:justify-start">
                                                     <button
-                                                        class={twClasses(
-                                                            "button button-quiet",
-                                                            jsxTailwindStyles,
-                                                            "button",
-                                                        )}
+                                                        class={denseQuiet}
                                                         type="button"
                                                         disabled={props.busy}
                                                         onClick={() =>
@@ -1632,11 +1399,7 @@ export function GuidesPage(props: GuidePageProps): JSX.Element {
                                                         Export
                                                     </button>
                                                     <button
-                                                        class={twClasses(
-                                                            "button button-outline",
-                                                            jsxTailwindStyles,
-                                                            "button",
-                                                        )}
+                                                        class={denseOutline}
                                                         type="button"
                                                         disabled={props.disabled || props.busy}
                                                         onClick={() => {
@@ -1655,11 +1418,7 @@ export function GuidesPage(props: GuidePageProps): JSX.Element {
                                                         Edit override
                                                     </button>
                                                     <button
-                                                        class={twClasses(
-                                                            "button button-quiet",
-                                                            jsxTailwindStyles,
-                                                            "button",
-                                                        )}
+                                                        class={denseQuiet}
                                                         type="button"
                                                         disabled={props.disabled || props.busy}
                                                         onClick={() => {
@@ -1679,34 +1438,16 @@ export function GuidesPage(props: GuidePageProps): JSX.Element {
                             </div>
                         </Show>
                         <Show when={props.trashedTemplates.length > 0}>
-                            <div
-                                class={twClasses(
-                                    "guide-template-trash-list",
-                                    jsxTailwindStyles,
-                                    "div",
-                                )}
-                            >
-                                <span class={twClasses("eyebrow", jsxTailwindStyles, "span")}>
-                                    In trash
-                                </span>
+                            <div class="guide-template-trash-list grid gap-1 border-t border-line pt-2.5">
+                                <span class={eyebrowText}>In trash</span>
                                 <For each={props.trashedTemplates}>
                                     {(record) => (
-                                        <div
-                                            class={twClasses(
-                                                "guide-template-trash-row",
-                                                jsxTailwindStyles,
-                                                "div",
-                                            )}
-                                        >
-                                            <span class={twClasses("", jsxTailwindStyles, "span")}>
+                                        <div class="guide-template-trash-row flex items-center justify-between gap-3 text-xs text-muted">
+                                            <span>
                                                 {field(record, "name", "Untitled template")}
                                             </span>
                                             <button
-                                                class={twClasses(
-                                                    "button button-quiet",
-                                                    jsxTailwindStyles,
-                                                    "button",
-                                                )}
+                                                class={denseQuiet}
                                                 type="button"
                                                 disabled={props.disabled || props.busy}
                                                 onClick={() => props.onRestoreTemplate(record)}
@@ -1721,12 +1462,12 @@ export function GuidesPage(props: GuidePageProps): JSX.Element {
                     </section>
                 </Show>
                 <Show when={!props.sessions.length && !props.entries.length}>
-                    <p class={twClasses("guide-inline-note", jsxTailwindStyles, "p")}>
+                    <p class="guide-inline-note m-0 flex items-center gap-[5px] text-xs text-muted">
                         Add a session or journal entry first. Each guide stays connected to the
                         learning it came from.
                         <button
                             type="button"
-                            class={twClasses("button button-quiet", jsxTailwindStyles, "button")}
+                            class={denseQuiet}
                             onClick={() => props.onOpenSessions()}
                         >
                             Open sessions
@@ -1735,27 +1476,21 @@ export function GuidesPage(props: GuidePageProps): JSX.Element {
                 </Show>
             </section>
 
-            <section
-                class={twClasses(
-                    "record-list-shell guide-list-shell",
-                    jsxTailwindStyles,
-                    "section",
-                )}
-            >
-                <div class={twClasses("record-list-toolbar", jsxTailwindStyles, "div")}>
-                    <span class={twClasses("", jsxTailwindStyles, "span")}>
-                        <strong class={twClasses("", jsxTailwindStyles, "strong")}>
+            <section class="record-list-shell guide-list-shell overflow-hidden rounded-[5px]">
+                <div class="record-list-toolbar flex min-h-[43px] items-center justify-between border-b border-line px-0.5 text-[13px] text-muted max-[650px]:px-[11px]">
+                    <span>
+                        <strong class="text-[13px] font-semibold text-ink-soft">
                             {props.records.length}
                         </strong>{" "}
                         saved guides
                     </span>
-                    <span class={twClasses("list-view-label", jsxTailwindStyles, "span")}>
+                    <span class="list-view-label inline-flex items-center gap-[5px]">
                         Drafts remain yours to shape
                     </span>
                 </div>
                 <Show when={guideNotice()}>
                     <p
-                        class={twClasses("guide-action-notice", jsxTailwindStyles, "p")}
+                        class="guide-action-notice my-2 text-xs leading-[1.55] text-accent"
                         role="status"
                         aria-live="polite"
                     >
@@ -1765,24 +1500,26 @@ export function GuidesPage(props: GuidePageProps): JSX.Element {
                 <Show
                     when={props.records.length > 0}
                     fallback={
-                        <div class={twClasses("guide-empty-state", jsxTailwindStyles, "div")}>
+                        <div class="guide-empty-state mx-auto max-w-[430px] px-[22px] pb-12 pt-[42px] text-center">
                             <div
-                                class={twClasses("guide-empty-mark", jsxTailwindStyles, "div")}
+                                class={
+                                    "guide-empty-mark mx-auto mb-3.5 grid h-14 w-[47px] place-items-center rounded-[5px] border border-[color-mix(in_srgb,var(--accent)_24%,var(--line))] bg-accent-soft text-[21px] text-accent"
+                                }
                                 aria-hidden="true"
                             >
                                 G
                             </div>
-                            <h2 class={twClasses("", jsxTailwindStyles, "h2")}>
+                            <h2 class="m-0 mb-[7px] text-[19px] font-semibold text-ink">
                                 Your guide shelf is ready
                             </h2>
-                            <p class={twClasses("", jsxTailwindStyles, "p")}>
+                            <p class="m-0 text-xs leading-[1.65] text-muted">
                                 Start with a session or journal entry. You can refine every section
                                 before sharing or approving it.
                             </p>
                         </div>
                     }
                 >
-                    <div class={twClasses("guide-record-list", jsxTailwindStyles, "div")}>
+                    <div class="guide-record-list grid">
                         <For
                             each={[...props.records].sort((a, b) =>
                                 field(b, "updated_at_us").localeCompare(field(a, "updated_at_us")),
@@ -1822,61 +1559,40 @@ export function GuidesPage(props: GuidePageProps): JSX.Element {
                                     );
                                 return (
                                     <article
-                                        class={twClasses(
-                                            "guide-record-card",
-                                            jsxTailwindStyles,
-                                            "article",
-                                        )}
+                                        class={
+                                            "guide-record-card grid grid-cols-[39px_minmax(0,1fr)_auto] items-center gap-3.5 border-t border-[var(--line-soft)] px-5 py-[17px] max-[980px]:grid-cols-[39px_minmax(0,1fr)] max-[680px]:gap-2.5 max-[680px]:p-3.5"
+                                        }
                                     >
                                         <div
-                                            class={twClasses(
-                                                "guide-record-marker",
-                                                jsxTailwindStyles,
-                                                "div",
-                                            )}
+                                            class={
+                                                "guide-record-marker grid h-[43px] w-[37px] place-items-center rounded-[5px] border border-[color-mix(in_srgb,var(--accent)_17%,var(--line))] bg-accent-soft text-[17px] text-accent"
+                                            }
                                             aria-hidden="true"
                                         >
-                                            <span class={twClasses("", jsxTailwindStyles, "span")}>
-                                                ✳
-                                            </span>
+                                            <span>✳</span>
                                         </div>
-                                        <div
-                                            class={twClasses(
-                                                "guide-record-main",
-                                                jsxTailwindStyles,
-                                                "div",
-                                            )}
-                                        >
-                                            <div
-                                                class={twClasses(
-                                                    "guide-record-title-row",
-                                                    jsxTailwindStyles,
-                                                    "div",
-                                                )}
-                                            >
-                                                <span
-                                                    class={twClasses(
-                                                        "eyebrow",
-                                                        jsxTailwindStyles,
-                                                        "span",
-                                                    )}
-                                                >
+                                        <div class="guide-record-main min-w-0">
+                                            <div class="guide-record-title-row flex items-center gap-[9px]">
+                                                <span class={eyebrowText}>
                                                     {template().toLocaleUpperCase()} GUIDE
                                                 </span>
                                                 <span
-                                                    class={twClasses(
-                                                        `guide-status status-${field(record, "approval_state", "draft")}`,
-                                                        jsxTailwindStyles,
-                                                        "span",
+                                                    class={cn(
+                                                        "guide-status rounded-[5px] border px-[7px] py-[3px] text-xs font-bold tracking-[0.04em]",
+                                                        `status-${field(record, "approval_state", "draft")}`,
+                                                        field(record, "approval_state", "draft") ===
+                                                            "approved"
+                                                            ? "border-accent/25 bg-accent-soft text-accent"
+                                                            : "border-line bg-[var(--surface-inset)] text-muted",
                                                     )}
                                                 >
                                                     {field(record, "approval_state", "draft")}
                                                 </span>
                                             </div>
-                                            <h2 class={twClasses("", jsxTailwindStyles, "h2")}>
+                                            <h2 class="mb-[3px] mt-[5px] truncate text-base font-semibold tracking-[-0.025em] text-ink">
                                                 {field(record, "title", "Untitled guide")}
                                             </h2>
-                                            <p class={twClasses("", jsxTailwindStyles, "p")}>
+                                            <p class="m-0 truncate text-xs text-muted">
                                                 {session()
                                                     ? field(session()!, "title", "Tutoring session")
                                                     : entry()
@@ -1886,31 +1602,13 @@ export function GuidesPage(props: GuidePageProps): JSX.Element {
                                                     ? ` · ${field(session()!, "subject")}`
                                                     : ""}
                                             </p>
-                                            <div
-                                                class={twClasses(
-                                                    "guide-record-meta",
-                                                    jsxTailwindStyles,
-                                                    "div",
-                                                )}
-                                            >
-                                                <span
-                                                    class={twClasses("", jsxTailwindStyles, "span")}
-                                                >
-                                                    {sections()} sections
-                                                </span>
-                                                <span
-                                                    class={twClasses("", jsxTailwindStyles, "span")}
-                                                >
+                                            <div class="guide-record-meta mt-2 flex flex-wrap gap-x-[13px] gap-y-1.5 text-xs text-faint">
+                                                <span>{sections()} sections</span>
+                                                <span>
                                                     {timestampLabel(field(record, "updated_at_us"))}
                                                 </span>
                                                 <Show when={staleBlocks() > 0}>
-                                                    <span
-                                                        class={twClasses(
-                                                            "guide-stale-count",
-                                                            jsxTailwindStyles,
-                                                            "span",
-                                                        )}
-                                                    >
+                                                    <span class="guide-stale-count text-[#9a6034]">
                                                         {staleBlocks()} source-changed block
                                                         {staleBlocks() === 1 ? "" : "s"}
                                                     </span>
@@ -1923,19 +1621,9 @@ export function GuidesPage(props: GuidePageProps): JSX.Element {
                                                 onRestore={props.onRestoreVersion}
                                             />
                                         </div>
-                                        <div
-                                            class={twClasses(
-                                                "guide-record-actions",
-                                                jsxTailwindStyles,
-                                                "div",
-                                            )}
-                                        >
+                                        <div class="guide-record-actions flex flex-wrap items-center gap-1 max-[980px]:col-start-2 max-[980px]:justify-start">
                                             <button
-                                                class={twClasses(
-                                                    "button button-outline",
-                                                    jsxTailwindStyles,
-                                                    "button",
-                                                )}
+                                                class={denseOutline}
                                                 type="button"
                                                 disabled={!canEdit()}
                                                 onClick={() =>
@@ -1952,11 +1640,7 @@ export function GuidesPage(props: GuidePageProps): JSX.Element {
                                                 Edit
                                             </button>
                                             <button
-                                                class={twClasses(
-                                                    "button button-quiet",
-                                                    jsxTailwindStyles,
-                                                    "button",
-                                                )}
+                                                class={denseQuiet}
                                                 type="button"
                                                 disabled={!canEdit() || props.busy}
                                                 onClick={() => void duplicateGuide(record)}
@@ -1970,11 +1654,7 @@ export function GuidesPage(props: GuidePageProps): JSX.Element {
                                                 }
                                             >
                                                 <button
-                                                    class={twClasses(
-                                                        "button button-quiet",
-                                                        jsxTailwindStyles,
-                                                        "button",
-                                                    )}
+                                                    class={denseQuiet}
                                                     type="button"
                                                     disabled={
                                                         !canEdit() ||
@@ -1987,11 +1667,7 @@ export function GuidesPage(props: GuidePageProps): JSX.Element {
                                                 </button>
                                             </Show>
                                             <button
-                                                class={twClasses(
-                                                    "button button-quiet",
-                                                    jsxTailwindStyles,
-                                                    "button",
-                                                )}
+                                                class={denseQuiet}
                                                 type="button"
                                                 disabled={props.busy}
                                                 onClick={() =>
@@ -2001,11 +1677,7 @@ export function GuidesPage(props: GuidePageProps): JSX.Element {
                                                 Markdown
                                             </button>
                                             <button
-                                                class={twClasses(
-                                                    "button button-quiet",
-                                                    jsxTailwindStyles,
-                                                    "button",
-                                                )}
+                                                class={denseQuiet}
                                                 type="button"
                                                 disabled={props.busy}
                                                 onClick={() => exportGuideRecord(record, "html")}
@@ -2013,35 +1685,24 @@ export function GuidesPage(props: GuidePageProps): JSX.Element {
                                                 HTML
                                             </button>
                                             <details
-                                                class={twClasses(
-                                                    "guide-export-menu",
-                                                    jsxTailwindStyles,
-                                                    "details",
-                                                )}
+                                                class={
+                                                    "guide-export-menu relative [&[open]]:flex [&[open]]:flex-[1_1_100%] [&[open]]:flex-wrap [&[open]]:items-center [&[open]]:gap-[5px] [&[open]]:rounded-[5px] [&[open]]:border [&[open]]:border-line [&[open]]:bg-[var(--surface-inset)] [&[open]]:px-[7px] [&[open]]:py-[5px]"
+                                                }
                                             >
                                                 <summary
-                                                    class={twClasses(
-                                                        "button button-quiet",
-                                                        jsxTailwindStyles,
-                                                        "summary",
+                                                    class={cn(
+                                                        denseQuiet,
+                                                        "list-none [&::-webkit-details-marker]:hidden",
                                                     )}
                                                 >
                                                     More
                                                 </summary>
                                                 <div
-                                                    class={twClasses(
-                                                        "guide-export-menu-popover",
-                                                        jsxTailwindStyles,
-                                                        "div",
-                                                    )}
+                                                    class="guide-export-menu-popover flex flex-wrap gap-1"
                                                     aria-label="More guide exports"
                                                 >
                                                     <button
-                                                        class={twClasses(
-                                                            "button button-quiet",
-                                                            jsxTailwindStyles,
-                                                            "button",
-                                                        )}
+                                                        class={denseQuiet}
                                                         type="button"
                                                         disabled={!canEdit() || props.busy}
                                                         onClick={() => openRegeneration(record)}
@@ -2049,11 +1710,7 @@ export function GuidesPage(props: GuidePageProps): JSX.Element {
                                                         Regenerate from latest evidence
                                                     </button>
                                                     <button
-                                                        class={twClasses(
-                                                            "button button-quiet",
-                                                            jsxTailwindStyles,
-                                                            "button",
-                                                        )}
+                                                        class={denseQuiet}
                                                         type="button"
                                                         disabled={props.busy}
                                                         onClick={() =>
@@ -2063,11 +1720,7 @@ export function GuidesPage(props: GuidePageProps): JSX.Element {
                                                         JSON record
                                                     </button>
                                                     <button
-                                                        class={twClasses(
-                                                            "button button-quiet",
-                                                            jsxTailwindStyles,
-                                                            "button",
-                                                        )}
+                                                        class={denseQuiet}
                                                         type="button"
                                                         disabled={props.busy}
                                                         onClick={() =>
@@ -2077,11 +1730,7 @@ export function GuidesPage(props: GuidePageProps): JSX.Element {
                                                         Word document
                                                     </button>
                                                     <button
-                                                        class={twClasses(
-                                                            "button button-quiet",
-                                                            jsxTailwindStyles,
-                                                            "button",
-                                                        )}
+                                                        class={denseQuiet}
                                                         type="button"
                                                         disabled={props.busy}
                                                         onClick={() =>
@@ -2093,11 +1742,7 @@ export function GuidesPage(props: GuidePageProps): JSX.Element {
                                                 </div>
                                             </details>
                                             <button
-                                                class={twClasses(
-                                                    "icon-button guide-trash-button",
-                                                    jsxTailwindStyles,
-                                                    "button",
-                                                )}
+                                                class={trashIconButton}
                                                 type="button"
                                                 title="Move guide to Trash"
                                                 aria-label={`Move ${field(record, "title", "guide")} to Trash`}
@@ -2178,6 +1823,7 @@ function GuideEditor(props: {
         blockIndex: number;
     } | null>(initialBlockSection ? { sectionId: initialBlockSection.id, blockIndex: 0 } : null);
     const [error, setError] = createSignal("");
+    const [confirmDiscard, setConfirmDiscard] = createSignal(false);
     const [validationReport, setValidationReport] = createSignal<{
         valid: boolean;
         message: string;
@@ -2343,7 +1989,7 @@ function GuideEditor(props: {
                 ? ` ${staleBlockCount} source-changed ${staleBlockCount === 1 ? "block needs" : "blocks need"} review.`
                 : "";
             const sourceSummary = sourceReferenceCount
-                ? `${sourceReferenceCount.toLocaleString()} source ${sourceReferenceCount === 1 ? "reference resolves" : "references resolve"} within this guide’s scope.`
+                ? `${sourceReferenceCount.toLocaleString("en-US")} source ${sourceReferenceCount === 1 ? "reference resolves" : "references resolve"} within this guide’s scope.`
                 : "No source references are attached.";
             setValidationReport({
                 valid: true,
@@ -2585,7 +2231,7 @@ function GuideEditor(props: {
         setActiveMatch(null);
         setFindStatus(
             result.replacedCount
-                ? `Replaced ${result.replacedCount.toLocaleString()} ${result.replacedCount === 1 ? "match" : "matches"}.`
+                ? `Replaced ${result.replacedCount.toLocaleString("en-US")} ${result.replacedCount === 1 ? "match" : "matches"}.`
                 : findQuery()
                   ? "No matches to replace."
                   : "Enter text to find.",
@@ -2610,6 +2256,15 @@ function GuideEditor(props: {
         );
     }
 
+    function requestClose(): void {
+        if (props.busy) return;
+        if (draft() !== initialDraft && !confirmDiscard()) {
+            setConfirmDiscard(true);
+            return;
+        }
+        props.onClose();
+    }
+
     async function submit(event: SubmitEvent): Promise<void> {
         event.preventDefault();
         setError("");
@@ -2624,59 +2279,66 @@ function GuideEditor(props: {
 
     return (
         <div
-            class={twClasses("dialog-backdrop guide-editor-backdrop", jsxTailwindStyles, "div")}
+            class={
+                "dialog-backdrop guide-editor-backdrop fixed inset-0 z-30 grid items-stretch justify-items-center bg-[rgb(10_16_12_/_43%)] p-[22px] [animation:fade-in_0.14s_ease-out] max-[680px]:p-0"
+            }
             onClick={(event) => {
-                if (event.target === event.currentTarget && !props.busy) props.onClose();
+                if (event.target === event.currentTarget) requestClose();
             }}
         >
             <GuideDialog
-                class={twClasses("guide-editor-dialog", jsxTailwindStyles, "")}
+                class={
+                    "guide-editor-dialog flex max-h-full w-[min(980px,100%)] flex-col overflow-hidden rounded-[5px] border border-line bg-surface shadow-none max-[680px]:h-full max-[680px]:max-h-[100dvh] max-[680px]:w-full"
+                }
                 labelledBy="guide-editor-title"
-                onEscape={props.onClose}
+                onEscape={requestClose}
                 canEscape={() => !props.busy}
             >
-                <header class={twClasses("guide-editor-header", jsxTailwindStyles, "header")}>
-                    <div class={twClasses("", jsxTailwindStyles, "div")}>
-                        <span class={twClasses("eyebrow", jsxTailwindStyles, "span")}>
-                            A guide built from your work
-                        </span>
-                        <h2 id="guide-editor-title" class={twClasses("", jsxTailwindStyles, "h2")}>
+                <header
+                    class={
+                        "guide-editor-header flex justify-between gap-[18px] border-b border-[var(--line-soft)] bg-surface px-[25px] pb-[18px] pt-[22px] max-[680px]:px-4"
+                    }
+                >
+                    <div>
+                        <span class={eyebrowText}>A guide built from your work</span>
+                        <h2
+                            id="guide-editor-title"
+                            class="mt-[5px] mb-[5px] text-[23px] font-semibold tracking-[-0.04em] text-ink"
+                        >
                             {props.record
                                 ? "Shape this study guide"
                                 : props.initialDraft
                                   ? "Review a generated guide"
                                   : "Start a study guide"}
                         </h2>
-                        <p class={twClasses("", jsxTailwindStyles, "p")}>
+                        <p class="m-0 text-xs text-muted">
                             Sections are a scaffold. Keep citations attached as you make the
                             material your own.
                         </p>
                     </div>
                     <button
-                        class={twClasses("icon-button", jsxTailwindStyles, "button")}
+                        class={formIconButton}
                         type="button"
                         aria-label="Close guide editor"
                         disabled={props.busy}
-                        onClick={() => props.onClose()}
+                        onClick={() => requestClose()}
                     >
                         ×
                     </button>
                 </header>
                 <form
-                    class={twClasses("guide-editor-form", jsxTailwindStyles, "form")}
+                    class="guide-editor-form flex min-h-0 flex-col overflow-hidden"
                     onSubmit={(event) => void submit(event)}
                     onKeyDown={handleEditorKeyDown}
                     onFocusIn={handleEditorFocusIn}
                     onFocusOut={handleEditorFocusOut}
                 >
-                    <div class={twClasses("guide-editor-fields", jsxTailwindStyles, "div")}>
-                        <label
-                            class={twClasses(
-                                "form-field guide-title-field",
-                                jsxTailwindStyles,
-                                "label",
-                            )}
-                        >
+                    <div
+                        class={
+                            "guide-editor-fields grid grid-cols-[minmax(220px,1.4fr)_minmax(230px,1.4fr)_minmax(160px,0.8fr)] gap-3 border-b border-[var(--line-soft)] bg-[var(--surface-inset)] px-[25px] py-4 max-[680px]:grid-cols-2 max-[680px]:px-4"
+                        }
+                    >
+                        <label class="form-field guide-title-field grid min-w-0 gap-[5px] text-xs font-semibold text-muted max-[680px]:col-span-full">
                             Guide title
                             <input
                                 value={draft().title}
@@ -2688,11 +2350,11 @@ function GuideEditor(props: {
                                         title: event.currentTarget.value,
                                     }))
                                 }
-                                class={twClasses("", jsxTailwindStyles, "input")}
+                                class={cn(textInput, "min-h-[35px]")}
                             />
                         </label>
                         <Show when={draft().sessionId}>
-                            <label class={twClasses("form-field", jsxTailwindStyles, "label")}>
+                            <label class={fieldLabel}>
                                 Session
                                 <select
                                     required
@@ -2715,7 +2377,7 @@ function GuideEditor(props: {
                                             true,
                                         );
                                     }}
-                                    class={twClasses("", jsxTailwindStyles, "select")}
+                                    class={cn(textInput, "min-h-[35px] cursor-pointer pr-8")}
                                 >
                                     <option value="" disabled>
                                         Choose a session
@@ -2740,12 +2402,12 @@ function GuideEditor(props: {
                                 </select>
                             </label>
                         </Show>
-                        <label class={twClasses("form-field", jsxTailwindStyles, "label")}>
+                        <label class={fieldLabel}>
                             Structure
                             <select
                                 value={draft().templateId}
                                 onChange={(event) => selectTemplate(event.currentTarget.value)}
-                                class={twClasses("", jsxTailwindStyles, "select")}
+                                class={cn(textInput, "min-h-[35px] cursor-pointer pr-8")}
                             >
                                 <Show
                                     when={
@@ -2768,11 +2430,13 @@ function GuideEditor(props: {
                     </div>
 
                     <div
-                        class={twClasses("guide-find", jsxTailwindStyles, "div")}
+                        class={
+                            "guide-find flex flex-wrap items-end gap-2 border-b border-[var(--line-soft)] px-[25px] py-3 max-[680px]:px-4"
+                        }
                         role="search"
                         aria-label="Find and replace in selected guide block"
                     >
-                        <label class={twClasses("", jsxTailwindStyles, "label")}>
+                        <label class="grid flex-[1_1_170px] gap-[5px] text-xs font-semibold text-muted">
                             Find
                             <input
                                 value={findQuery()}
@@ -2781,33 +2445,29 @@ function GuideEditor(props: {
                                     setActiveMatch(null);
                                     setFindStatus("");
                                 }}
-                                class={twClasses("", jsxTailwindStyles, "input")}
+                                class={cn(textInput, "min-h-[35px]")}
                             />
                         </label>
-                        <label class={twClasses("", jsxTailwindStyles, "label")}>
+                        <label class="grid flex-[1_1_170px] gap-[5px] text-xs font-semibold text-muted">
                             Replace with
                             <input
                                 value={replaceText()}
                                 onInput={(event) => setReplaceText(event.currentTarget.value)}
-                                class={twClasses("", jsxTailwindStyles, "input")}
+                                class={cn(textInput, "min-h-[35px]")}
                             />
                         </label>
                         <span
-                            class={twClasses("guide-find-status", jsxTailwindStyles, "span")}
+                            class="guide-find-status min-w-24 pb-2.5 text-xs text-muted"
                             aria-live="polite"
                         >
                             {findStatus() ||
                                 (findBlockPosition()
-                                    ? `${findMatches().length.toLocaleString()} ${findMatches().length === 1 ? "match" : "matches"} in selected block`
+                                    ? `${findMatches().length.toLocaleString("en-US")} ${findMatches().length === 1 ? "match" : "matches"} in selected block`
                                     : "Focus a content block to search its text.")}
                         </span>
-                        <div class={twClasses("guide-find-actions", jsxTailwindStyles, "div")}>
+                        <div class="guide-find-actions flex flex-wrap gap-1.5">
                             <button
-                                class={twClasses(
-                                    "button button-quiet",
-                                    jsxTailwindStyles,
-                                    "button",
-                                )}
+                                class={denseQuiet}
                                 type="button"
                                 disabled={
                                     props.busy ||
@@ -2820,11 +2480,7 @@ function GuideEditor(props: {
                                 Find next
                             </button>
                             <button
-                                class={twClasses(
-                                    "button button-quiet",
-                                    jsxTailwindStyles,
-                                    "button",
-                                )}
+                                class={denseQuiet}
                                 type="button"
                                 disabled={
                                     props.busy ||
@@ -2837,11 +2493,7 @@ function GuideEditor(props: {
                                 Replace
                             </button>
                             <button
-                                class={twClasses(
-                                    "button button-quiet",
-                                    jsxTailwindStyles,
-                                    "button",
-                                )}
+                                class={denseQuiet}
                                 type="button"
                                 disabled={
                                     props.busy ||
@@ -2857,20 +2509,18 @@ function GuideEditor(props: {
                     </div>
 
                     <div
-                        class={twClasses("guide-editor-commands", jsxTailwindStyles, "div")}
+                        class={
+                            "guide-editor-commands flex items-center justify-between gap-[9px] border-b border-[var(--line-soft)] bg-[var(--surface-inset)] px-[25px] py-[9px] max-[680px]:px-4"
+                        }
                         aria-label="Guide editing commands"
                     >
                         <div
-                            class={twClasses("guide-history-actions", jsxTailwindStyles, "div")}
+                            class="guide-history-actions flex gap-1.5"
                             role="group"
                             aria-label="Guide-wide edit history"
                         >
                             <button
-                                class={twClasses(
-                                    "button button-quiet",
-                                    jsxTailwindStyles,
-                                    "button",
-                                )}
+                                class={denseQuiet}
                                 type="button"
                                 aria-label="Undo guide change"
                                 title="Undo the last guide-wide edit (Ctrl/Cmd+Z outside text fields)"
@@ -2880,11 +2530,7 @@ function GuideEditor(props: {
                                 Undo
                             </button>
                             <button
-                                class={twClasses(
-                                    "button button-quiet",
-                                    jsxTailwindStyles,
-                                    "button",
-                                )}
+                                class={denseQuiet}
                                 type="button"
                                 aria-label="Redo guide change"
                                 title="Redo the last guide-wide edit (Ctrl/Cmd+Shift+Z outside text fields)"
@@ -2895,7 +2541,7 @@ function GuideEditor(props: {
                             </button>
                         </div>
                         <button
-                            class={twClasses("button button-outline", jsxTailwindStyles, "button")}
+                            class={denseOutline}
                             type="button"
                             disabled={props.busy}
                             onClick={validateSources}
@@ -2906,13 +2552,12 @@ function GuideEditor(props: {
                     <Show when={validationReport()}>
                         {(report) => (
                             <p
-                                class={twClasses(
-                                    "guide-validation-report",
-                                    jsxTailwindStyles,
-                                    "p",
-                                    ["is-invalid"],
+                                class={cn(
+                                    "guide-validation-report m-0 px-[25px] py-[9px] text-xs leading-normal max-[680px]:px-4",
+                                    report().valid
+                                        ? "text-accent bg-[color-mix(in_srgb,var(--accent-soft)_38%,var(--surface))]"
+                                        : "is-invalid text-danger bg-[color-mix(in_srgb,var(--danger)_7%,var(--surface))]",
                                 )}
-                                classList={{ "is-invalid": !report().valid }}
                                 role={report().valid ? "status" : "alert"}
                                 aria-live={report().valid ? "polite" : "assertive"}
                             >
@@ -2926,28 +2571,20 @@ function GuideEditor(props: {
                         fallback={
                             <Show when={draft().entryId}>
                                 <div
-                                    class={twClasses(
-                                        "guide-session-context",
-                                        jsxTailwindStyles,
-                                        "div",
-                                    )}
+                                    class={
+                                        "guide-session-context mx-[25px] mt-[13px] flex items-center gap-[9px] rounded-[5px] border border-[var(--line-soft)] bg-[color-mix(in_srgb,var(--accent-soft)_48%,var(--surface))] px-[11px] py-[9px] max-[680px]:mx-4"
+                                    }
                                 >
-                                    <span
-                                        class={twClasses(
-                                            "guide-context-mark",
-                                            jsxTailwindStyles,
-                                            "span",
-                                        )}
-                                    >
+                                    <span class="guide-context-mark grid h-[25px] w-[25px] flex-none place-items-center rounded-[5px] bg-surface text-xs font-bold text-accent">
                                         J
                                     </span>
-                                    <div class={twClasses("", jsxTailwindStyles, "div")}>
-                                        <strong class={twClasses("", jsxTailwindStyles, "strong")}>
+                                    <div class="grid min-w-0 gap-[3px]">
+                                        <strong class="truncate text-xs font-semibold text-ink-soft">
                                             {selectedEntry()
                                                 ? field(selectedEntry()!, "title", "Journal entry")
                                                 : "Journal entry unavailable"}
                                         </strong>
-                                        <small class={twClasses("", jsxTailwindStyles, "small")}>
+                                        <small class="truncate text-xs text-muted">
                                             Entry-wide guide · linked sessions and notes
                                         </small>
                                     </div>
@@ -2955,17 +2592,19 @@ function GuideEditor(props: {
                             </Show>
                         }
                     >
-                        <div class={twClasses("guide-session-context", jsxTailwindStyles, "div")}>
-                            <span
-                                class={twClasses("guide-context-mark", jsxTailwindStyles, "span")}
-                            >
+                        <div
+                            class={
+                                "guide-session-context mx-[25px] mt-[13px] flex items-center gap-[9px] rounded-[5px] border border-[var(--line-soft)] bg-[color-mix(in_srgb,var(--accent-soft)_48%,var(--surface))] px-[11px] py-[9px] max-[680px]:mx-4"
+                            }
+                        >
+                            <span class="guide-context-mark grid h-[25px] w-[25px] flex-none place-items-center rounded-[5px] bg-surface text-xs font-bold text-accent">
                                 S
                             </span>
-                            <div class={twClasses("", jsxTailwindStyles, "div")}>
-                                <strong class={twClasses("", jsxTailwindStyles, "strong")}>
+                            <div class="grid min-w-0 gap-[3px]">
+                                <strong class="truncate text-xs font-semibold text-ink-soft">
                                     {field(selectedSession()!, "title", "Tutoring session")}
                                 </strong>
-                                <small class={twClasses("", jsxTailwindStyles, "small")}>
+                                <small class="truncate text-xs text-muted">
                                     {field(selectedSession()!, "subject", "Session source")}
                                     {field(selectedSession()!, "learning_objectives")
                                         ? ` · ${field(selectedSession()!, "learning_objectives")}`
@@ -2975,52 +2614,28 @@ function GuideEditor(props: {
                         </div>
                     </Show>
 
-                    <div class={twClasses("guide-sections-heading", jsxTailwindStyles, "div")}>
-                        <div class={twClasses("", jsxTailwindStyles, "div")}>
-                            <span class={twClasses("eyebrow", jsxTailwindStyles, "span")}>
-                                Your material
-                            </span>
-                            <h3 class={twClasses("", jsxTailwindStyles, "h3")}>
+                    <div class="guide-sections-heading flex items-center justify-between gap-4 px-[25px] pb-[9px] pt-[17px] max-[680px]:px-4">
+                        <div>
+                            <span class={eyebrowText}>Your material</span>
+                            <h3 class="mt-1 mb-0 text-base font-semibold tracking-[-0.035em] text-ink">
                                 Sections and blocks
                             </h3>
                         </div>
-                        <span class={twClasses("", jsxTailwindStyles, "span")}>
-                            {draft().sections.length} sections
-                        </span>
+                        <span class="text-xs text-muted">{draft().sections.length} sections</span>
                     </div>
-                    <div class={twClasses("guide-editor-sections", jsxTailwindStyles, "div")}>
+                    <div class="guide-editor-sections grid min-h-0 gap-2.5 overflow-auto overscroll-contain px-[25px] pb-[15px] pt-0 max-[680px]:px-4">
                         <For each={draft().sections}>
                             {(section, sectionIndex) => (
-                                <article
-                                    class={twClasses(
-                                        "guide-editor-section",
-                                        jsxTailwindStyles,
-                                        "article",
-                                    )}
-                                >
+                                <article class="guide-editor-section rounded-[5px] border border-line bg-surface p-3.5">
                                     <div
-                                        class={twClasses(
-                                            "guide-editor-section-heading",
-                                            jsxTailwindStyles,
-                                            "div",
-                                        )}
+                                        class={
+                                            "guide-editor-section-heading grid grid-cols-[25px_minmax(0,1fr)_auto] items-end gap-[9px]"
+                                        }
                                     >
-                                        <span
-                                            class={twClasses(
-                                                "guide-section-index",
-                                                jsxTailwindStyles,
-                                                "span",
-                                            )}
-                                        >
+                                        <span class="guide-section-index pb-2.5 text-xs font-bold text-faint">
                                             {String(sectionIndex() + 1).padStart(2, "0")}
                                         </span>
-                                        <label
-                                            class={twClasses(
-                                                "form-field",
-                                                jsxTailwindStyles,
-                                                "label",
-                                            )}
-                                        >
+                                        <label class={fieldLabel}>
                                             Section heading
                                             <input
                                                 value={section.heading}
@@ -3035,22 +2650,12 @@ function GuideEditor(props: {
                                                         false,
                                                     )
                                                 }
-                                                class={twClasses("", jsxTailwindStyles, "input")}
+                                                class={cn(textInput, "min-h-[35px]")}
                                             />
                                         </label>
-                                        <div
-                                            class={twClasses(
-                                                "guide-section-actions",
-                                                jsxTailwindStyles,
-                                                "div",
-                                            )}
-                                        >
+                                        <div class="guide-section-actions flex items-center gap-1">
                                             <button
-                                                class={twClasses(
-                                                    "button button-quiet guide-section-move",
-                                                    jsxTailwindStyles,
-                                                    "button",
-                                                )}
+                                                class={moveButton}
                                                 type="button"
                                                 title="Move section up"
                                                 aria-label={`Move section ${sectionIndex() + 1} up`}
@@ -3060,11 +2665,7 @@ function GuideEditor(props: {
                                                 ↑
                                             </button>
                                             <button
-                                                class={twClasses(
-                                                    "button button-quiet guide-section-move",
-                                                    jsxTailwindStyles,
-                                                    "button",
-                                                )}
+                                                class={moveButton}
                                                 type="button"
                                                 title="Move section down"
                                                 aria-label={`Move section ${sectionIndex() + 1} down`}
@@ -3076,11 +2677,7 @@ function GuideEditor(props: {
                                                 ↓
                                             </button>
                                             <button
-                                                class={twClasses(
-                                                    "button button-quiet",
-                                                    jsxTailwindStyles,
-                                                    "button",
-                                                )}
+                                                class={denseQuiet}
                                                 type="button"
                                                 title="Regenerate this section from current evidence"
                                                 disabled={props.disabled || props.busy}
@@ -3090,11 +2687,7 @@ function GuideEditor(props: {
                                             </button>
                                             <Show when={imageAssets().length > 0}>
                                                 <select
-                                                    class={twClasses(
-                                                        "guide-section-image-select",
-                                                        jsxTailwindStyles,
-                                                        "select",
-                                                    )}
+                                                    class="guide-section-image-select min-h-[35px] cursor-pointer rounded-[5px] border border-line bg-surface px-2.5 text-xs text-ink"
                                                     aria-label={`Insert an image in section ${sectionIndex() + 1}`}
                                                     value=""
                                                     disabled={props.disabled || props.busy}
@@ -3120,11 +2713,7 @@ function GuideEditor(props: {
                                                 </select>
                                             </Show>
                                             <button
-                                                class={twClasses(
-                                                    "button button-quiet guide-remove-section",
-                                                    jsxTailwindStyles,
-                                                    "button",
-                                                )}
+                                                class={cn(denseQuiet, "guide-remove-section")}
                                                 type="button"
                                                 disabled={draft().sections.length <= 1}
                                                 onClick={() => {
@@ -3150,36 +2739,16 @@ function GuideEditor(props: {
                                             </button>
                                         </div>
                                     </div>
-                                    <div
-                                        class={twClasses(
-                                            "guide-block-list",
-                                            jsxTailwindStyles,
-                                            "div",
-                                        )}
-                                    >
+                                    <div class="guide-block-list ml-[34px] mt-3 grid gap-[9px]">
                                         <For each={section.blocks}>
                                             {(block, blockIndex) => (
                                                 <div
-                                                    class={twClasses(
-                                                        "guide-block-editor",
-                                                        jsxTailwindStyles,
-                                                        "div",
-                                                    )}
+                                                    class={
+                                                        "guide-block-editor grid gap-2 rounded-[5px] border border-[var(--line-soft)] bg-[var(--surface-inset)] p-2.5"
+                                                    }
                                                 >
-                                                    <div
-                                                        class={twClasses(
-                                                            "guide-block-toolbar",
-                                                            jsxTailwindStyles,
-                                                            "div",
-                                                        )}
-                                                    >
-                                                        <label
-                                                            class={twClasses(
-                                                                "",
-                                                                jsxTailwindStyles,
-                                                                "label",
-                                                            )}
-                                                        >
+                                                    <div class="guide-block-toolbar flex flex-wrap items-end gap-2">
+                                                        <label class="grid gap-1 text-xs text-faint">
                                                             Block style
                                                             <select
                                                                 value={block.kind}
@@ -3201,11 +2770,7 @@ function GuideEditor(props: {
                                                                         }),
                                                                     )
                                                                 }
-                                                                class={twClasses(
-                                                                    "",
-                                                                    jsxTailwindStyles,
-                                                                    "select",
-                                                                )}
+                                                                class="min-h-[29px] cursor-pointer rounded-[5px] border border-line bg-surface px-2 text-xs capitalize text-ink"
                                                             >
                                                                 <For each={GUIDE_BLOCK_KINDS}>
                                                                     {(kind) => (
@@ -3231,13 +2796,7 @@ function GuideEditor(props: {
                                                                 </Show>
                                                             </select>
                                                         </label>
-                                                        <label
-                                                            class={twClasses(
-                                                                "",
-                                                                jsxTailwindStyles,
-                                                                "label",
-                                                            )}
-                                                        >
+                                                        <label class="grid gap-1 text-xs text-faint">
                                                             Origin
                                                             <select
                                                                 value={block.origin}
@@ -3253,11 +2812,7 @@ function GuideEditor(props: {
                                                                         }),
                                                                     )
                                                                 }
-                                                                class={twClasses(
-                                                                    "",
-                                                                    jsxTailwindStyles,
-                                                                    "select",
-                                                                )}
+                                                                class="min-h-[29px] cursor-pointer rounded-[5px] border border-line bg-surface px-2 text-xs capitalize text-ink"
                                                             >
                                                                 <For each={GUIDE_BLOCK_ORIGINS}>
                                                                     {(origin) => (
@@ -3284,21 +2839,14 @@ function GuideEditor(props: {
                                                             </select>
                                                         </label>
                                                         <Show when={block.stale}>
-                                                            <span
-                                                                class={twClasses(
-                                                                    "guide-stale-label",
-                                                                    jsxTailwindStyles,
-                                                                    "span",
-                                                                )}
-                                                            >
+                                                            <span class="guide-stale-label ml-auto text-xs text-[#9a6034]">
                                                                 Source changed · review this block
                                                             </span>
                                                         </Show>
                                                         <button
-                                                            class={twClasses(
-                                                                "button button-quiet guide-example-shortcut",
-                                                                jsxTailwindStyles,
-                                                                "button",
+                                                            class={cn(
+                                                                denseQuiet,
+                                                                "guide-example-shortcut",
                                                             )}
                                                             type="button"
                                                             disabled={props.busy}
@@ -3313,11 +2861,7 @@ function GuideEditor(props: {
                                                             Add example
                                                         </button>
                                                         <button
-                                                            class={twClasses(
-                                                                "icon-button",
-                                                                jsxTailwindStyles,
-                                                                "button",
-                                                            )}
+                                                            class={cn(formIconButton, "ml-auto")}
                                                             type="button"
                                                             title="Remove block"
                                                             aria-label="Remove block"
@@ -3391,26 +2935,17 @@ function GuideEditor(props: {
                                                             );
                                                             clearFindSelection();
                                                         }}
-                                                        class={twClasses(
-                                                            "",
-                                                            jsxTailwindStyles,
-                                                            "textarea",
+                                                        class={cn(
+                                                            textArea,
+                                                            "min-h-[78px] leading-[1.55]",
                                                         )}
                                                     />
                                                     <div
-                                                        class={twClasses(
-                                                            "guide-source-row",
-                                                            jsxTailwindStyles,
-                                                            "div",
-                                                        )}
+                                                        class={
+                                                            "guide-source-row grid grid-cols-[1fr_minmax(200px,0.85fr)] gap-[9px]"
+                                                        }
                                                     >
-                                                        <label
-                                                            class={twClasses(
-                                                                "form-field",
-                                                                jsxTailwindStyles,
-                                                                "label",
-                                                            )}
-                                                        >
+                                                        <label class="grid min-w-0 gap-1 text-xs font-semibold text-faint">
                                                             Cited source IDs
                                                             <input
                                                                 value={block.sourceIds}
@@ -3429,20 +2964,10 @@ function GuideEditor(props: {
                                                                         false,
                                                                     )
                                                                 }
-                                                                class={twClasses(
-                                                                    "",
-                                                                    jsxTailwindStyles,
-                                                                    "input",
-                                                                )}
+                                                                class="w-full min-w-0 min-h-[30px] rounded-[5px] border border-line bg-surface px-2 text-xs text-ink"
                                                             />
                                                         </label>
-                                                        <label
-                                                            class={twClasses(
-                                                                "form-field",
-                                                                jsxTailwindStyles,
-                                                                "label",
-                                                            )}
-                                                        >
+                                                        <label class="grid min-w-0 gap-1 text-xs font-semibold text-faint">
                                                             Attach source
                                                             <select
                                                                 value=""
@@ -3465,11 +2990,7 @@ function GuideEditor(props: {
                                                                     );
                                                                     event.currentTarget.value = "";
                                                                 }}
-                                                                class={twClasses(
-                                                                    "",
-                                                                    jsxTailwindStyles,
-                                                                    "select",
-                                                                )}
+                                                                class="w-full min-w-0 min-h-[30px] cursor-pointer rounded-[5px] border border-line bg-surface px-2 text-xs text-ink"
                                                             >
                                                                 <option value="">
                                                                     Choose a guide source…
@@ -3497,11 +3018,7 @@ function GuideEditor(props: {
                                         </For>
                                     </div>
                                     <button
-                                        class={twClasses(
-                                            "button button-quiet guide-add-block",
-                                            jsxTailwindStyles,
-                                            "button",
-                                        )}
+                                        class={cn(denseQuiet, "guide-add-block ml-[34px] mt-2.5")}
                                         type="button"
                                         onClick={() =>
                                             updateSection(
@@ -3530,10 +3047,9 @@ function GuideEditor(props: {
                         </For>
                     </div>
                     <button
-                        class={twClasses(
-                            "button button-outline guide-add-section",
-                            jsxTailwindStyles,
-                            "button",
+                        class={cn(
+                            denseOutline,
+                            "guide-add-section mx-[25px] mb-3.5 max-[680px]:ml-4",
                         )}
                         type="button"
                         onClick={() =>
@@ -3557,36 +3073,57 @@ function GuideEditor(props: {
                     </button>
                     <Show when={error()}>
                         <p
-                            class={twClasses("guide-editor-error", jsxTailwindStyles, "p")}
+                            class="guide-editor-error mx-[25px] mb-3 text-xs text-danger max-[680px]:ml-4"
                             role="alert"
                         >
                             {error()}
                         </p>
                     </Show>
-                    <footer class={twClasses("guide-editor-footer", jsxTailwindStyles, "footer")}>
-                        <span class={twClasses("", jsxTailwindStyles, "span")}>
+                    <Show when={confirmDiscard()}>
+                        <div
+                            class="guide-editor-discard mx-[25px] mb-3 flex flex-wrap items-center justify-between gap-2 rounded-[5px] border border-line bg-surface-subtle px-3 py-2 text-xs text-muted max-[680px]:mx-4"
+                            role="alert"
+                        >
+                            <span>Discard unsaved changes to this guide?</span>
+                            <div class="flex gap-2">
+                                <button
+                                    class={denseQuiet}
+                                    type="button"
+                                    onClick={() => setConfirmDiscard(false)}
+                                >
+                                    Keep editing
+                                </button>
+                                <button
+                                    class={denseDanger}
+                                    type="button"
+                                    disabled={props.busy}
+                                    onClick={() => props.onClose()}
+                                >
+                                    Discard changes
+                                </button>
+                            </div>
+                        </div>
+                    </Show>
+                    <footer
+                        class={
+                            "guide-editor-footer flex items-center justify-between gap-4 border-t border-line bg-[var(--surface-inset)] px-[25px] py-[13px] max-[680px]:flex-col max-[680px]:items-start max-[680px]:p-4"
+                        }
+                    >
+                        <span class="max-w-[420px] text-xs leading-normal text-muted">
                             Saving creates a new archive revision. The previous version stays
                             available in the archive history.
                         </span>
-                        <div class={twClasses("", jsxTailwindStyles, "div")}>
+                        <div class="flex flex-none gap-[7px] max-[680px]:self-end">
                             <button
-                                class={twClasses(
-                                    "button button-quiet",
-                                    jsxTailwindStyles,
-                                    "button",
-                                )}
+                                class={denseQuiet}
                                 type="button"
                                 disabled={props.busy}
-                                onClick={() => props.onClose()}
+                                onClick={() => requestClose()}
                             >
                                 Cancel
                             </button>
                             <button
-                                class={twClasses(
-                                    "button button-primary",
-                                    jsxTailwindStyles,
-                                    "button",
-                                )}
+                                class={densePrimary}
                                 type="submit"
                                 disabled={
                                     props.disabled ||
@@ -3716,25 +3253,29 @@ function GuideTemplateEditor(props: {
     }
 
     return (
-        <div class={twClasses("dialog-backdrop guide-editor-backdrop", jsxTailwindStyles, "div")}>
+        <div
+            class={
+                "dialog-backdrop guide-editor-backdrop fixed inset-0 z-30 grid items-stretch justify-items-center bg-[rgb(10_16_12_/_43%)] p-[22px] [animation:fade-in_0.14s_ease-out] max-[680px]:p-0"
+            }
+        >
             <GuideDialog
-                class={twClasses(
-                    "guide-editor-dialog guide-template-editor-dialog",
-                    jsxTailwindStyles,
-                    "",
-                )}
+                class={
+                    "guide-editor-dialog guide-template-editor-dialog flex max-h-full w-[min(720px,100%)] flex-col overflow-hidden rounded-[5px] border border-line bg-surface shadow-none max-[680px]:h-full max-[680px]:max-h-[100dvh] max-[680px]:w-full"
+                }
                 labelledBy="guide-template-editor-title"
                 onEscape={props.onClose}
                 canEscape={() => !props.busy}
             >
-                <header class={twClasses("guide-editor-header", jsxTailwindStyles, "header")}>
-                    <div class={twClasses("", jsxTailwindStyles, "div")}>
-                        <span class={twClasses("eyebrow", jsxTailwindStyles, "span")}>
-                            A structure that's yours
-                        </span>
+                <header
+                    class={
+                        "guide-editor-header flex justify-between gap-[18px] border-b border-[var(--line-soft)] bg-surface px-[25px] pb-[18px] pt-[22px] max-[680px]:px-4"
+                    }
+                >
+                    <div>
+                        <span class={eyebrowText}>A structure that's yours</span>
                         <h2
                             id="guide-template-editor-title"
-                            class={twClasses("", jsxTailwindStyles, "h2")}
+                            class="mt-[5px] mb-[5px] text-[23px] font-semibold tracking-[-0.04em] text-ink"
                         >
                             {props.builtinTemplate
                                 ? props.current
@@ -3744,13 +3285,13 @@ function GuideTemplateEditor(props: {
                                   ? "Edit template"
                                   : "Create a template"}
                         </h2>
-                        <p class={twClasses("", jsxTailwindStyles, "p")}>
+                        <p class="m-0 text-xs text-muted">
                             Give a reusable teaching approach a name, clear sections, and a little
                             guidance.
                         </p>
                     </div>
                     <button
-                        class={twClasses("icon-button", jsxTailwindStyles, "button")}
+                        class={formIconButton}
                         type="button"
                         aria-label="Close template editor"
                         disabled={props.busy}
@@ -3760,54 +3301,46 @@ function GuideTemplateEditor(props: {
                     </button>
                 </header>
                 <form
-                    class={twClasses("guide-editor-form", jsxTailwindStyles, "form")}
+                    class="guide-editor-form flex min-h-0 flex-col overflow-hidden"
                     onSubmit={(event) => void submit(event)}
                 >
-                    <div class={twClasses("guide-template-form-fields", jsxTailwindStyles, "div")}>
-                        <label class={twClasses("form-field", jsxTailwindStyles, "label")}>
+                    <div
+                        class={
+                            "guide-template-form-fields grid grid-cols-[minmax(0,1fr)_minmax(0,0.55fr)] gap-3 overflow-y-auto px-[25px] py-[18px] max-[680px]:grid-cols-1 max-[680px]:p-4"
+                        }
+                    >
+                        <label class="form-field grid min-w-0 content-start gap-1.5 text-xs font-semibold text-muted">
                             Template name
                             <input
                                 name="name"
                                 maxlength="240"
                                 required
                                 value={existing()?.name ?? ""}
-                                class={twClasses("", jsxTailwindStyles, "input")}
+                                class="min-h-[35px] w-full min-w-0 rounded-[5px] border border-line bg-surface-subtle px-2.5 text-xs text-ink"
                             />
                         </label>
-                        <label class={twClasses("form-field", jsxTailwindStyles, "label")}>
+                        <label class="form-field grid min-w-0 content-start gap-1.5 text-xs font-semibold text-muted">
                             Subject
                             <input
                                 name="subject"
                                 maxlength="128"
                                 value={existing()?.subject ?? "general"}
-                                class={twClasses("", jsxTailwindStyles, "input")}
+                                class="min-h-[35px] w-full min-w-0 rounded-[5px] border border-line bg-surface-subtle px-2.5 text-xs text-ink"
                             />
                         </label>
-                        <label
-                            class={twClasses(
-                                "form-field guide-template-description-field",
-                                jsxTailwindStyles,
-                                "label",
-                            )}
-                        >
+                        <label class="form-field guide-template-description-field col-span-full grid min-w-0 content-start gap-1.5 text-xs font-semibold text-muted max-[680px]:col-auto">
                             Short description
                             <textarea
                                 name="description"
                                 rows="2"
                                 maxlength="4096"
                                 value={existing()?.description ?? ""}
-                                class={twClasses("", jsxTailwindStyles, "textarea")}
+                                class="min-h-[72px] w-full resize-y rounded-[5px] border border-line bg-surface-subtle px-2.5 py-[9px] text-xs leading-[1.6] text-ink"
                             />
                         </label>
-                        <label
-                            class={twClasses(
-                                "form-field guide-template-sections-field",
-                                jsxTailwindStyles,
-                                "label",
-                            )}
-                        >
+                        <label class="form-field guide-template-sections-field col-span-full grid min-w-0 content-start gap-1.5 text-xs font-semibold text-muted max-[680px]:col-auto">
                             Sections{" "}
-                            <span class={twClasses("form-hint", jsxTailwindStyles, "span")}>
+                            <span class="form-hint text-xs font-normal text-faint">
                                 One heading per line
                             </span>
                             <textarea
@@ -3819,45 +3352,40 @@ function GuideTemplateEditor(props: {
                                     existing()?.sections.join("\n") ??
                                     "Session overview\nKey ideas\nNext steps"
                                 }
-                                class={twClasses("", jsxTailwindStyles, "textarea")}
+                                class="min-h-[72px] w-full resize-y rounded-[5px] border border-line bg-surface-subtle px-2.5 py-[9px] text-xs leading-[1.6] text-ink"
                             />
                         </label>
-                        <label
-                            class={twClasses(
-                                "form-field guide-template-description-field",
-                                jsxTailwindStyles,
-                                "label",
-                            )}
-                        >
+                        <label class="form-field guide-template-description-field col-span-full grid min-w-0 content-start gap-1.5 text-xs font-semibold text-muted max-[680px]:col-auto">
                             Writing guidance{" "}
-                            <span class={twClasses("form-hint", jsxTailwindStyles, "span")}>
-                                Optional
-                            </span>
+                            <span class="form-hint text-xs font-normal text-faint">Optional</span>
                             <textarea
                                 name="body"
                                 rows="4"
                                 maxlength="100000"
                                 value={existing()?.body ?? ""}
-                                class={twClasses("", jsxTailwindStyles, "textarea")}
+                                class="min-h-[72px] w-full resize-y rounded-[5px] border border-line bg-surface-subtle px-2.5 py-[9px] text-xs leading-[1.6] text-ink"
                             />
                         </label>
                     </div>
                     <Show when={error()}>
-                        <p class={twClasses("form-error", jsxTailwindStyles, "p")} role="alert">
+                        <p
+                            class="form-error mx-[25px] mb-3 text-xs text-danger max-[680px]:mx-4"
+                            role="alert"
+                        >
                             {error()}
                         </p>
                     </Show>
-                    <footer class={twClasses("guide-editor-footer", jsxTailwindStyles, "footer")}>
-                        <span class={twClasses("", jsxTailwindStyles, "span")}>
+                    <footer
+                        class={
+                            "guide-editor-footer flex items-center justify-between gap-4 border-t border-line bg-[var(--surface-inset)] px-[25px] py-[13px] max-[680px]:flex-col max-[680px]:items-start max-[680px]:p-4"
+                        }
+                    >
+                        <span class="max-w-[420px] text-xs leading-normal text-muted">
                             Saved in this archive and available on Windows, macOS, Linux, and web.
                         </span>
-                        <div class={twClasses("", jsxTailwindStyles, "div")}>
+                        <div class="flex flex-none gap-[7px] max-[680px]:self-end">
                             <button
-                                class={twClasses(
-                                    "button button-quiet",
-                                    jsxTailwindStyles,
-                                    "button",
-                                )}
+                                class={denseQuiet}
                                 type="button"
                                 disabled={props.busy}
                                 onClick={() => props.onClose()}
@@ -3865,11 +3393,7 @@ function GuideTemplateEditor(props: {
                                 Cancel
                             </button>
                             <button
-                                class={twClasses(
-                                    "button button-primary",
-                                    jsxTailwindStyles,
-                                    "button",
-                                )}
+                                class={densePrimary}
                                 type="submit"
                                 disabled={props.disabled || props.busy}
                             >
@@ -3937,5 +3461,5 @@ function timestampLabel(value: string): string {
     const date = new Date(Number(BigInt(value) / 1000n));
     return Number.isNaN(date.getTime())
         ? "Recently edited"
-        : `Edited ${date.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}`;
+        : `Edited ${date.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}`;
 }
