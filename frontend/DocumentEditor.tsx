@@ -1,5 +1,4 @@
-import { twClasses, twUtilities } from "./tailwind";
-import { jsxTailwindStyles } from "./DocumentEditor.tailwind";
+import { buttonQuiet, cn } from "./ui";
 import {
     For,
     Index,
@@ -554,12 +553,15 @@ export function DocumentEditor(props: {
                     .querySelector("main.note-document");
                 if (!printable) throw new Error("The document could not be prepared for printing.");
                 const preview = document.createElement("div");
-                preview.className = twClasses("note-print-preview", jsxTailwindStyles);
+                preview.className = cn(
+                    "note-print-preview",
+                    "print:[&_blockquote]:border-l-[3px] print:[&_blockquote]:border-l-[#4a6870] print:[&_blockquote]:ml-0 print:[&_blockquote]:pl-px print:[&_blockquote]:whitespace-pre-wrap print:[html.note-printing_&]:text-[#202820] print:[html.note-printing_&]:block print:[html.note-printing_&]:[font:11pt/1.6_sans-serif] hidden",
+                );
                 preview.append(printable.cloneNode(true));
                 document.body.append(preview);
                 document.documentElement.classList.add(
                     "note-printing",
-                    ...twUtilities(jsxTailwindStyles, ["note-printing"]),
+                    "print:[html&:where(.note-printing)_body_>_:not(.note-print-preview)]:hidden!",
                 );
                 const cleanup = (): void => {
                     preview.remove();
@@ -613,10 +615,18 @@ export function DocumentEditor(props: {
             ref={(element) => {
                 editorElement = element;
             }}
-            class={twClasses("document-editor", jsxTailwindStyles, "section")}
+            class={cn(
+                "document-editor",
+                "max-[520px]:p-2 bg-surface-subtle rounded-[5px] border border-line grid gap-[9px] min-w-0 p-2.5",
+            )}
             aria-label="Note document editor"
             onKeyDown={(event) => {
                 if (event.isComposing || !(event.ctrlKey || event.metaKey) || event.altKey) return;
+                if (
+                    event.target instanceof HTMLElement &&
+                    event.target.closest(".document-editor-find")
+                )
+                    return;
                 const key = event.key.toLowerCase();
                 if (key === "f") {
                     event.preventDefault();
@@ -651,24 +661,37 @@ export function DocumentEditor(props: {
                 else undo();
             }}
         >
-            <div class={twClasses("document-editor-toolbar", jsxTailwindStyles, "div")}>
-                <div class={twClasses("document-editor-summary", jsxTailwindStyles, "div")}>
+            <div
+                class={cn(
+                    "document-editor-toolbar",
+                    "max-[520px]:items-start max-[520px]:flex-col items-center border-b border-b-line-soft flex flex-wrap gap-2.5 justify-between pt-px pr-px pb-[7px] pl-px",
+                )}
+            >
+                <div class={cn("document-editor-summary", "items-center flex gap-2")}>
                     <span
-                        class={twClasses("document-editor-mark", jsxTailwindStyles, "span")}
+                        class={cn(
+                            "document-editor-mark",
+                            "bg-[color-mix(in_srgb,_var(--accent)_9%,_var(--surface))] rounded-[5px] border border-[color-mix(in_srgb,_var(--accent)_24%,_var(--line))] text-accent grid text-[18px] h-[27px] leading-[1] place-items-center w-[27px]",
+                        )}
                         aria-hidden="true"
                     >
                         ¶
                     </span>
-                    <div class={twClasses("", jsxTailwindStyles, "div")}>
-                        <strong class={twClasses("", jsxTailwindStyles, "strong")}>Document</strong>
-                        <small class={twClasses("", jsxTailwindStyles, "small")}>
+                    <div class="grid gap-0.5">
+                        <strong class="text-ink-soft text-xs font-[650]">Document</strong>
+                        <small class="text-faint text-xs">
                             {props.blocks.length} {props.blocks.length === 1 ? "block" : "blocks"}
                         </small>
                     </div>
                 </div>
-                <div class={twClasses("document-editor-tools", jsxTailwindStyles, "div")}>
+                <div
+                    class={cn(
+                        "document-editor-tools",
+                        "max-[520px]:ml-0 items-center flex gap-[3px]",
+                    )}
+                >
                     <button
-                        class={twClasses("button button-quiet", jsxTailwindStyles, "button")}
+                        class={cn("button button-quiet", buttonQuiet)}
                         type="button"
                         onClick={openFind}
                         title="Find in notes (Ctrl or Command + F)"
@@ -676,7 +699,7 @@ export function DocumentEditor(props: {
                         Find
                     </button>
                     <button
-                        class={twClasses("button button-quiet", jsxTailwindStyles, "button")}
+                        class={cn("button button-quiet", buttonQuiet)}
                         type="button"
                         onClick={undo}
                         disabled={!canUndo()}
@@ -685,7 +708,7 @@ export function DocumentEditor(props: {
                         Undo
                     </button>
                     <button
-                        class={twClasses("button button-quiet", jsxTailwindStyles, "button")}
+                        class={cn("button button-quiet", buttonQuiet)}
                         type="button"
                         onClick={redo}
                         disabled={!canRedo()}
@@ -693,20 +716,19 @@ export function DocumentEditor(props: {
                     >
                         Redo
                     </button>
-                    <details
-                        class={twClasses("document-export-menu", jsxTailwindStyles, "details")}
-                    >
-                        <summary
-                            class={twClasses("button button-quiet", jsxTailwindStyles, "summary")}
+                    <details class={cn("document-export-menu", "relative")}>
+                        <summary class={cn("button button-quiet", buttonQuiet)}>Export</summary>
+                        <div
+                            class={cn(
+                                "document-export-options",
+                                "bg-surface rounded-[5px] border border-line shadow-none grid min-w-[145px] p-[5px] absolute right-0 top-[100%] z-[2]",
+                            )}
                         >
-                            Export
-                        </summary>
-                        <div class={twClasses("document-export-options", jsxTailwindStyles, "div")}>
                             <button
                                 type="button"
                                 disabled={exporting()}
                                 onClick={() => void exportDocument("markdown")}
-                                class={twClasses("", jsxTailwindStyles, "button")}
+                                class="focus-visible:outline-offset-0.5 focus-visible:outline-3 focus-visible:outline-[color-mix(in_srgb,_var(--accent)_42%,_transparent)] focus-visible:bg-surface-subtle hover:bg-surface-subtle bg-transparent rounded-[5px] border-0 cursor-pointer text-xs p-2 text-left text-inherit disabled:cursor-not-allowed! disabled:opacity-0.56"
                             >
                                 Markdown
                             </button>
@@ -714,7 +736,7 @@ export function DocumentEditor(props: {
                                 type="button"
                                 disabled={exporting()}
                                 onClick={() => void exportDocument("html")}
-                                class={twClasses("", jsxTailwindStyles, "button")}
+                                class="focus-visible:outline-offset-0.5 focus-visible:outline-3 focus-visible:outline-[color-mix(in_srgb,_var(--accent)_42%,_transparent)] focus-visible:bg-surface-subtle hover:bg-surface-subtle bg-transparent rounded-[5px] border-0 cursor-pointer text-xs p-2 text-left text-inherit disabled:cursor-not-allowed! disabled:opacity-0.56"
                             >
                                 HTML
                             </button>
@@ -722,7 +744,7 @@ export function DocumentEditor(props: {
                                 type="button"
                                 disabled={exporting()}
                                 onClick={() => void exportDocument("docx")}
-                                class={twClasses("", jsxTailwindStyles, "button")}
+                                class="focus-visible:outline-offset-0.5 focus-visible:outline-3 focus-visible:outline-[color-mix(in_srgb,_var(--accent)_42%,_transparent)] focus-visible:bg-surface-subtle hover:bg-surface-subtle bg-transparent rounded-[5px] border-0 cursor-pointer text-xs p-2 text-left text-inherit disabled:cursor-not-allowed! disabled:opacity-0.56"
                             >
                                 Word document
                             </button>
@@ -730,16 +752,21 @@ export function DocumentEditor(props: {
                                 type="button"
                                 disabled={exporting()}
                                 onClick={() => void exportDocument("pdf")}
-                                class={twClasses("", jsxTailwindStyles, "button")}
+                                class="focus-visible:outline-offset-0.5 focus-visible:outline-3 focus-visible:outline-[color-mix(in_srgb,_var(--accent)_42%,_transparent)] focus-visible:bg-surface-subtle hover:bg-surface-subtle bg-transparent rounded-[5px] border-0 cursor-pointer text-xs p-2 text-left text-inherit disabled:cursor-not-allowed! disabled:opacity-0.56"
                             >
                                 PDF / Print
                             </button>
                         </div>
                     </details>
                 </div>
-                <div class={twClasses("document-editor-add", jsxTailwindStyles, "div")}>
+                <div
+                    class={cn(
+                        "document-editor-add",
+                        "max-[520px]:w-full items-center flex gap-1.5",
+                    )}
+                >
                     <label
-                        class={twClasses("sr-only", jsxTailwindStyles, "label")}
+                        class={cn("sr-only", "[clip-path:inset(50%)]")}
                         for={`new-block-kind-${props.label.replace(/\W+/gu, "-").toLowerCase()}`}
                     >
                         New block type
@@ -750,17 +777,16 @@ export function DocumentEditor(props: {
                         onChange={(event) =>
                             setNextKind(event.currentTarget.value as JournalNoteBlockKind)
                         }
-                        class={twClasses("", jsxTailwindStyles, "select")}
+                        class="focus-visible:outline-offset-0.5 focus-visible:outline-3 focus-visible:outline-[color-mix(in_srgb,_var(--accent)_42%,_transparent)] bg-surface rounded-[5px] border border-line text-ink-soft text-xs h-[29px] max-w-[180px] min-w-0 pt-0 pr-[23px] pb-0 pl-2 max-[520px]:flex-1 max-[520px]:max-w-none"
                     >
                         <For each={JOURNAL_NOTE_BLOCK_KINDS}>
                             {(kind) => <option value={kind}>{blockLabels[kind]}</option>}
                         </For>
                     </select>
                     <button
-                        class={twClasses(
+                        class={cn(
                             "button button-outline document-editor-add-button",
-                            jsxTailwindStyles,
-                            "button",
+                            "active:translate-y-px items-center rounded-[7px] border border-transparent cursor-pointer inline-flex font-semibold gap-2 justify-center no-underline transition-colors whitespace-nowrap hover:bg-surface-inset hover:border-line-strong bg-surface border-line-strong text-xs min-h-[29px] py-0 px-2.5 focus-visible:outline-offset-0.5 focus-visible:outline-3 focus-visible:outline-[color-mix(in_srgb,_var(--accent)_42%,_transparent)] text-inherit disabled:cursor-not-allowed! disabled:opacity-0.56",
                         )}
                         type="button"
                         disabled={props.blocks.length >= MAX_JOURNAL_NOTE_BLOCKS}
@@ -772,12 +798,15 @@ export function DocumentEditor(props: {
             </div>
 
             <div
-                class={twClasses("document-editor-formatting", jsxTailwindStyles, "div")}
+                class={cn(
+                    "document-editor-formatting",
+                    "items-center flex flex-wrap gap-2 py-0 px-px",
+                )}
                 role="group"
                 aria-label="Format selected note text"
             >
-                <span class={twClasses("", jsxTailwindStyles, "span")}>Format selection</span>
-                <div class={twClasses("", jsxTailwindStyles, "div")}>
+                <span class="text-faint text-xs">Format selection</span>
+                <div class="items-center flex flex-wrap gap-1">
                     <For each={inlineFormatting}>
                         {(item) => {
                             const shortcut = item.key
@@ -797,15 +826,11 @@ export function DocumentEditor(props: {
                                     title={shortcut ? `${item.label} (${shortcut})` : item.label}
                                     onMouseDown={(event) => event.preventDefault()}
                                     onClick={() => applyInlineFormat(item.format)}
-                                    class={twClasses("", jsxTailwindStyles, "button")}
+                                    class="focus-visible:outline-offset-0.5 focus-visible:outline-3 focus-visible:outline-[color-mix(in_srgb,_var(--accent)_42%,_transparent)] disabled:text-faint focus-visible:bg-surface-subtle focus-visible:border-[color-mix(in_srgb,_var(--accent)_42%,_var(--line))] hover:bg-surface-subtle hover:border-[color-mix(in_srgb,_var(--accent)_42%,_var(--line))] items-center bg-surface rounded-[5px] border border-line-soft cursor-pointer inline-flex text-xs gap-1.5 min-h-[27px] py-[3px] px-[7px] text-inherit disabled:cursor-not-allowed! disabled:opacity-0.56"
                                 >
-                                    <span class={twClasses("", jsxTailwindStyles, "span")}>
-                                        {item.label}
-                                    </span>
+                                    <span class="text-faint text-xs">{item.label}</span>
                                     <Show when={shortcut}>
-                                        <kbd class={twClasses("", jsxTailwindStyles, "kbd")}>
-                                            {shortcut}
-                                        </kbd>
+                                        <kbd class="text-faint text-xs">{shortcut}</kbd>
                                     </Show>
                                 </button>
                             );
@@ -816,11 +841,14 @@ export function DocumentEditor(props: {
 
             <Show when={finding()}>
                 <div
-                    class={twClasses("document-find", jsxTailwindStyles, "div")}
+                    class={cn(
+                        "document-find",
+                        "document-editor-find items-end bg-surface-subtle border-b border-b-line flex flex-wrap gap-[0.5rem] p-[0.75rem]",
+                    )}
                     role="search"
                     aria-label="Find and replace in notes"
                 >
-                    <label class={twClasses("", jsxTailwindStyles, "label")}>
+                    <label class="text-muted grid flex-[1_1_10rem] text-[0.75rem] gap-[0.25rem]">
                         Find
                         <input
                             ref={(element) => (findInput = element)}
@@ -829,25 +857,25 @@ export function DocumentEditor(props: {
                                 setQuery(event.currentTarget.value);
                                 setMatchIndex(-1);
                             }}
-                            class={twClasses("", jsxTailwindStyles, "input")}
+                            class="focus-visible:outline-offset-0.5 focus-visible:outline-3 focus-visible:outline-[color-mix(in_srgb,_var(--accent)_42%,_transparent)] bg-surface rounded-[5px] border border-line-strong text-ink min-w-0 py-[0.4rem] px-[0.5rem]"
                         />
                     </label>
-                    <label class={twClasses("", jsxTailwindStyles, "label")}>
+                    <label class="text-muted grid flex-[1_1_10rem] text-[0.75rem] gap-[0.25rem]">
                         Replace with
                         <input
                             value={replacement()}
                             onInput={(event) => setReplacement(event.currentTarget.value)}
-                            class={twClasses("", jsxTailwindStyles, "input")}
+                            class="focus-visible:outline-offset-0.5 focus-visible:outline-3 focus-visible:outline-[color-mix(in_srgb,_var(--accent)_42%,_transparent)] bg-surface rounded-[5px] border border-line-strong text-ink min-w-0 py-[0.4rem] px-[0.5rem]"
                         />
                     </label>
-                    <span aria-live="polite" class={twClasses("", jsxTailwindStyles, "span")}>
+                    <span aria-live="polite">
                         {matches().length} {matches().length === 1 ? "match" : "matches"}
                     </span>
                     <button
                         type="button"
                         disabled={!matches().length}
                         onClick={() => selectMatch(matchIndex() - 1)}
-                        class={twClasses("", jsxTailwindStyles, "button")}
+                        class="focus-visible:outline-offset-0.5 focus-visible:outline-3 focus-visible:outline-[color-mix(in_srgb,_var(--accent)_42%,_transparent)] bg-surface rounded-[5px] border border-line py-[0.4rem] px-[0.6rem] text-inherit disabled:cursor-not-allowed! disabled:opacity-0.56"
                     >
                         Previous
                     </button>
@@ -855,7 +883,7 @@ export function DocumentEditor(props: {
                         type="button"
                         disabled={!matches().length}
                         onClick={() => selectMatch(matchIndex() + 1)}
-                        class={twClasses("", jsxTailwindStyles, "button")}
+                        class="focus-visible:outline-offset-0.5 focus-visible:outline-3 focus-visible:outline-[color-mix(in_srgb,_var(--accent)_42%,_transparent)] bg-surface rounded-[5px] border border-line py-[0.4rem] px-[0.6rem] text-inherit disabled:cursor-not-allowed! disabled:opacity-0.56"
                     >
                         Next
                     </button>
@@ -863,7 +891,7 @@ export function DocumentEditor(props: {
                         type="button"
                         disabled={!matches().length}
                         onClick={replaceMatch}
-                        class={twClasses("", jsxTailwindStyles, "button")}
+                        class="focus-visible:outline-offset-0.5 focus-visible:outline-3 focus-visible:outline-[color-mix(in_srgb,_var(--accent)_42%,_transparent)] bg-surface rounded-[5px] border border-line py-[0.4rem] px-[0.6rem] text-inherit disabled:cursor-not-allowed! disabled:opacity-0.56"
                     >
                         Replace
                     </button>
@@ -871,7 +899,7 @@ export function DocumentEditor(props: {
                         type="button"
                         disabled={!matches().length}
                         onClick={replaceAll}
-                        class={twClasses("", jsxTailwindStyles, "button")}
+                        class="focus-visible:outline-offset-0.5 focus-visible:outline-3 focus-visible:outline-[color-mix(in_srgb,_var(--accent)_42%,_transparent)] bg-surface rounded-[5px] border border-line py-[0.4rem] px-[0.6rem] text-inherit disabled:cursor-not-allowed! disabled:opacity-0.56"
                     >
                         Replace all
                     </button>
@@ -879,25 +907,30 @@ export function DocumentEditor(props: {
                         type="button"
                         onClick={() => setFinding(false)}
                         aria-label="Close find and replace"
-                        class={twClasses("", jsxTailwindStyles, "button")}
+                        class="focus-visible:outline-offset-0.5 focus-visible:outline-3 focus-visible:outline-[color-mix(in_srgb,_var(--accent)_42%,_transparent)] bg-surface rounded-[5px] border border-line py-[0.4rem] px-[0.6rem] text-inherit disabled:cursor-not-allowed! disabled:opacity-0.56"
                     >
                         Close
                     </button>
                 </div>
             </Show>
 
-            <div class={twClasses("document-editor-pages", jsxTailwindStyles, "div")}>
+            <div class={cn("document-editor-pages", "grid gap-[7px] min-w-0")}>
                 <Show
                     when={props.blocks.length > 0}
                     fallback={
-                        <div class={twClasses("document-editor-empty", jsxTailwindStyles, "div")}>
+                        <div
+                            class={cn(
+                                "document-editor-empty",
+                                "items-center bg-[color-mix(in_srgb,_var(--surface)_65%,_transparent)] rounded-[5px] border border-dashed border-line text-muted flex gap-[9px] min-h-[74px] p-3",
+                            )}
+                        >
                             <span
                                 aria-hidden="true"
-                                class={twClasses("", jsxTailwindStyles, "span")}
+                                class="bg-surface rounded-full text-accent grid text-[15px] h-[25px] place-items-center w-[25px]"
                             >
                                 ＋
                             </span>
-                            <p class={twClasses("", jsxTailwindStyles, "p")}>
+                            <p class="text-faint text-xs leading-[1.5] m-0">
                                 Your document is clear. Add a block when you are ready to begin.
                             </p>
                         </div>
@@ -906,27 +939,28 @@ export function DocumentEditor(props: {
                     <Index each={props.blocks}>
                         {(block, index) => (
                             <article
-                                class={twClasses("document-block", jsxTailwindStyles, "article")}
+                                class={cn(
+                                    "document-block",
+                                    "focus-within:border-[color-mix(in_srgb,_var(--accent)_50%,_var(--line))] focus-within:shadow-none bg-surface rounded-[5px] border border-line-soft min-w-0 overflow-hidden transition-colors",
+                                )}
                                 data-kind={block().kind}
                             >
                                 <div
-                                    class={twClasses(
+                                    class={cn(
                                         "document-block-heading",
-                                        jsxTailwindStyles,
-                                        "div",
+                                        "items-center bg-[color-mix(in_srgb,_var(--surface-subtle)_68%,_var(--surface))] border-b border-b-line-soft flex gap-[7px] min-h-[34px] pt-1 pr-1.5 pb-1 pl-[9px]",
                                     )}
                                 >
                                     <span
-                                        class={twClasses(
+                                        class={cn(
                                             "document-block-number",
-                                            jsxTailwindStyles,
-                                            "span",
+                                            "text-faint flex-none text-xs tabular-nums tracking-[0.06em] w-[22px]",
                                         )}
                                     >
                                         {String(index + 1).padStart(2, "0")}
                                     </span>
                                     <label
-                                        class={twClasses("sr-only", jsxTailwindStyles, "label")}
+                                        class={cn("sr-only", "[clip-path:inset(50%)]")}
                                         for={editorId(index)}
                                     >
                                         Block {index + 1} type
@@ -940,7 +974,7 @@ export function DocumentEditor(props: {
                                                     .value as JournalNoteBlockKind,
                                             })
                                         }
-                                        class={twClasses("", jsxTailwindStyles, "select")}
+                                        class="focus-visible:outline-offset-0.5 focus-visible:outline-3 focus-visible:outline-[color-mix(in_srgb,_var(--accent)_42%,_transparent)] bg-surface border-transparent rounded-[5px] border border-line text-ink-soft text-xs h-[29px] max-w-[180px] min-w-0 pl-[7px] pt-0 pr-[23px] pb-0 pl-2"
                                     >
                                         <For each={JOURNAL_NOTE_BLOCK_KINDS}>
                                             {(kind) => (
@@ -949,10 +983,9 @@ export function DocumentEditor(props: {
                                         </For>
                                     </select>
                                     <div
-                                        class={twClasses(
+                                        class={cn(
                                             "document-block-actions",
-                                            jsxTailwindStyles,
-                                            "div",
+                                            "items-center flex gap-0.5",
                                         )}
                                     >
                                         <button
@@ -962,7 +995,7 @@ export function DocumentEditor(props: {
                                                 props.blocks.length >= MAX_JOURNAL_NOTE_BLOCKS
                                             }
                                             onClick={() => splitBlock(index)}
-                                            class={twClasses("", jsxTailwindStyles, "button")}
+                                            class="focus-visible:outline-offset-0.5 focus-visible:outline-3 focus-visible:outline-[color-mix(in_srgb,_var(--accent)_42%,_transparent)] disabled:text-line-strong focus-visible:bg-surface focus-visible:text-ink hover:bg-surface hover:text-ink bg-transparent rounded-[5px] border-0 cursor-pointer grid text-xs h-[24px] p-0 place-items-center w-[24px] text-inherit disabled:cursor-not-allowed! disabled:opacity-0.56"
                                         >
                                             Split
                                         </button>
@@ -974,7 +1007,7 @@ export function DocumentEditor(props: {
                                                 block().kind !== props.blocks[index + 1]?.kind
                                             }
                                             onClick={() => mergeNextBlock(index)}
-                                            class={twClasses("", jsxTailwindStyles, "button")}
+                                            class="focus-visible:outline-offset-0.5 focus-visible:outline-3 focus-visible:outline-[color-mix(in_srgb,_var(--accent)_42%,_transparent)] disabled:text-line-strong focus-visible:bg-surface focus-visible:text-ink hover:bg-surface hover:text-ink bg-transparent rounded-[5px] border-0 cursor-pointer grid text-xs h-[24px] p-0 place-items-center w-[24px] text-inherit disabled:cursor-not-allowed! disabled:opacity-0.56"
                                         >
                                             Merge
                                         </button>
@@ -983,7 +1016,7 @@ export function DocumentEditor(props: {
                                             aria-label={`Move block ${index + 1} up`}
                                             disabled={index === 0}
                                             onClick={() => moveBlock(index, -1)}
-                                            class={twClasses("", jsxTailwindStyles, "button")}
+                                            class="focus-visible:outline-offset-0.5 focus-visible:outline-3 focus-visible:outline-[color-mix(in_srgb,_var(--accent)_42%,_transparent)] disabled:text-line-strong focus-visible:bg-surface focus-visible:text-ink hover:bg-surface hover:text-ink bg-transparent rounded-[5px] border-0 cursor-pointer grid text-xs h-[24px] p-0 place-items-center w-[24px] text-inherit disabled:cursor-not-allowed! disabled:opacity-0.56"
                                         >
                                             ↑
                                         </button>
@@ -992,15 +1025,14 @@ export function DocumentEditor(props: {
                                             aria-label={`Move block ${index + 1} down`}
                                             disabled={index === props.blocks.length - 1}
                                             onClick={() => moveBlock(index, 1)}
-                                            class={twClasses("", jsxTailwindStyles, "button")}
+                                            class="focus-visible:outline-offset-0.5 focus-visible:outline-3 focus-visible:outline-[color-mix(in_srgb,_var(--accent)_42%,_transparent)] disabled:text-line-strong focus-visible:bg-surface focus-visible:text-ink hover:bg-surface hover:text-ink bg-transparent rounded-[5px] border-0 cursor-pointer grid text-xs h-[24px] p-0 place-items-center w-[24px] text-inherit disabled:cursor-not-allowed! disabled:opacity-0.56"
                                         >
                                             ↓
                                         </button>
                                         <button
-                                            class={twClasses(
+                                            class={cn(
                                                 "document-block-remove",
-                                                jsxTailwindStyles,
-                                                "button",
+                                                "hover:text-[var(--danger,_#a85343)] focus-visible:outline-offset-0.5 focus-visible:outline-3 focus-visible:outline-[color-mix(in_srgb,_var(--accent)_42%,_transparent)] disabled:text-line-strong focus-visible:bg-surface focus-visible:text-ink hover:bg-surface hover:text-ink bg-transparent rounded-[5px] border-0 cursor-pointer grid text-xs h-[24px] p-0 place-items-center w-[24px] text-inherit disabled:cursor-not-allowed! disabled:opacity-0.56",
                                             )}
                                             type="button"
                                             aria-label={`Remove block ${index + 1}`}
@@ -1029,7 +1061,7 @@ export function DocumentEditor(props: {
                                     onBlur={() => {
                                         history.breakGroup();
                                     }}
-                                    class={twClasses("", jsxTailwindStyles, "textarea")}
+                                    class="focus-visible:outline-offset-0.5 [.document-block[data-kind$='list']_&]:bg-none [.document-block[data-kind$='list']_&]:bg-[position:11px_15px] [.document-block[data-kind$='list']_&]:bg-repeat-y [.document-block[data-kind$='list']_&]:bg-[size:1px_1.75em] [.document-block[data-kind$='list']_&]:pl-[19px] [.document-block[data-kind='checklist']_&]:bg-none [.document-block[data-kind='checklist']_&]:bg-[position:11px_15px] [.document-block[data-kind='checklist']_&]:bg-repeat-y [.document-block[data-kind='checklist']_&]:bg-[size:1px_1.75em] [.document-block[data-kind='checklist']_&]:pl-[19px] [.document-block[data-kind='code']_&]:bg-[color-mix(in_srgb,_var(--surface-subtle)_76%,_var(--surface))] [.document-block[data-kind='code']_&]:text-ink-soft [.document-block[data-kind='code']_&]:text-xs [.document-block[data-kind='code']_&]:tab-[2] [.document-block[data-kind='heading']_&]:text-ink [.document-block[data-kind='heading']_&]:text-sm [.document-block[data-kind='heading']_&]:font-[650] [.document-block[data-kind='heading']_&]:tracking-[-0.02em] [.document-block[data-kind='heading']_&]:min-h-14 [.document-block[data-kind='quote']_&]:border-l-[3px] [.document-block[data-kind='quote']_&]:border-l-[color-mix(in_srgb,_var(--accent)_48%,_var(--line))] [.document-block[data-kind='quote']_&]:text-muted [.document-block[data-kind='quote']_&]:text-xs [.document-block[data-kind='quote']_&]:italic focus-visible:outline-none bg-transparent rounded-[5px] border-0 text-ink-soft block text-xs leading-[1.75] min-h-[78px] outline-none pt-[11px] pr-[13px] pb-3 pl-[15px] resize-y w-full"
                                 />
                             </article>
                         )}
@@ -1037,11 +1069,16 @@ export function DocumentEditor(props: {
                 </Show>
             </div>
             <Show when={exportError()}>
-                <p class={twClasses("document-editor-error", jsxTailwindStyles, "p")} role="alert">
+                <p class={cn("document-editor-error", "text-danger text-xs m-0")} role="alert">
                     {exportError()}
                 </p>
             </Show>
-            <p class={twClasses("document-editor-footnote", jsxTailwindStyles, "p")}>
+            <p
+                class={cn(
+                    "document-editor-footnote",
+                    "text-faint text-xs leading-[1.5] m-0 py-0 px-0.5",
+                )}
+            >
                 Changes save with this record and stay inside your workspace.
             </p>
         </section>
