@@ -254,7 +254,7 @@ export async function prepareStreamingAssetBatchImport(
     if (selected.length === 0) throw new Error("Choose at least one material to import.");
     if (selected.length > MAX_ASSET_BATCH_FILES) {
         throw new Error(
-            `Folder imports are limited to ${MAX_ASSET_BATCH_FILES.toLocaleString()} files.`,
+            `Folder imports are limited to ${MAX_ASSET_BATCH_FILES.toLocaleString("en-US")} files.`,
         );
     }
 
