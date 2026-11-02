@@ -45,9 +45,10 @@ pub(crate) fn mutate_staged_assets(
     records: Vec<ArchiveRecord>,
 ) -> CliResult<Vec<ArchiveRecord>> {
     let mut staging = MemoryStaging { bytes: Vec::new() };
+    let expected = snapshot.source.read(0, snapshot.source.size() as usize)?;
     let next = crate::core::archive::append_staged_asset_records(snapshot, records, &mut staging)?;
     let bytes = next.source.read(0, next.source.size() as usize)?;
-    crate::core::cli::archive::save::save_bytes(path, &bytes)?;
+    crate::core::cli::archive::save::replace_existing(path, &expected, &bytes)?;
     let mut saved = Vec::new();
     for key in next.all_index_entries().keys() {
         if key.matches(':').count() != 1 {
