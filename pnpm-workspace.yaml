@@ -4,3 +4,6 @@ allowBuilds:
 minimumReleaseAgeExclude:
   - vite-plugin-solid@2.11.15
   - solid-js@1.9.18
+overrides:
+  simple-git: ^4.0.1
+  "@simple-git/argv-parser": ^2.0.1
