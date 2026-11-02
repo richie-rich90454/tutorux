@@ -1,5 +1,5 @@
 use crate::archive_lock::{ArchiveLockRegistry, SharedArchiveLock};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use sha2::Sha256;
 use std::{
     collections::{HashMap, VecDeque},
@@ -30,6 +30,14 @@ pub(crate) struct DesktopState {
     pub(crate) pending_open: Mutex<VecDeque<PathBuf>>,
 }
 
+#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub(crate) enum SaveKind {
+    #[default]
+    Archive,
+    Export,
+}
+
 #[derive(Clone)]
 pub(crate) struct PendingSave {
     pub(crate) target: PathBuf,
@@ -38,6 +46,7 @@ pub(crate) struct PendingSave {
     pub(crate) temporary: PathBuf,
     pub(crate) source_archive_token: Option<String>,
     pub(crate) create_only: bool,
+    pub(crate) kind: SaveKind,
 }
 
 #[derive(Serialize)]
