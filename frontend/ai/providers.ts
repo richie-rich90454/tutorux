@@ -547,6 +547,23 @@ export function validateProviderEndpoint(value: string, provider: AiProviderDefi
     } else if (parsed.protocol !== "https:") {
         throw new Error("Cloud provider endpoints must use HTTPS.");
     }
+    if (!provider.local && provider.id !== "openai-compatible") {
+        const host = parsed.hostname.toLowerCase();
+        const defaultHost = provider.defaultEndpoint
+            ? new URL(provider.defaultEndpoint).hostname.toLowerCase()
+            : "";
+        const allowed =
+            provider.id === "azure-openai"
+                ? host.endsWith(".openai.azure.com")
+                : provider.id === "bedrock"
+                  ? host.endsWith(".api.aws")
+                  : provider.id === "cloudflare-workers-ai"
+                    ? host === "api.cloudflare.com"
+                    : host === defaultHost;
+        if (!allowed) {
+            throw new Error(`${provider.name} requests must use its official endpoint.`);
+        }
+    }
     return endpoint.replace(/\/$/u, "");
 }
 
@@ -560,7 +577,7 @@ function cleanField(
     const cleaned = value.trim();
     if (!allowEmpty && !cleaned) throw new Error(`${label} is required.`);
     if (new TextEncoder().encode(cleaned).byteLength > maximumBytes) {
-        throw new Error(`${label} must be ${maximumBytes.toLocaleString()} bytes or fewer.`);
+        throw new Error(`${label} must be ${maximumBytes.toLocaleString("en-US")} bytes or fewer.`);
     }
     return cleaned;
 }
