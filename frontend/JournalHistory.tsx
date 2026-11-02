@@ -1,5 +1,4 @@
-import { twClasses } from "./tailwind";
-import { jsxTailwindStyles } from "./JournalHistory.tailwind";
+import { buttonOutline, buttonQuiet, cn } from "./ui";
 import { createSignal, For, Show, type JSX } from "solid-js";
 import type { ArchiveSnapshot } from "./archive/archive";
 import { RecordType, type ArchiveRecord } from "./archive/format";
@@ -10,7 +9,7 @@ function date(value: string): string {
     try {
         const ms = Number(BigInt(value || "0") / 1000n);
         return ms > 0
-            ? new Intl.DateTimeFormat(undefined, {
+            ? new Intl.DateTimeFormat("en-US", {
                   dateStyle: "medium",
                   timeStyle: "short",
               }).format(new Date(ms))
@@ -117,67 +116,51 @@ export function JournalHistory(props: {
         }
     }
     return (
-        <section class={twClasses("journal-history", jsxTailwindStyles, "section")}>
+        <section class={cn("journal-history", "mt-3")}>
             <button
                 type="button"
-                class={twClasses("button button-quiet record-action", jsxTailwindStyles, "button")}
+                class={cn("button record-action", buttonQuiet)}
                 aria-expanded={open()}
                 onClick={() => void toggle()}
             >
                 {open() ? "Hide history" : "View history"}
             </button>
             <Show when={open()}>
-                <div class={twClasses("journal-history-content", jsxTailwindStyles, "div")}>
+                <div class="mt-2.5 grid gap-2.5 rounded-[5px] border border-line bg-surface-subtle p-3.5">
                     <Show when={loading()}>
-                        <p class={twClasses("", jsxTailwindStyles, "p")}>Loading versions…</p>
+                        <p class="m-0 text-xs text-muted">Loading versions…</p>
                     </Show>
                     <Show when={error()}>
-                        <p role="alert" class={twClasses("", jsxTailwindStyles, "p")}>
+                        <p role="alert" class="m-0 text-xs text-muted">
                             {error()}
                         </p>
                     </Show>
                     <Show when={!loading()}>
-                        <h3 class={twClasses("", jsxTailwindStyles, "h3")}>Entry details</h3>
-                        <p class={twClasses("", jsxTailwindStyles, "p")}>
+                        <h3 class="m-0 text-sm font-semibold text-ink">Entry details</h3>
+                        <p class="m-0 text-xs text-muted">
                             Restoring details changes the title and date and keeps current links.
                         </p>
                         <Show
                             when={entries().length > 1}
                             fallback={
-                                <p class={twClasses("", jsxTailwindStyles, "p")}>
-                                    No earlier entry versions.
-                                </p>
+                                <p class="m-0 text-xs text-muted">No earlier entry versions.</p>
                             }
                         >
                             <For each={entries().slice(1)}>
                                 {(revision) => (
-                                    <article
-                                        class={twClasses(
-                                            "journal-history-version",
-                                            jsxTailwindStyles,
-                                            "article",
-                                        )}
-                                    >
-                                        <div class={twClasses("", jsxTailwindStyles, "div")}>
-                                            <strong
-                                                class={twClasses("", jsxTailwindStyles, "strong")}
-                                            >
+                                    <article class="journal-history-version flex items-start justify-between gap-3 border-t border-line pt-2.5">
+                                        <div class="grid min-w-0 gap-1">
+                                            <strong class="font-semibold text-ink">
                                                 {field(revision, "title") || "Untitled entry"}
                                             </strong>
-                                            <small
-                                                class={twClasses("", jsxTailwindStyles, "small")}
-                                            >
+                                            <small class="text-xs text-muted">
                                                 {field(revision, "entry_date")} ·{" "}
                                                 {date(field(revision, "updated_at_us"))}
                                             </small>
                                         </div>
                                         <button
                                             type="button"
-                                            class={twClasses(
-                                                "button button-outline record-action",
-                                                jsxTailwindStyles,
-                                                "button",
-                                            )}
+                                            class={cn("button record-action", buttonOutline)}
                                             disabled={
                                                 props.disabled ||
                                                 field(revision, "_deleted") === "true"
@@ -190,13 +173,11 @@ export function JournalHistory(props: {
                                 )}
                             </For>
                         </Show>
-                        <h3 class={twClasses("", jsxTailwindStyles, "h3")}>Notes</h3>
+                        <h3 class="m-0 text-sm font-semibold text-ink">Notes</h3>
                         <Show
                             when={notes().length > 1}
                             fallback={
-                                <p class={twClasses("", jsxTailwindStyles, "p")}>
-                                    No earlier notes versions.
-                                </p>
+                                <p class="m-0 text-xs text-muted">No earlier notes versions.</p>
                             }
                         >
                             <For each={notes().slice(1)}>
@@ -206,33 +187,15 @@ export function JournalHistory(props: {
                                         sessionId: "",
                                     });
                                     return (
-                                        <article
-                                            class={twClasses(
-                                                "journal-history-version",
-                                                jsxTailwindStyles,
-                                                "article",
-                                            )}
-                                        >
-                                            <div class={twClasses("", jsxTailwindStyles, "div")}>
-                                                <strong
-                                                    class={twClasses(
-                                                        "",
-                                                        jsxTailwindStyles,
-                                                        "strong",
-                                                    )}
-                                                >
+                                        <article class="journal-history-version flex items-start justify-between gap-3 border-t border-line pt-2.5">
+                                            <div class="grid min-w-0 gap-1">
+                                                <strong class="font-semibold text-ink">
                                                     Version {revision.revision.toString()}
                                                 </strong>
-                                                <small
-                                                    class={twClasses(
-                                                        "",
-                                                        jsxTailwindStyles,
-                                                        "small",
-                                                    )}
-                                                >
+                                                <small class="text-xs text-muted">
                                                     {date(field(revision, "updated_at_us"))}
                                                 </small>
-                                                <p class={twClasses("", jsxTailwindStyles, "p")}>
+                                                <p class="m-0 max-h-48 overflow-auto whitespace-pre-wrap wrap-anywhere text-xs leading-relaxed text-muted">
                                                     {state.editable
                                                         ? state.blocks
                                                               .map((block) => block.text)
@@ -242,11 +205,7 @@ export function JournalHistory(props: {
                                             </div>
                                             <button
                                                 type="button"
-                                                class={twClasses(
-                                                    "button button-outline record-action",
-                                                    jsxTailwindStyles,
-                                                    "button",
-                                                )}
+                                                class={cn("button record-action", buttonOutline)}
                                                 disabled={
                                                     props.disabled ||
                                                     field(revision, "_deleted") === "true"
