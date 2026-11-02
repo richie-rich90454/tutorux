@@ -217,28 +217,6 @@ pub fn run_diagnostics_command(
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::audio_rows;
-    use serde_json::Value;
-
-    #[test]
-    fn audio_rows_report_stable_probe_metadata() {
-        for row in audio_rows() {
-            assert!(row.get("device_id").is_some());
-            assert!(row.get("name").is_some());
-            assert!(matches!(
-                row.get("kind").and_then(Value::as_str),
-                Some("microphone" | "application" | "playback")
-            ));
-            assert!(matches!(
-                row.get("probe_state").and_then(Value::as_str),
-                Some("ready" | "unsupported")
-            ));
-        }
-    }
-}
-
 pub(crate) fn audio_rows() -> Vec<Value> {
     let Ok(devices) = crate::platform::synchronized_audio::headless::enumerate_devices() else {
         return Vec::new();
@@ -289,4 +267,26 @@ pub(crate) fn audio_rows() -> Vec<Value> {
             row
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::audio_rows;
+    use serde_json::Value;
+
+    #[test]
+    fn audio_rows_report_stable_probe_metadata() {
+        for row in audio_rows() {
+            assert!(row.get("device_id").is_some());
+            assert!(row.get("name").is_some());
+            assert!(matches!(
+                row.get("kind").and_then(Value::as_str),
+                Some("microphone" | "application" | "playback")
+            ));
+            assert!(matches!(
+                row.get("probe_state").and_then(Value::as_str),
+                Some("ready" | "unsupported")
+            ));
+        }
+    }
 }
