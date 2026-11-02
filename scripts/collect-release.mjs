@@ -7,7 +7,58 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const bundleDirectory = resolve(root, "src-tauri", "target", "release", "bundle");
 const targetDirectory = resolve(root, "src-tauri", "target", "release");
 const releaseDirectory = resolve(root, "release");
-const appVersion = JSON.parse(await readFile(join(root, "package.json"), "utf8")).version;
+const packageJsonPath = join(root, "package.json");
+const tauriConfigPath = join(root, "src-tauri", "tauri.conf.json");
+const cargoManifestPath = join(root, "src-tauri", "Cargo.toml");
+
+const argumentsList = process.argv.slice(2);
+if (argumentsList.includes("--help")) {
+    process.stdout.write(
+        [
+            "Usage: node scripts/collect-release.mjs [--check-versions]",
+            "",
+            "Copies built desktop bundles into release/ using the version from",
+            "src-tauri/tauri.conf.json (falling back to package.json).",
+            "--check-versions verifies that package.json, src-tauri/Cargo.toml,",
+            "and src-tauri/tauri.conf.json declare the same version.",
+            "",
+        ].join("\n"),
+    );
+    process.exit(0);
+}
+
+const packageJson = JSON.parse(await readFile(packageJsonPath, "utf8"));
+let tauriConfig;
+try {
+    tauriConfig = JSON.parse(await readFile(tauriConfigPath, "utf8"));
+} catch (error) {
+    if (error.code !== "ENOENT") throw error;
+}
+
+const cargoManifest = await readFile(cargoManifestPath, "utf8");
+const cargoPackage = cargoManifest.split(/^\[/mu).find((section) => section.startsWith("package]"));
+const cargoVersion = cargoPackage?.match(/^version\s*=\s*"([^"]+)"/mu)?.[1];
+
+if (argumentsList.includes("--check-versions")) {
+    const versions = {
+        "package.json": packageJson.version,
+        "src-tauri/Cargo.toml": cargoVersion,
+        "src-tauri/tauri.conf.json": tauriConfig?.version,
+    };
+    const declared = new Set(Object.values(versions));
+    if (Object.values(versions).some((version) => !version) || declared.size !== 1) {
+        console.error(`Version mismatch: ${JSON.stringify(versions, null, 2)}`);
+        process.exit(1);
+    }
+    console.log(`All manifests declare version ${packageJson.version}.`);
+    process.exit(0);
+}
+
+const appVersion = tauriConfig?.version || packageJson.version;
+if (!appVersion) {
+    console.error("No application version found in src-tauri/tauri.conf.json or package.json.");
+    process.exit(1);
+}
 
 if (!existsSync(bundleDirectory)) {
     console.error("No desktop bundle found. Run `pnpm run desktop:build` first.");
