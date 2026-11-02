@@ -232,8 +232,8 @@ async function persistRecovery(
 
     const durationUs = samplesToMicroseconds(summary.samples, summary.sampleRate);
     const message = completed
-        ? `Verified ${summary.chunks.toLocaleString()} audio chunks and marked the WAV import complete.`
-        : `Preserved ${summary.chunks.toLocaleString()} verified audio chunks as an interrupted import${failureReason ? `: ${failureReason}` : "."}`;
+        ? `Verified ${summary.chunks.toLocaleString("en-US")} audio chunks and marked the WAV import complete.`
+        : `Preserved ${summary.chunks.toLocaleString("en-US")} verified audio chunks as an interrupted import${failureReason ? `: ${failureReason}` : "."}`;
     return {
         records,
         completed,
