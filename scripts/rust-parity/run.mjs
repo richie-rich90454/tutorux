@@ -15,14 +15,7 @@ import { constants as fsConstants, readFileSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import {
-    firstDifference,
-    matchShape,
-    matchSubset,
-    normalizeSemantic,
-    normalizeText,
-    sortJsonPaths,
-} from "./normalize.mjs";
+import { matchShape, matchSubset, normalizeText } from "./normalize.mjs";
 
 const scriptDirectory = dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = resolve(scriptDirectory, "..", "..");
@@ -30,8 +23,6 @@ const corpusDirectory = join(repositoryRoot, "tests", "rust-parity");
 const corpusPartsDirectory = join(corpusDirectory, "corpus");
 const coveragePath = join(corpusDirectory, "coverage.json");
 const defaultReportPath = join(corpusDirectory, "last-report.json");
-const tsxCli = join(repositoryRoot, "node_modules", "tsx", "dist", "cli.mjs");
-const tsCli = join(repositoryRoot, "cli", "main.ts");
 const rustCli = join(
     repositoryRoot,
     "src-tauri",
@@ -39,7 +30,6 @@ const rustCli = join(
     "debug",
     process.platform === "win32" ? "tutorux-cli.exe" : "tutorux-cli",
 );
-const compareArchive = join(scriptDirectory, "compare-archive.ts");
 const capabilityDirectory = join(repositoryRoot, "src-tauri", "src", "core", "capability");
 
 const argumentsList = process.argv.slice(2);
@@ -56,7 +46,6 @@ const patterns = onlyArgument
     : [];
 const listOnly = argumentsList.includes("--list");
 const concise = argumentsList.includes("--concise") || argumentsList.includes("--failures-only");
-const tsOnly = argumentsList.includes("--ts-only");
 const showSummary = !argumentsList.includes("--no-summary");
 const reportPath = argumentsList.includes("--no-report")
     ? undefined
@@ -91,10 +80,7 @@ function run(command, args, options = {}) {
     };
 }
 
-function sideCommand(side, args, cwd, env, timeout) {
-    if (side === "ts") {
-        return run(process.execPath, [tsxCli, tsCli, ...args], { cwd, env, timeout });
-    }
+function runCli(args, cwd, env, timeout) {
     return run(rustCli, args, { cwd, env, timeout });
 }
 
@@ -338,7 +324,7 @@ async function runSide(side, testCase, seedPath, caseRoot, roots, setupSource = 
                 issues: [],
             };
         }
-        const result = sideCommand(side, args, context.dir, env, step.timeout);
+        const result = runCli(args, context.dir, env, step.timeout);
         const parsed = parseJson(result.stdout);
         if (result.code !== 0) {
             return {
@@ -378,7 +364,7 @@ async function runSide(side, testCase, seedPath, caseRoot, roots, setupSource = 
             const env = { ...caseEnvironment, ...(step.env ?? {}) };
             context.env = env;
             const args = step.args.map((argument) => substitute(argument, context));
-            result = sideCommand(side, args, context.dir, env, step.timeout);
+            result = runCli(args, context.dir, env, step.timeout);
         } catch (error) {
             issues.push({ step: index, capabilities, message: `${label}: ${error.message}` });
             results.push({
@@ -411,62 +397,6 @@ async function runSide(side, testCase, seedPath, caseRoot, roots, setupSource = 
         }
     }
     return { context, setupResults, results, issues, setupDir };
-}
-
-function compareSides(left, right, testCase) {
-    const issues = [];
-    const count = Math.max(left.results.length, right.results.length);
-    for (let index = 0; index < count; index += 1) {
-        const leftResult = left.results[index];
-        const rightResult = right.results[index];
-        const step = testCase.steps[index];
-        const capabilities = step ? stepCapabilities(step, testCase) : [];
-        const add = (message) => issues.push({ step: index, capabilities, message });
-        if (!leftResult || !rightResult) {
-            add(`step ${index}: only one adapter produced a result`);
-            continue;
-        }
-        if (leftResult.exitCode !== rightResult.exitCode) {
-            add(`step ${index}: TS exit ${leftResult.exitCode}, Rust exit ${rightResult.exitCode}`);
-        }
-        const compareStderr = step?.compareStderr ?? "exact";
-        if (compareStderr !== "none" && leftResult.stderr !== rightResult.stderr) {
-            add(
-                `step ${index}: stderr differs\n  TS:   ${leftResult.stderr}\n  Rust: ${rightResult.stderr}`,
-            );
-        }
-        const compareStdout = step?.compareStdout ?? "auto";
-        if (compareStdout === "none") continue;
-        if (compareStdout === "text") {
-            if (leftResult.stdout !== rightResult.stdout) {
-                add(
-                    `step ${index}: stdout text differs\n  TS:   ${leftResult.stdout}\n  Rust: ${rightResult.stdout}`,
-                );
-            }
-            continue;
-        }
-        if (leftResult.json !== undefined || rightResult.json !== undefined) {
-            if (leftResult.json === undefined || rightResult.json === undefined) {
-                add(`step ${index}: one adapter produced JSON and the other did not`);
-            } else {
-                const unordered = step?.unorderedJsonPaths ?? [];
-                const leftJson = sortJsonPaths(normalizeSemantic(leftResult.json), unordered);
-                const rightJson = sortJsonPaths(normalizeSemantic(rightResult.json), unordered);
-                for (const difference of firstDifference(
-                    leftJson,
-                    rightJson,
-                    `step ${index} stdout`,
-                )) {
-                    add(difference);
-                }
-            }
-        } else if (leftResult.stdout !== rightResult.stdout) {
-            add(
-                `step ${index}: stdout text differs\n  TS:   ${leftResult.stdout}\n  Rust: ${rightResult.stdout}`,
-            );
-        }
-    }
-    return issues;
 }
 
 async function loadCorpus() {
@@ -681,20 +611,12 @@ async function main() {
         fail(`No parity cases matched${patterns.length ? ` --only ${patterns.join(",")}` : ""}.`);
         return;
     }
-    if (!tsOnly) {
-        try {
-            await access(rustCli, fsConstants.X_OK);
-        } catch {
-            fail(
-                `Rust CLI is missing at ${rustCli}.\nBuild it with:\n  cargo build --manifest-path src-tauri/Cargo.toml --features cli --bin tutorux-cli`,
-            );
-            return;
-        }
-    }
     try {
-        await access(tsxCli, fsConstants.R_OK);
+        await access(rustCli, fsConstants.X_OK);
     } catch {
-        fail(`tsx is missing at ${tsxCli}. Run \`pnpm install\` first.`);
+        fail(
+            `Rust CLI is missing at ${rustCli}.\nBuild it with:\n  cargo build --manifest-path src-tauri/Cargo.toml --features cli --bin tutorux-cli`,
+        );
         return;
     }
 
@@ -702,8 +624,7 @@ async function main() {
     const temporaryRoot = await mkdtemp(join(tmpdir(), "tutorux-rust-parity-"));
     const seedPath = join(temporaryRoot, "seed.tux");
     try {
-        const seed = sideCommand(
-            "ts",
+        const seed = runCli(
             ["archive", "init", seedPath, "--name", "Parity seed"],
             temporaryRoot,
             {},
@@ -721,71 +642,15 @@ async function main() {
             const capabilities = caseCapabilities(testCase);
             const caseRoot = join(temporaryRoot, testCase.id.replace(/[^A-Za-z0-9_.-]/gu, "_"));
             const roots = [caseRoot, temporaryRoot];
-            const tsSide = await runSide("ts", testCase, seedPath, caseRoot, roots);
-            if (tsSide.error) {
+            const rustSide = await runSide("rust", testCase, seedPath, caseRoot, roots);
+            if (rustSide.error) {
                 caseIssues.push({
                     step: null,
                     capabilities,
-                    message: `TypeScript side did not run: ${tsSide.error}`,
+                    message: `Rust CLI did not run: ${rustSide.error}`,
                 });
             }
-            caseIssues.push(...(tsSide.issues ?? []));
-            let rustSide;
-            if (!tsOnly) {
-                rustSide = await runSide("rust", testCase, seedPath, caseRoot, roots, {
-                    dir: tsSide.setupDir,
-                    captures: tsSide.context.captures,
-                });
-                if (rustSide.error) {
-                    caseIssues.push({
-                        step: null,
-                        capabilities,
-                        message: `Rust side did not run: ${rustSide.error}`,
-                    });
-                }
-                caseIssues.push(...(rustSide.issues ?? []));
-                if (!tsSide.error && !rustSide.error) {
-                    caseIssues.push(...compareSides(tsSide, rustSide, testCase));
-                    if (testCase.compareArchive !== false && testCase.seed !== false) {
-                        const passphraseEnvironment = testCase.compareArchivePassphraseEnv;
-                        const comparison = run(
-                            process.execPath,
-                            [
-                                tsxCli,
-                                compareArchive,
-                                tsSide.context.archive,
-                                rustSide.context.archive,
-                                ...(testCase.compareArchiveHistory ? ["--history"] : []),
-                            ],
-                            {
-                                cwd: repositoryRoot,
-                                env:
-                                    passphraseEnvironment && testCase.env?.[passphraseEnvironment]
-                                        ? {
-                                              TUTORUX_PARITY_ARCHIVE_PASSPHRASE:
-                                                  testCase.env[passphraseEnvironment],
-                                          }
-                                        : {},
-                            },
-                        );
-                        let comparisonResult;
-                        try {
-                            comparisonResult = parseJson(comparison.stdout);
-                        } catch {
-                            comparisonResult = undefined;
-                        }
-                        if (comparison.code !== 0 || !comparisonResult?.ok) {
-                            const detail =
-                                comparisonResult?.issues?.join("\n  ") ?? comparison.stderr.trim();
-                            caseIssues.push({
-                                step: null,
-                                capabilities,
-                                message: `archive comparison failed:\n  ${detail}`,
-                            });
-                        }
-                    }
-                }
-            }
+            caseIssues.push(...(rustSide.issues ?? []));
 
             results.set(testCase.id, { issues: caseIssues, capabilities });
             if (caseIssues.length === 0) {
@@ -827,10 +692,10 @@ async function main() {
             }
         }
         process.stdout.write(
-            `\n${passed} passed, ${failures.length} failed, ${selected.length} total${tsOnly ? " (TypeScript-only mode)" : ""}\n`,
+            `\n${passed} passed, ${failures.length} failed, ${selected.length} total\n`,
         );
         process.stdout.write(
-            `Coverage: ${coverage.registry.size} registry capabilities; ${coverage.byCorpus} by corpus, ${coverage.byTest} by cited TypeScript tests, ${coverage.missing.length} missing.\n`,
+            `Coverage: ${coverage.registry.size} registry capabilities; ${coverage.byCorpus} by corpus, ${coverage.byTest} by cited tests, ${coverage.missing.length} missing.\n`,
         );
         if (coverage.issues.length) {
             process.stdout.write("Coverage issues:\n");
@@ -840,9 +705,8 @@ async function main() {
         const report = {
             version: 1,
             generatedAt: new Date().toISOString(),
-            mode: tsOnly ? "typescript-only" : "parity",
+            mode: "contract",
             adapters: {
-                typescript: `tsx ${relative(repositoryRoot, tsCli)}`,
                 rust: relative(repositoryRoot, rustCli),
             },
             totals: {
