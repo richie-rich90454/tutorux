@@ -2,26 +2,26 @@
 
 ## Current state
 
-The GUI rewrite is feature-complete. The SolidJS, TypeScript, Tauri, and Rust implementation is the only application in the repository. The retired C++/Slint sources, CMake build, legacy CI workflows, and obsolete documentation have been removed. The in-app command console remains unavailable until the Rust core port described in `RUST-PORT-PLAN.md` is complete.
+The GUI rewrite is feature-complete. The SolidJS, TypeScript, Tauri, and Rust implementation is the only application in the repository. The retired C++/Slint sources, CMake build, legacy CI workflows, and obsolete documentation have been removed. The in-app command console runs the Rust CLI router in-process.
 
 - Branch: `tauri-rewrite`
 - Package manager: pnpm 12 (`pnpm-lock.yaml`)
 - Formatter: oxfmt 0.75 (`.oxfmtrc.json`)
 - Required TypeScript pin: `6.0.3`
-- CLI entry point: `cli/main.ts`; command modules live in `cli/commands/`
+- CLI entry point: `src-tauri/src/bin/tutorux-cli/main.rs`; command modules live in `src-tauri/src/core/cli/`
 - Desktop host: `src-tauri/src/`
 - Rust package: `src-tauri/Cargo.toml` (desktop binary plus the feature-gated standalone `tutorux-audio-helper`)
 - Vendored dependency patches: `src-tauri/vendor/flexaudio-mic`, `src-tauri/vendor/whisper-rs-sys`, and `src-tauri/vendor/whisper-rs`.
-- Unit tests: `tests/cli/` and `tests/frontend/`; Playwright: `tests/e2e/`
+- Unit tests: `tests/frontend/`; Playwright: `tests/e2e/`; CLI contract corpus: `tests/rust-parity/`
 
 ## Rust core port
 
-- Plan: `RUST-PORT-PLAN.md` (proposed, not started).
-- Target: one Rust core plus two adapters — a standalone Rust CLI and the Tauri desktop host. The in-app console will call the Rust CLI command router in-process, so it needs no Node runtime and no extraction.
-- The port starts with the shared archive/crypto/domain core, not with `cli/*` alone; porting only the CLI would duplicate roughly 61k lines of shared logic.
-- Contract sources until parity is proven: `tests/cli/`, `tests/frontend/archive/`, `tests/fixtures/encrypted-v1.tux`, the audio fixtures, and `tests/e2e/`.
+- Plan: `RUST-PORT-PLAN.md` (complete for the CLI adapter).
+- One Rust core plus two adapters: the standalone `tutorux-cli` binary and the Tauri desktop host. The in-app console calls the Rust command router in-process, so it needs no Node runtime and no extraction.
+- The retired TypeScript CLI is gone. Its command surface lives in `src-tauri/src/core/cli/`.
+- Contract sources: `tests/rust-parity/` (218 registered capabilities), `tests/frontend/archive/`, `tests/fixtures/encrypted-v1.tux`, the audio fixtures, and `tests/e2e/`.
 - Feature parity invariant: every core capability must be reachable from both adapters. No CLI-only or GUI-only features are allowed; the capability registry and adapter coverage tests enforce this.
-- The TypeScript CLI remains operational during the port. The desktop console stays unavailable until the Rust command router reaches parity.
+- The desktop console and the standalone CLI share one command router.
 
 ## Completed parity work
 
@@ -61,7 +61,7 @@ The GUI rewrite is feature-complete. The SolidJS, TypeScript, Tauri, and Rust im
 - `cargo check --locked --bins` and `cargo test --locked --features cli` are the Rust verification entry points; the CLI parity harness runs after the debug CLI and the audio-helper sidecar are built. `pnpm run desktop:build` produces MSI and NSIS installers containing only `tutorux-desktop.exe`; the desktop process has no runtime extraction, Node dependency, or helper sidecars.
 - GGUF inference now runs in the desktop process. The vendored `whisper-rs-sys` prefixes whisper.cpp's `ggml`/`gguf` symbols so whisper.cpp and llama.cpp can link together without the retired `tutorux-embedded-ai` sidecar. The vendored `whisper-rs` binding calls the prefixed log setter.
 - The Windows release binary uses the `windows` GUI subsystem, so it launches without an accompanying console window.
-- The in-app command console is not part of the desktop executable; the standalone CLI remains available through `pnpm run cli` and `pnpm run build:audio-helper`.
+- The in-app command console runs in-process in the desktop executable; the standalone CLI is built from `src-tauri` with the `cli` feature.
 - Only the system WebView is external. Whisper and GGUF models, FFmpeg, the standalone CLI runtime, and `.tux` archives remain user-supplied.
 - macOS/Linux capture permissions, ScreenCaptureKit, PipeWire, real device matrices, DPI, screen-reader review, and installer signing remain release qualification work.
 
@@ -99,6 +99,6 @@ One changed file per commit with a detailed Conventional Commit message. Do not 
 - `docs/archive-format/TUX-FORMAT-V1.md` — wire format, indexes, locking, and recovery
 - `frontend/archive/archive.ts` — archive engine, verification, recovery, and maintenance
 - `frontend/main.tsx` — workspace orchestration
-- `cli/commands/` — CLI command families
+- `src-tauri/src/core/cli/` — CLI command families
 - `src-tauri/src/platform/` — native capture
 - `src-tauri/src/bin/tutorux-audio-helper/` — CLI capture and probing

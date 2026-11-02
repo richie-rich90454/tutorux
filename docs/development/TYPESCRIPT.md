@@ -46,30 +46,30 @@ The desktop adapter is selected with Vite's `desktop` mode. The Rust host lives 
 ## CLI workflow
 
 ```sh
-pnpm run cli -- --help
-pnpm run cli -- archive init Lesson.tux --name "Algebra"
-pnpm run cli -- archive recover Lesson.tux --json
-pnpm run cli -- archive recover Lesson.tux --apply --json
-pnpm run cli -- archive compact Lesson.tux --preview --json
-pnpm run cli -- archive compact Lesson.tux --json
-pnpm run cli -- archive repair Lesson.tux --output Lesson-repaired.tux --confirm-sensitive --json
-pnpm run cli -- archive sanitize Lesson.tux --output Lesson-sanitized.tux --include-students <uuid> --json
-pnpm run cli -- archive sanitize Lesson.tux --output Lesson-sanitized.tux --include-students <uuid> --confirm-sensitive --expected-generation <generation> --expected-selection <sha256> --expected-output Lesson-sanitized.tux --expected-encrypted-output no --json
-pnpm run cli -- --passphrase-env TUTORUX_SOURCE_PASSPHRASE archive sanitize Protected-Lesson.tux --output Protected-sanitized.tux --include-credentials --json
-pnpm run cli -- archive sanitize Lesson.tux --output Encrypted-copy.tux --include-students <uuid> --confirm-sensitive --expected-generation <generation> --expected-selection <sha256> --expected-output Encrypted-copy.tux --expected-encrypted-output yes --new-passphrase-env TUTORUX_COPY_PASSPHRASE --json
-pnpm run cli -- --passphrase-env TUTORUX_SOURCE_PASSPHRASE archive sanitize Protected-Lesson.tux --output Protected-sanitized.tux --include-credentials --confirm-sensitive --expected-generation <generation> --expected-selection <sha256> --expected-output Protected-sanitized.tux --expected-encrypted-output yes --new-passphrase-env TUTORUX_COPY_PASSPHRASE --json
-pnpm run cli -- --archive Lesson.tux student create --name "Maya Ortiz"
-pnpm run cli -- --archive Lesson.tux session list --json
+tutorux-cli --help
+tutorux-cli archive init Lesson.tux --name "Algebra"
+tutorux-cli archive recover Lesson.tux --json
+tutorux-cli archive recover Lesson.tux --apply --json
+tutorux-cli archive compact Lesson.tux --preview --json
+tutorux-cli archive compact Lesson.tux --json
+tutorux-cli archive repair Lesson.tux --output Lesson-repaired.tux --confirm-sensitive --json
+tutorux-cli archive sanitize Lesson.tux --output Lesson-sanitized.tux --include-students <uuid> --json
+tutorux-cli archive sanitize Lesson.tux --output Lesson-sanitized.tux --include-students <uuid> --confirm-sensitive --expected-generation <generation> --expected-selection <sha256> --expected-output Lesson-sanitized.tux --expected-encrypted-output no --json
+tutorux-cli --passphrase-env TUTORUX_SOURCE_PASSPHRASE archive sanitize Protected-Lesson.tux --output Protected-sanitized.tux --include-credentials --json
+tutorux-cli archive sanitize Lesson.tux --output Encrypted-copy.tux --include-students <uuid> --confirm-sensitive --expected-generation <generation> --expected-selection <sha256> --expected-output Encrypted-copy.tux --expected-encrypted-output yes --new-passphrase-env TUTORUX_COPY_PASSPHRASE --json
+tutorux-cli --passphrase-env TUTORUX_SOURCE_PASSPHRASE archive sanitize Protected-Lesson.tux --output Protected-sanitized.tux --include-credentials --confirm-sensitive --expected-generation <generation> --expected-selection <sha256> --expected-output Protected-sanitized.tux --expected-encrypted-output yes --new-passphrase-env TUTORUX_COPY_PASSPHRASE --json
+tutorux-cli --archive Lesson.tux student create --name "Maya Ortiz"
+tutorux-cli --archive Lesson.tux session list --json
 ```
 
 For encrypted creation, set a passphrase in the process environment and name that variable on the CLI. In PowerShell:
 
 ```powershell
 # Populate this variable from a secret manager or secure prompt; do not type the secret into a command.
-pnpm run cli -- archive init Protected-Lesson.tux --name "Algebra" --new-passphrase-env TUTORUX_NEW_ARCHIVE_PASSPHRASE
-pnpm run cli -- archive verify Protected-Lesson.tux --passphrase-env TUTORUX_NEW_ARCHIVE_PASSPHRASE --json
+tutorux-cli archive init Protected-Lesson.tux --name "Algebra" --new-passphrase-env TUTORUX_NEW_ARCHIVE_PASSPHRASE
+tutorux-cli archive verify Protected-Lesson.tux --passphrase-env TUTORUX_NEW_ARCHIVE_PASSPHRASE --json
 # Load a replacement phrase from your secret manager or secure prompt first.
-pnpm run cli -- --passphrase-env TUTORUX_NEW_ARCHIVE_PASSPHRASE archive change-passphrase Protected-Lesson.tux --new-passphrase-env TUTORUX_ROTATED_ARCHIVE_PASSPHRASE
+tutorux-cli --passphrase-env TUTORUX_NEW_ARCHIVE_PASSPHRASE archive change-passphrase Protected-Lesson.tux --new-passphrase-env TUTORUX_ROTATED_ARCHIVE_PASSPHRASE
 Remove-Item Env:TUTORUX_NEW_ARCHIVE_PASSPHRASE
 Remove-Item Env:TUTORUX_ROTATED_ARCHIVE_PASSPHRASE
 ```
@@ -90,7 +90,7 @@ CLI and desktop archive access share OS-level reader/writer locks, including acr
 
 ## Tests and performance
 
-Vitest tests live under `tests/cli/` and `tests/frontend/` and use Node for byte-level and CLI behavior. Playwright tests live in `tests/e2e/` and exercise the browser application.
+Vitest tests live under `tests/frontend/` and use Node for byte-level behavior. Playwright tests live in `tests/e2e/` and exercise the browser application. The Rust CLI contract corpus lives under `tests/rust-parity/` and runs against the standalone binary.
 
 Run `pnpm run benchmark:archive` to measure generation creation and archive listing on the current machine. Record machine, runtime, archive size, and record count with the result. Record the machine and workload with each run; the report is a smoke baseline rather than a release budget.
 

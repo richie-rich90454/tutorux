@@ -2,7 +2,7 @@
 
 Tutorux writes managed workspace data to the selected `.tux` archive. The desktop app also uses per-user state directories for archive locks and detached-recording control files, and the Tauri WebView stores selected display and local-transcription preferences in its application data. On Windows, general WebView autofill for saved address and contact fields is disabled. The multilingual Whisper Base Q5_1 model is embedded in the application executable. When the user selects the system-keychain option, provider credentials are stored by the operating-system credential service; archive-backed credentials remain in the encrypted `.tux` file. The desktop executable embeds its frontend and model and does not extract an application runtime or model directory. Operating-system services may keep their own files outside the archive.
 
-Desktop Whisper transcription processes audio in memory and does not create temporary files. Compressed-audio import uses uniquely named temporary files under the OS temp location and removes them after use. The desktop app does not create per-operation temporary directories. The standalone Node.js CLI is a separate program and some of its workflows use their own temporary directories.
+Desktop Whisper transcription processes audio in memory and does not create temporary files. Compressed-audio import uses uniquely named temporary files under the OS temp location and removes them after use. The desktop app does not create per-operation temporary directories. The standalone Rust CLI is a separate program and some of its workflows use their own temporary directories.
 
 ## Recording consent
 
@@ -10,7 +10,7 @@ Every native recording command requires `--consent`. A recording session stores 
 
 The browser microphone recorder requires a separate checked permission confirmation. Its native audio import records the `browser-microphone` source, confirmation time, and policy version `1` on the session record.
 
-In the CLI, `record start` requires `--consent` and stores the confirmation time, source, capture backend, and policy version `1` in the archive. Its confirmation label defaults to `CLI user` and can be set with `--confirmed-by`. Live local Whisper processing requires the additional `--consent-local-audio` flag; the standalone Node.js CLI stages bounded audio windows in a temporary directory for the user-selected executable and removes them after each invocation. Desktop Whisper uses the embedded model and in-memory audio. See [CLI live microphone recording](../audio/CLI-LIVE-RECORDING.md) for backend requirements and details.
+In the CLI, `record start` requires `--consent` and stores the confirmation time, source, capture backend, and policy version `1` in the archive. Its confirmation label defaults to `CLI user` and can be set with `--confirmed-by`. Live local Whisper processing requires the additional `--consent-local-audio` flag; the standalone Rust CLI stages bounded audio windows in a temporary directory for the user-selected executable and removes them after each invocation. Desktop Whisper uses the embedded model and in-memory audio. See [CLI live microphone recording](../audio/CLI-LIVE-RECORDING.md) for backend requirements and details.
 
 ## Full archive copies
 

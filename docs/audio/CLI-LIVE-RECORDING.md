@@ -1,6 +1,6 @@
 # CLI live audio recording
 
-The TypeScript CLI can capture microphone, system-loopback, and application audio into an existing session in a `.tux` archive. It prefers Tutorux's native audio helper for microphone and system audio, then falls back to FFmpeg when the helper or selected native endpoint is unavailable. Capture appends ordered audio checkpoints while recording. Stop a foreground capture with Ctrl+C; detached captures also support `record status`, `record pause`, `record resume`, and `record stop`. An optional duration limit is available. Tracks are saved at the source's native sample rate, channel count, and sample format. The desktop Record workspace uses native capture inside the desktop host; it does not launch this CLI helper.
+The Tutorux CLI can capture microphone, system-loopback, and application audio into an existing session in a `.tux` archive. It prefers Tutorux's native audio helper for microphone and system audio, then falls back to FFmpeg when the helper or selected native endpoint is unavailable. Capture appends ordered audio checkpoints while recording. Stop a foreground capture with Ctrl+C; detached captures also support `record status`, `record pause`, `record resume`, and `record stop`. An optional duration limit is available. Tracks are saved at the source's native sample rate, channel count, and sample format. The desktop Record workspace uses native capture inside the desktop host; it does not launch this CLI helper.
 
 `archive unlock <file.tux>` checks an encrypted archive with the passphrase named by `--passphrase-env`; the CLI verifies it for that command and does not persist an unlocked state.
 
@@ -10,35 +10,35 @@ The standalone CLI can use Tutorux's native audio helper. Build it with `pnpm ru
 
 Install FFmpeg for fallback microphone/system-audio capture and for playback. The CLI invokes the host's FFmpeg executable directly and does not bundle it. The default executable name is `ffmpeg`, resolved through `PATH`. Use `--ffmpeg <executable>` to select another command or executable path. The FFmpeg build must include the selected operating system's input backend.
 
-`record import` accepts PCM WAV directly and can decode FLAC, MP3, and M4A with FFmpeg. The standalone Node.js CLI stages decoded audio in a private temporary directory and removes it after the archive import completes. The desktop command console uses the Rust implementation, which reserves a uniquely named WAV file directly in the OS temp location and removes it after import. Choose another FFmpeg executable with `--ffmpeg` when it is not available through `PATH`.
+`record import` accepts PCM WAV directly and can decode FLAC, MP3, and M4A with FFmpeg. The standalone CLI and the desktop command console share the Rust implementation, which reserves a uniquely named WAV file directly in the OS temp location and removes it after import. Choose another FFmpeg executable with `--ffmpeg` when it is not available through `PATH`.
 
 List native inputs, FFmpeg endpoints, and active application audio targets:
 
 ```sh
-pnpm run cli -- record devices
-pnpm run cli -- record devices --json
+tutorux-cli record devices
+tutorux-cli record devices --json
 ```
 
 `record test` briefly opens the selected input and measures its signal without saving samples:
 
 ```sh
-pnpm run cli -- record test --source microphone
-pnpm run cli -- record test --source system-audio --playback <loopback-id>
-pnpm run cli -- record test --source application --application <application-id>
-pnpm run cli -- record test --source both --microphone <microphone-id> --application <application-id>
+tutorux-cli record test --source microphone
+tutorux-cli record test --source system-audio --playback <loopback-id>
+tutorux-cli record test --source application --application <application-id>
+tutorux-cli record test --source both --microphone <microphone-id> --application <application-id>
 ```
 
 Start a microphone recording for a session in an existing archive:
 
 ```sh
-pnpm run cli -- --archive Lesson.tux record start --session <session-uuid> --consent
+tutorux-cli --archive Lesson.tux record start --session <session-uuid> --consent
 ```
 
 The `record configure` microphone choice is used when `--microphone` or `--device` is omitted. Native output loopback endpoints can be captured alone or beside the microphone as separate tracks:
 
 ```sh
-pnpm run cli -- --archive Lesson.tux record start --session <session-uuid> --consent --source system-audio --playback <loopback-id>
-pnpm run cli -- --archive Lesson.tux record start --session <session-uuid> --consent --source both --microphone <microphone-id> --playback <loopback-id>
+tutorux-cli --archive Lesson.tux record start --session <session-uuid> --consent --source system-audio --playback <loopback-id>
+tutorux-cli --archive Lesson.tux record start --session <session-uuid> --consent --source both --microphone <microphone-id> --playback <loopback-id>
 ```
 
 For both tracks, Tutorux opens separate input streams and commits each track's PCM chunks through the same ordered archive checkpoint queue. `record configure --playback <id>` supplies the saved loopback selection when `--playback` is omitted. `--device <id>` is for one source; select both tracks with `--microphone` and `--playback`. Live Whisper is limited to a single track. Passing `--input-format pulse|alsa` selects FFmpeg for microphone input instead of the native helper.
@@ -54,7 +54,7 @@ Application-specific audio capture uses the native helper: WASAPI process-loopba
 For example, to use an ALSA input on Linux:
 
 ```sh
-pnpm run cli -- --archive Lesson.tux record start --session <session-uuid> --consent --input-format alsa --device default
+tutorux-cli --archive Lesson.tux record start --session <session-uuid> --consent --input-format alsa --device default
 ```
 
 ## Consent and saved audio
@@ -64,7 +64,7 @@ pnpm run cli -- --archive Lesson.tux record start --session <session-uuid> --con
 Recording data is checkpointed into the selected archive while capture runs. A normal Ctrl+C stop flushes pending audio and saves the recording. If capture or saving fails after samples have been written, the CLI reports an interrupted recording and keeps the saved checkpoints available for recovery. Reconcile an interrupted recording with:
 
 ```sh
-pnpm run cli -- --archive Lesson.tux record recover --session <session-uuid>
+tutorux-cli --archive Lesson.tux record recover --session <session-uuid>
 ```
 
 `record test` opens the selected input for about 1.8 seconds and reports sample format, rate, channel count, sample count, RMS, peak, and dBFS. It marks signal as detected when RMS is at least 0.001. The probe measures audio in memory and does not save a recording. A stream can open successfully while measuring silence; the host's routing configuration still determines whether a loopback input receives system playback.
@@ -76,10 +76,10 @@ An optional maximum duration can be set with `--duration-seconds <seconds>` (1 s
 To generate provisional transcript cues as audio is checkpointed, add a local whisper.cpp executable and model and explicitly consent to processing the captured audio with them:
 
 ```sh
-pnpm run cli -- --archive Lesson.tux record start --session <session-uuid> --consent \
+tutorux-cli --archive Lesson.tux record start --session <session-uuid> --consent \
   --live-transcribe --whisper <whisper-cli> --model <model-file> --consent-local-audio
 ```
 
-The executable and model must be regular files. The standalone Node.js CLI invokes the selected executable on bounded audio windows staged in a temporary directory, then removes the temporary files after each invocation. The desktop Record workspace instead uses the multilingual Whisper Base Q5_1 model embedded in the desktop executable. It performs live and full-track transcription in process, works offline, and keeps the model and audio windows in memory without creating transcription temp files. Neither path sends recordings to a cloud transcription provider. Cues are saved as provisional and require tutor review. If a CLI Whisper invocation fails, reaches its time limit, or falls more than 8 MiB behind the recording, live transcription stops, recording continues, and the transcription issue is reported separately. Waiting audio windows are released; audio checkpoints continue to be saved in the archive.
+The executable and model must be regular files. The standalone CLI invokes the selected executable on bounded audio windows staged in a temporary directory, then removes the temporary files after each invocation. The desktop Record workspace instead uses the multilingual Whisper Base Q5_1 model embedded in the desktop executable. It performs live and full-track transcription in process, works offline, and keeps the model and audio windows in memory without creating transcription temp files. Neither path sends recordings to a cloud transcription provider. Cues are saved as provisional and require tutor review. If a CLI Whisper invocation fails, reaches its time limit, or falls more than 8 MiB behind the recording, live transcription stops, recording continues, and the transcription issue is reported separately. Waiting audio windows are released; audio checkpoints continue to be saved in the archive.
 
 Live transcription defaults to automatic language detection, five-second windows, and the executable's default thread count. `--language <auto|code>`, `--window-seconds <1..27>`, and `--threads <1..64>` are optional. `--diarize` passes whisper.cpp's `-tdrz` option to the selected executable; the build must support that mode. It produces only speaker-turn boundaries and does not assign tutor or student identities. Local Whisper processing requires the separate `--consent-local-audio` flag in addition to recording's `--consent`.

@@ -2,7 +2,7 @@
 
 Tutorux is a local-first tutoring workspace. Student profiles, sessions, notes, transcripts, recordings, materials, evidence, and study guides live in portable `.tux` archives.
 
-The application is a SolidJS and TypeScript interface running as a static Vite site or inside a Tauri 2 desktop shell. The same archive engine and domain rules serve the browser app, the desktop app, and the Node.js CLI. Windows, macOS, and Linux are supported desktop targets.
+The application is a SolidJS and TypeScript interface running as a static Vite site or inside a Tauri 2 desktop shell. The same archive engine and domain rules serve the browser app and the desktop app; the standalone CLI uses the shared Rust core. Windows, macOS, and Linux are supported desktop targets.
 
 ## Requirements
 
@@ -35,7 +35,7 @@ pnpm run desktop:build
 
 `pnpm run build` produces the static site in `dist/`. `pnpm run desktop:build` typechecks, builds, packages, and collects the Tauri artifacts into `release/`. On Windows it produces an MSI installer, an NSIS setup installer, and `Tutorux_<version>_x64_portable.exe`. The portable EXE is the desktop executable with its frontend assets embedded; it does not unpack itself into a runtime directory or need companion application files. It still uses the installed system WebView2 runtime. Build release bundles on matching operating-system runners; one host does not cross-package all three desktop targets.
 
-The desktop app uses per-user application state for archive locks and detached-recording controls. Whisper runs in process from the model embedded in the application executable; it does not download, extract, or write model files. Compressed-audio import uses uniquely named temporary files in the operating-system temp location and cleans them up; the desktop app does not create a temporary workspace directory. The separate Node.js CLI has its own runtime and temporary-file behavior and is not included in the portable EXE.
+The desktop app uses per-user application state for archive locks and detached-recording controls. Whisper runs in process from the model embedded in the application executable; it does not download, extract, or write model files. Compressed-audio import uses uniquely named temporary files in the operating-system temp location and cleans them up; the desktop app does not create a temporary workspace directory. The standalone Rust CLI has its own temporary-file behavior and is not included in the portable EXE.
 
 See [Desktop release builds](docs/development/RELEASING.md) for artifact names, runtime requirements, and the distinction between the portable desktop executable and the standalone CLI.
 
@@ -45,23 +45,21 @@ The **Record** workspace is a primary navigation destination. Create or select a
 
 Journal dates use the explicit `YYYY-MM-DD` format with an in-app calendar. Audio and video previews use Tutorux playback controls so their visible controls stay consistent across desktop and browser builds.
 
-The desktop app relies on the system WebView (WebView2 on Windows). The bundled Whisper Base Q5_1 model is part of every desktop executable, including both installers and the portable EXE. GGUF model files and the user's `.tux` archives remain user-supplied; FFmpeg is used for compressed-audio import. The command-line interface remains available as a separate developer tool through `pnpm run cli`; it is not embedded in the desktop executable.
-
-The TypeScript CLI uses the same entry point:
+The desktop app relies on the system WebView (WebView2 on Windows). The bundled Whisper Base Q5_1 model is part of every desktop executable, including both installers and the portable EXE. GGUF model files and the user's `.tux` archives remain user-supplied; FFmpeg is used for compressed-audio import. The command-line interface is the standalone Rust `tutorux-cli` binary. Build it with `cargo build --manifest-path src-tauri/Cargo.toml --features cli --bin tutorux-cli`; it is not embedded in the desktop executable.
 
 ```sh
-pnpm run cli -- --help
-pnpm run cli -- archive discover --directory ./archives --json
-pnpm run cli -- archive init Lesson.tux
-pnpm run cli -- archive encrypt Lesson.tux --new-passphrase-env TUTORUX_NEW_ARCHIVE_PASSPHRASE
-pnpm run cli -- archive rename Lesson.tux --name "Algebra foundations"
-pnpm run cli -- --passphrase-env TUTORUX_ARCHIVE_PASSPHRASE archive rename Lesson.tux --name "Algebra foundations"
-pnpm run cli -- --archive Lesson.tux student create --name "Maya Ortiz" --grade 10
-pnpm run cli -- --archive Lesson.tux session create --title "Fraction review" --subject Mathematics
-pnpm run cli -- --archive Lesson.tux transcript import --session <uuid> --input lesson.srt
-pnpm run cli -- --archive Lesson.tux transcript generate --session <uuid>
-pnpm run cli -- --archive Lesson.tux asset import --input worksheet.pdf --session <uuid>
-pnpm run cli -- archive verify Lesson.tux --full --json
+tutorux-cli --help
+tutorux-cli archive discover --directory ./archives --json
+tutorux-cli archive init Lesson.tux --name "Algebra foundations"
+tutorux-cli archive encrypt Lesson.tux --new-passphrase-env TUTORUX_NEW_ARCHIVE_PASSPHRASE
+tutorux-cli archive rename Lesson.tux --name "Algebra foundations"
+tutorux-cli --passphrase-env TUTORUX_ARCHIVE_PASSPHRASE archive rename Lesson.tux --name "Algebra foundations"
+tutorux-cli --archive Lesson.tux student create --name "Maya Ortiz" --grade 10
+tutorux-cli --archive Lesson.tux session create --title "Fraction review" --subject Mathematics
+tutorux-cli --archive Lesson.tux transcript import --session <uuid> --input lesson.srt
+tutorux-cli --archive Lesson.tux transcript generate --session <uuid>
+tutorux-cli --archive Lesson.tux asset import --input worksheet.pdf --session <uuid>
+tutorux-cli archive verify Lesson.tux --full --json
 ```
 
 For an encrypted archive, provide its current passphrase with `--passphrase-env NAME`. `archive rename` changes only the display name. `transcript generate` resolves the session's default track and selected local Whisper model when the corresponding options are omitted; pass `--consent-local-audio` when the host requires explicit confirmation.
@@ -75,11 +73,11 @@ New sessions start active and automatically create a dated journal entry. Use `-
 The CLI records microphone and supported system-loopback inputs at the source's native rate and channel count. It runs in the foreground; press Ctrl+C to stop and save. `record configure` stores microphone, playback, and durability preferences in the archive. Use `--source both` to save microphone and system audio as separate synchronized tracks. The CLI writes native-rate tracks and resamples only the Whisper window input to 16 kHz mono.
 
 ```sh
-pnpm run cli -- --archive Lesson.tux record start --session <uuid> --consent --source microphone
-pnpm run cli -- --archive Lesson.tux record start --session <uuid> --consent --source system-audio --playback <loopback-id>
-pnpm run cli -- --archive Lesson.tux record start --session <uuid> --consent --source both --microphone <microphone-id> --playback <loopback-id>
-pnpm run cli -- record devices
-pnpm run cli -- --archive Lesson.tux record play --session <uuid> --track <uuid>
+tutorux-cli --archive Lesson.tux record start --session <uuid> --consent --source microphone
+tutorux-cli --archive Lesson.tux record start --session <uuid> --consent --source system-audio --playback <loopback-id>
+tutorux-cli --archive Lesson.tux record start --session <uuid> --consent --source both --microphone <microphone-id> --playback <loopback-id>
+tutorux-cli record devices
+tutorux-cli --archive Lesson.tux record play --session <uuid> --track <uuid>
 ```
 
 Device selection, platform backends, consent, optional local Whisper transcription, and the external FFmpeg requirement are covered in [the recording guide](docs/audio/CLI-LIVE-RECORDING.md).

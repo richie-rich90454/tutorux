@@ -20,4 +20,4 @@ Tauri packages for the host operating system's configured targets. Build release
 
 ## Standalone CLI
 
-The Node.js CLI is a separate developer tool, launched with `pnpm run cli`. It is not embedded in or required by the portable desktop executable. It has its own Node runtime and may use temporary directories for particular workflows; see the [CLI live recording guide](../audio/CLI-LIVE-RECORDING.md).
+The Rust CLI is a separate developer tool, built with the `cli` feature and released as `tutorux-cli`. It is not embedded in or required by the portable desktop executable. It may use temporary directories for particular workflows; see the [CLI live recording guide](../audio/CLI-LIVE-RECORDING.md).

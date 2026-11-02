@@ -1,6 +1,6 @@
 # Tutorux Rust Core Port Plan
 
-Status: proposed, not started.
+Status: complete for the current CLI and desktop adapters. The TypeScript CLI has been removed; this document is retained as the migration record.
 
 ## Goal
 

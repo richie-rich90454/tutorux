@@ -7,8 +7,7 @@ flowchart LR
   UI[SolidJS interface] --> DOMAIN[Domain record rules]
   UI --> ARCH[Archive format and snapshots]
   UI --> PORT[Archive platform contract]
-  CLI[Node TypeScript CLI] --> DOMAIN
-  CLI --> ARCH
+  CLI[Rust CLI adapter] --> RUSTCORE[Rust archive and domain core]
   WEB[Static browser adapter] --> PORT
   DESKTOP[Tauri adapter] --> PORT
   PORT --> WEB
@@ -21,20 +20,20 @@ flowchart LR
 
 - `frontend/archive/format.ts` owns v1 header, record-frame, payload, checksum, and BLOB encoding. Integer fields whose on-disk widths exceed JavaScript's safe integer range use `bigint`.
 - `frontend/archive/archive.ts` opens snapshots, validates commit/index structure, resolves records, creates archives, appends immutable generations, and verifies every current primary record plus secondary indexes, asset manifests, guide sources, credential placement, and physical frame spans. It reads audio-chunk metadata through the session/track index without loading PCM blobs.
-- `frontend/archive/source.ts` defines bounded byte reads and browser/memory/composite sources. `node-source.ts` adds positional reads for the CLI.
+- `frontend/archive/source.ts` defines bounded byte reads and browser/memory/composite sources.
 - `frontend/domain/records.ts` creates and updates students, sessions, and journal records while preserving unknown fields and validating UTF-8 bounds. `domain/annotations.ts` validates timestamped observations. `domain/transcript.ts` parses text/SRT/VTT, writes cue records, and supports review, split/merge, history, and export.
 - `frontend/domain/audio.ts` validates indexed PCM timelines, fills gaps with silence, builds bounded playback previews, and streams full-track WAV/RF64 exports. `domain/wav.ts` imports RIFF/WAVE audio in bounded chunks with durable recovery state. `domain/audio-mix.ts` mixes 2–8 tracks incrementally.
 - `frontend/domain/assets.ts` writes 8 MiB content-addressed asset chunks and verifies hash, size, and order before preview or export. `domain/evidence.ts` extracts and validates source-backed evidence and graph edges. `domain/guides.ts` reads and writes the guide section/block schema, applies template overrides, validates citations, and renders Markdown/HTML/Word/PDF exports.
 - `frontend/platform/types.ts` defines the browser/desktop file contract. `browser.ts` handles pickers and downloads; `tauri.ts` uses native dialogs, bounded reads, launch-file handoff, menu events, and native exports.
 - `frontend/platform/synchronized-audio.ts` adapts native synchronized capture events, preserving rate, channel count, sample format, gaps, and device-discontinuity markers before archive commits.
 - `frontend/main.tsx` assembles the workspace and owns archive state. If a save detects that the selected file changed outside Tutorux, the current in-memory work remains available and every save action offers a separate copy instead of overwriting that file. `frontend/lazy-components.ts` loads route pages and larger panels on demand; pages such as `RecordPage.tsx`, `TranscriptPage.tsx`, `EvidencePage.tsx`, and `AssetPage.tsx` live in separate modules. `shared-ui.tsx` and `shared-utils.ts` hold cross-page presentation and formatting helpers. The primary navigation includes Journal, Students, Sessions, Record, and Materials; secondary workspaces remain in More.
-- `cli/main.ts` is the entry point; command implementations live in `cli/commands/`. The CLI coordinates the same domain and archive functions with Node file I/O.
+- `src-tauri/src/core/cli/` is the standalone CLI adapter. It calls the same Rust archive and domain core used by the desktop host, and the in-app console executes that router in-process.
 - `src-tauri/src/main.rs` is the Rust host: authorized archive range reads, staged saves, single-instance `.tux` launch routing, native menus, credential storage, synchronized audio capture, Whisper, cloud AI transport, and in-process GGUF inference. Platform modules under `src-tauri/src/platform/` implement microphone, system, and application capture.
 - The desktop executable is one process. `llama-cpp-2` and `whisper-rs` are linked together; the vendored `whisper-rs-sys` prefixes whisper.cpp's `ggml`/`gguf` symbols during its CMake build, and the vendored `whisper-rs` calls the prefixed log setter. The multilingual Whisper Base Q5_1 model is embedded as executable data and loaded from memory for full-track and live transcription. The frontend assets are embedded; no Node runtime, helper sidecar, or self-extracted runtime directory is used by the desktop app. Per-user state directories hold archive-lock and detached-recording control files. Compressed-audio import uses flat temporary files in the OS temp location and cleans them up; transcription does not create temporary files.
 
 ## Dependency direction
 
-The domain layer depends only on ordinary TypeScript. Archive format code depends on byte sources and format utilities, not SolidJS, Tauri, or Node UI state. Platform adapters implement file operations and the reviewed AI transport boundary. The UI and CLI coordinate those shared modules at their boundaries.
+The TypeScript domain layer depends only on ordinary TypeScript. Archive format code depends on byte sources and format utilities, not SolidJS, Tauri, or Node UI state. Platform adapters implement file operations and the reviewed AI transport boundary. The UI coordinates those shared modules at its boundaries. The Rust CLI and desktop host share one Rust core; the CLI is a second adapter over that core, not a second implementation of the archive engine.
 
 Vite selects `browser.ts` for the static build and `tauri.ts` for the desktop build through the `@platform` alias. The web bundle does not include Tauri APIs. The native host is accessed only from the desktop adapter.
 
@@ -69,7 +68,7 @@ The [TypeScript benchmark report](performance/TYPESCRIPT-BASELINE.md) records th
 
 ## Verification strategy
 
-Vitest covers archive framing, snapshots, verification, maintenance, domain rules, audio transforms, AI packaging, and CLI workflows from `tests/cli/` and `tests/frontend/`. Playwright covers browser create/edit/save/reopen, audio, AI, encrypted-archive, session-package, and workspace flows in `tests/e2e/`. CI runs type checking, linting, formatting, unit tests, browser tests, the static build, and the Tauri package on Windows, macOS, and Linux.
+Vitest covers archive framing, snapshots, verification, maintenance, domain rules, audio transforms, and AI packaging from `tests/frontend/`. Playwright covers browser create/edit/save/reopen, audio, AI, encrypted-archive, session-package, and workspace flows in `tests/e2e/`. The Rust CLI contract corpus in `tests/rust-parity/` exercises every registered command against the standalone binary. CI runs type checking, linting, formatting, unit tests, browser tests, the static build, and the Tauri package on Windows, macOS, and Linux.
 
 ## Why this stack
 
