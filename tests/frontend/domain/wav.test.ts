@@ -181,6 +181,84 @@ describe("legacy-compatible WAV import", () => {
         ).toBe("completed");
     });
 
+    it("reads incremental imports in bounded ranges instead of loading the whole file", async () => {
+        const session = makeSession();
+        const largeData = new Uint8Array(2 * 1024 * 1024);
+        const file = makeWaveFile([largeData], { sampleFormat: "pcm_s16le" }, "large.wav");
+        let maximumRead = 0;
+        const bounded = {
+            name: file.name,
+            size: file.size,
+            slice: (start?: number, end?: number) => file.slice(start, end),
+            readRange: async (offset: number, length: number) => {
+                maximumRead = Math.max(maximumRead, length);
+                return new Uint8Array(await file.slice(offset, offset + length).arrayBuffer());
+            },
+        };
+        const imported = await makeWaveImportRecordsIncremental({
+            session,
+            file: bounded,
+            expectedGeneration: 0n,
+            commit: async (records) => [...records],
+        });
+
+        expect(imported.chunkCount).toBeGreaterThan(1);
+        expect(maximumRead).toBeLessThanOrEqual(1024 * 1024);
+        expect(maximumRead).toBeLessThan(file.size);
+    });
+
+    it("does not double-count session audio totals when a prior track exists and the import is interrupted", async () => {
+        const existingTrackId = crypto.randomUUID();
+        const session = makeSession(
+            new Map([
+                ["recording_track_id", existingTrackId],
+                ["recording_track_ids", existingTrackId],
+                ["recording_track_count", "1"],
+                ["recording_audio_chunks", "5"],
+                ["recording_bytes", "100"],
+            ]),
+        );
+        const file = makeWaveFile(
+            [pcm16([100, 200]), pcm16([300, 400])],
+            { sampleFormat: "pcm_s16le" },
+            "prior-track.wav",
+        );
+        const readFailure = new Error("simulated source read failure");
+        const streamed = {
+            name: file.name,
+            size: file.size,
+            slice: (start?: number, end?: number) => file.slice(start, end),
+            readRange: async (offset: number, length: number) => {
+                if (offset >= 56) throw readFailure;
+                return new Uint8Array(await file.slice(offset, offset + length).arrayBuffer());
+            },
+        };
+        const commits: { generation: bigint; records: readonly ArchiveRecord[] }[] = [];
+
+        await expect(
+            makeWaveImportRecordsIncremental({
+                session,
+                file: streamed,
+                allowAdditionalTrack: true,
+                knownTrackIds: [existingTrackId],
+                expectedGeneration: 20n,
+                chunksPerCommit: 1,
+                commit: async (records, generation) => {
+                    commits.push({ generation, records });
+                    return [...records];
+                },
+            }),
+        ).rejects.toThrow(/simulated source read failure/u);
+
+        const interrupted = commits
+            .at(-1)!
+            .records.find((record) => record.type === RecordType.session)!;
+        expect(interrupted.fields.get("audio_import_state")).toBe("interrupted");
+        expect(interrupted.fields.get("audio_chunks_imported")).toBe("1");
+        expect(interrupted.fields.get("recording_audio_chunks")).toBe("6");
+        expect(interrupted.fields.get("recording_bytes")).toBe("104");
+    });
+
     it("rejects compressed WAV encoding and malformed RIFF boundaries", async () => {
         const session = makeSession();
         const compressed = makeWaveFile(
