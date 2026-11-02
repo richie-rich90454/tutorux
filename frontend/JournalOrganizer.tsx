@@ -1,5 +1,12 @@
-import { twClasses } from "./tailwind";
-import { jsxTailwindStyles } from "./JournalOrganizer.tailwind";
+import {
+    buttonOutline,
+    buttonPrimary,
+    cn,
+    iconButton,
+    inputBase,
+    labelBase,
+    textareaBase,
+} from "./ui";
 import { For, Show, createSignal, type JSX } from "solid-js";
 import {
     makeJournalCollectionRecord,
@@ -95,24 +102,27 @@ export function JournalOrganizer(props: Props): JSX.Element {
 
     return (
         <section
-            class={twClasses("journal-organizer", jsxTailwindStyles, "section")}
+            class="journal-organizer -mt-0.5 mb-4 rounded-[5px] border border-line bg-surface px-5 py-4"
             aria-labelledby="journal-organizer-title"
         >
-            <div class={twClasses("journal-organizer-heading", jsxTailwindStyles, "div")}>
-                <div class={twClasses("", jsxTailwindStyles, "div")}>
-                    <span class={twClasses("eyebrow", jsxTailwindStyles, "span")}>
+            <div class="journal-organizer-heading flex flex-col items-start gap-4 md:flex-row md:items-center md:justify-between">
+                <div>
+                    <span class="text-xs font-bold tracking-widest text-faint">
                         Make reflections easier to return to
                     </span>
-                    <h2 id="journal-organizer-title" class={twClasses("", jsxTailwindStyles, "h2")}>
+                    <h2
+                        id="journal-organizer-title"
+                        class="mb-0.5 mt-1 text-base font-semibold tracking-tight text-ink"
+                    >
                         Collections & tags
                     </h2>
-                    <p class={twClasses("", jsxTailwindStyles, "p")}>
+                    <p class="m-0 text-xs leading-relaxed text-muted">
                         Group related notes, then find them again by the way you work.
                     </p>
                 </div>
-                <div class={twClasses("journal-organizer-actions", jsxTailwindStyles, "div")}>
+                <div class="journal-organizer-actions flex flex-wrap gap-2 max-md:w-full">
                     <button
-                        class={twClasses("button button-outline", jsxTailwindStyles, "button")}
+                        class={cn("button flex-1 md:flex-none", buttonOutline)}
                         type="button"
                         disabled={props.disabled || props.busy}
                         onClick={() => start("collection")}
@@ -120,7 +130,7 @@ export function JournalOrganizer(props: Props): JSX.Element {
                         New collection
                     </button>
                     <button
-                        class={twClasses("button button-primary", jsxTailwindStyles, "button")}
+                        class={cn("button flex-1 md:flex-none", buttonPrimary)}
                         type="button"
                         disabled={props.disabled || props.busy}
                         onClick={() => start("tag")}
@@ -133,13 +143,13 @@ export function JournalOrganizer(props: Props): JSX.Element {
             <Show
                 when={hasLabels()}
                 fallback={
-                    <p class={twClasses("journal-organizer-empty-summary", jsxTailwindStyles, "p")}>
+                    <p class="journal-organizer-empty-summary mt-3 text-[13px] leading-snug text-muted">
                         Add a collection to group related notes, or a tag to make them easier to
                         find.
                     </p>
                 }
             >
-                <div class={twClasses("journal-organizer-lists", jsxTailwindStyles, "div")}>
+                <div class="journal-organizer-lists mt-4 grid gap-3 sm:grid-cols-2">
                     <OrganizerList
                         title="Collections"
                         hint="A home for connected reflections"
@@ -160,34 +170,24 @@ export function JournalOrganizer(props: Props): JSX.Element {
             </Show>
 
             <Show when={props.archived.length > 0}>
-                <details class={twClasses("journal-archived-labels", jsxTailwindStyles, "details")}>
-                    <summary class={twClasses("", jsxTailwindStyles, "summary")}>
+                <details class="journal-archived-labels mt-3 border-t border-line-soft pt-2">
+                    <summary class="w-fit cursor-pointer text-xs text-muted">
                         Archived labels · {props.archived.length}
                     </summary>
-                    <div class={twClasses("journal-archived-list", jsxTailwindStyles, "div")}>
+                    <div class="journal-archived-list mt-2 grid gap-1">
                         <For each={props.archived}>
                             {(record) => (
-                                <div
-                                    class={twClasses(
-                                        "journal-archived-row",
-                                        jsxTailwindStyles,
-                                        "div",
-                                    )}
-                                >
-                                    <span class={twClasses("", jsxTailwindStyles, "span")}>
+                                <div class="journal-archived-row flex min-h-[29px] items-center gap-2 text-xs text-ink-soft">
+                                    <span class="flex-1">
                                         {record.fields.get("name") || "Unnamed label"}
                                     </span>
-                                    <small class={twClasses("", jsxTailwindStyles, "small")}>
+                                    <small class="text-xs text-faint">
                                         {record.fields.get("record_role") === "journal-tag"
                                             ? "Tag"
                                             : "Collection"}
                                     </small>
                                     <button
-                                        class={twClasses(
-                                            "text-action",
-                                            jsxTailwindStyles,
-                                            "button",
-                                        )}
+                                        class="text-action inline-flex cursor-pointer items-center gap-1.5 border-0 bg-transparent px-0 py-0.5 text-xs font-semibold text-accent hover:text-accent-hover"
                                         type="button"
                                         disabled={props.busy}
                                         onClick={() => props.onRestore(record)}
@@ -204,26 +204,20 @@ export function JournalOrganizer(props: Props): JSX.Element {
             <Show when={editor()}>
                 {(active) => (
                     <form
-                        class={twClasses("journal-label-editor", jsxTailwindStyles, "form")}
+                        class="journal-label-editor mt-3 grid gap-2.5 rounded-[5px] border border-accent/25 bg-surface p-3.5 sm:grid-cols-[minmax(0,1fr)_minmax(120px,0.7fr)]"
                         onSubmit={save}
                     >
-                        <div
-                            class={twClasses(
-                                "journal-label-editor-title",
-                                jsxTailwindStyles,
-                                "div",
-                            )}
-                        >
-                            <div class={twClasses("", jsxTailwindStyles, "div")}>
-                                <span class={twClasses("eyebrow", jsxTailwindStyles, "span")}>
+                        <div class="journal-label-editor-title flex items-center justify-between gap-4 sm:col-span-2">
+                            <div>
+                                <span class="text-xs font-bold tracking-widest text-faint">
                                     {active().record ? "REFINE YOUR LABEL" : "ADD TO YOUR JOURNAL"}
                                 </span>
-                                <h3 class={twClasses("", jsxTailwindStyles, "h3")}>
+                                <h3 class="mt-0.5 text-[13px] font-semibold capitalize text-ink">
                                     {active().record ? "Edit" : "New"} {active().kind}
                                 </h3>
                             </div>
                             <button
-                                class={twClasses("icon-button", jsxTailwindStyles, "button")}
+                                class={cn("icon-button", iconButton)}
                                 type="button"
                                 aria-label="Close label editor"
                                 disabled={props.busy}
@@ -232,7 +226,7 @@ export function JournalOrganizer(props: Props): JSX.Element {
                                 ×
                             </button>
                         </div>
-                        <label class={twClasses("form-field", jsxTailwindStyles, "label")}>
+                        <label class={cn("form-field", labelBase)}>
                             Name
                             <input
                                 autofocus
@@ -245,45 +239,31 @@ export function JournalOrganizer(props: Props): JSX.Element {
                                         ? "e.g. Building confidence"
                                         : "e.g. fractions"
                                 }
-                                class={twClasses("", jsxTailwindStyles, "input")}
+                                class={inputBase}
                             />
                         </label>
                         <Show when={active().kind === "collection"}>
-                            <label class={twClasses("form-field", jsxTailwindStyles, "label")}>
+                            <label class={cn("form-field sm:col-span-2", labelBase)}>
                                 Description{" "}
-                                <span class={twClasses("optional", jsxTailwindStyles, "span")}>
-                                    Optional
-                                </span>
+                                <span class="text-xs font-normal text-faint">Optional</span>
                                 <textarea
                                     rows="2"
                                     maxlength="4096"
                                     value={description()}
                                     onInput={(event) => setDescription(event.currentTarget.value)}
                                     placeholder="What belongs in this collection?"
-                                    class={twClasses("", jsxTailwindStyles, "textarea")}
+                                    class={cn(textareaBase, "min-h-[72px] py-2.5")}
                                 />
                             </label>
                         </Show>
-                        <label
-                            class={twClasses(
-                                "form-field journal-color-field",
-                                jsxTailwindStyles,
-                                "label",
-                            )}
-                        >
-                            Color{" "}
-                            <span class={twClasses("optional", jsxTailwindStyles, "span")}>
-                                Optional
-                            </span>
-                            <div
-                                class={twClasses("journal-color-control", jsxTailwindStyles, "div")}
-                            >
+                        <label class={cn("form-field journal-color-field", labelBase)}>
+                            Color <span class="text-xs font-normal text-faint">Optional</span>
+                            <div class="journal-color-control flex min-h-[33px] items-center gap-2.5">
                                 <input
                                     type="text"
-                                    class={twClasses(
-                                        "journal-color-value",
-                                        jsxTailwindStyles,
-                                        "input",
+                                    class={cn(
+                                        "journal-color-value h-8 w-[88px] rounded-[7px] border border-line bg-surface px-2 text-xs uppercase tabular-nums text-ink-soft",
+                                        "aria-invalid:border-danger",
                                     )}
                                     value={colorText()}
                                     maxlength="7"
@@ -302,22 +282,13 @@ export function JournalOrganizer(props: Props): JSX.Element {
                                     }}
                                 />
                                 <div
-                                    class={twClasses(
-                                        "journal-color-swatches",
-                                        jsxTailwindStyles,
-                                        "div",
-                                    )}
+                                    class="journal-color-swatches flex flex-wrap gap-1.5"
                                     aria-label="Suggested colors"
                                 >
                                     <For each={palette}>
                                         {(swatch) => (
                                             <button
-                                                class={twClasses(
-                                                    "journal-color-swatch",
-                                                    jsxTailwindStyles,
-                                                    "button",
-                                                    ["selected"],
-                                                )}
+                                                class="journal-color-swatch h-[17px] w-[17px] cursor-pointer rounded-full border-2 border-surface bg-[var(--swatch)] p-0 outline outline-1 outline-transparent focus-visible:outline-ink-soft aria-pressed:outline-ink-soft"
                                                 classList={{ selected: color() === swatch }}
                                                 type="button"
                                                 style={{ "--swatch": swatch }}
@@ -335,17 +306,16 @@ export function JournalOrganizer(props: Props): JSX.Element {
                             </div>
                         </label>
                         <Show when={error()}>
-                            <p class={twClasses("form-error", jsxTailwindStyles, "p")} role="alert">
+                            <p
+                                class="form-error m-0 text-xs text-danger sm:col-span-2"
+                                role="alert"
+                            >
                                 {error()}
                             </p>
                         </Show>
-                        <div class={twClasses("dialog-actions", jsxTailwindStyles, "div")}>
+                        <div class="dialog-actions mt-1 flex justify-end gap-2 border-t border-line-soft pt-3 sm:col-span-2">
                             <button
-                                class={twClasses(
-                                    "button button-outline",
-                                    jsxTailwindStyles,
-                                    "button",
-                                )}
+                                class={cn("button", buttonOutline)}
                                 type="button"
                                 disabled={props.busy}
                                 onClick={() => setEditor(null)}
@@ -353,11 +323,7 @@ export function JournalOrganizer(props: Props): JSX.Element {
                                 Cancel
                             </button>
                             <button
-                                class={twClasses(
-                                    "button button-primary",
-                                    jsxTailwindStyles,
-                                    "button",
-                                )}
+                                class={cn("button", buttonPrimary)}
                                 type="submit"
                                 disabled={props.disabled || props.busy}
                             >
@@ -385,24 +351,22 @@ function OrganizerList(props: {
 }): JSX.Element {
     return (
         <section
-            class={twClasses("journal-organizer-list", jsxTailwindStyles, "section")}
+            class="journal-organizer-list min-w-0 rounded-[5px] border border-line-soft bg-surface-subtle/50 px-3 py-2.5"
             aria-label={props.title}
         >
-            <div class={twClasses("journal-organizer-list-heading", jsxTailwindStyles, "div")}>
-                <h3 class={twClasses("", jsxTailwindStyles, "h3")}>{props.title}</h3>
-                <small class={twClasses("", jsxTailwindStyles, "small")}>
-                    {props.records.length}
-                </small>
+            <div class="journal-organizer-list-heading mb-2 flex items-center justify-between gap-4">
+                <h3 class="m-0 text-xs font-semibold text-ink-soft">{props.title}</h3>
+                <small class="text-xs text-faint">{props.records.length}</small>
             </div>
             <Show
                 when={props.records.length > 0}
                 fallback={
-                    <p class={twClasses("journal-organizer-empty", jsxTailwindStyles, "p")}>
+                    <p class="journal-organizer-empty py-1 text-xs text-muted">
                         {props.hint}. Nothing here yet.
                     </p>
                 }
             >
-                <div class={twClasses("journal-label-list", jsxTailwindStyles, "div")}>
+                <div class="journal-label-list grid gap-1">
                     <For
                         each={[...props.records].sort((left, right) =>
                             (left.fields.get("name") ?? "").localeCompare(
@@ -411,29 +375,21 @@ function OrganizerList(props: {
                         )}
                     >
                         {(record) => (
-                            <div class={twClasses("journal-label-row", jsxTailwindStyles, "div")}>
+                            <div class="journal-label-row flex min-h-[30px] min-w-0 items-center gap-2">
                                 <span
-                                    class={twClasses(
-                                        "journal-label-dot",
-                                        jsxTailwindStyles,
-                                        "span",
-                                    )}
+                                    class="journal-label-dot h-2 w-2 shrink-0 rounded-full bg-[var(--label-color)]"
                                     style={{
                                         "--label-color": safeLabelColor(record.fields.get("color")),
                                     }}
                                 />
                                 <span
-                                    class={twClasses(
-                                        "journal-label-name",
-                                        jsxTailwindStyles,
-                                        "span",
-                                    )}
+                                    class="journal-label-name min-w-0 flex-1 truncate text-xs text-ink-soft"
                                     title={record.fields.get("description") ?? ""}
                                 >
                                     {record.fields.get("name") || "Unnamed label"}
                                 </span>
                                 <button
-                                    class={twClasses("text-action", jsxTailwindStyles, "button")}
+                                    class="text-action inline-flex cursor-pointer items-center gap-1.5 border-0 bg-transparent px-0 py-0.5 text-xs font-semibold text-accent hover:text-accent-hover"
                                     type="button"
                                     disabled={props.disabled}
                                     onClick={() => props.onEdit(record)}
@@ -441,11 +397,7 @@ function OrganizerList(props: {
                                     Edit
                                 </button>
                                 <button
-                                    class={twClasses(
-                                        "icon-button journal-label-archive",
-                                        jsxTailwindStyles,
-                                        "button",
-                                    )}
+                                    class="icon-button journal-label-archive inline-grid h-[23px] w-[23px] shrink-0 place-items-center rounded-[5px] p-0 text-[13px] text-faint transition-colors hover:bg-surface-inset hover:text-ink disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
                                     type="button"
                                     disabled={props.disabled}
                                     aria-label={`Archive ${record.fields.get("name") || "label"}`}
