@@ -1,10 +1,23 @@
-import { twClasses } from "./tailwind";
-import { jsxTailwindStyles } from "./AnnotationPage.tailwind";
+import {
+    buttonOutline,
+    buttonPrimary,
+    buttonQuiet,
+    cn,
+    heading1,
+    heading3,
+    inputBase,
+    labelBase,
+    pageBody,
+    selectBase,
+    textareaBase,
+} from "./ui";
 import {
     createContext,
+    createEffect,
     createMemo,
     createSignal,
     For,
+    on,
     onCleanup,
     Show,
     useContext,
@@ -13,6 +26,7 @@ import {
 } from "solid-js";
 import { Dynamic } from "solid-js/web";
 import { RecordType, type ArchiveRecord } from "./archive/format";
+import { pluralNoun } from "./shared-utils";
 import { mergeObservations, setObservationLink, splitObservation } from "./annotation-operations";
 import {
     ANNOTATION_PRIORITIES,
@@ -87,16 +101,18 @@ export function AnnotationPage(props: {
     const sessionId = createMemo(() =>
         props.sessions.some((session) => session.id === props.selectedSessionId)
             ? props.selectedSessionId
-            : (props.sessions[0]?.id ?? ""),
+            : "",
     );
     const annotations = createMemo(() =>
-        props.records
-            .filter((record) => field(record, "session_id") === sessionId())
-            .sort((left, right) => {
-                const a = safeBigInt(field(left, "start_time_us"));
-                const b = safeBigInt(field(right, "start_time_us"));
-                return a < b ? -1 : a > b ? 1 : left.id.localeCompare(right.id);
-            }),
+        sessionId()
+            ? props.records
+                  .filter((record) => field(record, "session_id") === sessionId())
+                  .sort((left, right) => {
+                      const a = safeBigInt(field(left, "start_time_us"));
+                      const b = safeBigInt(field(right, "start_time_us"));
+                      return a < b ? -1 : a > b ? 1 : left.id.localeCompare(right.id);
+                  })
+            : [],
     );
     const visibleAnnotations = createMemo(() =>
         annotations().filter(
@@ -108,10 +124,29 @@ export function AnnotationPage(props: {
     const selectedSession = createMemo(() =>
         props.sessions.find((item) => item.id === sessionId()),
     );
+    const selectedVisible = createMemo(() => {
+        const visible = new Set(visibleAnnotations().map((record) => record.id));
+        return selected().filter((id) => visible.has(id));
+    });
+    createEffect(on(sessionId, () => setSelected([]), { defer: true }));
+    createEffect(
+        on(
+            visibleAnnotations,
+            (visible) => {
+                const ids = new Set(visible.map((record) => record.id));
+                setSelected((current) => {
+                    const next = current.filter((id) => ids.has(id));
+                    return next.length === current.length ? current : next;
+                });
+            },
+            { defer: true },
+        ),
+    );
 
     async function mergeSelected(): Promise<void> {
         try {
-            const records = annotations().filter((record) => selected().includes(record.id));
+            const ids = new Set(selectedVisible());
+            const records = annotations().filter((record) => ids.has(record.id));
             if (await props.onWriteRecords(mergeObservations(records), "Observations merged."))
                 setSelected([]);
             setOperationError("");
@@ -129,60 +164,57 @@ export function AnnotationPage(props: {
     const iconRenderer = createMemo(() => props.icon);
     return (
         <IconContext.Provider value={iconRenderer}>
-            <div class={twClasses("page-body annotation-page", jsxTailwindStyles, "div")}>
-                <section
-                    class={twClasses(
-                        "record-heading annotation-heading",
-                        jsxTailwindStyles,
-                        "section",
-                    )}
-                >
-                    <div class={twClasses("", jsxTailwindStyles, "div")}>
-                        <span class={twClasses("eyebrow", jsxTailwindStyles, "span")}>
+            <div class={cn("page-body annotation-page", pageBody)}>
+                <section class="record-heading annotation-heading mb-4 flex flex-wrap items-center justify-between gap-3.5 rounded-[5px] border border-line bg-surface px-[23px] py-5 max-sm:items-start max-sm:p-[17px]">
+                    <div class="min-w-0">
+                        <span class="eyebrow text-xs font-medium tracking-wide text-accent">
                             Notice the moments that matter
                         </span>
-                        <h1 class={twClasses("", jsxTailwindStyles, "h1")}>Observations</h1>
-                        <p class={twClasses("", jsxTailwindStyles, "p")}>
+                        <h1 class={cn(heading1, "mt-1.5 mb-1")}>Observations</h1>
+                        <p class="m-0 text-xs leading-relaxed text-muted">
                             Mark ideas, questions, corrections, and follow-ups as they happen in a
                             session.
                         </p>
                     </div>
                     <div
-                        class={twClasses("annotation-count", jsxTailwindStyles, "div")}
-                        aria-label={`${annotations().length} observations`}
+                        class="annotation-count grid min-w-[95px] justify-items-end gap-[3px] border-l border-line pl-[18px] text-faint max-sm:min-w-0 max-sm:pl-2.5"
+                        aria-label={`${annotations().length} ${pluralNoun(annotations().length, "observation")}`}
                     >
-                        <strong class={twClasses("", jsxTailwindStyles, "strong")}>
+                        <strong class="font-semibold text-ink-soft">
                             {annotations().length.toString().padStart(2, "0")}
                         </strong>
-                        <span class={twClasses("", jsxTailwindStyles, "span")}>
-                            In this session
-                        </span>
+                        <span>In this session</span>
                     </div>
                 </section>
 
-                <label class={twClasses("annotation-quick-note", jsxTailwindStyles, "label")}>
-                    <span class={twClasses("", jsxTailwindStyles, "span")}>Quick marker note</span>
+                <label class="annotation-quick-note grid max-w-lg gap-1.5 text-[0.8rem] text-muted">
+                    <span>Quick marker note</span>
                     <input
                         value={markerNote()}
                         disabled={props.disabled || !sessionId()}
                         onInput={(event) => setMarkerNote(event.currentTarget.value)}
                         placeholder="Optional note for the next keyboard marker"
-                        class={twClasses("", jsxTailwindStyles, "input")}
+                        class={inputBase}
                     />
                 </label>
 
-                <section class={twClasses("annotation-controls", jsxTailwindStyles, "section")}>
-                    <label
-                        class={twClasses("transcript-session-picker", jsxTailwindStyles, "label")}
-                    >
+                <section class="annotation-controls mb-4 flex min-h-[69px] flex-wrap items-center gap-3.5 rounded-[5px] border border-line bg-surface px-[13px] py-[11px] max-sm:flex-col max-sm:items-stretch">
+                    <label class="transcript-session-picker grid min-w-[150px] flex-1 basis-[290px] gap-1.5 text-xs font-semibold text-muted max-sm:basis-auto">
                         Session
                         <select
                             aria-label="Choose a session for observations"
                             value={sessionId()}
                             disabled={!props.sessions.length}
                             onChange={(event) => props.onSelectSession(event.currentTarget.value)}
-                            class={twClasses("", jsxTailwindStyles, "select")}
+                            class={selectBase}
                         >
+                            <Show when={!selectedSession()}>
+                                <option value="" disabled>
+                                    {props.sessions.length === 0
+                                        ? "No sessions yet"
+                                        : "Select a session"}
+                                </option>
+                            </Show>
                             <For each={props.sessions}>
                                 {(session) => (
                                     <option value={session.id}>
@@ -195,27 +227,15 @@ export function AnnotationPage(props: {
                     </label>
                     <Show when={selectedSession()}>
                         {(session) => (
-                            <div
-                                class={twClasses(
-                                    "annotation-session-context",
-                                    jsxTailwindStyles,
-                                    "div",
-                                )}
-                            >
-                                <span
-                                    class={twClasses(
-                                        "annotation-session-glyph",
-                                        jsxTailwindStyles,
-                                        "span",
-                                    )}
-                                >
+                            <div class="annotation-session-context ml-auto flex min-w-0 items-center gap-[9px] pr-2 max-lg:hidden">
+                                <span class="annotation-session-glyph grid h-8 w-8 flex-none place-items-center rounded-[5px] border border-accent/20 bg-accent-soft text-accent">
                                     <Icon name="sessions" />
                                 </span>
-                                <span class={twClasses("", jsxTailwindStyles, "span")}>
-                                    <strong class={twClasses("", jsxTailwindStyles, "strong")}>
+                                <span class="grid min-w-0 gap-0.5">
+                                    <strong class="font-semibold text-ink-soft">
                                         {field(session(), "title", "Untitled session")}
                                     </strong>
-                                    <small class={twClasses("", jsxTailwindStyles, "small")}>
+                                    <small class="text-xs text-faint">
                                         {field(session(), "subject", "Session notes and moments")}
                                     </small>
                                 </span>
@@ -223,7 +243,7 @@ export function AnnotationPage(props: {
                         )}
                     </Show>
                     <button
-                        class={twClasses("button button-primary", jsxTailwindStyles, "button")}
+                        class={buttonPrimary}
                         type="button"
                         disabled={props.disabled || !sessionId()}
                         onClick={() => setAdding((value) => !value)}
@@ -234,34 +254,16 @@ export function AnnotationPage(props: {
                 </section>
 
                 <Show when={adding()}>
-                    <section
-                        class={twClasses(
-                            "annotation-compose surface-card",
-                            jsxTailwindStyles,
-                            "section",
-                        )}
-                    >
-                        <div
-                            class={twClasses(
-                                "annotation-compose-heading",
-                                jsxTailwindStyles,
-                                "div",
-                            )}
-                        >
-                            <div class={twClasses("", jsxTailwindStyles, "div")}>
-                                <span class={twClasses("eyebrow", jsxTailwindStyles, "span")}>
+                    <section class="annotation-compose surface-card mb-3.5 rounded-[5px] border border-line bg-surface p-5 max-sm:p-[15px]">
+                        <div class="annotation-compose-heading mb-3.5 flex items-center justify-between gap-3.5">
+                            <div class="min-w-0">
+                                <span class="eyebrow text-xs font-medium tracking-wide text-muted">
                                     Capture a moment
                                 </span>
-                                <h2 class={twClasses("", jsxTailwindStyles, "h2")}>
-                                    New observation
-                                </h2>
+                                <h2 class={heading3}>New observation</h2>
                             </div>
                             <button
-                                class={twClasses(
-                                    "button button-quiet",
-                                    jsxTailwindStyles,
-                                    "button",
-                                )}
+                                class={buttonQuiet}
                                 type="button"
                                 onClick={() => setAdding(false)}
                             >
@@ -287,73 +289,57 @@ export function AnnotationPage(props: {
                 </Show>
 
                 <Show
-                    when={props.sessions.length > 0}
+                    when={selectedSession()}
                     fallback={
-                        <section
-                            class={twClasses(
-                                "surface-card annotation-empty",
-                                jsxTailwindStyles,
-                                "section",
-                            )}
+                        <Show
+                            when={props.sessions.length === 0}
+                            fallback={
+                                <section class="surface-card annotation-empty flex min-h-[280px] flex-col items-center justify-center rounded-[5px] border border-line bg-surface px-[22px] py-7 text-center max-sm:min-h-0 max-sm:items-start max-sm:border-0 max-sm:px-0.5 max-sm:pb-[38px] max-sm:pt-[30px] max-sm:text-left">
+                                    <div class="annotation-empty-mark mb-3 grid h-[50px] w-[50px] place-items-center rounded-[5px] border border-accent/20 bg-accent-soft text-accent -rotate-[4deg]">
+                                        <Icon name="annotations" />
+                                    </div>
+                                    <h2 class={heading3}>Session unavailable</h2>
+                                    <p class="m-0 text-xs leading-relaxed text-muted">
+                                        The selected session is not in this workspace. Choose
+                                        another session above.
+                                    </p>
+                                </section>
+                            }
                         >
-                            <div
-                                class={twClasses("annotation-empty-mark", jsxTailwindStyles, "div")}
-                            >
-                                <Icon name="annotations" />
-                            </div>
-                            <h2 class={twClasses("", jsxTailwindStyles, "h2")}>
-                                Start with a session
-                            </h2>
-                            <p class={twClasses("", jsxTailwindStyles, "p")}>
-                                Observations are attached to a session so you can revisit the right
-                                moment later.
-                            </p>
-                            <button
-                                class={twClasses(
-                                    "button button-primary",
-                                    jsxTailwindStyles,
-                                    "button",
-                                )}
-                                type="button"
-                                onClick={props.onNewSession}
-                            >
-                                <Icon name="plus" /> Create a session
-                            </button>
-                        </section>
+                            <section class="surface-card annotation-empty flex min-h-[280px] flex-col items-center justify-center rounded-[5px] border border-line bg-surface px-[22px] py-7 text-center max-sm:min-h-0 max-sm:items-start max-sm:border-0 max-sm:px-0.5 max-sm:pb-[38px] max-sm:pt-[30px] max-sm:text-left">
+                                <div class="annotation-empty-mark mb-3 grid h-[50px] w-[50px] place-items-center rounded-[5px] border border-accent/20 bg-accent-soft text-accent -rotate-[4deg]">
+                                    <Icon name="annotations" />
+                                </div>
+                                <h2 class={heading3}>Start with a session</h2>
+                                <p class="m-0 text-xs leading-relaxed text-muted">
+                                    Observations are attached to a session so you can revisit the
+                                    right moment later.
+                                </p>
+                                <button
+                                    class={buttonPrimary}
+                                    type="button"
+                                    onClick={props.onNewSession}
+                                >
+                                    <Icon name="plus" /> Create a session
+                                </button>
+                            </section>
+                        </Show>
                     }
                 >
                     <Show
                         when={annotations().length > 0 || adding()}
                         fallback={
-                            <section
-                                class={twClasses(
-                                    "surface-card annotation-empty",
-                                    jsxTailwindStyles,
-                                    "section",
-                                )}
-                            >
-                                <div
-                                    class={twClasses(
-                                        "annotation-empty-mark",
-                                        jsxTailwindStyles,
-                                        "div",
-                                    )}
-                                >
+                            <section class="surface-card annotation-empty flex min-h-[280px] flex-col items-center justify-center rounded-[5px] border border-line bg-surface px-[22px] py-7 text-center max-sm:min-h-0 max-sm:items-start max-sm:border-0 max-sm:px-0.5 max-sm:pb-[38px] max-sm:pt-[30px] max-sm:text-left">
+                                <div class="annotation-empty-mark mb-3 grid h-[50px] w-[50px] place-items-center rounded-[5px] border border-accent/20 bg-accent-soft text-accent -rotate-[4deg]">
                                     <Icon name="annotations" />
                                 </div>
-                                <h2 class={twClasses("", jsxTailwindStyles, "h2")}>
-                                    A clear page for this session
-                                </h2>
-                                <p class={twClasses("", jsxTailwindStyles, "p")}>
+                                <h2 class={heading3}>A clear page for this session</h2>
+                                <p class="m-0 text-xs leading-relaxed text-muted">
                                     Add an observation when a useful idea, misunderstanding, or next
                                     step appears.
                                 </p>
                                 <button
-                                    class={twClasses(
-                                        "button button-outline",
-                                        jsxTailwindStyles,
-                                        "button",
-                                    )}
+                                    class={buttonOutline}
                                     type="button"
                                     disabled={props.disabled}
                                     onClick={() => setAdding(true)}
@@ -364,25 +350,17 @@ export function AnnotationPage(props: {
                         }
                     >
                         <section
-                            class={twClasses("annotation-timeline", jsxTailwindStyles, "section")}
+                            class="annotation-timeline rounded-[5px] border border-line bg-surface-subtle p-[18px] pb-[3px] max-sm:px-3 max-sm:pt-[15px] max-sm:pb-0.5"
                             aria-label="Session observations"
                         >
-                            <div
-                                class={twClasses(
-                                    "annotation-timeline-heading",
-                                    jsxTailwindStyles,
-                                    "div",
-                                )}
-                            >
-                                <div class={twClasses("", jsxTailwindStyles, "div")}>
-                                    <span class={twClasses("eyebrow", jsxTailwindStyles, "span")}>
+                            <div class="annotation-timeline-heading mb-3 ml-11 flex items-center justify-between gap-3.5 max-sm:ml-[34px]">
+                                <div class="min-w-0">
+                                    <span class="eyebrow text-xs font-medium tracking-wide text-muted">
                                         Session timeline
                                     </span>
-                                    <h2 class={twClasses("", jsxTailwindStyles, "h2")}>
-                                        What stood out
-                                    </h2>
+                                    <h2 class={heading3}>What stood out</h2>
                                 </div>
-                                <span class={twClasses("", jsxTailwindStyles, "span")}>
+                                <span>
                                     {selectedSession()
                                         ? formatTimestamp(
                                               field(selectedSession()!, "started_at_us"),
@@ -390,15 +368,15 @@ export function AnnotationPage(props: {
                                         : ""}
                                 </span>
                             </div>
-                            <div class={twClasses("annotation-filters", jsxTailwindStyles, "div")}>
-                                <label class={twClasses("", jsxTailwindStyles, "label")}>
+                            <div class="annotation-filters my-4 flex flex-wrap items-end gap-3">
+                                <label class={labelBase}>
                                     Type
                                     <select
                                         value={typeFilter()}
                                         onChange={(event) =>
                                             setTypeFilter(event.currentTarget.value)
                                         }
-                                        class={twClasses("", jsxTailwindStyles, "select")}
+                                        class={selectBase}
                                     >
                                         <option value="">All types</option>
                                         <For each={ANNOTATION_TYPES}>
@@ -410,14 +388,14 @@ export function AnnotationPage(props: {
                                         </For>
                                     </select>
                                 </label>
-                                <label class={twClasses("", jsxTailwindStyles, "label")}>
+                                <label class={labelBase}>
                                     Priority
                                     <select
                                         value={priorityFilter()}
                                         onChange={(event) =>
                                             setPriorityFilter(event.currentTarget.value)
                                         }
-                                        class={twClasses("", jsxTailwindStyles, "select")}
+                                        class={selectBase}
                                     >
                                         <option value="">All priorities</option>
                                         <For each={ANNOTATION_PRIORITIES}>
@@ -429,22 +407,15 @@ export function AnnotationPage(props: {
                                         </For>
                                     </select>
                                 </label>
-                                <span class={twClasses("", jsxTailwindStyles, "span")}>
-                                    {visibleAnnotations().length} shown
-                                </span>
+                                <span>{visibleAnnotations().length} shown</span>
                                 <button
                                     type="button"
-                                    class={twClasses(
-                                        "button button-outline record-action",
-                                        jsxTailwindStyles,
-                                        "button",
+                                    class={cn(
+                                        "record-action",
+                                        buttonOutline,
+                                        "min-h-[30px] px-[9px] text-xs",
                                     )}
-                                    disabled={
-                                        props.disabled ||
-                                        selected().filter((id) =>
-                                            annotations().some((record) => record.id === id),
-                                        ).length < 2
-                                    }
+                                    disabled={props.disabled || selectedVisible().length < 2}
                                     onClick={() => void mergeSelected()}
                                 >
                                     Merge selected
@@ -453,11 +424,7 @@ export function AnnotationPage(props: {
                             <Show when={operationError()}>
                                 <p
                                     role="alert"
-                                    class={twClasses(
-                                        "annotation-filter-empty",
-                                        jsxTailwindStyles,
-                                        "p",
-                                    )}
+                                    class="annotation-filter-empty my-3 text-xs text-muted"
                                 >
                                     {operationError()}
                                 </p>
@@ -465,18 +432,12 @@ export function AnnotationPage(props: {
                             <Show
                                 when={visibleAnnotations().length > 0}
                                 fallback={
-                                    <p
-                                        class={twClasses(
-                                            "annotation-filter-empty",
-                                            jsxTailwindStyles,
-                                            "p",
-                                        )}
-                                    >
+                                    <p class="annotation-filter-empty my-3 text-xs text-muted">
                                         No observations match these filters.
                                     </p>
                                 }
                             >
-                                <div class={twClasses("annotation-list", jsxTailwindStyles, "div")}>
+                                <div class="annotation-list grid">
                                     <For each={visibleAnnotations()}>
                                         {(record) => (
                                             <AnnotationCard
@@ -604,68 +565,66 @@ function AnnotationCard(props: {
 
     return (
         <article
-            class={twClasses(
+            class={cn(
                 `annotation-item priority-${priority()}`,
-                jsxTailwindStyles,
-                "article",
+                "relative grid grid-cols-[24px_minmax(0,1fr)] gap-3 pb-[13px] animate-[annotation-enter_210ms_ease-out_both] motion-reduce:animate-none max-sm:grid-cols-[16px_minmax(0,1fr)] max-sm:gap-2",
             )}
         >
             <div
-                class={twClasses("annotation-timeline-rail", jsxTailwindStyles, "div")}
+                class="annotation-timeline-rail relative flex justify-center before:absolute before:top-[3px] before:-bottom-[13px] before:w-px before:bg-line before:content-['']"
                 aria-hidden="true"
             >
-                <span class={twClasses("", jsxTailwindStyles, "span")} />
+                <span />
             </div>
-            <div class={twClasses("annotation-card surface-card", jsxTailwindStyles, "div")}>
-                <header class={twClasses("annotation-card-header", jsxTailwindStyles, "header")}>
-                    <div class={twClasses("annotation-type-line", jsxTailwindStyles, "div")}>
-                        <label class={twClasses("annotation-select", jsxTailwindStyles, "label")}>
+            <div class="annotation-card surface-card min-w-0 rounded-[5px] border border-line bg-surface px-[15px] pb-3 pt-[13px] max-sm:p-[11px]">
+                <header class="annotation-card-header flex flex-wrap items-center justify-between gap-2 max-sm:flex-col max-sm:items-start">
+                    <div class="annotation-type-line flex flex-wrap items-center gap-2">
+                        <label class="annotation-select inline-flex items-center">
                             <input
                                 type="checkbox"
                                 checked={props.selected}
                                 disabled={props.disabled}
                                 onChange={(event) => props.onSelect(event.currentTarget.checked)}
-                                class={twClasses("", jsxTailwindStyles, "input")}
+                                class="accent-accent"
                             />{" "}
-                            <span class={twClasses("sr-only", jsxTailwindStyles, "span")}>
-                                Select observation for merging
-                            </span>
+                            <span class="sr-only">Select observation for merging</span>
                         </label>
-                        <span class={twClasses("annotation-type-icon", jsxTailwindStyles, "span")}>
+                        <span class="annotation-type-icon grid h-6 w-6 flex-none place-items-center rounded-[5px] border border-accent/20 bg-accent-soft text-accent">
                             <Icon name="annotations" />
                         </span>
-                        <span class={twClasses("annotation-type-label", jsxTailwindStyles, "span")}>
+                        <span class="annotation-type-label text-xs font-semibold text-ink-soft">
                             {kind()}
                         </span>
                         <span
-                            class={twClasses(
+                            class={cn(
                                 `annotation-priority priority-label-${priority()}`,
-                                jsxTailwindStyles,
-                                "span",
+                                "rounded-[5px] border border-line-soft bg-surface-subtle px-[7px] py-[3px] text-xs font-semibold capitalize text-muted",
+                                (priority() === "high" || priority() === "critical") &&
+                                    "text-[var(--warning)]",
                             )}
                         >
                             {priority()}
                         </span>
                     </div>
-                    <span class={twClasses("annotation-card-time", jsxTailwindStyles, "span")}>
+                    <span class="annotation-card-time inline-flex items-center gap-[5px] text-xs tabular-nums text-faint">
                         <Icon name="clock" /> {time()}
                     </span>
                 </header>
                 <Show when={!editing()}>
-                    <div class={twClasses("annotation-card-copy", jsxTailwindStyles, "div")}>
-                        <h3 class={twClasses("", jsxTailwindStyles, "h3")}>
+                    <div class="annotation-card-copy m-0 break-words whitespace-pre-wrap">
+                        <h3 class="text-xs font-semibold tracking-tight text-ink">
                             {field(props.record, "title") || kind()}
                         </h3>
-                        <p class={twClasses("", jsxTailwindStyles, "p")}>
+                        <p class="m-0 text-xs leading-relaxed text-muted">
                             {field(props.record, "content")}
                         </p>
                     </div>
-                    <div class={twClasses("annotation-card-actions", jsxTailwindStyles, "div")}>
+                    <div class="annotation-card-actions mt-2 flex flex-wrap items-center gap-1.5">
                         <button
-                            class={twClasses(
-                                "button button-quiet record-action",
-                                jsxTailwindStyles,
-                                "button",
+                            class={cn(
+                                "record-action",
+                                buttonQuiet,
+                                "min-h-[30px] px-[9px] text-xs",
                             )}
                             type="button"
                             disabled={props.disabled}
@@ -675,10 +634,10 @@ function AnnotationCard(props: {
                         </button>
                         <Show when={props.onPlayFromTimestamp}>
                             <button
-                                class={twClasses(
-                                    "button button-quiet record-action",
-                                    jsxTailwindStyles,
-                                    "button",
+                                class={cn(
+                                    "record-action",
+                                    buttonQuiet,
+                                    "min-h-[30px] px-[9px] text-xs",
                                 )}
                                 type="button"
                                 disabled={props.disabled}
@@ -688,10 +647,10 @@ function AnnotationCard(props: {
                             </button>
                         </Show>
                         <button
-                            class={twClasses(
-                                "button button-quiet record-action",
-                                jsxTailwindStyles,
-                                "button",
+                            class={cn(
+                                "record-action",
+                                buttonQuiet,
+                                "min-h-[30px] px-[9px] text-xs",
                             )}
                             type="button"
                             disabled={props.disabled}
@@ -699,13 +658,7 @@ function AnnotationCard(props: {
                         >
                             Duplicate
                         </button>
-                        <label
-                            class={twClasses(
-                                "annotation-quick-priority",
-                                jsxTailwindStyles,
-                                "label",
-                            )}
-                        >
+                        <label class="annotation-quick-priority flex items-center gap-2 text-[0.8rem] text-muted">
                             Priority
                             <select
                                 value={priority()}
@@ -717,7 +670,7 @@ function AnnotationCard(props: {
                                             .value as AnnotationInput["priority"],
                                     })
                                 }
-                                class={twClasses("", jsxTailwindStyles, "select")}
+                                class={selectBase}
                             >
                                 <For each={ANNOTATION_PRIORITIES}>
                                     {(value) => (
@@ -729,10 +682,10 @@ function AnnotationCard(props: {
                             </select>
                         </label>
                         <button
-                            class={twClasses(
-                                "button button-quiet record-action",
-                                jsxTailwindStyles,
-                                "button",
+                            class={cn(
+                                "record-action",
+                                buttonQuiet,
+                                "min-h-[30px] px-[9px] text-xs",
                             )}
                             type="button"
                             disabled={historyLoading()}
@@ -746,10 +699,10 @@ function AnnotationCard(props: {
                                   : "Hide history"}
                         </button>
                         <button
-                            class={twClasses(
-                                "button button-quiet record-action",
-                                jsxTailwindStyles,
-                                "button",
+                            class={cn(
+                                "record-action",
+                                buttonQuiet,
+                                "min-h-[30px] px-[9px] text-xs",
                             )}
                             type="button"
                             disabled={props.disabled}
@@ -758,10 +711,10 @@ function AnnotationCard(props: {
                             Split
                         </button>
                         <button
-                            class={twClasses(
-                                "button button-quiet record-action",
-                                jsxTailwindStyles,
-                                "button",
+                            class={cn(
+                                "record-action",
+                                buttonQuiet,
+                                "min-h-[30px] px-[9px] text-xs",
                             )}
                             type="button"
                             aria-expanded={linksOpen()}
@@ -770,10 +723,10 @@ function AnnotationCard(props: {
                             Links
                         </button>
                         <button
-                            class={twClasses(
-                                "button button-quiet record-action annotation-remove-action",
-                                jsxTailwindStyles,
-                                "button",
+                            class={cn(
+                                "record-action annotation-remove-action",
+                                buttonQuiet,
+                                "min-h-[30px] px-[9px] text-xs",
                             )}
                             type="button"
                             disabled={props.disabled}
@@ -783,19 +736,16 @@ function AnnotationCard(props: {
                         </button>
                     </div>
                     <Show when={operationError()}>
-                        <p
-                            role="alert"
-                            class={twClasses("annotation-filter-empty", jsxTailwindStyles, "p")}
-                        >
+                        <p role="alert" class="annotation-filter-empty my-3 text-xs text-muted">
                             {operationError()}
                         </p>
                     </Show>
                     <Show when={splitting()}>
                         <section
-                            class={twClasses("annotation-operation", jsxTailwindStyles, "section")}
+                            class="annotation-operation flex flex-col items-start gap-2.5 border-t border-line py-4"
                             aria-label="Split observation"
                         >
-                            <p class={twClasses("", jsxTailwindStyles, "p")}>
+                            <p class="m-0 text-xs leading-relaxed text-muted">
                                 Select where to split the text. Both parts retain the observation’s
                                 links.
                             </p>
@@ -807,27 +757,21 @@ function AnnotationCard(props: {
                                     setSplitOffset(event.currentTarget.selectionStart)
                                 }
                                 aria-label="Select the split position in the observation text"
-                                class={twClasses("", jsxTailwindStyles, "textarea")}
+                                class={textareaBase}
                             />
-                            <span class={twClasses("", jsxTailwindStyles, "span")}>
-                                Split after character {splitOffset()}
-                            </span>
-                            <label class={twClasses("", jsxTailwindStyles, "label")}>
+                            <span>Split after character {splitOffset()}</span>
+                            <label class="flex items-center gap-2 text-xs text-ink-soft">
                                 Split time{" "}
                                 <input
                                     placeholder="HH:MM:SS"
                                     value={splitTime()}
                                     onInput={(event) => setSplitTime(event.currentTarget.value)}
-                                    class={twClasses("", jsxTailwindStyles, "input")}
+                                    class={inputBase}
                                 />
                             </label>
                             <button
                                 type="button"
-                                class={twClasses(
-                                    "button button-outline",
-                                    jsxTailwindStyles,
-                                    "button",
-                                )}
+                                class={buttonOutline}
                                 disabled={props.disabled}
                                 onClick={() => void split()}
                             >
@@ -837,19 +781,15 @@ function AnnotationCard(props: {
                     </Show>
                     <Show when={linksOpen()}>
                         <section
-                            class={twClasses("annotation-operation", jsxTailwindStyles, "section")}
+                            class="annotation-operation flex flex-col items-start gap-2.5 border-t border-line py-4"
                             aria-label="Linked records"
                         >
-                            <p class={twClasses("", jsxTailwindStyles, "p")}>
+                            <p class="m-0 text-xs leading-relaxed text-muted">
                                 Link materials and evidence from this session.
                             </p>
                             <Show
                                 when={props.targets.length}
-                                fallback={
-                                    <span class={twClasses("", jsxTailwindStyles, "span")}>
-                                        No materials or evidence available.
-                                    </span>
-                                }
+                                fallback={<span>No materials or evidence available.</span>}
                             >
                                 <For each={props.targets}>
                                     {(target) => {
@@ -866,9 +806,7 @@ function AnnotationCard(props: {
                                                         target.id.toLowerCase(),
                                                 );
                                         return (
-                                            <label
-                                                class={twClasses("", jsxTailwindStyles, "label")}
-                                            >
+                                            <label class="flex items-center gap-2 text-xs text-ink-soft">
                                                 <input
                                                     type="checkbox"
                                                     checked={linked()}
@@ -879,11 +817,7 @@ function AnnotationCard(props: {
                                                             event.currentTarget.checked,
                                                         )
                                                     }
-                                                    class={twClasses(
-                                                        "",
-                                                        jsxTailwindStyles,
-                                                        "input",
-                                                    )}
+                                                    class="accent-accent"
                                                 />{" "}
                                                 {target.type === RecordType.assetMetadata
                                                     ? "Material"
@@ -901,48 +835,26 @@ function AnnotationCard(props: {
                     </Show>
                     <Show when={history() !== null}>
                         <section
-                            class={twClasses(
-                                "annotation-history-panel",
-                                jsxTailwindStyles,
-                                "section",
-                            )}
+                            class="annotation-history-panel mt-3 border-t border-line-soft pt-[11px]"
                             aria-label="Observation version history"
                         >
-                            <div
-                                class={twClasses(
-                                    "annotation-history-heading",
-                                    jsxTailwindStyles,
-                                    "div",
-                                )}
-                            >
-                                <span class={twClasses("eyebrow", jsxTailwindStyles, "span")}>
+                            <div class="annotation-history-heading mb-[7px] flex items-center justify-between gap-2">
+                                <span class="eyebrow text-xs font-medium tracking-wide text-muted">
                                     Version history
                                 </span>
-                                <span class={twClasses("", jsxTailwindStyles, "span")}>
+                                <span>
                                     {Math.max(0, (history()?.length ?? 1) - 1)} earlier versions
                                 </span>
                             </div>
                             <Show
                                 when={(history()?.length ?? 0) > 1}
                                 fallback={
-                                    <p
-                                        class={twClasses(
-                                            "annotation-history-empty",
-                                            jsxTailwindStyles,
-                                            "p",
-                                        )}
-                                    >
+                                    <p class="annotation-history-empty my-2 text-xs text-muted">
                                         This observation has no earlier versions.
                                     </p>
                                 }
                             >
-                                <div
-                                    class={twClasses(
-                                        "annotation-history-list",
-                                        jsxTailwindStyles,
-                                        "div",
-                                    )}
-                                >
+                                <div class="annotation-history-list grid gap-[7px]">
                                     <For
                                         each={(history()?.slice(1) ?? []).map((record, index) => ({
                                             record,
@@ -953,39 +865,15 @@ function AnnotationCard(props: {
                                             const revision = entry.record;
                                             const historyIndex = entry.historyIndex;
                                             return (
-                                                <article
-                                                    class={twClasses(
-                                                        "annotation-history-entry",
-                                                        jsxTailwindStyles,
-                                                        "article",
-                                                    )}
-                                                >
-                                                    <div
-                                                        class={twClasses(
-                                                            "",
-                                                            jsxTailwindStyles,
-                                                            "div",
-                                                        )}
-                                                    >
-                                                        <strong
-                                                            class={twClasses(
-                                                                "",
-                                                                jsxTailwindStyles,
-                                                                "strong",
-                                                            )}
-                                                        >
+                                                <article class="annotation-history-entry grid gap-1.5 rounded-[5px] border border-line-soft bg-surface-subtle px-[11px] py-2.5">
+                                                    <div class="min-w-0">
+                                                        <strong class="font-semibold text-ink-soft">
                                                             {field(revision, "title") ||
                                                                 annotationTypeLabel(
                                                                     field(revision, "type"),
                                                                 )}
                                                         </strong>
-                                                        <small
-                                                            class={twClasses(
-                                                                "",
-                                                                jsxTailwindStyles,
-                                                                "small",
-                                                            )}
-                                                        >
+                                                        <small class="text-xs text-faint">
                                                             Version {historyIndex} ·{" "}
                                                             {formatTimestamp(
                                                                 field(
@@ -1002,20 +890,14 @@ function AnnotationCard(props: {
                                                                 : ""}
                                                         </small>
                                                     </div>
-                                                    <p
-                                                        class={twClasses(
-                                                            "",
-                                                            jsxTailwindStyles,
-                                                            "p",
-                                                        )}
-                                                    >
+                                                    <p class="m-0 text-xs leading-relaxed text-muted">
                                                         {field(revision, "content")}
                                                     </p>
                                                     <button
-                                                        class={twClasses(
-                                                            "button button-outline record-action",
-                                                            jsxTailwindStyles,
-                                                            "button",
+                                                        class={cn(
+                                                            "record-action",
+                                                            buttonOutline,
+                                                            "min-h-[30px] px-[9px] text-xs",
                                                         )}
                                                         type="button"
                                                         disabled={props.disabled}
@@ -1079,30 +961,30 @@ function AnnotationForm(props: {
     }
 
     return (
-        <form class={twClasses("annotation-form", jsxTailwindStyles, "form")} onSubmit={submit}>
-            <div class={twClasses("annotation-form-grid", jsxTailwindStyles, "div")}>
-                <label class={twClasses("form-field", jsxTailwindStyles, "label")}>
+        <form class="annotation-form grid gap-[11px]" onSubmit={submit}>
+            <div class="annotation-form-grid grid grid-cols-2 gap-[9px] md:grid-cols-[1.1fr_0.8fr_1.5fr_0.8fr_0.8fr]">
+                <label class="form-field grid min-w-0 gap-[5px] text-xs font-semibold text-ink-soft">
                     Type
                     <select
                         value={type()}
                         onChange={(event) =>
                             setType(event.currentTarget.value as AnnotationInput["type"])
                         }
-                        class={twClasses("", jsxTailwindStyles, "select")}
+                        class={selectBase}
                     >
                         <For each={ANNOTATION_TYPES}>
                             {(value) => <option value={value}>{annotationTypeLabel(value)}</option>}
                         </For>
                     </select>
                 </label>
-                <label class={twClasses("form-field", jsxTailwindStyles, "label")}>
+                <label class="form-field grid min-w-0 gap-[5px] text-xs font-semibold text-ink-soft">
                     Priority
                     <select
                         value={priority()}
                         onChange={(event) =>
                             setPriority(event.currentTarget.value as AnnotationInput["priority"])
                         }
-                        class={twClasses("", jsxTailwindStyles, "select")}
+                        class={selectBase}
                     >
                         <For each={ANNOTATION_PRIORITIES}>
                             {(value) => (
@@ -1113,23 +995,19 @@ function AnnotationForm(props: {
                         </For>
                     </select>
                 </label>
-                <label
-                    class={twClasses(
-                        "form-field annotation-form-title",
-                        jsxTailwindStyles,
-                        "label",
-                    )}
-                >
+                <label class="form-field annotation-form-title grid min-w-0 gap-[5px] text-xs font-semibold text-ink-soft relative col-span-2 md:col-span-1">
                     Title{" "}
-                    <span class={twClasses("optional", jsxTailwindStyles, "span")}>optional</span>
+                    <span class="optional absolute right-0 top-0 text-xs font-normal text-faint">
+                        optional
+                    </span>
                     <input
                         value={title()}
                         onInput={(event) => setTitle(event.currentTarget.value)}
                         maxlength="512"
-                        class={twClasses("", jsxTailwindStyles, "input")}
+                        class={inputBase}
                     />
                 </label>
-                <label class={twClasses("form-field", jsxTailwindStyles, "label")}>
+                <label class="form-field grid min-w-0 gap-[5px] text-xs font-semibold text-ink-soft">
                     Start time
                     <input
                         value={start()}
@@ -1137,22 +1015,21 @@ function AnnotationForm(props: {
                         placeholder="HH:MM:SS"
                         inputmode="decimal"
                         required
-                        class={twClasses("", jsxTailwindStyles, "input")}
+                        class={inputBase}
                     />
                 </label>
-                <label class={twClasses("form-field", jsxTailwindStyles, "label")}>
-                    End time{" "}
-                    <span class={twClasses("optional", jsxTailwindStyles, "span")}>optional</span>
+                <label class="form-field grid min-w-0 gap-[5px] text-xs font-semibold text-ink-soft">
+                    End time <span class="optional text-xs font-normal text-faint">optional</span>
                     <input
                         value={end()}
                         onInput={(event) => setEnd(event.currentTarget.value)}
                         placeholder="Same as start"
                         inputmode="decimal"
-                        class={twClasses("", jsxTailwindStyles, "input")}
+                        class={inputBase}
                     />
                 </label>
             </div>
-            <label class={twClasses("form-field", jsxTailwindStyles, "label")}>
+            <label class="form-field grid min-w-0 gap-[5px] text-xs font-semibold text-ink-soft">
                 Observation
                 <textarea
                     value={content()}
@@ -1161,27 +1038,19 @@ function AnnotationForm(props: {
                     maxlength="16000000"
                     required
                     placeholder="What did you notice? Include context that will help you remember why it matters."
-                    class={twClasses("", jsxTailwindStyles, "textarea")}
+                    class={textareaBase}
                 />
             </label>
-            <div class={twClasses("annotation-form-actions", jsxTailwindStyles, "div")}>
+            <div class="annotation-form-actions flex flex-wrap gap-1.5">
                 <button
-                    class={twClasses(
-                        "button button-primary record-action",
-                        jsxTailwindStyles,
-                        "button",
-                    )}
+                    class={cn("record-action", buttonPrimary, "min-h-[30px] px-[9px] text-xs")}
                     type="submit"
                     disabled={props.disabled || !content().trim()}
                 >
                     <Icon name="check" /> {props.submitLabel}
                 </button>
                 <button
-                    class={twClasses(
-                        "button button-quiet record-action",
-                        jsxTailwindStyles,
-                        "button",
-                    )}
+                    class={cn("record-action", buttonQuiet, "min-h-[30px] px-[9px] text-xs")}
                     type="button"
                     onClick={() => props.onCancel()}
                 >
@@ -1241,7 +1110,7 @@ function formatTimestamp(value: string): string {
     try {
         const milliseconds = Number(BigInt(value || "0") / 1000n);
         if (!Number.isFinite(milliseconds) || milliseconds <= 0) return "Date not set";
-        return new Intl.DateTimeFormat(undefined, { dateStyle: "medium" }).format(
+        return new Intl.DateTimeFormat("en-US", { dateStyle: "medium" }).format(
             new Date(milliseconds),
         );
     } catch {
