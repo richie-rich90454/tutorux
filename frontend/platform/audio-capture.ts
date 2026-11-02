@@ -162,7 +162,7 @@ class TauriMicrophoneCapture implements ActiveMicrophoneCapture {
         private readonly processor: ScriptProcessorNode,
         private readonly silentOutput: GainNode,
         private readonly onLimit: () => void,
-        private readonly onDeviceEnded: () => void,
+        onDeviceEnded: () => void,
         private readonly archive: MicrophoneArchiveCaptureHooks,
         initialArchiveCursor: ArchiveCaptureCursor,
     ) {
