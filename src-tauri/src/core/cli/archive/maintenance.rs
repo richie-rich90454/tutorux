@@ -93,10 +93,11 @@ pub(super) fn compact(
     let compacted = ArchiveSnapshot::open_bytes(result.bytes.clone())?;
     let previous_generation = snapshot.commit.generation;
     let compacted_generation = compacted.commit.generation;
+    let expected = super::helpers::read_bytes(&snapshot)?;
     drop(compacted);
     drop(snapshot);
     if applied {
-        save::save_bytes(path, &result.bytes)?;
+        save::replace_existing(path, &expected, &result.bytes)?;
     }
     let value = json!({
         "path": path.display().to_string(),
@@ -142,6 +143,7 @@ pub(super) fn backfill(
     let applied = args.flag("apply");
     let previous_generation = snapshot.commit.generation;
     let resulting_generation = result.snapshot.commit.generation;
+    let expected = read_bytes(&snapshot)?;
     let pending = if applied && (result.added_entries > 0 || result.schema_versions_updated) {
         cancellation::check("Archive index backfill")?;
         Some(read_bytes(&result.snapshot)?)
@@ -150,7 +152,7 @@ pub(super) fn backfill(
     };
     drop(snapshot);
     if let Some(bytes) = pending {
-        save::save_bytes(path, &bytes)?;
+        save::replace_existing(path, &expected, &bytes)?;
     }
     let value = json!({
         "path": path.display().to_string(),
@@ -384,9 +386,10 @@ pub(super) fn purge_trash(
             .generation;
         purge = Some(result);
     }
+    let expected = super::helpers::read_bytes(&snapshot)?;
     drop(snapshot);
     if let Some(result) = &purge {
-        save::save_bytes(path, &result.bytes)?;
+        save::replace_existing(path, &expected, &result.bytes)?;
     }
     let compacted_bytes = purge
         .as_ref()
