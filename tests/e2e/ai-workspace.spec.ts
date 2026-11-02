@@ -25,7 +25,7 @@ test.beforeEach(async ({ page }) => {
 
 test("reviews, saves, exports, and reopens a private manual AI package", async ({ page }, info) => {
     await page.goto("/");
-    await page.getByRole("button", { name: "Create archive" }).click();
+    await page.locator("#main-content").getByRole("button", { name: "Create archive" }).click();
     await page.getByLabel("Workspace name").fill("AI package QA");
     const initialDownload = page.waitForEvent("download");
     await page.getByRole("button", { name: "Create workspace" }).click();
@@ -69,7 +69,9 @@ test("reviews, saves, exports, and reopens a private manual AI package", async (
     await page.getByRole("button", { name: "Prepare for review" }).click();
     await expect(page.getByRole("heading", { name: "Mathematics" })).toBeVisible();
     await expect(page.getByText("Images for request")).toBeVisible();
-    await expect(page.locator(".ai-message")).toContainText("Nothing has been sent or saved yet");
+    await expect(
+        page.locator(".ai-message").filter({ hasText: "Nothing has been sent or saved yet" }),
+    ).toBeVisible();
 
     await page.getByRole("button", { name: "Preview exact request" }).click();
     await expect(page.getByRole("heading", { name: "Request ready for review" })).toBeVisible();
@@ -130,7 +132,7 @@ test("saves provider preferences and keeps API keys inside encrypted archives", 
     page,
 }, info) => {
     await page.goto("/");
-    await page.getByRole("button", { name: "Create archive" }).click();
+    await page.locator("#main-content").getByRole("button", { name: "Create archive" }).click();
     await page.getByLabel("Workspace name").fill("Encrypted AI settings");
     await page.getByLabel(/Protect this workspace with a passphrase/u).check();
     await page.getByLabel("Archive passphrase").fill("encrypted-ai-test-passphrase");
@@ -262,7 +264,7 @@ test("archives successful and HTTP-error responses after explicit request confir
     });
 
     await page.goto("/");
-    await page.getByRole("button", { name: "Create archive" }).click();
+    await page.locator("#main-content").getByRole("button", { name: "Create archive" }).click();
     await page.getByLabel("Workspace name").fill("Provider execution QA");
     await page.getByRole("checkbox", { name: /Protect this workspace with a passphrase/u }).check();
     await page.getByLabel("Archive passphrase").fill("provider-execution-test-passphrase");
