@@ -41,8 +41,8 @@ export function resolveKeyboardShortcut(
     // The webview resolves K so the note editor can own its contextual link shortcut.
     if (desktopNativeMenuOwns && ["o", "s", ",", "q"].includes(key)) return null;
 
-    if (key === "k") return { type: "quick-actions" };
     if (context.modalOpen) return null;
+    if (key === "k") return { type: "quick-actions" };
     if (context.paletteOpen) return null;
     if (key === ",") return { type: "preferences" };
 
