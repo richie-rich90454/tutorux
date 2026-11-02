@@ -7,11 +7,11 @@ const T_ARCHIVE_VERIFY: &str = "tests/cli/main.test.ts::CLI encrypted archive ac
 const T_ARCHIVE_ENCRYPT: &str = "tests/cli/main.test.ts::CLI encrypted archive access::creates encrypted archives from a passphrase environment variable";
 const T_ARCHIVE_SANITIZE: &str = "tests/cli/main.test.ts::CLI sanitized archive copies::requires a reviewed sanitized-copy preview and publishes a private-data-filtered archive";
 const T_ARCHIVE_RECOVERY: &str = "tests/frontend/cli.test.ts::TypeScript CLI::previews and applies recovery for a complete unpublished generation";
-const T_ARCHIVE_COMPACT: &str = "tests/frontend/cli.test.ts::TypeScript CLI::previews archive compaction with --preview and applies by default";
+const T_ARCHIVE_COMPACT: &str = "tests/frontend/cli.test.ts::TypeScript CLI::previews archive compaction with --preview and applies with --apply";
 const T_ARCHIVE_PURGE_TRASH: &str = "src-tauri/src/core/cli/archive/tests_maintenance.rs::purge_trash_previews_without_writing_and_applies";
 const T_ARCHIVE_REPAIR: &str = "tests/frontend/cli.test.ts::TypeScript CLI::creates a verified repair copy without changing the damaged source";
 const T_ARCHIVE_BACKUP: &str = "tests/rust-parity/corpus.json#archive.backup.confirm-required";
-const T_ARCHIVE_DISCOVER: &str = "tests/frontend/archive/archive.test.ts::archive reader";
+const T_ARCHIVE_DISCOVER: &str = "tests/frontend/archive/archive.test.ts::Tutorux archive snapshots::creates and reopens a committed v1 archive with its manifest";
 const T_STUDENT: &str = "tests/frontend/cli.test.ts::TypeScript CLI::shows student history and reviews source-backed progress";
 const T_STUDENT_LIFECYCLE: &str =
     "tests/frontend/domain/records.test.ts::student profile lifecycle";
@@ -24,7 +24,8 @@ const T_JOURNAL_ORGANIZER: &str = "tests/frontend/cli.test.ts::TypeScript CLI::o
 const T_ANNOTATION: &str = "tests/frontend/cli.test.ts::TypeScript CLI::creates, edits, duplicates, lists, and removes session annotations";
 const T_ANNOTATION_SPLIT: &str = "tests/frontend/cli.test.ts::TypeScript CLI::splits and merges annotation ranges without losing their source records";
 const T_ANNOTATION_LINK: &str = "tests/frontend/cli.test.ts::TypeScript CLI::links annotations to session materials and evidence records";
-const T_ASSET: &str = "tests/cli/cli-parity.test.ts::CLI legacy parity::overwrites an existing asset export destination atomically";
+const T_ASSET: &str =
+    "tests/cli/cli-parity.test.ts::CLI legacy parity::refuses an existing asset export destination";
 const T_EVIDENCE: &str =
     "tests/frontend/domain/evidence.test.ts::evidence editing and recoverable relationships";
 const T_EVIDENCE_GRAPH: &str =
@@ -32,7 +33,7 @@ const T_EVIDENCE_GRAPH: &str =
 const T_GUIDE: &str = "tests/frontend/domain/guides.test.ts::guide parity behavior";
 const T_GUIDE_EXPORT: &str = "tests/frontend/domain/guide-export.test.ts::study guide exports";
 const T_TEMPLATE: &str = "tests/cli/commands/templates.test.ts::template CLI parity::imports plain guidance and applies built-in overrides";
-const T_SETTINGS: &str = "tests/frontend/archive/archive.test.ts::archive reader";
+const T_SETTINGS: &str = "tests/frontend/archive/archive.test.ts::Tutorux archive snapshots::reads settings fields beyond the metadata window used by sanitized copies";
 const T_AI: &str = "tests/cli/commands/ai-parity.test.ts::AI CLI parity::returns the legacy provider schema with the catalog as an additive field";
 const T_AI_GENERATE: &str = "tests/cli/commands/ai-parity.test.ts::AI CLI parity::inspects an embedded GGUF locally and never routes ai test to HTTP discovery";
 const T_MODEL: &str = "tests/cli/commands/ai-parity.test.ts::AI CLI parity::inspects an embedded GGUF locally and never routes ai test to HTTP discovery";
