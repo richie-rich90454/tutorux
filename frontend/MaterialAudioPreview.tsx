@@ -1,8 +1,7 @@
-import { twClasses } from "./tailwind";
-import { jsxTailwindStyles } from "./MaterialAudioPreview.tailwind";
 import { For, Show, createSignal, type JSX } from "solid-js";
 import type { PcmWavAssetWaveform } from "./domain/asset-waveform";
 import { Icon } from "./shared-ui";
+import { cn, errorText, mutedText } from "./ui";
 
 export function MaterialAudioPreview(props: {
     waveform: PcmWavAssetWaveform;
@@ -27,25 +26,30 @@ export function MaterialAudioPreview(props: {
     };
 
     return (
-        <div class={twClasses("material-audio-preview", jsxTailwindStyles, "div")}>
+        <div class="material-audio-preview grid w-full max-w-[680px] gap-2.5">
             <div
-                class={twClasses("material-audio-waveform", jsxTailwindStyles, "div")}
+                class="material-audio-waveform flex h-[74px] items-center justify-between gap-0.5 overflow-hidden rounded-[5px] border border-line bg-surface p-2.5"
                 aria-hidden="true"
             >
                 <For each={props.waveform.buckets}>
-                    {(bucket) => (
-                        <span
-                            class={twClasses("", jsxTailwindStyles, "span", ["played"])}
-                            classList={{ played: bucket.position < position() / (duration() || 1) }}
-                            style={{
-                                height: `${Math.max(5, Math.max(Math.abs(bucket.minimum), Math.abs(bucket.maximum)) * 100)}%`,
-                            }}
-                        />
-                    )}
+                    {(bucket) => {
+                        const played = () => bucket.position < position() / (duration() || 1);
+                        return (
+                            <span
+                                class={cn(
+                                    "min-w-0.5 flex-1 rounded-[5px] transition-colors",
+                                    played() ? "played bg-accent" : "bg-line-strong",
+                                )}
+                                style={{
+                                    height: `${Math.max(5, Math.max(Math.abs(bucket.minimum), Math.abs(bucket.maximum)) * 100)}%`,
+                                }}
+                            />
+                        );
+                    }}
                 </For>
             </div>
             <input
-                class={twClasses("material-audio-seek", jsxTailwindStyles, "input")}
+                class="material-audio-seek w-full accent-accent"
                 type="range"
                 min="0"
                 max={duration()}
@@ -69,9 +73,9 @@ export function MaterialAudioPreview(props: {
                 }}
                 onInput={(event) => seek(Number(event.currentTarget.value))}
             />
-            <div class={twClasses("audio-waveform-controls", jsxTailwindStyles, "div")}>
+            <div class="audio-waveform-controls grid min-h-[38px] grid-cols-[32px_auto_minmax(28px,1fr)_30px_68px] items-center gap-2 max-[520px]:grid-cols-[32px_auto_minmax(24px,1fr)_30px]">
                 <button
-                    class={twClasses("audio-waveform-play", jsxTailwindStyles, "button")}
+                    class="audio-waveform-play grid h-[30px] w-[30px] place-items-center rounded-[5px] border border-line bg-surface text-accent transition-colors hover:bg-surface-subtle focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
                     type="button"
                     aria-label={playing() ? "Pause material audio" : "Play material audio"}
                     onClick={() => {
@@ -87,14 +91,14 @@ export function MaterialAudioPreview(props: {
                 >
                     <Icon name={playing() ? "pause" : "play"} />
                 </button>
-                <span class={twClasses("audio-waveform-time", jsxTailwindStyles, "span")}>
+                <span class="audio-waveform-time text-xs tabular-nums text-muted">
                     {timeLabel(position())}
                 </span>
-                <span class={twClasses("audio-waveform-time", jsxTailwindStyles, "span")}>
+                <span class="audio-waveform-time text-xs tabular-nums text-muted">
                     {timeLabel(duration())}
                 </span>
                 <button
-                    class={twClasses("audio-waveform-volume-toggle", jsxTailwindStyles, "button")}
+                    class="audio-waveform-volume-toggle grid h-[30px] w-[30px] place-items-center rounded-[5px] border border-transparent text-muted transition-colors hover:bg-surface-subtle hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
                     type="button"
                     aria-label={muted() || volume() === 0 ? "Unmute" : "Mute"}
                     aria-pressed={muted()}
@@ -111,7 +115,7 @@ export function MaterialAudioPreview(props: {
                     <Icon name={muted() || volume() === 0 ? "volumeMuted" : "volume"} />
                 </button>
                 <input
-                    class={twClasses("audio-waveform-volume", jsxTailwindStyles, "input")}
+                    class="audio-waveform-volume w-full min-w-0 accent-accent max-[520px]:hidden"
                     type="range"
                     min="0"
                     max="1"
@@ -130,7 +134,7 @@ export function MaterialAudioPreview(props: {
                 />
             </div>
             <audio
-                class={twClasses("audio-waveform-source", jsxTailwindStyles, "audio")}
+                class="audio-waveform-source sr-only"
                 ref={(element) => {
                     player = element;
                     element.volume = volume();
@@ -151,12 +155,12 @@ export function MaterialAudioPreview(props: {
                 onError={() => setError("This audio could not be decoded for playback.")}
             />
             <Show when={error()}>
-                <p class={twClasses("audio-waveform-error", jsxTailwindStyles, "p")} role="alert">
+                <p class={cn("audio-waveform-error m-0", errorText)} role="alert">
                     {error()}
                 </p>
             </Show>
-            <p class={twClasses("material-audio-metadata", jsxTailwindStyles, "p")}>
-                PCM WAV · {props.waveform.sampleRateHz.toLocaleString()} Hz ·{" "}
+            <p class={cn("material-audio-metadata m-0 text-center", mutedText)}>
+                PCM WAV · {props.waveform.sampleRateHz.toLocaleString("en-US")} Hz ·{" "}
                 {props.waveform.channelCount}{" "}
                 {props.waveform.channelCount === 1 ? "channel" : "channels"} ·{" "}
                 {props.waveform.bitsPerSample} bit · {timeLabel(duration())}
