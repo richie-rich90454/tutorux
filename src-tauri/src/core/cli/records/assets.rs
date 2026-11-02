@@ -272,6 +272,13 @@ pub(crate) fn run_asset(
                 )
                 .into());
             }
+            if destination.exists() {
+                return Err(CliError(format!(
+                    "Material export output already exists: {}",
+                    output_path(&destination)
+                ))
+                .into());
+            }
             let bytes = read_asset_bytes(&snapshot, &record)?;
             write_file_atomically(&destination, &bytes)?;
             emit(
