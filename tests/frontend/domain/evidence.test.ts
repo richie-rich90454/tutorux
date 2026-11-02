@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { ArchiveSnapshot } from "../../../frontend/archive/archive";
 import { RecordType, type ArchiveRecord } from "../../../frontend/archive/format";
 import {
+    evidenceSourcesAreCurrent,
     makeEvidenceRecord,
     restoreEvidenceEdge,
     restoreEvidenceRecordGroup,
@@ -136,6 +137,43 @@ describe("evidence editing and recoverable relationships", () => {
                 { title: "Title", type: "claim", content: " ", priority: "normal" },
             ),
         ).rejects.toThrow("Evidence content cannot be empty");
+    });
+
+    it("treats a singular legacy source_segment_revision as stale after the segment changes", async () => {
+        const sessionId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+        const segmentId = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
+        const record = evidenceRecord({
+            session_id: sessionId,
+            source_segment_ids: segmentId,
+            source_segment_revision: "7",
+        });
+        const segment = {
+            ...evidenceRecord(),
+            type: RecordType.transcriptSegment,
+            id: segmentId,
+            revision: 7n,
+            fields: new Map([["session_id", sessionId]]),
+        };
+        const snapshot = {
+            getRecord: vi.fn(async (type: number, id: string) =>
+                type === RecordType.transcriptSegment && id === segmentId ? segment : null,
+            ),
+        } as unknown as ArchiveSnapshot;
+
+        await expect(evidenceSourcesAreCurrent(snapshot, record)).resolves.toBe(true);
+        await expect(
+            evidenceSourcesAreCurrent(
+                {
+                    ...snapshot,
+                    getRecord: vi.fn(async (type: number, id: string) =>
+                        type === RecordType.transcriptSegment && id === segmentId
+                            ? { ...segment, revision: 8n }
+                            : null,
+                    ),
+                } as unknown as ArchiveSnapshot,
+                record,
+            ),
+        ).resolves.toBe(false);
     });
 
     it("updates editable fields and returns the item to source review", () => {
