@@ -68,9 +68,54 @@ describe("incremental recording mix", () => {
                 ?.fields.get("state"),
         ).toBe("completed");
     });
+
+    it("records only committed frames in partial and failed mix metadata", async () => {
+        const fixture = await mixFixture(4096);
+        const run = async (failAtGeneration: bigint) => {
+            const commits: { generation: bigint; records: readonly ArchiveRecord[] }[] = [];
+            let injected = false;
+            await expect(
+                mixRecordingTracksIncremental({
+                    snapshot: fixture.snapshot,
+                    sessionId: fixture.sessionId,
+                    takeId: fixture.takeId,
+                    trackIds: fixture.trackIds,
+                    expectedGeneration: 0n,
+                    chunksPerCommit: 1,
+                    commit: async (records, generation) => {
+                        commits.push({ generation, records });
+                        if (
+                            !injected &&
+                            generation === failAtGeneration &&
+                            records.some((record) => record.type === RecordType.audioChunk)
+                        ) {
+                            injected = true;
+                            throw new Error("simulated mix commit failure");
+                        }
+                        return [...records];
+                    },
+                }),
+            ).rejects.toThrow("simulated mix commit failure");
+            return commits
+                .at(-1)!
+                .records.find((record) => record.type === RecordType.assetMetadata)!;
+        };
+
+        const partial = await run(2n);
+        expect(partial.fields.get("state")).toBe("partial");
+        expect(partial.fields.get("sample_count")).toBe("2048");
+        expect(partial.fields.get("duration_us")).toBe("256000");
+        expect(partial.fields.get("chunk_count")).toBe("1");
+
+        const failed = await run(1n);
+        expect(failed.fields.get("state")).toBe("failed");
+        expect(failed.fields.get("sample_count")).toBe("0");
+        expect(failed.fields.get("duration_us")).toBe("0");
+        expect(failed.fields.get("chunk_count")).toBe("0");
+    });
 });
 
-async function mixFixture(): Promise<{
+async function mixFixture(frameCount = 2): Promise<{
     snapshot: Awaited<ReturnType<typeof openArchiveBytes>>;
     sessionId: string;
     takeId: string;
@@ -120,7 +165,11 @@ async function mixFixture(): Promise<{
             ]),
             blob: new Uint8Array(),
         });
-        const pcm = new Uint8Array([0x10, 0x00, 0x20, 0x00]);
+        const pcm = new Uint8Array(frameCount * 2);
+        const pcmView = new DataView(pcm.buffer);
+        for (let frame = 0; frame < frameCount; frame += 1) {
+            pcmView.setInt16(frame * 2, (frame % 200) - 100, true);
+        }
         records.push({
             type: RecordType.audioChunk,
             id: newUuid(),
@@ -131,7 +180,7 @@ async function mixFixture(): Promise<{
                 ["track_id", trackId],
                 ["sequence_number", "0"],
                 ["first_sample_index", "0"],
-                ["sample_count", "2"],
+                ["sample_count", String(frameCount)],
                 ["sample_rate_hz", "8000"],
                 ["channel_count", "1"],
                 ["sample_format", "pcm_s16le"],
