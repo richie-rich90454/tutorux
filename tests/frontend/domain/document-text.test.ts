@@ -43,6 +43,17 @@ describe("document text extraction", () => {
         },
     );
 
+    it("detects a Word document from its filename when the MIME type is generic", async () => {
+        const result = await extractDocumentText(
+            "lesson-notes.DOCX",
+            "application/octet-stream",
+            makeDocx(
+                "<w:document><w:body><w:p><w:r><w:t>Filename fallback</w:t></w:r></w:p></w:body></w:document>",
+            ),
+        );
+        expect(result).toEqual({ status: "extracted", text: "Filename fallback" });
+    });
+
     it("reports a valid Word document with no readable text", async () => {
         const result = await extractDocumentText(
             "blank.docx",
