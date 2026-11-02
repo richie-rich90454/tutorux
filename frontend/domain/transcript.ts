@@ -17,7 +17,7 @@ export interface TranscriptCue {
 
 export function resolveTranscriptFormat(format: string, filename = ""): TranscriptSourceFormat {
     if (format === "auto") {
-        const extension = filename.toLocaleLowerCase().split(".").at(-1);
+        const extension = filename.toLowerCase().split(".").at(-1);
         return extension === "srt" ? "srt" : extension === "vtt" ? "vtt" : "text";
     }
     if (format === "text" || format === "srt" || format === "vtt") return format;

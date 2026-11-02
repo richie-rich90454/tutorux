@@ -306,7 +306,7 @@ export function reviewStudentProgressRecord(
         note,
         reviewedBy: reviewer,
         reviewedAtUs: (BigInt(Date.now()) * 1000n).toString(),
-        evidenceSourceIds: sources.map((item) => item.id.toLocaleLowerCase()),
+        evidenceSourceIds: sources.map((item) => item.id.toLowerCase()),
     };
     const normalizeSkill = normalizeStudentProgressSkill;
     const existingIndex = items.findIndex(

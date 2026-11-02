@@ -302,7 +302,7 @@ export function GuidesPage(props: GuidePageProps): JSX.Element {
     const allTemplates = () =>
         resolveGuideTemplates([...props.customTemplates, ...overrideRecords()]);
     const visibleTemplates = () => {
-        const query = templateSearch().trim().toLocaleLowerCase();
+        const query = templateSearch().trim().toLowerCase();
         return allTemplates().filter((template) => {
             const custom = !GUIDE_TEMPLATES.some((builtIn) => builtIn.id === template.id);
             if (templateKind() === "built-in" && custom) return false;
@@ -316,12 +316,12 @@ export function GuidesPage(props: GuidePageProps): JSX.Element {
                 template.body,
             ]
                 .join(" ")
-                .toLocaleLowerCase()
+                .toLowerCase()
                 .includes(query);
         });
     };
     const visibleCustomTemplateRecords = () => {
-        const query = templateSearch().trim().toLocaleLowerCase();
+        const query = templateSearch().trim().toLowerCase();
         return props.customTemplates.filter((record) => {
             if (!query) return true;
             const template = guideTemplateFromRecord(record);
@@ -333,7 +333,7 @@ export function GuidesPage(props: GuidePageProps): JSX.Element {
                 template.body,
             ]
                 .join(" ")
-                .toLocaleLowerCase()
+                .toLowerCase()
                 .includes(query);
         });
     };
@@ -1574,7 +1574,7 @@ export function GuidesPage(props: GuidePageProps): JSX.Element {
                                         <div class="guide-record-main min-w-0">
                                             <div class="guide-record-title-row flex items-center gap-[9px]">
                                                 <span class={eyebrowText}>
-                                                    {template().toLocaleUpperCase()} GUIDE
+                                                    {template().toUpperCase()} GUIDE
                                                 </span>
                                                 <span
                                                     class={cn(

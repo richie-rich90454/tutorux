@@ -30,7 +30,7 @@ export function resolveKeyboardShortcut(
     const command = event.metaKey || event.ctrlKey;
     if (!command) return null;
 
-    const key = event.key.toLocaleLowerCase();
+    const key = event.key.toLowerCase();
     const desktopNativeMenuOwns = context.platform === "desktop";
 
     if (event.shiftKey) {
@@ -95,7 +95,7 @@ export function keyboardShortcutRows(
         {
             action: "Add an observation",
             keys: `${command}${isMac ? " " : "+"}${markerKeys
-                .map((key) => key.toLocaleUpperCase())
+                .map((key) => key.toUpperCase())
                 .join(" / ")}`,
         },
         {

@@ -481,14 +481,14 @@ const currentRecords = createMemo(() => {
     return [];
 });
 const filteredRecords = createMemo(() => {
-    const needle = query().trim().toLocaleLowerCase();
+    const needle = query().trim().toLowerCase();
     const records = currentRecords();
     if (!needle) return records;
     const matchingRecords: ArchiveRecord[] = [];
     for (const record of records) {
         let matches = false;
         for (const value of record.fields.values()) {
-            if (!value.toLocaleLowerCase().includes(needle)) continue;
+            if (!value.toLowerCase().includes(needle)) continue;
             matches = true;
             break;
         }
@@ -506,7 +506,7 @@ const filteredRecords = createMemo(() => {
     for (const record of [...state.notesDocuments, ...state.guides, ...state.transcripts]) {
         let matches = false;
         for (const value of record.fields.values()) {
-            if (!value.toLocaleLowerCase().includes(needle)) continue;
+            if (!value.toLowerCase().includes(needle)) continue;
             matches = true;
             break;
         }
@@ -3938,9 +3938,9 @@ function App(): JSX.Element {
         },
     }));
     const matchingActions = createMemo(() => {
-        const needle = paletteQuery().trim().toLocaleLowerCase();
+        const needle = paletteQuery().trim().toLowerCase();
         return [...actions, ...navigationActions].filter((action) =>
-            `${action.label} ${action.detail}`.toLocaleLowerCase().includes(needle),
+            `${action.label} ${action.detail}`.toLowerCase().includes(needle),
         );
     });
     function handlePaletteKeys(event: KeyboardEvent): void {
@@ -4299,7 +4299,7 @@ function App(): JSX.Element {
                                             ref={(element) => (pageSearchInput = element)}
                                             value={query()}
                                             onInput={(event) => setQuery(event.currentTarget.value)}
-                                            placeholder={`Search ${activeView().label.toLocaleLowerCase()}…`}
+                                            placeholder={`Search ${activeView().label.toLowerCase()}…`}
                                             aria-label={`Search ${activeView().label}`}
                                             aria-keyshortcuts="Control+F Meta+F"
                                             class="font-sans focus-visible:outline-offset-[2px] focus-visible:outline focus-visible:outline-3 focus-visible:outline-accent/40 placeholder:text-faint bg-transparent border-0 text-ink text-[13px] min-w-0 w-full max-sm:text-xs"
@@ -7548,7 +7548,7 @@ function isCancelled(error: unknown): boolean {
 }
 
 function isArchiveSaveConflictMessage(message: string): boolean {
-    const normalized = message.toLocaleLowerCase();
+    const normalized = message.toLowerCase();
     return (
         normalized.includes("archive changed outside tutorux") ||
         normalized.includes("archive destination now points to a different file") ||
@@ -7557,7 +7557,7 @@ function isArchiveSaveConflictMessage(message: string): boolean {
 }
 
 function recoveredArchiveName(name: string): string {
-    const stem = name.toLocaleLowerCase().endsWith(".tux") ? name.slice(0, -4) : name;
+    const stem = name.toLowerCase().endsWith(".tux") ? name.slice(0, -4) : name;
     return `${safeFileName(`${stem} - recovered`)}.tux`;
 }
 

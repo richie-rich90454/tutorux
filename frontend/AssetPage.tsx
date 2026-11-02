@@ -296,7 +296,7 @@ export function AssetPage(props: {
                                 const contentType = () =>
                                     field(record, "mime_type", "application/octet-stream");
                                 const label = () =>
-                                    contentType().split("/")[0]?.toLocaleUpperCase() || "FILE";
+                                    contentType().split("/")[0]?.toUpperCase() || "FILE";
                                 return (
                                     <article class="material-card flex min-w-0 flex-col rounded-[5px] border border-line-soft bg-surface-subtle p-4 transition-colors hover:border-line-strong">
                                         <div class="material-card-top mb-4 flex items-center justify-between gap-2.5">

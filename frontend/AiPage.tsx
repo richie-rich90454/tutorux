@@ -223,7 +223,7 @@ export function AiPage(props: AiPageProps): JSX.Element {
         },
     );
     const visibleCatalogModels = createMemo(() => {
-        const query = catalogQuery().trim().toLocaleLowerCase();
+        const query = catalogQuery().trim().toLowerCase();
         const capability = catalogCapability();
         return catalogModels()
             .filter((model) => {
@@ -238,9 +238,9 @@ export function AiPage(props: AiPageProps): JSX.Element {
                 if (capability === "tools" && model.toolSupport !== true) return false;
                 return (
                     !query ||
-                    model.id.toLocaleLowerCase().includes(query) ||
-                    model.owner.toLocaleLowerCase().includes(query) ||
-                    (model.tokenizer?.toLocaleLowerCase().includes(query) ?? false)
+                    model.id.toLowerCase().includes(query) ||
+                    model.owner.toLowerCase().includes(query) ||
+                    (model.tokenizer?.toLowerCase().includes(query) ?? false)
                 );
             })
             .slice(0, 100);

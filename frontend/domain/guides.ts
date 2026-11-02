@@ -423,10 +423,10 @@ export function resolveGuideTemplates(
     templates: readonly GuideTemplate[] = GUIDE_TEMPLATES,
 ): GuideTemplate[] {
     const resolved = templates.map((template) => applyGuideTemplateOverride(template, records));
-    const known = new Set(resolved.map((template) => template.id.toLocaleLowerCase()));
+    const known = new Set(resolved.map((template) => template.id.toLowerCase()));
     for (const custom of customGuideTemplates(records)) {
-        if (known.has(custom.id.toLocaleLowerCase())) continue;
-        known.add(custom.id.toLocaleLowerCase());
+        if (known.has(custom.id.toLowerCase())) continue;
+        known.add(custom.id.toLowerCase());
         resolved.push(custom);
     }
     return resolved;
@@ -472,11 +472,11 @@ export function generateGuideDraftFromSession(
     }
 
     const requestedTemplate = templateId.trim();
-    const automatic = !requestedTemplate || requestedTemplate.toLocaleLowerCase() === "auto";
-    const studentId = field(session, "student_id").toLocaleLowerCase();
+    const automatic = !requestedTemplate || requestedTemplate.toLowerCase() === "auto";
+    const studentId = field(session, "student_id").toLowerCase();
     const student =
         studentId && studentId !== "anonymous"
-            ? students.find((record) => record.id.toLocaleLowerCase() === studentId)
+            ? students.find((record) => record.id.toLowerCase() === studentId)
             : undefined;
     const inferredTemplateId = inferGuideTemplateId(field(session, "subject"));
     const preferredTemplateId = student ? field(student, "preferred_guide_template") : "";
@@ -484,35 +484,34 @@ export function generateGuideDraftFromSession(
     const resolvedTemplateId = automatic
         ? sessionTemplateId || preferredTemplateId || inferredTemplateId
         : requestedTemplate;
-    const normalizedTemplateId = resolvedTemplateId.toLocaleLowerCase();
+    const normalizedTemplateId = resolvedTemplateId.toLowerCase();
     const catalog = resolveGuideTemplates(records, templates);
     const template =
         catalog.find(
             (candidate) =>
-                candidate.id.toLocaleLowerCase() === normalizedTemplateId ||
-                candidate.name.toLocaleLowerCase() === normalizedTemplateId,
+                candidate.id.toLowerCase() === normalizedTemplateId ||
+                candidate.name.toLowerCase() === normalizedTemplateId,
         ) ??
         (automatic && !sessionTemplateId
             ? catalog.find(
-                  (candidate) =>
-                      candidate.id.toLocaleLowerCase() === inferredTemplateId.toLocaleLowerCase(),
+                  (candidate) => candidate.id.toLowerCase() === inferredTemplateId.toLowerCase(),
               )
             : undefined);
     if (!template) throw new Error("Choose a study guide template available in this archive.");
 
     const draft = createGuideDraftFromSections(session, template.id, template.sections);
-    const sessionId = session.id.toLocaleLowerCase();
-    const entryId = field(session, "entry_id").toLocaleLowerCase();
+    const sessionId = session.id.toLowerCase();
+    const entryId = field(session, "entry_id").toLowerCase();
     const activeRecords = records.filter((record) => field(record, "_deleted") !== "true");
     const sessionRecords = activeRecords.filter((record) => {
-        const sourceSessionId = field(record, "session_id").toLocaleLowerCase();
+        const sourceSessionId = field(record, "session_id").toLowerCase();
         if (sourceSessionId === sessionId) return true;
         return (
             includeEntryEvidence &&
             Boolean(entryId) &&
             record.type === RecordType.settings &&
             field(record, "record_role") === "journal-notes" &&
-            field(record, "entry_id").toLocaleLowerCase() === entryId
+            field(record, "entry_id").toLowerCase() === entryId
         );
     });
     const overview = getOrAddGuideSection(draft, "Session overview");
@@ -579,9 +578,7 @@ export function generateGuideDraftFromSession(
         }
     }
 
-    const currentTranscriptIds = new Set(
-        transcripts.map((record) => record.id.toLocaleLowerCase()),
-    );
+    const currentTranscriptIds = new Set(transcripts.map((record) => record.id.toLowerCase()));
     const verifiedEvidence = sessionRecords
         .filter(
             (record) =>
@@ -603,7 +600,7 @@ export function generateGuideDraftFromSession(
         }
         const segmentIds = splitGuideSourceIds(field(node, "source_segment_ids"));
         const currentSegmentIds = segmentIds.filter((id) =>
-            currentTranscriptIds.has(id.toLocaleLowerCase()),
+            currentTranscriptIds.has(id.toLowerCase()),
         );
         if (currentSegmentIds.length !== segmentIds.length) continue;
         const sourceIds = [node.id, ...segmentIds].join(",");
@@ -631,8 +628,8 @@ export function generateGuideDraftFromSession(
             const rightSession = field(right, "session_id").toLowerCase() === sessionId ? 0 : 1;
             return leftSession - rightSession || left.id.localeCompare(right.id);
         })) {
-        const notesSessionId = field(notes, "session_id").toLocaleLowerCase();
-        const notesEntryId = field(notes, "entry_id").toLocaleLowerCase();
+        const notesSessionId = field(notes, "session_id").toLowerCase();
+        const notesEntryId = field(notes, "entry_id").toLowerCase();
         if (
             !isGuideNotesSource(notes, session, activeRecords) ||
             (notesSessionId !== sessionId && !includeEntryEvidence)
@@ -646,11 +643,10 @@ export function generateGuideDraftFromSession(
         if (!decoded.editable) continue;
         const noteSession = activeRecords.find(
             (record) =>
-                record.type === RecordType.session &&
-                record.id.toLocaleLowerCase() === notesSessionId,
+                record.type === RecordType.session && record.id.toLowerCase() === notesSessionId,
         );
         const heading = noteSession
-            ? noteSession.id.toLocaleLowerCase() === sessionId
+            ? noteSession.id.toLowerCase() === sessionId
                 ? "Session notes"
                 : `Session notes · ${field(noteSession, "title", "Related session")}`
             : "Journal reflection";
@@ -736,14 +732,13 @@ export function generateGuideDraftFromEntry(
     const selectedTemplateId =
         generatedSessions[0]?.templateId ??
         (() => {
-            const automatic =
-                requestedTemplate.toLocaleLowerCase() === "auto" || !requestedTemplate;
+            const automatic = requestedTemplate.toLowerCase() === "auto" || !requestedTemplate;
             const inferred = inferGuideTemplateId(field(entry, "subject"));
-            const desired = (automatic ? inferred : requestedTemplate).toLocaleLowerCase();
+            const desired = (automatic ? inferred : requestedTemplate).toLowerCase();
             const found = resolveGuideTemplates(records, templates).find(
                 (candidate) =>
-                    candidate.id.toLocaleLowerCase() === desired ||
-                    candidate.name.toLocaleLowerCase() === desired,
+                    candidate.id.toLowerCase() === desired ||
+                    candidate.name.toLowerCase() === desired,
             );
             if (!found) throw new Error("Choose a study guide template available in this archive.");
             return found.id;
@@ -833,9 +828,9 @@ export function replaceGuideSectionFromGenerated(
 ): GuideDraft {
     const selected = draft.sections[sectionIndex];
     if (!selected) throw new Error("Choose a guide section to regenerate.");
-    const heading = selected.heading.trim().toLocaleLowerCase();
+    const heading = selected.heading.trim().toLowerCase();
     const matching = generated.sections.find(
-        (section) => section.heading.trim().toLocaleLowerCase() === heading,
+        (section) => section.heading.trim().toLowerCase() === heading,
     );
     if (!matching) throw new Error("No current evidence maps to the selected guide section.");
     return {
@@ -1018,7 +1013,7 @@ function addStudentProgress(
 
 function getOrAddGuideSection(draft: GuideDraft, heading: string): GuideSectionDraft {
     const existing = draft.sections.find(
-        (section) => section.heading.toLocaleLowerCase() === heading.toLocaleLowerCase(),
+        (section) => section.heading.toLowerCase() === heading.toLowerCase(),
     );
     if (existing) return existing;
     const section = { id: newUuid(), heading, blocks: [] };
@@ -1063,14 +1058,14 @@ function evidenceSourcesAreCurrentFromRecords(
     records: readonly ArchiveRecord[],
     sessionId: string,
 ): boolean {
-    const byId = new Map(records.map((record) => [record.id.toLocaleLowerCase(), record]));
+    const byId = new Map(records.map((record) => [record.id.toLowerCase(), record]));
     const validate = (
         type: number,
         ids: readonly string[],
         revisions: ReadonlyMap<string, bigint>,
     ): boolean => {
         for (const rawId of ids) {
-            const id = rawId.toLocaleLowerCase();
+            const id = rawId.toLowerCase();
             if (!isArchiveUuid(id)) return false;
             const source = byId.get(id);
             if (
@@ -1078,7 +1073,7 @@ function evidenceSourcesAreCurrentFromRecords(
                 source.type !== type ||
                 field(source, "_deleted") === "true" ||
                 (field(source, "session_id") &&
-                    field(source, "session_id").toLocaleLowerCase() !== sessionId)
+                    field(source, "session_id").toLowerCase() !== sessionId)
             ) {
                 return false;
             }
@@ -1099,7 +1094,7 @@ function evidenceSourcesAreCurrentFromRecords(
                 [annotationId],
                 revision === undefined
                     ? new Map()
-                    : new Map([[annotationId.toLocaleLowerCase(), revision]]),
+                    : new Map([[annotationId.toLowerCase(), revision]]),
             )
         ) {
             return false;
@@ -1131,7 +1126,7 @@ function parseGuideRevisionMap(value: string): Map<string, bigint> | null {
     for (const item of splitGuideSourceIds(value)) {
         const separator = item.indexOf("=");
         if (separator < 1 || separator === item.length - 1) return null;
-        const id = item.slice(0, separator).toLocaleLowerCase();
+        const id = item.slice(0, separator).toLowerCase();
         const revision = parseGuideRevision(item.slice(separator + 1));
         if (!isArchiveUuid(id) || revision === undefined || revision === null) return null;
         result.set(id, revision);
@@ -1195,9 +1190,9 @@ function orderGeneratedGuideSections(
     preferredSections: readonly string[],
 ): void {
     const rank = (section: GuideSectionDraft): number => {
-        const heading = section.heading.toLocaleLowerCase();
+        const heading = section.heading.toLowerCase();
         const index = preferredSections.findIndex((preferred) => {
-            const candidate = preferred.toLocaleLowerCase();
+            const candidate = preferred.toLowerCase();
             return (
                 heading === candidate || heading.includes(candidate) || candidate.includes(heading)
             );
@@ -1701,7 +1696,7 @@ export function getGuideTemplate(id: string): GuideTemplate {
 }
 
 export function inferGuideTemplateId(subject: string): string {
-    const value = subject.toLocaleLowerCase();
+    const value = subject.toLowerCase();
     if (
         ["english", "writing", "literature", "rhetoric", "essay"].some((term) =>
             value.includes(term),
@@ -1960,7 +1955,7 @@ export function guideBlockLabel(kind: GuideBlockKind, origin: GuideBlockOrigin):
         if (kind === "instruction") return "AI-drafted instruction";
         if (kind === "example" || kind === "worked-example") return "AI-generated example";
         const semantic = guideBlockLabel(kind, "tutor-authored");
-        return semantic ? `AI-generated ${semantic.toLocaleLowerCase()}` : "AI-generated content";
+        return semantic ? `AI-generated ${semantic.toLowerCase()}` : "AI-generated content";
     }
     if (origin === "human-edited") {
         if (kind === "instruction") return "Tutor-edited instruction";

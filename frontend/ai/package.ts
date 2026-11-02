@@ -354,18 +354,18 @@ function resolveTemplate(
     const requested = requestedId.trim();
     const inferredId = inferGuideTemplateId(subject);
     const selectedId =
-        !requested || requested.toLocaleLowerCase() === "auto"
+        !requested || requested.toLowerCase() === "auto"
             ? templates.some((template) => template.id.toLowerCase() === preferredId.toLowerCase())
                 ? preferredId
                 : inferredId
             : requested;
     const selected = templates.find(
         (template) =>
-            template.id.toLocaleLowerCase() === selectedId.toLocaleLowerCase() ||
-            template.name.toLocaleLowerCase() === selectedId.toLocaleLowerCase(),
+            template.id.toLowerCase() === selectedId.toLowerCase() ||
+            template.name.toLowerCase() === selectedId.toLowerCase(),
     );
     if (selected) return selected;
-    if (requested && requested.toLocaleLowerCase() !== "auto") {
+    if (requested && requested.toLowerCase() !== "auto") {
         throw new Error("Choose a built-in or active custom guide template.");
     }
     return getGuideTemplate(inferredId);

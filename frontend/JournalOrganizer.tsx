@@ -63,13 +63,13 @@ export function JournalOrganizer(props: Props): JSX.Element {
             setError("Enter a six-digit hex color, such as #42666A.");
             return;
         }
-        const normalized = name().trim().toLocaleLowerCase();
+        const normalized = name().trim().toLowerCase();
         const siblings = active.kind === "collection" ? props.collections : props.tags;
         if (
             siblings.some(
                 (item) =>
                     item.id !== active.record?.id &&
-                    (item.fields.get("name") ?? "").trim().toLocaleLowerCase() === normalized,
+                    (item.fields.get("name") ?? "").trim().toLowerCase() === normalized,
             )
         ) {
             setError(`A ${active.kind} with that name already exists.`);

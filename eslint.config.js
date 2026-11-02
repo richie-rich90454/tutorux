@@ -37,6 +37,19 @@ export default tseslint.config(
             ],
             "@typescript-eslint/await-thenable": "error",
             "@typescript-eslint/switch-exhaustiveness-check": "error",
+            "no-restricted-properties": [
+                "error",
+                {
+                    property: "toLocaleLowerCase",
+                    message:
+                        "Use toLowerCase(); identifiers and keys must not depend on the host locale.",
+                },
+                {
+                    property: "toLocaleUpperCase",
+                    message:
+                        "Use toUpperCase(); identifiers and keys must not depend on the host locale.",
+                },
+            ],
         },
     },
 );
