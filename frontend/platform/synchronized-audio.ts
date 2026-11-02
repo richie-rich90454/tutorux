@@ -442,24 +442,30 @@ export async function startNativeSynchronizedAudioCapture(options: {
             const source = parseTrack(track);
             if (source && message) addFailure(source, message);
         }
-        configureQueue(
-            queues.microphone,
-            nativeStarted.microphoneSampleRateHz,
-            nativeStarted.microphoneSampleFormat,
-            nativeStarted.microphoneChannelCount,
-        );
-        configureQueue(
-            queues["system-audio"],
-            nativeStarted.systemAudioSampleRateHz,
-            nativeStarted.systemAudioSampleFormat,
-            nativeStarted.systemAudioChannelCount,
-        );
-        configureQueue(
-            queues["application-audio"],
-            nativeStarted.applicationAudioSampleRateHz,
-            nativeStarted.applicationAudioSampleFormat,
-            nativeStarted.applicationAudioChannelCount,
-        );
+        if (nativeStarted.microphoneSampleRateHz > 0) {
+            configureQueue(
+                queues.microphone,
+                nativeStarted.microphoneSampleRateHz,
+                nativeStarted.microphoneSampleFormat,
+                nativeStarted.microphoneChannelCount,
+            );
+        }
+        if (nativeStarted.systemAudioSampleRateHz > 0) {
+            configureQueue(
+                queues["system-audio"],
+                nativeStarted.systemAudioSampleRateHz,
+                nativeStarted.systemAudioSampleFormat,
+                nativeStarted.systemAudioChannelCount,
+            );
+        }
+        if (nativeStarted.applicationAudioSampleRateHz > 0) {
+            configureQueue(
+                queues["application-audio"],
+                nativeStarted.applicationAudioSampleRateHz,
+                nativeStarted.applicationAudioSampleFormat,
+                nativeStarted.applicationAudioChannelCount,
+            );
+        }
         await options.archive.onStarted(nativeStarted);
         startMetadataCommitted = true;
         await invoke("activate_synchronized_audio_capture", { captureId: nativeStarted.captureId });
@@ -727,7 +733,11 @@ function parseSampleFormat(value: string | undefined): NativeAudioSampleFormat {
         case "pcm_f32le":
             return value;
         default:
-            return "pcm_s16le";
+            throw new Error(
+                value
+                    ? `The native audio source returned an unsupported sample format (${value}).`
+                    : "The native audio source did not report a sample format.",
+            );
     }
 }
 
