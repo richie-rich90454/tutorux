@@ -1,5 +1,3 @@
-import { twClasses } from "./tailwind";
-import { jsxTailwindStyles } from "./ArchiveMaintenance.tailwind";
 import { Show, createSignal, onCleanup, type JSX } from "solid-js";
 import {
     compactArchiveSnapshot,
@@ -13,6 +11,15 @@ import {
     type ArchiveIndexMigrationResult,
 } from "./archive/archive";
 import type { SanitizedCopyDestination } from "./platform/types";
+import {
+    buttonOutline,
+    buttonPrimary,
+    buttonQuiet,
+    card,
+    cn,
+    eyebrow,
+    mutedText,
+} from "./ui";
 import { platform } from "@platform";
 
 type Review =
@@ -43,6 +50,24 @@ interface RepairCopyReview {
 }
 
 const BROWSER_COPY_LIMIT = 512n * 1024n * 1024n;
+
+const noteText = "text-xs leading-relaxed text-muted";
+
+const reviewPanel =
+    "mt-4 grid gap-2 rounded-[5px] border border-line bg-[var(--surface-inset)] p-4";
+
+const reviewText = "text-[13px] leading-relaxed text-muted";
+
+const reviewHeading = "text-base font-semibold leading-snug text-ink";
+
+const actionRow = "mt-4 flex flex-wrap items-center gap-2";
+
+const errorText = "text-xs font-medium text-danger";
+
+const checkbox =
+    "mt-0.5 size-4 shrink-0 accent-[var(--accent)] disabled:cursor-not-allowed disabled:opacity-50";
+
+const checkboxLabel = "flex cursor-pointer items-start gap-2 text-xs leading-relaxed";
 
 function bytes(value: bigint): string {
     if (value < 1024n) return `${value} B`;
@@ -262,19 +287,17 @@ export function ArchiveMaintenance(props: ArchiveMaintenanceProps): JSX.Element 
     }
 
     return (
-        <section
-            class={twClasses("surface-card archive-maintenance", jsxTailwindStyles, "section")}
-        >
-            <div class={twClasses("archive-maintenance-heading", jsxTailwindStyles, "div")}>
-                <span class={twClasses("eyebrow", jsxTailwindStyles, "span")}>
-                    Archive maintenance
-                </span>
-                <h2 class={twClasses("", jsxTailwindStyles, "h2")}>Review and maintain</h2>
-                <p class={twClasses("", jsxTailwindStyles, "p")}>
+        <section class={cn(card, "archive-maintenance mt-5 p-6")}>
+            <div class="archive-maintenance-heading grid gap-1">
+                <span class={eyebrow}>Archive maintenance</span>
+                <h2 class="text-[1.15rem] font-semibold leading-snug tracking-tight text-ink">
+                    Review and maintain
+                </h2>
+                <p class={mutedText}>
                     Inspect a proposed change before applying it to the workspace.
                 </p>
             </div>
-            <label class={twClasses("archive-maintenance-note", jsxTailwindStyles, "label")}>
+            <label class={cn("archive-maintenance-note", checkboxLabel, "mt-3 text-muted")}>
                 <input
                     type="checkbox"
                     checked={pruneAssets()}
@@ -285,17 +308,17 @@ export function ArchiveMaintenance(props: ArchiveMaintenanceProps): JSX.Element 
                         setError("");
                         setStatus("");
                     }}
-                    class={twClasses("", jsxTailwindStyles, "input")}
+                    class={checkbox}
                 />
                 Remove unreferenced material content during compaction
             </label>
-            <p class={twClasses("archive-maintenance-note", jsxTailwindStyles, "p")}>
+            <p class={cn("archive-maintenance-note", noteText, "mt-2")}>
                 Repair creates a separate verified archive file and leaves this workspace untouched.
                 Unlock encrypted archives before repairing them.
             </p>
-            <div class={twClasses("archive-maintenance-actions", jsxTailwindStyles, "div")}>
+            <div class={cn("archive-maintenance-actions", actionRow)}>
                 <button
-                    class={twClasses("button button-outline", jsxTailwindStyles, "button")}
+                    class={cn("button", buttonOutline)}
                     type="button"
                     disabled={unavailable()}
                     onClick={() => void prepare("recover")}
@@ -303,7 +326,7 @@ export function ArchiveMaintenance(props: ArchiveMaintenanceProps): JSX.Element 
                     Review recovery
                 </button>
                 <button
-                    class={twClasses("button button-outline", jsxTailwindStyles, "button")}
+                    class={cn("button", buttonOutline)}
                     type="button"
                     disabled={unavailable()}
                     onClick={() => void prepare("compact")}
@@ -311,7 +334,7 @@ export function ArchiveMaintenance(props: ArchiveMaintenanceProps): JSX.Element 
                     Review compaction
                 </button>
                 <button
-                    class={twClasses("button button-outline", jsxTailwindStyles, "button")}
+                    class={cn("button", buttonOutline)}
                     type="button"
                     disabled={unavailable()}
                     onClick={() => void prepare("indexes")}
@@ -319,7 +342,7 @@ export function ArchiveMaintenance(props: ArchiveMaintenanceProps): JSX.Element 
                     Review index updates
                 </button>
                 <button
-                    class={twClasses("button button-outline", jsxTailwindStyles, "button")}
+                    class={cn("button", buttonOutline)}
                     type="button"
                     disabled={unavailable()}
                     onClick={() => void prepareRepairCopy()}
@@ -328,36 +351,33 @@ export function ArchiveMaintenance(props: ArchiveMaintenanceProps): JSX.Element 
                 </button>
             </div>
             <Show when={working()}>
-                <p role="status" class={twClasses("", jsxTailwindStyles, "p")}>
+                <p role="status" class={cn(noteText, "mt-3")}>
                     Reading and checking archive data…
                 </p>
             </Show>
             <Show when={error()}>
-                <p
-                    class={twClasses("archive-maintenance-error", jsxTailwindStyles, "p")}
-                    role="alert"
-                >
+                <p class={cn("archive-maintenance-error", errorText, "mt-2")} role="alert">
                     {error()}
                 </p>
             </Show>
             <Show when={status()}>
-                <p role="status" class={twClasses("", jsxTailwindStyles, "p")}>
+                <p role="status" class={cn(noteText, "mt-3")}>
                     {status()}
                 </p>
             </Show>
             <Show when={review()} keyed>
                 {(item) => (
-                    <div class={twClasses("archive-maintenance-review", jsxTailwindStyles, "div")}>
+                    <div class={cn("archive-maintenance-review", reviewPanel)}>
                         <Show when={item.kind === "recover" && item}>
                             {(entry) => (
                                 <>
-                                    <h3 class={twClasses("", jsxTailwindStyles, "h3")}>
+                                    <h3 class={reviewHeading}>
                                         Recover generation{" "}
                                         {entry().result.recoveredGeneration.toString()}
                                     </h3>
-                                    <p class={twClasses("", jsxTailwindStyles, "p")}>
+                                    <p class={reviewText}>
                                         This publishes{" "}
-                                        {entry().result.recoveredGenerations.toLocaleString()}{" "}
+                                        {entry().result.recoveredGenerations.toLocaleString("en-US")}{" "}
                                         verified unpublished{" "}
                                         {entry().result.recoveredGenerations === 1
                                             ? "generation"
@@ -371,62 +391,50 @@ export function ArchiveMaintenance(props: ArchiveMaintenanceProps): JSX.Element 
                         <Show when={item.kind === "compact" && item}>
                             {(entry) => (
                                 <>
-                                    <h3 class={twClasses("", jsxTailwindStyles, "h3")}>
-                                        Compact archive
-                                    </h3>
-                                    <p class={twClasses("", jsxTailwindStyles, "p")}>
+                                    <h3 class={reviewHeading}>Compact archive</h3>
+                                    <p class={reviewText}>
                                         {bytes(entry().result.originalBytes)} to{" "}
                                         {bytes(entry().result.compactedBytes)} ·{" "}
-                                        {entry().result.preservedRecords.toLocaleString()} record
+                                        {entry().result.preservedRecords.toLocaleString("en-US")} record
                                         revisions preserved.
                                     </p>
                                     <Show
                                         when={entry().pruneUnreferencedAssets}
                                         fallback={
-                                            <p class={twClasses("", jsxTailwindStyles, "p")}>
+                                            <p class={reviewText}>
                                                 Unreferenced material content will be preserved.
                                             </p>
                                         }
                                     >
                                         <div
-                                            class={twClasses(
+                                            class={cn(
                                                 "archive-maintenance-prune-preview",
-                                                jsxTailwindStyles,
-                                                "div",
+                                                "mt-3 grid gap-2.5 rounded-[5px] border border-line p-3",
                                             )}
                                         >
-                                            <strong
-                                                class={twClasses("", jsxTailwindStyles, "strong")}
-                                            >
+                                            <strong class="text-sm font-semibold text-ink">
                                                 Unreferenced content removal
                                             </strong>
                                             <Show
                                                 when={entry().result.prunedAssetRecords > 0}
                                                 fallback={
-                                                    <p
-                                                        class={twClasses(
-                                                            "",
-                                                            jsxTailwindStyles,
-                                                            "p",
-                                                        )}
-                                                    >
+                                                    <p class={reviewText}>
                                                         No unreferenced material content records
                                                         were found, so this preview removes none.
                                                     </p>
                                                 }
                                             >
-                                                <p class={twClasses("", jsxTailwindStyles, "p")}>
-                                                    {entry().result.prunedAssetRecords.toLocaleString()}{" "}
+                                                <p class={reviewText}>
+                                                    {entry().result.prunedAssetRecords.toLocaleString("en-US")}{" "}
                                                     unreferenced material content records will be
                                                     omitted from the compacted archive. The source
                                                     archive remains unchanged until you save this
                                                     compacted workspace over it.
                                                 </p>
                                                 <label
-                                                    class={twClasses(
+                                                    class={cn(
                                                         "archive-maintenance-prune-confirm",
-                                                        jsxTailwindStyles,
-                                                        "label",
+                                                        checkboxLabel,
                                                     )}
                                                 >
                                                     <input
@@ -438,19 +446,9 @@ export function ArchiveMaintenance(props: ArchiveMaintenanceProps): JSX.Element 
                                                                 event.currentTarget.checked,
                                                             )
                                                         }
-                                                        class={twClasses(
-                                                            "",
-                                                            jsxTailwindStyles,
-                                                            "input",
-                                                        )}
+                                                        class={checkbox}
                                                     />
-                                                    <span
-                                                        class={twClasses(
-                                                            "",
-                                                            jsxTailwindStyles,
-                                                            "span",
-                                                        )}
-                                                    >
+                                                    <span>
                                                         I reviewed this count and authorize removing
                                                         this unreferenced material content when I
                                                         apply this preview.
@@ -465,24 +463,22 @@ export function ArchiveMaintenance(props: ArchiveMaintenanceProps): JSX.Element 
                         <Show when={item.kind === "indexes" && item}>
                             {(entry) => (
                                 <>
-                                    <h3 class={twClasses("", jsxTailwindStyles, "h3")}>
-                                        Update archive indexes
-                                    </h3>
-                                    <p class={twClasses("", jsxTailwindStyles, "p")}>
-                                        {entry().result.addedEntries.toLocaleString()} missing index
+                                    <h3 class={reviewHeading}>Update archive indexes</h3>
+                                    <p class={reviewText}>
+                                        {entry().result.addedEntries.toLocaleString("en-US")} missing index
                                         entries can be added. Existing entries and record history
                                         are preserved.
                                     </p>
                                     <Show when={entry().result.schemaVersionsUpdated}>
-                                        <p class={twClasses("", jsxTailwindStyles, "p")}>
+                                        <p class={reviewText}>
                                             Index version markers will be updated. A family with
                                             conflicting mappings will keep using primary-record
                                             scans.
                                         </p>
                                     </Show>
                                     <Show when={entry().result.conflictingEntries > 0}>
-                                        <p class={twClasses("", jsxTailwindStyles, "p")}>
-                                            {entry().result.conflictingEntries.toLocaleString()}{" "}
+                                        <p class={reviewText}>
+                                            {entry().result.conflictingEntries.toLocaleString("en-US")}{" "}
                                             existing entries point to different revisions or records
                                             and will be left unchanged.
                                         </p>
@@ -491,29 +487,13 @@ export function ArchiveMaintenance(props: ArchiveMaintenanceProps): JSX.Element 
                             )}
                         </Show>
                         <Show when={props.snapshot !== item.source}>
-                            <p
-                                class={twClasses(
-                                    "archive-maintenance-error",
-                                    jsxTailwindStyles,
-                                    "p",
-                                )}
-                            >
+                            <p class={cn("archive-maintenance-error", errorText)}>
                                 The workspace changed. Prepare a new preview.
                             </p>
                         </Show>
-                        <div
-                            class={twClasses(
-                                "archive-maintenance-actions",
-                                jsxTailwindStyles,
-                                "div",
-                            )}
-                        >
+                        <div class={cn("archive-maintenance-actions", actionRow)}>
                             <button
-                                class={twClasses(
-                                    "button button-quiet",
-                                    jsxTailwindStyles,
-                                    "button",
-                                )}
+                                class={cn("button", buttonQuiet)}
                                 type="button"
                                 disabled={working()}
                                 onClick={discardReview}
@@ -521,11 +501,7 @@ export function ArchiveMaintenance(props: ArchiveMaintenanceProps): JSX.Element 
                                 Cancel
                             </button>
                             <button
-                                class={twClasses(
-                                    "button button-primary",
-                                    jsxTailwindStyles,
-                                    "button",
-                                )}
+                                class={cn("button", buttonPrimary)}
                                 type="button"
                                 disabled={
                                     unavailable() ||
@@ -558,74 +534,53 @@ export function ArchiveMaintenance(props: ArchiveMaintenanceProps): JSX.Element 
                         item.result.compactedBytes > BROWSER_COPY_LIMIT;
                     return (
                         <div
-                            class={twClasses(
+                            class={cn(
                                 "archive-maintenance-review archive-maintenance-repair-copy",
-                                jsxTailwindStyles,
-                                "div",
+                                reviewPanel,
                             )}
                         >
-                            <span class={twClasses("eyebrow", jsxTailwindStyles, "span")}>
-                                Review before creating
-                            </span>
-                            <h3 class={twClasses("", jsxTailwindStyles, "h3")}>
-                                Create a separate repaired archive
-                            </h3>
-                            <p class={twClasses("", jsxTailwindStyles, "p")}>
+                            <span class={cn(eyebrow, "block")}>Review before creating</span>
+                            <h3 class={reviewHeading}>Create a separate repaired archive</h3>
+                            <p class={reviewText}>
                                 Output destination:{" "}
-                                <strong class={twClasses("", jsxTailwindStyles, "strong")}>
+                                <strong class="break-words text-[13px] font-semibold text-ink">
                                     {item.destination.label}
                                 </strong>
                             </p>
-                            <dl
-                                class={twClasses(
-                                    "archive-maintenance-repair-details",
-                                    jsxTailwindStyles,
-                                    "dl",
-                                )}
-                            >
-                                <div class={twClasses("", jsxTailwindStyles, "div")}>
-                                    <dt class={twClasses("", jsxTailwindStyles, "dt")}>
-                                        Source generation
-                                    </dt>
-                                    <dd class={twClasses("", jsxTailwindStyles, "dd")}>
+                            <dl class="my-3.5 grid grid-cols-[repeat(auto-fit,minmax(160px,1fr))] gap-2.5">
+                                <div class="min-w-0 rounded-[5px] border border-line bg-surface p-2.5">
+                                    <dt class="text-[0.8rem] text-muted">Source generation</dt>
+                                    <dd class="mt-1 min-w-0 break-words font-semibold text-ink">
                                         {item.source.commit.generation.toString()}
                                     </dd>
                                 </div>
-                                <div class={twClasses("", jsxTailwindStyles, "div")}>
-                                    <dt class={twClasses("", jsxTailwindStyles, "dt")}>
-                                        Verified generation selected
-                                    </dt>
-                                    <dd class={twClasses("", jsxTailwindStyles, "dd")}>
+                                <div class="min-w-0 rounded-[5px] border border-line bg-surface p-2.5">
+                                    <dt class="text-[0.8rem] text-muted">Verified generation selected</dt>
+                                    <dd class="mt-1 min-w-0 break-words font-semibold text-ink">
                                         {item.result.selectedGeneration.toString()}
                                     </dd>
                                 </div>
-                                <div class={twClasses("", jsxTailwindStyles, "div")}>
-                                    <dt class={twClasses("", jsxTailwindStyles, "dt")}>
-                                        Trailing data excluded
-                                    </dt>
-                                    <dd class={twClasses("", jsxTailwindStyles, "dd")}>
+                                <div class="min-w-0 rounded-[5px] border border-line bg-surface p-2.5">
+                                    <dt class="text-[0.8rem] text-muted">Trailing data excluded</dt>
+                                    <dd class="mt-1 min-w-0 break-words font-semibold text-ink">
                                         {bytes(item.result.discardedTrailingBytes)}
                                     </dd>
                                 </div>
-                                <div class={twClasses("", jsxTailwindStyles, "div")}>
-                                    <dt class={twClasses("", jsxTailwindStyles, "dt")}>
-                                        Source → output size
-                                    </dt>
-                                    <dd class={twClasses("", jsxTailwindStyles, "dd")}>
+                                <div class="min-w-0 rounded-[5px] border border-line bg-surface p-2.5">
+                                    <dt class="text-[0.8rem] text-muted">Source → output size</dt>
+                                    <dd class="mt-1 min-w-0 break-words font-semibold text-ink">
                                         {bytes(item.result.originalBytes)} →{" "}
                                         {bytes(item.result.compactedBytes)}
                                     </dd>
                                 </div>
-                                <div class={twClasses("", jsxTailwindStyles, "div")}>
-                                    <dt class={twClasses("", jsxTailwindStyles, "dt")}>
-                                        Record revisions preserved
-                                    </dt>
-                                    <dd class={twClasses("", jsxTailwindStyles, "dd")}>
-                                        {item.result.preservedRecords.toLocaleString()}
+                                <div class="min-w-0 rounded-[5px] border border-line bg-surface p-2.5">
+                                    <dt class="text-[0.8rem] text-muted">Record revisions preserved</dt>
+                                    <dd class="mt-1 min-w-0 break-words font-semibold text-ink">
+                                        {item.result.preservedRecords.toLocaleString("en-US")}
                                     </dd>
                                 </div>
                             </dl>
-                            <p class={twClasses("", jsxTailwindStyles, "p")}>
+                            <p class={reviewText}>
                                 The new file uses the newest generation that passed full record
                                 verification. The source archive and open workspace stay unchanged.
                                 {item.source.encrypted
@@ -633,35 +588,18 @@ export function ArchiveMaintenance(props: ArchiveMaintenanceProps): JSX.Element 
                                     : ""}
                             </p>
                             <Show when={browserLimitExceeded}>
-                                <p
-                                    class={twClasses(
-                                        "archive-maintenance-error",
-                                        jsxTailwindStyles,
-                                        "p",
-                                    )}
-                                    role="status"
-                                >
+                                <p class={cn("archive-maintenance-error", errorText)} role="status">
                                     Browser downloads are limited to 512 MiB for this operation.
                                     Open the archive in the desktop app to create this copy.
                                 </p>
                             </Show>
                             <Show when={props.snapshot !== item.source}>
-                                <p
-                                    class={twClasses(
-                                        "archive-maintenance-error",
-                                        jsxTailwindStyles,
-                                        "p",
-                                    )}
-                                >
+                                <p class={cn("archive-maintenance-error", errorText)}>
                                     The workspace changed. Prepare a new repair preview.
                                 </p>
                             </Show>
                             <label
-                                class={twClasses(
-                                    "archive-maintenance-repair-confirm",
-                                    jsxTailwindStyles,
-                                    "label",
-                                )}
+                                class={cn("archive-maintenance-repair-confirm", checkboxLabel, "mt-3")}
                             >
                                 <input
                                     type="checkbox"
@@ -670,27 +608,17 @@ export function ArchiveMaintenance(props: ArchiveMaintenanceProps): JSX.Element 
                                     onChange={(event) =>
                                         setRepairCopyConfirmed(event.currentTarget.checked)
                                     }
-                                    class={twClasses("", jsxTailwindStyles, "input")}
+                                    class={checkbox}
                                 />
-                                <span class={twClasses("", jsxTailwindStyles, "span")}>
+                                <span>
                                     I reviewed the destination and repair summary, and authorize
                                     creating a separate file that may contain student histories,
                                     recordings, private annotations, and provider data.
                                 </span>
                             </label>
-                            <div
-                                class={twClasses(
-                                    "archive-maintenance-actions",
-                                    jsxTailwindStyles,
-                                    "div",
-                                )}
-                            >
+                            <div class={cn("archive-maintenance-actions", actionRow)}>
                                 <button
-                                    class={twClasses(
-                                        "button button-quiet",
-                                        jsxTailwindStyles,
-                                        "button",
-                                    )}
+                                    class={cn("button", buttonQuiet)}
                                     type="button"
                                     disabled={working()}
                                     onClick={discardRepairCopy}
@@ -698,11 +626,7 @@ export function ArchiveMaintenance(props: ArchiveMaintenanceProps): JSX.Element 
                                     Cancel
                                 </button>
                                 <button
-                                    class={twClasses(
-                                        "button button-primary",
-                                        jsxTailwindStyles,
-                                        "button",
-                                    )}
+                                    class={cn("button", buttonPrimary)}
                                     type="button"
                                     disabled={
                                         unavailable() ||
