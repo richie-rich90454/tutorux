@@ -317,7 +317,11 @@ export function ArchiveSettings(props: ArchiveSettingsProps): JSX.Element {
                     </p>
                 </Show>
                 <div class={actionRow}>
-                    <button class={cn("button", buttonPrimary)} type="submit" disabled={props.disabled || renameBusy()}>
+                    <button
+                        class={cn("button", buttonPrimary)}
+                        type="submit"
+                        disabled={props.disabled || renameBusy()}
+                    >
                         {renameBusy() ? "Saving name…" : "Save archive name"}
                     </button>
                 </div>
@@ -437,7 +441,10 @@ export function ArchiveSettings(props: ArchiveSettingsProps): JSX.Element {
                     </For>
                 </Show>
             </div>
-            <form class={cn("archive-setting-form", formPanel)} onSubmit={(event) => void save(event)}>
+            <form
+                class={cn("archive-setting-form", formPanel)}
+                onSubmit={(event) => void save(event)}
+            >
                 <h3 class={formHeading}>{editing() ? "Edit setting" : "Add a setting"}</h3>
                 <label class={fieldLabel}>
                     Key
@@ -466,7 +473,11 @@ export function ArchiveSettings(props: ArchiveSettingsProps): JSX.Element {
                             Cancel
                         </button>
                     </Show>
-                    <button class={cn("button", buttonPrimary)} type="submit" disabled={props.disabled}>
+                    <button
+                        class={cn("button", buttonPrimary)}
+                        type="submit"
+                        disabled={props.disabled}
+                    >
                         Save setting
                     </button>
                 </div>
