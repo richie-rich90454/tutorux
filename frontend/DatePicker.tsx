@@ -303,7 +303,7 @@ export function DatePicker(props: DatePickerProps) {
                         >
                             <Icon name="chevron" class="rotate-180" />
                         </button>
-                        <strong class="text-ink text-[13px] font-semibold">
+                        <strong class="text-ink text-[13px] font-semibold" aria-live="polite">
                             {monthLabel(month())}
                         </strong>
                         <button
@@ -360,6 +360,11 @@ export function DatePicker(props: DatePickerProps) {
                                         }}
                                         aria-label={accessibleDateLabel(day.date)}
                                         aria-selected={isSelected()}
+                                        aria-current={
+                                            formatDate(day.date) === formatDate(todayDate())
+                                                ? "date"
+                                                : undefined
+                                        }
                                         onClick={() => chooseDate(day.date)}
                                         onKeyDown={(event) => handleDayKeys(event, day.date)}
                                     >
