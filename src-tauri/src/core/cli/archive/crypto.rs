@@ -18,15 +18,9 @@ pub(super) fn encrypt(
     output: &mut dyn CliOutput,
     context: &CliContext,
 ) -> CliResult<i32> {
-    let passphrase = match passphrase_from_env(args, "new-passphrase-env")? {
-        Some(passphrase) => passphrase,
-        None => context.passphrase().map(str::to_owned).ok_or_else(|| {
-            CliError(
-                "archive encrypt requires --new-passphrase-env <name> or --passphrase-env <name>."
-                    .to_owned(),
-            )
-        })?,
-    };
+    let passphrase = passphrase_from_env(args, "new-passphrase-env")?.ok_or_else(|| {
+        CliError("archive encrypt requires --new-passphrase-env <name>.".to_owned())
+    })?;
     let snapshot = open_archive(path, context.passphrase())?;
     if snapshot.encrypted() {
         return Err(CliError("This archive is already encrypted.".to_owned()).into());
