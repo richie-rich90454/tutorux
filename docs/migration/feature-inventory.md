@@ -33,7 +33,7 @@ Status meanings:
 | Settings and privacy | Theme, shortcut configuration, archive settings import/export, credential management, local diagnostics, support reports, and no-network guarantees. | Unit and Playwright coverage. |
 | CLI | Archive, student, session, journal, annotation, transcript, asset, evidence, guide, template, settings, model, record, diagnostics, benchmark, and AI command families, including legacy aliases and JSON contracts. | CLI parity and integration tests. |
 | Navigation and accessibility | Responsive navigation with primary access to recording, command palette, configurable shortcuts, skip link, focus restoration, dialog focus traps, light/dark themes, keyboard checks, custom ISO date entry/calendar, and app-owned audio/video controls. | Playwright responsive/keyboard coverage. Screen-reader and desktop-DPI review remain release checks. |
-| Packaging | Vite static build, Tauri packages, icons, `.tux` association, single-instance launch routing, and a single-process desktop executable with in-process Whisper, GGUF inference, and native audio. Windows release collection includes MSI, NSIS, and a one-file portable EXE. | CI builds Windows, macOS, and Linux. Local packaging is Windows-host qualified; portable execution needs the system WebView2 runtime and creates per-user state as needed. |
+| Packaging | Vite static build, Tauri packages, icons, `.tux` association, single-instance launch routing, and a single-process desktop executable with in-process Whisper, GGUF inference, and native audio. Windows release collection includes MSI, NSIS, and a one-file portable EXE. macOS `.app` bundles are archived as `.tar.gz` so POSIX modes survive, and each OS publishes `SHA256SUMS.txt` beside its artifacts. | CI builds and packages on Windows, macOS, and Linux. Local packaging is Windows-host qualified; portable execution needs the system WebView2 runtime and creates per-user state as needed. |
 
 ## Remaining release qualification
 
@@ -41,5 +41,5 @@ These are environment and hardware checks, not missing product features:
 
 - macOS and Linux capture permissions, ScreenCaptureKit, PipeWire, and packaged-app behavior.
 - Real device matrices for microphone, system, and per-application capture, including clock drift and long sessions.
-- Desktop DPI, screen-reader review, installer signing/notarization, and clean-machine installation.
-- CI execution of the full Tauri package on all three operating systems.
+- Desktop DPI, screen-reader review, and clean-machine installation.
+- Installer signing and notarization credentials; CI packages all three operating systems unsigned until those secrets are configured.
