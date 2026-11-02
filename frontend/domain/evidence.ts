@@ -500,6 +500,14 @@ export async function evidenceSourcesAreCurrent(
         if (revision === null) return false;
         segmentRevisionMap.set(entry.slice(0, separator), revision);
     }
+    if (segmentIds.length === 1 && !segmentRevisionMap.has(segmentIds[0]!)) {
+        const legacy = record.fields.get("source_segment_revision");
+        if (legacy) {
+            const revision = parseRevision(legacy);
+            if (revision === null) return false;
+            segmentRevisionMap.set(segmentIds[0]!, revision);
+        }
+    }
     if (!(await validate(RecordType.transcriptSegment, segmentIds, segmentRevisionMap)))
         return false;
 
@@ -599,7 +607,7 @@ function nowUs(): string {
 function cleanEvidenceText(value: string, label: string, maxBytes: number): string {
     if (!value.trim()) throw new Error(`${label} cannot be empty.`);
     if (encoder.encode(value).byteLength > maxBytes) {
-        throw new Error(`${label} exceeds the ${maxBytes.toLocaleString()}-byte limit.`);
+        throw new Error(`${label} exceeds the ${maxBytes.toLocaleString("en-US")}-byte limit.`);
     }
     return value;
 }
