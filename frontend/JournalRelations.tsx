@@ -1,5 +1,13 @@
-import { twClasses } from "./tailwind";
-import { jsxTailwindStyles } from "./JournalRelations.tailwind";
+import {
+    buttonDanger,
+    buttonOutline,
+    buttonPrimary,
+    buttonQuiet,
+    cn,
+    inputBase,
+    labelBase,
+    selectBase,
+} from "./ui";
 import { createEffect, createMemo, createSignal, For, Show, type JSX } from "solid-js";
 import { RecordType, type ArchiveRecord } from "./archive/format";
 import type { ArchiveSnapshot } from "./archive/archive";
@@ -33,7 +41,7 @@ function sessionDate(session: ArchiveRecord): { key: string; label: string } | n
         const pad = (value: number) => value.toString().padStart(2, "0");
         return {
             key: `${date.getUTCFullYear()}-${pad(date.getUTCMonth() + 1)}-${pad(date.getUTCDate())}`,
-            label: new Intl.DateTimeFormat(undefined, {
+            label: new Intl.DateTimeFormat("en-US", {
                 year: "numeric",
                 month: "short",
                 day: "numeric",
@@ -426,40 +434,36 @@ export function JournalRelations(props: {
         }
     }
     return (
-        <section class={twClasses("journal-relations", jsxTailwindStyles, "section")}>
+        <section class="journal-relations mt-2">
             <button
                 type="button"
-                class={twClasses("button button-quiet record-action", jsxTailwindStyles, "button")}
+                class={cn("button record-action", buttonQuiet)}
                 aria-expanded={open()}
                 onClick={() => setOpen((value) => !value)}
             >
                 {open() ? "Hide connections" : "Connections"}
             </button>
-            <div class={twClasses("journal-entry-delete", jsxTailwindStyles, "div")}>
+            <div class="journal-entry-delete mt-2 flex flex-wrap items-center gap-2">
                 <Show when={!canDeleteEntry()}>
-                    <p class={twClasses("", jsxTailwindStyles, "p")}>
+                    <p class="m-0 text-xs text-muted">
                         {journalEntryDeleteBlockerMessage(deleteBlockers())}
                     </p>
                 </Show>
                 <Show when={canDeleteEntry()}>
-                    <label class={twClasses("", jsxTailwindStyles, "label")}>
+                    <label class="flex items-start gap-2 text-xs text-muted">
                         <input
                             type="checkbox"
                             checked={deleteConfirmed()}
                             disabled={props.disabled || pending()}
                             onChange={(event) => setDeleteConfirmed(event.currentTarget.checked)}
-                            class={twClasses("", jsxTailwindStyles, "input")}
+                            class="accent-accent"
                         />
                         Move this entry and its notes to recoverable Trash. The group can be
                         restored later.
                     </label>
                     <button
                         type="button"
-                        class={twClasses(
-                            "button button-danger record-action",
-                            jsxTailwindStyles,
-                            "button",
-                        )}
+                        class={cn("button record-action", buttonDanger)}
                         disabled={props.disabled || pending() || !deleteConfirmed()}
                         onClick={() => void trashEntry()}
                     >
@@ -468,38 +472,32 @@ export function JournalRelations(props: {
                 </Show>
             </div>
             <Show when={open()}>
-                <div class={twClasses("journal-relations-content", jsxTailwindStyles, "div")}>
+                <div class="journal-relations-content mt-2.5 grid gap-2.5 rounded-[5px] border border-line bg-surface-subtle p-3.5">
                     <Show when={error()}>
-                        <p role="alert" class={twClasses("", jsxTailwindStyles, "p")}>
+                        <p role="alert" class="m-0 text-xs text-muted">
                             {error()}
                         </p>
                     </Show>
-                    <h3 class={twClasses("", jsxTailwindStyles, "h3")}>Sessions</h3>
+                    <h3 class="m-0 text-sm font-semibold text-ink">Sessions</h3>
                     <form
-                        class={twClasses("journal-session-create", jsxTailwindStyles, "form")}
+                        class="journal-session-create grid gap-2.5 rounded-[5px] border border-line bg-surface p-3"
                         onSubmit={createSession}
                     >
-                        <h4 class={twClasses("", jsxTailwindStyles, "h4")}>
+                        <h4 class="m-0 text-[13px] font-semibold text-ink">
                             Create a session in this entry
                         </h4>
-                        <label class={twClasses("form-field", jsxTailwindStyles, "label")}>
+                        <label class={cn("form-field", labelBase)}>
                             Session title
                             <input
                                 required
                                 maxlength="240"
                                 value={sessionTitle()}
                                 onInput={(event) => setSessionTitle(event.currentTarget.value)}
-                                class={twClasses("", jsxTailwindStyles, "input")}
+                                class={inputBase}
                             />
                         </label>
-                        <div
-                            class={twClasses(
-                                "journal-session-create-grid",
-                                jsxTailwindStyles,
-                                "div",
-                            )}
-                        >
-                            <label class={twClasses("form-field", jsxTailwindStyles, "label")}>
+                        <div class="journal-session-create-grid grid gap-2.5 sm:grid-cols-2">
+                            <label class={cn("form-field", labelBase)}>
                                 Mode
                                 <select
                                     value={sessionType()}
@@ -514,21 +512,21 @@ export function JournalRelations(props: {
                                                   : "none",
                                         );
                                     }}
-                                    class={twClasses("", jsxTailwindStyles, "select")}
+                                    class={selectBase}
                                 >
                                     <option value="notes-only">Notes only</option>
                                     <option value="record-audio">Record audio</option>
                                     <option value="import-recording">Import recording</option>
                                 </select>
                             </label>
-                            <label class={twClasses("form-field", jsxTailwindStyles, "label")}>
+                            <label class={cn("form-field", labelBase)}>
                                 Student
                                 <select
                                     value={sessionStudent()}
                                     onChange={(event) =>
                                         setSessionStudent(event.currentTarget.value)
                                     }
-                                    class={twClasses("", jsxTailwindStyles, "select")}
+                                    class={selectBase}
                                 >
                                     <option value="">Independent session</option>
                                     <For each={props.students}>
@@ -541,7 +539,7 @@ export function JournalRelations(props: {
                                     <option value="__new_student__">Create a new student</option>
                                 </select>
                             </label>
-                            <label class={twClasses("form-field", jsxTailwindStyles, "label")}>
+                            <label class={cn("form-field", labelBase)}>
                                 Transcription language
                                 <input
                                     value={sessionLanguage()}
@@ -550,17 +548,17 @@ export function JournalRelations(props: {
                                     onInput={(event) =>
                                         setSessionLanguage(event.currentTarget.value)
                                     }
-                                    class={twClasses("", jsxTailwindStyles, "input")}
+                                    class={inputBase}
                                 />
                             </label>
-                            <label class={twClasses("form-field", jsxTailwindStyles, "label")}>
+                            <label class={cn("form-field", labelBase)}>
                                 Guide template
                                 <select
                                     value={sessionGuideTemplate()}
                                     onChange={(event) =>
                                         setSessionGuideTemplate(event.currentTarget.value)
                                     }
-                                    class={twClasses("", jsxTailwindStyles, "select")}
+                                    class={selectBase}
                                 >
                                     <option value="">Use recommended template</option>
                                     <For each={GUIDE_TEMPLATES}>
@@ -584,14 +582,14 @@ export function JournalRelations(props: {
                                     </For>
                                 </select>
                             </label>
-                            <label class={twClasses("form-field", jsxTailwindStyles, "label")}>
+                            <label class={cn("form-field", labelBase)}>
                                 Capture source
                                 <select
                                     value={recordingSource()}
                                     onChange={(event) =>
                                         setRecordingSource(event.currentTarget.value)
                                     }
-                                    class={twClasses("", jsxTailwindStyles, "select")}
+                                    class={selectBase}
                                 >
                                     <Show when={sessionType() === "record-audio"}>
                                         <option value="microphone">Microphone</option>
@@ -609,14 +607,8 @@ export function JournalRelations(props: {
                             </label>
                         </div>
                         <Show when={sessionStudent() === "__new_student__"}>
-                            <div
-                                class={twClasses(
-                                    "journal-session-create-grid",
-                                    jsxTailwindStyles,
-                                    "div",
-                                )}
-                            >
-                                <label class={twClasses("form-field", jsxTailwindStyles, "label")}>
+                            <div class="journal-session-create-grid grid gap-2.5 sm:grid-cols-2">
+                                <label class={cn("form-field", labelBase)}>
                                     New student name
                                     <input
                                         required
@@ -625,10 +617,10 @@ export function JournalRelations(props: {
                                         onInput={(event) =>
                                             setNewStudentName(event.currentTarget.value)
                                         }
-                                        class={twClasses("", jsxTailwindStyles, "input")}
+                                        class={inputBase}
                                     />
                                 </label>
-                                <label class={twClasses("form-field", jsxTailwindStyles, "label")}>
+                                <label class={cn("form-field", labelBase)}>
                                     Grade or level
                                     <input
                                         maxlength="128"
@@ -636,19 +628,13 @@ export function JournalRelations(props: {
                                         onInput={(event) =>
                                             setNewStudentGrade(event.currentTarget.value)
                                         }
-                                        class={twClasses("", jsxTailwindStyles, "input")}
+                                        class={inputBase}
                                     />
                                 </label>
                             </div>
                         </Show>
-                        <div
-                            class={twClasses(
-                                "journal-session-create-grid",
-                                jsxTailwindStyles,
-                                "div",
-                            )}
-                        >
-                            <label class={twClasses("form-field", jsxTailwindStyles, "label")}>
+                        <div class="journal-session-create-grid grid gap-2.5 sm:grid-cols-2">
+                            <label class={cn("form-field", labelBase)}>
                                 Subject
                                 <input
                                     maxlength="200"
@@ -656,10 +642,10 @@ export function JournalRelations(props: {
                                     onInput={(event) =>
                                         setSessionSubject(event.currentTarget.value)
                                     }
-                                    class={twClasses("", jsxTailwindStyles, "input")}
+                                    class={inputBase}
                                 />
                             </label>
-                            <label class={twClasses("form-field", jsxTailwindStyles, "label")}>
+                            <label class={cn("form-field", labelBase)}>
                                 Learning objectives
                                 <input
                                     maxlength="4000"
@@ -667,30 +653,20 @@ export function JournalRelations(props: {
                                     onInput={(event) =>
                                         setSessionObjectives(event.currentTarget.value)
                                     }
-                                    class={twClasses("", jsxTailwindStyles, "input")}
+                                    class={inputBase}
                                 />
                             </label>
                         </div>
                         <button
                             type="submit"
-                            class={twClasses(
-                                "button button-primary record-action",
-                                jsxTailwindStyles,
-                                "button",
-                            )}
+                            class={cn("button record-action", buttonPrimary)}
                             disabled={props.disabled || pending()}
                         >
                             {pending() ? "Creating…" : "Create session"}
                         </button>
                     </form>
-                    <div
-                        class={twClasses(
-                            "journal-relations-action journal-session-timeline-filter",
-                            jsxTailwindStyles,
-                            "div",
-                        )}
-                    >
-                        <label class={twClasses("", jsxTailwindStyles, "label")}>
+                    <div class="journal-relations-action journal-session-timeline-filter flex flex-wrap items-end gap-2">
+                        <label class="grid gap-1.5 text-xs text-muted">
                             Timeline date (UTC)
                             <DatePicker
                                 id="journal-session-timeline-date"
@@ -701,11 +677,7 @@ export function JournalRelations(props: {
                         </label>
                         <button
                             type="button"
-                            class={twClasses(
-                                "button button-outline record-action",
-                                jsxTailwindStyles,
-                                "button",
-                            )}
+                            class={cn("button record-action", buttonOutline)}
                             disabled={!timelineDate() || linkedSessions().length === 0}
                             onClick={() => {
                                 setAppliedTimelineDate(timelineDate());
@@ -716,11 +688,7 @@ export function JournalRelations(props: {
                         </button>
                         <button
                             type="button"
-                            class={twClasses(
-                                "button button-quiet record-action",
-                                jsxTailwindStyles,
-                                "button",
-                            )}
+                            class={cn("button record-action", buttonQuiet)}
                             disabled={!appliedTimelineDate()}
                             onClick={() => {
                                 setTimelineDate("");
@@ -732,32 +700,24 @@ export function JournalRelations(props: {
                     </div>
                     <Show
                         when={linkedSessions().length}
-                        fallback={
-                            <p class={twClasses("", jsxTailwindStyles, "p")}>No sessions linked.</p>
-                        }
+                        fallback={<p class="m-0 text-xs text-muted">No sessions linked.</p>}
                     >
                         <Show
                             when={timelineSessions().length}
                             fallback={
-                                <p class={twClasses("", jsxTailwindStyles, "p")}>
+                                <p class="m-0 text-xs text-muted">
                                     No linked sessions on {appliedTimelineDate()}.
                                 </p>
                             }
                         >
-                            <ul class={twClasses("", jsxTailwindStyles, "ul")}>
+                            <ul class="m-0 list-disc pl-5">
                                 <For each={timelineSessions()}>
                                     {(item) => (
-                                        <li class={twClasses("", jsxTailwindStyles, "li")}>
+                                        <li class="text-xs text-muted">
                                             {field(item, "title") || "Untitled session"}
                                             <Show when={sessionDate(item)}>
                                                 {(date) => (
-                                                    <small
-                                                        class={twClasses(
-                                                            "",
-                                                            jsxTailwindStyles,
-                                                            "small",
-                                                        )}
-                                                    >
+                                                    <small class="mt-0.5 block text-muted">
                                                         {date().label}
                                                     </small>
                                                 )}
@@ -769,16 +729,14 @@ export function JournalRelations(props: {
                         </Show>
                     </Show>
                     <Show when={availableSessions().length}>
-                        <div
-                            class={twClasses("journal-relations-action", jsxTailwindStyles, "div")}
-                        >
-                            <label class={twClasses("", jsxTailwindStyles, "label")}>
+                        <div class="journal-relations-action flex flex-wrap items-end gap-2">
+                            <label class="grid gap-1.5 text-xs text-muted">
                                 Move a session here
                                 <select
                                     value={sessionId()}
                                     disabled={props.disabled || pending()}
                                     onChange={(event) => setSessionId(event.currentTarget.value)}
-                                    class={twClasses("", jsxTailwindStyles, "select")}
+                                    class={selectBase}
                                 >
                                     <option value="">Choose a session</option>
                                     <For each={availableSessions()}>
@@ -792,34 +750,26 @@ export function JournalRelations(props: {
                             </label>
                             <button
                                 type="button"
-                                class={twClasses(
-                                    "button button-outline record-action",
-                                    jsxTailwindStyles,
-                                    "button",
-                                )}
+                                class={cn("button record-action", buttonOutline)}
                                 disabled={props.disabled || pending() || !sessionId()}
                                 onClick={() => void move()}
                             >
                                 Move session
                             </button>
                         </div>
-                        <p class={twClasses("", jsxTailwindStyles, "p")}>
+                        <p class="m-0 text-xs text-muted">
                             Session notes and linked study guides move with it.
                         </p>
                     </Show>
-                    <h3 class={twClasses("", jsxTailwindStyles, "h3")}>Study guides</h3>
+                    <h3 class="m-0 text-sm font-semibold text-ink">Study guides</h3>
                     <Show
                         when={linkedGuides().length}
-                        fallback={
-                            <p class={twClasses("", jsxTailwindStyles, "p")}>
-                                No study guides linked.
-                            </p>
-                        }
+                        fallback={<p class="m-0 text-xs text-muted">No study guides linked.</p>}
                     >
-                        <ul class={twClasses("", jsxTailwindStyles, "ul")}>
+                        <ul class="m-0 list-disc pl-5">
                             <For each={linkedGuides()}>
                                 {(item) => (
-                                    <li class={twClasses("", jsxTailwindStyles, "li")}>
+                                    <li class="text-xs text-muted">
                                         {field(item, "title") || "Untitled guide"}
                                     </li>
                                 )}
@@ -827,16 +777,14 @@ export function JournalRelations(props: {
                         </ul>
                     </Show>
                     <Show when={availableGuides().length}>
-                        <div
-                            class={twClasses("journal-relations-action", jsxTailwindStyles, "div")}
-                        >
-                            <label class={twClasses("", jsxTailwindStyles, "label")}>
+                        <div class="journal-relations-action flex flex-wrap items-end gap-2">
+                            <label class="grid gap-1.5 text-xs text-muted">
                                 Move an entry guide here
                                 <select
                                     value={guideId()}
                                     disabled={props.disabled || pending()}
                                     onChange={(event) => setGuideId(event.currentTarget.value)}
-                                    class={twClasses("", jsxTailwindStyles, "select")}
+                                    class={selectBase}
                                 >
                                     <option value="">Choose a guide</option>
                                     <For each={availableGuides()}>
@@ -850,40 +798,26 @@ export function JournalRelations(props: {
                             </label>
                             <button
                                 type="button"
-                                class={twClasses(
-                                    "button button-outline record-action",
-                                    jsxTailwindStyles,
-                                    "button",
-                                )}
+                                class={cn("button record-action", buttonOutline)}
                                 disabled={props.disabled || pending() || !guideId()}
                                 onClick={() => void moveGuide()}
                             >
                                 Move guide
                             </button>
                         </div>
-                        <p class={twClasses("", jsxTailwindStyles, "p")}>
+                        <p class="m-0 text-xs text-muted">
                             All cited sources must belong to this entry to move a guide here.
                         </p>
                     </Show>
-                    <h3 class={twClasses("", jsxTailwindStyles, "h3")}>Materials</h3>
+                    <h3 class="m-0 text-sm font-semibold text-ink">Materials</h3>
                     <Show
                         when={props.assets.length}
-                        fallback={
-                            <p class={twClasses("", jsxTailwindStyles, "p")}>
-                                No materials available.
-                            </p>
-                        }
+                        fallback={<p class="m-0 text-xs text-muted">No materials available.</p>}
                     >
-                        <div
-                            class={twClasses(
-                                "journal-relations-materials",
-                                jsxTailwindStyles,
-                                "div",
-                            )}
-                        >
+                        <div class="journal-relations-materials grid max-h-56 gap-2 overflow-auto">
                             <For each={props.assets}>
                                 {(asset) => (
-                                    <label class={twClasses("", jsxTailwindStyles, "label")}>
+                                    <label class="flex items-center gap-2 text-xs text-muted">
                                         <input
                                             type="checkbox"
                                             checked={attached().has(asset.id.toLowerCase())}
@@ -891,7 +825,7 @@ export function JournalRelations(props: {
                                             onChange={(event) =>
                                                 void toggleAsset(asset, event.currentTarget.checked)
                                             }
-                                            class={twClasses("", jsxTailwindStyles, "input")}
+                                            class="accent-accent"
                                         />{" "}
                                         {field(asset, "filename") ||
                                             field(asset, "display_name") ||
