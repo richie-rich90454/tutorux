@@ -1,15 +1,27 @@
-import { twClasses } from "./tailwind";
-import { jsxTailwindStyles } from "./MaterialDetails.tailwind";
 import { createSignal, For, Show, type JSX } from "solid-js";
 import type { ArchiveSnapshot } from "./archive/archive";
 import { RecordType, type ArchiveRecord } from "./archive/format";
 import { canChangeAssetSession, moveAssetToSession } from "./domain/asset-placement";
 import { MAX_ASSET_BATCH_FILES, type AssetBatchProgress } from "./domain/assets-stream";
+import {
+    buttonOutline,
+    buttonPrimary,
+    buttonQuiet,
+    cn,
+    errorText,
+    inputBase,
+    labelBase,
+    mutedText,
+    selectBase,
+    textareaBase,
+} from "./ui";
+
+const recordAction = "record-action min-h-[30px] px-2.5 text-xs";
 
 const field = (record: ArchiveRecord, key: string, fallback = "") =>
     record.fields.get(key) ?? fallback;
 const now = () => (BigInt(Date.now()) * 1000n).toString();
-const errorText = (error: unknown) => (error instanceof Error ? error.message : String(error));
+const errorMessage = (error: unknown) => (error instanceof Error ? error.message : String(error));
 function hasInvalidControls(value: string, multiline: boolean): boolean {
     return [...value].some((character) => {
         const code = character.codePointAt(0)!;
@@ -68,7 +80,7 @@ export function MaterialDetails(props: {
                 );
             setSessions(available);
         } catch (cause) {
-            setError(errorText(cause));
+            setError(errorMessage(cause));
         } finally {
             setPending(false);
         }
@@ -93,7 +105,7 @@ export function MaterialDetails(props: {
             )
                 setSessionPanelOpen(false);
         } catch (cause) {
-            setError(errorText(cause));
+            setError(errorMessage(cause));
         } finally {
             setPending(false);
         }
@@ -111,7 +123,7 @@ export function MaterialDetails(props: {
             )
                 setOpen(false);
         } catch (cause) {
-            setError(errorText(cause));
+            setError(errorMessage(cause));
         } finally {
             setPending(false);
         }
@@ -128,7 +140,7 @@ export function MaterialDetails(props: {
                 await props.snapshot.getRecordHistory(RecordType.assetMetadata, props.record.id),
             );
         } catch (cause) {
-            setError(errorText(cause));
+            setError(errorMessage(cause));
         } finally {
             setPending(false);
         }
@@ -165,7 +177,7 @@ export function MaterialDetails(props: {
                 );
             }
         } catch (cause) {
-            setError(errorText(cause));
+            setError(errorMessage(cause));
         } finally {
             setPending(false);
         }
@@ -180,20 +192,16 @@ export function MaterialDetails(props: {
             fields.set("updated_at_us", now());
             await props.onWriteRecords([{ ...props.record, fields }], "Material moved to Trash.");
         } catch (cause) {
-            setError(errorText(cause));
+            setError(errorMessage(cause));
         } finally {
             setPending(false);
         }
     }
     return (
-        <section class={twClasses("material-details", jsxTailwindStyles, "section")}>
-            <div class={twClasses("material-details-actions", jsxTailwindStyles, "div")}>
+        <section class="material-details border-t border-line-soft pt-2">
+            <div class="material-details-actions flex flex-wrap items-center gap-2">
                 <button
-                    class={twClasses(
-                        "button button-quiet record-action",
-                        jsxTailwindStyles,
-                        "button",
-                    )}
+                    class={cn("button button-quiet", buttonQuiet, recordAction)}
                     type="button"
                     aria-expanded={open()}
                     onClick={() => {
@@ -206,11 +214,7 @@ export function MaterialDetails(props: {
                 </button>
                 <Show when={canChangeAssetSession(props.record)}>
                     <button
-                        class={twClasses(
-                            "button button-quiet record-action",
-                            jsxTailwindStyles,
-                            "button",
-                        )}
+                        class={cn("button button-quiet", buttonQuiet, recordAction)}
                         type="button"
                         disabled={pending()}
                         aria-expanded={sessionPanelOpen()}
@@ -220,11 +224,7 @@ export function MaterialDetails(props: {
                     </button>
                 </Show>
                 <button
-                    class={twClasses(
-                        "button button-quiet record-action",
-                        jsxTailwindStyles,
-                        "button",
-                    )}
+                    class={cn("button button-quiet", buttonQuiet, recordAction)}
                     type="button"
                     disabled={pending()}
                     aria-expanded={history() !== null}
@@ -233,11 +233,7 @@ export function MaterialDetails(props: {
                     History
                 </button>
                 <button
-                    class={twClasses(
-                        "button button-quiet record-action",
-                        jsxTailwindStyles,
-                        "button",
-                    )}
+                    class={cn("button button-quiet", buttonQuiet, recordAction)}
                     type="button"
                     disabled={props.disabled || pending()}
                     onClick={() => setConfirmRemove((value) => !value)}
@@ -246,22 +242,18 @@ export function MaterialDetails(props: {
                 </button>
             </div>
             <Show when={error()}>
-                <p role="alert" class={twClasses("", jsxTailwindStyles, "p")}>
+                <p role="alert" class={cn("m-0", errorText)}>
                     {error()}
                 </p>
             </Show>
             <Show when={confirmRemove()}>
-                <div class={twClasses("material-details-panel", jsxTailwindStyles, "div")}>
-                    <p class={twClasses("", jsxTailwindStyles, "p")}>
+                <div class="material-details-panel mt-2 grid gap-2.5 rounded-[5px] border border-line bg-surface-subtle p-3">
+                    <p class="m-0 text-xs leading-relaxed text-ink-soft">
                         Move this material to Trash? Its stored file can be restored later.
                     </p>
-                    <div class={twClasses("material-details-actions", jsxTailwindStyles, "div")}>
+                    <div class="material-details-actions flex flex-wrap items-center gap-2">
                         <button
-                            class={twClasses(
-                                "button button-outline record-action",
-                                jsxTailwindStyles,
-                                "button",
-                            )}
+                            class={cn("button button-outline", buttonOutline, recordAction)}
                             type="button"
                             disabled={props.disabled || pending()}
                             onClick={() => void remove()}
@@ -269,11 +261,7 @@ export function MaterialDetails(props: {
                             Move to Trash
                         </button>
                         <button
-                            class={twClasses(
-                                "button button-quiet record-action",
-                                jsxTailwindStyles,
-                                "button",
-                            )}
+                            class={cn("button button-quiet", buttonQuiet, recordAction)}
                             type="button"
                             onClick={() => setConfirmRemove(false)}
                         >
@@ -284,23 +272,23 @@ export function MaterialDetails(props: {
             </Show>
             <Show when={sessionPanelOpen()}>
                 <form
-                    class={twClasses("material-details-panel", jsxTailwindStyles, "form")}
+                    class="material-details-panel mt-2 grid gap-2.5 rounded-[5px] border border-line bg-surface-subtle p-3"
                     onSubmit={(event) => {
                         event.preventDefault();
                         void saveSessionPlacement();
                     }}
                 >
-                    <p class={twClasses("", jsxTailwindStyles, "p")}>
+                    <p class="m-0 text-xs leading-relaxed text-ink-soft">
                         Choose which session owns this material. A material can belong to one
                         session or stay in the general library.
                     </p>
-                    <label class={twClasses("", jsxTailwindStyles, "label")}>
+                    <label class={labelBase}>
                         Session
                         <select
                             value={sessionSelection()}
                             disabled={props.disabled || pending()}
                             onChange={(event) => setSessionSelection(event.currentTarget.value)}
-                            class={twClasses("", jsxTailwindStyles, "select")}
+                            class={selectBase}
                         >
                             <option value="">General library</option>
                             <Show
@@ -326,13 +314,9 @@ export function MaterialDetails(props: {
                             </For>
                         </select>
                     </label>
-                    <div class={twClasses("material-details-actions", jsxTailwindStyles, "div")}>
+                    <div class="material-details-actions flex flex-wrap items-center gap-2">
                         <button
-                            class={twClasses(
-                                "button button-outline record-action",
-                                jsxTailwindStyles,
-                                "button",
-                            )}
+                            class={cn("button button-outline", buttonOutline, recordAction)}
                             type="submit"
                             disabled={
                                 props.disabled ||
@@ -344,11 +328,7 @@ export function MaterialDetails(props: {
                             Move material
                         </button>
                         <button
-                            class={twClasses(
-                                "button button-quiet record-action",
-                                jsxTailwindStyles,
-                                "button",
-                            )}
+                            class={cn("button button-quiet", buttonQuiet, recordAction)}
                             type="button"
                             disabled={pending()}
                             onClick={() => setSessionPanelOpen(false)}
@@ -360,13 +340,13 @@ export function MaterialDetails(props: {
             </Show>
             <Show when={open()}>
                 <form
-                    class={twClasses("material-details-panel", jsxTailwindStyles, "form")}
+                    class="material-details-panel mt-2 grid gap-2.5 rounded-[5px] border border-line bg-surface-subtle p-3"
                     onSubmit={(event) => {
                         event.preventDefault();
                         void save();
                     }}
                 >
-                    <label class={twClasses("", jsxTailwindStyles, "label")}>
+                    <label class={labelBase}>
                         File name
                         <input
                             value={name()}
@@ -374,10 +354,10 @@ export function MaterialDetails(props: {
                             required
                             disabled={props.disabled || pending()}
                             onInput={(event) => setName(event.currentTarget.value)}
-                            class={twClasses("", jsxTailwindStyles, "input")}
+                            class={inputBase}
                         />
                     </label>
-                    <label class={twClasses("", jsxTailwindStyles, "label")}>
+                    <label class={labelBase}>
                         Description
                         <textarea
                             value={description()}
@@ -385,15 +365,11 @@ export function MaterialDetails(props: {
                             maxlength="16384"
                             disabled={props.disabled || pending()}
                             onInput={(event) => setDescription(event.currentTarget.value)}
-                            class={twClasses("", jsxTailwindStyles, "textarea")}
+                            class={textareaBase}
                         />
                     </label>
                     <button
-                        class={twClasses(
-                            "button button-outline record-action",
-                            jsxTailwindStyles,
-                            "button",
-                        )}
+                        class={cn("button button-outline", buttonOutline, recordAction)}
                         type="submit"
                         disabled={props.disabled || pending()}
                     >
@@ -402,46 +378,38 @@ export function MaterialDetails(props: {
                 </form>
             </Show>
             <Show when={history() !== null}>
-                <div class={twClasses("material-details-panel", jsxTailwindStyles, "div")}>
-                    <strong class={twClasses("", jsxTailwindStyles, "strong")}>
-                        Earlier details
-                    </strong>
-                    <p class={twClasses("", jsxTailwindStyles, "p")}>
+                <div class="material-details-panel mt-2 grid gap-2.5 rounded-[5px] border border-line bg-surface-subtle p-3">
+                    <strong class="text-sm font-semibold text-ink">Earlier details</strong>
+                    <p class="m-0 text-xs leading-relaxed text-ink-soft">
                         Restoring details keeps the current stored file and links.
                     </p>
                     <Show
                         when={(history()?.length ?? 0) > 1}
                         fallback={
-                            <p class={twClasses("", jsxTailwindStyles, "p")}>
+                            <p class="m-0 text-xs leading-relaxed text-ink-soft">
                                 No earlier versions.
                             </p>
                         }
                     >
                         <For each={history()?.slice(1)}>
                             {(revision) => (
-                                <div
-                                    class={twClasses(
-                                        "material-history-version",
-                                        jsxTailwindStyles,
-                                        "div",
-                                    )}
-                                >
-                                    <div class={twClasses("", jsxTailwindStyles, "div")}>
-                                        <strong class={twClasses("", jsxTailwindStyles, "strong")}>
+                                <div class="material-history-version flex items-start justify-between gap-2 border-t border-line pt-2">
+                                    <div class="grid gap-1">
+                                        <strong class="text-sm font-semibold text-ink">
                                             {field(revision, "filename") || "Untitled material"}
                                         </strong>
-                                        <p class={twClasses("", jsxTailwindStyles, "p")}>
+                                        <p class="m-0 text-xs leading-relaxed text-ink-soft">
                                             {field(revision, "description")}
                                         </p>
-                                        <small class={twClasses("", jsxTailwindStyles, "small")}>
+                                        <small class={mutedText}>
                                             Version {revision.revision.toString()}
                                         </small>
                                     </div>
                                     <button
-                                        class={twClasses(
-                                            "button button-outline record-action",
-                                            jsxTailwindStyles,
-                                            "button",
+                                        class={cn(
+                                            "button button-outline",
+                                            buttonOutline,
+                                            recordAction,
                                         )}
                                         type="button"
                                         disabled={
@@ -487,7 +455,7 @@ export function MaterialTrash(props: {
                 ),
             );
         } catch (cause) {
-            setError(errorText(cause));
+            setError(errorMessage(cause));
         } finally {
             setPending(false);
         }
@@ -506,16 +474,16 @@ export function MaterialTrash(props: {
             )
                 setRecords((current) => current.filter((item) => item.id !== record.id));
         } catch (cause) {
-            setError(errorText(cause));
+            setError(errorMessage(cause));
         } finally {
             setPending(false);
         }
     }
     return (
-        <section class={twClasses("material-trash", jsxTailwindStyles, "section")}>
+        <section class="material-trash my-3">
             <button
                 type="button"
-                class={twClasses("button button-quiet record-action", jsxTailwindStyles, "button")}
+                class={cn("button button-quiet", buttonQuiet, recordAction)}
                 aria-expanded={open()}
                 onClick={() => {
                     if (!open()) void load();
@@ -525,42 +493,36 @@ export function MaterialTrash(props: {
                 {open() ? "Hide removed materials" : "Removed materials"}
             </button>
             <Show when={open()}>
-                <div class={twClasses("material-details-panel", jsxTailwindStyles, "div")}>
+                <div class="material-details-panel mt-2 grid gap-2.5 rounded-[5px] border border-line bg-surface-subtle p-3">
                     <Show when={error()}>
-                        <p role="alert" class={twClasses("", jsxTailwindStyles, "p")}>
+                        <p role="alert" class={cn("m-0", errorText)}>
                             {error()}
                         </p>
                     </Show>
                     <Show
                         when={!pending()}
-                        fallback={<p class={twClasses("", jsxTailwindStyles, "p")}>Loading…</p>}
+                        fallback={<p class="m-0 text-xs leading-relaxed text-ink-soft">Loading…</p>}
                     >
                         <Show
                             when={records().length}
                             fallback={
-                                <p class={twClasses("", jsxTailwindStyles, "p")}>
+                                <p class="m-0 text-xs leading-relaxed text-ink-soft">
                                     No removed materials.
                                 </p>
                             }
                         >
                             <For each={records()}>
                                 {(record) => (
-                                    <div
-                                        class={twClasses(
-                                            "material-history-version",
-                                            jsxTailwindStyles,
-                                            "div",
-                                        )}
-                                    >
-                                        <strong class={twClasses("", jsxTailwindStyles, "strong")}>
+                                    <div class="material-history-version flex items-start justify-between gap-2 border-t border-line pt-2">
+                                        <strong class="text-sm font-semibold text-ink">
                                             {field(record, "filename") || "Untitled material"}
                                         </strong>
                                         <button
                                             type="button"
-                                            class={twClasses(
-                                                "button button-outline record-action",
-                                                jsxTailwindStyles,
-                                                "button",
+                                            class={cn(
+                                                "button button-outline",
+                                                buttonOutline,
+                                                recordAction,
                                             )}
                                             disabled={props.disabled || pending()}
                                             onClick={() => void restore(record)}
@@ -595,14 +557,14 @@ export function MaterialImportControls(props: {
         if (files.length === 0) return;
         if (files.length > MAX_ASSET_BATCH_FILES) {
             setError(
-                `Choose no more than ${MAX_ASSET_BATCH_FILES.toLocaleString()} files at a time.`,
+                `Choose no more than ${MAX_ASSET_BATCH_FILES.toLocaleString("en-US")} files at a time.`,
             );
             return;
         }
 
         setPending(true);
         setStatus(
-            `Preparing ${files.length.toLocaleString()} ${files.length === 1 ? "material" : "materials"}…`,
+            `Preparing ${files.length.toLocaleString("en-US")} ${files.length === 1 ? "material" : "materials"}…`,
         );
         let lastProgressAt = 0;
         try {
@@ -616,16 +578,16 @@ export function MaterialImportControls(props: {
                 }
                 const action = phase === "checking" ? "Checking" : "Writing";
                 setStatus(
-                    `${action} material ${completed.toLocaleString()} of ${total.toLocaleString()}…`,
+                    `${action} material ${completed.toLocaleString("en-US")} of ${total.toLocaleString("en-US")}…`,
                 );
             });
             setStatus(
                 imported
-                    ? `${files.length.toLocaleString()} ${files.length === 1 ? "material is" : "materials are"} ready in the archive. Save to write them to disk.`
+                    ? `${files.length.toLocaleString("en-US")} ${files.length === 1 ? "material is" : "materials are"} ready in the archive. Save to write them to disk.`
                     : "Import was not completed. Review the archive message and try again.",
             );
         } catch (cause) {
-            setError(errorText(cause));
+            setError(errorMessage(cause));
             setStatus("");
         } finally {
             setPending(false);
@@ -634,12 +596,12 @@ export function MaterialImportControls(props: {
 
     return (
         <div
-            class={twClasses("material-import-controls", jsxTailwindStyles, "div")}
+            class="material-import-controls flex max-w-[390px] flex-wrap items-center justify-end gap-2 max-[700px]:w-full max-[700px]:max-w-none max-[700px]:justify-start"
             aria-busy={pending()}
         >
             <input
                 ref={(element) => (fileInput = element)}
-                class={twClasses("visually-hidden", jsxTailwindStyles, "input")}
+                class="visually-hidden sr-only"
                 type="file"
                 multiple
                 disabled={props.disabled || pending()}
@@ -652,7 +614,7 @@ export function MaterialImportControls(props: {
                     element.setAttribute("webkitdirectory", "");
                     element.setAttribute("directory", "");
                 }}
-                class={twClasses("visually-hidden", jsxTailwindStyles, "input")}
+                class="visually-hidden sr-only"
                 type="file"
                 multiple
                 disabled={props.disabled || pending()}
@@ -660,7 +622,7 @@ export function MaterialImportControls(props: {
                 onChange={(event) => void importSelection(event.currentTarget)}
             />
             <button
-                class={twClasses("button button-primary", jsxTailwindStyles, "button")}
+                class={cn("button button-primary", buttonPrimary)}
                 type="button"
                 disabled={props.disabled || pending()}
                 onClick={() => fileInput?.click()}
@@ -668,7 +630,7 @@ export function MaterialImportControls(props: {
                 {pending() ? "Importing materials…" : "Add materials"}
             </button>
             <button
-                class={twClasses("button button-outline", jsxTailwindStyles, "button")}
+                class={cn("button button-outline", buttonOutline)}
                 type="button"
                 disabled={props.disabled || pending()}
                 onClick={() => folderInput?.click()}
@@ -677,7 +639,7 @@ export function MaterialImportControls(props: {
             </button>
             <Show when={error()}>
                 <p
-                    class={twClasses("material-import-feedback", jsxTailwindStyles, "p")}
+                    class="material-import-feedback m-0 basis-full text-right text-xs leading-relaxed text-muted max-[700px]:text-left"
                     role="alert"
                 >
                     {error()}
@@ -685,7 +647,7 @@ export function MaterialImportControls(props: {
             </Show>
             <Show when={status()}>
                 <p
-                    class={twClasses("material-import-feedback", jsxTailwindStyles, "p")}
+                    class="material-import-feedback m-0 basis-full text-right text-xs leading-relaxed text-muted max-[700px]:text-left"
                     role="status"
                     aria-live="polite"
                 >
