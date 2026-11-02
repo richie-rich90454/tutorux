@@ -1268,8 +1268,10 @@ export function AiPage(props: AiPageProps): JSX.Element {
                                         )}
                                         aria-live="polite"
                                     >
-                                        Showing {visibleCatalogModels().length.toLocaleString("en-US")} of{" "}
-                                        {catalogModels().length.toLocaleString("en-US")} listed models
+                                        Showing{" "}
+                                        {visibleCatalogModels().length.toLocaleString("en-US")} of{" "}
+                                        {catalogModels().length.toLocaleString("en-US")} listed
+                                        models
                                         {visibleCatalogModels().length === 100
                                             ? " · refine the search to see more"
                                             : ""}
@@ -1321,7 +1323,9 @@ export function AiPage(props: AiPageProps): JSX.Element {
                                                         <Show when={model.contextWindow}>
                                                             {(tokens) => (
                                                                 <span class={chip}>
-                                                                    {tokens().toLocaleString("en-US")}{" "}
+                                                                    {tokens().toLocaleString(
+                                                                        "en-US",
+                                                                    )}{" "}
                                                                     context
                                                                 </span>
                                                             )}
@@ -1329,8 +1333,10 @@ export function AiPage(props: AiPageProps): JSX.Element {
                                                         <Show when={model.maximumOutputTokens}>
                                                             {(tokens) => (
                                                                 <span class={chip}>
-                                                                    {tokens().toLocaleString("en-US")} max
-                                                                    output
+                                                                    {tokens().toLocaleString(
+                                                                        "en-US",
+                                                                    )}{" "}
+                                                                    max output
                                                                 </span>
                                                             )}
                                                         </Show>
@@ -1728,8 +1734,8 @@ export function AiPage(props: AiPageProps): JSX.Element {
                             >
                                 <span class={"basis-full text-xs leading-relaxed text-muted"}>
                                     {embeddedStatus()?.name} ·{" "}
-                                    {embeddedStatus()?.contextTokens?.toLocaleString("en-US")} context ·{" "}
-                                    {embeddedStatus()?.cpuThreads} CPU threads ·{" "}
+                                    {embeddedStatus()?.contextTokens?.toLocaleString("en-US")}{" "}
+                                    context · {embeddedStatus()?.cpuThreads} CPU threads ·{" "}
                                     {formatBytes(embeddedStatus()?.memoryEstimateBytes ?? 0)}{" "}
                                     estimated
                                 </span>
@@ -2704,7 +2710,9 @@ export function AiPage(props: AiPageProps): JSX.Element {
                                         )}
                                     >
                                         Showing the first{" "}
-                                        {AI_RESPONSE_PREVIEW_CHARACTER_LIMIT.toLocaleString("en-US")}{" "}
+                                        {AI_RESPONSE_PREVIEW_CHARACTER_LIMIT.toLocaleString(
+                                            "en-US",
+                                        )}{" "}
                                         characters. The complete provider response is kept in the
                                         archive.
                                     </span>
