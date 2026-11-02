@@ -4118,8 +4118,8 @@ function App(): JSX.Element {
                                 {(item) => (
                                     <button
                                         class={cn(
-                                            `nav-item ${view() === item.id ? "is-active" : ""}`,
-                                            "text-muted font-sans focus-visible:outline-offset-[2px] focus-visible:outline focus-visible:outline-3 focus-visible:outline-accent/40 items-center bg-transparent rounded-[5px] border border-transparent cursor-pointer flex text-sm font-medium gap-2.5 h-9.5 min-w-0 py-0 px-2.5 relative text-left transition-colors duration-150 max-sm:content-center max-sm:grid max-sm:flex-1 max-sm:text-[10px] max-sm:gap-0.5 max-sm:h-11.5 max-sm:justify-items-center max-sm:leading-[1.15] max-sm:max-w-19 max-sm:min-w-0 max-sm:py-1 max-sm:px-0.5 max-sm:w-auto min-[641px]:max-[650px]:h-10.5 min-[641px]:max-[650px]:w-11 min-[651px]:max-[820px]:h-9 min-[821px]:max-[900px]:h-10.5 max-[900px]:justify-center min-[641px]:max-[900px]:p-0 min-[651px]:max-[900px]:w-11 max-[900px]:before:-left-1.5 before:bg-transparent before:rounded-[5px] before:content-[''] before:h-4.5 before:left-0 before:absolute before:w-0.5 hover:bg-surface-inset hover:text-ink",
+                                            "nav-item",
+                                            "text-muted font-sans focus-visible:outline-offset-[2px] focus-visible:outline focus-visible:outline-3 focus-visible:outline-accent/40 items-center bg-transparent rounded-[5px] border border-transparent cursor-pointer flex text-sm font-medium gap-2.5 h-9.5 min-w-0 py-0 px-2.5 relative text-left transition-colors duration-150 max-sm:content-center max-sm:grid max-sm:flex-1 max-sm:text-[10px] max-sm:gap-0.5 max-sm:h-11.5 max-sm:justify-items-center max-sm:leading-[1.15] max-sm:max-w-19 max-sm:min-w-0 max-sm:py-1 max-sm:px-0.5 max-sm:w-auto min-[641px]:max-[650px]:h-10.5 min-[641px]:max-[650px]:w-11 min-[651px]:max-[820px]:h-9 min-[821px]:max-[900px]:h-10.5 max-[900px]:justify-center min-[641px]:max-[900px]:p-0 min-[651px]:max-[900px]:w-11 max-[900px]:before:-left-1.5 before:bg-transparent before:rounded-[5px] before:content-[''] before:h-4.5 before:left-0 before:absolute before:w-0.5 hover:bg-surface-inset hover:text-ink aria-[current=page]:bg-accent-soft aria-[current=page]:text-accent",
                                         )}
                                         type="button"
                                         aria-label={item.label}
@@ -4146,7 +4146,10 @@ function App(): JSX.Element {
                             >
                                 <button
                                     class={cn(
-                                        `nav-item contextual-nav-toggle ${contextualViews.some((item) => item.id === view()) ? "is-active" : ""}`,
+                                        "nav-item contextual-nav-toggle",
+                                        contextualViews.some((item) => item.id === view())
+                                            ? "bg-accent-soft text-accent"
+                                            : "",
                                         "text-muted font-sans focus-visible:outline-offset-[2px] focus-visible:outline focus-visible:outline-3 focus-visible:outline-accent/40 items-center bg-transparent rounded-[5px] border border-transparent cursor-pointer flex text-sm font-medium gap-2.5 h-9.5 min-w-0 py-0 px-2.5 relative text-left transition-colors duration-150 max-sm:content-center max-sm:grid max-sm:flex-1 max-sm:text-[10px] max-sm:gap-0.5 max-sm:h-11.5 max-sm:justify-items-center max-sm:leading-[1.15] max-sm:max-w-19 max-sm:min-w-0 max-sm:py-1 max-sm:px-0.5 max-sm:w-auto min-[641px]:max-[650px]:h-10.5 min-[641px]:max-[650px]:w-11 min-[651px]:max-[820px]:h-9 min-[821px]:max-[900px]:h-10.5 max-[900px]:justify-center min-[641px]:max-[900px]:p-0 min-[651px]:max-[900px]:w-11 max-[900px]:before:-left-1.5 before:bg-transparent before:rounded-[5px] before:content-[''] before:h-4.5 before:left-0 before:absolute before:w-0.5 hover:bg-surface-inset hover:text-ink",
                                     )}
                                     type="button"
@@ -4232,8 +4235,8 @@ function App(): JSX.Element {
                                             {(item) => (
                                                 <button
                                                     class={cn(
-                                                        `contextual-nav-item ${view() === item.id ? "is-active" : ""}`,
-                                                        "text-ink-soft font-sans focus-visible:outline-offset-[2px] focus-visible:outline focus-visible:outline-3 focus-visible:outline-accent/40 items-center bg-transparent rounded-[5px] border border-transparent cursor-pointer flex text-[13px] gap-2.5 min-h-9 py-0 px-2.5 text-left w-full hover:bg-surface-inset hover:text-ink",
+                                                        "contextual-nav-item",
+                                                        "text-ink-soft font-sans focus-visible:outline-offset-[2px] focus-visible:outline focus-visible:outline-3 focus-visible:outline-accent/40 items-center bg-transparent rounded-[5px] border border-transparent cursor-pointer flex text-[13px] gap-2.5 min-h-9 py-0 px-2.5 text-left w-full hover:bg-surface-inset hover:text-ink aria-[current=page]:bg-accent-soft aria-[current=page]:text-accent",
                                                     )}
                                                     type="button"
                                                     role="menuitem"
@@ -5024,8 +5027,8 @@ function App(): JSX.Element {
                                     <button
                                         type="button"
                                         class={cn(
-                                            `palette-action ${paletteIndex() === index() ? "is-active" : ""}`,
-                                            "text-inherit font-sans focus-visible:outline-offset-[-2px] focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent items-center bg-transparent rounded-[5px] border-0 cursor-pointer flex gap-2.5 min-h-12.5 py-1.5 px-2.5 text-left hover:bg-surface-inset",
+                                            "palette-action",
+                                            "text-inherit font-sans focus-visible:outline-offset-[-2px] focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent items-center bg-transparent rounded-[5px] border-0 cursor-pointer flex gap-2.5 min-h-12.5 py-1.5 px-2.5 text-left hover:bg-surface-inset data-[active=true]:bg-accent-soft data-[active=true]:text-accent",
                                         )}
                                         data-active={paletteIndex() === index()}
                                         onMouseEnter={() => setPaletteIndex(index())}

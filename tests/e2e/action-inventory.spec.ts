@@ -43,3 +43,14 @@ test("each workspace exposes its enabled primary actions", async ({ page }) => {
         expect(inventory.all.length, `${workspace} exposes enabled controls`).toBeGreaterThan(0);
     }
 });
+
+test("highlights the active primary navigation item", async ({ page }) => {
+    await createArchive(page, "Active navigation QA");
+    await navigateToSidebarView(page, "Students");
+
+    const currentNav = page.locator('.nav-item[aria-current="page"]').first();
+    await expect(currentNav).toBeVisible();
+    await expect
+        .poll(() => currentNav.evaluate((element) => getComputedStyle(element).backgroundColor))
+        .not.toBe("rgba(0, 0, 0, 0)");
+});
