@@ -387,7 +387,9 @@ export function CommandConsole(props: CommandConsoleProps): JSX.Element {
                         <small id="command-console-help">
                             Enter runs the command · Shift+Enter adds a line · 64 KiB maximum
                         </small>
-                        <small>{utf8Length(command()).toLocaleString("en-US")} / 65,536 bytes</small>
+                        <small>
+                            {utf8Length(command()).toLocaleString("en-US")} / 65,536 bytes
+                        </small>
                     </div>
                     <div
                         class={cn(
