@@ -135,7 +135,7 @@ export function MediaPlayer(props: MediaPlayerProps): JSX.Element {
                 <button
                     class={cn(
                         "media-player-play",
-                        "focus-visible:outline-offset-1 focus-visible:outline-3 focus-visible:outline-[color-mix(in_srgb,_var(--accent)_42%,_transparent)] hover:bg-accent-soft hover:text-[var(--accent-deep)] bg-transparent rounded-md border-0 cursor-pointer grid h-[32px] p-0 place-items-center w-[32px] text-inherit disabled:cursor-not-allowed! disabled:opacity-56",
+                        "focus-visible:outline-offset-1 focus-visible:outline-3 focus-visible:outline-[color-mix(in_srgb,_var(--accent)_42%,_transparent)] hover:bg-accent-soft hover:text-[var(--accent-deep)] aria-pressed:bg-accent-soft aria-pressed:text-[var(--accent-deep)] bg-transparent rounded-md border-0 cursor-pointer grid h-[32px] p-0 place-items-center w-[32px] text-inherit disabled:cursor-not-allowed! disabled:opacity-56",
                     )}
                     type="button"
                     aria-label={(playing() ? "Pause " : "Play ") + props.kind}
@@ -178,7 +178,7 @@ export function MediaPlayer(props: MediaPlayerProps): JSX.Element {
                 <button
                     class={cn(
                         "media-player-volume-toggle",
-                        "focus-visible:outline-offset-1 focus-visible:outline-3 focus-visible:outline-[color-mix(in_srgb,_var(--accent)_42%,_transparent)] hover:bg-accent-soft hover:text-[var(--accent-deep)] bg-transparent rounded-md border-0 cursor-pointer grid h-[32px] p-0 place-items-center w-[32px] text-inherit disabled:cursor-not-allowed! disabled:opacity-56",
+                        "focus-visible:outline-offset-1 focus-visible:outline-3 focus-visible:outline-[color-mix(in_srgb,_var(--accent)_42%,_transparent)] hover:bg-accent-soft hover:text-[var(--accent-deep)] aria-pressed:bg-accent-soft aria-pressed:text-[var(--accent-deep)] bg-transparent rounded-md border-0 cursor-pointer grid h-[32px] p-0 place-items-center w-[32px] text-inherit disabled:cursor-not-allowed! disabled:opacity-56",
                     )}
                     type="button"
                     aria-label={muted() || volume() === 0 ? "Unmute" : "Mute"}

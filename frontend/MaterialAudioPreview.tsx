@@ -98,7 +98,7 @@ export function MaterialAudioPreview(props: {
                     {timeLabel(duration())}
                 </span>
                 <button
-                    class="audio-waveform-volume-toggle grid h-[30px] w-[30px] place-items-center rounded-[5px] border border-transparent text-muted transition-colors hover:bg-surface-subtle hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+                    class="audio-waveform-volume-toggle grid h-[30px] w-[30px] place-items-center rounded-[5px] border border-transparent text-muted transition-colors hover:bg-surface-subtle hover:text-ink aria-pressed:bg-accent-soft aria-pressed:text-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
                     type="button"
                     aria-label={muted() || volume() === 0 ? "Unmute" : "Mute"}
                     aria-pressed={muted()}

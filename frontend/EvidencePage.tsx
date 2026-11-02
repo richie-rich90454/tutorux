@@ -550,6 +550,7 @@ export function EvidencePage(props: {
                                         class={cn(
                                             "button button-quiet evidence-review-filter min-h-[31px] px-2.5 text-xs",
                                             buttonQuiet,
+                                            "aria-pressed:bg-accent-soft aria-pressed:text-accent",
                                         )}
                                         type="button"
                                         aria-pressed={evidenceFilter() === filter.id}

@@ -139,7 +139,7 @@ export function AudioWaveform(props: AudioWaveformProps) {
                 <button
                     class={cn(
                         "audio-waveform-volume-toggle",
-                        "bg-transparent rounded-[7px] border border-transparent cursor-pointer grid h-[30px] p-0 place-items-center w-[30px] hover:bg-accent-soft hover:text-[var(--accent-deep)] focus-visible:outline-offset-1 focus-visible:outline-3 focus-visible:outline-[color-mix(in_srgb,_var(--accent)_42%,_transparent)] text-inherit disabled:cursor-not-allowed! disabled:opacity-56",
+                        "bg-transparent rounded-[7px] border border-transparent cursor-pointer grid h-[30px] p-0 place-items-center w-[30px] hover:bg-accent-soft hover:text-[var(--accent-deep)] focus-visible:outline-offset-1 focus-visible:outline-3 focus-visible:outline-[color-mix(in_srgb,_var(--accent)_42%,_transparent)] text-inherit disabled:cursor-not-allowed! disabled:opacity-56 aria-pressed:bg-accent-soft aria-pressed:text-[var(--accent-deep)]",
                     )}
                     type="button"
                     aria-label={muted() || volume() === 0 ? "Unmute" : "Mute"}
