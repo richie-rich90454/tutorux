@@ -1,10 +1,22 @@
-import { twClasses } from "./tailwind";
-import { jsxTailwindStyles } from "./ArchiveSettings.tailwind";
 import { For, Show, createEffect, createSignal, untrack, type JSX } from "solid-js";
 import { deterministicUuid } from "./ai/providers";
 import { hasSensitiveCredentialMaterial, sensitiveSettingKey } from "./archive/sanitized-copy";
 import { RecordType, type ArchiveRecord } from "./archive/format";
 import { moveRecordToTrash } from "./domain/records";
+import {
+    bodyText,
+    buttonOutline,
+    buttonPrimary,
+    buttonQuiet,
+    card,
+    cn,
+    errorText,
+    helperText,
+    inputBase,
+    labelBase,
+    mutedText,
+    textareaBase,
+} from "./ui";
 import { platform } from "@platform";
 
 interface ArchiveSettingsProps {
@@ -18,6 +30,13 @@ interface ArchiveSettingsProps {
 }
 
 const field = (record: ArchiveRecord, key: string): string => record.fields.get(key) ?? "";
+
+const settingsSection = cn(card, "settings-section my-3 overflow-hidden");
+const sectionHeading = "settings-section-heading border-b border-line-soft px-4 pb-2.5 pt-3.5";
+const formPanel = "archive-setting-form grid gap-3 px-4 py-5";
+const formHeading = "text-base font-semibold leading-snug text-ink";
+const actionRow = "archive-setting-actions flex flex-wrap items-center justify-end gap-2";
+const fieldLabel = cn("form-field", labelBase);
 
 function validateSetting(key: string, value: string): void {
     if (
@@ -253,29 +272,20 @@ export function ArchiveSettings(props: ArchiveSettingsProps): JSX.Element {
         }
     }
     return (
-        <section
-            class={twClasses("settings-section archive-settings", jsxTailwindStyles, "section")}
-        >
-            <div class={twClasses("settings-section-heading", jsxTailwindStyles, "div")}>
-                <h2 class={twClasses("", jsxTailwindStyles, "h2")}>Archive settings</h2>
-                <p class={twClasses("", jsxTailwindStyles, "p")}>
+        <section class={cn("archive-settings", settingsSection)}>
+            <div class={sectionHeading}>
+                <h2 class="text-xs font-semibold text-ink-soft">Archive settings</h2>
+                <p class={cn(mutedText, "mt-1")}>
                     Review and edit settings stored in this archive. Provider credentials are
                     managed in the AI workspace.
                 </p>
             </div>
             <form
-                class={twClasses(
-                    "archive-setting-form archive-name-form",
-                    jsxTailwindStyles,
-                    "form",
-                )}
+                class={cn("archive-setting-form archive-name-form", formPanel)}
                 onSubmit={(event) => void renameArchive(event)}
             >
-                <h3 class={twClasses("", jsxTailwindStyles, "h3")}>Archive name</h3>
-                <label
-                    class={twClasses("form-field", jsxTailwindStyles, "label")}
-                    for="archive-display-name"
-                >
+                <h3 class={formHeading}>Archive name</h3>
+                <label class={fieldLabel} for="archive-display-name">
                     Display name
                     <input
                         id="archive-display-name"
@@ -290,57 +300,39 @@ export function ArchiveSettings(props: ArchiveSettingsProps): JSX.Element {
                             setRenameError("");
                             setRenameStatus("");
                         }}
-                        class={twClasses("", jsxTailwindStyles, "input")}
+                        class={inputBase}
                     />
                 </label>
-                <p id="archive-display-name-help" class={twClasses("", jsxTailwindStyles, "p")}>
+                <p id="archive-display-name-help" class={helperText}>
                     Use up to 200 characters. The name is stored in this archive.
                 </p>
                 <Show when={renameError()}>
-                    <p
-                        class={twClasses("archive-settings-error", jsxTailwindStyles, "p")}
-                        role="alert"
-                    >
+                    <p class={cn("archive-settings-error", errorText)} role="alert">
                         {renameError()}
                     </p>
                 </Show>
                 <Show when={renameStatus()}>
-                    <p
-                        role="status"
-                        aria-live="polite"
-                        class={twClasses("", jsxTailwindStyles, "p")}
-                    >
+                    <p role="status" aria-live="polite" class={mutedText}>
                         {renameStatus()}
                     </p>
                 </Show>
-                <div class={twClasses("archive-setting-actions", jsxTailwindStyles, "div")}>
-                    <button
-                        class={twClasses("button button-primary", jsxTailwindStyles, "button")}
-                        type="submit"
-                        disabled={props.disabled || renameBusy()}
-                    >
+                <div class={actionRow}>
+                    <button class={cn("button", buttonPrimary)} type="submit" disabled={props.disabled || renameBusy()}>
                         {renameBusy() ? "Saving name…" : "Save archive name"}
                     </button>
                 </div>
             </form>
             <Show when={!props.encrypted}>
                 <form
-                    class={twClasses(
-                        "archive-setting-form archive-encryption-form",
-                        jsxTailwindStyles,
-                        "form",
-                    )}
+                    class={cn("archive-setting-form archive-encryption-form", formPanel)}
                     onSubmit={enableEncryption}
                 >
-                    <h3 class={twClasses("", jsxTailwindStyles, "h3")}>Protect this archive</h3>
-                    <p class={twClasses("", jsxTailwindStyles, "p")}>
+                    <h3 class={formHeading}>Protect this archive</h3>
+                    <p class={bodyText}>
                         Encrypt every retained revision with a new key. Save the workspace after
                         this finishes to replace the archive file with its encrypted version.
                     </p>
-                    <label
-                        class={twClasses("form-field", jsxTailwindStyles, "label")}
-                        for="archive-encryption-passphrase"
-                    >
+                    <label class={fieldLabel} for="archive-encryption-passphrase">
                         New passphrase
                         <input
                             id="archive-encryption-passphrase"
@@ -351,13 +343,10 @@ export function ArchiveSettings(props: ArchiveSettingsProps): JSX.Element {
                             maxlength="4096"
                             required
                             disabled={props.disabled || encryptionBusy()}
-                            class={twClasses("", jsxTailwindStyles, "input")}
+                            class={inputBase}
                         />
                     </label>
-                    <label
-                        class={twClasses("form-field", jsxTailwindStyles, "label")}
-                        for="archive-encryption-confirmation"
-                    >
+                    <label class={fieldLabel} for="archive-encryption-confirmation">
                         Confirm passphrase
                         <input
                             id="archive-encryption-confirmation"
@@ -368,23 +357,20 @@ export function ArchiveSettings(props: ArchiveSettingsProps): JSX.Element {
                             maxlength="4096"
                             required
                             disabled={props.disabled || encryptionBusy()}
-                            class={twClasses("", jsxTailwindStyles, "input")}
+                            class={inputBase}
                         />
                     </label>
-                    <p class={twClasses("", jsxTailwindStyles, "p")}>
+                    <p class={helperText}>
                         Use 12–4096 UTF-8 bytes. Tutorux cannot recover a lost passphrase.
                     </p>
                     <Show when={encryptionError()}>
-                        <p
-                            class={twClasses("archive-settings-error", jsxTailwindStyles, "p")}
-                            role="alert"
-                        >
+                        <p class={cn("archive-settings-error", errorText)} role="alert">
                             {encryptionError()}
                         </p>
                     </Show>
-                    <div class={twClasses("archive-setting-actions", jsxTailwindStyles, "div")}>
+                    <div class={actionRow}>
                         <button
-                            class={twClasses("button button-primary", jsxTailwindStyles, "button")}
+                            class={cn("button", buttonPrimary)}
                             type="submit"
                             disabled={props.disabled || encryptionBusy()}
                         >
@@ -394,43 +380,33 @@ export function ArchiveSettings(props: ArchiveSettingsProps): JSX.Element {
                 </form>
             </Show>
             <Show when={error()}>
-                <p class={twClasses("archive-settings-error", jsxTailwindStyles, "p")} role="alert">
+                <p class={cn("archive-settings-error", errorText, "px-4 pb-4")} role="alert">
                     {error()}
                 </p>
             </Show>
-            <div class={twClasses("archive-settings-list", jsxTailwindStyles, "div")}>
+            <div class="archive-settings-list mt-5 border-t border-line">
                 <Show
                     when={visible().length}
                     fallback={
-                        <p class={twClasses("archive-settings-empty", jsxTailwindStyles, "p")}>
+                        <p class={cn("archive-settings-empty", mutedText, "px-4 py-4")}>
                             No ordinary archive settings yet.
                         </p>
                     }
                 >
                     <For each={visible()}>
                         {(record) => (
-                            <div class={twClasses("archive-setting-row", jsxTailwindStyles, "div")}>
-                                <div class={twClasses("", jsxTailwindStyles, "div")}>
-                                    <strong class={twClasses("", jsxTailwindStyles, "strong")}>
+                            <div class="archive-setting-row flex flex-wrap items-start justify-between gap-x-5 gap-y-3 border-b border-line px-4 py-4 max-[600px]:flex-col">
+                                <div class="min-w-0 flex-1 basis-[min(100%,18rem)]">
+                                    <strong class="break-words text-[13px] font-semibold text-ink">
                                         {field(record, "key")}
                                     </strong>
-                                    <pre class={twClasses("", jsxTailwindStyles, "pre")}>
+                                    <pre class="mt-1 whitespace-pre-wrap break-words font-sans text-xs text-muted">
                                         {field(record, "value") || "(empty)"}
                                     </pre>
                                 </div>
-                                <div
-                                    class={twClasses(
-                                        "archive-setting-actions",
-                                        jsxTailwindStyles,
-                                        "div",
-                                    )}
-                                >
+                                <div class={cn("archive-setting-actions", actionRow, "shrink-0")}>
                                     <button
-                                        class={twClasses(
-                                            "button button-outline",
-                                            jsxTailwindStyles,
-                                            "button",
-                                        )}
+                                        class={cn("button", buttonOutline)}
                                         type="button"
                                         disabled={props.disabled}
                                         onClick={() => {
@@ -443,11 +419,7 @@ export function ArchiveSettings(props: ArchiveSettingsProps): JSX.Element {
                                         Edit
                                     </button>
                                     <button
-                                        class={twClasses(
-                                            "button button-quiet",
-                                            jsxTailwindStyles,
-                                            "button",
-                                        )}
+                                        class={cn("button", buttonQuiet)}
                                         type="button"
                                         disabled={props.disabled}
                                         onClick={() =>
@@ -465,14 +437,9 @@ export function ArchiveSettings(props: ArchiveSettingsProps): JSX.Element {
                     </For>
                 </Show>
             </div>
-            <form
-                class={twClasses("archive-setting-form", jsxTailwindStyles, "form")}
-                onSubmit={(event) => void save(event)}
-            >
-                <h3 class={twClasses("", jsxTailwindStyles, "h3")}>
-                    {editing() ? "Edit setting" : "Add a setting"}
-                </h3>
-                <label class={twClasses("form-field", jsxTailwindStyles, "label")}>
+            <form class={cn("archive-setting-form", formPanel)} onSubmit={(event) => void save(event)}>
+                <h3 class={formHeading}>{editing() ? "Edit setting" : "Add a setting"}</h3>
+                <label class={fieldLabel}>
                     Key
                     <input
                         value={key()}
@@ -480,44 +447,35 @@ export function ArchiveSettings(props: ArchiveSettingsProps): JSX.Element {
                         disabled={props.disabled}
                         onInput={(event) => setKey(event.currentTarget.value)}
                         required
-                        class={twClasses("", jsxTailwindStyles, "input")}
+                        class={inputBase}
                     />
                 </label>
-                <label class={twClasses("form-field", jsxTailwindStyles, "label")}>
+                <label class={fieldLabel}>
                     Value
                     <textarea
                         value={value()}
                         disabled={props.disabled}
                         onInput={(event) => setValue(event.currentTarget.value)}
                         rows="3"
-                        class={twClasses("", jsxTailwindStyles, "textarea")}
+                        class={textareaBase}
                     />
                 </label>
-                <div class={twClasses("archive-setting-actions", jsxTailwindStyles, "div")}>
+                <div class={actionRow}>
                     <Show when={editing()}>
-                        <button
-                            class={twClasses("button button-quiet", jsxTailwindStyles, "button")}
-                            type="button"
-                            onClick={clear}
-                        >
+                        <button class={cn("button", buttonQuiet)} type="button" onClick={clear}>
                             Cancel
                         </button>
                     </Show>
-                    <button
-                        class={twClasses("button button-primary", jsxTailwindStyles, "button")}
-                        type="submit"
-                        disabled={props.disabled}
-                    >
+                    <button class={cn("button", buttonPrimary)} type="submit" disabled={props.disabled}>
                         Save setting
                     </button>
                 </div>
             </form>
-            <div class={twClasses("archive-settings-transfer", jsxTailwindStyles, "div")}>
+            <div class="archive-settings-transfer flex flex-wrap items-center gap-2 px-4 pb-5">
                 <label
-                    class={twClasses(
-                        "button button-outline archive-settings-import",
-                        jsxTailwindStyles,
-                        "label",
+                    class={cn(
+                        "button button-outline archive-settings-import relative overflow-hidden",
+                        buttonOutline,
                     )}
                 >
                     Import key=value file
@@ -526,11 +484,11 @@ export function ArchiveSettings(props: ArchiveSettingsProps): JSX.Element {
                         accept=".txt,text/plain"
                         disabled={props.disabled}
                         onChange={(event) => void importFile(event)}
-                        class={twClasses("", jsxTailwindStyles, "input")}
+                        class="absolute inset-0 h-full w-full cursor-pointer opacity-0"
                     />
                 </label>
                 <button
-                    class={twClasses("button button-outline", jsxTailwindStyles, "button")}
+                    class={cn("button", buttonOutline)}
                     type="button"
                     disabled={!visible().length}
                     onClick={() => void exportSettings()}
@@ -538,7 +496,7 @@ export function ArchiveSettings(props: ArchiveSettingsProps): JSX.Element {
                     Export settings
                 </button>
                 <button
-                    class={twClasses("button button-quiet", jsxTailwindStyles, "button")}
+                    class={cn("button", buttonQuiet)}
                     type="button"
                     disabled={props.disabled || !visible().length}
                     onClick={() => setConfirmReset(true)}
@@ -548,22 +506,22 @@ export function ArchiveSettings(props: ArchiveSettingsProps): JSX.Element {
             </div>
             <Show when={confirmReset()}>
                 <div
-                    class={twClasses("archive-settings-confirm", jsxTailwindStyles, "div")}
+                    class="archive-settings-confirm mt-3.5 flex flex-wrap items-center gap-2 px-4 pb-5"
                     role="group"
                     aria-label="Confirm settings reset"
                 >
-                    <p class={twClasses("", jsxTailwindStyles, "p")}>
+                    <p class="flex-1 basis-[200px] text-[13px] leading-relaxed text-ink-soft">
                         Reset all {visible().length} visible settings in this archive?
                     </p>
                     <button
-                        class={twClasses("button button-quiet", jsxTailwindStyles, "button")}
+                        class={cn("button", buttonQuiet)}
                         type="button"
                         onClick={() => setConfirmReset(false)}
                     >
                         Cancel
                     </button>
                     <button
-                        class={twClasses("button button-outline", jsxTailwindStyles, "button")}
+                        class={cn("button", buttonOutline)}
                         type="button"
                         disabled={props.disabled}
                         onClick={() => {
