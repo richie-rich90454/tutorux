@@ -343,7 +343,7 @@ pub async fn finish_live_whisper(window: WebviewWindow, run_id: String) -> Resul
 }
 
 #[tauri::command]
-pub fn end_live_whisper(window: WebviewWindow, run_id: String) -> Result<(), String> {
+pub async fn end_live_whisper(window: WebviewWindow, run_id: String) -> Result<(), String> {
     main_window(&window)?;
     let id = Uuid::parse_str(&run_id)
         .map_err(|_| "The live transcription run is invalid or expired.".to_owned())?;
@@ -352,7 +352,11 @@ pub fn end_live_whisper(window: WebviewWindow, run_id: String) -> Result<(), Str
         .map_err(|_| "Live transcription state is unavailable.".to_owned())?
         .remove(&id)
         .ok_or_else(|| "The live transcription run has already ended.".to_owned())?;
-    handle.cancel();
-    handle.join();
+    tauri::async_runtime::spawn_blocking(move || {
+        handle.cancel();
+        handle.join();
+    })
+    .await
+    .map_err(|_| "The live Whisper shutdown task could not finish.".to_owned())?;
     Ok(())
 }
