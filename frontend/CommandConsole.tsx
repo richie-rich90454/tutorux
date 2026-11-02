@@ -1,5 +1,4 @@
-import { twClasses } from "./tailwind";
-import { jsxTailwindStyles } from "./CommandConsole.tailwind";
+import { buttonDanger, buttonOutline, buttonPrimary, cn, iconButton } from "./ui";
 import { For, Show, createSignal, onCleanup, onMount, untrack, type JSX } from "solid-js";
 import type { ArchiveByteSource } from "./archive/source";
 import { platform } from "@platform";
@@ -226,7 +225,10 @@ export function CommandConsole(props: CommandConsoleProps): JSX.Element {
 
     return (
         <dialog
-            class={twClasses("command-console-dialog", jsxTailwindStyles, "dialog")}
+            class={cn(
+                "command-console-dialog",
+                "backdrop:backdrop-blur-sm backdrop:bg-[rgb(11_18_13_/_48%)] max-[560px]:rounded-[5px] max-[560px]:max-h-[calc(100vh_-_20px)] max-[560px]:w-[calc(100vw_-_20px)] animate-[modal-in_0.14s_ease-out] bg-surface rounded-[5px] border border-line shadow-[0_24px_80px_color-mix(in_srgb,_var(--ink)_18%,_transparent)] text-ink max-h-[min(88vh,_820px)] max-w-none overflow-hidden p-0 w-[min(760px,_calc(100vw_-_32px))]",
+            )}
             aria-labelledby="command-console-title"
             aria-describedby="command-console-description"
             ref={(element) => {
@@ -237,17 +239,27 @@ export function CommandConsole(props: CommandConsoleProps): JSX.Element {
                 if (event.target === dialogElement) void requestClose();
             }}
         >
-            <header class={twClasses("command-console-header", jsxTailwindStyles, "header")}>
-                <div class={twClasses("", jsxTailwindStyles, "div")}>
-                    <span class={twClasses("command-console-eyebrow", jsxTailwindStyles, "span")}>
+            <header
+                class={cn(
+                    "command-console-header",
+                    "max-[560px]:min-h-[66px] max-[560px]:p-3 items-center border-b border-b-line-soft flex justify-between min-h-[72px] py-[15px] px-[19px]",
+                )}
+            >
+                <div class="grid gap-[3px]">
+                    <span
+                        class={cn(
+                            "command-console-eyebrow",
+                            "text-accent text-xs font-bold tracking-[0.1em] normal-case",
+                        )}
+                    >
                         Tutorux desktop
                     </span>
-                    <h2 id="command-console-title" class={twClasses("", jsxTailwindStyles, "h2")}>
+                    <h2 id="command-console-title" class="text-ink text-[15px] font-[650] m-0">
                         Command console
                     </h2>
                 </div>
                 <button
-                    class={twClasses("icon-button", jsxTailwindStyles, "button")}
+                    class={cn("icon-button", iconButton)}
                     type="button"
                     aria-label={running() ? "Stop command" : "Close command console"}
                     onClick={() => void requestClose()}
@@ -255,72 +267,90 @@ export function CommandConsole(props: CommandConsoleProps): JSX.Element {
                     ×
                 </button>
             </header>
-            <div class={twClasses("command-console-body", jsxTailwindStyles, "div")}>
+            <div
+                class={cn(
+                    "command-console-body",
+                    "max-[560px]:max-h-[calc(100vh_-_93px)] max-[560px]:pt-[13px] max-[560px]:pr-3 max-[560px]:pb-3.5 max-[560px]:pl-3 max-h-[calc(min(88vh,_820px)_-_73px)] overflow-y-auto pt-4 pr-[19px] pb-[19px] pl-[19px]",
+                )}
+            >
                 <p
                     id="command-console-description"
-                    class={twClasses("command-console-description", jsxTailwindStyles, "p")}
+                    class={cn(
+                        "command-console-description",
+                        "text-muted text-xs leading-[1.6] mt-0 mr-0 mb-[13px] ml-0",
+                    )}
                 >
                     Run one Tutorux CLI command in this application. Commands use the archive shown
                     here; shell operators are passed as ordinary command arguments.
                 </p>
                 <Show when={props.archive?.dirty}>
                     <p
-                        class={twClasses("command-console-error", jsxTailwindStyles, "p")}
+                        class={cn(
+                            "command-console-error",
+                            "text-danger text-xs leading-[1.5] mt-0.5 mr-0 mb-0 ml-0",
+                        )}
                         role="status"
                     >
                         Save unsaved workspace changes before running a command. This keeps disk
                         changes and the open workspace in sync.
                     </p>
                 </Show>
-                <div class={twClasses("command-console-context", jsxTailwindStyles, "div")}>
+                <div
+                    class={cn(
+                        "command-console-context",
+                        "items-center bg-surface-subtle rounded-[5px] border border-line-soft flex gap-2.5 min-w-0 p-[11px]",
+                    )}
+                >
                     <span
-                        class={twClasses("command-console-context-mark", jsxTailwindStyles, "span")}
+                        class={cn(
+                            "command-console-context-mark",
+                            "bg-accent-soft rounded-[5px] text-accent grid flex-none text-[20px] h-[31px] place-items-center w-[31px]",
+                        )}
                         aria-hidden="true"
                     >
                         ⌁
                     </span>
-                    <div class={twClasses("", jsxTailwindStyles, "div")}>
-                        <strong class={twClasses("", jsxTailwindStyles, "strong")}>
+                    <div class="grid flex-1 gap-[3px] min-w-0">
+                        <strong class="text-ink-soft text-xs font-[650] overflow-hidden text-ellipsis whitespace-nowrap">
                             {props.archive?.name ?? "No archive open"}
                         </strong>
-                        <small class={twClasses("", jsxTailwindStyles, "small")}>
+                        <small class="text-faint text-xs overflow-hidden text-ellipsis whitespace-nowrap">
                             {props.archive?.location ?? "Open an archive to enable commands"}
                             <Show when={props.archive?.locked}>
-                                <span class={twClasses("", jsxTailwindStyles, "span")}>
-                                    {" "}
-                                    · Encrypted archive; enter its passphrase when needed
-                                </span>
+                                <span> · Encrypted archive; enter its passphrase when needed</span>
                             </Show>
                         </small>
                     </div>
                     <span
-                        class={twClasses("command-console-lock", jsxTailwindStyles, "span")}
+                        class={cn(
+                            "command-console-lock",
+                            "rounded-[5px] border border-line-soft text-accent flex-none text-xs font-[650] py-1 px-[7px]",
+                        )}
                         aria-label="Archive is fixed"
                     >
                         Pinned
                     </span>
                 </div>
                 <div
-                    class={twClasses("command-console-runtime", jsxTailwindStyles, "div")}
+                    class={cn(
+                        "command-console-runtime",
+                        "items-center text-faint flex text-xs gap-[7px] min-h-[27px]",
+                    )}
                     role="status"
                 >
                     <span
-                        class={twClasses(
+                        class={cn(
                             `command-console-status-dot ${available() ? "is-ready" : ""}`,
-                            jsxTailwindStyles,
-                            "span",
+                            "bg-[var(--warning)] rounded-full h-[6px] w-[6px]",
                         )}
                     />
                     {availability()}
                 </div>
                 <form
-                    class={twClasses("command-console-form", jsxTailwindStyles, "form")}
+                    class={cn("command-console-form", "grid gap-[7px] mt-[9px]")}
                     onSubmit={(event) => void submitCommand(event)}
                 >
-                    <label
-                        for="command-console-input"
-                        class={twClasses("", jsxTailwindStyles, "label")}
-                    >
+                    <label for="command-console-input" class="text-ink-soft text-xs font-[650]">
                         Tutorux command
                     </label>
                     <textarea
@@ -346,24 +376,27 @@ export function CommandConsole(props: CommandConsoleProps): JSX.Element {
                                 event.currentTarget.form?.requestSubmit();
                             }
                         }}
-                        class={twClasses("", jsxTailwindStyles, "textarea")}
+                        class="focus-visible:outline-offset-0.5 focus-visible:outline-3 focus-visible:outline-[color-mix(in_srgb,_var(--accent)_42%,_transparent)] disabled:opacity-0.65 focus:outline-offset-px focus:outline-2 focus:outline-accent bg-surface-subtle rounded-[5px] border border-line-strong text-ink text-xs leading-[1.55] min-h-[57px] py-[9px] px-2.5 resize-y w-full"
                     />
                     <div
-                        class={twClasses("command-console-command-meta", jsxTailwindStyles, "div")}
+                        class={cn(
+                            "command-console-command-meta",
+                            "text-faint flex text-xs gap-2.5 justify-between",
+                        )}
                     >
-                        <small
-                            id="command-console-help"
-                            class={twClasses("", jsxTailwindStyles, "small")}
-                        >
+                        <small id="command-console-help">
                             Enter runs the command · Shift+Enter adds a line · 64 KiB maximum
                         </small>
-                        <small class={twClasses("", jsxTailwindStyles, "small")}>
-                            {utf8Length(command()).toLocaleString()} / 65,536 bytes
-                        </small>
+                        <small>{utf8Length(command()).toLocaleString("en-US")} / 65,536 bytes</small>
                     </div>
-                    <div class={twClasses("command-console-secrets", jsxTailwindStyles, "div")}>
-                        <label class={twClasses("", jsxTailwindStyles, "label")}>
-                            <span class={twClasses("", jsxTailwindStyles, "span")}>
+                    <div
+                        class={cn(
+                            "command-console-secrets",
+                            "max-[560px]:grid-cols-1 grid gap-2.5 grid-cols-[repeat(2, minmax(0, 1fr))] mt-[5px]",
+                        )}
+                    >
+                        <label class="text-ink-soft text-xs font-[650] grid gap-[5px] min-w-0">
+                            <span class="text-ink-soft text-xs font-[650]">
                                 Current archive passphrase
                             </span>
                             <input
@@ -372,11 +405,11 @@ export function CommandConsole(props: CommandConsoleProps): JSX.Element {
                                 value={passphrase()}
                                 disabled={running()}
                                 onInput={(event) => setPassphrase(event.currentTarget.value)}
-                                class={twClasses("", jsxTailwindStyles, "input")}
+                                class="focus-visible:outline-offset-0.5 focus-visible:outline-3 focus-visible:outline-[color-mix(in_srgb,_var(--accent)_42%,_transparent)] disabled:opacity-0.65 focus:outline-offset-px focus:outline-2 focus:outline-accent bg-surface-subtle rounded-[5px] border border-line-strong text-ink text-xs min-h-[33px] py-1.5 px-2 w-full"
                             />
                         </label>
-                        <label class={twClasses("", jsxTailwindStyles, "label")}>
-                            <span class={twClasses("", jsxTailwindStyles, "span")}>
+                        <label class="text-ink-soft text-xs font-[650] grid gap-[5px] min-w-0">
+                            <span class="text-ink-soft text-xs font-[650]">
                                 New archive passphrase
                             </span>
                             <input
@@ -385,28 +418,40 @@ export function CommandConsole(props: CommandConsoleProps): JSX.Element {
                                 value={newPassphrase()}
                                 disabled={running()}
                                 onInput={(event) => setNewPassphrase(event.currentTarget.value)}
-                                class={twClasses("", jsxTailwindStyles, "input")}
+                                class="focus-visible:outline-offset-0.5 focus-visible:outline-3 focus-visible:outline-[color-mix(in_srgb,_var(--accent)_42%,_transparent)] disabled:opacity-0.65 focus:outline-offset-px focus:outline-2 focus:outline-accent bg-surface-subtle rounded-[5px] border border-line-strong text-ink text-xs min-h-[33px] py-1.5 px-2 w-full"
                             />
                         </label>
                     </div>
-                    <p class={twClasses("command-console-passphrase-note", jsxTailwindStyles, "p")}>
+                    <p
+                        class={cn(
+                            "command-console-passphrase-note",
+                            "text-faint text-xs leading-[1.5] m-0",
+                        )}
+                    >
                         Passphrases stay in memory, are available only to this command, and are
                         cleared when it ends. Keep them out of command text.
                     </p>
                     <Show when={error()}>
                         <p
-                            class={twClasses("command-console-error", jsxTailwindStyles, "p")}
+                            class={cn(
+                                "command-console-error",
+                                "text-danger text-xs leading-[1.5] mt-0.5 mr-0 mb-0 ml-0",
+                            )}
                             role="alert"
                         >
                             {error()}
                         </p>
                     </Show>
-                    <div class={twClasses("command-console-actions", jsxTailwindStyles, "div")}>
+                    <div
+                        class={cn(
+                            "command-console-actions",
+                            "max-[560px]:flex-wrap max-[560px]:justify-start items-center flex gap-[7px] justify-end mt-[3px] min-h-9",
+                        )}
+                    >
                         <span
-                            class={twClasses(
+                            class={cn(
                                 "command-console-run-status",
-                                jsxTailwindStyles,
-                                "span",
+                                "max-[560px]:basis-[100%] text-muted flex-1 text-xs",
                             )}
                             role="status"
                         >
@@ -420,7 +465,7 @@ export function CommandConsole(props: CommandConsoleProps): JSX.Element {
                             </Show>
                         </span>
                         <button
-                            class={twClasses("button button-outline", jsxTailwindStyles, "button")}
+                            class={cn("button button-outline", buttonOutline)}
                             type="button"
                             disabled={running() || outputBytes() === 0}
                             onClick={() => {
@@ -435,11 +480,7 @@ export function CommandConsole(props: CommandConsoleProps): JSX.Element {
                             when={running()}
                             fallback={
                                 <button
-                                    class={twClasses(
-                                        "button button-primary",
-                                        jsxTailwindStyles,
-                                        "button",
-                                    )}
+                                    class={cn("button button-primary", buttonPrimary)}
                                     type="submit"
                                     disabled={
                                         !available() ||
@@ -454,11 +495,7 @@ export function CommandConsole(props: CommandConsoleProps): JSX.Element {
                             }
                         >
                             <button
-                                class={twClasses(
-                                    "button button-danger",
-                                    jsxTailwindStyles,
-                                    "button",
-                                )}
+                                class={cn("button button-danger", buttonDanger)}
                                 type="button"
                                 onClick={() => void cancelRun()}
                             >
@@ -468,27 +505,26 @@ export function CommandConsole(props: CommandConsoleProps): JSX.Element {
                     </div>
                 </form>
                 <section
-                    class={twClasses(
+                    class={cn(
                         "command-console-output-section",
-                        jsxTailwindStyles,
-                        "section",
+                        "border-t border-t-line-soft mt-[15px]",
                     )}
                     aria-label="Command output"
                 >
                     <div
-                        class={twClasses(
+                        class={cn(
                             "command-console-output-heading",
-                            jsxTailwindStyles,
-                            "div",
+                            "items-center flex justify-between pt-2.5 pr-0 pb-[7px] pl-0",
                         )}
                     >
-                        <h3 class={twClasses("", jsxTailwindStyles, "h3")}>Output</h3>
-                        <small class={twClasses("", jsxTailwindStyles, "small")}>
-                            Up to 256 KiB retained
-                        </small>
+                        <h3 class="text-ink-soft text-xs font-[650] m-0">Output</h3>
+                        <small class="text-faint text-xs">Up to 256 KiB retained</small>
                     </div>
                     <output
-                        class={twClasses("command-console-output", jsxTailwindStyles, "output")}
+                        class={cn(
+                            "command-console-output",
+                            "bg-surface-inset rounded-[5px] border border-line-soft text-ink-soft block text-xs leading-[1.65] max-h-[240px] min-h-[128px] wrap-anywhere overflow-auto p-2.5 whitespace-pre-wrap",
+                        )}
                         ref={(element) => {
                             outputElement = element;
                         }}
@@ -498,13 +534,7 @@ export function CommandConsole(props: CommandConsoleProps): JSX.Element {
                         <Show
                             when={output().length > 0}
                             fallback={
-                                <span
-                                    class={twClasses(
-                                        "command-console-output-empty",
-                                        jsxTailwindStyles,
-                                        "span",
-                                    )}
-                                >
+                                <span class={cn("command-console-output-empty", "text-faint")}>
                                     Command output will appear here.
                                 </span>
                             }
@@ -512,10 +542,9 @@ export function CommandConsole(props: CommandConsoleProps): JSX.Element {
                             <For each={output()}>
                                 {(line) => (
                                     <span
-                                        class={twClasses(
+                                        class={cn(
                                             `command-console-output-line is-${line.tone}`,
-                                            jsxTailwindStyles,
-                                            "span",
+                                            "block whitespace-pre-wrap",
                                         )}
                                     >
                                         {line.text}
