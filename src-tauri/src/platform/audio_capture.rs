@@ -214,18 +214,24 @@ pub fn finish_audio_capture(
 ) -> Result<CaptureFinished, String> {
     main_window(&window)?;
     let id = parse_capture_id(&capture_id)?;
-    let capture = state
+    let mut captures = state
         .0
         .lock()
-        .map_err(|_| "Microphone capture state is unavailable.".to_owned())?
+        .map_err(|_| "Microphone capture state is unavailable.".to_owned())?;
+    {
+        let capture = captures
+            .get(&id)
+            .ok_or_else(|| "The microphone capture session has ended.".to_owned())?;
+        if capture.accepted_bytes == 0 {
+            return Err("The microphone did not provide any audio.".into());
+        }
+        if capture.accepted_bytes % 2 != 0 || capture.sample_rate_hz == 0 {
+            return Err("The microphone ended with incomplete PCM sample data.".into());
+        }
+    }
+    let capture = captures
         .remove(&id)
         .ok_or_else(|| "The microphone capture session has ended.".to_owned())?;
-    if capture.accepted_bytes == 0 {
-        return Err("The microphone did not provide any audio.".into());
-    }
-    if capture.accepted_bytes % 2 != 0 || capture.sample_rate_hz == 0 {
-        return Err("The microphone ended with incomplete PCM sample data.".into());
-    }
     Ok(CaptureFinished::from(&capture))
 }
 
