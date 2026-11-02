@@ -1,6 +1,10 @@
 import { spawnSync } from "node:child_process";
+import { createRequire } from "node:module";
+import { dirname, join } from "node:path";
 
-const tauriArgs = ["exec", "tauri", "build"];
+const require = createRequire(import.meta.url);
+const tauriCli = join(dirname(require.resolve("@tauri-apps/cli/package.json")), "tauri.js");
+const tauriArgs = [tauriCli, "build"];
 const thumbprint = process.env["WINDOWS_CERTIFICATE_THUMBPRINT"];
 if (process.platform === "win32" && thumbprint) {
     tauriArgs.push(
@@ -23,5 +27,5 @@ function run(command, args) {
     if (result.status !== 0) process.exit(result.status ?? 1);
 }
 
-run(process.platform === "win32" ? "pnpm.cmd" : "pnpm", tauriArgs);
+run(process.execPath, tauriArgs);
 run(process.execPath, ["scripts/collect-release.mjs"]);
