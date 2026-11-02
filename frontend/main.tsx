@@ -5285,22 +5285,29 @@ function Overview(props: {
                         </div>
                         <div
                             class="segmented-control bg-surface-subtle rounded-[5px] border border-line-soft flex gap-0.5 p-1"
+                            role="group"
                             aria-label="Activity time range"
                         >
                             <button
                                 class={cn(
-                                    filter() === "week" ? "selected" : "",
-                                    "text-faint font-sans focus-visible:outline-offset-[2px] focus-visible:outline focus-visible:outline-3 focus-visible:outline-accent/40 bg-transparent rounded-[5px] border-0 cursor-pointer text-xs font-semibold min-h-6 py-0 px-2",
+                                    "text-faint font-sans focus-visible:outline-offset-[2px] focus-visible:outline focus-visible:outline-3 focus-visible:outline-accent/40 rounded-[5px] border-0 cursor-pointer text-xs font-semibold min-h-6 py-0 px-2",
+                                    filter() === "week"
+                                        ? "bg-surface text-ink shadow-sm"
+                                        : "bg-transparent hover:text-ink",
                                 )}
+                                aria-pressed={filter() === "week"}
                                 onClick={() => setFilter("week")}
                             >
                                 7 days
                             </button>
                             <button
                                 class={cn(
-                                    filter() === "month" ? "selected" : "",
-                                    "text-faint font-sans focus-visible:outline-offset-[2px] focus-visible:outline focus-visible:outline-3 focus-visible:outline-accent/40 bg-transparent rounded-[5px] border-0 cursor-pointer text-xs font-semibold min-h-6 py-0 px-2",
+                                    "text-faint font-sans focus-visible:outline-offset-[2px] focus-visible:outline focus-visible:outline-3 focus-visible:outline-accent/40 rounded-[5px] border-0 cursor-pointer text-xs font-semibold min-h-6 py-0 px-2",
+                                    filter() === "month"
+                                        ? "bg-surface text-ink shadow-sm"
+                                        : "bg-transparent hover:text-ink",
                                 )}
+                                aria-pressed={filter() === "month"}
                                 onClick={() => setFilter("month")}
                             >
                                 4 weeks
@@ -5315,8 +5322,8 @@ function Overview(props: {
                     </div>
                     <div
                         class={cn(
-                            `activity-chart ${filter() === "month" ? "is-month" : ""}`,
-                            "grid gap-3 grid-cols-7 h-30 pt-2 relative max-sm:gap-1.5",
+                            "activity-chart grid h-30 gap-3 pt-2 relative max-sm:gap-1.5",
+                            filter() === "month" ? "grid-cols-4" : "grid-cols-7",
                         )}
                         role="img"
                         aria-label={`${activity().reduce((sum, value) => sum + value.count, 0)} sessions over the last ${filter() === "week" ? "seven days" : "four weeks"}`}
