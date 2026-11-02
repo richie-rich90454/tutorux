@@ -34,12 +34,12 @@ test("each workspace exposes its enabled primary actions", async ({ page }) => {
 
     for (const [workspace, actions] of Object.entries(expectedPrimaryActions)) {
         await navigateToSidebarView(page, workspace);
-        await page.locator("#main-content .page-body").first().waitFor({ state: "visible" });
+        await expect
+            .poll(async () => (await collectActionInventory(page)).all, {
+                message: `${workspace} exposes its enabled primary actions`,
+            })
+            .toEqual(expect.arrayContaining(actions));
         const inventory = await collectActionInventory(page);
-
         expect(inventory.all.length, `${workspace} exposes enabled controls`).toBeGreaterThan(0);
-        for (const action of actions) {
-            expect(inventory.all, `${workspace} primary action: ${action}`).toContain(action);
-        }
     }
 });
