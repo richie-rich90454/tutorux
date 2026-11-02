@@ -1,5 +1,3 @@
-import { twClasses } from "./tailwind";
-import { jsxTailwindStyles } from "./DiagnosticsReport.tailwind";
 import { Show, createSignal, type JSX } from "solid-js";
 import {
     verifyArchiveHistory,
@@ -7,6 +5,13 @@ import {
     type ArchiveSnapshot,
 } from "./archive/archive";
 import { ArchiveFormatError } from "./archive/format";
+import {
+    buttonOutline,
+    card,
+    cn,
+    errorText,
+    mutedText,
+} from "./ui";
 import { platform } from "@platform";
 import type { DesktopDiagnostics, DiagnosticMetric, EndpointAvailability } from "./platform/types";
 
@@ -34,6 +39,18 @@ interface DiagnosticsSummary {
     systemAudioProbes: string;
     applicationAudioProbes: string;
 }
+
+const settingsSection = cn(card, "settings-section my-3 overflow-hidden");
+const sectionHeading = "settings-section-heading border-b border-line-soft px-4 pb-2.5 pt-3.5";
+const actionRow = "diagnostics-report-actions flex flex-wrap items-center gap-2.5";
+const checkboxLabel =
+    "flex cursor-pointer items-start gap-2 text-xs leading-relaxed text-ink-soft";
+const checkbox =
+    "mt-0.5 size-4 shrink-0 accent-[var(--accent)] disabled:cursor-not-allowed disabled:opacity-50";
+const summaryRow =
+    "min-w-0 grid gap-1 rounded-[5px] border border-line-soft bg-surface-subtle px-3 py-2.5";
+const summaryTerm = "text-xs text-muted";
+const summaryValue = "min-w-0 break-words text-xs text-ink-soft tabular-nums";
 
 function formatBytes(value: number): string {
     const units = ["B", "KiB", "MiB", "GiB", "TiB"];
@@ -277,19 +294,19 @@ export function DiagnosticsReport(props: DiagnosticsReportProps): JSX.Element {
 
     return (
         <section
-            class={twClasses("settings-section diagnostics-report", jsxTailwindStyles, "section")}
+            class={cn("diagnostics-report", settingsSection)}
             aria-labelledby="diagnostics-report-title"
         >
-            <div class={twClasses("settings-section-heading", jsxTailwindStyles, "div")}>
-                <h2 id="diagnostics-report-title" class={twClasses("", jsxTailwindStyles, "h2")}>
+            <div class={sectionHeading}>
+                <h2 id="diagnostics-report-title" class="text-xs font-semibold text-ink-soft">
                     Diagnostics and support reports
                 </h2>
-                <p class={twClasses("", jsxTailwindStyles, "p")}>
+                <p class={cn(mutedText, "mt-1")}>
                     Run local integrity checks or save a redacted report for support.
                 </p>
             </div>
-            <div class={twClasses("diagnostics-report-body", jsxTailwindStyles, "div")}>
-                <p class={twClasses("diagnostics-report-privacy", jsxTailwindStyles, "p")}>
+            <div class="diagnostics-report-body grid gap-3 px-4 pb-4 pt-3">
+                <p class={cn("diagnostics-report-privacy", mutedText, "max-w-[760px]")}>
                     The report includes the archive ID, format, generation, verification counts, and
                     app runtime and user-agent details. Native desktop diagnostics add process
                     uptime, CPU time, resident and available memory, and microphone, system-audio,
@@ -302,20 +319,18 @@ export function DiagnosticsReport(props: DiagnosticsReportProps): JSX.Element {
                     report omits file paths, credentials, transcripts, recordings, and record
                     contents.
                 </p>
-                <label class={twClasses("diagnostics-report-history", jsxTailwindStyles, "label")}>
+                <label class={cn("diagnostics-report-history", checkboxLabel)}>
                     <input
                         type="checkbox"
                         checked={includeHistory()}
                         disabled={unavailable()}
                         onChange={(event) => setIncludeHistory(event.currentTarget.checked)}
-                        class={twClasses("", jsxTailwindStyles, "input")}
+                        class={checkbox}
                     />
                     Verify historical revisions and include full history counts
                 </label>
                 <Show when={platform.kind === "desktop"}>
-                    <label
-                        class={twClasses("diagnostics-report-history", jsxTailwindStyles, "label")}
-                    >
+                    <label class={cn("diagnostics-report-history", checkboxLabel)}>
                         <input
                             type="checkbox"
                             checked={probeAudioEndpoints()}
@@ -323,16 +338,16 @@ export function DiagnosticsReport(props: DiagnosticsReportProps): JSX.Element {
                             onChange={(event) =>
                                 setProbeAudioEndpoints(event.currentTarget.checked)
                             }
-                            class={twClasses("", jsxTailwindStyles, "input")}
+                            class={checkbox}
                         />
                         Open supported microphone, system-audio, and per-application endpoints
                         briefly to check capture access; endpoint names are omitted, callback audio
                         is discarded, and nothing is saved
                     </label>
                 </Show>
-                <div class={twClasses("diagnostics-report-actions", jsxTailwindStyles, "div")}>
+                <div class={actionRow}>
                     <button
-                        class={twClasses("button button-outline", jsxTailwindStyles, "button")}
+                        class={cn("button", buttonOutline)}
                         type="button"
                         disabled={unavailable()}
                         onClick={() => void runDiagnostics()}
@@ -340,7 +355,7 @@ export function DiagnosticsReport(props: DiagnosticsReportProps): JSX.Element {
                         {working() ? "Checking archive…" : "Run diagnostics"}
                     </button>
                     <button
-                        class={twClasses("button button-outline", jsxTailwindStyles, "button")}
+                        class={cn("button", buttonOutline)}
                         type="button"
                         disabled={unavailable()}
                         onClick={() => void exportReport()}
@@ -348,7 +363,7 @@ export function DiagnosticsReport(props: DiagnosticsReportProps): JSX.Element {
                         {working() ? "Preparing report…" : "Export report"}
                     </button>
                     <Show when={working()}>
-                        <span role="status" class={twClasses("", jsxTailwindStyles, "span")}>
+                        <span role="status" class={mutedText}>
                             {probeAudioEndpoints()
                                 ? "Verifying the archive and checking approved audio endpoints…"
                                 : "Reading and verifying archive records…"}
@@ -356,60 +371,44 @@ export function DiagnosticsReport(props: DiagnosticsReportProps): JSX.Element {
                     </Show>
                 </div>
                 <Show when={error()}>
-                    <p
-                        class={twClasses("diagnostics-report-error", jsxTailwindStyles, "p")}
-                        role="alert"
-                    >
+                    <p class={cn("diagnostics-report-error", errorText)} role="alert">
                         {error()}
                     </p>
                 </Show>
                 <Show when={status()}>
-                    <p
-                        class={twClasses("diagnostics-report-status", jsxTailwindStyles, "p")}
-                        role="status"
-                    >
+                    <p class={cn("diagnostics-report-status", mutedText)} role="status">
                         {status()}
                     </p>
                 </Show>
                 <Show when={summary()}>
                     {(result) => (
                         <dl
-                            class={twClasses("diagnostics-report-summary", jsxTailwindStyles, "dl")}
+                            class="diagnostics-report-summary grid grid-cols-[repeat(auto-fit,minmax(min(100%,220px),1fr))] gap-2"
                             aria-label="Diagnostic results"
                         >
-                            <div class={twClasses("", jsxTailwindStyles, "div")}>
-                                <dt class={twClasses("", jsxTailwindStyles, "dt")}>
-                                    Archive integrity
-                                </dt>
-                                <dd class={twClasses("", jsxTailwindStyles, "dd")}>
+                            <div class={summaryRow}>
+                                <dt class={summaryTerm}>Archive integrity</dt>
+                                <dd class={summaryValue}>
                                     {result().archiveValid ? "Valid" : "Issue found"}
                                 </dd>
                             </div>
-                            <div class={twClasses("", jsxTailwindStyles, "div")}>
-                                <dt class={twClasses("", jsxTailwindStyles, "dt")}>Generation</dt>
-                                <dd class={twClasses("", jsxTailwindStyles, "dd")}>
-                                    {result().generation}
-                                </dd>
+                            <div class={summaryRow}>
+                                <dt class={summaryTerm}>Generation</dt>
+                                <dd class={summaryValue}>{result().generation}</dd>
                             </div>
-                            <div class={twClasses("", jsxTailwindStyles, "div")}>
-                                <dt class={twClasses("", jsxTailwindStyles, "dt")}>
-                                    Records checked
-                                </dt>
-                                <dd class={twClasses("", jsxTailwindStyles, "dd")}>
-                                    {result().recordsChecked}
-                                </dd>
+                            <div class={summaryRow}>
+                                <dt class={summaryTerm}>Records checked</dt>
+                                <dd class={summaryValue}>{result().recordsChecked}</dd>
                             </div>
-                            <div class={twClasses("", jsxTailwindStyles, "div")}>
-                                <dt class={twClasses("", jsxTailwindStyles, "dt")}>
-                                    Live / in Trash
-                                </dt>
-                                <dd class={twClasses("", jsxTailwindStyles, "dd")}>
+                            <div class={summaryRow}>
+                                <dt class={summaryTerm}>Live / in Trash</dt>
+                                <dd class={summaryValue}>
                                     {result().liveRecords} / {result().deletedRecords}
                                 </dd>
                             </div>
-                            <div class={twClasses("", jsxTailwindStyles, "div")}>
-                                <dt class={twClasses("", jsxTailwindStyles, "dt")}>Runtime</dt>
-                                <dd class={twClasses("", jsxTailwindStyles, "dd")}>
+                            <div class={summaryRow}>
+                                <dt class={summaryTerm}>Runtime</dt>
+                                <dd class={summaryValue}>
                                     {result().os}
                                     {result().architecture ? ` · ${result().architecture}` : ""}
                                     {result().availableThreads === null
@@ -417,68 +416,42 @@ export function DiagnosticsReport(props: DiagnosticsReportProps): JSX.Element {
                                         : ` · ${result().availableThreads} threads`}
                                 </dd>
                             </div>
-                            <div class={twClasses("", jsxTailwindStyles, "div")}>
-                                <dt class={twClasses("", jsxTailwindStyles, "dt")}>
-                                    Process uptime / CPU time
-                                </dt>
-                                <dd class={twClasses("", jsxTailwindStyles, "dd")}>
+                            <div class={summaryRow}>
+                                <dt class={summaryTerm}>Process uptime / CPU time</dt>
+                                <dd class={summaryValue}>
                                     {result().processUptime} · {result().processCpuTime}
                                 </dd>
                             </div>
-                            <div class={twClasses("", jsxTailwindStyles, "div")}>
-                                <dt class={twClasses("", jsxTailwindStyles, "dt")}>
-                                    Resident / peak memory
-                                </dt>
-                                <dd class={twClasses("", jsxTailwindStyles, "dd")}>
+                            <div class={summaryRow}>
+                                <dt class={summaryTerm}>Resident / peak memory</dt>
+                                <dd class={summaryValue}>
                                     {result().residentMemory} · {result().peakResidentMemory}
                                 </dd>
                             </div>
-                            <div class={twClasses("", jsxTailwindStyles, "div")}>
-                                <dt class={twClasses("", jsxTailwindStyles, "dt")}>
-                                    Available system memory
-                                </dt>
-                                <dd class={twClasses("", jsxTailwindStyles, "dd")}>
-                                    {result().availableMemory}
-                                </dd>
+                            <div class={summaryRow}>
+                                <dt class={summaryTerm}>Available system memory</dt>
+                                <dd class={summaryValue}>{result().availableMemory}</dd>
                             </div>
-                            <div class={twClasses("", jsxTailwindStyles, "div")}>
-                                <dt class={twClasses("", jsxTailwindStyles, "dt")}>
-                                    Microphone endpoint probes
-                                </dt>
-                                <dd class={twClasses("", jsxTailwindStyles, "dd")}>
-                                    {result().microphoneProbes}
-                                </dd>
+                            <div class={summaryRow}>
+                                <dt class={summaryTerm}>Microphone endpoint probes</dt>
+                                <dd class={summaryValue}>{result().microphoneProbes}</dd>
                             </div>
-                            <div class={twClasses("", jsxTailwindStyles, "div")}>
-                                <dt class={twClasses("", jsxTailwindStyles, "dt")}>
-                                    System-audio endpoint probes
-                                </dt>
-                                <dd class={twClasses("", jsxTailwindStyles, "dd")}>
-                                    {result().systemAudioProbes}
-                                </dd>
+                            <div class={summaryRow}>
+                                <dt class={summaryTerm}>System-audio endpoint probes</dt>
+                                <dd class={summaryValue}>{result().systemAudioProbes}</dd>
                             </div>
-                            <div class={twClasses("", jsxTailwindStyles, "div")}>
-                                <dt class={twClasses("", jsxTailwindStyles, "dt")}>
-                                    Per-application audio endpoint probes
-                                </dt>
-                                <dd class={twClasses("", jsxTailwindStyles, "dd")}>
-                                    {result().applicationAudioProbes}
-                                </dd>
+                            <div class={summaryRow}>
+                                <dt class={summaryTerm}>Per-application audio endpoint probes</dt>
+                                <dd class={summaryValue}>{result().applicationAudioProbes}</dd>
                             </div>
-                            <div class={twClasses("", jsxTailwindStyles, "div")}>
-                                <dt class={twClasses("", jsxTailwindStyles, "dt")}>Network</dt>
-                                <dd class={twClasses("", jsxTailwindStyles, "dd")}>Not checked</dd>
+                            <div class={summaryRow}>
+                                <dt class={summaryTerm}>Network</dt>
+                                <dd class={summaryValue}>Not checked</dd>
                             </div>
                             <Show when={result().issues}>
-                                <div
-                                    class={twClasses(
-                                        "diagnostics-report-issues",
-                                        jsxTailwindStyles,
-                                        "div",
-                                    )}
-                                >
-                                    <dt class={twClasses("", jsxTailwindStyles, "dt")}>Issues</dt>
-                                    <dd class={twClasses("", jsxTailwindStyles, "dd")}>
+                                <div class={cn("diagnostics-report-issues", summaryRow)}>
+                                    <dt class={summaryTerm}>Issues</dt>
+                                    <dd class={cn(summaryValue, "whitespace-pre-wrap")}>
                                         {result().issues}
                                     </dd>
                                 </div>
@@ -487,7 +460,7 @@ export function DiagnosticsReport(props: DiagnosticsReportProps): JSX.Element {
                     )}
                 </Show>
                 <Show when={props.snapshot.locked}>
-                    <p class={twClasses("diagnostics-report-muted", jsxTailwindStyles, "p")}>
+                    <p class={cn("diagnostics-report-muted", mutedText)}>
                         Unlock this archive to verify and export a report.
                     </p>
                 </Show>
