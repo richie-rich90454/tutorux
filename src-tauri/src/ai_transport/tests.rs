@@ -104,7 +104,7 @@ fn loopback_validation_accepts_only_literal_or_localhost_addresses() {
 fn provider_routes_bind_streaming_and_transport_to_expected_protocols() {
     let openai = request(
         "openai",
-        "https://api.example/v1/chat/completions",
+        "https://api.openai.com/v1/chat/completions",
         "gpt-x",
         "text/event-stream",
     );
@@ -140,7 +140,7 @@ fn provider_routes_bind_streaming_and_transport_to_expected_protocols() {
 fn keychain_requests_reference_a_provider_without_sending_a_secret_over_ipc() {
     let mut keychain = request(
         "openai",
-        "https://api.example/v1/chat/completions",
+        "https://api.openai.com/v1/chat/completions",
         "gpt-x",
         "text/event-stream",
     );
