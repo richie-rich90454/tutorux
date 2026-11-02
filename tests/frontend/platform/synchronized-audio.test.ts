@@ -275,7 +275,10 @@ describe("synchronized audio capture bridge", () => {
     });
 
     it("starts capture and maps native source failures to the selected track", async () => {
-        const startedCapture = started({ systemAudioSampleRateHz: 16_000 });
+        const startedCapture = started({
+            systemAudioSampleRateHz: 16_000,
+            systemAudioSampleFormat: "pcm_s16le",
+        });
         invokeHandler = async (command) => {
             switch (command) {
                 case "begin_synchronized_audio_capture":
