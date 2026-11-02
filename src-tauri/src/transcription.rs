@@ -21,19 +21,27 @@ pub const EMBEDDED_WHISPER_MODEL_NAME: &str = "Whisper Base multilingual (Q5_1)"
 pub static EMBEDDED_WHISPER_MODEL: &[u8] =
     include_bytes!("../../resources/whisper/ggml-base-q5_1.bin");
 static RUNS: OnceLock<Mutex<HashMap<Uuid, Arc<AtomicBool>>>> = OnceLock::new();
-static EMBEDDED_CONTEXT: OnceLock<Result<WhisperContext, String>> = OnceLock::new();
+static EMBEDDED_CONTEXT: OnceLock<WhisperContext> = OnceLock::new();
+static EMBEDDED_CONTEXT_INIT: Mutex<()> = Mutex::new(());
 
 pub fn embedded_whisper_context() -> Result<&'static WhisperContext, String> {
-    match EMBEDDED_CONTEXT.get_or_init(|| {
-        WhisperContext::new_from_buffer_with_params(
-            EMBEDDED_WHISPER_MODEL,
-            WhisperContextParameters::default(),
-        )
-        .map_err(|error| format!("The bundled Whisper model could not be loaded: {error:?}"))
-    }) {
-        Ok(context) => Ok(context),
-        Err(error) => Err(error.clone()),
+    if let Some(context) = EMBEDDED_CONTEXT.get() {
+        return Ok(context);
     }
+    // Only a successful load is cached. A failed or abandoned (timed-out) load must not pin an
+    // error or a partially initialized model into the process for every later attempt.
+    let _guard = EMBEDDED_CONTEXT_INIT
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    if let Some(context) = EMBEDDED_CONTEXT.get() {
+        return Ok(context);
+    }
+    let context = WhisperContext::new_from_buffer_with_params(
+        EMBEDDED_WHISPER_MODEL,
+        WhisperContextParameters::default(),
+    )
+    .map_err(|error| format!("The bundled Whisper model could not be loaded: {error:?}"))?;
+    Ok(EMBEDDED_CONTEXT.get_or_init(|| context))
 }
 
 fn runs() -> &'static Mutex<HashMap<Uuid, Arc<AtomicBool>>> {
@@ -97,39 +105,35 @@ pub struct WhisperOutput {
 
 struct TemporaryFiles {
     audio: PathBuf,
-    transcript_json: PathBuf,
+    _directory: tempfile::TempDir,
 }
 
-impl Drop for TemporaryFiles {
-    fn drop(&mut self) {
-        let _ = fs::remove_file(&self.audio);
-        let _ = fs::remove_file(&self.transcript_json);
+impl TemporaryFiles {
+    fn audio_path(&self) -> &Path {
+        &self.audio
     }
 }
 
 fn create_temporary_transcription_files() -> Result<(TemporaryFiles, File, PathBuf), String> {
-    let root = std::env::temp_dir();
-    for _ in 0..8 {
-        let id = Uuid::new_v4();
-        let audio = root.join(format!("tutorux-whisper-{id}.wav"));
-        let output = root.join(format!("tutorux-whisper-{id}"));
-        let transcript_json = output.with_extension("json");
-        match OpenOptions::new().write(true).create_new(true).open(&audio) {
-            Ok(file) => {
-                return Ok((
-                    TemporaryFiles {
-                        audio,
-                        transcript_json,
-                    },
-                    file,
-                    output,
-                ));
-            }
-            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
-            Err(_) => return Err("Could not create temporary transcription files.".to_owned()),
-        }
-    }
-    Err("Could not create unique temporary transcription files.".to_owned())
+    let directory = tempfile::Builder::new()
+        .prefix("tutorux-whisper-")
+        .tempdir_in(std::env::temp_dir())
+        .map_err(|_| "Could not create a private transcription directory.".to_owned())?;
+    let audio = directory.path().join("audio.wav");
+    let output = directory.path().join("transcript");
+    let file = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&audio)
+        .map_err(|_| "Could not create temporary transcription files.".to_owned())?;
+    Ok((
+        TemporaryFiles {
+            audio,
+            _directory: directory,
+        },
+        file,
+        output,
+    ))
 }
 
 fn regular_file(path: &str, label: &str) -> Result<PathBuf, String> {
@@ -184,7 +188,7 @@ fn transcribe(
         .arg("-m")
         .arg(model)
         .arg("-f")
-        .arg(&temporary_files.audio)
+        .arg(temporary_files.audio_path())
         .arg("-l")
         .arg(language)
         .arg("-oj")
