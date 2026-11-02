@@ -23,7 +23,17 @@ impl Cancellation for SignalCancellation {
 }
 
 fn main() {
-    let arguments: Vec<String> = std::env::args().skip(1).collect();
+    let arguments: Vec<String> = match std::env::args_os()
+        .skip(1)
+        .map(|argument| argument.into_string())
+        .collect::<Result<Vec<_>, _>>()
+    {
+        Ok(arguments) => arguments,
+        Err(_) => {
+            eprintln!("tutorux: arguments must be valid UTF-8");
+            std::process::exit(2);
+        }
+    };
     let mut output = StdioOutput;
     let code = execute_cli(&arguments, &mut output, &SignalCancellation);
     std::process::exit(code);
