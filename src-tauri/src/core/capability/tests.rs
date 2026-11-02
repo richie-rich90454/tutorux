@@ -89,15 +89,45 @@ fn required_legacy_aliases_are_registered() {
 
 #[test]
 fn every_capability_declares_ports_and_an_integration_test() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .expect("repository root");
     for capability in CAPABILITIES {
         assert!(
             !capability.ports.is_empty(),
             "{} has no ports",
             capability.id
         );
+        let reference = capability.integration_test;
+        let (file, title) = match reference.split_once('#') {
+            Some((file, anchor)) => (file, anchor),
+            None => {
+                let (file, suite_and_title) = reference.split_once("::").unwrap_or_else(|| {
+                    panic!(
+                        "{} has an unreadable integration test reference: {reference:?}",
+                        capability.id
+                    )
+                });
+                let title = suite_and_title.rsplit("::").next().unwrap_or_default();
+                assert!(
+                    !file.is_empty() && !title.is_empty(),
+                    "{} has an unreadable integration test reference: {reference:?}",
+                    capability.id
+                );
+                (file, title)
+            }
+        };
+        let path = root.join(file);
+        let contents = std::fs::read_to_string(&path).unwrap_or_else(|error| {
+            panic!(
+                "{} cites {file}, which cannot be read from {}: {error}",
+                capability.id,
+                path.display()
+            )
+        });
         assert!(
-            capability.integration_test.contains("::") || capability.integration_test.contains('#'),
-            "{} has no integration test",
+            contents.contains(title),
+            "{} cites {file}, which does not contain the test `{title}`",
             capability.id
         );
     }
