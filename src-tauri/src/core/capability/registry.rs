@@ -1,47 +1,50 @@
 use super::types::{Capability, Family, Port};
 
-const T_HELP: &str = "tests/cli/main.test.ts::CLI encrypted archive access::unlocks, verifies, reads, and appends an encrypted archive generation";
-const T_ARCHIVE_INIT: &str = "tests/frontend/cli.test.ts::TypeScript CLI::creates, updates, lists, and verifies a portable archive";
-const T_ARCHIVE_INFO: &str = "tests/frontend/cli.test.ts::TypeScript CLI::creates, updates, lists, and verifies a portable archive";
-const T_ARCHIVE_VERIFY: &str = "tests/cli/main.test.ts::CLI encrypted archive access::unlocks, verifies, reads, and appends an encrypted archive generation";
-const T_ARCHIVE_ENCRYPT: &str = "tests/cli/main.test.ts::CLI encrypted archive access::creates encrypted archives from a passphrase environment variable";
-const T_ARCHIVE_SANITIZE: &str = "tests/cli/main.test.ts::CLI sanitized archive copies::requires a reviewed sanitized-copy preview and publishes a private-data-filtered archive";
-const T_ARCHIVE_RECOVERY: &str = "tests/frontend/cli.test.ts::TypeScript CLI::previews and applies recovery for a complete unpublished generation";
-const T_ARCHIVE_COMPACT: &str = "tests/frontend/cli.test.ts::TypeScript CLI::previews archive compaction with --preview and applies with --apply";
+const T_HELP: &str = "tests/rust-parity/corpus/global.json#cli.help";
+const T_ARCHIVE_INIT: &str = "tests/rust-parity/corpus/archive.json#archive.lifecycle";
+const T_ARCHIVE_INFO: &str = "tests/rust-parity/corpus/legacy-archive.json#archive.info";
+const T_ARCHIVE_VERIFY: &str = "tests/rust-parity/corpus/legacy-archive.json#archive.verify";
+const T_ARCHIVE_ENCRYPT: &str =
+    "tests/rust-parity/corpus/archive-encryption.json#archive.encryption";
+const T_ARCHIVE_SANITIZE: &str =
+    "tests/rust-parity/corpus/archive-encryption.json#archive.encryption";
+const T_ARCHIVE_RECOVERY: &str = "tests/rust-parity/corpus/archive.json#archive.lifecycle";
+const T_ARCHIVE_COMPACT: &str = "tests/rust-parity/corpus/archive.json#archive.lifecycle";
 const T_ARCHIVE_PURGE_TRASH: &str = "src-tauri/src/core/cli/archive/tests_maintenance.rs::purge_trash_previews_without_writing_and_applies";
-const T_ARCHIVE_REPAIR: &str = "tests/frontend/cli.test.ts::TypeScript CLI::creates a verified repair copy without changing the damaged source";
+const T_ARCHIVE_REPAIR: &str = "tests/rust-parity/corpus/archive.json#archive.lifecycle";
 const T_ARCHIVE_BACKUP: &str = "tests/rust-parity/corpus.json#archive.backup.confirm-required";
-const T_ARCHIVE_DISCOVER: &str = "tests/frontend/archive/archive.test.ts::Tutorux archive snapshots::creates and reopens a committed v1 archive with its manifest";
-const T_STUDENT: &str = "tests/frontend/cli.test.ts::TypeScript CLI::shows student history and reviews source-backed progress";
+const T_ARCHIVE_DISCOVER: &str = "tests/rust-parity/corpus/archive.json#archive.discover";
+const T_STUDENT: &str = "tests/rust-parity/corpus/students.json#student.lifecycle";
 const T_STUDENT_LIFECYCLE: &str =
     "tests/frontend/domain/records.test.ts::student profile lifecycle";
-const T_SESSION: &str = "tests/frontend/cli.test.ts::TypeScript CLI::shows student history and reviews source-backed progress";
-const T_SESSION_PACKAGE: &str = "tests/cli/main.test.ts::CLI session package transfer::exports a private package, preserves no-overwrite behavior, and imports to a fresh session";
+const T_SESSION: &str = "tests/rust-parity/corpus/sessions.json#session.lifecycle";
+const T_SESSION_PACKAGE: &str = "tests/rust-parity/corpus/session-transfer.json#session.transfer";
 const T_SESSION_TRASH: &str = "tests/frontend/domain/session-trash.test.ts::session group restore";
-const T_JOURNAL: &str = "tests/cli/cli-parity.test.ts::CLI legacy parity::uses flat record JSON, default journal fields, and document block preservation";
-const T_JOURNAL_TRASH: &str = "tests/cli/cli-parity.test.ts::CLI legacy parity::trashes and restores the journal entry and its notes as one group";
-const T_JOURNAL_ORGANIZER: &str = "tests/frontend/cli.test.ts::TypeScript CLI::organizes journal entries with collections and tags from the CLI";
-const T_ANNOTATION: &str = "tests/frontend/cli.test.ts::TypeScript CLI::creates, edits, duplicates, lists, and removes session annotations";
-const T_ANNOTATION_SPLIT: &str = "tests/frontend/cli.test.ts::TypeScript CLI::splits and merges annotation ranges without losing their source records";
-const T_ANNOTATION_LINK: &str = "tests/frontend/cli.test.ts::TypeScript CLI::links annotations to session materials and evidence records";
-const T_ASSET: &str =
-    "tests/cli/cli-parity.test.ts::CLI legacy parity::refuses an existing asset export destination";
+const T_JOURNAL: &str = "tests/rust-parity/corpus/journal-entries.json#journal.entries";
+const T_JOURNAL_TRASH: &str = "tests/rust-parity/corpus/journal-trash.json#journal.trash";
+const T_JOURNAL_ORGANIZER: &str =
+    "tests/rust-parity/corpus/journal-organizer.json#journal.organizer";
+const T_ANNOTATION: &str = "tests/rust-parity/corpus/annotations.json#annotation.lifecycle";
+const T_ANNOTATION_SPLIT: &str = "tests/rust-parity/corpus/annotations.json#annotation.lifecycle";
+const T_ANNOTATION_LINK: &str = "tests/rust-parity/corpus/annotations.json#annotation.lifecycle";
+const T_ASSET: &str = "tests/rust-parity/corpus/assets.json#asset.lifecycle";
 const T_EVIDENCE: &str =
     "tests/frontend/domain/evidence.test.ts::evidence editing and recoverable relationships";
 const T_EVIDENCE_GRAPH: &str =
     "tests/frontend/domain/evidence-graph.test.ts::evidence graph layout";
 const T_GUIDE: &str = "tests/frontend/domain/guides.test.ts::guide parity behavior";
 const T_GUIDE_EXPORT: &str = "tests/frontend/domain/guide-export.test.ts::study guide exports";
-const T_TEMPLATE: &str = "tests/cli/commands/templates.test.ts::template CLI parity::imports plain guidance and applies built-in overrides";
+const T_TEMPLATE: &str = "tests/rust-parity/corpus/templates.json#template.lifecycle";
 const T_SETTINGS: &str = "tests/frontend/archive/archive.test.ts::Tutorux archive snapshots::reads settings fields beyond the metadata window used by sanitized copies";
-const T_AI: &str = "tests/cli/commands/ai-parity.test.ts::AI CLI parity::returns the legacy provider schema with the catalog as an additive field";
-const T_AI_GENERATE: &str = "tests/cli/commands/ai-parity.test.ts::AI CLI parity::inspects an embedded GGUF locally and never routes ai test to HTTP discovery";
-const T_MODEL: &str = "tests/cli/commands/ai-parity.test.ts::AI CLI parity::inspects an embedded GGUF locally and never routes ai test to HTTP discovery";
-const T_DIAGNOSTICS: &str = "tests/cli/diagnostics.test.ts::CLI audio diagnostics::reports inspected native endpoint configuration";
-const T_BENCHMARK: &str = "tests/cli/cli-parity.test.ts::CLI legacy parity::reports benchmark index scalars and audio export metadata as legacy strings";
-const T_RECORD: &str = "tests/cli/main.test.ts::CLI recording take management::lists, renames, trashes, and restores takes with their audio intact";
+const T_AI: &str = "tests/rust-parity/corpus/ai-model.json#ai.model.lifecycle";
+const T_AI_GENERATE: &str = "tests/rust-parity/corpus/ai-model.json#ai.model.lifecycle";
+const T_MODEL: &str = "tests/rust-parity/corpus/ai-model.json#ai.model.lifecycle";
+const T_DIAGNOSTICS: &str =
+    "tests/rust-parity/corpus/diagnostics-benchmark.json#diagnostics.lifecycle";
+const T_BENCHMARK: &str = "tests/rust-parity/corpus/diagnostics-benchmark.json#benchmark.lifecycle";
+const T_RECORD: &str = "tests/rust-parity/corpus/recordings.json#record.lifecycle";
 const T_AUDIO: &str = "tests/frontend/domain/audio.test.ts::archive audio playback";
-const T_TRANSCRIPT: &str = "tests/frontend/cli.test.ts::TypeScript CLI::imports, reviews, searches, and exports session transcript cues";
+const T_TRANSCRIPT: &str = "tests/rust-parity/corpus/transcripts.json#transcript.lifecycle";
 const T_TRANSCRIPT_RECORDS: &str =
     "tests/frontend/domain/transcript.test.ts::transcript archive records and export";
 const T_WHISPER: &str = "tests/frontend/domain/whisper.test.ts::Whisper transcript records";
