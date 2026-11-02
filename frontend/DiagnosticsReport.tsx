@@ -5,13 +5,7 @@ import {
     type ArchiveSnapshot,
 } from "./archive/archive";
 import { ArchiveFormatError } from "./archive/format";
-import {
-    buttonOutline,
-    card,
-    cn,
-    errorText,
-    mutedText,
-} from "./ui";
+import { buttonOutline, card, cn, errorText, mutedText } from "./ui";
 import { platform } from "@platform";
 import type { DesktopDiagnostics, DiagnosticMetric, EndpointAvailability } from "./platform/types";
 
@@ -43,8 +37,7 @@ interface DiagnosticsSummary {
 const settingsSection = cn(card, "settings-section my-3 overflow-hidden");
 const sectionHeading = "settings-section-heading border-b border-line-soft px-4 pb-2.5 pt-3.5";
 const actionRow = "diagnostics-report-actions flex flex-wrap items-center gap-2.5";
-const checkboxLabel =
-    "flex cursor-pointer items-start gap-2 text-xs leading-relaxed text-ink-soft";
+const checkboxLabel = "flex cursor-pointer items-start gap-2 text-xs leading-relaxed text-ink-soft";
 const checkbox =
     "mt-0.5 size-4 shrink-0 accent-[var(--accent)] disabled:cursor-not-allowed disabled:opacity-50";
 const summaryRow =
