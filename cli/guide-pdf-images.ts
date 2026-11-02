@@ -1,4 +1,3 @@
-import sharp from "sharp";
 import type { GuidePdfWebpDecoder } from "../frontend/domain/guide-pdf";
 
 const MAX_IMAGE_PIXELS = 16_000_000;
@@ -20,6 +19,9 @@ export const decodeGuideWebp: GuidePdfWebpDecoder = async (bytes) => {
         throw new Error("The WebP guide image header is invalid.");
     }
 
+    const { default: sharp } = await import("sharp").catch((error: unknown) => {
+        throw new Error("The image decoder is unavailable in this build.", { cause: error });
+    });
     const input = Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength);
     const options = {
         animated: false,
