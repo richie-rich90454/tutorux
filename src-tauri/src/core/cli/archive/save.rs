@@ -93,9 +93,10 @@ pub(crate) fn replace_existing(path: &Path, expected: &[u8], replacement: &[u8])
         ))
     })?;
     drop(staged_file);
-    archive_lock
-        .prepare_replacement_file(&staged_path)
-        .map_err(CliError)?;
+    if let Err(error) = archive_lock.prepare_replacement_file(&staged_path) {
+        let _ = std::fs::remove_file(&staged_path);
+        return Err(CliError(error).into());
+    }
 
     let backup = path.with_file_name(format!(".tutorux-{}.backup", uuid::Uuid::new_v4()));
     if let Err(error) = std::fs::rename(path, &backup) {
