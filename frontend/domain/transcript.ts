@@ -546,7 +546,10 @@ export function formatTranscriptExport(
             return;
         }
         if (format === "srt") output.push(String(index + 1));
-        else if (field(record, "source_id")) output.push(`cue-${index + 1}`);
+        else {
+            const cueId = field(record, "source_cue_id") || field(record, "source_id");
+            if (cueId && !cueId.includes("-->") && !/[\r\n]/u.test(cueId)) output.push(cueId);
+        }
         output.push(
             `${formatSubtitleTime(integerField(record, "start_time_us", 0n), format === "srt" ? "," : ".")} --> ${formatSubtitleTime(integerField(record, "end_time_us", 0n), format === "srt" ? "," : ".")}`,
         );
