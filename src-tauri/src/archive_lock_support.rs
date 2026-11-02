@@ -68,6 +68,24 @@ impl ArchiveLock {
         self.mode
     }
 
+    /// Read the entire archive through the handle that owns the file lock.
+    ///
+    /// Windows byte-range locks are mandatory, so a second handle opened for the same file cannot
+    /// read it while this lock is held. Verification must use this handle.
+    pub fn read_archive_bytes(&mut self) -> Result<Vec<u8>, String> {
+        use std::io::{Read, Seek, SeekFrom};
+        let file = self
+            .archive_file
+            .as_mut()
+            .ok_or_else(|| "The archive no longer exists at the locked path.".to_owned())?;
+        file.seek(SeekFrom::Start(0))
+            .map_err(|error| format!("Could not seek in the locked archive: {error}"))?;
+        let mut bytes = Vec::new();
+        file.read_to_end(&mut bytes)
+            .map_err(|error| format!("Could not read the locked archive: {error}"))?;
+        Ok(bytes)
+    }
+
     pub fn try_reacquire(&mut self, mode: LockMode) -> Result<(), String> {
         if self.mode.is_some() {
             return Err(
