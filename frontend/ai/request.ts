@@ -152,12 +152,21 @@ export async function createAiRequestPreview(
             "This provider does not support image attachments in Tutorux. Choose a compatible vision model from an OpenAI, Anthropic, Gemini, or Ollama provider.",
         );
     }
+    const manifestCandidates = collectManifestAttachments(
+        parsedPackage,
+        new Set(imageManifest.map((image) => image.id)),
+    );
+    const declaredAttachmentBytes =
+        imageManifest.reduce((total, image) => total + image.byteSize, 0) +
+        manifestCandidates.reduce((total, attachment) => total + attachment.byteSize, 0);
+    if (declaredAttachmentBytes > MAX_AI_ATTACHMENT_BYTES) {
+        throw new Error("Attached multimodal assets exceed the 6 MiB outbound request budget.");
+    }
     const imageAttachments = await loadImageAttachments(snapshot, packageManifest, imageManifest);
     const manifestAttachments = await loadManifestAttachments(
         snapshot,
         packageManifest,
-        parsedPackage,
-        new Set(imageAttachments.map((attachment) => attachment.id)),
+        manifestCandidates,
     );
     const allAttachments = [...imageAttachments, ...manifestAttachments];
     const attachmentBytes = allAttachments.reduce(
@@ -526,14 +535,12 @@ function openAiAudioFormat(mimeType: string): "wav" | "mp3" | null {
     return null;
 }
 
-async function loadManifestAttachments(
-    snapshot: ArchiveSnapshot | undefined,
-    packageManifest: Record<string, unknown>,
+function collectManifestAttachments(
     parsedPackage: unknown,
     skipIds: ReadonlySet<string>,
-): Promise<LoadedAiAttachment[]> {
+): AiPackageAttachmentManifest[] {
     if (!isObject(parsedPackage) || !Array.isArray(parsedPackage["assets_manifest"])) return [];
-    const candidates = parsedPackage["assets_manifest"].flatMap((row) => {
+    return parsedPackage["assets_manifest"].flatMap((row) => {
         if (!isObject(row)) return [];
         const fields = isObject(row["fields"]) ? row["fields"] : row;
         const id = row["id"] ?? fields["id"];
@@ -574,6 +581,13 @@ async function loadManifestAttachments(
             },
         ];
     });
+}
+
+async function loadManifestAttachments(
+    snapshot: ArchiveSnapshot | undefined,
+    packageManifest: Record<string, unknown>,
+    candidates: readonly AiPackageAttachmentManifest[],
+): Promise<LoadedAiAttachment[]> {
     if (candidates.length === 0) return [];
     if (!snapshot) throw new Error("Open the source archive to load its selected attachments.");
     const sessionId = packageManifest["session_id"];
@@ -583,7 +597,12 @@ async function loadManifestAttachments(
         );
     }
     const loaded: LoadedAiAttachment[] = [];
+    let loadedBytes = 0;
     for (const attachment of candidates) {
+        loadedBytes += attachment.byteSize;
+        if (loadedBytes > MAX_AI_ATTACHMENT_BYTES) {
+            throw new Error("Attached multimodal assets exceed the 6 MiB outbound request budget.");
+        }
         const metadata = await snapshot.getRecord(RecordType.assetMetadata, attachment.id);
         if (
             !metadata ||
@@ -658,7 +677,12 @@ async function loadImageAttachments(
         throw new Error("The AI package does not identify the session for its selected images.");
     }
     const loaded: LoadedAiAttachment[] = [];
+    let loadedBytes = 0;
     for (const image of images) {
+        loadedBytes += image.byteSize;
+        if (loadedBytes > MAX_AI_ATTACHMENT_BYTES) {
+            throw new Error("Attached multimodal assets exceed the 6 MiB outbound request budget.");
+        }
         const metadata = await snapshot.getRecord(RecordType.assetMetadata, image.id);
         if (
             !metadata ||
