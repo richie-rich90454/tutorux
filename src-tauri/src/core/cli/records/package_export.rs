@@ -185,6 +185,13 @@ pub(crate) fn export_session_package(
         ))
         .into());
     }
+    if args.flag("force") && !args.flag("confirm-sensitive") {
+        return Err(CliError(
+            "--force replaces the destination. Review it and retry with --confirm-sensitive."
+                .to_owned(),
+        )
+        .into());
+    }
     let session = require_live(snapshot, RecordType::SESSION, &session_id)?;
     let timestamp = now_us();
     let bytes = create_archive_bytes(
