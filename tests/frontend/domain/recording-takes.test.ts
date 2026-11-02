@@ -9,6 +9,7 @@ import {
     renameRecordingTake,
     renameRecordingTrack,
     setRecordingTakeDeleted,
+    setRecordingTrackDeleted,
 } from "../../../frontend/domain/recording-takes";
 
 describe("recording take management", () => {
@@ -71,38 +72,65 @@ describe("recording take management", () => {
         expect(restoredSession?.fields.get("recording_track_id")).toBe(fixture.trackId);
         expect(restoredChunk?.blob).toEqual(originalChunk?.blob);
     });
+
+    it("recomputes the session track count when one track is trashed and restored", async () => {
+        const fixture = await createRecordingFixture(2);
+        const removed = await setRecordingTrackDeleted(
+            fixture.snapshot,
+            fixture.trackIds[1]!,
+            true,
+        );
+        const trashed = await appendRecords(fixture.snapshot, removed);
+        const trashedSession = await trashed.getRecord(RecordType.session, fixture.sessionId);
+        expect(trashedSession?.fields.get("recording_track_ids")).toBe(fixture.trackIds[0]);
+        expect(trashedSession?.fields.get("recording_track_count")).toBe("1");
+
+        const restoredRecords = await setRecordingTrackDeleted(
+            trashed,
+            fixture.trackIds[1]!,
+            false,
+        );
+        const restored = await appendRecords(trashed, restoredRecords);
+        const restoredSession = await restored.getRecord(RecordType.session, fixture.sessionId);
+        expect(restoredSession?.fields.get("recording_track_ids")).toBe(fixture.trackIds.join(","));
+        expect(restoredSession?.fields.get("recording_track_count")).toBe("2");
+    });
 });
 
-async function createRecordingFixture(): Promise<{
+async function createRecordingFixture(trackCount = 1): Promise<{
     snapshot: Awaited<ReturnType<typeof openArchiveBytes>>;
     sessionId: string;
     takeId: string;
     trackId: string;
+    trackIds: string[];
     chunkId: string;
 }> {
     const sessionId = newUuid();
     const takeId = newUuid();
-    const trackId = newUuid();
+    const trackIds = Array.from({ length: trackCount }, () => newUuid());
+    const trackId = trackIds[0]!;
     const chunkId = newUuid();
     const pcm = new Uint8Array([0x34, 0x12, 0xcc, 0xed]);
     const records: ArchiveRecord[] = [
         record(RecordType.session, sessionId, [
             ["title", "Audio session"],
-            ["recording_track_ids", trackId],
+            ["recording_track_ids", trackIds.join(",")],
             ["recording_track_id", trackId],
-            ["recording_track_count", "1"],
+            ["recording_track_count", String(trackIds.length)],
         ]),
-        record(RecordType.assetMetadata, trackId, [
-            ["record_role", "audio-track"],
-            ["session_id", sessionId],
-            ["track_id", trackId],
-            ["recording_take_id", takeId],
-            ["label", "Import"],
-        ]),
+        ...trackIds.map((id) =>
+            record(RecordType.assetMetadata, id, [
+                ["record_role", "audio-track"],
+                ["session_id", sessionId],
+                ["track_id", id],
+                ["recording_take_id", takeId],
+                ["label", "Import"],
+            ]),
+        ),
         record(RecordType.assetMetadata, takeId, [
             ["record_role", "recording-take"],
             ["session_id", sessionId],
-            ["track_ids", trackId],
+            ["track_ids", trackIds.join(",")],
             ["label", "Original take"],
         ]),
         {
@@ -127,6 +155,7 @@ async function createRecordingFixture(): Promise<{
         sessionId,
         takeId,
         trackId,
+        trackIds,
         chunkId,
     };
 }
