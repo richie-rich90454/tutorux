@@ -1,5 +1,4 @@
-import { twClasses } from "./tailwind";
-import { jsxTailwindStyles } from "./AudioMixer.tailwind";
+import { buttonOutline, cn, eyebrow, labelBase } from "./ui";
 import { For, Show, createEffect, createSignal, type JSX } from "solid-js";
 import type { ArchiveSnapshot } from "./archive/archive";
 import type { ArchiveRecord } from "./archive/format";
@@ -68,7 +67,7 @@ export function AudioMixer(props: AudioMixerProps): JSX.Element {
             if (await props.onSave(snapshot, result.records, "Mixed recording track saved.")) {
                 setSelected([]);
                 setStatus(
-                    `Mix saved as a track in this take (${result.sampleRateHz.toLocaleString()} Hz).`,
+                    `Mix saved as a track in this take (${result.sampleRateHz.toLocaleString("en-US")} Hz).`,
                 );
             }
         } catch (cause) {
@@ -78,11 +77,13 @@ export function AudioMixer(props: AudioMixerProps): JSX.Element {
         }
     }
     return (
-        <section class={twClasses("audio-mixer", jsxTailwindStyles, "section")}>
-            <div class={twClasses("", jsxTailwindStyles, "div")}>
-                <span class={twClasses("eyebrow", jsxTailwindStyles, "span")}>Listen together</span>
-                <h3 class={twClasses("", jsxTailwindStyles, "h3")}>Mix recording tracks</h3>
-                <p class={twClasses("", jsxTailwindStyles, "p")}>
+        <section
+            class={cn("audio-mixer", "bg-surface rounded-[5px] border border-line mt-4.5 p-5")}
+        >
+            <div>
+                <span class={cn("eyebrow", eyebrow)}>Listen together</span>
+                <h3 class="my-[5px] mx-0">Mix recording tracks</h3>
+                <p class="text-muted">
                     Combine two to eight tracks from one take into a new stereo track. The original
                     recordings remain available.
                 </p>
@@ -90,12 +91,12 @@ export function AudioMixer(props: AudioMixerProps): JSX.Element {
             <Show
                 when={availableTakes().length}
                 fallback={
-                    <p class={twClasses("", jsxTailwindStyles, "p")}>
+                    <p class="text-muted">
                         Recording takes will appear here when they have been saved.
                     </p>
                 }
             >
-                <label class={twClasses("form-field", jsxTailwindStyles, "label")}>
+                <label class={cn("form-field", labelBase)}>
                     Recording take
                     <select
                         value={takeId()}
@@ -106,7 +107,7 @@ export function AudioMixer(props: AudioMixerProps): JSX.Element {
                             setError("");
                             setStatus("");
                         }}
-                        class={twClasses("", jsxTailwindStyles, "select")}
+                        class="focus-visible:outline-offset-0.5 focus-visible:outline-3 focus-visible:outline-[color-mix(in_srgb,_var(--accent)_42%,_transparent)] focus-visible:border-accent focus-visible:shadow-none bg-surface-subtle rounded-[5px] border border-line text-ink text-xs font-normal h-[35px] min-w-0 outline-none py-[9px] px-2.5 transition-colors w-full"
                     >
                         <For each={availableTakes()}>
                             {(take) => (
@@ -117,23 +118,16 @@ export function AudioMixer(props: AudioMixerProps): JSX.Element {
                         </For>
                     </select>
                 </label>
-                <fieldset
-                    disabled={props.disabled || working()}
-                    class={twClasses("", jsxTailwindStyles, "fieldset")}
-                >
-                    <legend class={twClasses("", jsxTailwindStyles, "legend")}>Tracks</legend>
+                <fieldset disabled={props.disabled || working()} class="border-0 my-4.5 mx-0 p-0">
+                    <legend class="font-semibold mb-2">Tracks</legend>
                     <Show
                         when={availableTracks().length}
-                        fallback={
-                            <p class={twClasses("", jsxTailwindStyles, "p")}>
-                                No saved tracks in this take.
-                            </p>
-                        }
+                        fallback={<p class="text-muted">No saved tracks in this take.</p>}
                     >
-                        <div class={twClasses("audio-mixer-tracks", jsxTailwindStyles, "div")}>
+                        <div class={cn("audio-mixer-tracks", "flex flex-wrap gap-y-2.5 gap-x-4.5")}>
                             <For each={availableTracks()}>
                                 {(track) => (
-                                    <label class={twClasses("", jsxTailwindStyles, "label")}>
+                                    <label class="items-center inline-flex gap-2">
                                         <input
                                             type="checkbox"
                                             checked={selected().includes(track.id)}
@@ -148,30 +142,28 @@ export function AudioMixer(props: AudioMixerProps): JSX.Element {
                                                         : ids.filter((id) => id !== track.id),
                                                 )
                                             }
-                                            class={twClasses("", jsxTailwindStyles, "input")}
+                                            class="focus-visible:outline-offset-0.5 focus-visible:outline-3 focus-visible:outline-[color-mix(in_srgb,_var(--accent)_42%,_transparent)]"
                                         />
-                                        <span class={twClasses("", jsxTailwindStyles, "span")}>
-                                            {track.label}
-                                        </span>
+                                        <span>{track.label}</span>
                                     </label>
                                 )}
                             </For>
                         </div>
                     </Show>
                 </fieldset>
-                <div class={twClasses("audio-mixer-controls", jsxTailwindStyles, "div")}>
-                    <label class={twClasses("form-field", jsxTailwindStyles, "label")}>
+                <div class={cn("audio-mixer-controls", "items-end flex flex-wrap gap-3")}>
+                    <label class={cn("form-field", labelBase)}>
                         Mix name
                         <input
                             value={label()}
                             maxlength="120"
                             disabled={props.disabled || working()}
                             onInput={(event) => setLabel(event.currentTarget.value)}
-                            class={twClasses("", jsxTailwindStyles, "input")}
+                            class="focus-visible:outline-offset-0.5 focus-visible:outline-3 focus-visible:outline-[color-mix(in_srgb,_var(--accent)_42%,_transparent)] placeholder:text-faint focus-visible:border-accent focus-visible:shadow-none bg-surface-subtle rounded-[5px] border border-line text-ink text-xs font-normal h-[35px] min-w-0 outline-none py-[9px] px-2.5 transition-colors w-full"
                         />
                     </label>
                     <button
-                        class={twClasses("button button-outline", jsxTailwindStyles, "button")}
+                        class={cn("button button-outline", buttonOutline)}
                         type="button"
                         disabled={props.disabled || working() || selected().length < 2}
                         onClick={() => void mix()}
@@ -181,12 +173,12 @@ export function AudioMixer(props: AudioMixerProps): JSX.Element {
                 </div>
             </Show>
             <Show when={error()}>
-                <p class={twClasses("audio-mixer-error", jsxTailwindStyles, "p")} role="alert">
+                <p class={cn("audio-mixer-error", "text-muted")} role="alert">
                     {error()}
                 </p>
             </Show>
             <Show when={status()}>
-                <p role="status" class={twClasses("", jsxTailwindStyles, "p")}>
+                <p role="status" class="text-muted">
                     {status()}
                 </p>
             </Show>
