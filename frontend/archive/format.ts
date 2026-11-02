@@ -734,9 +734,22 @@ export function decodeLz4Block(storedPayload: Uint8Array): Uint8Array {
         );
     }
     const decodedLength = Number(decodedLength64);
-    const output = new Uint8Array(decodedLength);
+    let output = new Uint8Array(Math.min(decodedLength, 64 * 1024));
     let sourceOffset = 8;
     let targetOffset = 0;
+    const ensureCapacity = (required: number): void => {
+        if (required <= output.length) return;
+        let next = Math.min(decodedLength, Math.max(output.length * 2, required));
+        if (next < required) {
+            throw new ArchiveFormatError(
+                "record_compression_invalid",
+                "LZ4 output exceeds its declared decoded length.",
+            );
+        }
+        const grown = new Uint8Array(next);
+        grown.set(output.subarray(0, targetOffset));
+        output = grown;
+    };
 
     const readExtendedLength = (initial: number): number => {
         let length = initial;
@@ -766,6 +779,7 @@ export function decodeLz4Block(storedPayload: Uint8Array): Uint8Array {
                 "LZ4 literal run exceeds its block.",
             );
         }
+        ensureCapacity(targetOffset + literalLength);
         output.set(
             storedPayload.subarray(sourceOffset, sourceOffset + literalLength),
             targetOffset,
@@ -794,6 +808,7 @@ export function decodeLz4Block(storedPayload: Uint8Array): Uint8Array {
                 "LZ4 match exceeds its decoded length.",
             );
         }
+        ensureCapacity(targetOffset + matchLength);
         for (let index = 0; index < matchLength; index += 1) {
             output[targetOffset + index] = output[targetOffset + index - matchOffset]!;
         }
