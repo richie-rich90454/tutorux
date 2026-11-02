@@ -25,9 +25,11 @@ export async function extractDocumentText(
     mimeType: string,
     bytes: Uint8Array,
 ): Promise<DocumentTextExtraction | null> {
-    const isPdf = mimeType === "application/pdf";
+    const lowerName = filename.toLowerCase();
+    const isPdf = mimeType === "application/pdf" || lowerName.endsWith(".pdf");
     const isDocx =
-        mimeType === "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+        mimeType === "application/vnd.openxmlformats-officedocument.wordprocessingml.document" ||
+        lowerName.endsWith(".docx");
     if (!isPdf && !isDocx) return null;
     if (bytes.byteLength > DOCUMENT_INPUT_LIMIT) return { status: "size-limit", text: "" };
     if (isPdf) return extractPdfText(bytes);
