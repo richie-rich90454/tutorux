@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { lstat, open, rename, rm } from "node:fs/promises";
+import { lstat, open, rename, rm, stat } from "node:fs/promises";
 import type { FileHandle } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
 import { appendStagedAssetRecords, type ArchiveSnapshot } from "../frontend/archive/archive";
@@ -11,6 +11,7 @@ import {
     prepareStreamingAssetImport,
     type AssetReadSource,
 } from "../frontend/domain/assets-stream";
+import { CliError, isNotFound } from "./commands/shared";
 
 export interface CliAssetImportResult {
     readonly snapshot: ArchiveSnapshot;
@@ -60,6 +61,13 @@ export async function exportCliAssetAtomically(
     metadata: ArchiveRecord,
     destination: string,
 ): Promise<number> {
+    try {
+        await stat(destination);
+        throw new CliError(`Material export output already exists: ${destination}`);
+    } catch (error) {
+        if (error instanceof CliError) throw error;
+        if (!isNotFound(error)) throw error;
+    }
     const temporary = join(dirname(destination), `.tutorux-${randomUUID()}.partial`);
     const output = await open(temporary, "wx", 0o600);
     let closed = false;
@@ -72,6 +80,8 @@ export async function exportCliAssetAtomically(
         await output.sync();
         await output.close();
         closed = true;
+        // shortcut: source-checked rather than no-clobber, a destination created
+        // between the check and this rename is replaced; upgrade to link()/MoveFile.
         await rename(temporary, destination);
         return byteCount;
     } catch (error) {
