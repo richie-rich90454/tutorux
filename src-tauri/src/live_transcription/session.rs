@@ -62,9 +62,16 @@ impl LiveWhisperHandle {
                 shared.status = "finishing".to_owned();
             }
         }
-        self.sender
-            .send(WorkerMessage::Finish(reply_tx))
-            .map_err(|_| "Live transcription worker has stopped.".to_owned())?;
+        if self.sender.send(WorkerMessage::Finish(reply_tx)).is_err() {
+            // A concurrent Cancel may have stopped the worker first. Shutting down after a
+            // cancel is a completed finalization, not a lost reply.
+            self.join();
+            return if self.cancelled.load(Ordering::Acquire) {
+                Ok(())
+            } else {
+                Err("Live transcription worker has stopped.".to_owned())
+            };
+        }
         reply_rx.recv().map_err(|_| {
             "Live transcription worker stopped before finishing its audio window.".to_owned()
         })?;
