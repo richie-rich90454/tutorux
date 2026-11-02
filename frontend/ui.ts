@@ -61,7 +61,8 @@ export const errorText = "text-xs font-medium text-danger";
 
 export const fieldGrid = "grid gap-2.5 sm:grid-cols-2";
 
-export const pageBody = "mx-auto w-full max-w-[1320px] px-5 pt-5 pb-[78px] sm:px-7 sm:pt-7 sm:pb-8 lg:px-9 lg:pb-10";
+export const pageBody =
+    "mx-auto w-full max-w-[1320px] px-5 pt-5 pb-[78px] sm:px-7 sm:pt-7 sm:pb-8 lg:px-9 lg:pb-10";
 
 export const pageToolbar =
     "sticky top-0 z-10 flex min-h-11 flex-wrap items-center justify-between gap-2 border-b border-line-soft bg-canvas/95 px-4 py-2 backdrop-blur sm:px-6";
@@ -92,7 +93,8 @@ export const iconSmall = "h-3.5 w-3.5 shrink-0";
 export const chip =
     "inline-flex items-center gap-1 rounded-[5px] border border-line-soft bg-surface-subtle px-1.5 py-0.5 text-xs text-ink-soft";
 
-export const emptyPanel = "flex min-h-[180px] flex-col items-start justify-center gap-2 px-2 py-7 text-left";
+export const emptyPanel =
+    "flex min-h-[180px] flex-col items-start justify-center gap-2 px-2 py-4 text-left";
 
 export const dialogBackdrop =
     "fixed inset-0 z-20 grid place-items-center bg-[rgb(10_16_12_/_43%)] p-5 [animation:fade-in_0.14s_ease-out]";
@@ -118,6 +120,7 @@ export const recordCard = cn(card, "p-4");
 
 export const inlineMeta = "flex flex-wrap items-center gap-3 text-xs text-muted";
 
-export const tag = "inline-flex rounded-[4px] bg-accent-soft px-1.5 py-0.5 text-xs font-medium text-accent";
+export const tag =
+    "inline-flex rounded-[4px] bg-accent-soft px-1.5 py-0.5 text-xs font-medium text-accent";
 
 export const tableHeader = "text-left text-xs font-medium text-muted";
