@@ -167,6 +167,34 @@ describe("transcript archive records and export", () => {
             '"verification_state": "provisional"',
         );
     });
+
+    it("round-trips WebVTT cue identifiers from source_cue_id and legacy source_id", () => {
+        const [record] = makeTranscriptRecords(
+            "session-id",
+            [
+                {
+                    text: "Welcome",
+                    startTimeUs: 1_000_000n,
+                    endTimeUs: 2_000_000n,
+                    sourceIndex: 0,
+                    sourceId: "lesson-cue",
+                },
+            ],
+            "vtt",
+            "lesson.vtt",
+        );
+
+        const output = formatTranscriptExport([record!], "vtt");
+        expect(output).toContain("lesson-cue");
+        expect(parseTranscriptSource(output, "vtt")[0]?.sourceId).toBe("lesson-cue");
+
+        const legacyFields = new Map(record!.fields);
+        legacyFields.delete("source_cue_id");
+        legacyFields.set("source_id", "legacy-cue");
+        const legacyOutput = formatTranscriptExport([{ ...record!, fields: legacyFields }], "vtt");
+        expect(legacyOutput).toContain("legacy-cue");
+        expect(parseTranscriptSource(legacyOutput, "vtt")[0]?.sourceId).toBe("legacy-cue");
+    });
 });
 
 describe("transcript structure and material links", () => {
