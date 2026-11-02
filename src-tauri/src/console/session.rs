@@ -6,43 +6,13 @@ use super::{
     },
     ConsoleRunResult,
 };
-use crate::core::cli::{execute_cli, Cancellation};
+use crate::core::cli::{execute_cli_with_secrets, Cancellation};
 use std::{
     path::Path,
     sync::atomic::{AtomicBool, Ordering},
 };
 use tauri::AppHandle;
 use zeroize::Zeroizing;
-
-/// Removes the short-lived passphrase variables even if the command unwinds.
-struct SecretEnvironment {
-    names: Vec<String>,
-}
-
-impl SecretEnvironment {
-    fn set(name: String, value: &str) -> Result<Self, String> {
-        if value.contains('\0') {
-            return Err("A passphrase cannot contain a null character.".to_owned());
-        }
-        // shortcut: execute_cli only accepts passphrases through --passphrase-env, so an
-        // in-process run must use the process environment. Replace this when the core exposes a
-        // direct secret parameter.
-        std::env::set_var(&name, value);
-        Ok(Self { names: vec![name] })
-    }
-
-    fn extend(&mut self, mut other: SecretEnvironment) {
-        self.names.append(&mut other.names);
-    }
-}
-
-impl Drop for SecretEnvironment {
-    fn drop(&mut self) {
-        for name in &self.names {
-            std::env::remove_var(name);
-        }
-    }
-}
 
 struct RunCancellation<'a> {
     cancelled: &'a AtomicBool,
@@ -75,13 +45,13 @@ pub(super) fn execute_console_command(
     }
 
     let suffix = run_id.replace('-', "");
-    let mut secrets = SecretEnvironment { names: Vec::new() };
+    let mut secrets: Vec<(String, Zeroizing<String>)> = Vec::new();
     if !passphrase.is_empty() {
         if has_passphrase_env_option(&arguments, "--passphrase-env") {
             return Err("Enter the current passphrase in the console field or use --passphrase-env from your environment, not both.".to_owned());
         }
         let name = format!("TUTORUX_CONSOLE_CURRENT_{suffix}");
-        secrets.extend(SecretEnvironment::set(name.clone(), passphrase.as_str())?);
+        secrets.push((name.clone(), Zeroizing::new(passphrase.to_string())));
         arguments.push("--passphrase-env".to_owned());
         arguments.push(name);
     }
@@ -92,10 +62,7 @@ pub(super) fn execute_console_command(
             return Err("A new passphrase is only used by archive init, encrypt, change-passphrase, or sanitize commands.".to_owned());
         }
         let name = format!("TUTORUX_CONSOLE_NEW_{suffix}");
-        secrets.extend(SecretEnvironment::set(
-            name.clone(),
-            new_passphrase.as_str(),
-        )?);
+        secrets.push((name.clone(), Zeroizing::new(new_passphrase.to_string())));
         if !replace_passphrase_env_option(&mut arguments, "--new-passphrase-env", &name) {
             arguments.push("--new-passphrase-env".to_owned());
             arguments.push(name);
@@ -119,15 +86,15 @@ pub(super) fn execute_console_command(
 
     let observed = AtomicBool::new(false);
     let mut output = ConsoleOutputSink::new(app.clone(), run_id);
-    let exit_code = execute_cli(
+    let exit_code = execute_cli_with_secrets(
         &cli_arguments,
         &mut output,
         &RunCancellation {
             cancelled: cancellation,
             observed: &observed,
         },
+        &secrets,
     );
-    drop(secrets);
 
     Ok(ConsoleRunResult {
         exit_code,
