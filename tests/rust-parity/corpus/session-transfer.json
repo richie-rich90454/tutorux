@@ -137,7 +137,8 @@
                         "{capture.seed_session}",
                         "--output",
                         "{dir}/session-package.tux",
-                        "--force"
+                        "--force",
+                        "--confirm-sensitive"
                     ],
                     "expect": {
                         "exitCode": 0,
