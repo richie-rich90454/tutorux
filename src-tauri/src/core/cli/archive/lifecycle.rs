@@ -56,11 +56,12 @@ pub(super) fn rename(
     let mut fields = manifest.fields.clone();
     fields.insert("display_name".to_owned(), name.clone());
     let updated = ArchiveRecord { fields, ..manifest };
+    let expected = super::helpers::read_bytes(&snapshot)?;
     let next = snapshot.append_records(&[updated])?;
     let bytes = super::helpers::read_bytes(&next)?;
     drop(next);
     drop(snapshot);
-    save::save_bytes(path, &bytes)?;
+    save::replace_existing(path, &expected, &bytes)?;
     emit(
         output,
         json!({"name": name, "status": "updated"}),
