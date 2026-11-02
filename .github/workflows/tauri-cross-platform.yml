@@ -75,6 +75,9 @@ jobs:
             - name: Install dependencies
               run: pnpm install --frozen-lockfile
 
+            - name: Audit dependencies
+              run: pnpm audit --audit-level high
+
             - name: Verify application version consistency
               run: node scripts/collect-release.mjs --check-versions
 
@@ -139,7 +142,7 @@ jobs:
                   cargo build --locked --manifest-path src-tauri/Cargo.toml --features cli --bin tutorux-cli
                   pnpm run build:audio-helper
 
-            - name: Rust CLI parity harness
+            - name: Rust CLI contract harness
               shell: bash
               run: |
                   helper=$(find src-tauri/binaries -maxdepth 1 -type f -name 'tutorux-audio-helper-*' | head -n 1)
