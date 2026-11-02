@@ -739,7 +739,7 @@ export function decodeLz4Block(storedPayload: Uint8Array): Uint8Array {
     let targetOffset = 0;
     const ensureCapacity = (required: number): void => {
         if (required <= output.length) return;
-        let next = Math.min(decodedLength, Math.max(output.length * 2, required));
+        const next = Math.min(decodedLength, Math.max(output.length * 2, required));
         if (next < required) {
             throw new ArchiveFormatError(
                 "record_compression_invalid",
