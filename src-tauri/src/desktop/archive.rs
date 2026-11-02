@@ -8,17 +8,29 @@ use std::{
     io::{Read, Seek, SeekFrom},
     path::Path,
 };
-use tauri::{ipc::Response, State};
+use tauri::{ipc::Response, AppHandle, Manager, State};
 use uuid::Uuid;
 
 const MAX_RANGE_BYTES: usize = 4 * 1024 * 1024;
 
 #[tauri::command]
-pub(crate) fn authorize_archive_path(
+pub(crate) async fn authorize_archive_path(
     path: String,
-    state: State<'_, DesktopState>,
+    app: AppHandle,
 ) -> Result<ArchiveSelection, String> {
-    let location = normalized_location_path(Path::new(&path))?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<DesktopState>();
+        authorize_archive_path_blocking(&path, &state)
+    })
+    .await
+    .map_err(|_| "The archive could not be authorized.".to_owned())?
+}
+
+fn authorize_archive_path_blocking(
+    path: &str,
+    state: &State<'_, DesktopState>,
+) -> Result<ArchiveSelection, String> {
+    let location = normalized_location_path(Path::new(path))?;
     let selected =
         fs::canonicalize(&location).map_err(|error| format!("Could not open archive: {error}"))?;
     let metadata =
