@@ -76,6 +76,7 @@ impl std::fmt::Display for CliError {
 
 impl std::error::Error for CliError {}
 
+#[derive(Debug)]
 pub enum Failure {
     Usage(String),
     Core(CoreError),
@@ -191,7 +192,7 @@ pub fn take_global_option(args: &mut Vec<String>, name: &str) -> CliResult<Optio
     let Some(value) = value else {
         return Err(CliError(format!("{option} requires a value.")).into());
     };
-    if value.starts_with("--") {
+    if value.is_empty() || value.starts_with("--") {
         return Err(CliError(format!("{option} requires a value.")).into());
     }
     args.drain(index..index + if argument.contains('=') { 1 } else { 2 });
@@ -278,7 +279,7 @@ pub fn parse_integer(
     Ok(value)
 }
 
-pub const VERSION: &str = "Tutorux 1.0.0 (TypeScript)";
+pub const VERSION: &str = "Tutorux 1.0.0";
 
 pub fn execute_cli(
     arguments: &[String],
