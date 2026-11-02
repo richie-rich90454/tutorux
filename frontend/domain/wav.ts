@@ -412,7 +412,7 @@ function makeWaveImportInterruptedRecords(
     counters: ImportCounters,
     reason: string,
 ): ArchiveRecord[] {
-    const fields = makeSessionImportFields(plan, counters, session);
+    const fields = makeSessionImportFields(plan, counters);
     fields.set("recording_state", "interrupted");
     fields.set("audio_import_state", "interrupted");
     fields.set("audio_import_error", reason);
