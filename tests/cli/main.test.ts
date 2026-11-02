@@ -222,13 +222,27 @@ describe("CLI session package transfer", () => {
             ).toBe(2);
             expect(stderr.at(-1)).toContain("separate file");
             expect(
+                await packageSnapshot.getRecord(RecordType.session, sourceSessionId),
+            ).not.toBeNull();
+            expect(
                 await run(sourcePath, "export", [
                     sourceSessionId,
                     "--output",
                     packagePath,
                     "--force",
                 ]),
+            ).toBe(2);
+            expect(stderr.at(-1)).toContain("--confirm-sensitive");
+            expect(
+                await run(sourcePath, "export", [
+                    sourceSessionId,
+                    "--output",
+                    packagePath,
+                    "--force",
+                    "--confirm-sensitive",
+                ]),
             ).toBe(0);
+            expect((await readFile(packagePath)).byteLength).toBeGreaterThan(0);
             stderr.length = 0;
 
             expect(
