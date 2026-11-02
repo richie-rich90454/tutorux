@@ -226,12 +226,27 @@ fn compact_prunes_unreferenced_assets_and_reports_counts() {
     assert_eq!(preview["prunedAssetRecords"], 2);
     assert_eq!(std::fs::read(&path).unwrap(), original);
 
+    let mut implicit = Output::default();
+    expect_ok(run(
+        "compact",
+        arguments(&[
+            path.to_str().unwrap(),
+            "--prune-unreferenced-assets",
+            "--json",
+        ]),
+        &mut implicit,
+    ));
+    let implicit = implicit.json();
+    assert_eq!(implicit["applied"], false);
+    assert_eq!(std::fs::read(&path).unwrap(), original);
+
     let mut applied = Output::default();
     expect_ok(run(
         "compact",
         arguments(&[
             path.to_str().unwrap(),
             "--prune-unreferenced-assets",
+            "--apply",
             "--json",
         ]),
         &mut applied,
