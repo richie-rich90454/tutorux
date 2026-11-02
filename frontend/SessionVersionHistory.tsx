@@ -1,5 +1,4 @@
-import { twClasses } from "./tailwind";
-import { jsxTailwindStyles } from "./SessionVersionHistory.tailwind";
+import { buttonOutline, buttonPrimary, cn, selectBase } from "./ui";
 import { For, Show, createSignal, type JSX } from "solid-js";
 import type { ArchiveSnapshot } from "./archive/archive";
 import { RecordType, type ArchiveRecord } from "./archive/format";
@@ -26,7 +25,7 @@ function dateLabel(record: ArchiveRecord): string {
             ) / 1000n,
         );
         return milliseconds > 0 && Number.isFinite(milliseconds)
-            ? new Intl.DateTimeFormat(undefined, {
+            ? new Intl.DateTimeFormat("en-US", {
                   dateStyle: "medium",
                   timeStyle: "short",
               }).format(new Date(milliseconds))
@@ -126,7 +125,7 @@ export function SessionVersionHistory(props: SessionVersionHistoryProps): JSX.El
 
     return (
         <details
-            class={twClasses("session-version-history", jsxTailwindStyles, "details")}
+            class="session-version-history mt-3 border-t border-line pt-2.5"
             onToggle={(event) => {
                 if (event.currentTarget.open && !history()) void load();
                 if (!event.currentTarget.open) {
@@ -135,21 +134,20 @@ export function SessionVersionHistory(props: SessionVersionHistoryProps): JSX.El
                 }
             }}
         >
-            <summary class={twClasses("", jsxTailwindStyles, "summary")}>Session versions</summary>
-            <div class={twClasses("session-version-content", jsxTailwindStyles, "div")}>
-                <p class={twClasses("", jsxTailwindStyles, "p")}>
+            <summary class="cursor-pointer py-1.5 font-semibold focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent">
+                Session versions
+            </summary>
+            <div class="session-version-content grid gap-3 py-2.5 pb-4">
+                <p class="m-0">
                     Restore the title, subject and learning objectives from an earlier version.
                     Notes, recordings, links and session status stay current.
                 </p>
                 <Show when={error()}>
-                    <p
-                        class={twClasses("session-version-error", jsxTailwindStyles, "p")}
-                        role="alert"
-                    >
+                    <p class="session-version-error m-0 text-danger" role="alert">
                         {error()}
                     </p>
                     <button
-                        class={twClasses("button button-outline", jsxTailwindStyles, "button")}
+                        class={cn("button", buttonOutline)}
                         type="button"
                         disabled={loading()}
                         onClick={() => void load()}
@@ -158,7 +156,7 @@ export function SessionVersionHistory(props: SessionVersionHistoryProps): JSX.El
                     </button>
                 </Show>
                 <Show when={loading()}>
-                    <p role="status" class={twClasses("", jsxTailwindStyles, "p")}>
+                    <p role="status" class="m-0">
                         Loading session versions…
                     </p>
                 </Show>
@@ -166,19 +164,9 @@ export function SessionVersionHistory(props: SessionVersionHistoryProps): JSX.El
                     {(revisions) => (
                         <Show
                             when={revisions().length > 1}
-                            fallback={
-                                <p class={twClasses("", jsxTailwindStyles, "p")}>
-                                    No earlier versions yet.
-                                </p>
-                            }
+                            fallback={<p class="m-0">No earlier versions yet.</p>}
                         >
-                            <label
-                                class={twClasses(
-                                    "session-version-selector",
-                                    jsxTailwindStyles,
-                                    "label",
-                                )}
-                            >
+                            <label class="session-version-selector grid max-w-[28rem] gap-1.5 font-semibold">
                                 Earlier version
                                 <select
                                     value={selected()}
@@ -186,7 +174,7 @@ export function SessionVersionHistory(props: SessionVersionHistoryProps): JSX.El
                                         setSelected(Number(event.currentTarget.value));
                                         setConfirming(false);
                                     }}
-                                    class={twClasses("", jsxTailwindStyles, "select")}
+                                    class={cn(selectBase, "max-w-full")}
                                 >
                                     <For each={revisions().slice(1)}>
                                         {(record, index) => (
@@ -199,33 +187,29 @@ export function SessionVersionHistory(props: SessionVersionHistoryProps): JSX.El
                                 </select>
                             </label>
                             <div
-                                class={twClasses("session-version-table", jsxTailwindStyles, "div")}
+                                class="session-version-table overflow-hidden rounded-[5px] border border-line"
                                 role="table"
                                 aria-label="Session details comparison"
                             >
                                 <div
-                                    class={twClasses(
-                                        "session-version-row session-version-header",
-                                        jsxTailwindStyles,
-                                        "div",
-                                    )}
+                                    class="session-version-row session-version-header grid grid-cols-[minmax(7rem,0.7fr)_repeat(2,minmax(0,1fr))] bg-surface-subtle font-semibold max-sm:grid-cols-[minmax(4.5rem,0.65fr)_repeat(2,minmax(0,1fr))] max-sm:text-[13px]"
                                     role="row"
                                 >
                                     <span
                                         role="columnheader"
-                                        class={twClasses("", jsxTailwindStyles, "span")}
+                                        class="wrap-anywhere whitespace-pre-wrap p-2.5 max-sm:p-1.5"
                                     >
                                         Detail
                                     </span>
                                     <span
                                         role="columnheader"
-                                        class={twClasses("", jsxTailwindStyles, "span")}
+                                        class="wrap-anywhere whitespace-pre-wrap p-2.5 max-sm:p-1.5"
                                     >
                                         Earlier
                                     </span>
                                     <span
                                         role="columnheader"
-                                        class={twClasses("", jsxTailwindStyles, "span")}
+                                        class="wrap-anywhere whitespace-pre-wrap p-2.5 max-sm:p-1.5"
                                     >
                                         Current
                                     </span>
@@ -233,28 +217,24 @@ export function SessionVersionHistory(props: SessionVersionHistoryProps): JSX.El
                                 <For each={details}>
                                     {([key, label]) => (
                                         <div
-                                            class={twClasses(
-                                                "session-version-row",
-                                                jsxTailwindStyles,
-                                                "div",
-                                            )}
+                                            class="session-version-row grid grid-cols-[minmax(7rem,0.7fr)_repeat(2,minmax(0,1fr))] border-t border-line max-sm:grid-cols-[minmax(4.5rem,0.65fr)_repeat(2,minmax(0,1fr))] max-sm:text-[13px]"
                                             role="row"
                                         >
                                             <strong
                                                 role="rowheader"
-                                                class={twClasses("", jsxTailwindStyles, "strong")}
+                                                class="wrap-anywhere whitespace-pre-wrap p-2.5 max-sm:p-1.5"
                                             >
                                                 {label}
                                             </strong>
                                             <span
                                                 role="cell"
-                                                class={twClasses("", jsxTailwindStyles, "span")}
+                                                class="wrap-anywhere whitespace-pre-wrap p-2.5 max-sm:p-1.5"
                                             >
                                                 {revisions()[selected()]?.fields.get(key) || "—"}
                                             </span>
                                             <span
                                                 role="cell"
-                                                class={twClasses("", jsxTailwindStyles, "span")}
+                                                class="wrap-anywhere whitespace-pre-wrap p-2.5 max-sm:p-1.5"
                                             >
                                                 {revisions()[0]?.fields.get(key) || "—"}
                                             </span>
@@ -265,22 +245,12 @@ export function SessionVersionHistory(props: SessionVersionHistoryProps): JSX.El
                             <Show
                                 when={!confirming()}
                                 fallback={
-                                    <div
-                                        class={twClasses(
-                                            "session-version-confirm",
-                                            jsxTailwindStyles,
-                                            "div",
-                                        )}
-                                    >
-                                        <span class={twClasses("", jsxTailwindStyles, "span")}>
+                                    <div class="session-version-confirm flex flex-wrap items-center gap-2">
+                                        <span class="text-xs text-muted">
                                             Restore these session details?
                                         </span>
                                         <button
-                                            class={twClasses(
-                                                "button button-primary",
-                                                jsxTailwindStyles,
-                                                "button",
-                                            )}
+                                            class={cn("button", buttonPrimary)}
                                             type="button"
                                             disabled={props.disabled || loading()}
                                             onClick={() => void restore()}
@@ -288,11 +258,7 @@ export function SessionVersionHistory(props: SessionVersionHistoryProps): JSX.El
                                             Confirm restore
                                         </button>
                                         <button
-                                            class={twClasses(
-                                                "button button-outline",
-                                                jsxTailwindStyles,
-                                                "button",
-                                            )}
+                                            class={cn("button", buttonOutline)}
                                             type="button"
                                             onClick={() => setConfirming(false)}
                                         >
@@ -302,11 +268,7 @@ export function SessionVersionHistory(props: SessionVersionHistoryProps): JSX.El
                                 }
                             >
                                 <button
-                                    class={twClasses(
-                                        "button button-outline",
-                                        jsxTailwindStyles,
-                                        "button",
-                                    )}
+                                    class={cn("button", buttonOutline)}
                                     type="button"
                                     disabled={props.disabled || loading()}
                                     onClick={() => setConfirming(true)}
