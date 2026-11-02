@@ -63,7 +63,7 @@ Usage:
   tutorux --archive <file.tux> session update <uuid> [--title <title>] [--subject <subject>] [--objectives <text>] [--student-id <uuid>] [--entry-id <uuid>] [--notes <text>]
   tutorux --archive <file.tux> session clone <uuid> [--title <title>] [--type notes-only|record-audio|import-recording]
   tutorux --archive <file.tux> session export <uuid> --output <package.tux>
-    refuses an existing destination; --force requires --confirm-sensitive and is rejected for .tux outputs
+    refuses an existing destination; --force requires --confirm-sensitive
   tutorux --archive <file.tux> session import <package.tux>|--input <package.tux> [--student-id <uuid>]
   tutorux --archive <file.tux> session archive|unarchive <uuid>
   tutorux --archive <file.tux> session start|complete|review|resume <uuid>
@@ -88,6 +88,7 @@ Usage:
   tutorux --archive <file.tux> asset add <file> [--session <uuid>] | import --input <file> [--session <uuid>]
     [--capture-source browser-microphone --consent [--capture-consent-at-us <us>]]
   tutorux --archive <file.tux> asset import-folder <directory> [--session <uuid>]
+    imports nested regular files (symlinks skipped) and refuses more than 10,000 files
     [--capture-source browser-microphone --consent [--capture-consent-at-us <us>]]
   tutorux --archive <file.tux> asset list [--session <uuid>] [--include-deleted] [--json]
   tutorux --archive <file.tux> asset show|preview|verify|remove|restore <id> [--json]
