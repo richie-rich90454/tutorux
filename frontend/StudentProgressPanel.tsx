@@ -1,5 +1,12 @@
-import { twClasses } from "./tailwind";
-import { jsxTailwindStyles } from "./StudentProgressPanel.tailwind";
+import {
+    buttonOutline,
+    buttonPrimary,
+    cn,
+    inputBase,
+    labelBase,
+    selectBase,
+    textareaBase,
+} from "./ui";
 import { For, Show, createMemo, createSignal, type JSX } from "solid-js";
 import { RecordType, type ArchiveRecord } from "./archive/format";
 import {
@@ -135,15 +142,20 @@ export function StudentProgressPanel(props: StudentProgressPanelProps): JSX.Elem
         }
     }
 
+    const classificationTone = (value: StudentProgressClassification): string =>
+        value === "demonstrated-mastery"
+            ? "border-success/30 bg-success/10 text-success"
+            : value === "unverified-improvement"
+              ? "border-warning/35 bg-warning/10 text-warning"
+              : "border-accent/25 bg-accent-soft text-accent";
+
     return (
-        <details class={twClasses("student-history", jsxTailwindStyles, "details")}>
-            <summary class={twClasses("", jsxTailwindStyles, "summary")}>
-                <span class={twClasses("student-history-title", jsxTailwindStyles, "span")}>
-                    Learning history
-                </span>
-                <span class={twClasses("student-history-counts", jsxTailwindStyles, "span")}>
+        <details class="student-history mt-3 rounded-[5px] border border-line-soft bg-surface-subtle/60">
+            <summary class="flex min-h-10 cursor-pointer list-none items-center gap-2.5 rounded-[5px] px-[11px] py-2 text-ink-soft before:size-[7px] before:shrink-0 before:rotate-[-45deg] before:border-b-[1.5px] before:border-r-[1.5px] before:border-muted before:content-[''] before:transition-transform open:before:translate-y-[-2px] open:before:rotate-45 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent [&::-webkit-details-marker]:hidden">
+                <span class="student-history-title text-xs font-semibold">Learning history</span>
+                <span class="student-history-counts inline-flex items-center gap-1.5 text-xs tabular-nums text-muted max-[680px]:ml-auto max-[680px]:grid max-[680px]:gap-px max-[680px]:text-right">
                     {history().length} {history().length === 1 ? "session" : "sessions"}
-                    <span aria-hidden="true" class={twClasses("", jsxTailwindStyles, "span")}>
+                    <span aria-hidden="true" class="max-[680px]:hidden">
                         ·
                     </span>
                     {progress().items.length} reviewed{" "}
@@ -151,71 +163,45 @@ export function StudentProgressPanel(props: StudentProgressPanelProps): JSX.Elem
                 </span>
             </summary>
 
-            <div class={twClasses("student-history-content", jsxTailwindStyles, "div")}>
+            <div class="student-history-content grid gap-4 border-t border-line-soft p-4 md:grid-cols-[minmax(210px,0.76fr)_minmax(0,1.5fr)]">
                 <section
-                    class={twClasses("student-session-history", jsxTailwindStyles, "section")}
+                    class="student-session-history min-w-0 border-line-soft pr-4 max-md:border-b max-md:pb-3.5 max-md:pr-0 md:border-r"
                     aria-label="Session history"
                 >
-                    <div
-                        class={twClasses(
-                            "student-history-section-heading",
-                            jsxTailwindStyles,
-                            "div",
-                        )}
-                    >
-                        <div class={twClasses("", jsxTailwindStyles, "div")}>
-                            <span class={twClasses("eyebrow", jsxTailwindStyles, "span")}>
+                    <div class="student-history-section-heading mb-3 flex items-center justify-between gap-2.5">
+                        <div>
+                            <span class="text-xs font-bold tracking-widest text-faint">
                                 The thread over time
                             </span>
-                            <h3 class={twClasses("", jsxTailwindStyles, "h3")}>Sessions</h3>
+                            <h3 class="mt-1 text-xs font-semibold tracking-tight text-ink">
+                                Sessions
+                            </h3>
                         </div>
-                        <span class={twClasses("student-history-total", jsxTailwindStyles, "span")}>
+                        <span class="student-history-total inline-flex items-center gap-1.5 text-xs tabular-nums text-muted">
                             {history().length} recorded
                         </span>
                     </div>
                     <Show
                         when={history().length > 0}
                         fallback={
-                            <p class={twClasses("student-history-empty", jsxTailwindStyles, "p")}>
+                            <p class="student-history-empty m-0 rounded-[5px] border border-line-soft bg-surface px-[11px] py-2.5 text-xs leading-relaxed text-muted">
                                 Sessions linked to this learner will appear here as their work
                                 unfolds.
                             </p>
                         }
                     >
-                        <ol class={twClasses("student-session-list", jsxTailwindStyles, "ol")}>
+                        <ol class="student-session-list m-0 grid max-h-[330px] list-none overflow-y-auto p-0">
                             <For each={history()}>
                                 {(session) => (
-                                    <li
-                                        class={twClasses(
-                                            "student-session-item",
-                                            jsxTailwindStyles,
-                                            "li",
-                                        )}
-                                    >
-                                        <span
-                                            class={twClasses(
-                                                "student-session-date",
-                                                jsxTailwindStyles,
-                                                "span",
-                                            )}
-                                        >
+                                    <li class="student-session-item grid min-w-0 grid-cols-[57px_minmax(0,1fr)] gap-2 border-b border-line-soft py-2 last:border-b-0">
+                                        <span class="student-session-date text-xs tabular-nums text-muted">
                                             {formatTimestamp(field(session, "started_at_us"))}
                                         </span>
-                                        <span
-                                            class={twClasses(
-                                                "student-session-copy",
-                                                jsxTailwindStyles,
-                                                "span",
-                                            )}
-                                        >
-                                            <strong
-                                                class={twClasses("", jsxTailwindStyles, "strong")}
-                                            >
+                                        <span class="student-session-copy grid min-w-0 gap-1">
+                                            <strong class="truncate text-xs font-semibold text-ink-soft">
                                                 {field(session, "title", "Tutoring session")}
                                             </strong>
-                                            <small
-                                                class={twClasses("", jsxTailwindStyles, "small")}
-                                            >
+                                            <small class="truncate text-xs text-faint">
                                                 {[
                                                     field(session, "subject"),
                                                     field(session, "session_state"),
@@ -232,30 +218,20 @@ export function StudentProgressPanel(props: StudentProgressPanelProps): JSX.Elem
                 </section>
 
                 <section
-                    class={twClasses("student-progress-history", jsxTailwindStyles, "section")}
+                    class="student-progress-history min-w-0"
                     aria-label="Tutor-reviewed progress"
                 >
-                    <div
-                        class={twClasses(
-                            "student-history-section-heading",
-                            jsxTailwindStyles,
-                            "div",
-                        )}
-                    >
-                        <div class={twClasses("", jsxTailwindStyles, "div")}>
-                            <span class={twClasses("eyebrow", jsxTailwindStyles, "span")}>
+                    <div class="student-history-section-heading mb-3 flex items-center justify-between gap-2.5">
+                        <div>
+                            <span class="text-xs font-bold tracking-widest text-faint">
                                 Human review, sources attached
                             </span>
-                            <h3 class={twClasses("", jsxTailwindStyles, "h3")}>
+                            <h3 class="mt-1 text-xs font-semibold tracking-tight text-ink">
                                 Progress by skill
                             </h3>
                         </div>
                         <button
-                            class={twClasses(
-                                "button button-outline student-review-trigger",
-                                jsxTailwindStyles,
-                                "button",
-                            )}
+                            class={cn("button student-review-trigger", buttonOutline)}
                             type="button"
                             disabled={props.disabled || props.busy}
                             onClick={() => {
@@ -269,7 +245,7 @@ export function StudentProgressPanel(props: StudentProgressPanelProps): JSX.Elem
 
                     <Show when={progress().error}>
                         <p
-                            class={twClasses("student-progress-warning", jsxTailwindStyles, "p")}
+                            class="student-progress-warning m-0 rounded-[5px] border border-warning/40 bg-warning/5 px-[11px] py-2.5 text-xs leading-relaxed text-warning"
                             role="status"
                         >
                             This archive’s stored progress history is malformed. Other student
@@ -277,13 +253,13 @@ export function StudentProgressPanel(props: StudentProgressPanelProps): JSX.Elem
                         </p>
                     </Show>
                     <Show when={!progress().error && progress().items.length === 0}>
-                        <p class={twClasses("student-history-empty", jsxTailwindStyles, "p")}>
+                        <p class="student-history-empty m-0 rounded-[5px] border border-line-soft bg-surface px-[11px] py-2.5 text-xs leading-relaxed text-muted">
                             No tutor-reviewed progress yet. A review stays tied to evidence from
                             this learner’s sessions.
                         </p>
                     </Show>
                     <Show when={!progress().error && progress().items.length > 0}>
-                        <ul class={twClasses("student-progress-list", jsxTailwindStyles, "ul")}>
+                        <ul class="student-progress-list m-0 grid list-none gap-2 p-0">
                             <For each={progress().items}>
                                 {(item) => {
                                     const valid = () =>
@@ -292,49 +268,22 @@ export function StudentProgressPanel(props: StudentProgressPanelProps): JSX.Elem
                                             item.classification,
                                         );
                                     return (
-                                        <li
-                                            class={twClasses(
-                                                "student-progress-item",
-                                                jsxTailwindStyles,
-                                                "li",
-                                            )}
-                                        >
-                                            <div
-                                                class={twClasses(
-                                                    "student-progress-item-heading",
-                                                    jsxTailwindStyles,
-                                                    "div",
-                                                )}
-                                            >
-                                                <div
-                                                    class={twClasses("", jsxTailwindStyles, "div")}
-                                                >
-                                                    <h4
-                                                        class={twClasses(
-                                                            "",
-                                                            jsxTailwindStyles,
-                                                            "h4",
-                                                        )}
-                                                    >
+                                        <li class="student-progress-item min-w-0 rounded-[5px] border border-line-soft border-l-2 border-l-accent/50 bg-surface p-3">
+                                            <div class="student-progress-item-heading flex items-center justify-between gap-2">
+                                                <div class="flex min-w-0 flex-wrap items-center gap-1.5">
+                                                    <h4 class="m-0 truncate text-xs font-semibold text-ink-soft">
                                                         {item.skill}
                                                     </h4>
                                                     <span
-                                                        class={twClasses(
-                                                            `student-classification classification-${item.classification}`,
-                                                            jsxTailwindStyles,
-                                                            "span",
+                                                        class={cn(
+                                                            "student-classification rounded-[5px] border px-1.5 py-[3px] text-xs font-semibold",
+                                                            classificationTone(item.classification),
                                                         )}
                                                     >
                                                         {classificationLabel(item.classification)}
                                                     </span>
                                                 </div>
-                                                <span
-                                                    class={twClasses(
-                                                        "student-review-date",
-                                                        jsxTailwindStyles,
-                                                        "span",
-                                                    )}
-                                                >
+                                                <span class="student-review-date text-xs tabular-nums text-muted">
                                                     Reviewed {formatTimestamp(item.reviewedAtUs)}
                                                 </span>
                                             </div>
@@ -343,64 +292,30 @@ export function StudentProgressPanel(props: StudentProgressPanelProps): JSX.Elem
                                                     item.classification === "unverified-improvement"
                                                 }
                                             >
-                                                <p
-                                                    class={twClasses(
-                                                        "student-unverified-claim",
-                                                        jsxTailwindStyles,
-                                                        "p",
-                                                    )}
-                                                >
+                                                <p class="student-unverified-claim mt-2 rounded-[5px] border border-warning/35 bg-warning/10 px-2 py-1.5 text-xs font-semibold tracking-wide text-warning">
                                                     UNVERIFIED CLAIM: improvement is not
                                                     established.
                                                 </p>
                                             </Show>
                                             <Show when={item.note}>
-                                                <p
-                                                    class={twClasses(
-                                                        "student-progress-note",
-                                                        jsxTailwindStyles,
-                                                        "p",
-                                                    )}
-                                                >
+                                                <p class="student-progress-note mt-2 whitespace-pre-wrap text-xs leading-relaxed text-muted">
                                                     {item.note}
                                                 </p>
                                             </Show>
-                                            <div
-                                                class={twClasses(
-                                                    "student-progress-sources",
-                                                    jsxTailwindStyles,
-                                                    "div",
-                                                )}
-                                            >
-                                                <span
-                                                    class={twClasses("", jsxTailwindStyles, "span")}
-                                                >
+                                            <div class="student-progress-sources mt-2 flex flex-wrap items-center justify-start gap-2 text-xs text-faint [&>span+span]:before:mr-2 [&>span+span]:before:text-line-strong [&>span+span]:before:content-['·']">
+                                                <span>
                                                     {item.evidenceSourceIds.length} cited source
                                                     {item.evidenceSourceIds.length === 1 ? "" : "s"}
                                                 </span>
-                                                <span
-                                                    class={twClasses("", jsxTailwindStyles, "span")}
-                                                >
-                                                    Reviewed by {item.reviewedBy}
-                                                </span>
+                                                <span>Reviewed by {item.reviewedBy}</span>
                                                 <Show when={!valid()}>
-                                                    <span
-                                                        class={twClasses(
-                                                            "student-source-warning",
-                                                            jsxTailwindStyles,
-                                                            "span",
-                                                        )}
-                                                    >
+                                                    <span class="student-source-warning text-warning">
                                                         Sources unavailable or no longer valid
                                                     </span>
                                                 </Show>
                                             </div>
                                             <ul
-                                                class={twClasses(
-                                                    "student-source-chips",
-                                                    jsxTailwindStyles,
-                                                    "ul",
-                                                )}
+                                                class="student-source-chips m-0 mt-2 flex list-none flex-wrap gap-1 p-0"
                                                 aria-label="Cited evidence"
                                             >
                                                 <For each={item.evidenceSourceIds}>
@@ -412,10 +327,10 @@ export function StudentProgressPanel(props: StudentProgressPanelProps): JSX.Elem
                                                             );
                                                         return (
                                                             <li
-                                                                class={twClasses(
-                                                                    source() ? "" : "is-missing",
-                                                                    jsxTailwindStyles,
-                                                                    "li",
+                                                                class={cn(
+                                                                    "max-w-full truncate rounded-[5px] border border-line-soft bg-surface-subtle px-1.5 py-1 text-xs text-muted",
+                                                                    !source() &&
+                                                                        "border-warning/40 text-warning",
                                                                 )}
                                                             >
                                                                 {source()
@@ -439,28 +354,20 @@ export function StudentProgressPanel(props: StudentProgressPanelProps): JSX.Elem
 
                     <Show when={editing()}>
                         <form
-                            class={twClasses("student-review-form", jsxTailwindStyles, "form")}
+                            class="student-review-form mt-3 grid gap-3 rounded-[5px] border border-line-soft bg-surface p-3"
                             onSubmit={(event) => void saveReview(event)}
                         >
-                            <div
-                                class={twClasses(
-                                    "student-review-form-heading",
-                                    jsxTailwindStyles,
-                                    "div",
-                                )}
-                            >
-                                <span class={twClasses("eyebrow", jsxTailwindStyles, "span")}>
+                            <div class="student-review-form-heading">
+                                <span class="text-xs font-bold tracking-widest text-faint">
                                     A new tutor review
                                 </span>
-                                <p class={twClasses("", jsxTailwindStyles, "p")}>
+                                <p class="mt-1 text-xs leading-relaxed text-muted">
                                     Each skill keeps its latest classification. Earlier archive
                                     revisions remain part of the file history.
                                 </p>
                             </div>
-                            <div
-                                class={twClasses("student-review-fields", jsxTailwindStyles, "div")}
-                            >
-                                <label class={twClasses("field-label", jsxTailwindStyles, "label")}>
+                            <div class="student-review-fields grid gap-2.5 md:grid-cols-[1.2fr_1fr_1fr]">
+                                <label class={cn("field-label", labelBase)}>
                                     Skill or learning goal
                                     <input
                                         required
@@ -468,10 +375,10 @@ export function StudentProgressPanel(props: StudentProgressPanelProps): JSX.Elem
                                         value={skill()}
                                         onInput={(event) => setSkill(event.currentTarget.value)}
                                         placeholder="For example, equivalent fractions"
-                                        class={twClasses("", jsxTailwindStyles, "input")}
+                                        class={inputBase}
                                     />
                                 </label>
-                                <label class={twClasses("field-label", jsxTailwindStyles, "label")}>
+                                <label class={cn("field-label", labelBase)}>
                                     Classification
                                     <select
                                         value={classification()}
@@ -481,7 +388,7 @@ export function StudentProgressPanel(props: StudentProgressPanelProps): JSX.Elem
                                                     .value as StudentProgressClassification,
                                             )
                                         }
-                                        class={twClasses("", jsxTailwindStyles, "select")}
+                                        class={selectBase}
                                     >
                                         <For each={STUDENT_PROGRESS_CLASSIFICATIONS}>
                                             {(item) => (
@@ -492,7 +399,7 @@ export function StudentProgressPanel(props: StudentProgressPanelProps): JSX.Elem
                                         </For>
                                     </select>
                                 </label>
-                                <label class={twClasses("field-label", jsxTailwindStyles, "label")}>
+                                <label class={cn("field-label", labelBase)}>
                                     Reviewed by
                                     <input
                                         required
@@ -502,32 +409,20 @@ export function StudentProgressPanel(props: StudentProgressPanelProps): JSX.Elem
                                             setReviewedBy(event.currentTarget.value)
                                         }
                                         placeholder="Your name or tutor label"
-                                        class={twClasses("", jsxTailwindStyles, "input")}
+                                        class={inputBase}
                                     />
-                                    <small class={twClasses("", jsxTailwindStyles, "small")}>
+                                    <small class="text-xs font-normal leading-normal text-faint">
                                         This is a tutor-entered audit label, not an authenticated
                                         identity.
                                     </small>
                                 </label>
                             </div>
 
-                            <fieldset
-                                class={twClasses(
-                                    "student-evidence-picker",
-                                    jsxTailwindStyles,
-                                    "fieldset",
-                                )}
-                            >
-                                <legend class={twClasses("", jsxTailwindStyles, "legend")}>
+                            <fieldset class="student-evidence-picker m-0 min-w-0 border-0 p-0">
+                                <legend class="mb-1 text-xs font-semibold text-ink-soft">
                                     Evidence from this learner’s sessions
                                 </legend>
-                                <p
-                                    class={twClasses(
-                                        "student-evidence-guidance",
-                                        jsxTailwindStyles,
-                                        "p",
-                                    )}
-                                >
+                                <p class="student-evidence-guidance mb-2 mt-0 text-xs leading-normal text-muted">
                                     Recurring, partial improvement, and mastery need sources from at
                                     least two sessions. Mastery also needs every source verified by
                                     a tutor.
@@ -535,25 +430,13 @@ export function StudentProgressPanel(props: StudentProgressPanelProps): JSX.Elem
                                 <Show
                                     when={evidenceOptions().length > 0}
                                     fallback={
-                                        <p
-                                            class={twClasses(
-                                                "student-history-empty",
-                                                jsxTailwindStyles,
-                                                "p",
-                                            )}
-                                        >
+                                        <p class="student-history-empty m-0 rounded-[5px] border border-line-soft bg-surface px-[11px] py-2.5 text-xs leading-relaxed text-muted">
                                             No evidence is available yet. Review evidence from this
                                             learner’s sessions first.
                                         </p>
                                     }
                                 >
-                                    <div
-                                        class={twClasses(
-                                            "student-evidence-options",
-                                            jsxTailwindStyles,
-                                            "div",
-                                        )}
-                                    >
+                                    <div class="student-evidence-options grid max-h-[235px] grid-cols-1 gap-1.5 overflow-y-auto p-0.5 sm:grid-cols-2">
                                         <For each={evidenceOptions()}>
                                             {(item) => {
                                                 const session = () =>
@@ -569,13 +452,7 @@ export function StudentProgressPanel(props: StudentProgressPanelProps): JSX.Elem
                                                 const checked = () =>
                                                     selectedIds().includes(item.id);
                                                 return (
-                                                    <label
-                                                        class={twClasses(
-                                                            "student-evidence-option",
-                                                            jsxTailwindStyles,
-                                                            "label",
-                                                        )}
-                                                    >
+                                                    <label class="student-evidence-option flex min-w-0 cursor-pointer items-start gap-2 rounded-[5px] border border-line-soft bg-surface-subtle p-2 focus-within:border-accent">
                                                         <input
                                                             type="checkbox"
                                                             checked={checked()}
@@ -588,39 +465,17 @@ export function StudentProgressPanel(props: StudentProgressPanelProps): JSX.Elem
                                                                 else selected.delete(item.id);
                                                                 setSelectedIds([...selected]);
                                                             }}
-                                                            class={twClasses(
-                                                                "",
-                                                                jsxTailwindStyles,
-                                                                "input",
-                                                            )}
+                                                            class="mt-0.5 accent-accent"
                                                         />
-                                                        <span
-                                                            class={twClasses(
-                                                                "student-evidence-option-copy",
-                                                                jsxTailwindStyles,
-                                                                "span",
-                                                            )}
-                                                        >
-                                                            <strong
-                                                                class={twClasses(
-                                                                    "",
-                                                                    jsxTailwindStyles,
-                                                                    "strong",
-                                                                )}
-                                                            >
+                                                        <span class="student-evidence-option-copy grid min-w-0 gap-1">
+                                                            <strong class="truncate text-xs font-semibold text-ink-soft">
                                                                 {field(
                                                                     item,
                                                                     "title",
                                                                     "Untitled evidence",
                                                                 )}
                                                             </strong>
-                                                            <small
-                                                                class={twClasses(
-                                                                    "",
-                                                                    jsxTailwindStyles,
-                                                                    "small",
-                                                                )}
-                                                            >
+                                                            <small class="line-clamp-2 text-xs leading-snug text-faint">
                                                                 {session()
                                                                     ? field(
                                                                           session()!,
@@ -635,13 +490,7 @@ export function StudentProgressPanel(props: StudentProgressPanelProps): JSX.Elem
                                                                     ? " · Tutor verified"
                                                                     : " · Needs review"}
                                                             </small>
-                                                            <span
-                                                                class={twClasses(
-                                                                    "",
-                                                                    jsxTailwindStyles,
-                                                                    "span",
-                                                                )}
-                                                            >
+                                                            <span class="line-clamp-2 text-xs leading-snug text-faint">
                                                                 {snippet(field(item, "content"))}
                                                             </span>
                                                         </span>
@@ -653,57 +502,33 @@ export function StudentProgressPanel(props: StudentProgressPanelProps): JSX.Elem
                                 </Show>
                             </fieldset>
 
-                            <label
-                                class={twClasses(
-                                    "field-label student-review-note",
-                                    jsxTailwindStyles,
-                                    "label",
-                                )}
-                            >
+                            <label class={cn("field-label student-review-note", labelBase)}>
                                 Review note{" "}
-                                <span
-                                    class={twClasses("field-optional", jsxTailwindStyles, "span")}
-                                >
-                                    Optional
-                                </span>
+                                <span class="text-xs font-normal text-faint">Optional</span>
                                 <textarea
                                     maxLength={4096}
                                     rows={3}
                                     value={note()}
                                     onInput={(event) => setNote(event.currentTarget.value)}
                                     placeholder="Describe what the evidence means for this learner."
-                                    class={twClasses("", jsxTailwindStyles, "textarea")}
+                                    class={cn(textareaBase, "resize-y leading-normal")}
                                 />
                             </label>
                             <Show when={error()}>
                                 <p
-                                    class={twClasses(
-                                        "student-progress-form-error",
-                                        jsxTailwindStyles,
-                                        "p",
-                                    )}
+                                    class="student-progress-form-error m-0 rounded-[5px] border border-warning/40 bg-warning/5 px-2 py-2 text-xs text-warning"
                                     role="alert"
                                 >
                                     {error()}
                                 </p>
                             </Show>
-                            <div
-                                class={twClasses(
-                                    "student-review-form-actions",
-                                    jsxTailwindStyles,
-                                    "div",
-                                )}
-                            >
-                                <span class={twClasses("", jsxTailwindStyles, "span")}>
+                            <div class="student-review-form-actions flex flex-wrap items-center justify-between gap-2 text-xs text-muted">
+                                <span>
                                     {selectedIds().length} source
                                     {selectedIds().length === 1 ? "" : "s"} selected
                                 </span>
                                 <button
-                                    class={twClasses(
-                                        "button button-primary",
-                                        jsxTailwindStyles,
-                                        "button",
-                                    )}
+                                    class={cn("button", buttonPrimary)}
                                     type="submit"
                                     disabled={
                                         props.disabled ||
@@ -740,7 +565,7 @@ function formatTimestamp(value: string): string {
     try {
         const milliseconds = Number(BigInt(value || "0") / 1000n);
         if (!Number.isFinite(milliseconds) || milliseconds <= 0) return "Date not set";
-        return new Intl.DateTimeFormat(undefined, { dateStyle: "medium" }).format(
+        return new Intl.DateTimeFormat("en-US", { dateStyle: "medium" }).format(
             new Date(milliseconds),
         );
     } catch {
