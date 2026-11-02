@@ -78,6 +78,18 @@ jobs:
             - name: Audit dependencies
               run: pnpm audit --audit-level high
 
+            - name: Verify the TypeScript CLI stays retired
+              shell: bash
+              run: |
+                  if [ -d cli ]; then
+                    echo "::error::The TypeScript CLI directory must not return."
+                    exit 1
+                  fi
+                  if grep -q '"cli":' package.json; then
+                    echo "::error::The TypeScript CLI script must not return."
+                    exit 1
+                  fi
+
             - name: Verify application version consistency
               run: node scripts/collect-release.mjs --check-versions
 
