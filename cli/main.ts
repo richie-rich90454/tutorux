@@ -62,7 +62,7 @@ Usage:
   tutorux --archive <file.tux> session show|verify <uuid> [--json]
   tutorux --archive <file.tux> session update <uuid> [--title <title>] [--subject <subject>] [--objectives <text>] [--student-id <uuid>] [--entry-id <uuid>] [--notes <text>]
   tutorux --archive <file.tux> session clone <uuid> [--title <title>] [--type notes-only|record-audio|import-recording]
-  tutorux --archive <file.tux> session export <uuid> --output <package.tux>
+  tutorux --archive <file.tux> session export <uuid> --output <package.tux> [--force --confirm-sensitive]
     refuses an existing destination; --force requires --confirm-sensitive
   tutorux --archive <file.tux> session import <package.tux>|--input <package.tux> [--student-id <uuid>]
   tutorux --archive <file.tux> session archive|unarchive <uuid>
@@ -224,7 +224,7 @@ export async function executeCli(
         commandArgv.includes("-v") ||
         commandArgv[0] === "version"
     ) {
-        output.stdout("Tutorux 1.0.0 (TypeScript)");
+        output.stdout("Tutorux 1.0.0");
         return 0;
     }
 
