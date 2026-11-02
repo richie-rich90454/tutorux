@@ -49,7 +49,7 @@ test("keeps the empty journal state compact instead of inheriting the welcome la
     page,
 }, testInfo) => {
     await page.goto("/");
-    await page.getByRole("button", { name: "Create archive" }).click();
+    await page.locator("#main-content").getByRole("button", { name: "Create archive" }).click();
     await page.getByLabel("Workspace name").fill("Empty Journal Layout QA");
     const download = page.waitForEvent("download");
     await page.getByRole("button", { name: "Create workspace" }).click();
@@ -77,7 +77,7 @@ test("keeps every workspace page inside desktop, tablet, and phone viewports", a
     page,
 }, testInfo) => {
     await page.goto("/");
-    await page.getByRole("button", { name: "Create archive" }).click();
+    await page.locator("#main-content").getByRole("button", { name: "Create archive" }).click();
     await page.getByLabel("Workspace name").fill("Responsive Layout QA");
     const download = page.waitForEvent("download");
     await page.getByRole("button", { name: "Create workspace" }).click();
@@ -124,7 +124,7 @@ test("creates a passphrase-protected workspace that opens authenticated and unlo
 }, testInfo) => {
     const passphrase = "新档案安全口令";
     await page.goto("/");
-    await page.getByRole("button", { name: "Create archive" }).click();
+    await page.locator("#main-content").getByRole("button", { name: "Create archive" }).click();
     await page.getByLabel("Workspace name").fill("Protected QA Workspace");
     await page.getByRole("checkbox", { name: /Protect this workspace with a passphrase/u }).check();
     await page.getByLabel("Archive passphrase").fill(passphrase);
@@ -192,7 +192,7 @@ test("creates, updates, exports, and reopens a portable tutoring workspace", asy
     await expect(page).toHaveTitle(/Tutorux/u);
     await expect(page.getByRole("heading", { level: 1 })).toHaveText("Open or create an archive");
 
-    await page.getByRole("button", { name: "Create archive" }).click();
+    await page.locator("#main-content").getByRole("button", { name: "Create archive" }).click();
     await page.getByLabel("Workspace name").fill("QA Workspace");
     const firstDownload = page.waitForEvent("download");
     await page.getByRole("button", { name: "Create workspace" }).click();
@@ -577,7 +577,10 @@ test("creates, updates, exports, and reopens a portable tutoring workspace", asy
     await page.reload();
 
     const fileChooser = page.waitForEvent("filechooser");
-    await page.getByRole("button", { name: "Open archive", exact: true }).click();
+    await page
+        .locator("#main-content")
+        .getByRole("button", { name: "Open archive", exact: true })
+        .click();
     await (await fileChooser).setFiles(archivePath);
     await page.locator(".sidebar-archive-status").waitFor();
     await expect(
@@ -626,7 +629,7 @@ test("creates, updates, exports, and reopens a portable tutoring workspace", asy
 
 test("creates and manages archive-backed study guide templates", async ({ page }, testInfo) => {
     await page.goto("/");
-    await page.getByRole("button", { name: "Create archive" }).click();
+    await page.locator("#main-content").getByRole("button", { name: "Create archive" }).click();
     await page.getByLabel("Workspace name").fill("Template QA Workspace");
     const initialDownload = page.waitForEvent("download");
     await page.getByRole("button", { name: "Create workspace" }).click();
@@ -764,7 +767,7 @@ test("creates and manages archive-backed study guide templates", async ({ page }
 
 test("supports keyboard quick actions and appearance preferences", async ({ page }, testInfo) => {
     await page.goto("/");
-    await page.getByRole("button", { name: "Create archive" }).click();
+    await page.locator("#main-content").getByRole("button", { name: "Create archive" }).click();
     await page.getByLabel("Workspace name").fill("Appearance QA");
     const archiveDownload = page.waitForEvent("download");
     await page.getByRole("button", { name: "Create workspace" }).click();
