@@ -633,3 +633,189 @@ fn empty_asset_blob(id: &str, content_hash: &str, timestamp: &str) -> ArchiveRec
         ],
     )
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{CaptureConfig, CaptureWriter};
+    use crate::core::archive::{create_archive_bytes, new_uuid, ArchiveSnapshot};
+    use crate::core::format::{crc32, ArchiveRecord, RecordType};
+    use crate::core::source::FileSource;
+    use crate::platform::synchronized_audio::headless::{
+        HeadlessCaptureStarted, HeadlessChunk, HeadlessFinished, HeadlessTrackSummary,
+    };
+    use std::{sync::Arc, time::Duration};
+
+    const RATE_HZ: u32 = 48_000;
+    const FRAMES_PER_CHUNK: u64 = 480;
+
+    fn started() -> HeadlessCaptureStarted {
+        HeadlessCaptureStarted {
+            capture_id: new_uuid(),
+            started_at_us: 1_000_000,
+            microphone_sample_rate_hz: RATE_HZ,
+            microphone_channel_count: 1,
+            microphone_sample_format: "f32".to_owned(),
+            system_audio_sample_rate_hz: 0,
+            system_audio_channel_count: 0,
+            system_audio_sample_format: String::new(),
+            application_audio_sample_rate_hz: 0,
+            application_audio_channel_count: 0,
+            application_audio_sample_format: String::new(),
+            application_audio_device_id: None,
+            application_audio_name: None,
+            application_audio_process_id: None,
+            application_audio_backend: None,
+            backend: "test".to_owned(),
+        }
+    }
+
+    fn chunk(sequence: u64, first_sample_index: u64, pcm: Vec<u8>) -> HeadlessChunk {
+        HeadlessChunk {
+            track: "microphone",
+            sequence,
+            first_sample_index,
+            frame_count: (pcm.len() / 2) as u64,
+            sample_rate_hz: RATE_HZ,
+            channel_count: 1,
+            sample_format: "f32",
+            gap_before_samples: 0,
+            contains_device_discontinuity: false,
+            pcm,
+        }
+    }
+
+    #[test]
+    fn writes_two_chunks_and_finishes_a_verifiable_archive() {
+        let directory = tempfile::tempdir().expect("temporary directory");
+        let path = directory.path().join("capture.tux");
+        let initial = create_archive_bytes("Recording", "", 1).expect("create archive");
+        std::fs::write(&path, initial).expect("write archive");
+
+        let session_id = new_uuid();
+        let take_id = new_uuid();
+        let track_ids = [new_uuid(), new_uuid(), new_uuid()];
+        let snapshot = ArchiveSnapshot::open(Arc::new(
+            FileSource::open(&path).expect("open archive source"),
+        ))
+        .expect("open archive");
+        let snapshot = snapshot
+            .append_records(&[ArchiveRecord::new(
+                RecordType::SESSION,
+                &session_id,
+                [("display_name", "Lesson")],
+            )])
+            .expect("append session");
+
+        let config = CaptureConfig {
+            session_id: session_id.clone(),
+            take_id: take_id.clone(),
+            track_ids: track_ids.clone(),
+            device_names: ["Microphone".to_owned(), String::new(), String::new()],
+            microphone_device_id: Some("device-1".to_owned()),
+            system_device_id: None,
+            application_device_id: None,
+            consent_at_us: 1_000,
+            confirmed_by: "Tutor".to_owned(),
+            duration_seconds: 0,
+            durability: "durable".to_owned(),
+            whisper: None,
+        };
+        let (mut writer, snapshot) =
+            CaptureWriter::begin(&snapshot, &config, &started()).expect("begin capture");
+
+        let first_pcm = vec![0x11u8; (FRAMES_PER_CHUNK * 2) as usize];
+        let second_pcm = vec![0x22u8; (FRAMES_PER_CHUNK * 2) as usize];
+        let mut pending = vec![chunk(0, 0, first_pcm.clone())];
+        let snapshot = writer
+            .write_chunks(&snapshot, &mut pending)
+            .expect("write first chunk");
+        let mut pending = vec![chunk(1, FRAMES_PER_CHUNK, second_pcm.clone())];
+        let snapshot = writer
+            .write_chunks(&snapshot, &mut pending)
+            .expect("write second chunk");
+
+        let chunks = snapshot
+            .list_records(RecordType::AUDIO_CHUNK, true)
+            .expect("list audio chunks");
+        assert_eq!(chunks.len(), 2);
+        let first = chunks
+            .iter()
+            .find(|record| record.field("sequence_number") == Some("0"))
+            .expect("first chunk");
+        assert_eq!(first.field("first_sample_index"), Some("0"));
+        assert_eq!(first.field("sample_count"), Some("480"));
+        assert_eq!(first.field("timeline_start_us"), Some("0"));
+        assert_eq!(first.field("timeline_end_us"), Some("10000"));
+        let first_checksum = crc32(&first_pcm).to_string();
+        assert_eq!(
+            first.field("payload_checksum"),
+            Some(first_checksum.as_str())
+        );
+        let second = chunks
+            .iter()
+            .find(|record| record.field("sequence_number") == Some("1"))
+            .expect("second chunk");
+        assert_eq!(second.field("first_sample_index"), Some("480"));
+        assert_eq!(second.field("timeline_start_us"), Some("10000"));
+        assert_eq!(second.field("timeline_end_us"), Some("20000"));
+        let second_checksum = crc32(&second_pcm).to_string();
+        assert_eq!(
+            second.field("payload_checksum"),
+            Some(second_checksum.as_str())
+        );
+
+        let track = snapshot
+            .get_record(RecordType::ASSET_METADATA, &track_ids[0])
+            .expect("read track")
+            .expect("track exists");
+        assert_eq!(track.field("sample_count"), Some("960"));
+        assert_eq!(track.field("timeline_sample_count"), Some("960"));
+        assert_eq!(track.field("chunk_count"), Some("2"));
+        assert_eq!(track.field("duration_us"), Some("20000"));
+
+        let finished = HeadlessFinished {
+            microphone: HeadlessTrackSummary {
+                sample_rate_hz: RATE_HZ,
+                channel_count: 1,
+                sample_format: "f32".to_owned(),
+                sample_count: FRAMES_PER_CHUNK * 2,
+                byte_count: FRAMES_PER_CHUNK * 4,
+                chunk_count: 2,
+                discontinuity_count: 0,
+                failure: None,
+            },
+            system_audio: HeadlessTrackSummary::default(),
+            application_audio: HeadlessTrackSummary::default(),
+        };
+        let snapshot = writer
+            .finish(&snapshot, &finished, 0, Duration::ZERO)
+            .expect("finish capture");
+
+        let take = snapshot
+            .get_record(RecordType::ASSET_METADATA, &take_id)
+            .expect("read take")
+            .expect("take exists");
+        assert_eq!(take.field("state"), Some("completed"));
+        assert_eq!(take.field("duration_us"), Some("20000"));
+        assert!(take
+            .field("ended_at_us")
+            .is_some_and(|value| !value.is_empty()));
+        let session = snapshot
+            .get_record(RecordType::SESSION, &session_id)
+            .expect("read session")
+            .expect("session exists");
+        assert_eq!(session.field("recording_state"), Some("completed"));
+
+        snapshot.verify().expect("recording verifies");
+        let bytes = snapshot
+            .source
+            .read(0, snapshot.source.size() as usize)
+            .expect("read archive bytes");
+        let merged = directory.path().join("merged.tux");
+        std::fs::write(&merged, &bytes).expect("write merged archive");
+        let reopened =
+            ArchiveSnapshot::open(Arc::new(FileSource::open(&merged).expect("reopen source")))
+                .expect("reopen archive");
+        reopened.verify().expect("merged recording verifies");
+    }
+}
