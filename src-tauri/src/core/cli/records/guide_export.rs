@@ -346,6 +346,59 @@ mod tests {
         record
     }
 
+    fn little(bytes: &[u8], offset: usize) -> u32 {
+        u32::from_le_bytes([
+            bytes[offset],
+            bytes[offset + 1],
+            bytes[offset + 2],
+            bytes[offset + 3],
+        ])
+    }
+
+    fn zip_part(bytes: &[u8], name: &str) -> Vec<u8> {
+        let end = bytes.len() - 22;
+        assert_eq!(&bytes[end..end + 4], b"PK\x05\x06", "ZIP end record");
+        let entry_count = u16::from_le_bytes([bytes[end + 10], bytes[end + 11]]) as usize;
+        let directory_end = little(bytes, end + 16) as usize + little(bytes, end + 12) as usize;
+        let mut cursor = little(bytes, end + 16) as usize;
+        for _ in 0..entry_count {
+            assert!(cursor < directory_end, "central directory bounds");
+            assert_eq!(&bytes[cursor..cursor + 4], b"PK\x01\x02", "central entry");
+            let method = u16::from_le_bytes([bytes[cursor + 10], bytes[cursor + 11]]);
+            let packed_size = little(bytes, cursor + 20) as usize;
+            let name_length = u16::from_le_bytes([bytes[cursor + 28], bytes[cursor + 29]]) as usize;
+            let extra_length =
+                u16::from_le_bytes([bytes[cursor + 30], bytes[cursor + 31]]) as usize;
+            let comment_length =
+                u16::from_le_bytes([bytes[cursor + 32], bytes[cursor + 33]]) as usize;
+            let local_offset = little(bytes, cursor + 42) as usize;
+            if &bytes[cursor + 46..cursor + 46 + name_length] == name.as_bytes() {
+                let local_name_length =
+                    u16::from_le_bytes([bytes[local_offset + 26], bytes[local_offset + 27]])
+                        as usize;
+                let local_extra_length =
+                    u16::from_le_bytes([bytes[local_offset + 28], bytes[local_offset + 29]])
+                        as usize;
+                let data = local_offset + 30 + local_name_length + local_extra_length;
+                let packed = &bytes[data..data + packed_size];
+                return match method {
+                    0 => packed.to_vec(),
+                    8 => {
+                        use std::io::Read;
+                        let mut output = Vec::new();
+                        flate2::read::DeflateDecoder::new(packed)
+                            .read_to_end(&mut output)
+                            .expect("inflate DOCX part");
+                        output
+                    }
+                    other => panic!("unsupported ZIP method {other}"),
+                };
+            }
+            cursor += 46 + name_length + extra_length + comment_length;
+        }
+        panic!("ZIP part {name} is missing");
+    }
+
     #[test]
     fn json_export_sorts_fields_after_identity() {
         let json = serialize_guide_json(&guide());
@@ -363,13 +416,44 @@ mod tests {
     }
 
     #[test]
-    fn docx_and_pdf_are_valid_containers() {
+    fn docx_contains_content_types_and_document_parts_with_the_section_text() {
         let docx = render_guide_docx(&guide(), &BTreeMap::new()).ok().unwrap();
-        assert_eq!(&docx[..2], b"PK");
-        assert!(String::from_utf8_lossy(&docx).contains("Overview"));
+
+        let content_types = String::from_utf8(zip_part(&docx, "[Content_Types].xml"))
+            .expect("content types are UTF-8");
+        assert!(content_types.contains("/word/document.xml"));
+        assert!(content_types.contains("wordprocessingml.document.main+xml"));
+
+        let document =
+            String::from_utf8(zip_part(&docx, "word/document.xml")).expect("document is UTF-8");
+        assert!(document.starts_with("<?xml"), "document is XML");
+        assert!(document.contains("Overview"), "section heading");
+        assert!(document.contains("Hello"), "section text");
+    }
+
+    #[test]
+    fn pdf_is_a_valid_container() {
         let pdf = render_guide_pdf(&guide()).ok().unwrap();
         assert_eq!(&pdf[..5], b"%PDF-");
         assert!(String::from_utf8_lossy(&pdf).contains("%%EOF"));
         assert!(String::from_utf8_lossy(&pdf).contains("Overview"));
+    }
+
+    #[test]
+    fn export_rejects_control_characters_in_guide_text() {
+        let mut record = guide();
+        record.fields.insert(
+            "section.0.block.0.text".to_owned(),
+            "Hello\u{7}world".to_owned(),
+        );
+        let error = validate_guide_for_export(&record, None).expect_err("control characters");
+        let message = match error {
+            crate::core::cli::Failure::Usage(message) => message,
+            crate::core::cli::Failure::Core(error) => error.message,
+        };
+        assert!(
+            message.contains("control characters"),
+            "unexpected error: {message}"
+        );
     }
 }
