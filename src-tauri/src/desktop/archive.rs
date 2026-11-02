@@ -26,6 +26,22 @@ pub(crate) fn authorize_archive_path(
     if !metadata.is_file() {
         return Err("The selected archive is not a regular file.".to_owned());
     }
+    if !selected
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .is_some_and(|extension| extension.eq_ignore_ascii_case("tux"))
+    {
+        return Err("Tutorux can only open .tux archives.".to_owned());
+    }
+    {
+        let mut header = [0u8; 8];
+        File::open(&selected)
+            .and_then(|mut file| file.read_exact(&mut header))
+            .map_err(|error| format!("Could not read archive header: {error}"))?;
+        if &header != b"TUTORUX\0" {
+            return Err("The selected file is not a Tutorux archive.".to_owned());
+        }
+    }
     let archive_lock = state.archive_locks.for_path(&selected, LockMode::Shared)?;
     let _archive_read_lock = state.archive_locks.shared_guard(&archive_lock)?;
     let (identity, hasher) = archive_identity_and_hasher(&selected)?;
