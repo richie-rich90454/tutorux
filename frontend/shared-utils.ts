@@ -12,6 +12,8 @@ export function pluralize(count: number, singular: string, plural = `${singular}
     return `${count.toLocaleString("en-US")} ${pluralNoun(count, singular, plural)}`;
 }
 
+const RESERVED_WINDOWS_FILE_NAME = /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\..*)?$/iu;
+
 export function safeFileName(value: string): string {
     const slug = value
         .trim()
@@ -20,7 +22,8 @@ export function safeFileName(value: string): string {
         .replace(/\s+/gu, "-")
         .replace(/-+/gu, "-")
         .replace(/^[.-]+|[.-]+$/gu, "");
-    return (slug || "Tutorux-workspace").slice(0, 100);
+    const safe = RESERVED_WINDOWS_FILE_NAME.test(slug) ? `Tutorux-${slug}` : slug;
+    return (safe || "Tutorux-workspace").slice(0, 100);
 }
 
 export function formatTimestamp(value: string): string {
