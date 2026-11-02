@@ -43,7 +43,7 @@ const MAX_CONCURRENT_GENERATIONS: usize = 1;
 pub(crate) struct EmbeddedAiState {
     authorized_models: Mutex<HashMap<String, AuthorizedModel>>,
     runtime: Arc<Mutex<Option<LoadedModel>>>,
-    status: Mutex<EmbeddedModelStatus>,
+    status: Arc<Mutex<EmbeddedModelStatus>>,
     active_generations: Arc<Mutex<HashMap<String, Arc<AtomicBool>>>>,
 }
 
@@ -160,7 +160,7 @@ pub(crate) fn authorize_embedded_model(
 }
 
 #[tauri::command]
-pub(crate) fn load_embedded_model(
+pub(crate) async fn load_embedded_model(
     request: EmbeddedModelLoadRequest,
     state: State<'_, EmbeddedAiState>,
 ) -> Result<EmbeddedModelStatus, String> {
@@ -190,40 +190,47 @@ pub(crate) fn load_embedded_model(
     }
     let memory_estimate_bytes = estimate_memory(actual_identity.size, request.context_tokens)?;
     ensure_memory_fits(memory_estimate_bytes, request.allow_memory_overcommit)?;
-    let mut runtime = state.runtime.try_lock().map_err(|_| {
-        "The local model runtime is busy. Wait for it to finish and try again.".to_owned()
-    })?;
+    let runtime = Arc::clone(&state.runtime);
+    let status_slot = Arc::clone(&state.status);
+    tauri::async_runtime::spawn_blocking(move || -> Result<EmbeddedModelStatus, String> {
+        let mut runtime = runtime.try_lock().map_err(|_| {
+            "The local model runtime is busy. Wait for it to finish and try again.".to_owned()
+        })?;
 
-    // llama.cpp has one process-wide backend. Release the previous model and
-    // its backend lease before creating the replacement backend.
-    drop(runtime.take());
-    let mut backend = LlamaBackend::init()
-        .map_err(|_| "The in-process GGUF runtime could not initialize.".to_owned())?;
-    backend.void_logs();
-    let model = LlamaModel::load_from_file(&backend, &selected.path, &Default::default()).map_err(
-        |_| "The GGUF header was valid, but the model weights could not be loaded.".to_owned(),
-    )?;
-    let model_name = model
-        .meta_val_str("general.name")
-        .ok()
-        .filter(|value| !value.trim().is_empty())
-        .unwrap_or_else(|| selected.info.name.clone());
-    *runtime = Some(LoadedModel {
-        model: Some(model),
-        backend: Some(backend),
-        model_id: selected.info.model_id,
-        name: model_name,
-        path: selected.path,
-        identity: selected.identity,
-        context_tokens: request.context_tokens,
-        cpu_threads: request.cpu_threads,
-        memory_estimate_bytes,
-    });
-    let status = status_from_runtime(runtime.as_ref());
-    if let Ok(mut current) = state.status.lock() {
-        *current = status.clone();
-    }
-    Ok(status)
+        // llama.cpp has one process-wide backend. Release the previous model and
+        // its backend lease before creating the replacement backend.
+        drop(runtime.take());
+        let mut backend = LlamaBackend::init()
+            .map_err(|_| "The in-process GGUF runtime could not initialize.".to_owned())?;
+        backend.void_logs();
+        let model = LlamaModel::load_from_file(&backend, &selected.path, &Default::default())
+            .map_err(|_| {
+                "The GGUF header was valid, but the model weights could not be loaded.".to_owned()
+            })?;
+        let model_name = model
+            .meta_val_str("general.name")
+            .ok()
+            .filter(|value| !value.trim().is_empty())
+            .unwrap_or_else(|| selected.info.name.clone());
+        *runtime = Some(LoadedModel {
+            model: Some(model),
+            backend: Some(backend),
+            model_id: selected.info.model_id,
+            name: model_name,
+            path: selected.path,
+            identity: selected.identity,
+            context_tokens: request.context_tokens,
+            cpu_threads: request.cpu_threads,
+            memory_estimate_bytes,
+        });
+        let status = status_from_runtime(runtime.as_ref());
+        if let Ok(mut current) = status_slot.lock() {
+            *current = status.clone();
+        }
+        Ok(status)
+    })
+    .await
+    .map_err(|_| "The local model loader stopped unexpectedly.".to_owned())?
 }
 
 #[tauri::command]
