@@ -16,6 +16,11 @@ pub(crate) fn load(path: &std::path::Path, context: &CliContext) -> CliResult<Ar
 }
 
 pub(crate) fn save_replacing(path: &std::path::Path, snapshot: &ArchiveSnapshot) -> CliResult<()> {
+    let _archive_lock = crate::archive_lock_support::ArchiveLock::try_acquire(
+        path,
+        crate::archive_lock_support::LockMode::Exclusive,
+    )
+    .map_err(CliError)?;
     let bytes = snapshot.source.read(0, snapshot.source.size() as usize)?;
     if path.exists() {
         let mut file = std::fs::File::open(path).map_err(|error| {
