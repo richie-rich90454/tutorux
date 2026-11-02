@@ -11,18 +11,33 @@ use std::{
     fs::{self, OpenOptions},
     path::Path,
 };
-use tauri::{AppHandle, State};
+use tauri::{AppHandle, Manager, State};
 use tauri_plugin_fs::FsExt;
 use uuid::Uuid;
 
 #[tauri::command]
-pub(crate) fn prepare_archive_save(
+pub(crate) async fn prepare_archive_save(
     target_path: String,
     archive_token: Option<String>,
     create_only: bool,
     kind: Option<SaveKind>,
     app: AppHandle,
-    state: State<'_, DesktopState>,
+) -> Result<SavePreparation, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<DesktopState>();
+        prepare_archive_save_blocking(target_path, archive_token, create_only, kind, &app, &state)
+    })
+    .await
+    .map_err(|_| "The archive save could not be prepared.".to_owned())?
+}
+
+fn prepare_archive_save_blocking(
+    target_path: String,
+    archive_token: Option<String>,
+    create_only: bool,
+    kind: Option<SaveKind>,
+    app: &AppHandle,
+    state: &State<'_, DesktopState>,
 ) -> Result<SavePreparation, String> {
     let source_archive_token = archive_token.clone();
     let kind = kind.unwrap_or_default();
@@ -111,10 +126,19 @@ pub(crate) fn prepare_archive_save(
 }
 
 #[tauri::command]
-pub(crate) fn publish_archive_save(
+pub(crate) async fn publish_archive_save(token: String, app: AppHandle) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<DesktopState>();
+        publish_archive_save_blocking(token, &app, &state)
+    })
+    .await
+    .map_err(|_| "The archive could not be published.".to_owned())?
+}
+
+fn publish_archive_save_blocking(
     token: String,
-    app: AppHandle,
-    state: State<'_, DesktopState>,
+    app: &AppHandle,
+    state: &State<'_, DesktopState>,
 ) -> Result<(), String> {
     let mut pending_saves = state
         .pending_saves
