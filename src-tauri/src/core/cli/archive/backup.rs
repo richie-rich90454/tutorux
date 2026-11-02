@@ -82,6 +82,7 @@ pub(super) fn recover(
     let mut resulting_generation = inspection.committed_generation;
     let mut remaining_trailing = inspection.trailing_bytes;
     let mut pending: Option<Vec<u8>> = None;
+    let mut expected: Option<Vec<u8>> = None;
     if !inspect_only {
         if !inspection.archive_header_valid {
             return Err(CliError(if inspection.header_repair_available {
@@ -109,6 +110,7 @@ pub(super) fn recover(
         } else if apply_requested {
             cancellation::check("Archive recovery")?;
             let snapshot = open_archive(path, context.passphrase())?;
+            expected = Some(read_bytes(&snapshot)?);
             if recover_unpublished_requested {
                 match recover_unpublished(&snapshot) {
                     Ok((bytes, generation, _generations, _discarded)) => {
@@ -130,7 +132,10 @@ pub(super) fn recover(
     }
     if let Some(bytes) = pending {
         cancellation::check("Archive recovery")?;
-        save::save_bytes(path, &bytes)?;
+        let expected = expected.ok_or_else(|| {
+            CliError("The pre-recovery archive image was not captured.".to_owned())
+        })?;
+        save::replace_existing(path, &expected, &bytes)?;
     }
     let mut value = json!({
         "path": path.display().to_string(),
