@@ -9,11 +9,60 @@ use uuid::Uuid;
 const MAX_EXPORT_BYTES: usize = 256 * 1024 * 1024;
 
 #[tauri::command]
-pub(crate) fn write_export_file(path: String, contents: String) -> Result<(), String> {
+pub(crate) fn write_export_file(
+    window: tauri::WebviewWindow,
+    path: String,
+    contents: String,
+) -> Result<(), String> {
+    if window.label() != "main" {
+        return Err("Exports are only available from the main window.".to_owned());
+    }
+    write_export_contents(path, contents)
+}
+
+fn write_export_contents(path: String, contents: String) -> Result<(), String> {
     if contents.len() > MAX_EXPORT_BYTES {
         return Err("Transcript export exceeds the 256 MiB safety limit.".to_owned());
     }
     let requested = PathBuf::from(path);
+    if !requested.is_absolute() {
+        return Err("Export destinations must be absolute paths.".to_owned());
+    }
+    let extension = requested
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    const ALLOWED_EXPORT_EXTENSIONS: &[&str] = &[
+        "txt", "md", "markdown", "srt", "vtt", "json", "jsonl", "html", "htm", "docx", "pdf",
+        "wav", "csv", "xml",
+    ];
+    if !ALLOWED_EXPORT_EXTENSIONS.contains(&extension.as_str()) {
+        return Err(
+            "Exports are limited to document, transcript, data, and audio file types.".to_owned(),
+        );
+    }
+    let normalized = requested.to_string_lossy().to_lowercase();
+    const BLOCKED_EXPORT_PATHS: &[&str] = &[
+        "\\start menu\\",
+        "/start menu/",
+        "\\.config\\autostart\\",
+        "/.config/autostart/",
+        "\\startup\\",
+        "/startup/",
+        "\\windows\\system32\\",
+        "/etc/",
+        "/usr/",
+        "/bin/",
+        "/sbin/",
+        "/lib/",
+    ];
+    if BLOCKED_EXPORT_PATHS
+        .iter()
+        .any(|blocked| normalized.contains(blocked))
+    {
+        return Err("Exports cannot be written to a system or startup directory.".to_owned());
+    }
     let parent = requested
         .parent()
         .filter(|folder| !folder.as_os_str().is_empty())
@@ -82,13 +131,13 @@ pub(crate) fn write_export_file(path: String, contents: String) -> Result<(), St
 
 #[cfg(test)]
 mod tests {
-    use super::write_export_file;
+    use super::write_export_contents;
 
     #[test]
     fn export_creates_missing_folders() {
         let root = tempfile::tempdir().expect("temp dir");
         let target = root.path().join("reports").join("guide.html");
-        write_export_file(
+        write_export_contents(
             target.to_string_lossy().into_owned(),
             "<p>guide</p>".to_owned(),
         )
@@ -105,7 +154,7 @@ mod tests {
         let target = root.path().join("guide.html");
         std::fs::write(&target, "old export").expect("write existing export");
 
-        write_export_file(
+        write_export_contents(
             target.to_string_lossy().into_owned(),
             "<p>updated guide</p>".to_owned(),
         )
