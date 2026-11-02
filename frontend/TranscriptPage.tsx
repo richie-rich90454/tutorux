@@ -1,5 +1,17 @@
-import { twClasses } from "./tailwind";
-import { jsxTailwindStyles } from "./TranscriptPage.tailwind";
+import {
+    buttonDanger,
+    buttonOutline,
+    buttonPrimary,
+    buttonQuiet,
+    cn,
+    heading1,
+    heading2,
+    inputBase,
+    labelBase,
+    pageBody,
+    selectBase,
+    textareaBase,
+} from "./ui";
 import {
     For,
     Show,
@@ -27,7 +39,14 @@ import {
 } from "./domain/transcript";
 import { platform } from "@platform";
 import { EmptyState, Icon } from "./shared-ui";
-import { errorMessage, field, formatTimestamp, safeBigInt, safeFileName } from "./shared-utils";
+import {
+    errorMessage,
+    field,
+    formatTimestamp,
+    pluralize,
+    safeBigInt,
+    safeFileName,
+} from "./shared-utils";
 
 export function TranscriptPage(props: {
     snapshot: ArchiveSnapshot;
@@ -104,11 +123,8 @@ export function TranscriptPage(props: {
     const [audioUrl, setAudioUrl] = createSignal<string | null>(null);
     const [audioPreview, setAudioPreview] = createSignal<AudioPreview | null>(null);
     const [playbackError, setPlaybackError] = createSignal("");
-    const selectedSession = createMemo(
-        () =>
-            props.sessions.find((session) => session.id === props.selectedSessionId) ??
-            props.sessions[0] ??
-            null,
+    const selectedSession = createMemo(() =>
+        props.sessions.find((session) => session.id === props.selectedSessionId),
     );
     const sessionRecords = createMemo(() => {
         const session = selectedSession();
@@ -459,24 +475,22 @@ export function TranscriptPage(props: {
     }
 
     return (
-        <div class={twClasses("page-body transcript-page", jsxTailwindStyles, "div")}>
-            <section
-                class={twClasses("record-heading transcript-heading", jsxTailwindStyles, "section")}
-            >
-                <div class={twClasses("", jsxTailwindStyles, "div")}>
-                    <span class={twClasses("eyebrow", jsxTailwindStyles, "span")}>
+        <div class={cn("page-body transcript-page", pageBody)}>
+            <section class="record-heading transcript-heading mb-[18px] flex flex-wrap items-center justify-between gap-5 rounded-[5px] border border-line bg-surface px-[22px] py-5 max-sm:flex-col max-sm:items-start max-sm:gap-3 max-sm:p-[17px]">
+                <div class="min-w-0">
+                    <span class="eyebrow text-xs font-medium tracking-wide text-accent">
                         Capture a lesson, then keep the useful words
                     </span>
-                    <h1 class={twClasses("", jsxTailwindStyles, "h1")}>Record and transcribe</h1>
-                    <p class={twClasses("", jsxTailwindStyles, "p")}>
+                    <h1 class={cn(heading1, "mt-1.5 mb-1")}>Record and transcribe</h1>
+                    <p class="m-0 text-[13px] leading-relaxed text-muted">
                         Choose a session, record or import its audio, then create and review
                         transcript cues alongside the recording.
                     </p>
                 </div>
-                <div class={twClasses("transcript-heading-actions", jsxTailwindStyles, "div")}>
+                <div class="transcript-heading-actions flex items-center gap-3 max-sm:flex-col max-sm:items-end">
                     <Show when={props.sessions.length > 0}>
                         <button
-                            class={twClasses("button button-outline", jsxTailwindStyles, "button")}
+                            class={buttonOutline}
                             type="button"
                             disabled={props.disabled}
                             onClick={() => props.onNewSession()}
@@ -486,7 +500,7 @@ export function TranscriptPage(props: {
                         </button>
                     </Show>
                     <span
-                        class={twClasses("transcript-page-mark", jsxTailwindStyles, "span")}
+                        class="transcript-page-mark grid h-14 w-14 flex-none place-items-center rounded-[5px] border border-accent/20 bg-accent-soft text-accent max-sm:h-10 max-sm:w-10"
                         aria-hidden="true"
                     >
                         <Icon name="microphone" />
@@ -496,29 +510,26 @@ export function TranscriptPage(props: {
 
             <Show when={props.sessions.length === 0}>
                 <section
-                    class={twClasses("record-onboarding", jsxTailwindStyles, "section")}
+                    class="record-onboarding mb-[18px] grid grid-cols-[52px_minmax(0,1fr)_auto] items-center gap-4 rounded-[10px] border border-accent/25 bg-accent-soft/50 px-6 py-[22px] max-md:grid-cols-[48px_minmax(0,1fr)] max-sm:grid-cols-1 max-sm:p-[18px]"
                     aria-labelledby="record-onboarding-title"
                 >
                     <span
-                        class={twClasses("record-onboarding-mark", jsxTailwindStyles, "span")}
+                        class="record-onboarding-mark grid h-12 w-12 place-items-center rounded-xl border border-accent/20 bg-surface text-accent"
                         aria-hidden="true"
                     >
                         <Icon name="microphone" />
                     </span>
-                    <div class={twClasses("", jsxTailwindStyles, "div")}>
-                        <h2
-                            id="record-onboarding-title"
-                            class={twClasses("", jsxTailwindStyles, "h2")}
-                        >
+                    <div class="min-w-0">
+                        <h2 id="record-onboarding-title" class={heading2}>
                             Start with a tutoring session
                         </h2>
-                        <p class={twClasses("", jsxTailwindStyles, "p")}>
+                        <p class="m-0 text-[13px] leading-relaxed text-muted">
                             Create the session first. Tutorux will keep its recording, transcript,
                             notes, and materials together in this archive.
                         </p>
                     </div>
                     <button
-                        class={twClasses("button button-primary", jsxTailwindStyles, "button")}
+                        class={buttonPrimary}
                         type="button"
                         disabled={props.disabled}
                         onClick={() => props.onNewSession()}
@@ -531,13 +542,13 @@ export function TranscriptPage(props: {
 
             <Show when={props.sessions.length > 0}>
                 <section
-                    class={twClasses("transcript-controls", jsxTailwindStyles, "section")}
+                    class="transcript-controls mb-3.5 flex items-end justify-between gap-4 rounded-[5px] border border-line bg-surface px-4 py-3.5 max-lg:flex-col max-lg:items-stretch"
                     aria-label="Transcript actions"
                 >
-                    <label
-                        class={twClasses("transcript-session-picker", jsxTailwindStyles, "label")}
-                    >
-                        <span class={twClasses("eyebrow", jsxTailwindStyles, "span")}>Session</span>
+                    <label class="transcript-session-picker grid min-w-[150px] flex-1 gap-1.5 text-xs font-semibold text-muted">
+                        <span class="eyebrow text-xs font-medium tracking-wide text-muted">
+                            Session
+                        </span>
                         <select
                             value={selectedSession()?.id ?? ""}
                             disabled={props.sessions.length === 0 || captureState() !== "idle"}
@@ -551,10 +562,14 @@ export function TranscriptPage(props: {
                                 props.onSelectSession(event.currentTarget.value);
                             }}
                             aria-label="Transcript session"
-                            class={twClasses("", jsxTailwindStyles, "select")}
+                            class={selectBase}
                         >
-                            <Show when={props.sessions.length === 0}>
-                                <option value="">No sessions yet</option>
+                            <Show when={!selectedSession()}>
+                                <option value="" disabled>
+                                    {props.sessions.length === 0
+                                        ? "No sessions yet"
+                                        : "Select a session"}
+                                </option>
                             </Show>
                             <For each={props.sessions}>
                                 {(session) => (
@@ -566,13 +581,7 @@ export function TranscriptPage(props: {
                         </select>
                     </label>
                     <Show when={sessionHasAudio()}>
-                        <label
-                            class={twClasses(
-                                "transcript-audio-add-checkbox",
-                                jsxTailwindStyles,
-                                "label",
-                            )}
-                        >
+                        <label class="transcript-audio-add-checkbox inline-flex items-center gap-[7px] text-xs leading-relaxed text-muted">
                             <input
                                 type="checkbox"
                                 checked={addSeparateTrack()}
@@ -580,17 +589,15 @@ export function TranscriptPage(props: {
                                 onChange={(event) =>
                                     setAddSeparateTrack(event.currentTarget.checked)
                                 }
-                                class={twClasses("", jsxTailwindStyles, "input")}
+                                class="accent-accent"
                             />
-                            <span class={twClasses("", jsxTailwindStyles, "span")}>
-                                Keep existing audio and add this as a separate track
-                            </span>
+                            <span>Keep existing audio and add this as a separate track</span>
                         </label>
                     </Show>
-                    <div class={twClasses("transcript-control-actions", jsxTailwindStyles, "div")}>
+                    <div class="transcript-control-actions flex flex-wrap items-end gap-[7px] max-lg:items-stretch">
                         <input
                             ref={(element) => (fileInput = element)}
-                            class={twClasses("visually-hidden", jsxTailwindStyles, "input")}
+                            class="visually-hidden sr-only"
                             type="file"
                             accept=".txt,.srt,.vtt,text/plain,text/vtt,application/x-subrip"
                             onChange={receiveFile}
@@ -598,14 +605,14 @@ export function TranscriptPage(props: {
                         />
                         <input
                             ref={(element) => (audioFileInput = element)}
-                            class={twClasses("visually-hidden", jsxTailwindStyles, "input")}
+                            class="visually-hidden sr-only"
                             type="file"
                             accept=".wav,audio/wav,audio/x-wav"
                             onChange={receiveAudioFile}
                             aria-label="Choose WAV audio file"
                         />
                         <button
-                            class={twClasses("button button-primary", jsxTailwindStyles, "button")}
+                            class={buttonPrimary}
                             type="button"
                             disabled={props.disabled || !selectedSession()}
                             onClick={chooseImport}
@@ -614,7 +621,7 @@ export function TranscriptPage(props: {
                             Import cues
                         </button>
                         <button
-                            class={twClasses("button button-outline", jsxTailwindStyles, "button")}
+                            class={buttonOutline}
                             type="button"
                             disabled={
                                 props.disabled ||
@@ -627,11 +634,7 @@ export function TranscriptPage(props: {
                         </button>
                         <Show when={platform.kind === "desktop"}>
                             <button
-                                class={twClasses(
-                                    "button button-outline",
-                                    jsxTailwindStyles,
-                                    "button",
-                                )}
+                                class={buttonOutline}
                                 type="button"
                                 disabled={
                                     props.disabled ||
@@ -653,11 +656,7 @@ export function TranscriptPage(props: {
                         </Show>
                         <Show when={recoverableWavImport()}>
                             <button
-                                class={twClasses(
-                                    "button button-outline",
-                                    jsxTailwindStyles,
-                                    "button",
-                                )}
+                                class={buttonOutline}
                                 type="button"
                                 disabled={props.disabled || !selectedSession()}
                                 onClick={() => {
@@ -672,11 +671,7 @@ export function TranscriptPage(props: {
                         </Show>
                         <Show when={recoverableNativeCapture()}>
                             <button
-                                class={twClasses(
-                                    "button button-outline",
-                                    jsxTailwindStyles,
-                                    "button",
-                                )}
+                                class={buttonOutline}
                                 type="button"
                                 disabled={props.disabled || captureRecorder?.state === "recording"}
                                 onClick={() => {
@@ -687,16 +682,8 @@ export function TranscriptPage(props: {
                                 Recover saved recording
                             </button>
                         </Show>
-                        <label
-                            class={twClasses(
-                                "transcript-export-picker",
-                                jsxTailwindStyles,
-                                "label",
-                            )}
-                        >
-                            <span class={twClasses("visually-hidden", jsxTailwindStyles, "span")}>
-                                Export format
-                            </span>
+                        <label class="transcript-export-picker grid min-w-[150px] gap-1.5 text-xs font-semibold text-muted max-lg:flex-1">
+                            <span class="visually-hidden sr-only">Export format</span>
                             <select
                                 value={exportFormat()}
                                 disabled={props.disabled || !selectedSession()}
@@ -706,7 +693,7 @@ export function TranscriptPage(props: {
                                     )
                                 }
                                 aria-label="Transcript export format"
-                                class={twClasses("", jsxTailwindStyles, "select")}
+                                class={selectBase}
                             >
                                 <option value="text">Text</option>
                                 <option value="srt">SubRip</option>
@@ -715,7 +702,7 @@ export function TranscriptPage(props: {
                             </select>
                         </label>
                         <button
-                            class={twClasses("button button-outline", jsxTailwindStyles, "button")}
+                            class={buttonOutline}
                             type="button"
                             disabled={props.disabled || !selectedSession()}
                             onClick={() => {
@@ -729,52 +716,42 @@ export function TranscriptPage(props: {
                 </section>
 
                 <section
-                    class={twClasses("transcript-capture-panel", jsxTailwindStyles, "section")}
+                    class="transcript-capture-panel mb-3.5 grid grid-cols-[minmax(220px,1fr)_minmax(210px,auto)_auto] items-center gap-x-[18px] gap-y-[13px] rounded-[9px] border border-accent/20 bg-accent-soft/50 px-[17px] py-[15px] max-md:grid-cols-[minmax(0,1fr)_auto] max-sm:grid-cols-1 max-sm:gap-[11px] max-sm:p-3.5"
                     aria-label="Microphone recording"
                 >
-                    <div class={twClasses("transcript-capture-copy", jsxTailwindStyles, "div")}>
-                        <span class={twClasses("eyebrow", jsxTailwindStyles, "span")}>
+                    <div class="transcript-capture-copy grid min-w-0 gap-1 max-md:col-span-full">
+                        <span class="eyebrow text-xs font-medium tracking-wide text-muted">
                             Session audio
                         </span>
-                        <strong class={twClasses("", jsxTailwindStyles, "strong")}>
-                            Record from microphone
-                        </strong>
-                        <span class={twClasses("", jsxTailwindStyles, "span")}>
+                        <strong class="font-semibold text-ink-soft">Record from microphone</strong>
+                        <span>
                             Save the recording to this session, then use “Transcribe this recording”
                             below to create timestamped cues.
                         </span>
                     </div>
-                    <label
-                        class={twClasses("transcript-capture-consent", jsxTailwindStyles, "label")}
-                    >
+                    <label class="transcript-capture-consent inline-flex items-center gap-2 text-xs leading-relaxed text-muted">
                         <input
                             type="checkbox"
                             checked={captureConsent()}
                             disabled={props.disabled || captureState() !== "idle"}
                             onChange={(event) => setCaptureConsent(event.currentTarget.checked)}
-                            class={twClasses("", jsxTailwindStyles, "input")}
+                            class="accent-accent"
                         />
-                        <span class={twClasses("", jsxTailwindStyles, "span")}>
-                            I have permission to record this session
-                        </span>
+                        <span>I have permission to record this session</span>
                     </label>
-                    <div class={twClasses("transcript-capture-state", jsxTailwindStyles, "div")}>
+                    <div class="transcript-capture-state flex items-center justify-end gap-[13px] max-sm:flex-wrap max-sm:justify-start">
                         <Show when={captureState() === "recording"}>
                             <span
-                                class={twClasses(
-                                    "transcript-capture-live",
-                                    jsxTailwindStyles,
-                                    "span",
-                                )}
+                                class="transcript-capture-live inline-flex items-center gap-2 text-xs font-semibold text-danger"
                                 role="timer"
                                 aria-live="off"
                             >
                                 <i
                                     aria-hidden="true"
-                                    class={twClasses("", jsxTailwindStyles, "i")}
+                                    class="h-2 w-2 animate-pulse rounded-full bg-danger"
                                 />
                                 Recording
-                                <strong class={twClasses("", jsxTailwindStyles, "strong")}>
+                                <strong class="font-semibold text-ink-soft">
                                     {`${Math.floor(captureElapsed() / 60)
                                         .toString()
                                         .padStart(
@@ -784,20 +761,10 @@ export function TranscriptPage(props: {
                                 </strong>
                             </span>
                         </Show>
-                        <div
-                            class={twClasses(
-                                "transcript-capture-actions",
-                                jsxTailwindStyles,
-                                "div",
-                            )}
-                        >
+                        <div class="transcript-capture-actions flex flex-wrap items-center justify-end gap-2 max-sm:justify-start">
                             <Show when={captureState() === "idle"}>
                                 <button
-                                    class={twClasses(
-                                        "button button-primary",
-                                        jsxTailwindStyles,
-                                        "button",
-                                    )}
+                                    class={buttonPrimary}
                                     type="button"
                                     disabled={
                                         props.disabled ||
@@ -812,25 +779,13 @@ export function TranscriptPage(props: {
                                 </button>
                             </Show>
                             <Show when={captureState() === "recording"}>
-                                <button
-                                    class={twClasses(
-                                        "button button-danger",
-                                        jsxTailwindStyles,
-                                        "button",
-                                    )}
-                                    type="button"
-                                    onClick={stopCapture}
-                                >
+                                <button class={buttonDanger} type="button" onClick={stopCapture}>
                                     Stop and save
                                 </button>
                             </Show>
                             <Show when={captureState() === "saving"}>
                                 <span
-                                    class={twClasses(
-                                        "transcript-capture-saving",
-                                        jsxTailwindStyles,
-                                        "span",
-                                    )}
+                                    class="transcript-capture-saving text-xs text-muted"
                                     role="status"
                                     aria-live="polite"
                                 >
@@ -839,11 +794,7 @@ export function TranscriptPage(props: {
                             </Show>
                             <Show when={captureState() === "requesting"}>
                                 <span
-                                    class={twClasses(
-                                        "transcript-capture-saving",
-                                        jsxTailwindStyles,
-                                        "span",
-                                    )}
+                                    class="transcript-capture-saving text-xs text-muted"
                                     role="status"
                                     aria-live="polite"
                                 >
@@ -853,15 +804,13 @@ export function TranscriptPage(props: {
                         </div>
                     </div>
                     <Show when={!microphoneAvailable()}>
-                        <span
-                            class={twClasses("transcript-capture-note", jsxTailwindStyles, "span")}
-                        >
+                        <span class="transcript-capture-note col-span-full text-xs leading-relaxed text-muted">
                             Microphone recording is not available in this window.
                         </span>
                     </Show>
                     <Show when={captureError()}>
                         <span
-                            class={twClasses("transcript-capture-error", jsxTailwindStyles, "span")}
+                            class="transcript-capture-error col-span-full text-xs text-danger"
                             role="alert"
                         >
                             {captureError()}
@@ -878,31 +827,27 @@ export function TranscriptPage(props: {
                 }
             >
                 <section
-                    class={twClasses("transcript-takes-panel", jsxTailwindStyles, "section")}
+                    class="transcript-takes-panel mb-3.5 grid gap-3 rounded-[5px] border border-line bg-surface px-4 py-[15px]"
                     aria-label="Recording takes"
                 >
-                    <div class={twClasses("transcript-takes-heading", jsxTailwindStyles, "div")}>
-                        <div class={twClasses("", jsxTailwindStyles, "div")}>
-                            <span class={twClasses("eyebrow", jsxTailwindStyles, "span")}>
+                    <div class="transcript-takes-heading flex items-center justify-between gap-2.5 border-b border-line-soft pb-2.5 max-sm:flex-col max-sm:items-start">
+                        <div class="min-w-0">
+                            <span class="eyebrow text-xs font-medium tracking-wide text-muted">
                                 Session audio
                             </span>
-                            <strong class={twClasses("", jsxTailwindStyles, "strong")}>
-                                Recording takes
-                            </strong>
-                            <span class={twClasses("", jsxTailwindStyles, "span")}>
+                            <strong class="font-semibold text-ink-soft">Recording takes</strong>
+                            <span>
                                 Rename takes and tracks, then move individual items to Trash or
                                 restore them here.
                             </span>
                         </div>
-                        <span
-                            class={twClasses("transcript-takes-count", jsxTailwindStyles, "span")}
-                        >
+                        <span class="transcript-takes-count flex-none text-xs tabular-nums text-muted">
                             {sessionRecordingTakes().length} active takes ·{" "}
                             {trashedSessionRecordingTakes().length} takes and{" "}
-                            {trashedSessionRecordingTracks().length} tracks in Trash
+                            {pluralize(trashedSessionRecordingTracks().length, "track")} in Trash
                         </span>
                     </div>
-                    <div class={twClasses("transcript-takes-list", jsxTailwindStyles, "div")}>
+                    <div class="transcript-takes-list grid gap-2">
                         <For each={sessionRecordingTakes()}>
                             {(take) => {
                                 const trackIds = new Set(
@@ -934,33 +879,17 @@ export function TranscriptPage(props: {
                         </For>
                         <For each={trashedSessionRecordingTakes()}>
                             {(take) => (
-                                <article
-                                    class={twClasses(
-                                        "transcript-take-card transcript-take-card-trashed",
-                                        jsxTailwindStyles,
-                                        "article",
-                                    )}
-                                >
-                                    <div
-                                        class={twClasses(
-                                            "transcript-take-copy",
-                                            jsxTailwindStyles,
-                                            "div",
-                                        )}
-                                    >
-                                        <strong class={twClasses("", jsxTailwindStyles, "strong")}>
+                                <article class="transcript-take-card transcript-take-card-trashed grid gap-[9px] rounded-[5px] border border-line-soft bg-surface-subtle p-3 grid grid-cols-[minmax(0,1fr)_auto] items-center gap-[9px] rounded-[5px] border border-line-soft bg-surface-subtle p-3 max-sm:grid-cols-1">
+                                    <div class="transcript-take-copy grid min-w-0 gap-1">
+                                        <strong class="font-semibold text-ink-soft">
                                             {field(take, "label", "Recording take")}
                                         </strong>
-                                        <span class={twClasses("", jsxTailwindStyles, "span")}>
+                                        <span>
                                             Moved to Trash with its audio tracks and timeline data.
                                         </span>
                                     </div>
                                     <button
-                                        class={twClasses(
-                                            "button button-outline",
-                                            jsxTailwindStyles,
-                                            "button",
-                                        )}
+                                        class={buttonOutline}
                                         type="button"
                                         disabled={props.disabled}
                                         onClick={() => props.onRestoreRecordingTake(take)}
@@ -1009,46 +938,22 @@ export function TranscriptPage(props: {
             </Show>
             <Show when={sessionTracks().length > 0}>
                 <section
-                    class={twClasses(
-                        "transcript-audio-panel grid min-w-0 gap-4 rounded-panel border border-line bg-surface p-4",
-                        jsxTailwindStyles,
-                        "section",
-                    )}
+                    class="transcript-audio-panel grid min-w-0 gap-4 rounded-panel border border-line bg-surface p-4 mb-3.5"
                     aria-label="Session recording playback"
                 >
-                    <div
-                        class={twClasses("transcript-audio-copy min-w-0", jsxTailwindStyles, "div")}
-                    >
-                        <span class={twClasses("eyebrow", jsxTailwindStyles, "span")}>
+                    <div class="transcript-audio-copy min-w-0 grid gap-1">
+                        <span class="eyebrow text-xs font-medium tracking-wide text-muted">
                             Session recording
                         </span>
-                        <strong class={twClasses("", jsxTailwindStyles, "strong")}>
+                        <strong class="font-semibold text-ink-soft">
                             {selectedTrack()?.label ?? "Recording"}
                         </strong>
-                        <span class={twClasses("", jsxTailwindStyles, "span")}>
-                            Load up to 30 seconds from the beginning or a transcript cue.
-                        </span>
+                        <span>Load up to 30 seconds from the beginning or a transcript cue.</span>
                     </div>
-                    <div
-                        class={twClasses(
-                            "transcript-audio-controls flex min-w-0 flex-wrap items-center justify-end gap-2",
-                            jsxTailwindStyles,
-                            "div",
-                        )}
-                    >
+                    <div class="transcript-audio-controls flex min-w-0 flex-wrap items-center justify-end gap-2">
                         <Show when={sessionTracks().length > 1}>
-                            <label
-                                class={twClasses(
-                                    "transcript-audio-picker min-w-0",
-                                    jsxTailwindStyles,
-                                    "label",
-                                )}
-                            >
-                                <span
-                                    class={twClasses("visually-hidden", jsxTailwindStyles, "span")}
-                                >
-                                    Audio track
-                                </span>
+                            <label class="transcript-audio-picker min-w-0 max-w-full flex-1 basis-[180px]">
+                                <span class="visually-hidden sr-only">Audio track</span>
                                 <select
                                     value={selectedTrack()?.id ?? ""}
                                     aria-label="Audio track"
@@ -1056,7 +961,7 @@ export function TranscriptPage(props: {
                                         clearAudio();
                                         setTrackId(event.currentTarget.value);
                                     }}
-                                    class={twClasses("", jsxTailwindStyles, "select")}
+                                    class={selectBase}
                                 >
                                     <For each={sessionTracks()}>
                                         {(track) => <option value={track.id}>{track.label}</option>}
@@ -1065,7 +970,7 @@ export function TranscriptPage(props: {
                             </label>
                         </Show>
                         <button
-                            class={twClasses("button button-outline", jsxTailwindStyles, "button")}
+                            class={buttonOutline}
                             type="button"
                             disabled={!selectedTrack()}
                             onClick={() => void playAudioAt("0")}
@@ -1073,19 +978,9 @@ export function TranscriptPage(props: {
                             Play from start
                         </button>
                     </div>
-                    <div
-                        class={twClasses(
-                            "transcript-audio-export-actions",
-                            jsxTailwindStyles,
-                            "div",
-                        )}
-                    >
+                    <div class="transcript-audio-export-actions col-span-full flex flex-wrap items-center gap-2">
                         <button
-                            class={twClasses(
-                                "button button-outline transcript-audio-export",
-                                jsxTailwindStyles,
-                                "button",
-                            )}
+                            class={cn("transcript-audio-export", buttonOutline)}
                             type="button"
                             disabled={props.disabled || !selectedTrack()}
                             onClick={() => {
@@ -1098,11 +993,7 @@ export function TranscriptPage(props: {
                             Export WAV
                         </button>
                         <button
-                            class={twClasses(
-                                "button button-outline transcript-audio-export",
-                                jsxTailwindStyles,
-                                "button",
-                            )}
+                            class={cn("transcript-audio-export", buttonOutline)}
                             type="button"
                             disabled={props.disabled || !selectedTrack()}
                             onClick={() => {
@@ -1115,7 +1006,7 @@ export function TranscriptPage(props: {
                             Export with gap silence
                         </button>
                     </div>
-                    <p class={twClasses("transcript-audio-export-note", jsxTailwindStyles, "p")}>
+                    <p class="transcript-audio-export-note col-span-full -mt-1.5 text-xs leading-relaxed text-muted">
                         Export WAV requires a continuous track. If audio is missing from the
                         timeline, choose “Export with gap silence” to preserve timing by inserting
                         silence. Tracks over 4 GiB use RF64, which currently requires Tutorux for
@@ -1153,7 +1044,7 @@ export function TranscriptPage(props: {
                     </Show>
                     <Show when={playbackError()}>
                         <span
-                            class={twClasses("transcript-audio-error", jsxTailwindStyles, "span")}
+                            class="transcript-audio-error col-span-full text-xs text-danger"
                             role="alert"
                         >
                             {playbackError()}
@@ -1163,38 +1054,25 @@ export function TranscriptPage(props: {
             </Show>
 
             <Show when={props.sessions.length > 0}>
-                <section
-                    class={twClasses(
-                        "record-list-shell transcript-list-shell",
-                        jsxTailwindStyles,
-                        "section",
-                    )}
-                >
-                    <div class={twClasses("record-list-toolbar", jsxTailwindStyles, "div")}>
-                        <span class={twClasses("", jsxTailwindStyles, "span")}>
-                            <strong class={twClasses("", jsxTailwindStyles, "strong")}>
+                <section class="record-list-shell transcript-list-shell overflow-hidden rounded-[5px] border-0 bg-transparent">
+                    <div class="record-list-toolbar flex min-h-[43px] items-center justify-between border-b border-line-soft px-[15px] text-[13px] text-muted max-sm:min-h-[42px] max-sm:px-[11px]">
+                        <span>
+                            <strong class="font-semibold text-ink-soft">
                                 {sessionRecords().length}
                             </strong>{" "}
                             transcript cues
                             <Show when={selectedSession()}>
                                 {(session) => (
-                                    <span class={twClasses("", jsxTailwindStyles, "span")}>
-                                        {" "}
-                                        · {field(session(), "title", "Untitled session")}
-                                    </span>
+                                    <span> · {field(session(), "title", "Untitled session")}</span>
                                 )}
                             </Show>
                         </span>
-                        <span class={twClasses("list-view-label", jsxTailwindStyles, "span")}>
+                        <span class="list-view-label inline-flex items-center gap-[5px]">
                             <Icon name="shield" />
                             Review before reuse
                         </span>
                         <button
-                            class={twClasses(
-                                "button button-outline transcript-merge-button",
-                                jsxTailwindStyles,
-                                "button",
-                            )}
+                            class={cn("transcript-merge-button", buttonOutline, "flex-none")}
                             type="button"
                             disabled={props.disabled || selectedCues().length < 2}
                             onClick={async () => {
@@ -1208,14 +1086,15 @@ export function TranscriptPage(props: {
                     <Show
                         when={selectedSession()}
                         fallback={
-                            <EmptyState
-                                icon="sessions"
-                                title="Start with a session"
-                                text="Transcript cues belong to a tutoring session, so create or open one first."
-                                action="Create a session"
-                                onAction={props.onNewSession}
-                                disabled={props.disabled}
-                            />
+                            <section class="transcript-session-unavailable grid gap-1 rounded-[5px] border border-line bg-surface p-4 text-xs text-muted">
+                                <strong class="font-semibold text-ink-soft">
+                                    Session unavailable
+                                </strong>
+                                <span>
+                                    The selected session is not in this workspace. Choose another
+                                    session from the list above.
+                                </span>
+                            </section>
                         }
                     >
                         <Show
@@ -1231,7 +1110,7 @@ export function TranscriptPage(props: {
                                 />
                             }
                         >
-                            <div class={twClasses("transcript-list", jsxTailwindStyles, "div")}>
+                            <div class="transcript-list grid">
                                 <For each={sessionRecords()}>
                                     {(record, index) => (
                                         <TranscriptCueCard
@@ -1283,20 +1162,20 @@ function RecordingTakeRow(props: {
     );
 
     return (
-        <article class={twClasses("transcript-take-card", jsxTailwindStyles, "article")}>
-            <div class={twClasses("transcript-take-card-heading", jsxTailwindStyles, "div")}>
-                <label class={twClasses("", jsxTailwindStyles, "label")}>
-                    <span class={twClasses("", jsxTailwindStyles, "span")}>Take name</span>
+        <article class="transcript-take-card grid gap-[9px] rounded-[5px] border border-line-soft bg-surface-subtle p-3">
+            <div class="transcript-take-card-heading flex flex-wrap items-end justify-between gap-2.5 max-sm:flex-col max-sm:items-stretch">
+                <label class={labelBase}>
+                    <span>Take name</span>
                     <input
                         value={label()}
                         maxLength={120}
                         onInput={(event) => setLabel(event.currentTarget.value)}
                         aria-label="Recording take name"
-                        class={twClasses("", jsxTailwindStyles, "input")}
+                        class={inputBase}
                     />
                 </label>
                 <button
-                    class={twClasses("button button-outline", jsxTailwindStyles, "button")}
+                    class={buttonOutline}
                     type="button"
                     disabled={props.disabled || label().trim() === field(props.take, "label")}
                     onClick={() => props.onRenameTake(props.take, label())}
@@ -1304,11 +1183,7 @@ function RecordingTakeRow(props: {
                     Save name
                 </button>
                 <button
-                    class={twClasses(
-                        "button button-outline transcript-take-trash",
-                        jsxTailwindStyles,
-                        "button",
-                    )}
+                    class={cn("transcript-take-trash", buttonDanger)}
                     type="button"
                     disabled={props.disabled}
                     onClick={() => props.onTrash(props.take)}
@@ -1316,20 +1191,16 @@ function RecordingTakeRow(props: {
                     Move to Trash
                 </button>
             </div>
-            <div class={twClasses("transcript-take-meta", jsxTailwindStyles, "div")}>
-                <span class={twClasses("", jsxTailwindStyles, "span")}>
-                    {field(props.take, "state", "saved")}
-                </span>
-                <span class={twClasses("", jsxTailwindStyles, "span")}>
+            <div class="transcript-take-meta flex flex-wrap gap-1.5 text-xs text-muted">
+                <span>{field(props.take, "state", "saved")}</span>
+                <span>
                     {props.tracks.length} {props.tracks.length === 1 ? "track" : "tracks"}
                 </span>
-                <span class={twClasses("", jsxTailwindStyles, "span")}>
-                    {field(props.take, "source", "saved audio")}
-                </span>
+                <span>{field(props.take, "source", "saved audio")}</span>
             </div>
             <Show when={props.tracks.length > 0}>
                 <div
-                    class={twClasses("transcript-take-tracks", jsxTailwindStyles, "div")}
+                    class="transcript-take-tracks grid gap-1.5 border-t border-line-soft pt-2"
                     aria-label="Tracks in this take"
                 >
                     <For each={props.tracks}>
@@ -1346,34 +1217,16 @@ function RecordingTakeRow(props: {
             </Show>
             <Show when={props.trashedTracks.length > 0}>
                 <div
-                    class={twClasses(
-                        "transcript-take-tracks transcript-take-trashed-tracks",
-                        jsxTailwindStyles,
-                        "div",
-                    )}
+                    class="transcript-take-tracks transcript-take-trashed-tracks grid gap-1.5 border-t border-line-soft pt-2"
                     aria-label="Tracks in Trash"
                 >
-                    <strong class={twClasses("", jsxTailwindStyles, "strong")}>
-                        Tracks in Trash
-                    </strong>
+                    <strong class="font-semibold text-ink-soft">Tracks in Trash</strong>
                     <For each={props.trashedTracks}>
                         {(track) => (
-                            <div
-                                class={twClasses(
-                                    "transcript-take-trashed-track-row",
-                                    jsxTailwindStyles,
-                                    "div",
-                                )}
-                            >
-                                <span class={twClasses("", jsxTailwindStyles, "span")}>
-                                    {field(track, "label", "Recording track")}
-                                </span>
+                            <div class="transcript-take-trashed-track-row flex flex-wrap items-center justify-between gap-2.5 rounded-[5px] border border-line-soft bg-surface px-2 py-[7px] text-xs text-muted max-sm:items-start">
+                                <span>{field(track, "label", "Recording track")}</span>
                                 <button
-                                    class={twClasses(
-                                        "button button-outline",
-                                        jsxTailwindStyles,
-                                        "button",
-                                    )}
+                                    class={buttonOutline}
                                     type="button"
                                     disabled={props.disabled}
                                     aria-label={`Restore track: ${field(track, "label", "Recording track")}`}
@@ -1408,19 +1261,19 @@ function RecordingTrackName(props: {
     });
 
     return (
-        <div class={twClasses("transcript-take-track-row", jsxTailwindStyles, "div")}>
-            <label class={twClasses("", jsxTailwindStyles, "label")}>
-                <span class={twClasses("", jsxTailwindStyles, "span")}>Track name</span>
+        <div class="transcript-take-track-row flex flex-wrap items-end justify-between gap-2.5 max-sm:flex-col max-sm:items-stretch">
+            <label class={labelBase}>
+                <span>Track name</span>
                 <input
                     value={draft()}
                     maxLength={120}
                     onInput={(event) => setDraft(event.currentTarget.value)}
                     aria-label={`Track name: ${props.track.label}`}
-                    class={twClasses("", jsxTailwindStyles, "input")}
+                    class={inputBase}
                 />
             </label>
             <button
-                class={twClasses("button button-outline", jsxTailwindStyles, "button")}
+                class={buttonOutline}
                 type="button"
                 disabled={props.disabled || !changed()}
                 onClick={() => props.onRename(props.track, draft().trim() || props.track.label)}
@@ -1428,11 +1281,7 @@ function RecordingTrackName(props: {
                 Save track name
             </button>
             <button
-                class={twClasses(
-                    "button button-outline transcript-take-trash",
-                    jsxTailwindStyles,
-                    "button",
-                )}
+                class={cn("transcript-take-trash", buttonDanger)}
                 type="button"
                 disabled={props.disabled}
                 aria-label={`Move track to Trash: ${props.track.label}`}
@@ -1578,8 +1427,8 @@ function TranscriptCueCard(props: {
     }
 
     return (
-        <article class={twClasses("transcript-cue", jsxTailwindStyles, "article")}>
-            <div class={twClasses("transcript-cue-marker", jsxTailwindStyles, "div")}>
+        <article class="transcript-cue grid grid-cols-[35px_minmax(0,1fr)] gap-3 border-b border-line-soft px-[18px] py-[17px] last:border-b-0">
+            <div class="transcript-cue-marker flex flex-col items-center gap-2 pt-0.5 text-xs font-semibold tabular-nums text-faint">
                 <input
                     type="checkbox"
                     aria-label={"Select cue " + props.displayIndex + " to merge"}
@@ -1588,47 +1437,49 @@ function TranscriptCueCard(props: {
                     onChange={(event) =>
                         props.onToggleSelection(props.record, event.currentTarget.checked)
                     }
-                    class={twClasses("", jsxTailwindStyles, "input")}
+                    class="accent-accent"
                 />
-                <span class={twClasses("", jsxTailwindStyles, "span")}>
-                    {String(props.displayIndex).padStart(2, "0")}
-                </span>
+                <span>{String(props.displayIndex).padStart(2, "0")}</span>
             </div>
-            <div class={twClasses("transcript-cue-content", jsxTailwindStyles, "div")}>
-                <div class={twClasses("transcript-cue-meta", jsxTailwindStyles, "div")}>
-                    <span class={twClasses("transcript-time", jsxTailwindStyles, "span")}>
+            <div class="transcript-cue-content min-w-0">
+                <div class="transcript-cue-meta flex flex-wrap items-center gap-[9px] text-xs text-faint">
+                    <span class="transcript-time tabular-nums text-muted">
                         {field(props.record, "timestamp_state") === "not-timestamped"
                             ? "Time not provided"
                             : transcriptTimeRangeLabel(props.record)}
                     </span>
                     <span
-                        class={twClasses(
+                        class={cn(
                             `transcript-status status-${verification()}`,
-                            jsxTailwindStyles,
-                            "span",
+                            "inline-flex items-center gap-1.5 rounded-[5px] border border-line-soft bg-surface-subtle px-[7px] py-[3px] text-xs font-semibold",
+                            verification() === "human-verified"
+                                ? "text-[var(--success)]"
+                                : verification() === "human-corrected"
+                                  ? "text-accent"
+                                  : "text-[var(--warning)]",
                         )}
                     >
-                        <span class={twClasses("", jsxTailwindStyles, "span")} />
+                        <span class="h-1.5 w-1.5 rounded-full bg-current" />
                         {statusLabel()}
                     </span>
                 </div>
                 <Show
                     when={field(props.record, "speaker_label", field(props.record, "speaker_name"))}
                 >
-                    <span class={twClasses("transcript-speaker", jsxTailwindStyles, "span")}>
+                    <span class="transcript-speaker mt-[9px] inline-block text-xs font-semibold text-accent">
                         {field(props.record, "speaker_label", field(props.record, "speaker_name"))}
                     </span>
                 </Show>
-                <p class={twClasses("transcript-cue-text", jsxTailwindStyles, "p")}>
+                <p class="transcript-cue-text my-[9px] max-w-[880px] whitespace-pre-wrap break-words text-xs leading-[1.8] text-ink">
                     {field(props.record, "text")}
                 </p>
-                <div class={twClasses("transcript-cue-actions", jsxTailwindStyles, "div")}>
+                <div class="transcript-cue-actions mt-2.5 flex flex-wrap gap-1.5">
                     <Show when={props.audioAvailable}>
                         <button
-                            class={twClasses(
-                                "button button-outline record-action",
-                                jsxTailwindStyles,
-                                "button",
+                            class={cn(
+                                "record-action",
+                                buttonOutline,
+                                "min-h-[30px] px-[9px] text-xs",
                             )}
                             type="button"
                             disabled={
@@ -1646,11 +1497,7 @@ function TranscriptCueCard(props: {
                         </button>
                     </Show>
                     <button
-                        class={twClasses(
-                            "button button-outline record-action",
-                            jsxTailwindStyles,
-                            "button",
-                        )}
+                        class={cn("record-action", buttonOutline, "min-h-[30px] px-[9px] text-xs")}
                         type="button"
                         disabled={props.disabled}
                         onClick={beginEditing}
@@ -1658,11 +1505,7 @@ function TranscriptCueCard(props: {
                         Correct cue
                     </button>
                     <button
-                        class={twClasses(
-                            "button button-outline record-action",
-                            jsxTailwindStyles,
-                            "button",
-                        )}
+                        class={cn("record-action", buttonOutline, "min-h-[30px] px-[9px] text-xs")}
                         type="button"
                         disabled={props.disabled}
                         onClick={() => (splitting() ? setSplitting(false) : beginSplitting())}
@@ -1671,10 +1514,10 @@ function TranscriptCueCard(props: {
                     </button>
                     <Show when={availableAssets().length > 0}>
                         <button
-                            class={twClasses(
-                                "button button-outline record-action",
-                                jsxTailwindStyles,
-                                "button",
+                            class={cn(
+                                "record-action",
+                                buttonOutline,
+                                "min-h-[30px] px-[9px] text-xs",
                             )}
                             type="button"
                             disabled={props.disabled}
@@ -1689,10 +1532,10 @@ function TranscriptCueCard(props: {
                     </Show>
                     <Show when={props.record.previousOffset > 0n}>
                         <button
-                            class={twClasses(
-                                "button button-quiet record-action",
-                                jsxTailwindStyles,
-                                "button",
+                            class={cn(
+                                "record-action",
+                                buttonQuiet,
+                                "min-h-[30px] px-[9px] text-xs",
                             )}
                             type="button"
                             disabled={historyLoading()}
@@ -1708,10 +1551,10 @@ function TranscriptCueCard(props: {
                     </Show>
                     <Show when={verification() !== "human-verified"}>
                         <button
-                            class={twClasses(
-                                "button button-quiet record-action",
-                                jsxTailwindStyles,
-                                "button",
+                            class={cn(
+                                "record-action",
+                                buttonQuiet,
+                                "min-h-[30px] px-[9px] text-xs",
                             )}
                             type="button"
                             disabled={props.disabled}
@@ -1723,44 +1566,26 @@ function TranscriptCueCard(props: {
                 </div>
                 <Show when={history() !== null}>
                     <section
-                        class={twClasses("transcript-history-panel", jsxTailwindStyles, "section")}
+                        class="transcript-history-panel mt-3 grid gap-[9px] rounded-[5px] border border-line-soft bg-surface-subtle p-3"
                         aria-label="Transcript cue version history"
                     >
-                        <div
-                            class={twClasses(
-                                "transcript-history-heading",
-                                jsxTailwindStyles,
-                                "div",
-                            )}
-                        >
-                            <span class={twClasses("eyebrow", jsxTailwindStyles, "span")}>
+                        <div class="transcript-history-heading flex items-center justify-between gap-2">
+                            <span class="eyebrow text-xs font-medium tracking-wide text-muted">
                                 Version history
                             </span>
-                            <span class={twClasses("", jsxTailwindStyles, "span")}>
+                            <span>
                                 {Math.max(0, (history()?.length ?? 1) - 1)} earlier versions
                             </span>
                         </div>
                         <Show
                             when={(history()?.length ?? 0) > 1}
                             fallback={
-                                <p
-                                    class={twClasses(
-                                        "transcript-history-empty",
-                                        jsxTailwindStyles,
-                                        "p",
-                                    )}
-                                >
+                                <p class="transcript-history-empty m-0 text-xs text-muted">
                                     This transcript cue has no earlier versions.
                                 </p>
                             }
                         >
-                            <div
-                                class={twClasses(
-                                    "transcript-history-list",
-                                    jsxTailwindStyles,
-                                    "div",
-                                )}
-                            >
+                            <div class="transcript-history-list grid gap-2">
                                 <For
                                     each={(history()?.slice(1) ?? []).map((revision, index) => ({
                                         revision,
@@ -1768,30 +1593,12 @@ function TranscriptCueCard(props: {
                                     }))}
                                 >
                                     {(entry) => (
-                                        <article
-                                            class={twClasses(
-                                                "transcript-history-entry",
-                                                jsxTailwindStyles,
-                                                "article",
-                                            )}
-                                        >
-                                            <div class={twClasses("", jsxTailwindStyles, "div")}>
-                                                <strong
-                                                    class={twClasses(
-                                                        "",
-                                                        jsxTailwindStyles,
-                                                        "strong",
-                                                    )}
-                                                >
+                                        <article class="transcript-history-entry grid gap-[7px] rounded-[5px] border border-line-soft bg-surface p-2.5">
+                                            <div class="min-w-0">
+                                                <strong class="font-semibold text-ink-soft">
                                                     Version {entry.historyIndex}
                                                 </strong>
-                                                <small
-                                                    class={twClasses(
-                                                        "",
-                                                        jsxTailwindStyles,
-                                                        "small",
-                                                    )}
-                                                >
+                                                <small class="text-xs text-faint">
                                                     {formatTimestamp(
                                                         field(
                                                             entry.revision,
@@ -1804,14 +1611,14 @@ function TranscriptCueCard(props: {
                                                         : ""}
                                                 </small>
                                             </div>
-                                            <p class={twClasses("", jsxTailwindStyles, "p")}>
+                                            <p class="m-0 text-[13px] leading-relaxed text-muted">
                                                 {field(entry.revision, "text")}
                                             </p>
                                             <button
-                                                class={twClasses(
-                                                    "button button-outline record-action",
-                                                    jsxTailwindStyles,
-                                                    "button",
+                                                class={cn(
+                                                    "record-action",
+                                                    buttonOutline,
+                                                    "min-h-[30px] px-[9px] text-xs",
                                                 )}
                                                 type="button"
                                                 disabled={props.disabled}
@@ -1830,21 +1637,13 @@ function TranscriptCueCard(props: {
                 </Show>
                 <Show when={linkedAssets().length > 0 && !linkingAssets()}>
                     <div
-                        class={twClasses("transcript-linked-materials", jsxTailwindStyles, "div")}
+                        class="transcript-linked-materials mt-2.5 flex flex-wrap items-center gap-1.5 text-xs text-faint"
                         aria-label="Linked materials"
                     >
-                        <span class={twClasses("", jsxTailwindStyles, "span")}>
-                            Linked materials
-                        </span>
+                        <span>Linked materials</span>
                         <For each={linkedAssets()}>
                             {(asset) => (
-                                <span
-                                    class={twClasses(
-                                        "transcript-material-chip",
-                                        jsxTailwindStyles,
-                                        "span",
-                                    )}
-                                >
+                                <span class="transcript-material-chip rounded-[5px] border border-line bg-surface-subtle px-2 py-[3px] text-ink-soft">
                                     {field(asset, "filename", "Material")}
                                 </span>
                             )}
@@ -1853,19 +1652,13 @@ function TranscriptCueCard(props: {
                 </Show>
                 <Show when={linkingAssets()}>
                     <section
-                        class={twClasses(
-                            "transcript-material-editor",
-                            jsxTailwindStyles,
-                            "section",
-                        )}
+                        class="transcript-material-editor mt-3 grid gap-2.5 rounded-[5px] border border-line bg-surface-subtle p-[13px]"
                         aria-label="Link materials to cue"
                     >
-                        <strong class={twClasses("", jsxTailwindStyles, "strong")}>
-                            Materials for this cue
-                        </strong>
+                        <strong class="font-semibold text-ink-soft">Materials for this cue</strong>
                         <For each={availableAssets()}>
                             {(asset) => (
-                                <label class={twClasses("", jsxTailwindStyles, "label")}>
+                                <label class="flex items-center gap-2 text-xs text-ink-soft">
                                     <input
                                         type="checkbox"
                                         checked={draftAssetIds().includes(asset.id.toLowerCase())}
@@ -1884,19 +1677,17 @@ function TranscriptCueCard(props: {
                                                       ),
                                             )
                                         }
-                                        class={twClasses("", jsxTailwindStyles, "input")}
+                                        class="accent-accent"
                                     />
-                                    <span class={twClasses("", jsxTailwindStyles, "span")}>
-                                        {field(asset, "filename", "Untitled material")}
-                                    </span>
+                                    <span>{field(asset, "filename", "Untitled material")}</span>
                                 </label>
                             )}
                         </For>
                         <button
-                            class={twClasses(
-                                "button button-primary record-action",
-                                jsxTailwindStyles,
-                                "button",
+                            class={cn(
+                                "record-action",
+                                buttonPrimary,
+                                "min-h-[30px] px-[9px] text-xs",
                             )}
                             type="button"
                             disabled={props.disabled}
@@ -1908,47 +1699,47 @@ function TranscriptCueCard(props: {
                 </Show>
                 <Show when={splitting()}>
                     <section
-                        class={twClasses("transcript-split-editor", jsxTailwindStyles, "section")}
+                        class="transcript-split-editor mt-3 grid gap-2.5 rounded-[5px] border border-line bg-surface-subtle p-[13px]"
                         aria-label="Split transcript cue"
                     >
-                        <label class={twClasses("", jsxTailwindStyles, "label")}>
+                        <label class={labelBase}>
                             Before
                             <textarea
                                 rows={3}
                                 value={beforeText()}
                                 onInput={(event) => setBeforeText(event.currentTarget.value)}
-                                class={twClasses("", jsxTailwindStyles, "textarea")}
+                                class={textareaBase}
                             />
                         </label>
-                        <label class={twClasses("", jsxTailwindStyles, "label")}>
+                        <label class={labelBase}>
                             After
                             <textarea
                                 rows={3}
                                 value={afterText()}
                                 onInput={(event) => setAfterText(event.currentTarget.value)}
-                                class={twClasses("", jsxTailwindStyles, "textarea")}
+                                class={textareaBase}
                             />
                         </label>
                         <Show when={field(props.record, "timestamp_state") !== "not-timestamped"}>
-                            <label class={twClasses("", jsxTailwindStyles, "label")}>
+                            <label class={labelBase}>
                                 Split time
                                 <input
                                     type="text"
                                     inputmode="decimal"
                                     value={splitAt()}
                                     onInput={(event) => setSplitAt(event.currentTarget.value)}
-                                    class={twClasses("", jsxTailwindStyles, "input")}
+                                    class={inputBase}
                                 />
                             </label>
                         </Show>
-                        <p class={twClasses("", jsxTailwindStyles, "p")}>
+                        <p class="m-0 text-[13px] leading-relaxed text-muted">
                             Keep the words unchanged; the two parts must join to the original cue.
                         </p>
                         <button
-                            class={twClasses(
-                                "button button-primary record-action",
-                                jsxTailwindStyles,
-                                "button",
+                            class={cn(
+                                "record-action",
+                                buttonPrimary,
+                                "min-h-[30px] px-[9px] text-xs",
                             )}
                             type="button"
                             disabled={
@@ -1964,18 +1755,18 @@ function TranscriptCueCard(props: {
                     </section>
                 </Show>
                 <Show when={editing()}>
-                    <div class={twClasses("transcript-editor", jsxTailwindStyles, "div")}>
-                        <label class={twClasses("", jsxTailwindStyles, "label")}>
+                    <div class="transcript-editor mt-[13px] grid gap-3 rounded-[5px] border border-line bg-surface-subtle p-[13px]">
+                        <label class={labelBase}>
                             Cue text
                             <textarea
                                 rows={4}
                                 value={text()}
                                 onInput={(event) => setText(event.currentTarget.value)}
-                                class={twClasses("", jsxTailwindStyles, "textarea")}
+                                class={textareaBase}
                             />
                         </label>
-                        <div class={twClasses("transcript-time-fields", jsxTailwindStyles, "div")}>
-                            <label class={twClasses("", jsxTailwindStyles, "label")}>
+                        <div class="transcript-time-fields grid grid-cols-2 gap-[9px] sm:grid-cols-[1fr_1fr_1.5fr]">
+                            <label class={labelBase}>
                                 Start time
                                 <input
                                     type="text"
@@ -1983,10 +1774,10 @@ function TranscriptCueCard(props: {
                                     placeholder="HH:MM:SS"
                                     value={start()}
                                     onInput={(event) => setStart(event.currentTarget.value)}
-                                    class={twClasses("", jsxTailwindStyles, "input")}
+                                    class={inputBase}
                                 />
                             </label>
-                            <label class={twClasses("", jsxTailwindStyles, "label")}>
+                            <label class={labelBase}>
                                 End time
                                 <input
                                     type="text"
@@ -1994,27 +1785,25 @@ function TranscriptCueCard(props: {
                                     placeholder="HH:MM:SS"
                                     value={end()}
                                     onInput={(event) => setEnd(event.currentTarget.value)}
-                                    class={twClasses("", jsxTailwindStyles, "input")}
+                                    class={inputBase}
                                 />
                             </label>
-                            <label class={twClasses("", jsxTailwindStyles, "label")}>
+                            <label class={labelBase}>
                                 Speaker
                                 <input
                                     type="text"
                                     value={speaker()}
                                     onInput={(event) => setSpeaker(event.currentTarget.value)}
-                                    class={twClasses("", jsxTailwindStyles, "input")}
+                                    class={inputBase}
                                 />
                             </label>
                         </div>
-                        <div
-                            class={twClasses("transcript-editor-actions", jsxTailwindStyles, "div")}
-                        >
+                        <div class="transcript-editor-actions flex gap-[7px]">
                             <button
-                                class={twClasses(
-                                    "button button-primary record-action",
-                                    jsxTailwindStyles,
-                                    "button",
+                                class={cn(
+                                    "record-action",
+                                    buttonPrimary,
+                                    "min-h-[30px] px-[9px] text-xs",
                                 )}
                                 type="button"
                                 disabled={props.disabled || !text().trim()}
@@ -2025,10 +1814,10 @@ function TranscriptCueCard(props: {
                                 Save correction
                             </button>
                             <button
-                                class={twClasses(
-                                    "button button-quiet record-action",
-                                    jsxTailwindStyles,
-                                    "button",
+                                class={cn(
+                                    "record-action",
+                                    buttonQuiet,
+                                    "min-h-[30px] px-[9px] text-xs",
                                 )}
                                 type="button"
                                 onClick={() => setEditing(false)}
