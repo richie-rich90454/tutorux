@@ -289,7 +289,7 @@ describe("CLI legacy parity", () => {
         }
     });
 
-    it("overwrites an existing asset export destination atomically", async () => {
+    it("refuses an existing asset export destination", async () => {
         const directory = await mkdtemp(join(process.cwd(), "tutorux-cli-parity-asset-"));
         const archivePath = join(directory, "asset.tux");
         const sourcePath = join(directory, "material.txt");
@@ -319,11 +319,20 @@ describe("CLI legacy parity", () => {
             expect((await run(["asset", "export", assetId, "--output", destination])).code).toBe(0);
             expect(await readFile(destination, "utf8")).toBe("material payload");
             await writeFile(destination, "stale bytes");
-            expect((await run(["asset", "extract", assetId, "--output", destination])).code).toBe(
-                0,
-            );
-            expect(await readFile(destination, "utf8")).toBe("material payload");
-            expect(stderr).toEqual([]);
+
+            const refusedExport = await run(["asset", "export", assetId, "--output", destination]);
+            expect(refusedExport.code).toBe(2);
+            expect(stderr.at(-1)).toContain("already exists");
+            const refusedExtract = await run([
+                "asset",
+                "extract",
+                assetId,
+                "--output",
+                destination,
+            ]);
+            expect(refusedExtract.code).toBe(2);
+            expect(stderr.at(-1)).toContain("already exists");
+            expect(await readFile(destination, "utf8")).toBe("stale bytes");
         } finally {
             await rm(directory, { recursive: true, force: true });
         }
