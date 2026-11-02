@@ -324,3 +324,101 @@ fn save_replaces_the_destination_while_a_source_handle_is_open() {
     drop(source);
     assert_eq!(std::fs::read(&path).unwrap(), b"replacement archive bytes");
 }
+
+#[test]
+fn replace_existing_publishes_while_holding_the_exclusive_lock() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("archive.tux");
+    std::fs::write(&path, b"old archive bytes").unwrap();
+
+    save::replace_existing(&path, b"old archive bytes", b"replacement archive bytes").unwrap();
+
+    assert_eq!(std::fs::read(&path).unwrap(), b"replacement archive bytes");
+    assert!(
+        directory.path().read_dir().unwrap().all(|entry| !entry
+            .unwrap()
+            .file_name()
+            .to_string_lossy()
+            .contains(".backup")),
+        "the recovery copy must be removed after publication"
+    );
+}
+
+#[test]
+fn replace_existing_rejects_a_stale_archive_image() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("archive.tux");
+    std::fs::write(&path, b"old archive bytes").unwrap();
+    std::fs::write(&path, b"changed archive bytes").unwrap();
+
+    let error = save::replace_existing(&path, b"old archive bytes", b"replacement archive bytes")
+        .unwrap_err();
+
+    let Failure::Usage(message) = error else {
+        panic!("expected a usage failure");
+    };
+    assert!(message.contains("changed on disk"));
+    assert_eq!(std::fs::read(&path).unwrap(), b"changed archive bytes");
+}
+
+#[test]
+fn cli_mutations_publish_through_the_locked_handle() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("archive.tux");
+    let path_text = path.to_str().unwrap().to_owned();
+
+    let mut output = Output::default();
+    let code = crate::core::cli::execute_cli(
+        &[
+            "archive".to_owned(),
+            "init".to_owned(),
+            path_text.clone(),
+            "--name".to_owned(),
+            "Fixture".to_owned(),
+            "--json".to_owned(),
+        ],
+        &mut output,
+        &crate::core::cli::NoCancellation,
+    );
+    assert_eq!(code, 0, "{:?}", output.stderr);
+
+    let mut output = Output::default();
+    let code = crate::core::cli::execute_cli(
+        &[
+            "--archive".to_owned(),
+            path_text,
+            "student".to_owned(),
+            "create".to_owned(),
+            "--name".to_owned(),
+            "Learner".to_owned(),
+            "--json".to_owned(),
+        ],
+        &mut output,
+        &crate::core::cli::NoCancellation,
+    );
+
+    assert_eq!(code, 0, "{:?}", output.stderr);
+    assert_eq!(output.json()["display_name"], "Learner");
+}
+
+#[test]
+fn replace_existing_refuses_a_concurrent_exclusive_lock() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("archive.tux");
+    std::fs::write(&path, b"old archive bytes").unwrap();
+    let lock = crate::archive_lock_support::ArchiveLock::try_acquire(
+        &path,
+        crate::archive_lock_support::LockMode::Exclusive,
+    )
+    .unwrap();
+
+    let error = save::replace_existing(&path, b"old archive bytes", b"replacement archive bytes")
+        .unwrap_err();
+
+    let Failure::Usage(message) = error else {
+        panic!("expected a usage failure");
+    };
+    assert!(message.contains("archive_locked"), "{message}");
+    drop(lock);
+    assert_eq!(std::fs::read(&path).unwrap(), b"old archive bytes");
+}
