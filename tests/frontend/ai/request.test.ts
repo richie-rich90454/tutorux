@@ -472,6 +472,32 @@ describe("AI request preview", () => {
         ).toBe(true);
     });
 
+    it("rejects an oversized attachment list from package metadata before reading asset bytes", async () => {
+        const sessionId = newUuid();
+        const attachment = (filename: string) => ({
+            id: newUuid(),
+            fields: {
+                filename,
+                mime_type: "application/pdf",
+                content_hash: "a".repeat(64),
+                byte_size: String(4 * 1024 * 1024),
+            },
+        });
+        const packageJob = await makePackageJob({
+            manifest: { format: "tutorux-ai-package-v1", session_id: sessionId },
+            assets_manifest: [attachment("first.pdf"), attachment("second.pdf")],
+        });
+        const provider = await makeProvider(
+            "google-gemini",
+            "https://generativelanguage.googleapis.com/v1beta",
+            "gemini-2.5-flash",
+        );
+
+        await expect(createAiRequestPreview(packageJob, provider)).rejects.toThrow(
+            "6 MiB outbound request budget",
+        );
+    });
+
     it("builds provider-native structured-output fields from a supported model capability", async () => {
         const packageJob = await makePackageJob({ manifest: { format: "tutorux-ai-package-v1" } });
         const cases = [
