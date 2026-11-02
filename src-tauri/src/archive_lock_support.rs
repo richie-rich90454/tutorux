@@ -258,7 +258,7 @@ impl ArchiveLock {
         match file.lock_shared() {
             Ok(()) => Ok(()),
             Err(error) => {
-                if file.lock().is_ok() {
+                if file.try_lock().is_ok() {
                     return Err(format!("Could not restore the exclusive archive file lock after downgrade: {error}"));
                 }
                 self.archive_file = None;
@@ -482,4 +482,53 @@ fn normalized_path(path: &Path) -> String {
         value = value.to_lowercase();
     }
     value
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{ArchiveLock, LockMode};
+
+    fn archive(directory: &tempfile::TempDir) -> std::path::PathBuf {
+        let path = directory.path().join("lesson.tux");
+        std::fs::write(&path, b"archive").expect("write archive");
+        path
+    }
+
+    #[test]
+    fn exclusive_lock_blocks_other_holders_until_released() {
+        let directory = tempfile::tempdir().expect("temporary directory");
+        let path = archive(&directory);
+
+        let mut first = ArchiveLock::try_acquire(&path, LockMode::Exclusive).expect("first lock");
+        assert_eq!(first.mode(), Some(LockMode::Exclusive));
+        assert!(ArchiveLock::try_acquire(&path, LockMode::Exclusive).is_err());
+        assert!(ArchiveLock::try_acquire(&path, LockMode::Shared).is_err());
+
+        first.release().expect("release lock");
+        assert_eq!(first.mode(), None);
+
+        let second =
+            ArchiveLock::try_acquire(&path, LockMode::Exclusive).expect("lock after release");
+        drop(second);
+    }
+
+    #[test]
+    fn shared_locks_coexist_but_block_exclusive_holders() {
+        let directory = tempfile::tempdir().expect("temporary directory");
+        let path = archive(&directory);
+
+        let shared = ArchiveLock::try_acquire(&path, LockMode::Shared).expect("shared lock");
+        let other_shared =
+            ArchiveLock::try_acquire(&path, LockMode::Shared).expect("second shared lock");
+        assert!(ArchiveLock::try_acquire(&path, LockMode::Exclusive).is_err());
+
+        drop(other_shared);
+        drop(shared);
+
+        let exclusive =
+            ArchiveLock::try_acquire(&path, LockMode::Exclusive).expect("exclusive lock");
+        assert!(ArchiveLock::try_acquire(&path, LockMode::Shared).is_err());
+        assert!(ArchiveLock::try_acquire(&path, LockMode::Exclusive).is_err());
+        drop(exclusive);
+    }
 }
