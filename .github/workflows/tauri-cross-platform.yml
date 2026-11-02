@@ -1,110 +1,209 @@
 name: TypeScript and Tauri cross-platform checks
 
 on:
-  push:
-    branches: [main]
-  pull_request:
-  workflow_dispatch:
+    push:
+        branches: [main, tauri-rewrite]
+    pull_request:
+    workflow_dispatch:
 
 permissions:
-  contents: read
+    contents: read
 
 concurrency:
-  group: tauri-cross-platform-${{ github.ref }}
-  cancel-in-progress: true
+    group: tauri-cross-platform-${{ github.ref }}
+    cancel-in-progress: true
 
 jobs:
-  verify:
-    name: ${{ matrix.os }} · web and desktop
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 60
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [windows-2025, macos-15, ubuntu-24.04]
+    verify:
+        name: ${{ matrix.os }} · web and desktop
+        runs-on: ${{ matrix.os }}
+        timeout-minutes: 75
+        strategy:
+            fail-fast: false
+            matrix:
+                os: [windows-2025, macos-15, ubuntu-24.04]
 
-    steps:
-      - uses: actions/checkout@v4
+        steps:
+            - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+              with:
+                  persist-credentials: false
 
-      - name: Install Linux desktop libraries
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install --yes \
-            build-essential curl file libayatana-appindicator3-dev libssl-dev \
-            libasound2-dev libpipewire-0.3-dev librsvg2-dev libwebkit2gtk-4.1-dev \
-            libxdo-dev patchelf xdg-utils
+            - name: Install Linux desktop libraries
+              if: runner.os == 'Linux'
+              run: |
+                  sudo apt-get update
+                  sudo apt-get install --yes \
+                    build-essential curl file libayatana-appindicator3-dev libssl-dev \
+                    libasound2-dev libpipewire-0.3-dev librsvg2-dev libwebkit2gtk-4.1-dev \
+                    libxdo-dev patchelf xdg-utils
 
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 12
+            - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+              with:
+                  version: 12
 
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 24
-          cache: pnpm
+            - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+              with:
+                  node-version: 24
+                  cache: pnpm
 
-      - uses: dtolnay/rust-toolchain@stable
+            - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+              with:
+                  toolchain: stable
 
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: |
-            src-tauri -> target
+            - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+              with:
+                  workspaces: |
+                      src-tauri -> target
 
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+            - name: Install dependencies
+              run: pnpm install --frozen-lockfile
 
-      - name: Install Playwright Chromium on Linux
-        if: runner.os == 'Linux'
-        run: pnpm exec playwright install --with-deps chromium
+            - name: Verify application version consistency
+              run: node scripts/collect-release.mjs --check-versions
 
-      - name: Install Playwright Chromium
-        if: runner.os != 'Linux'
-        run: pnpm exec playwright install chromium
+            - name: Read Playwright version
+              id: playwright-version
+              shell: bash
+              run: echo "version=$(node -p 'require("@playwright/test/package.json").version')" >> "$GITHUB_OUTPUT"
 
-      - name: Type check
-        run: pnpm run typecheck
+            - name: Cache Playwright browsers
+              id: playwright-cache
+              uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+              with:
+                  path: |
+                      ~/.cache/ms-playwright
+                      ~/Library/Caches/ms-playwright
+                      ~/AppData/Local/ms-playwright
+                  key: ${{ runner.os }}-playwright-${{ steps.playwright-version.outputs.version }}
 
-      - name: Lint
-        run: pnpm run lint
+            - name: Install Playwright system dependencies on Linux
+              if: runner.os == 'Linux'
+              run: pnpm exec playwright install-deps chromium
 
-      - name: Check formatting
-        run: pnpm run format:check
+            - name: Install Playwright Chromium on Linux
+              if: runner.os == 'Linux' && steps.playwright-cache.outputs.cache-hit != 'true'
+              run: pnpm exec playwright install chromium
 
-      - name: Unit and archive compatibility tests
-        run: pnpm run test
+            - name: Install Playwright Chromium
+              if: runner.os != 'Linux' && steps.playwright-cache.outputs.cache-hit != 'true'
+              run: pnpm exec playwright install chromium
 
-      - name: Rust core, CLI, and desktop tests
-        run: cargo test --manifest-path src-tauri/Cargo.toml --features cli
+            - name: Type check
+              run: pnpm run typecheck
 
-      - name: Rust audio helper tests
-        run: cargo test --manifest-path src-tauri/Cargo.toml --features audio-helper --bin tutorux-audio-helper
+            - name: Lint
+              run: pnpm run lint
 
-      - name: Rust CLI parity harness
-        run: node scripts/rust-parity/run.mjs
+            - name: Check formatting
+              run: pnpm run format:check
 
-      - name: Build standalone Rust CLI
-        run: cargo build --manifest-path src-tauri/Cargo.toml --release --features cli --bin tutorux-cli
+            - name: Unit and archive compatibility tests
+              run: pnpm run test
 
-      - name: Upload standalone Rust CLI
-        uses: actions/upload-artifact@v4
-        with:
-          name: tutorux-cli-${{ matrix.os }}
-          path: src-tauri/target/release/tutorux-cli*
-          if-no-files-found: error
+            # The Tauri custom-protocol feature embeds dist/, so build it before
+            # Clippy runs with --all-features.
+            - name: Build static browser application
+              run: pnpm run build
 
-      - name: Browser workflow
-        run: pnpm run test:e2e
+            - name: Check Rust formatting
+              run: cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check
 
-      - name: Build static browser application
-        run: pnpm run build
+            - name: Lint Rust
+              run: cargo clippy --locked --manifest-path src-tauri/Cargo.toml --all-targets --all-features -- -D warnings
 
-      - name: Build native desktop package
-        run: pnpm run desktop:build
+            - name: Rust core, CLI, and desktop tests
+              run: cargo test --locked --manifest-path src-tauri/Cargo.toml --features cli
 
-      - name: Upload desktop bundles
-        uses: actions/upload-artifact@v4
-        with:
-          name: tutorux-${{ matrix.os }}
-          path: release/**
-          if-no-files-found: error
+            - name: Rust audio helper tests
+              run: cargo test --locked --manifest-path src-tauri/Cargo.toml --features audio-helper --bin tutorux-audio-helper
+
+            - name: Build Rust CLI and audio helper for parity
+              run: |
+                  cargo build --locked --manifest-path src-tauri/Cargo.toml --features cli --bin tutorux-cli
+                  pnpm run build:audio-helper
+
+            - name: Rust CLI parity harness
+              shell: bash
+              run: |
+                  helper=$(find src-tauri/binaries -maxdepth 1 -type f -name 'tutorux-audio-helper-*' | head -n 1)
+                  if [ -z "$helper" ]; then
+                    echo "The audio helper sidecar is missing; run pnpm run build:audio-helper." >&2
+                    exit 1
+                  fi
+                  node scripts/rust-parity/run.mjs
+
+            - name: Build standalone Rust CLI
+              run: cargo build --locked --manifest-path src-tauri/Cargo.toml --release --features cli --bin tutorux-cli
+
+            - name: Upload standalone Rust CLI and audio helper
+              uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+              with:
+                  name: tutorux-cli-${{ matrix.os }}
+                  path: |
+                      src-tauri/target/release/tutorux-cli*
+                      src-tauri/binaries/tutorux-audio-helper-*
+                  if-no-files-found: error
+
+            - name: Browser workflow
+              run: pnpm run test:e2e
+
+            # Empty secrets are treated as unset by the Tauri bundler, so this step
+            # builds an unsigned package until signing credentials are configured.
+            - name: Build native desktop package
+              env:
+                  APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+                  APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+                  APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+                  APPLE_ID: ${{ secrets.APPLE_ID }}
+                  APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+                  APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+                  WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
+                  WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+              run: pnpm run desktop:build
+
+            - name: Archive macOS app bundle
+              if: runner.os == 'macOS'
+              shell: bash
+              run: |
+                  find release -maxdepth 1 -name '*.app' -print0 | while IFS= read -r -d '' app; do
+                    tar -czf "${app}.tar.gz" -C "$(dirname "$app")" "$(basename "$app")"
+                    rm -rf "$app"
+                  done
+
+            - name: Report signing configuration
+              shell: bash
+              env:
+                  APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+                  WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
+              run: |
+                  if [ -z "${APPLE_CERTIFICATE:-}" ] && [ -z "${WINDOWS_CERTIFICATE:-}" ]; then
+                    echo "::notice::Signing and notarization secrets are absent; release artifacts are unsigned."
+                  else
+                    echo "::notice::Signing secrets are present; the Tauri bundler signs during the desktop build."
+                  fi
+                  echo "TODO(release): wire the remaining Apple/Windows notarization secrets into the desktop build environment."
+
+            - name: Write SHA-256 checksums
+              if: runner.os == 'Windows'
+              shell: pwsh
+              run: |
+                  Get-ChildItem release -File |
+                    Where-Object { $_.Name -ne 'SHA256SUMS.txt' } |
+                    ForEach-Object { "$((Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower())  $($_.Name)" } |
+                    Set-Content release/SHA256SUMS.txt -Encoding ascii
+
+            - name: Write SHA-256 checksums
+              if: runner.os != 'Windows'
+              shell: bash
+              run: |
+                  cd release
+                  find . -maxdepth 1 -type f ! -name 'SHA256SUMS.txt' -exec sh -c '
+                    if command -v sha256sum >/dev/null 2>&1; then sha256sum "$1"; else shasum -a 256 "$1"; fi
+                  ' _ {} \; | sed 's|  \./|  |' | sort -k2 > SHA256SUMS.txt
+
+            - name: Upload desktop bundles
+              uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+              with:
+                  name: tutorux-${{ matrix.os }}
+                  path: release/**
+                  if-no-files-found: error
