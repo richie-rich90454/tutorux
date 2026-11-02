@@ -36,6 +36,9 @@ pub(super) fn passphrase_from_env(args: &ParsedArguments, name: &str) -> CliResu
     let Some(environment) = environment_name(args, name)? else {
         return Ok(None);
     };
+    if let Some(value) = crate::core::cli::direct_secret(environment) {
+        return Ok(Some(value.to_string()));
+    }
     match std::env::var(environment) {
         Ok(value) => Ok(Some(value)),
         Err(_) => Err(CliError(format!(
