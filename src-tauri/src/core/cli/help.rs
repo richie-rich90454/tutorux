@@ -55,6 +55,7 @@ Usage:
   tutorux --archive <file.tux> journal collection|tag list|create|show|update|delete|restore
   tutorux --archive <file.tux> annotation add --session <uuid> --type <type> --at <time> --text <text> [--end <time>] [--priority low|normal|high|critical]
   tutorux --archive <file.tux> annotation list [--session <uuid>] [--json]
+  tutorux --archive <file.tux> annotation show <id> [--json]
   tutorux --archive <file.tux> annotation update <id> [--text <text>] [--title <title>] [--start <time>] [--end <time>]
   tutorux --archive <file.tux> annotation remove|prioritize|duplicate <id>
   tutorux --archive <file.tux> annotation history <id> [--limit <1..10000>]
@@ -88,7 +89,7 @@ Usage:
   tutorux --archive <file.tux> guide regenerate <id> [--template <id|auto>] [--title <title>] [--include-entry-evidence|--session-only] [--json]
     [--section-index <index>] regenerates only the matching section
   tutorux --archive <file.tux> guide list [--session <uuid>] [--entry-id <uuid>] [--include-deleted] [--json]
-  tutorux --archive <file.tux> guide show|approve|trash|restore|history <id>
+  tutorux --archive <file.tux> guide show|approve|trash|restore|history|duplicate <id>
   tutorux --archive <file.tux> guide compare <id> [--json]
   tutorux --archive <file.tux> guide validate <id> [--revision <index>] [--json]
   tutorux --archive <file.tux> guide update <id> [--title <title>]
