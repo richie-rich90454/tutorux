@@ -207,6 +207,7 @@ export async function publishStagedFileAtomically(
 ): Promise<void> {
     const destination = resolve(path);
     const destinationLock = await acquireArchiveLock(destination, "exclusive");
+    let published = false;
     try {
         try {
             await stat(destination);
@@ -244,6 +245,7 @@ export async function publishStagedFileAtomically(
             await link(temporary, destination);
             await rm(temporary, { force: true }).catch(() => undefined);
         }
+        published = true;
         await destinationLock.adoptReplacement();
         if (process.platform !== "win32") {
             try {
@@ -262,6 +264,7 @@ export async function publishStagedFileAtomically(
         }
     } catch (error) {
         await rm(temporary, { force: true });
+        if (published) throw error;
         if (error instanceof Error && "code" in error && error.code === "EEXIST") {
             throw new CliError(`${purpose} output already exists: ${destination}`);
         }
@@ -366,21 +369,57 @@ export async function writeTextAtomically(path: string, text: string): Promise<v
 }
 
 export async function replaceFile(temporary: string, target: string): Promise<void> {
-    const backup = `${target}.${randomUUID()}.backup`;
+    try {
+        await rename(temporary, target);
+        return;
+    } catch {
+        // Fall through to the two-step replacement below. This path is mainly for
+        // filesystems that refuse a direct replace while another handle is open.
+    }
     let hadTarget = false;
     try {
-        await stat(target);
+        const info = await stat(target);
+        if (!info.isFile()) {
+            await rm(temporary, { force: true });
+            throw new CliError(`Refusing to replace the non-regular file at ${target}.`);
+        }
         hadTarget = true;
     } catch (error) {
-        if (!isNotFound(error)) throw error;
+        if (error instanceof CliError) throw error;
+        if (!isNotFound(error)) {
+            await rm(temporary, { force: true });
+            throw error;
+        }
+    }
+    const backup = `${target}.${randomUUID()}.backup`;
+    if (hadTarget) {
+        try {
+            await rename(target, backup);
+        } catch (error) {
+            await rm(temporary, { force: true });
+            throw error;
+        }
     }
     try {
-        if (hadTarget) await rename(target, backup);
         await rename(temporary, target);
-        if (hadTarget) await rm(backup, { force: true });
     } catch (error) {
-        if (hadTarget) await rename(backup, target).catch(() => undefined);
+        const reason = error instanceof Error ? error.message : String(error);
+        if (hadTarget) {
+            try {
+                await rename(backup, target);
+            } catch (restoreError) {
+                await rm(temporary, { force: true });
+                throw new CliError(
+                    `Could not replace ${target}: ${reason}. The previous file is preserved at ${backup} and could not be restored: ${restoreError instanceof Error ? restoreError.message : String(restoreError)}`,
+                );
+            }
+            await rm(temporary, { force: true });
+            throw new CliError(
+                `Could not replace ${target}: ${reason}. The previous file was restored from ${backup}.`,
+            );
+        }
         await rm(temporary, { force: true });
         throw error;
     }
+    if (hadTarget) await rm(backup, { force: true }).catch(() => undefined);
 }
