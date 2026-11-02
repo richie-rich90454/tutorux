@@ -45,7 +45,10 @@ export function parseArguments(args: readonly string[]): ParsedArguments {
             positionals.push(value);
             continue;
         }
-        const [name, inlineValue] = value.slice(2).split("=", 2);
+        const raw = value.slice(2);
+        const separator = raw.indexOf("=");
+        const name = separator === -1 ? raw : raw.slice(0, separator);
+        const inlineValue = separator === -1 ? undefined : raw.slice(separator + 1);
         if (!name) throw new CliError("Option names cannot be empty.");
         const next = inlineValue ?? args[index + 1];
         if (next !== undefined && !next.startsWith("--")) {
