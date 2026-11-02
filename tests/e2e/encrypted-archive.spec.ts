@@ -36,7 +36,10 @@ test("unlocks, edits, saves, verifies, and relocks a C++ encrypted archive", asy
     await page.goto("/");
 
     const chooser = page.waitForEvent("filechooser");
-    await page.getByRole("button", { name: "Open archive", exact: true }).click();
+    await page
+        .locator("#main-content")
+        .getByRole("button", { name: "Open archive", exact: true })
+        .click();
     await (await chooser).setFiles(fixture);
     await expect(page.getByText("This archive is encrypted", { exact: true })).toBeVisible();
 
@@ -76,7 +79,10 @@ test("unlocks, edits, saves, verifies, and relocks a C++ encrypted archive", asy
 
     await page.reload();
     const reopenedChooser = page.waitForEvent("filechooser");
-    await page.getByRole("button", { name: "Open archive", exact: true }).click();
+    await page
+        .locator("#main-content")
+        .getByRole("button", { name: "Open archive", exact: true })
+        .click();
     await (await reopenedChooser).setFiles(savedPath);
     const reopenedPassphrase = page.getByLabel("Archive passphrase");
     await reopenedPassphrase.fill("Tutorux cross-language fixture phrase 2026");
