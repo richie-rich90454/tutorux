@@ -1,5 +1,4 @@
-import { twClasses } from "./tailwind";
-import { jsxTailwindStyles } from "./MediaPlayer.tailwind";
+import { cn } from "./ui";
 import { createEffect, createSignal, onCleanup, Show, type JSX } from "solid-js";
 import { Icon } from "./shared-ui";
 
@@ -85,7 +84,7 @@ export function MediaPlayer(props: MediaPlayerProps): JSX.Element {
     }
 
     return (
-        <div class={twClasses("media-player media-player-" + props.kind, jsxTailwindStyles, "div")}>
+        <div class={cn("media-player media-player-" + props.kind, "grid gap-[9px] min-w-0")}>
             <Show
                 when={props.kind === "audio"}
                 fallback={
@@ -102,7 +101,7 @@ export function MediaPlayer(props: MediaPlayerProps): JSX.Element {
                         onPause={() => setPlaying(false)}
                         onEnded={() => setPlaying(false)}
                         onError={() => setError("This video could not be played.")}
-                        class={twClasses("", jsxTailwindStyles, "video")}
+                        class="bg-[#0b1010] rounded-lg max-h-[min(62vh,_560px)] object-contain w-full"
                     />
                 }
             >
@@ -122,16 +121,22 @@ export function MediaPlayer(props: MediaPlayerProps): JSX.Element {
                         setPlaying(false);
                     }}
                     onError={() => setError("This audio could not be played.")}
-                    class={twClasses("", jsxTailwindStyles, "audio")}
+                    class="[clip-path:inset(50%)] h-[1px] overflow-hidden absolute whitespace-nowrap w-[1px]"
                 />
             </Show>
             <div
-                class={twClasses("media-player-controls", jsxTailwindStyles, "div")}
+                class={cn(
+                    "media-player-controls",
+                    "max-[520px]:grid-cols-[34px auto minmax(44px, 1fr) auto 30px] items-center bg-surface rounded-lg border border-line-soft grid gap-2 grid-cols-[34px auto minmax(60px, 1fr) auto 30px 72px] min-h-[42px] min-w-0 py-1 px-2",
+                )}
                 role="group"
                 aria-label={props.label + " controls"}
             >
                 <button
-                    class={twClasses("media-player-play", jsxTailwindStyles, "button")}
+                    class={cn(
+                        "media-player-play",
+                        "focus-visible:outline-offset-0.5 focus-visible:outline-3 focus-visible:outline-[color-mix(in_srgb,_var(--accent)_42%,_transparent)] hover:bg-accent-soft hover:text-[var(--accent-deep)] bg-transparent rounded-md border-0 cursor-pointer grid h-[32px] p-0 place-items-center w-[32px] text-inherit disabled:cursor-not-allowed! disabled:opacity-0.56",
+                    )}
                     type="button"
                     aria-label={(playing() ? "Pause " : "Play ") + props.kind}
                     onClick={() => void togglePlayback()}
@@ -139,13 +144,19 @@ export function MediaPlayer(props: MediaPlayerProps): JSX.Element {
                     <Icon name={playing() ? "pause" : "play"} />
                 </button>
                 <span
-                    class={twClasses("media-player-time", jsxTailwindStyles, "span")}
+                    class={cn(
+                        "media-player-time",
+                        "text-muted text-[11px] tabular-nums min-w-[34px] text-center",
+                    )}
                     aria-live="off"
                 >
                     {formatTime(position())}
                 </span>
                 <input
-                    class={twClasses("media-player-seek", jsxTailwindStyles, "input")}
+                    class={cn(
+                        "media-player-seek",
+                        "[&::-moz-range-thumb]:bg-accent [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:border-[2px] [&::-moz-range-thumb]:border-surface [&::-moz-range-thumb]:shadow-[0_0_0_1px_var(--accent)] [&::-moz-range-thumb]:h-[9px] [&::-moz-range-thumb]:w-[9px] [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:bg-accent [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:border-[2px] [&::-webkit-slider-thumb]:border-surface [&::-webkit-slider-thumb]:shadow-[0_0_0_1px_var(--accent)] [&::-webkit-slider-thumb]:h-[12px] [&::-webkit-slider-thumb]:w-[12px] appearance-none bg-line-strong rounded-[99px] cursor-pointer h-[4px] m-0 min-w-0 w-full disabled:opacity-0.45 focus-visible:outline-offset-0.5 focus-visible:outline-3 focus-visible:outline-[color-mix(in_srgb,_var(--accent)_42%,_transparent)]",
+                    )}
                     type="range"
                     min="0"
                     max={duration() || 0}
@@ -156,11 +167,19 @@ export function MediaPlayer(props: MediaPlayerProps): JSX.Element {
                     disabled={!duration()}
                     onInput={(event) => seek(Number(event.currentTarget.value))}
                 />
-                <span class={twClasses("media-player-time", jsxTailwindStyles, "span")}>
+                <span
+                    class={cn(
+                        "media-player-time",
+                        "text-muted text-[11px] tabular-nums min-w-[34px] text-center",
+                    )}
+                >
                     {formatTime(duration())}
                 </span>
                 <button
-                    class={twClasses("media-player-volume-toggle", jsxTailwindStyles, "button")}
+                    class={cn(
+                        "media-player-volume-toggle",
+                        "focus-visible:outline-offset-0.5 focus-visible:outline-3 focus-visible:outline-[color-mix(in_srgb,_var(--accent)_42%,_transparent)] hover:bg-accent-soft hover:text-[var(--accent-deep)] bg-transparent rounded-md border-0 cursor-pointer grid h-[32px] p-0 place-items-center w-[32px] text-inherit disabled:cursor-not-allowed! disabled:opacity-0.56",
+                    )}
                     type="button"
                     aria-label={muted() || volume() === 0 ? "Unmute" : "Mute"}
                     aria-pressed={muted()}
@@ -178,7 +197,10 @@ export function MediaPlayer(props: MediaPlayerProps): JSX.Element {
                     <Icon name={muted() || volume() === 0 ? "volumeMuted" : "volume"} />
                 </button>
                 <input
-                    class={twClasses("media-player-volume", jsxTailwindStyles, "input")}
+                    class={cn(
+                        "media-player-volume",
+                        "[&::-moz-range-thumb]:bg-accent [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:border-[2px] [&::-moz-range-thumb]:border-surface [&::-moz-range-thumb]:shadow-[0_0_0_1px_var(--accent)] [&::-moz-range-thumb]:h-[9px] [&::-moz-range-thumb]:w-[9px] [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:bg-accent [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:border-[2px] [&::-webkit-slider-thumb]:border-surface [&::-webkit-slider-thumb]:shadow-[0_0_0_1px_var(--accent)] [&::-webkit-slider-thumb]:h-[12px] [&::-webkit-slider-thumb]:w-[12px] max-[520px]:hidden appearance-none bg-line-strong rounded-[99px] cursor-pointer h-[4px] m-0 min-w-0 w-full focus-visible:outline-offset-0.5 focus-visible:outline-3 focus-visible:outline-[color-mix(in_srgb,_var(--accent)_42%,_transparent)]",
+                    )}
                     type="range"
                     min="0"
                     max="1"
@@ -197,7 +219,7 @@ export function MediaPlayer(props: MediaPlayerProps): JSX.Element {
                 />
             </div>
             <Show when={error()}>
-                <p class={twClasses("media-player-error", jsxTailwindStyles, "p")} role="alert">
+                <p class={cn("media-player-error", "text-danger text-xs m-0")} role="alert">
                     {error()}
                 </p>
             </Show>
