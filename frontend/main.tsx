@@ -4051,8 +4051,13 @@ function App(): JSX.Element {
                             >
                                 <span
                                     class={cn(
-                                        `status-dot ${workspace()?.dirty ? "is-dirty" : ""} ${archiveSaveConflict() ? "has-conflict" : ""}`,
-                                        "bg-accent rounded-full shadow-none flex-none h-2 w-2",
+                                        "status-dot",
+                                        archiveSaveConflict()
+                                            ? "bg-danger"
+                                            : workspace()?.dirty
+                                              ? "bg-warning"
+                                              : "bg-accent",
+                                        "rounded-full shadow-none flex-none h-2 w-2",
                                     )}
                                     aria-hidden="true"
                                 />

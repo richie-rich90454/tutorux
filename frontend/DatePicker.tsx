@@ -212,7 +212,7 @@ export function DatePicker(props: DatePickerProps) {
             <div
                 class={cn(
                     `date-picker-control ${invalid() ? "is-invalid" : ""}`,
-                    "focus-within:border-accent focus-within:shadow-[0_0_0_3px_color-mix(in_srgb,_var(--accent)_18%,_transparent)] motion-reduce:transition-none bg-surface rounded-[7px] border border-line-strong grid grid-cols-[minmax(0,_1fr)_36px] h-[36px] min-w-0 overflow-hidden transition-colors",
+                    `focus-within:border-accent focus-within:shadow-[0_0_0_3px_color-mix(in_srgb,_var(--accent)_18%,_transparent)] motion-reduce:transition-none bg-surface rounded-[7px] border ${invalid() ? "border-danger" : "border-line-strong"} grid grid-cols-[minmax(0,_1fr)_36px] h-[36px] min-w-0 overflow-hidden transition-colors`,
                 )}
             >
                 <input

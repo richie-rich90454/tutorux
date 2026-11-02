@@ -65,4 +65,10 @@ test("closes only the date calendar when Escape is pressed inside the picker", a
     await expect(calendar).toBeHidden();
     await expect(entryDialog).toBeVisible();
     await expect(page.getByLabel("Entry title")).toBeVisible();
+
+    const dateInput = entryDialog.getByLabel("Journal entry date");
+    await dateInput.fill("2026-02-30");
+    await dateInput.blur();
+    await expect(entryDialog.getByText("Enter a real date as YYYY-MM-DD.")).toBeVisible();
+    await expect(entryDialog.locator(".date-picker-control")).toHaveClass(/border-danger/u);
 });

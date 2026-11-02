@@ -340,8 +340,9 @@ export function CommandConsole(props: CommandConsoleProps): JSX.Element {
                 >
                     <span
                         class={cn(
-                            `command-console-status-dot ${available() ? "is-ready" : ""}`,
-                            "bg-[var(--warning)] rounded-full h-[6px] w-[6px]",
+                            "command-console-status-dot",
+                            available() ? "bg-success" : "bg-[var(--warning)]",
+                            "rounded-full h-[6px] w-[6px]",
                         )}
                     />
                     {availability()}
