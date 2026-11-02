@@ -4,7 +4,7 @@ use super::{
         archive_location_changed_message, move_file_without_replacing, normalized_save_location,
         preserve_backup_error, resolve_existing_file, same_path,
     },
-    state::{DesktopState, PendingSave, SavePreparation},
+    state::{DesktopState, PendingSave, SaveKind, SavePreparation},
 };
 use crate::archive_lock_support::LockMode;
 use std::{
@@ -20,10 +20,15 @@ pub(crate) fn prepare_archive_save(
     target_path: String,
     archive_token: Option<String>,
     create_only: bool,
+    kind: Option<SaveKind>,
     app: AppHandle,
     state: State<'_, DesktopState>,
 ) -> Result<SavePreparation, String> {
     let source_archive_token = archive_token.clone();
+    let kind = kind.unwrap_or_default();
+    if kind == SaveKind::Archive && !target_path.to_ascii_lowercase().ends_with(".tux") {
+        return Err("Archive saves must use a .tux file name.".to_owned());
+    }
     let target_location = normalized_save_location(Path::new(&target_path))?;
     let target = match resolve_existing_file(&target_location)? {
         Some(path) => path,
@@ -76,21 +81,29 @@ pub(crate) fn prepare_archive_save(
     app.fs_scope()
         .allow_file(&temporary)
         .map_err(|error| format!("Could not authorize the temporary archive: {error}"))?;
-    state
+    let mut pending_saves = state
         .pending_saves
         .lock()
-        .map_err(|_| "Archive save state is unavailable.".to_owned())?
-        .insert(
-            token.clone(),
-            PendingSave {
-                target,
-                target_location,
-                target_identity,
-                temporary: temporary.clone(),
-                source_archive_token,
-                create_only,
-            },
+        .map_err(|_| "Archive save state is unavailable.".to_owned())?;
+    if pending_saves.len() >= 64 {
+        let _ = app.fs_scope().forbid_file(&temporary);
+        return Err(
+            "Too many unfinished archive saves are open. Finish or cancel them before starting another."
+                .to_owned(),
         );
+    }
+    pending_saves.insert(
+        token.clone(),
+        PendingSave {
+            target,
+            target_location,
+            target_identity,
+            temporary: temporary.clone(),
+            source_archive_token,
+            create_only,
+            kind,
+        },
+    );
     Ok(SavePreparation {
         token,
         temporary_path: temporary.to_string_lossy().into_owned(),
@@ -111,38 +124,52 @@ pub(crate) fn publish_archive_save(
         .get(&token)
         .cloned()
         .ok_or_else(|| "Archive save has expired. Start the save again.".to_owned())?;
-    let target_lock = state
-        .archive_locks
-        .for_path(&pending.target, LockMode::Exclusive)?;
-    let mut archive_write_lock = state.archive_locks.exclusive_guard(&target_lock)?;
-    validate_staged_archive_file(&pending)?;
-    archive_write_lock.prepare_replacement_file(&pending.temporary)?;
-    let backup = publish_staged_archive_file(&pending, &token)?;
-    archive_write_lock.adopt_replacement_file()?;
-
-    if let Some(archive_token) = &pending.source_archive_token {
-        let (identity, hasher) = archive_identity_and_hasher(&pending.target)?;
-        let mut opened_archives = state
-            .opened_archives
-            .lock()
-            .map_err(|_| "Archive access state is unavailable.".to_owned())?;
-        if let Some(archive) = opened_archives.get_mut(archive_token) {
-            archive_write_lock.retain_shared()?;
-            archive.path = pending.target.clone();
-            archive.location = pending.target_location.clone();
-            archive.identity = identity;
-            archive.hasher = hasher;
-            archive.lock = target_lock.clone();
+    let result = (|| -> Result<(), String> {
+        let target_lock = state
+            .archive_locks
+            .for_path(&pending.target, LockMode::Exclusive)?;
+        let mut archive_write_lock = state.archive_locks.exclusive_guard(&target_lock)?;
+        validate_staged_archive_file(&pending)?;
+        archive_write_lock.prepare_replacement_file(&pending.temporary)?;
+        let backup = publish_staged_archive_file(&pending, &token)?;
+        archive_write_lock.adopt_replacement_file()?;
+        if let Some(archive_token) = &pending.source_archive_token {
+            let (identity, hasher) = archive_identity_and_hasher(&pending.target)?;
+            let mut opened_archives = state
+                .opened_archives
+                .lock()
+                .map_err(|_| "Archive access state is unavailable.".to_owned())?;
+            if let Some(archive) = opened_archives.get_mut(archive_token) {
+                archive_write_lock.retain_shared()?;
+                archive.path = pending.target.clone();
+                archive.location = pending.target_location.clone();
+                archive.identity = identity;
+                archive.hasher = hasher;
+                archive.lock = target_lock.clone();
+            }
         }
+        let _ = fs::remove_file(&pending.temporary);
+        if let Some((backup_directory, backup)) = backup {
+            let _ = fs::remove_file(backup);
+            let _ = fs::remove_dir(backup_directory);
+        }
+        Ok(())
+    })();
+    if result.is_err() {
+        pending_saves.remove(&token);
+        let _ = fs::remove_file(&pending.temporary);
+        let _ = app.fs_scope().forbid_file(&pending.temporary);
+        let backup_directory = pending
+            .target
+            .with_file_name(format!(".tutorux-{token}.backup"));
+        if pending.target.exists() {
+            let _ = fs::remove_dir_all(backup_directory);
+        }
+    } else {
+        pending_saves.remove(&token);
+        let _ = app.fs_scope().forbid_file(&pending.temporary);
     }
-    let _ = fs::remove_file(&pending.temporary);
-    if let Some((backup_directory, backup)) = backup {
-        let _ = fs::remove_file(backup);
-        let _ = fs::remove_dir(backup_directory);
-    }
-    pending_saves.remove(&token);
-    let _ = app.fs_scope().forbid_file(&pending.temporary);
-    Ok(())
+    result
 }
 
 /// Revalidate the staged destination under its exclusive archive lock before publication.
@@ -152,6 +179,16 @@ fn validate_staged_archive_file(pending: &PendingSave) -> Result<(), String> {
         .open(&pending.temporary)
         .and_then(|file| file.sync_all())
         .map_err(|error| format!("The temporary archive could not be finalized: {error}"))?;
+    if pending.kind == SaveKind::Archive {
+        let staged = fs::read(&pending.temporary)
+            .map_err(|error| format!("The completed archive could not be read back: {error}"))?;
+        if staged.is_empty() {
+            return Err("The completed archive is empty and was not published.".to_owned());
+        }
+        crate::core::archive::ArchiveSnapshot::open_bytes(staged).map_err(|error| {
+            format!("The completed archive failed validation: {}", error.message)
+        })?;
+    }
 
     match resolve_existing_file(&pending.target_location)? {
         Some(_) if pending.create_only => {
@@ -257,7 +294,7 @@ mod tests {
     use super::{publish_staged_archive_file, validate_staged_archive_file};
     use crate::desktop::{
         identity::{archive_identity, normalized_location_path, resolve_existing_file},
-        state::PendingSave,
+        state::{PendingSave, SaveKind},
     };
     use std::{fs, path::Path};
 
@@ -277,7 +314,25 @@ mod tests {
             temporary: temporary.to_path_buf(),
             source_archive_token: None,
             create_only: false,
+            kind: SaveKind::Export,
         }
+    }
+
+    #[test]
+    fn archive_save_rejects_empty_and_truncated_staged_files() {
+        let root = tempfile::tempdir().expect("temporary directory");
+        let target = root.path().join("lesson.tux");
+        let temporary = root.path().join(".staged-archive.partial");
+        let mut pending = pending_save(&target, &temporary, None);
+        pending.kind = SaveKind::Archive;
+
+        fs::write(&temporary, b"").expect("write empty staged archive");
+        let error = validate_staged_archive_file(&pending).expect_err("reject empty archive");
+        assert!(error.contains("empty"));
+
+        fs::write(&temporary, b"not an archive").expect("write truncated staged archive");
+        let error = validate_staged_archive_file(&pending).expect_err("reject truncated archive");
+        assert!(error.contains("failed validation"));
     }
 
     #[test]
