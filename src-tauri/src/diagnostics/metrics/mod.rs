@@ -2,7 +2,7 @@ use serde::Serialize;
 #[cfg(target_os = "linux")]
 use std::fs;
 
-#[cfg(any(target_os = "macos", target_os = "linux"))]
+#[cfg(any(target_os = "macos", target_os = "linux", test))]
 mod command;
 #[cfg(target_os = "linux")]
 mod linux;
