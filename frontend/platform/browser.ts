@@ -37,10 +37,26 @@ interface BrowserArchiveHandle {
     queryPermission?(options: { mode: "readwrite" }): Promise<PermissionState>;
     requestPermission?(options: { mode: "readwrite" }): Promise<PermissionState>;
     createWritable(): Promise<{
-        write(data: ReadableStream<Uint8Array>): Promise<void>;
+        write(data: BufferSource | Blob | string): Promise<void>;
         close(): Promise<void>;
         abort(reason?: unknown): Promise<void>;
     }>;
+}
+
+async function writeStream(
+    writable: { write(data: BufferSource | Blob | string): Promise<void> },
+    stream: ReadableStream<Uint8Array>,
+): Promise<void> {
+    const reader = stream.getReader();
+    try {
+        for (;;) {
+            const { done, value } = await reader.read();
+            if (done) return;
+            await writable.write(new Uint8Array(value));
+        }
+    } finally {
+        reader.releaseLock();
+    }
 }
 type FileAccessWindow = Window & {
     showOpenFilePicker?: (options: {
@@ -113,7 +129,7 @@ function makeArchiveAutosave(
                 }
                 const writable = await handle.createWritable();
                 try {
-                    await writable.write(sourceStream(source));
+                    await writeStream(writable, sourceStream(source));
                     await writable.close();
                 } catch (error) {
                     await writable.abort(error).catch(() => undefined);
@@ -165,7 +181,7 @@ export const platform: ArchivePlatform = {
             });
             const writable = await handle.createWritable();
             try {
-                await writable.write(sourceStream(source));
+                await writeStream(writable, sourceStream(source));
                 await writable.close();
             } catch (error) {
                 await writable.abort(error).catch(() => undefined);
@@ -228,7 +244,7 @@ export const platform: ArchivePlatform = {
             const writable = await handle.createWritable();
             try {
                 const payload = await resolveExportPayload(contents);
-                await writable.write(toReadableStream(payload));
+                await writeStream(writable, toReadableStream(payload));
                 await writable.close();
                 return handle.name;
             } catch (error) {
