@@ -270,7 +270,7 @@ export async function runArchiveCompactCommand(
             pruneUnreferencedAssets: args.flags.has("prune-unreferenced-assets"),
         });
         compacted = compaction.snapshot;
-        const applied = !args.flags.has("preview");
+        const applied = args.flags.has("apply") && !args.flags.has("preview");
         if (applied) {
             const currentInfo = await stat(archivePath);
             if (
