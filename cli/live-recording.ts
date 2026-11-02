@@ -814,7 +814,7 @@ export async function recordLiveSource(
             MAX_QUEUED_TRANSCRIPTION_BYTES
         ) {
             stopLiveTranscription(
-                "The local Whisper backlog exceeded 8 MiB; recording continues without live transcription.",
+                `The local Whisper backlog exceeded ${Math.round(MAX_QUEUED_TRANSCRIPTION_BYTES / (1024 * 1024))} MiB; recording continues without live transcription.`,
             );
             return;
         }
@@ -2044,7 +2044,8 @@ async function selectNativeCapture(
     try {
         const device = await selectNativeCaptureDevice(helper, source, requested);
         return { helper, device };
-    } catch {
+    } catch (error) {
+        if (requested !== undefined) throw error;
         return undefined;
     }
 }
