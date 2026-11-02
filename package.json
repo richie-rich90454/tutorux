@@ -4,9 +4,6 @@
     "version": "1.0.0",
     "type": "module",
     "description": "A local-first tutoring workstation",
-    "bin": {
-        "tutorux": "cli/entry.js"
-    },
     "engines": {
         "node": ">=22.13.0"
     },
@@ -17,13 +14,12 @@
         "build:audio-helper": "node scripts/build-audio-helper.mjs",
         "preview": "vite preview --host 127.0.0.1 --port 1420 --strictPort",
         "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.node.json",
-        "lint": "eslint frontend cli scripts tests vite.config.ts playwright.config.ts eslint.config.js",
-        "format:check": "oxfmt --check frontend cli scripts tests tests/fixtures/README.md README.md docs index.html vite.config.ts playwright.config.ts eslint.config.js package.json tsconfig.json tsconfig.node.json --ignore-path .gitignore",
-        "format": "oxfmt --write frontend cli scripts tests tests/fixtures/README.md README.md docs index.html vite.config.ts playwright.config.ts eslint.config.js package.json tsconfig.json tsconfig.node.json --ignore-path .gitignore",
+        "lint": "eslint frontend scripts tests vite.config.ts playwright.config.ts eslint.config.js",
+        "format:check": "oxfmt --check frontend scripts tests tests/fixtures/README.md README.md docs index.html vite.config.ts playwright.config.ts eslint.config.js package.json tsconfig.json tsconfig.node.json --ignore-path .gitignore",
+        "format": "oxfmt --write frontend scripts tests tests/fixtures/README.md README.md docs index.html vite.config.ts playwright.config.ts eslint.config.js package.json tsconfig.json tsconfig.node.json --ignore-path .gitignore",
         "test": "vitest run",
         "test:watch": "vitest",
         "test:e2e": "playwright test",
-        "cli": "tsx cli/main.ts",
         "benchmark:archive": "tsx scripts/benchmark-archive.ts",
         "tauri": "tauri",
         "dev:desktop": "vite --mode desktop --host 127.0.0.1 --port 1420 --strictPort",

@@ -18,13 +18,7 @@ export default tseslint.config(
         },
     },
     {
-        files: [
-            "frontend/**/*.{ts,tsx}",
-            "cli/**/*.ts",
-            "scripts/**/*.ts",
-            "tests/e2e/**/*.ts",
-            "*.ts",
-        ],
+        files: ["frontend/**/*.{ts,tsx}", "scripts/**/*.ts", "tests/e2e/**/*.ts", "*.ts"],
         plugins: { solid },
         rules: {
             ...solid.configs.recommended.rules,

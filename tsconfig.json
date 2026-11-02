@@ -23,7 +23,6 @@
     "include": [
         "frontend/**/*.ts",
         "frontend/**/*.tsx",
-        "cli/**/*.ts",
         "scripts/**/*.ts",
         "tests/**/*.ts",
         "vite.config.ts",
