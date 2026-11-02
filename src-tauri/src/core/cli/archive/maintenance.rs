@@ -88,7 +88,7 @@ pub(super) fn compact(
             purge_deleted_records: false,
         },
     )?;
-    let applied = !args.flag("preview");
+    let applied = args.flag("apply") && !args.flag("preview");
     cancellation::check("Archive compaction")?;
     let compacted = ArchiveSnapshot::open_bytes(result.bytes.clone())?;
     let previous_generation = snapshot.commit.generation;
