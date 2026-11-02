@@ -6,8 +6,36 @@ import solid from "vite-plugin-solid";
 
 const projectRoot = fileURLToPath(new URL(".", import.meta.url));
 
+const browserCsp = [
+    "default-src 'self'",
+    "script-src 'self' 'wasm-unsafe-eval'",
+    "style-src 'self' 'unsafe-inline'",
+    "img-src 'self' data: blob:",
+    "font-src 'self' data:",
+    "media-src 'self' data: blob:",
+    "worker-src 'self' blob:",
+    "connect-src 'self' https://models.dev https://api.openai.com https://api.anthropic.com https://generativelanguage.googleapis.com https://api.cohere.com https://api.perplexity.ai https://api.replicate.com https://api.x.ai https://openrouter.ai https://api.together.ai https://api.together.xyz https://api.fireworks.ai https://api.deepinfra.com https://api.novita.ai https://api.studio.nebius.com https://api.groq.com https://api.cerebras.ai https://api.sambanova.ai https://integrate.api.nvidia.com https://api.deepseek.com https://api.mistral.ai https://router.huggingface.co https://api.moonshot.ai https://api.z.ai https://api.minimax.io https://api.siliconflow.cn https://dashscope.aliyuncs.com https://qianfan.baidubce.com https://tokenhub.tencentmaas.com https://ark.cn-beijing.volces.com https://*.api.aws https://*.openai.azure.com https://api.cloudflare.com https://api.ai21.com https://opencode.ai http://127.0.0.1:* http://localhost:*",
+    "object-src 'none'",
+    "base-uri 'none'",
+    "form-action 'none'",
+    "frame-ancestors 'none'",
+].join("; ");
+
+function browserCspPlugin() {
+    return {
+        name: "tutorux-browser-csp",
+        apply: "build" as const,
+        transformIndexHtml(html: string): string {
+            return html.replace(
+                "</head>",
+                `    <meta http-equiv="Content-Security-Policy" content="${browserCsp}" />\n    </head>`,
+            );
+        },
+    };
+}
+
 export default defineConfig(({ mode }) => ({
-    plugins: [tailwindcss(), solid()],
+    plugins: [tailwindcss(), solid(), ...(mode === "desktop" ? [] : [browserCspPlugin()])],
     resolve: {
         alias: {
             "@platform": resolve(
