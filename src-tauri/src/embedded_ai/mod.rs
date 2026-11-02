@@ -43,6 +43,7 @@ const MAX_CONCURRENT_GENERATIONS: usize = 1;
 pub(crate) struct EmbeddedAiState {
     authorized_models: Mutex<HashMap<String, AuthorizedModel>>,
     runtime: Arc<Mutex<Option<LoadedModel>>>,
+    status: Mutex<EmbeddedModelStatus>,
     active_generations: Arc<Mutex<HashMap<String, Arc<AtomicBool>>>>,
 }
 
@@ -61,7 +62,7 @@ pub(crate) struct EmbeddedModelInfo {
     maximum_cpu_threads: u32,
 }
 
-#[derive(Clone, Serialize)]
+#[derive(Clone, Default, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct EmbeddedModelStatus {
     loaded: bool,
@@ -218,7 +219,11 @@ pub(crate) fn load_embedded_model(
         cpu_threads: request.cpu_threads,
         memory_estimate_bytes,
     });
-    Ok(status_from_runtime(runtime.as_ref()))
+    let status = status_from_runtime(runtime.as_ref());
+    if let Ok(mut current) = state.status.lock() {
+        *current = status.clone();
+    }
+    Ok(status)
 }
 
 #[tauri::command]
@@ -239,18 +244,22 @@ pub(crate) fn unload_embedded_model(
         "The local model runtime is busy. Wait for it to finish and try again.".to_owned()
     })?;
     runtime.take();
-    Ok(status_from_runtime(None))
+    let status = status_from_runtime(None);
+    if let Ok(mut current) = state.status.lock() {
+        *current = status.clone();
+    }
+    Ok(status)
 }
 
 #[tauri::command]
 pub(crate) fn embedded_model_status(
     state: State<'_, EmbeddedAiState>,
 ) -> Result<EmbeddedModelStatus, String> {
-    let runtime = state
-        .runtime
+    state
+        .status
         .lock()
-        .map_err(|_| "The local model runtime is unavailable.".to_owned())?;
-    Ok(status_from_runtime(runtime.as_ref()))
+        .map(|status| status.clone())
+        .map_err(|_| "The local model status is unavailable.".to_owned())
 }
 
 #[tauri::command]
