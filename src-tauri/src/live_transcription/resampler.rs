@@ -83,3 +83,76 @@ impl Resampler {
             .ok_or_else(|| "Live audio resampler received an incomplete sample range.".to_owned())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::Resampler;
+
+    fn pcm(samples: &[i16]) -> Vec<u8> {
+        samples
+            .iter()
+            .flat_map(|sample| sample.to_le_bytes())
+            .collect()
+    }
+
+    fn ramp(frames: usize) -> Vec<i16> {
+        (0..frames).map(|frame| frame as i16).collect()
+    }
+
+    fn expected_sample(frame: usize) -> f32 {
+        frame as f32 / 32_768.0
+    }
+
+    #[test]
+    fn resamples_48_khz_on_exact_three_to_one_frame_boundaries() {
+        let mut resampler = Resampler::new(48_000);
+        let output = resampler.push(&pcm(&ramp(480))).expect("resample 48 kHz");
+
+        assert_eq!(output.len(), 160);
+        for (index, value) in output.iter().enumerate() {
+            let expected = expected_sample(index * 3);
+            assert!(
+                (value - expected).abs() < f32::EPSILON,
+                "frame {index}: {value} != {expected}"
+            );
+        }
+        assert_eq!(output[0], expected_sample(0));
+        assert_eq!(output[159], expected_sample(477));
+    }
+
+    #[test]
+    fn resamples_44_1_khz_with_interpolated_first_and_last_samples() {
+        let mut resampler = Resampler::new(44_100);
+        let output = resampler
+            .push(&pcm(&ramp(4_410)))
+            .expect("resample 44.1 kHz");
+
+        assert_eq!(output.len(), 1_600);
+        assert_eq!(output[0], expected_sample(0));
+
+        let last_frame = 1_599usize;
+        let left = last_frame * 44_100 / 16_000;
+        let remainder = last_frame * 44_100 % 16_000;
+        let expected = (left as f32 + remainder as f32 / 16_000.0) / 32_768.0;
+        assert!(
+            (output[last_frame] - expected).abs() < 1e-6,
+            "last sample {} != {expected}",
+            output[last_frame]
+        );
+    }
+
+    #[test]
+    fn keeps_frame_alignment_when_a_chunk_split_falls_between_output_frames() {
+        let mut resampler = Resampler::new(44_100);
+        let source = ramp(4_410);
+        let first = resampler.push(&pcm(&source[..2_205])).expect("first chunk");
+        let second = resampler
+            .push(&pcm(&source[2_205..]))
+            .expect("second chunk");
+
+        assert_eq!(first.len(), 800);
+        assert_eq!(first.len() + second.len(), 1_600);
+        assert_eq!(first[0], expected_sample(0));
+        assert_eq!(second[0], expected_sample(2_205));
+    }
+}
