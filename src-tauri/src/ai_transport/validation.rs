@@ -57,6 +57,17 @@ pub(super) fn validate_request(
     } else if url.scheme() != "https" && !loopback_override {
         return Err("Cloud provider requests require HTTPS.".to_owned());
     }
+    if !local && !loopback_override && !is_allowed_provider_host(&request.provider_id, &url) {
+        return Err("The endpoint is not the reviewed provider's official API host.".to_owned());
+    }
+    if request.provider_id == "openai-compatible"
+        && request.credential_storage == CredentialStorage::SystemKeychain
+    {
+        return Err(
+            "Custom endpoints cannot use an operating-system credential. Save the key in an encrypted archive instead."
+                .to_owned(),
+        );
+    }
 
     let path = url.path();
     if request.provider_id == "opencode-zen"
@@ -233,6 +244,47 @@ pub(super) fn validate_replicate_model_inspection(
         return Err("The Replicate model-schema request is invalid or changed.".to_owned());
     }
     Ok(())
+}
+
+fn is_allowed_provider_host(provider_id: &str, url: &Url) -> bool {
+    let host = url.host_str().unwrap_or_default().to_ascii_lowercase();
+    match provider_id {
+        "openai" => host == "api.openai.com",
+        "anthropic" => host == "api.anthropic.com",
+        "google-gemini" => host == "generativelanguage.googleapis.com",
+        "cohere" => host == "api.cohere.com",
+        "perplexity" => host == "api.perplexity.ai",
+        "replicate" => host == "api.replicate.com",
+        "xai" => host == "api.x.ai",
+        "openrouter" => host == "openrouter.ai",
+        "together" => host == "api.together.ai" || host == "api.together.xyz",
+        "fireworks" => host == "api.fireworks.ai",
+        "deepinfra" => host == "api.deepinfra.com",
+        "novita" => host == "api.novita.ai",
+        "nebius" => host == "api.studio.nebius.com",
+        "groq" => host == "api.groq.com",
+        "cerebras" => host == "api.cerebras.ai",
+        "sambanova" => host == "api.sambanova.ai",
+        "nvidia" => host == "integrate.api.nvidia.com",
+        "deepseek" => host == "api.deepseek.com",
+        "mistral" => host == "api.mistral.ai",
+        "huggingface" => host == "router.huggingface.co",
+        "moonshot" => host == "api.moonshot.ai",
+        "zai" => host == "api.z.ai",
+        "minimax" => host == "api.minimax.io",
+        "siliconflow" => host == "api.siliconflow.cn",
+        "alibaba-cloud" => host == "dashscope.aliyuncs.com",
+        "baidu" => host == "qianfan.baidubce.com",
+        "tencent-cloud" => host == "tokenhub.tencentmaas.com",
+        "volcengine" => host == "ark.cn-beijing.volces.com",
+        "bedrock" => host.ends_with(".api.aws"),
+        "azure-openai" => host.ends_with(".openai.azure.com"),
+        "cloudflare-workers-ai" => host == "api.cloudflare.com",
+        "ai21" => host == "api.ai21.com",
+        "opencode-zen" | "opencode-go" => host == "opencode.ai",
+        "openai-compatible" => true,
+        _ => false,
+    }
 }
 
 fn is_openai_compatible_provider(provider_id: &str) -> bool {
@@ -430,4 +482,84 @@ pub(super) fn constant_time_equal(left: &str, right: &str) -> bool {
         .zip(right.bytes())
         .fold(0u8, |difference, (left, right)| difference | (left ^ right))
         == 0
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_allowed_provider_host;
+    use reqwest::Url;
+
+    fn allowed(provider_id: &str, endpoint: &str) -> bool {
+        is_allowed_provider_host(provider_id, &Url::parse(endpoint).expect("valid endpoint"))
+    }
+
+    #[test]
+    fn openai_and_anthropic_have_exact_official_hosts() {
+        assert!(allowed(
+            "openai",
+            "https://api.openai.com/v1/chat/completions"
+        ));
+        assert!(allowed(
+            "openai",
+            "https://API.OPENAI.COM/v1/chat/completions"
+        ));
+        assert!(!allowed("openai", "https://api.openai.com.evil.test/v1"));
+        assert!(!allowed("openai", "https://evil-openai.test/v1"));
+        assert!(!allowed("openai", "https://api.anthropic.com/v1/messages"));
+
+        assert!(allowed(
+            "anthropic",
+            "https://api.anthropic.com/v1/messages"
+        ));
+        assert!(!allowed(
+            "anthropic",
+            "https://api.anthropic.com.evil.test/v1"
+        ));
+        assert!(!allowed("anthropic", "https://api.openai.com/v1/messages"));
+    }
+
+    #[test]
+    fn azure_openai_requires_an_azure_subdomain() {
+        assert!(allowed(
+            "azure-openai",
+            "https://tutorux.openai.azure.com/openai/deployments/chat/chat/completions"
+        ));
+        assert!(!allowed("azure-openai", "https://openai.azure.com/v1"));
+        assert!(!allowed(
+            "azure-openai",
+            "https://tutorux.openai.azure.com.evil.test/v1"
+        ));
+        assert!(!allowed("azure-openai", "https://api.openai.com/v1"));
+    }
+
+    #[test]
+    fn opencode_zen_is_limited_to_the_opencode_host() {
+        assert!(allowed(
+            "opencode-zen",
+            "https://opencode.ai/zen/v1/chat/completions"
+        ));
+        assert!(allowed(
+            "opencode-zen",
+            "https://opencode.ai/openai/v1/responses"
+        ));
+        assert!(!allowed(
+            "opencode-zen",
+            "https://zen.opencode.ai.evil.test/v1"
+        ));
+        assert!(!allowed("opencode-zen", "https://opencode.ai.evil.test/v1"));
+        assert!(!allowed("opencode-zen", "https://api.openai.com/v1"));
+    }
+
+    #[test]
+    fn openai_compatible_accepts_any_host() {
+        assert!(allowed(
+            "openai-compatible",
+            "https://api.example.test/v1/chat/completions"
+        ));
+        assert!(allowed(
+            "openai-compatible",
+            "http://127.0.0.1:11434/v1/chat/completions"
+        ));
+        assert!(!allowed("unknown-provider", "https://api.example.test/v1"));
+    }
 }
