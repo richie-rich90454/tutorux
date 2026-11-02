@@ -11,15 +11,7 @@ import {
     type ArchiveIndexMigrationResult,
 } from "./archive/archive";
 import type { SanitizedCopyDestination } from "./platform/types";
-import {
-    buttonOutline,
-    buttonPrimary,
-    buttonQuiet,
-    card,
-    cn,
-    eyebrow,
-    mutedText,
-} from "./ui";
+import { buttonOutline, buttonPrimary, buttonQuiet, card, cn, eyebrow, mutedText } from "./ui";
 import { platform } from "@platform";
 
 type Review =
@@ -377,7 +369,9 @@ export function ArchiveMaintenance(props: ArchiveMaintenanceProps): JSX.Element 
                                     </h3>
                                     <p class={reviewText}>
                                         This publishes{" "}
-                                        {entry().result.recoveredGenerations.toLocaleString("en-US")}{" "}
+                                        {entry().result.recoveredGenerations.toLocaleString(
+                                            "en-US",
+                                        )}{" "}
                                         verified unpublished{" "}
                                         {entry().result.recoveredGenerations === 1
                                             ? "generation"
@@ -395,8 +389,8 @@ export function ArchiveMaintenance(props: ArchiveMaintenanceProps): JSX.Element 
                                     <p class={reviewText}>
                                         {bytes(entry().result.originalBytes)} to{" "}
                                         {bytes(entry().result.compactedBytes)} ·{" "}
-                                        {entry().result.preservedRecords.toLocaleString("en-US")} record
-                                        revisions preserved.
+                                        {entry().result.preservedRecords.toLocaleString("en-US")}{" "}
+                                        record revisions preserved.
                                     </p>
                                     <Show
                                         when={entry().pruneUnreferencedAssets}
@@ -425,7 +419,9 @@ export function ArchiveMaintenance(props: ArchiveMaintenanceProps): JSX.Element 
                                                 }
                                             >
                                                 <p class={reviewText}>
-                                                    {entry().result.prunedAssetRecords.toLocaleString("en-US")}{" "}
+                                                    {entry().result.prunedAssetRecords.toLocaleString(
+                                                        "en-US",
+                                                    )}{" "}
                                                     unreferenced material content records will be
                                                     omitted from the compacted archive. The source
                                                     archive remains unchanged until you save this
@@ -465,9 +461,9 @@ export function ArchiveMaintenance(props: ArchiveMaintenanceProps): JSX.Element 
                                 <>
                                     <h3 class={reviewHeading}>Update archive indexes</h3>
                                     <p class={reviewText}>
-                                        {entry().result.addedEntries.toLocaleString("en-US")} missing index
-                                        entries can be added. Existing entries and record history
-                                        are preserved.
+                                        {entry().result.addedEntries.toLocaleString("en-US")}{" "}
+                                        missing index entries can be added. Existing entries and
+                                        record history are preserved.
                                     </p>
                                     <Show when={entry().result.schemaVersionsUpdated}>
                                         <p class={reviewText}>
@@ -478,7 +474,9 @@ export function ArchiveMaintenance(props: ArchiveMaintenanceProps): JSX.Element 
                                     </Show>
                                     <Show when={entry().result.conflictingEntries > 0}>
                                         <p class={reviewText}>
-                                            {entry().result.conflictingEntries.toLocaleString("en-US")}{" "}
+                                            {entry().result.conflictingEntries.toLocaleString(
+                                                "en-US",
+                                            )}{" "}
                                             existing entries point to different revisions or records
                                             and will be left unchanged.
                                         </p>
@@ -555,7 +553,9 @@ export function ArchiveMaintenance(props: ArchiveMaintenanceProps): JSX.Element 
                                     </dd>
                                 </div>
                                 <div class="min-w-0 rounded-[5px] border border-line bg-surface p-2.5">
-                                    <dt class="text-[0.8rem] text-muted">Verified generation selected</dt>
+                                    <dt class="text-[0.8rem] text-muted">
+                                        Verified generation selected
+                                    </dt>
                                     <dd class="mt-1 min-w-0 break-words font-semibold text-ink">
                                         {item.result.selectedGeneration.toString()}
                                     </dd>
@@ -574,7 +574,9 @@ export function ArchiveMaintenance(props: ArchiveMaintenanceProps): JSX.Element 
                                     </dd>
                                 </div>
                                 <div class="min-w-0 rounded-[5px] border border-line bg-surface p-2.5">
-                                    <dt class="text-[0.8rem] text-muted">Record revisions preserved</dt>
+                                    <dt class="text-[0.8rem] text-muted">
+                                        Record revisions preserved
+                                    </dt>
                                     <dd class="mt-1 min-w-0 break-words font-semibold text-ink">
                                         {item.result.preservedRecords.toLocaleString("en-US")}
                                     </dd>
@@ -599,7 +601,11 @@ export function ArchiveMaintenance(props: ArchiveMaintenanceProps): JSX.Element 
                                 </p>
                             </Show>
                             <label
-                                class={cn("archive-maintenance-repair-confirm", checkboxLabel, "mt-3")}
+                                class={cn(
+                                    "archive-maintenance-repair-confirm",
+                                    checkboxLabel,
+                                    "mt-3",
+                                )}
                             >
                                 <input
                                     type="checkbox"
