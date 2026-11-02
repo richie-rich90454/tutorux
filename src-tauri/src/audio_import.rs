@@ -419,6 +419,22 @@ mod tests {
     }
 
     #[test]
+    fn malformed_wav_inputs_never_panic() {
+        let bytes = wav(&pcm_format(2, 48_000), &[0u8; 64]);
+        for length in 0..bytes.len() {
+            let mut truncated = bytes[..length].to_vec();
+            let _ = read_wav_format(&mut Cursor::new(&mut truncated));
+        }
+        for index in 0..bytes.len() {
+            for mask in [0x01u8, 0x80, 0xff] {
+                let mut mutated = bytes.clone();
+                mutated[index] ^= mask;
+                let _ = read_decoded_audio(&mut Cursor::new(&mut mutated));
+            }
+        }
+    }
+
+    #[test]
     fn decoder_chunks_align_to_sample_frames() {
         let mut bytes = wav(&pcm_format(2, 48_000), &vec![0u8; MAX_PCM_CHUNK_BYTES + 8]);
         let (_, chunks, sample_count, byte_count) =

@@ -114,7 +114,9 @@ pub(crate) fn write_transaction(
         .map(|(key, offset)| (key.clone(), *offset))
         .collect();
     let authenticate = if snapshot.encrypted() {
-        let key = snapshot.data_key.as_ref().unwrap();
+        let key = snapshot.data_key.as_ref().ok_or_else(|| {
+            CoreError::new("archive_locked", "Unlock this archive before editing it.")
+        })?;
         Some(move |payload: &[u8]| key.authenticate_bytes("TUTORUX-INDEX-PAGE-V1", payload))
     } else {
         None
@@ -140,14 +142,11 @@ pub(crate) fn write_transaction(
         write_changes.len() as u64,
     );
     let commit_payload = if snapshot.encrypted() {
+        let key = snapshot.data_key.as_ref().ok_or_else(|| {
+            CoreError::new("archive_locked", "Unlock this archive before editing it.")
+        })?;
         let mut payload = commit_body.clone();
-        payload.extend_from_slice(
-            &snapshot
-                .data_key
-                .as_ref()
-                .unwrap()
-                .authenticate_bytes("TUTORUX-COMMIT-V1", &commit_body),
-        );
+        payload.extend_from_slice(&key.authenticate_bytes("TUTORUX-COMMIT-V1", &commit_body));
         payload
     } else {
         commit_body

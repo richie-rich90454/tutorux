@@ -53,3 +53,44 @@ fn reads_typescript_encrypted_fixture() {
     assert_eq!(students.len(), 1);
     assert_eq!(students[0].field("display_name"), Some("Interop Student"));
 }
+
+#[test]
+fn every_truncation_of_a_valid_archive_is_rejected_without_panicking() {
+    let bytes = super::create_archive_bytes("Truncation", "", 1).unwrap();
+    for length in 0..bytes.len() {
+        assert!(
+            ArchiveSnapshot::open_bytes(bytes[..length].to_vec()).is_err(),
+            "a truncated archive opened at byte {length}"
+        );
+    }
+}
+
+#[test]
+fn mutated_archive_bytes_never_panic_the_parser() {
+    let bytes = super::create_archive_bytes("Mutations", "", 1).unwrap();
+    for index in 0..bytes.len() {
+        for mask in [0x01u8, 0x80, 0xff] {
+            let mut mutated = bytes.clone();
+            mutated[index] ^= mask;
+            let _ = ArchiveSnapshot::open_bytes(mutated);
+        }
+    }
+}
+
+#[test]
+fn random_archive_shaped_input_never_panics_the_parser() {
+    let mut state = 0x9e37_79b9_7f4a_7c15u64;
+    for length in 0..512usize {
+        let mut bytes = vec![0u8; length];
+        for byte in &mut bytes {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            *byte = state as u8;
+        }
+        if bytes.len() >= 8 {
+            bytes[..8].copy_from_slice(b"TUTORUX\0");
+        }
+        let _ = ArchiveSnapshot::open_bytes(bytes);
+    }
+}

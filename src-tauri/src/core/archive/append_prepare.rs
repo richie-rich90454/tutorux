@@ -103,7 +103,13 @@ pub(crate) fn prepare_transaction(
         }
     }
 
-    let mut manifest_fields = current_manifest.as_ref().unwrap().fields.clone();
+    let manifest = current_manifest.as_ref().ok_or_else(|| {
+        crate::core::error::CoreError::new(
+            "archive_manifest_missing",
+            "Archive manifest is missing or invalid.",
+        )
+    })?;
+    let mut manifest_fields = manifest.fields.clone();
     let (student_count, session_count) =
         super::support::manifest_counts(&student_by_id, &session_by_id);
     manifest_fields.insert("student_count".to_owned(), student_count);
@@ -155,7 +161,7 @@ pub(crate) fn prepare_transaction(
             })
             .collect()
     } else {
-        let mut updated_manifest = current_manifest.as_ref().unwrap().clone();
+        let mut updated_manifest = manifest.clone();
         updated_manifest.fields = manifest_fields.clone();
         let mut updated = changes.to_vec();
         updated.push(updated_manifest);

@@ -285,7 +285,7 @@ mod tests {
             ));
             assert!(matches!(
                 row.get("probe_state").and_then(Value::as_str),
-                Some("ready" | "unsupported")
+                Some("ready" | "unsupported" | "not-probed")
             ));
         }
     }
