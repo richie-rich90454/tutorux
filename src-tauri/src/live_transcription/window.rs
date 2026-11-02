@@ -268,3 +268,63 @@ fn publish_cues(
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        publish_cues, samples_to_microseconds, LiveWhisperCue, SharedOutput, MAX_PENDING_CUES,
+    };
+    use std::{collections::VecDeque, sync::Mutex};
+
+    fn cue(sequence: u64) -> LiveWhisperCue {
+        LiveWhisperCue {
+            sequence: sequence.to_string(),
+            start_time_us: "0".to_owned(),
+            end_time_us: "1".to_owned(),
+            window_start_us: "0".to_owned(),
+            text: "queued cue".to_owned(),
+            language: "en".to_owned(),
+            model_name: "model".to_owned(),
+            backend_version: "backend".to_owned(),
+            diarization_enabled: false,
+            speaker_turn_next: false,
+        }
+    }
+
+    #[test]
+    fn converts_sample_positions_to_microseconds() {
+        assert_eq!(samples_to_microseconds(16_000).expect("convert"), 1_000_000);
+        assert_eq!(samples_to_microseconds(0).expect("convert"), 0);
+    }
+
+    #[test]
+    fn queue_limit_back_pressure_fails_the_transcript() {
+        let mut output = SharedOutput {
+            status: "running".to_owned(),
+            ..SharedOutput::default()
+        };
+        output.cues = (0..MAX_PENDING_CUES as u64)
+            .map(cue)
+            .collect::<VecDeque<_>>();
+        let shared = Mutex::new(output);
+
+        let error = publish_cues(
+            &shared,
+            vec![(0, 1_000, "overflow".to_owned(), false)],
+            0,
+            "en",
+            "model",
+            "backend",
+            false,
+        )
+        .expect_err("the queue limit must reject the cue");
+
+        assert!(error.contains("safety limit"), "{error}");
+        let output = shared.lock().expect("transcript output");
+        assert_eq!(output.status, "failed");
+        assert!(output
+            .error
+            .as_deref()
+            .is_some_and(|message| message.contains("safety limit")));
+    }
+}
