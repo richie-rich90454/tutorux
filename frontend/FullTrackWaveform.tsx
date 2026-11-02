@@ -1,5 +1,4 @@
-import { twClasses } from "./tailwind";
-import { jsxTailwindStyles } from "./FullTrackWaveform.tailwind";
+import { buttonOutline, cn } from "./ui";
 import { createEffect, createMemo, createSignal, For, onCleanup, Show } from "solid-js";
 import type { ArchiveSnapshot } from "./archive/archive";
 import { RecordType, type ArchiveRecord } from "./archive/format";
@@ -130,7 +129,7 @@ export function FullTrackWaveform(props: Props) {
             if (generation === operation)
                 setError(
                     abort.signal.aborted
-                        ? "Waveform generation cancelled."
+                        ? "Waveform generation canceled."
                         : cause instanceof Error
                           ? cause.message
                           : String(cause),
@@ -143,19 +142,21 @@ export function FullTrackWaveform(props: Props) {
 
     return (
         <section
-            class={twClasses(
+            class={cn(
                 "full-track-waveform col-span-full min-w-0 w-full rounded-panel border border-line bg-surface-subtle p-4",
-                jsxTailwindStyles,
-                "section",
+                "rounded-[5px] grid gap-3 p-px",
             )}
             aria-label="Full recording waveform"
         >
-            <div class={twClasses("full-track-waveform-header", jsxTailwindStyles, "div")}>
-                <div class={twClasses("", jsxTailwindStyles, "div")}>
-                    <strong class={twClasses("", jsxTailwindStyles, "strong")}>
-                        Full recording waveform
-                    </strong>
-                    <p class={twClasses("", jsxTailwindStyles, "p")}>
+            <div
+                class={cn(
+                    "full-track-waveform-header",
+                    "max-[640px]:items-stretch max-[640px]:flex-col items-center flex gap-px justify-between",
+                )}
+            >
+                <div>
+                    <strong>Full recording waveform</strong>
+                    <p class="text-muted text-[0.8rem] mt-[0.3rem] mr-0 mb-0 ml-0">
                         <Show
                             when={status() === "ready"}
                             fallback={
@@ -177,7 +178,7 @@ export function FullTrackWaveform(props: Props) {
                     when={progress() === undefined}
                     fallback={
                         <button
-                            class={twClasses("button button-outline", jsxTailwindStyles, "button")}
+                            class={cn("button button-outline", buttonOutline)}
                             type="button"
                             onClick={() => controller?.abort()}
                         >
@@ -186,7 +187,7 @@ export function FullTrackWaveform(props: Props) {
                     }
                 >
                     <button
-                        class={twClasses("button button-outline", jsxTailwindStyles, "button")}
+                        class={cn("button button-outline", buttonOutline)}
                         type="button"
                         disabled={props.disabled || props.snapshot.locked || status() === "loading"}
                         onClick={() => void generate()}
@@ -196,21 +197,27 @@ export function FullTrackWaveform(props: Props) {
                 </Show>
             </div>
             <Show when={progress() !== undefined}>
-                <div class={twClasses("full-track-waveform-progress", jsxTailwindStyles, "div")}>
+                <div
+                    class={cn(
+                        "full-track-waveform-progress",
+                        "items-center text-muted flex text-[0.8rem] gap-[0.7rem]",
+                    )}
+                >
                     <progress
                         max="1"
                         value={progress()}
                         aria-label="Waveform generation progress"
-                        class={twClasses("", jsxTailwindStyles, "progress")}
+                        class="accent-accent flex-1"
                     />
-                    <span class={twClasses("", jsxTailwindStyles, "span")}>
-                        {Math.round((progress() ?? 0) * 100)}%
-                    </span>
+                    <span>{Math.round((progress() ?? 0) * 100)}%</span>
                 </div>
             </Show>
             <Show when={status() === "ready" && buckets().length > 0}>
                 <svg
-                    class={twClasses("full-track-waveform-graphic", jsxTailwindStyles, "svg")}
+                    class={cn(
+                        "full-track-waveform-graphic",
+                        "bg-surface-inset rounded-[5px] fill-accent h-[5rem] w-full",
+                    )}
                     viewBox={`0 0 ${buckets().length} 100`}
                     preserveAspectRatio="none"
                     role="img"
@@ -223,7 +230,7 @@ export function FullTrackWaveform(props: Props) {
                                 y={Math.max(0, 50 - bucket.maximum / 655.36)}
                                 width="0.8"
                                 height={Math.max(1, (bucket.maximum - bucket.minimum) / 655.36)}
-                                class={twClasses("", jsxTailwindStyles, "rect", ["gap"])}
+                                class="[.full-track-waveform-graphic_rect&:where(.gap)]:fill-[var(--warning)]"
                                 classList={{ gap: bucket.containsGap }}
                             />
                         )}
@@ -231,13 +238,12 @@ export function FullTrackWaveform(props: Props) {
                 </svg>
                 <Show when={props.onSelectTime}>
                     <div
-                        class={twClasses(
+                        class={cn(
                             "full-track-waveform-navigation",
-                            jsxTailwindStyles,
-                            "div",
+                            "max-[640px]:items-stretch max-[640px]:flex-col items-center text-muted flex text-[0.8rem] gap-[0.7rem]",
                         )}
                     >
-                        <label class={twClasses("", jsxTailwindStyles, "label")}>
+                        <label class="items-center flex flex-1 gap-[0.5rem]">
                             Position{" "}
                             <input
                                 type="range"
@@ -245,16 +251,16 @@ export function FullTrackWaveform(props: Props) {
                                 max="999"
                                 value={selection()}
                                 onInput={(event) => setSelection(Number(event.currentTarget.value))}
-                                class={twClasses("", jsxTailwindStyles, "input")}
+                                class="focus-visible:outline-offset-0.5 focus-visible:outline-3 focus-visible:outline-[color-mix(in_srgb,_var(--accent)_42%,_transparent)] accent-accent w-full"
                             />
                         </label>
-                        <span class={twClasses("", jsxTailwindStyles, "span")}>
+                        <span>
                             {formatTranscriptTimestampUs(
                                 (durationUs() * BigInt(selection())) / 1000n,
                             )}
                         </span>
                         <button
-                            class={twClasses("button button-outline", jsxTailwindStyles, "button")}
+                            class={cn("button button-outline", buttonOutline)}
                             type="button"
                             onClick={() =>
                                 props.onSelectTime?.((durationUs() * BigInt(selection())) / 1000n)
@@ -267,7 +273,7 @@ export function FullTrackWaveform(props: Props) {
             </Show>
             <Show when={error()}>
                 <p
-                    class={twClasses("full-track-waveform-error", jsxTailwindStyles, "p")}
+                    class={cn("full-track-waveform-error", "text-danger text-[0.85rem] m-0")}
                     role="alert"
                 >
                     {error()}
