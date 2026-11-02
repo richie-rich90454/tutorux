@@ -63,24 +63,16 @@ export async function runArchiveEncryptCommand(
     args: ParsedArguments,
     output: CliIo,
 ): Promise<number> {
-    const newPassphraseEnvironment =
-        args.options.get("new-passphrase-env") ?? args.options.get("passphrase-env");
-    let newPassphrase: string | undefined;
+    const newPassphraseEnvironment = args.options.get("new-passphrase-env");
     if (newPassphraseEnvironment === undefined) {
-        newPassphrase = archiveAccessContext.getStore()?.passphrase;
-        if (newPassphrase === undefined) {
-            throw new CliError(
-                "archive encrypt requires --new-passphrase-env <name> or --passphrase-env <name>.",
-            );
-        }
-    } else {
-        if (!/^[A-Za-z_][A-Za-z\d_]*$/u.test(newPassphraseEnvironment)) {
-            throw new CliError("--new-passphrase-env requires a valid environment variable name.");
-        }
-        newPassphrase = process.env[newPassphraseEnvironment];
-        if (newPassphrase === undefined) {
-            throw new CliError("The new archive passphrase environment variable is not set.");
-        }
+        throw new CliError("archive encrypt requires --new-passphrase-env <name>.");
+    }
+    if (!/^[A-Za-z_][A-Za-z\d_]*$/u.test(newPassphraseEnvironment)) {
+        throw new CliError("--new-passphrase-env requires a valid environment variable name.");
+    }
+    const newPassphrase = process.env[newPassphraseEnvironment];
+    if (newPassphrase === undefined) {
+        throw new CliError("The new archive passphrase environment variable is not set.");
     }
 
     const archivePath = resolve(path);
