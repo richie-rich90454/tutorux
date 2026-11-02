@@ -45,6 +45,14 @@ test("closes only the date calendar when Escape is pressed inside the picker", a
     await expect
         .poll(() =>
             calendar
+                .getByRole("button", { name: "Previous month" })
+                .locator("svg")
+                .evaluate((element) => getComputedStyle(element).rotate),
+        )
+        .not.toBe("none");
+    await expect
+        .poll(() =>
+            calendar
                 .locator(".date-picker-calendar-heading")
                 .evaluate(
                     (element) => getComputedStyle(element).gridTemplateColumns.split(" ").length,

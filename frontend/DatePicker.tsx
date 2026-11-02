@@ -301,7 +301,7 @@ export function DatePicker(props: DatePickerProps) {
                             aria-label="Previous month"
                             onClick={() => moveMonth(-1)}
                         >
-                            <Icon name="chevron" />
+                            <Icon name="chevron" class="rotate-180" />
                         </button>
                         <strong class="text-ink text-[13px] font-semibold">
                             {monthLabel(month())}
