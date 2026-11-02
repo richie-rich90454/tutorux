@@ -42,7 +42,10 @@ test("plays the matching archive audio from a transcript timestamp", async ({ pa
 
     await page.goto("/");
     const chooser = page.waitForEvent("filechooser");
-    await page.getByRole("button", { name: "Open archive", exact: true }).click();
+    await page
+        .locator("#main-content")
+        .getByRole("button", { name: "Open archive", exact: true })
+        .click();
     await (await chooser).setFiles(archivePath);
     await expect(page.getByRole("button", { name: /Audio test archive/u })).toBeVisible();
 
@@ -72,9 +75,9 @@ test("plays the matching archive audio from a transcript timestamp", async ({ pa
     await expect
         .poll(() => player.evaluate((element: HTMLAudioElement) => element.duration))
         .toBeGreaterThan(0.7);
-    await expect
-        .poll(() => player.evaluate((element: HTMLAudioElement) => element.duration))
-        .toBeLessThan(0.8);
+    const duration = await player.evaluate((element: HTMLAudioElement) => element.duration);
+    expect(duration).toBeGreaterThan(0.7);
+    expect(duration).toBeLessThan(0.8);
 });
 
 test("imports a WAV file into a session and plays it from a cue", async ({ page }, testInfo) => {
@@ -84,7 +87,10 @@ test("imports a WAV file into a session and plays it from a cue", async ({ page 
 
     await page.goto("/");
     const chooser = page.waitForEvent("filechooser");
-    await page.getByRole("button", { name: "Open archive", exact: true }).click();
+    await page
+        .locator("#main-content")
+        .getByRole("button", { name: "Open archive", exact: true })
+        .click();
     await (await chooser).setFiles(archivePath);
     await expect(page.getByRole("button", { name: /Audio test archive/u })).toBeVisible();
     await page.getByRole("button", { name: "Record", exact: true }).click();
@@ -121,7 +127,10 @@ test("manages recording take and track names and restores trashed audio", async 
 
     await page.goto("/");
     const chooser = page.waitForEvent("filechooser");
-    await page.getByRole("button", { name: "Open archive", exact: true }).click();
+    await page
+        .locator("#main-content")
+        .getByRole("button", { name: "Open archive", exact: true })
+        .click();
     await (await chooser).setFiles(archivePath);
     await expect(page.getByRole("button", { name: /Audio test archive/u })).toBeVisible();
     await page.getByRole("button", { name: "Record", exact: true }).click();
