@@ -212,7 +212,7 @@ export function DatePicker(props: DatePickerProps) {
             <div
                 class={cn(
                     `date-picker-control ${invalid() ? "is-invalid" : ""}`,
-                    "focus-within:border-accent focus-within:shadow-[0_0_0_3px_color-mix(in_srgb,_var(--accent)_18%,_transparent)] motion-reduce:transition-none bg-surface rounded-[7px] border border-line-strong grid grid-cols-[minmax(0, 1fr) 36px] h-[36px] min-w-0 overflow-hidden transition-colors",
+                    "focus-within:border-accent focus-within:shadow-[0_0_0_3px_color-mix(in_srgb,_var(--accent)_18%,_transparent)] motion-reduce:transition-none bg-surface rounded-[7px] border border-line-strong grid grid-cols-[minmax(0,_1fr)_36px] h-[36px] min-w-0 overflow-hidden transition-colors",
                 )}
             >
                 <input
@@ -239,12 +239,12 @@ export function DatePicker(props: DatePickerProps) {
                         }
                     }}
                     onBlur={() => setInvalid(Boolean(draft() && !parseDate(draft())))}
-                    class="focus-visible:outline-offset-0.5 placeholder:text-faint placeholder:opacity-1 focus-visible:outline-none bg-transparent border-0 text-ink tabular-nums h-full tracking-[0.02em] min-w-0 outline-none py-0 px-2.5 w-full"
+                    class="focus-visible:outline-offset-1 placeholder:text-faint placeholder:opacity-100 focus-visible:outline-none bg-transparent border-0 text-ink tabular-nums h-full tracking-[0.02em] min-w-0 outline-none py-0 px-2.5 w-full"
                 />
                 <button
                     class={cn(
                         "date-picker-trigger",
-                        "hover:bg-accent-soft hover:text-accent aria-expanded:bg-accent-soft aria-expanded:text-accent motion-reduce:transition-none bg-transparent border-l border-l-line-soft border-0 cursor-pointer grid p-0 place-items-center transition-colors focus-visible:outline-offset-0.5 focus-visible:outline-3 focus-visible:outline-[color-mix(in_srgb,_var(--accent)_42%,_transparent)] text-inherit disabled:cursor-not-allowed! disabled:opacity-0.56",
+                        "hover:bg-accent-soft hover:text-accent aria-expanded:bg-accent-soft aria-expanded:text-accent motion-reduce:transition-none bg-transparent border-l border-l-line-soft border-0 cursor-pointer grid p-0 place-items-center transition-colors focus-visible:outline-offset-1 focus-visible:outline-3 focus-visible:outline-[color-mix(in_srgb,_var(--accent)_42%,_transparent)] text-inherit disabled:cursor-not-allowed! disabled:opacity-56",
                     )}
                     type="button"
                     disabled={props.disabled}
@@ -289,14 +289,14 @@ export function DatePicker(props: DatePickerProps) {
                     <header
                         class={cn(
                             "date-picker-calendar-heading",
-                            "items-center grid gap-1 grid-cols-[32px 1fr 32px] mb-[9px] text-center",
+                            "items-center grid gap-1 grid-cols-[32px_1fr_32px] mb-[9px] text-center",
                         )}
                     >
                         <button
                             type="button"
                             class={cn(
                                 "date-picker-month-button",
-                                "bg-transparent rounded-md border-0 cursor-pointer grid min-h-[30px] min-w-[30px] p-0 place-items-center hover:bg-accent-soft hover:text-[var(--accent-deep)] focus-visible:outline-offset-0.5 focus-visible:outline-3 focus-visible:outline-[color-mix(in_srgb,_var(--accent)_42%,_transparent)] text-inherit disabled:cursor-not-allowed! disabled:opacity-0.56",
+                                "bg-transparent rounded-md border-0 cursor-pointer grid min-h-[30px] min-w-[30px] p-0 place-items-center hover:bg-accent-soft hover:text-[var(--accent-deep)] focus-visible:outline-offset-1 focus-visible:outline-3 focus-visible:outline-[color-mix(in_srgb,_var(--accent)_42%,_transparent)] text-inherit disabled:cursor-not-allowed! disabled:opacity-56",
                             )}
                             aria-label="Previous month"
                             onClick={() => moveMonth(-1)}
@@ -310,7 +310,7 @@ export function DatePicker(props: DatePickerProps) {
                             type="button"
                             class={cn(
                                 "date-picker-month-button is-next",
-                                "bg-transparent rounded-md border-0 cursor-pointer grid min-h-[30px] min-w-[30px] p-0 place-items-center hover:bg-accent-soft hover:text-[var(--accent-deep)] focus-visible:outline-offset-0.5 focus-visible:outline-3 focus-visible:outline-[color-mix(in_srgb,_var(--accent)_42%,_transparent)] text-inherit disabled:cursor-not-allowed! disabled:opacity-0.56",
+                                "bg-transparent rounded-md border-0 cursor-pointer grid min-h-[30px] min-w-[30px] p-0 place-items-center hover:bg-accent-soft hover:text-[var(--accent-deep)] focus-visible:outline-offset-1 focus-visible:outline-3 focus-visible:outline-[color-mix(in_srgb,_var(--accent)_42%,_transparent)] text-inherit disabled:cursor-not-allowed! disabled:opacity-56",
                             )}
                             aria-label="Next month"
                             onClick={() => moveMonth(1)}
@@ -321,7 +321,7 @@ export function DatePicker(props: DatePickerProps) {
                     <div
                         class={cn(
                             "date-picker-weekdays",
-                            "text-faint grid text-[10px] font-semibold gap-0.5 grid-cols-[repeat(7, minmax(0, 1fr))] mb-[3px] text-center",
+                            "text-faint grid text-[10px] font-semibold gap-0.5 grid-cols-[repeat(7,_minmax(0,_1fr))] mb-[3px] text-center",
                         )}
                         aria-hidden="true"
                     >
@@ -332,7 +332,7 @@ export function DatePicker(props: DatePickerProps) {
                     <div
                         class={cn(
                             "date-picker-days",
-                            "grid gap-0.5 grid-cols-[repeat(7, minmax(0, 1fr))] text-center",
+                            "grid gap-0.5 grid-cols-[repeat(7,_minmax(0,_1fr))] text-center",
                         )}
                         role="grid"
                         aria-label={monthLabel(month())}
@@ -351,7 +351,7 @@ export function DatePicker(props: DatePickerProps) {
                                         type="button"
                                         role="gridcell"
                                         tabIndex={focusedDate() === dateValue ? 0 : -1}
-                                        class="focus-visible:outline-offset-0.5 focus-visible:outline-3 focus-visible:outline-[color-mix(in_srgb,_var(--accent)_42%,_transparent)] hover:bg-accent-soft hover:text-[var(--accent-deep)] bg-transparent rounded-md border-0 cursor-pointer grid text-xs tabular-nums min-h-[31px] min-w-[30px] p-0 place-items-center w-full text-inherit disabled:cursor-not-allowed! disabled:opacity-0.56 [.date-picker-days_button&:where(.is-outside)]:text-faint [.date-picker-days_button&:where(.is-selected)]:bg-accent [.date-picker-days_button&:where(.is-selected)]:text-surface [.date-picker-days_button&:where(.is-selected)]:font-semibold [.date-picker-days_button&:where(.is-today):not(.is-selected)]:outline-offset-[-2px] [.date-picker-days_button&:where(.is-today):not(.is-selected)]:outline-1 [.date-picker-days_button&:where(.is-today):not(.is-selected)]:outline-line-strong"
+                                        class="focus-visible:outline-offset-1 focus-visible:outline-3 focus-visible:outline-[color-mix(in_srgb,_var(--accent)_42%,_transparent)] hover:bg-accent-soft hover:text-[var(--accent-deep)] bg-transparent rounded-md border-0 cursor-pointer grid text-xs tabular-nums min-h-[31px] min-w-[30px] p-0 place-items-center w-full text-inherit disabled:cursor-not-allowed! disabled:opacity-56 [.date-picker-days_button&:where(.is-outside)]:text-faint [.date-picker-days_button&:where(.is-selected)]:bg-accent [.date-picker-days_button&:where(.is-selected)]:text-surface [.date-picker-days_button&:where(.is-selected)]:font-semibold [.date-picker-days_button&:where(.is-today):not(.is-selected)]:outline-offset-[-2px] [.date-picker-days_button&:where(.is-today):not(.is-selected)]:outline-1 [.date-picker-days_button&:where(.is-today):not(.is-selected)]:outline-line-strong"
                                         classList={{
                                             "is-outside": !day.inMonth,
                                             "is-selected": isSelected(),
@@ -378,7 +378,7 @@ export function DatePicker(props: DatePickerProps) {
                         <button
                             type="button"
                             onClick={() => chooseDate(todayDate())}
-                            class="focus-visible:outline-offset-0.5 focus-visible:outline-3 focus-visible:outline-[color-mix(in_srgb,_var(--accent)_42%,_transparent)] hover:bg-accent-soft hover:text-[var(--accent-deep)] bg-transparent rounded-md border-0 cursor-pointer grid text-[11px] font-semibold min-h-[30px] min-w-[30px] py-0 px-2 place-items-center text-inherit disabled:cursor-not-allowed! disabled:opacity-0.56"
+                            class="focus-visible:outline-offset-1 focus-visible:outline-3 focus-visible:outline-[color-mix(in_srgb,_var(--accent)_42%,_transparent)] hover:bg-accent-soft hover:text-[var(--accent-deep)] bg-transparent rounded-md border-0 cursor-pointer grid text-[11px] font-semibold min-h-[30px] min-w-[30px] py-0 px-2 place-items-center text-inherit disabled:cursor-not-allowed! disabled:opacity-56"
                         >
                             Today
                         </button>
@@ -391,7 +391,7 @@ export function DatePicker(props: DatePickerProps) {
                                 setOpen(false);
                                 input?.focus();
                             }}
-                            class="focus-visible:outline-offset-0.5 focus-visible:outline-3 focus-visible:outline-[color-mix(in_srgb,_var(--accent)_42%,_transparent)] hover:bg-accent-soft hover:text-[var(--accent-deep)] bg-transparent rounded-md border-0 cursor-pointer grid text-[11px] font-semibold min-h-[30px] min-w-[30px] py-0 px-2 place-items-center text-inherit disabled:cursor-not-allowed! disabled:opacity-0.56"
+                            class="focus-visible:outline-offset-1 focus-visible:outline-3 focus-visible:outline-[color-mix(in_srgb,_var(--accent)_42%,_transparent)] hover:bg-accent-soft hover:text-[var(--accent-deep)] bg-transparent rounded-md border-0 cursor-pointer grid text-[11px] font-semibold min-h-[30px] min-w-[30px] py-0 px-2 place-items-center text-inherit disabled:cursor-not-allowed! disabled:opacity-56"
                         >
                             Clear
                         </button>

@@ -728,7 +728,7 @@ export function DocumentEditor(props: {
                                 type="button"
                                 disabled={exporting()}
                                 onClick={() => void exportDocument("markdown")}
-                                class="focus-visible:outline-offset-0.5 focus-visible:outline-3 focus-visible:outline-[color-mix(in_srgb,_var(--accent)_42%,_transparent)] focus-visible:bg-surface-subtle hover:bg-surface-subtle bg-transparent rounded-[5px] border-0 cursor-pointer text-xs p-2 text-left text-inherit disabled:cursor-not-allowed! disabled:opacity-0.56"
+                                class="focus-visible:outline-offset-1 focus-visible:outline-3 focus-visible:outline-[color-mix(in_srgb,_var(--accent)_42%,_transparent)] focus-visible:bg-surface-subtle hover:bg-surface-subtle bg-transparent rounded-[5px] border-0 cursor-pointer text-xs p-2 text-left text-inherit disabled:cursor-not-allowed! disabled:opacity-56"
                             >
                                 Markdown
                             </button>
@@ -736,7 +736,7 @@ export function DocumentEditor(props: {
                                 type="button"
                                 disabled={exporting()}
                                 onClick={() => void exportDocument("html")}
-                                class="focus-visible:outline-offset-0.5 focus-visible:outline-3 focus-visible:outline-[color-mix(in_srgb,_var(--accent)_42%,_transparent)] focus-visible:bg-surface-subtle hover:bg-surface-subtle bg-transparent rounded-[5px] border-0 cursor-pointer text-xs p-2 text-left text-inherit disabled:cursor-not-allowed! disabled:opacity-0.56"
+                                class="focus-visible:outline-offset-1 focus-visible:outline-3 focus-visible:outline-[color-mix(in_srgb,_var(--accent)_42%,_transparent)] focus-visible:bg-surface-subtle hover:bg-surface-subtle bg-transparent rounded-[5px] border-0 cursor-pointer text-xs p-2 text-left text-inherit disabled:cursor-not-allowed! disabled:opacity-56"
                             >
                                 HTML
                             </button>
@@ -744,7 +744,7 @@ export function DocumentEditor(props: {
                                 type="button"
                                 disabled={exporting()}
                                 onClick={() => void exportDocument("docx")}
-                                class="focus-visible:outline-offset-0.5 focus-visible:outline-3 focus-visible:outline-[color-mix(in_srgb,_var(--accent)_42%,_transparent)] focus-visible:bg-surface-subtle hover:bg-surface-subtle bg-transparent rounded-[5px] border-0 cursor-pointer text-xs p-2 text-left text-inherit disabled:cursor-not-allowed! disabled:opacity-0.56"
+                                class="focus-visible:outline-offset-1 focus-visible:outline-3 focus-visible:outline-[color-mix(in_srgb,_var(--accent)_42%,_transparent)] focus-visible:bg-surface-subtle hover:bg-surface-subtle bg-transparent rounded-[5px] border-0 cursor-pointer text-xs p-2 text-left text-inherit disabled:cursor-not-allowed! disabled:opacity-56"
                             >
                                 Word document
                             </button>
@@ -752,7 +752,7 @@ export function DocumentEditor(props: {
                                 type="button"
                                 disabled={exporting()}
                                 onClick={() => void exportDocument("pdf")}
-                                class="focus-visible:outline-offset-0.5 focus-visible:outline-3 focus-visible:outline-[color-mix(in_srgb,_var(--accent)_42%,_transparent)] focus-visible:bg-surface-subtle hover:bg-surface-subtle bg-transparent rounded-[5px] border-0 cursor-pointer text-xs p-2 text-left text-inherit disabled:cursor-not-allowed! disabled:opacity-0.56"
+                                class="focus-visible:outline-offset-1 focus-visible:outline-3 focus-visible:outline-[color-mix(in_srgb,_var(--accent)_42%,_transparent)] focus-visible:bg-surface-subtle hover:bg-surface-subtle bg-transparent rounded-[5px] border-0 cursor-pointer text-xs p-2 text-left text-inherit disabled:cursor-not-allowed! disabled:opacity-56"
                             >
                                 PDF / Print
                             </button>
@@ -777,7 +777,7 @@ export function DocumentEditor(props: {
                         onChange={(event) =>
                             setNextKind(event.currentTarget.value as JournalNoteBlockKind)
                         }
-                        class="focus-visible:outline-offset-0.5 focus-visible:outline-3 focus-visible:outline-[color-mix(in_srgb,_var(--accent)_42%,_transparent)] bg-surface rounded-[5px] border border-line text-ink-soft text-xs h-[29px] max-w-[180px] min-w-0 pt-0 pr-[23px] pb-0 pl-2 max-[520px]:flex-1 max-[520px]:max-w-none"
+                        class="focus-visible:outline-offset-1 focus-visible:outline-3 focus-visible:outline-[color-mix(in_srgb,_var(--accent)_42%,_transparent)] bg-surface rounded-[5px] border border-line text-ink-soft text-xs h-[29px] max-w-[180px] min-w-0 pt-0 pr-[23px] pb-0 pl-2 max-[520px]:flex-1 max-[520px]:max-w-none"
                     >
                         <For each={JOURNAL_NOTE_BLOCK_KINDS}>
                             {(kind) => <option value={kind}>{blockLabels[kind]}</option>}
@@ -786,7 +786,7 @@ export function DocumentEditor(props: {
                     <button
                         class={cn(
                             "button button-outline document-editor-add-button",
-                            "active:translate-y-px items-center rounded-[7px] border border-transparent cursor-pointer inline-flex font-semibold gap-2 justify-center no-underline transition-colors whitespace-nowrap hover:bg-surface-inset hover:border-line-strong bg-surface border-line-strong text-xs min-h-[29px] py-0 px-2.5 focus-visible:outline-offset-0.5 focus-visible:outline-3 focus-visible:outline-[color-mix(in_srgb,_var(--accent)_42%,_transparent)] text-inherit disabled:cursor-not-allowed! disabled:opacity-0.56",
+                            "active:translate-y-px items-center rounded-[7px] border border-transparent cursor-pointer inline-flex font-semibold gap-2 justify-center no-underline transition-colors whitespace-nowrap hover:bg-surface-inset hover:border-line-strong bg-surface border-line-strong text-xs min-h-[29px] py-0 px-2.5 focus-visible:outline-offset-1 focus-visible:outline-3 focus-visible:outline-[color-mix(in_srgb,_var(--accent)_42%,_transparent)] text-inherit disabled:cursor-not-allowed! disabled:opacity-56",
                         )}
                         type="button"
                         disabled={props.blocks.length >= MAX_JOURNAL_NOTE_BLOCKS}
@@ -826,7 +826,7 @@ export function DocumentEditor(props: {
                                     title={shortcut ? `${item.label} (${shortcut})` : item.label}
                                     onMouseDown={(event) => event.preventDefault()}
                                     onClick={() => applyInlineFormat(item.format)}
-                                    class="focus-visible:outline-offset-0.5 focus-visible:outline-3 focus-visible:outline-[color-mix(in_srgb,_var(--accent)_42%,_transparent)] disabled:text-faint focus-visible:bg-surface-subtle focus-visible:border-[color-mix(in_srgb,_var(--accent)_42%,_var(--line))] hover:bg-surface-subtle hover:border-[color-mix(in_srgb,_var(--accent)_42%,_var(--line))] items-center bg-surface rounded-[5px] border border-line-soft cursor-pointer inline-flex text-xs gap-1.5 min-h-[27px] py-[3px] px-[7px] text-inherit disabled:cursor-not-allowed! disabled:opacity-0.56"
+                                    class="focus-visible:outline-offset-1 focus-visible:outline-3 focus-visible:outline-[color-mix(in_srgb,_var(--accent)_42%,_transparent)] disabled:text-faint focus-visible:bg-surface-subtle focus-visible:border-[color-mix(in_srgb,_var(--accent)_42%,_var(--line))] hover:bg-surface-subtle hover:border-[color-mix(in_srgb,_var(--accent)_42%,_var(--line))] items-center bg-surface rounded-[5px] border border-line-soft cursor-pointer inline-flex text-xs gap-1.5 min-h-[27px] py-[3px] px-[7px] text-inherit disabled:cursor-not-allowed! disabled:opacity-56"
                                 >
                                     <span class="text-faint text-xs">{item.label}</span>
                                     <Show when={shortcut}>
@@ -857,7 +857,7 @@ export function DocumentEditor(props: {
                                 setQuery(event.currentTarget.value);
                                 setMatchIndex(-1);
                             }}
-                            class="focus-visible:outline-offset-0.5 focus-visible:outline-3 focus-visible:outline-[color-mix(in_srgb,_var(--accent)_42%,_transparent)] bg-surface rounded-[5px] border border-line-strong text-ink min-w-0 py-[0.4rem] px-[0.5rem]"
+                            class="focus-visible:outline-offset-1 focus-visible:outline-3 focus-visible:outline-[color-mix(in_srgb,_var(--accent)_42%,_transparent)] bg-surface rounded-[5px] border border-line-strong text-ink min-w-0 py-[0.4rem] px-[0.5rem]"
                         />
                     </label>
                     <label class="text-muted grid flex-[1_1_10rem] text-[0.75rem] gap-[0.25rem]">
@@ -865,7 +865,7 @@ export function DocumentEditor(props: {
                         <input
                             value={replacement()}
                             onInput={(event) => setReplacement(event.currentTarget.value)}
-                            class="focus-visible:outline-offset-0.5 focus-visible:outline-3 focus-visible:outline-[color-mix(in_srgb,_var(--accent)_42%,_transparent)] bg-surface rounded-[5px] border border-line-strong text-ink min-w-0 py-[0.4rem] px-[0.5rem]"
+                            class="focus-visible:outline-offset-1 focus-visible:outline-3 focus-visible:outline-[color-mix(in_srgb,_var(--accent)_42%,_transparent)] bg-surface rounded-[5px] border border-line-strong text-ink min-w-0 py-[0.4rem] px-[0.5rem]"
                         />
                     </label>
                     <span aria-live="polite">
@@ -875,7 +875,7 @@ export function DocumentEditor(props: {
                         type="button"
                         disabled={!matches().length}
                         onClick={() => selectMatch(matchIndex() - 1)}
-                        class="focus-visible:outline-offset-0.5 focus-visible:outline-3 focus-visible:outline-[color-mix(in_srgb,_var(--accent)_42%,_transparent)] bg-surface rounded-[5px] border border-line py-[0.4rem] px-[0.6rem] text-inherit disabled:cursor-not-allowed! disabled:opacity-0.56"
+                        class="focus-visible:outline-offset-1 focus-visible:outline-3 focus-visible:outline-[color-mix(in_srgb,_var(--accent)_42%,_transparent)] bg-surface rounded-[5px] border border-line py-[0.4rem] px-[0.6rem] text-inherit disabled:cursor-not-allowed! disabled:opacity-56"
                     >
                         Previous
                     </button>
@@ -883,7 +883,7 @@ export function DocumentEditor(props: {
                         type="button"
                         disabled={!matches().length}
                         onClick={() => selectMatch(matchIndex() + 1)}
-                        class="focus-visible:outline-offset-0.5 focus-visible:outline-3 focus-visible:outline-[color-mix(in_srgb,_var(--accent)_42%,_transparent)] bg-surface rounded-[5px] border border-line py-[0.4rem] px-[0.6rem] text-inherit disabled:cursor-not-allowed! disabled:opacity-0.56"
+                        class="focus-visible:outline-offset-1 focus-visible:outline-3 focus-visible:outline-[color-mix(in_srgb,_var(--accent)_42%,_transparent)] bg-surface rounded-[5px] border border-line py-[0.4rem] px-[0.6rem] text-inherit disabled:cursor-not-allowed! disabled:opacity-56"
                     >
                         Next
                     </button>
@@ -891,7 +891,7 @@ export function DocumentEditor(props: {
                         type="button"
                         disabled={!matches().length}
                         onClick={replaceMatch}
-                        class="focus-visible:outline-offset-0.5 focus-visible:outline-3 focus-visible:outline-[color-mix(in_srgb,_var(--accent)_42%,_transparent)] bg-surface rounded-[5px] border border-line py-[0.4rem] px-[0.6rem] text-inherit disabled:cursor-not-allowed! disabled:opacity-0.56"
+                        class="focus-visible:outline-offset-1 focus-visible:outline-3 focus-visible:outline-[color-mix(in_srgb,_var(--accent)_42%,_transparent)] bg-surface rounded-[5px] border border-line py-[0.4rem] px-[0.6rem] text-inherit disabled:cursor-not-allowed! disabled:opacity-56"
                     >
                         Replace
                     </button>
@@ -899,7 +899,7 @@ export function DocumentEditor(props: {
                         type="button"
                         disabled={!matches().length}
                         onClick={replaceAll}
-                        class="focus-visible:outline-offset-0.5 focus-visible:outline-3 focus-visible:outline-[color-mix(in_srgb,_var(--accent)_42%,_transparent)] bg-surface rounded-[5px] border border-line py-[0.4rem] px-[0.6rem] text-inherit disabled:cursor-not-allowed! disabled:opacity-0.56"
+                        class="focus-visible:outline-offset-1 focus-visible:outline-3 focus-visible:outline-[color-mix(in_srgb,_var(--accent)_42%,_transparent)] bg-surface rounded-[5px] border border-line py-[0.4rem] px-[0.6rem] text-inherit disabled:cursor-not-allowed! disabled:opacity-56"
                     >
                         Replace all
                     </button>
@@ -907,7 +907,7 @@ export function DocumentEditor(props: {
                         type="button"
                         onClick={() => setFinding(false)}
                         aria-label="Close find and replace"
-                        class="focus-visible:outline-offset-0.5 focus-visible:outline-3 focus-visible:outline-[color-mix(in_srgb,_var(--accent)_42%,_transparent)] bg-surface rounded-[5px] border border-line py-[0.4rem] px-[0.6rem] text-inherit disabled:cursor-not-allowed! disabled:opacity-0.56"
+                        class="focus-visible:outline-offset-1 focus-visible:outline-3 focus-visible:outline-[color-mix(in_srgb,_var(--accent)_42%,_transparent)] bg-surface rounded-[5px] border border-line py-[0.4rem] px-[0.6rem] text-inherit disabled:cursor-not-allowed! disabled:opacity-56"
                     >
                         Close
                     </button>
@@ -974,7 +974,7 @@ export function DocumentEditor(props: {
                                                     .value as JournalNoteBlockKind,
                                             })
                                         }
-                                        class="focus-visible:outline-offset-0.5 focus-visible:outline-3 focus-visible:outline-[color-mix(in_srgb,_var(--accent)_42%,_transparent)] bg-surface border-transparent rounded-[5px] border border-line text-ink-soft text-xs h-[29px] max-w-[180px] min-w-0 pl-[7px] pt-0 pr-[23px] pb-0 pl-2"
+                                        class="focus-visible:outline-offset-1 focus-visible:outline-3 focus-visible:outline-[color-mix(in_srgb,_var(--accent)_42%,_transparent)] bg-surface border-transparent rounded-[5px] border border-line text-ink-soft text-xs h-[29px] max-w-[180px] min-w-0 pl-[7px] pt-0 pr-[23px] pb-0 pl-2"
                                     >
                                         <For each={JOURNAL_NOTE_BLOCK_KINDS}>
                                             {(kind) => (
@@ -995,7 +995,7 @@ export function DocumentEditor(props: {
                                                 props.blocks.length >= MAX_JOURNAL_NOTE_BLOCKS
                                             }
                                             onClick={() => splitBlock(index)}
-                                            class="focus-visible:outline-offset-0.5 focus-visible:outline-3 focus-visible:outline-[color-mix(in_srgb,_var(--accent)_42%,_transparent)] disabled:text-line-strong focus-visible:bg-surface focus-visible:text-ink hover:bg-surface hover:text-ink bg-transparent rounded-[5px] border-0 cursor-pointer grid text-xs h-[24px] p-0 place-items-center w-[24px] text-inherit disabled:cursor-not-allowed! disabled:opacity-0.56"
+                                            class="focus-visible:outline-offset-1 focus-visible:outline-3 focus-visible:outline-[color-mix(in_srgb,_var(--accent)_42%,_transparent)] disabled:text-line-strong focus-visible:bg-surface focus-visible:text-ink hover:bg-surface hover:text-ink bg-transparent rounded-[5px] border-0 cursor-pointer grid text-xs h-[24px] p-0 place-items-center w-[24px] text-inherit disabled:cursor-not-allowed! disabled:opacity-56"
                                         >
                                             Split
                                         </button>
@@ -1007,7 +1007,7 @@ export function DocumentEditor(props: {
                                                 block().kind !== props.blocks[index + 1]?.kind
                                             }
                                             onClick={() => mergeNextBlock(index)}
-                                            class="focus-visible:outline-offset-0.5 focus-visible:outline-3 focus-visible:outline-[color-mix(in_srgb,_var(--accent)_42%,_transparent)] disabled:text-line-strong focus-visible:bg-surface focus-visible:text-ink hover:bg-surface hover:text-ink bg-transparent rounded-[5px] border-0 cursor-pointer grid text-xs h-[24px] p-0 place-items-center w-[24px] text-inherit disabled:cursor-not-allowed! disabled:opacity-0.56"
+                                            class="focus-visible:outline-offset-1 focus-visible:outline-3 focus-visible:outline-[color-mix(in_srgb,_var(--accent)_42%,_transparent)] disabled:text-line-strong focus-visible:bg-surface focus-visible:text-ink hover:bg-surface hover:text-ink bg-transparent rounded-[5px] border-0 cursor-pointer grid text-xs h-[24px] p-0 place-items-center w-[24px] text-inherit disabled:cursor-not-allowed! disabled:opacity-56"
                                         >
                                             Merge
                                         </button>
@@ -1016,7 +1016,7 @@ export function DocumentEditor(props: {
                                             aria-label={`Move block ${index + 1} up`}
                                             disabled={index === 0}
                                             onClick={() => moveBlock(index, -1)}
-                                            class="focus-visible:outline-offset-0.5 focus-visible:outline-3 focus-visible:outline-[color-mix(in_srgb,_var(--accent)_42%,_transparent)] disabled:text-line-strong focus-visible:bg-surface focus-visible:text-ink hover:bg-surface hover:text-ink bg-transparent rounded-[5px] border-0 cursor-pointer grid text-xs h-[24px] p-0 place-items-center w-[24px] text-inherit disabled:cursor-not-allowed! disabled:opacity-0.56"
+                                            class="focus-visible:outline-offset-1 focus-visible:outline-3 focus-visible:outline-[color-mix(in_srgb,_var(--accent)_42%,_transparent)] disabled:text-line-strong focus-visible:bg-surface focus-visible:text-ink hover:bg-surface hover:text-ink bg-transparent rounded-[5px] border-0 cursor-pointer grid text-xs h-[24px] p-0 place-items-center w-[24px] text-inherit disabled:cursor-not-allowed! disabled:opacity-56"
                                         >
                                             ↑
                                         </button>
@@ -1025,14 +1025,14 @@ export function DocumentEditor(props: {
                                             aria-label={`Move block ${index + 1} down`}
                                             disabled={index === props.blocks.length - 1}
                                             onClick={() => moveBlock(index, 1)}
-                                            class="focus-visible:outline-offset-0.5 focus-visible:outline-3 focus-visible:outline-[color-mix(in_srgb,_var(--accent)_42%,_transparent)] disabled:text-line-strong focus-visible:bg-surface focus-visible:text-ink hover:bg-surface hover:text-ink bg-transparent rounded-[5px] border-0 cursor-pointer grid text-xs h-[24px] p-0 place-items-center w-[24px] text-inherit disabled:cursor-not-allowed! disabled:opacity-0.56"
+                                            class="focus-visible:outline-offset-1 focus-visible:outline-3 focus-visible:outline-[color-mix(in_srgb,_var(--accent)_42%,_transparent)] disabled:text-line-strong focus-visible:bg-surface focus-visible:text-ink hover:bg-surface hover:text-ink bg-transparent rounded-[5px] border-0 cursor-pointer grid text-xs h-[24px] p-0 place-items-center w-[24px] text-inherit disabled:cursor-not-allowed! disabled:opacity-56"
                                         >
                                             ↓
                                         </button>
                                         <button
                                             class={cn(
                                                 "document-block-remove",
-                                                "hover:text-[var(--danger,_#a85343)] focus-visible:outline-offset-0.5 focus-visible:outline-3 focus-visible:outline-[color-mix(in_srgb,_var(--accent)_42%,_transparent)] disabled:text-line-strong focus-visible:bg-surface focus-visible:text-ink hover:bg-surface hover:text-ink bg-transparent rounded-[5px] border-0 cursor-pointer grid text-xs h-[24px] p-0 place-items-center w-[24px] text-inherit disabled:cursor-not-allowed! disabled:opacity-0.56",
+                                                "hover:text-[var(--danger,_#a85343)] focus-visible:outline-offset-1 focus-visible:outline-3 focus-visible:outline-[color-mix(in_srgb,_var(--accent)_42%,_transparent)] disabled:text-line-strong focus-visible:bg-surface focus-visible:text-ink hover:bg-surface hover:text-ink bg-transparent rounded-[5px] border-0 cursor-pointer grid text-xs h-[24px] p-0 place-items-center w-[24px] text-inherit disabled:cursor-not-allowed! disabled:opacity-56",
                                             )}
                                             type="button"
                                             aria-label={`Remove block ${index + 1}`}
@@ -1061,7 +1061,7 @@ export function DocumentEditor(props: {
                                     onBlur={() => {
                                         history.breakGroup();
                                     }}
-                                    class="focus-visible:outline-offset-0.5 [.document-block[data-kind$='list']_&]:bg-none [.document-block[data-kind$='list']_&]:bg-[position:11px_15px] [.document-block[data-kind$='list']_&]:bg-repeat-y [.document-block[data-kind$='list']_&]:bg-[size:1px_1.75em] [.document-block[data-kind$='list']_&]:pl-[19px] [.document-block[data-kind='checklist']_&]:bg-none [.document-block[data-kind='checklist']_&]:bg-[position:11px_15px] [.document-block[data-kind='checklist']_&]:bg-repeat-y [.document-block[data-kind='checklist']_&]:bg-[size:1px_1.75em] [.document-block[data-kind='checklist']_&]:pl-[19px] [.document-block[data-kind='code']_&]:bg-[color-mix(in_srgb,_var(--surface-subtle)_76%,_var(--surface))] [.document-block[data-kind='code']_&]:text-ink-soft [.document-block[data-kind='code']_&]:text-xs [.document-block[data-kind='code']_&]:tab-[2] [.document-block[data-kind='heading']_&]:text-ink [.document-block[data-kind='heading']_&]:text-sm [.document-block[data-kind='heading']_&]:font-[650] [.document-block[data-kind='heading']_&]:tracking-[-0.02em] [.document-block[data-kind='heading']_&]:min-h-14 [.document-block[data-kind='quote']_&]:border-l-[3px] [.document-block[data-kind='quote']_&]:border-l-[color-mix(in_srgb,_var(--accent)_48%,_var(--line))] [.document-block[data-kind='quote']_&]:text-muted [.document-block[data-kind='quote']_&]:text-xs [.document-block[data-kind='quote']_&]:italic focus-visible:outline-none bg-transparent rounded-[5px] border-0 text-ink-soft block text-xs leading-[1.75] min-h-[78px] outline-none pt-[11px] pr-[13px] pb-3 pl-[15px] resize-y w-full"
+                                    class="focus-visible:outline-offset-1 [.document-block[data-kind$='list']_&]:bg-none [.document-block[data-kind$='list']_&]:bg-[position:11px_15px] [.document-block[data-kind$='list']_&]:bg-repeat-y [.document-block[data-kind$='list']_&]:bg-[size:1px_1.75em] [.document-block[data-kind$='list']_&]:pl-[19px] [.document-block[data-kind='checklist']_&]:bg-none [.document-block[data-kind='checklist']_&]:bg-[position:11px_15px] [.document-block[data-kind='checklist']_&]:bg-repeat-y [.document-block[data-kind='checklist']_&]:bg-[size:1px_1.75em] [.document-block[data-kind='checklist']_&]:pl-[19px] [.document-block[data-kind='code']_&]:bg-[color-mix(in_srgb,_var(--surface-subtle)_76%,_var(--surface))] [.document-block[data-kind='code']_&]:text-ink-soft [.document-block[data-kind='code']_&]:text-xs [.document-block[data-kind='code']_&]:tab-[2] [.document-block[data-kind='heading']_&]:text-ink [.document-block[data-kind='heading']_&]:text-sm [.document-block[data-kind='heading']_&]:font-[650] [.document-block[data-kind='heading']_&]:tracking-[-0.02em] [.document-block[data-kind='heading']_&]:min-h-14 [.document-block[data-kind='quote']_&]:border-l-[3px] [.document-block[data-kind='quote']_&]:border-l-[color-mix(in_srgb,_var(--accent)_48%,_var(--line))] [.document-block[data-kind='quote']_&]:text-muted [.document-block[data-kind='quote']_&]:text-xs [.document-block[data-kind='quote']_&]:italic focus-visible:outline-none bg-transparent rounded-[5px] border-0 text-ink-soft block text-xs leading-[1.75] min-h-[78px] outline-none pt-[11px] pr-[13px] pb-3 pl-[15px] resize-y w-full"
                                 />
                             </article>
                         )}

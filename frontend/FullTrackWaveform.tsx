@@ -251,7 +251,7 @@ export function FullTrackWaveform(props: Props) {
                                 max="999"
                                 value={selection()}
                                 onInput={(event) => setSelection(Number(event.currentTarget.value))}
-                                class="focus-visible:outline-offset-0.5 focus-visible:outline-3 focus-visible:outline-[color-mix(in_srgb,_var(--accent)_42%,_transparent)] accent-accent w-full"
+                                class="focus-visible:outline-offset-1 focus-visible:outline-3 focus-visible:outline-[color-mix(in_srgb,_var(--accent)_42%,_transparent)] accent-accent w-full"
                             />
                         </label>
                         <span>

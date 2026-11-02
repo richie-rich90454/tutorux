@@ -1036,7 +1036,7 @@ export function MicrophoneTrackRecorder(props: Props) {
         <section
             class={cn(
                 "transcript-capture-panel",
-                "max-[650px]:gap-[11px] max-[650px]:grid-cols-[minmax(0, 1fr)] max-[650px]:p-3.5 min-[651px]:max-[900px]:grid-cols-[minmax(0, 1fr) auto] items-center bg-[color-mix(in_srgb,_var(--accent-soft)_48%,_var(--surface))] rounded-[9px] border border-[color-mix(in_srgb,_var(--accent)_19%,_var(--line))] grid gap-y-[13px] gap-x-4.5 grid-cols-[minmax(220px, 1fr) minmax(210px, auto) auto] mt-0 mr-0 mb-3.5 ml-0 py-[15px] px-[17px]",
+                "max-[650px]:gap-[11px] max-[650px]:grid-cols-[minmax(0,_1fr)] max-[650px]:p-3.5 min-[651px]:max-[900px]:grid-cols-[minmax(0,_1fr)_auto] items-center bg-[color-mix(in_srgb,_var(--accent-soft)_48%,_var(--surface))] rounded-[9px] border border-[color-mix(in_srgb,_var(--accent)_19%,_var(--line))] grid gap-y-[13px] gap-x-4.5 grid-cols-[minmax(220px,_1fr)_minmax(210px,_auto)_auto] mt-0 mr-0 mb-3.5 ml-0 py-[15px] px-[17px]",
             )}
             aria-label="Record a session track"
         >
@@ -1050,13 +1050,13 @@ export function MicrophoneTrackRecorder(props: Props) {
                 <p class="text-muted text-[13px] leading-[1.5] m-0">
                     Save a recording as a session take for playback, mixing, and transcription.
                 </p>
-                <label class="items-center text-ink-soft grid text-xs gap-[9px] grid-cols-[auto minmax(120px, 1fr)]">
+                <label class="items-center text-ink-soft grid text-xs gap-[9px] grid-cols-[auto_minmax(120px,_1fr)]">
                     Microphone{" "}
                     <select
                         value={deviceId()}
                         disabled={state() !== "idle"}
                         onChange={(event) => setDeviceId(event.currentTarget.value)}
-                        class="focus-visible:outline-offset-0.5 focus-visible:outline-3 focus-visible:outline-[color-mix(in_srgb,_var(--accent)_42%,_transparent)] bg-surface rounded-[5px] border border-line text-ink max-w-full min-w-0 py-1.5 px-[9px]"
+                        class="focus-visible:outline-offset-1 focus-visible:outline-3 focus-visible:outline-[color-mix(in_srgb,_var(--accent)_42%,_transparent)] bg-surface rounded-[5px] border border-line text-ink max-w-full min-w-0 py-1.5 px-[9px]"
                     >
                         <option value="">System default</option>
                         <For each={devices()}>
@@ -1079,7 +1079,7 @@ export function MicrophoneTrackRecorder(props: Props) {
                 <label
                     class={cn(
                         "transcript-capture-consent",
-                        "leading-[1.45] items-center text-ink-soft grid text-xs gap-[9px] grid-cols-[auto minmax(120px, 1fr)]",
+                        "leading-[1.45] items-center text-ink-soft grid text-xs gap-[9px] grid-cols-[auto_minmax(120px,_1fr)]",
                     )}
                 >
                     <input
@@ -1087,7 +1087,7 @@ export function MicrophoneTrackRecorder(props: Props) {
                         checked={consent()}
                         disabled={state() !== "idle"}
                         onChange={(event) => setConsent(event.currentTarget.checked)}
-                        class="focus-visible:outline-offset-0.5 focus-visible:outline-3 focus-visible:outline-[color-mix(in_srgb,_var(--accent)_42%,_transparent)] accent-accent flex-none h-[15px] w-[15px]"
+                        class="focus-visible:outline-offset-1 focus-visible:outline-3 focus-visible:outline-[color-mix(in_srgb,_var(--accent)_42%,_transparent)] accent-accent flex-none h-[15px] w-[15px]"
                     />{" "}
                     Everyone being recorded has agreed.
                 </label>
@@ -1101,7 +1101,7 @@ export function MicrophoneTrackRecorder(props: Props) {
                         <strong class="text-ink text-sm font-semibold">
                             Live local transcription
                         </strong>
-                        <label class="items-center text-ink-soft grid text-xs gap-[9px] grid-cols-[auto minmax(120px, 1fr)]">
+                        <label class="items-center text-ink-soft grid text-xs gap-[9px] grid-cols-[auto_minmax(120px,_1fr)]">
                             <input
                                 type="checkbox"
                                 checked={liveTranscription()}
@@ -1109,7 +1109,7 @@ export function MicrophoneTrackRecorder(props: Props) {
                                 onChange={(event) =>
                                     setLiveTranscription(event.currentTarget.checked)
                                 }
-                                class="focus-visible:outline-offset-0.5 focus-visible:outline-3 focus-visible:outline-[color-mix(in_srgb,_var(--accent)_42%,_transparent)]"
+                                class="focus-visible:outline-offset-1 focus-visible:outline-3 focus-visible:outline-[color-mix(in_srgb,_var(--accent)_42%,_transparent)]"
                             />{" "}
                             Add provisional transcript cues while recording
                         </label>
@@ -1123,7 +1123,7 @@ export function MicrophoneTrackRecorder(props: Props) {
                                 <span class={cn("transcript-model-badge", "text-[13px]")}>
                                     Bundled multilingual model · runs offline
                                 </span>
-                                <label class="grid-cols-[auto minmax(120px, 1fr)] [.transcript-whisper-actions_>_&:has(input:not([type='checkbox']))]:bg-transparent [.transcript-whisper-actions_>_&:has(input:not([type='checkbox']))]:border-0 [.transcript-whisper-actions_>_&:has(input:not([type='checkbox']))]:p-0 items-center bg-surface rounded-[7px] border border-line-soft text-ink-soft inline-flex text-[11px] gap-[7px] min-h-[34px] py-0 px-[9px]">
+                                <label class="grid-cols-[auto_minmax(120px,_1fr)] [.transcript-whisper-actions_>_&:has(input:not([type='checkbox']))]:bg-transparent [.transcript-whisper-actions_>_&:has(input:not([type='checkbox']))]:border-0 [.transcript-whisper-actions_>_&:has(input:not([type='checkbox']))]:p-0 items-center bg-surface rounded-[7px] border border-line-soft text-ink-soft inline-flex text-[11px] gap-[7px] min-h-[34px] py-0 px-[9px]">
                                     Language{" "}
                                     <input
                                         value={liveLanguage()}
@@ -1132,10 +1132,10 @@ export function MicrophoneTrackRecorder(props: Props) {
                                         onInput={(event) =>
                                             setLiveLanguage(event.currentTarget.value)
                                         }
-                                        class="focus-visible:outline-offset-0.5 focus-visible:outline-3 focus-visible:outline-[color-mix(in_srgb,_var(--accent)_42%,_transparent)] [.transcript-whisper-actions_>_label_&:not([type='checkbox'])]:bg-surface [.transcript-whisper-actions_>_label_&:not([type='checkbox'])]:rounded-md [.transcript-whisper-actions_>_label_&:not([type='checkbox'])]:border [.transcript-whisper-actions_>_label_&:not([type='checkbox'])]:border-line-strong [.transcript-whisper-actions_>_label_&:not([type='checkbox'])]:text-ink [.transcript-whisper-actions_>_label_&:not([type='checkbox'])]:h-[32px] [.transcript-whisper-actions_>_label_&:not([type='checkbox'])]:min-w-[64px] [.transcript-whisper-actions_>_label_&:not([type='checkbox'])]:py-0 [.transcript-whisper-actions_>_label_&:not([type='checkbox'])]:px-2 [.transcript-whisper-actions_>_label_&[type='checkbox']]:accent-accent"
+                                        class="focus-visible:outline-offset-1 focus-visible:outline-3 focus-visible:outline-[color-mix(in_srgb,_var(--accent)_42%,_transparent)] [.transcript-whisper-actions_>_label_&:not([type='checkbox'])]:bg-surface [.transcript-whisper-actions_>_label_&:not([type='checkbox'])]:rounded-md [.transcript-whisper-actions_>_label_&:not([type='checkbox'])]:border [.transcript-whisper-actions_>_label_&:not([type='checkbox'])]:border-line-strong [.transcript-whisper-actions_>_label_&:not([type='checkbox'])]:text-ink [.transcript-whisper-actions_>_label_&:not([type='checkbox'])]:h-[32px] [.transcript-whisper-actions_>_label_&:not([type='checkbox'])]:min-w-[64px] [.transcript-whisper-actions_>_label_&:not([type='checkbox'])]:py-0 [.transcript-whisper-actions_>_label_&:not([type='checkbox'])]:px-2 [.transcript-whisper-actions_>_label_&[type='checkbox']]:accent-accent"
                                     />
                                 </label>
-                                <label class="grid-cols-[auto minmax(120px, 1fr)] [.transcript-whisper-actions_>_&:has(input:not([type='checkbox']))]:bg-transparent [.transcript-whisper-actions_>_&:has(input:not([type='checkbox']))]:border-0 [.transcript-whisper-actions_>_&:has(input:not([type='checkbox']))]:p-0 items-center bg-surface rounded-[7px] border border-line-soft text-ink-soft inline-flex text-[11px] gap-[7px] min-h-[34px] py-0 px-[9px]">
+                                <label class="grid-cols-[auto_minmax(120px,_1fr)] [.transcript-whisper-actions_>_&:has(input:not([type='checkbox']))]:bg-transparent [.transcript-whisper-actions_>_&:has(input:not([type='checkbox']))]:border-0 [.transcript-whisper-actions_>_&:has(input:not([type='checkbox']))]:p-0 items-center bg-surface rounded-[7px] border border-line-soft text-ink-soft inline-flex text-[11px] gap-[7px] min-h-[34px] py-0 px-[9px]">
                                     Window{" "}
                                     <select
                                         value={String(liveWindowSeconds())}
@@ -1144,7 +1144,7 @@ export function MicrophoneTrackRecorder(props: Props) {
                                         onChange={(event) =>
                                             setLiveWindowSeconds(Number(event.currentTarget.value))
                                         }
-                                        class="focus-visible:outline-offset-0.5 focus-visible:outline-3 focus-visible:outline-[color-mix(in_srgb,_var(--accent)_42%,_transparent)] bg-surface rounded-[5px] border border-line text-ink max-w-full min-w-0 py-1.5 px-[9px]"
+                                        class="focus-visible:outline-offset-1 focus-visible:outline-3 focus-visible:outline-[color-mix(in_srgb,_var(--accent)_42%,_transparent)] bg-surface rounded-[5px] border border-line text-ink max-w-full min-w-0 py-1.5 px-[9px]"
                                     >
                                         <For each={[1, 3, 5, 10, 15, 20, 27]}>
                                             {(seconds) => (
@@ -1153,7 +1153,7 @@ export function MicrophoneTrackRecorder(props: Props) {
                                         </For>
                                     </select>
                                 </label>
-                                <label class="grid-cols-[auto minmax(120px, 1fr)] [.transcript-whisper-actions_>_&:has(input:not([type='checkbox']))]:bg-transparent [.transcript-whisper-actions_>_&:has(input:not([type='checkbox']))]:border-0 [.transcript-whisper-actions_>_&:has(input:not([type='checkbox']))]:p-0 items-center bg-surface rounded-[7px] border border-line-soft text-ink-soft inline-flex text-[11px] gap-[7px] min-h-[34px] py-0 px-[9px]">
+                                <label class="grid-cols-[auto_minmax(120px,_1fr)] [.transcript-whisper-actions_>_&:has(input:not([type='checkbox']))]:bg-transparent [.transcript-whisper-actions_>_&:has(input:not([type='checkbox']))]:border-0 [.transcript-whisper-actions_>_&:has(input:not([type='checkbox']))]:p-0 items-center bg-surface rounded-[7px] border border-line-soft text-ink-soft inline-flex text-[11px] gap-[7px] min-h-[34px] py-0 px-[9px]">
                                     Threads{" "}
                                     <select
                                         value={String(liveThreadCount())}
@@ -1162,7 +1162,7 @@ export function MicrophoneTrackRecorder(props: Props) {
                                         onChange={(event) =>
                                             setLiveThreadCount(Number(event.currentTarget.value))
                                         }
-                                        class="focus-visible:outline-offset-0.5 focus-visible:outline-3 focus-visible:outline-[color-mix(in_srgb,_var(--accent)_42%,_transparent)] bg-surface rounded-[5px] border border-line text-ink max-w-full min-w-0 py-1.5 px-[9px]"
+                                        class="focus-visible:outline-offset-1 focus-visible:outline-3 focus-visible:outline-[color-mix(in_srgb,_var(--accent)_42%,_transparent)] bg-surface rounded-[5px] border border-line text-ink max-w-full min-w-0 py-1.5 px-[9px]"
                                     >
                                         <For each={[1, 2, 4, 8, 16, 32, 64]}>
                                             {(threads) => (

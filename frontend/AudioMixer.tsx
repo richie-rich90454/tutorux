@@ -107,7 +107,7 @@ export function AudioMixer(props: AudioMixerProps): JSX.Element {
                             setError("");
                             setStatus("");
                         }}
-                        class="focus-visible:outline-offset-0.5 focus-visible:outline-3 focus-visible:outline-[color-mix(in_srgb,_var(--accent)_42%,_transparent)] focus-visible:border-accent focus-visible:shadow-none bg-surface-subtle rounded-[5px] border border-line text-ink text-xs font-normal h-[35px] min-w-0 outline-none py-[9px] px-2.5 transition-colors w-full"
+                        class="focus-visible:outline-offset-1 focus-visible:outline-3 focus-visible:outline-[color-mix(in_srgb,_var(--accent)_42%,_transparent)] focus-visible:border-accent focus-visible:shadow-none bg-surface-subtle rounded-[5px] border border-line text-ink text-xs font-normal h-[35px] min-w-0 outline-none py-[9px] px-2.5 transition-colors w-full"
                     >
                         <For each={availableTakes()}>
                             {(take) => (
@@ -142,7 +142,7 @@ export function AudioMixer(props: AudioMixerProps): JSX.Element {
                                                         : ids.filter((id) => id !== track.id),
                                                 )
                                             }
-                                            class="focus-visible:outline-offset-0.5 focus-visible:outline-3 focus-visible:outline-[color-mix(in_srgb,_var(--accent)_42%,_transparent)]"
+                                            class="focus-visible:outline-offset-1 focus-visible:outline-3 focus-visible:outline-[color-mix(in_srgb,_var(--accent)_42%,_transparent)]"
                                         />
                                         <span>{track.label}</span>
                                     </label>
@@ -159,7 +159,7 @@ export function AudioMixer(props: AudioMixerProps): JSX.Element {
                             maxlength="120"
                             disabled={props.disabled || working()}
                             onInput={(event) => setLabel(event.currentTarget.value)}
-                            class="focus-visible:outline-offset-0.5 focus-visible:outline-3 focus-visible:outline-[color-mix(in_srgb,_var(--accent)_42%,_transparent)] placeholder:text-faint focus-visible:border-accent focus-visible:shadow-none bg-surface-subtle rounded-[5px] border border-line text-ink text-xs font-normal h-[35px] min-w-0 outline-none py-[9px] px-2.5 transition-colors w-full"
+                            class="focus-visible:outline-offset-1 focus-visible:outline-3 focus-visible:outline-[color-mix(in_srgb,_var(--accent)_42%,_transparent)] placeholder:text-faint focus-visible:border-accent focus-visible:shadow-none bg-surface-subtle rounded-[5px] border border-line text-ink text-xs font-normal h-[35px] min-w-0 outline-none py-[9px] px-2.5 transition-colors w-full"
                         />
                     </label>
                     <button

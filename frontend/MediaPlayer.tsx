@@ -127,7 +127,7 @@ export function MediaPlayer(props: MediaPlayerProps): JSX.Element {
             <div
                 class={cn(
                     "media-player-controls",
-                    "max-[520px]:grid-cols-[34px auto minmax(44px, 1fr) auto 30px] items-center bg-surface rounded-lg border border-line-soft grid gap-2 grid-cols-[34px auto minmax(60px, 1fr) auto 30px 72px] min-h-[42px] min-w-0 py-1 px-2",
+                    "max-[520px]:grid-cols-[34px_auto_minmax(44px,_1fr)_auto_30px] items-center bg-surface rounded-lg border border-line-soft grid gap-2 grid-cols-[34px_auto_minmax(60px,_1fr)_auto_30px_72px] min-h-[42px] min-w-0 py-1 px-2",
                 )}
                 role="group"
                 aria-label={props.label + " controls"}
@@ -135,7 +135,7 @@ export function MediaPlayer(props: MediaPlayerProps): JSX.Element {
                 <button
                     class={cn(
                         "media-player-play",
-                        "focus-visible:outline-offset-0.5 focus-visible:outline-3 focus-visible:outline-[color-mix(in_srgb,_var(--accent)_42%,_transparent)] hover:bg-accent-soft hover:text-[var(--accent-deep)] bg-transparent rounded-md border-0 cursor-pointer grid h-[32px] p-0 place-items-center w-[32px] text-inherit disabled:cursor-not-allowed! disabled:opacity-0.56",
+                        "focus-visible:outline-offset-1 focus-visible:outline-3 focus-visible:outline-[color-mix(in_srgb,_var(--accent)_42%,_transparent)] hover:bg-accent-soft hover:text-[var(--accent-deep)] bg-transparent rounded-md border-0 cursor-pointer grid h-[32px] p-0 place-items-center w-[32px] text-inherit disabled:cursor-not-allowed! disabled:opacity-56",
                     )}
                     type="button"
                     aria-label={(playing() ? "Pause " : "Play ") + props.kind}
@@ -155,7 +155,7 @@ export function MediaPlayer(props: MediaPlayerProps): JSX.Element {
                 <input
                     class={cn(
                         "media-player-seek",
-                        "[&::-moz-range-thumb]:bg-accent [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:border-[2px] [&::-moz-range-thumb]:border-surface [&::-moz-range-thumb]:shadow-[0_0_0_1px_var(--accent)] [&::-moz-range-thumb]:h-[9px] [&::-moz-range-thumb]:w-[9px] [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:bg-accent [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:border-[2px] [&::-webkit-slider-thumb]:border-surface [&::-webkit-slider-thumb]:shadow-[0_0_0_1px_var(--accent)] [&::-webkit-slider-thumb]:h-[12px] [&::-webkit-slider-thumb]:w-[12px] appearance-none bg-line-strong rounded-[99px] cursor-pointer h-[4px] m-0 min-w-0 w-full disabled:opacity-0.45 focus-visible:outline-offset-0.5 focus-visible:outline-3 focus-visible:outline-[color-mix(in_srgb,_var(--accent)_42%,_transparent)]",
+                        "[&::-moz-range-thumb]:bg-accent [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:border-[2px] [&::-moz-range-thumb]:border-surface [&::-moz-range-thumb]:shadow-[0_0_0_1px_var(--accent)] [&::-moz-range-thumb]:h-[9px] [&::-moz-range-thumb]:w-[9px] [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:bg-accent [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:border-[2px] [&::-webkit-slider-thumb]:border-surface [&::-webkit-slider-thumb]:shadow-[0_0_0_1px_var(--accent)] [&::-webkit-slider-thumb]:h-[12px] [&::-webkit-slider-thumb]:w-[12px] appearance-none bg-line-strong rounded-[99px] cursor-pointer h-[4px] m-0 min-w-0 w-full disabled:opacity-45 focus-visible:outline-offset-1 focus-visible:outline-3 focus-visible:outline-[color-mix(in_srgb,_var(--accent)_42%,_transparent)]",
                     )}
                     type="range"
                     min="0"
@@ -178,7 +178,7 @@ export function MediaPlayer(props: MediaPlayerProps): JSX.Element {
                 <button
                     class={cn(
                         "media-player-volume-toggle",
-                        "focus-visible:outline-offset-0.5 focus-visible:outline-3 focus-visible:outline-[color-mix(in_srgb,_var(--accent)_42%,_transparent)] hover:bg-accent-soft hover:text-[var(--accent-deep)] bg-transparent rounded-md border-0 cursor-pointer grid h-[32px] p-0 place-items-center w-[32px] text-inherit disabled:cursor-not-allowed! disabled:opacity-0.56",
+                        "focus-visible:outline-offset-1 focus-visible:outline-3 focus-visible:outline-[color-mix(in_srgb,_var(--accent)_42%,_transparent)] hover:bg-accent-soft hover:text-[var(--accent-deep)] bg-transparent rounded-md border-0 cursor-pointer grid h-[32px] p-0 place-items-center w-[32px] text-inherit disabled:cursor-not-allowed! disabled:opacity-56",
                     )}
                     type="button"
                     aria-label={muted() || volume() === 0 ? "Unmute" : "Mute"}
@@ -199,7 +199,7 @@ export function MediaPlayer(props: MediaPlayerProps): JSX.Element {
                 <input
                     class={cn(
                         "media-player-volume",
-                        "[&::-moz-range-thumb]:bg-accent [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:border-[2px] [&::-moz-range-thumb]:border-surface [&::-moz-range-thumb]:shadow-[0_0_0_1px_var(--accent)] [&::-moz-range-thumb]:h-[9px] [&::-moz-range-thumb]:w-[9px] [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:bg-accent [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:border-[2px] [&::-webkit-slider-thumb]:border-surface [&::-webkit-slider-thumb]:shadow-[0_0_0_1px_var(--accent)] [&::-webkit-slider-thumb]:h-[12px] [&::-webkit-slider-thumb]:w-[12px] max-[520px]:hidden appearance-none bg-line-strong rounded-[99px] cursor-pointer h-[4px] m-0 min-w-0 w-full focus-visible:outline-offset-0.5 focus-visible:outline-3 focus-visible:outline-[color-mix(in_srgb,_var(--accent)_42%,_transparent)]",
+                        "[&::-moz-range-thumb]:bg-accent [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:border-[2px] [&::-moz-range-thumb]:border-surface [&::-moz-range-thumb]:shadow-[0_0_0_1px_var(--accent)] [&::-moz-range-thumb]:h-[9px] [&::-moz-range-thumb]:w-[9px] [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:bg-accent [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:border-[2px] [&::-webkit-slider-thumb]:border-surface [&::-webkit-slider-thumb]:shadow-[0_0_0_1px_var(--accent)] [&::-webkit-slider-thumb]:h-[12px] [&::-webkit-slider-thumb]:w-[12px] max-[520px]:hidden appearance-none bg-line-strong rounded-[99px] cursor-pointer h-[4px] m-0 min-w-0 w-full focus-visible:outline-offset-1 focus-visible:outline-3 focus-visible:outline-[color-mix(in_srgb,_var(--accent)_42%,_transparent)]",
                     )}
                     type="range"
                     min="0"

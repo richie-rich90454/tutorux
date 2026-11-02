@@ -32,6 +32,26 @@ test("closes only the date calendar when Escape is pressed inside the picker", a
     const calendar = page.getByRole("dialog", { name: "Choose date", exact: true });
     await expect(calendar).toBeVisible();
 
+    await expect
+        .poll(() =>
+            calendar
+                .locator(".date-picker-weekdays")
+                .evaluate(
+                    (element) => getComputedStyle(element).gridTemplateColumns.split(" ").length,
+                ),
+        )
+        .toBe(7);
+    await expect(calendar.locator(".date-picker-days button")).toHaveCount(42);
+    await expect
+        .poll(() =>
+            calendar
+                .locator(".date-picker-calendar-heading")
+                .evaluate(
+                    (element) => getComputedStyle(element).gridTemplateColumns.split(" ").length,
+                ),
+        )
+        .toBe(3);
+
     await page.keyboard.press("Escape");
 
     await expect(calendar).toBeHidden();

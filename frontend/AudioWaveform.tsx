@@ -70,7 +70,7 @@ export function AudioWaveform(props: AudioWaveformProps) {
             <input
                 class={cn(
                     "audio-waveform-seek",
-                    "accent-accent m-0 w-full focus-visible:outline-offset-0.5 focus-visible:outline-3 focus-visible:outline-[color-mix(in_srgb,_var(--accent)_42%,_transparent)]",
+                    "accent-accent m-0 w-full focus-visible:outline-offset-1 focus-visible:outline-3 focus-visible:outline-[color-mix(in_srgb,_var(--accent)_42%,_transparent)]",
                 )}
                 type="range"
                 min="0"
@@ -107,13 +107,13 @@ export function AudioWaveform(props: AudioWaveformProps) {
             <div
                 class={cn(
                     "audio-waveform-controls",
-                    "max-[520px]:grid-cols-[32px auto minmax(24px, 1fr) 30px] items-center grid gap-2 grid-cols-[32px auto minmax(28px, 1fr) 30px 68px] min-h-[38px]",
+                    "max-[520px]:grid-cols-[32px_auto_minmax(24px,_1fr)_30px] items-center grid gap-2 grid-cols-[32px_auto_minmax(28px,_1fr)_30px_68px] min-h-[38px]",
                 )}
             >
                 <button
                     class={cn(
                         "audio-waveform-play",
-                        "bg-surface rounded-[7px] border border-line cursor-pointer grid h-[30px] p-0 place-items-center w-[30px] focus-visible:outline-offset-0.5 focus-visible:outline-3 focus-visible:outline-[color-mix(in_srgb,_var(--accent)_42%,_transparent)] text-inherit disabled:cursor-not-allowed! disabled:opacity-0.56",
+                        "bg-surface rounded-[7px] border border-line cursor-pointer grid h-[30px] p-0 place-items-center w-[30px] focus-visible:outline-offset-1 focus-visible:outline-3 focus-visible:outline-[color-mix(in_srgb,_var(--accent)_42%,_transparent)] text-inherit disabled:cursor-not-allowed! disabled:opacity-56",
                     )}
                     type="button"
                     aria-label={playing() ? "Pause audio preview" : "Play audio preview"}
@@ -139,7 +139,7 @@ export function AudioWaveform(props: AudioWaveformProps) {
                 <button
                     class={cn(
                         "audio-waveform-volume-toggle",
-                        "bg-transparent rounded-[7px] border border-transparent cursor-pointer grid h-[30px] p-0 place-items-center w-[30px] hover:bg-accent-soft hover:text-[var(--accent-deep)] focus-visible:outline-offset-0.5 focus-visible:outline-3 focus-visible:outline-[color-mix(in_srgb,_var(--accent)_42%,_transparent)] text-inherit disabled:cursor-not-allowed! disabled:opacity-0.56",
+                        "bg-transparent rounded-[7px] border border-transparent cursor-pointer grid h-[30px] p-0 place-items-center w-[30px] hover:bg-accent-soft hover:text-[var(--accent-deep)] focus-visible:outline-offset-1 focus-visible:outline-3 focus-visible:outline-[color-mix(in_srgb,_var(--accent)_42%,_transparent)] text-inherit disabled:cursor-not-allowed! disabled:opacity-56",
                     )}
                     type="button"
                     aria-label={muted() || volume() === 0 ? "Unmute" : "Mute"}
@@ -159,7 +159,7 @@ export function AudioWaveform(props: AudioWaveformProps) {
                 <input
                     class={cn(
                         "audio-waveform-volume",
-                        "max-[520px]:hidden accent-accent h-[4px] m-0 min-w-0 w-full focus-visible:outline-offset-0.5 focus-visible:outline-3 focus-visible:outline-[color-mix(in_srgb,_var(--accent)_42%,_transparent)]",
+                        "max-[520px]:hidden accent-accent h-[4px] m-0 min-w-0 w-full focus-visible:outline-offset-1 focus-visible:outline-3 focus-visible:outline-[color-mix(in_srgb,_var(--accent)_42%,_transparent)]",
                     )}
                     type="range"
                     min="0"

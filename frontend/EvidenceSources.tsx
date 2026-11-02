@@ -96,7 +96,7 @@ export function EvidenceSources(props: {
                 type="button"
                 class={cn(
                     "button button-quiet record-action",
-                    "active:translate-y-px items-center rounded-[7px] border border-transparent cursor-pointer inline-flex font-semibold gap-2 justify-center no-underline transition-colors whitespace-nowrap hover:bg-accent-soft bg-transparent text-xs min-h-[30px] py-0 px-[9px] focus-visible:outline-offset-0.5 focus-visible:outline-3 focus-visible:outline-[color-mix(in_srgb,_var(--accent)_42%,_transparent)] text-inherit disabled:cursor-not-allowed! disabled:opacity-0.56",
+                    "active:translate-y-px items-center rounded-[7px] border border-transparent cursor-pointer inline-flex font-semibold gap-2 justify-center no-underline transition-colors whitespace-nowrap hover:bg-accent-soft bg-transparent text-xs min-h-[30px] py-0 px-[9px] focus-visible:outline-offset-1 focus-visible:outline-3 focus-visible:outline-[color-mix(in_srgb,_var(--accent)_42%,_transparent)] text-inherit disabled:cursor-not-allowed! disabled:opacity-56",
                 )}
                 aria-expanded={open()}
                 onClick={toggle}
@@ -121,7 +121,7 @@ export function EvidenceSources(props: {
                             type="button"
                             class={cn(
                                 "button button-quiet record-action",
-                                "active:translate-y-px items-center rounded-[7px] border border-transparent cursor-pointer inline-flex font-semibold gap-2 justify-center no-underline transition-colors whitespace-nowrap hover:bg-accent-soft bg-transparent text-xs min-h-[30px] py-0 px-[9px] focus-visible:outline-offset-0.5 focus-visible:outline-3 focus-visible:outline-[color-mix(in_srgb,_var(--accent)_42%,_transparent)] text-inherit disabled:cursor-not-allowed! disabled:opacity-0.56",
+                                "active:translate-y-px items-center rounded-[7px] border border-transparent cursor-pointer inline-flex font-semibold gap-2 justify-center no-underline transition-colors whitespace-nowrap hover:bg-accent-soft bg-transparent text-xs min-h-[30px] py-0 px-[9px] focus-visible:outline-offset-1 focus-visible:outline-3 focus-visible:outline-[color-mix(in_srgb,_var(--accent)_42%,_transparent)] text-inherit disabled:cursor-not-allowed! disabled:opacity-56",
                             )}
                             disabled={loading()}
                             onClick={() => void inspect()}

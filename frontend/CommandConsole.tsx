@@ -376,7 +376,7 @@ export function CommandConsole(props: CommandConsoleProps): JSX.Element {
                                 event.currentTarget.form?.requestSubmit();
                             }
                         }}
-                        class="focus-visible:outline-offset-0.5 focus-visible:outline-3 focus-visible:outline-[color-mix(in_srgb,_var(--accent)_42%,_transparent)] disabled:opacity-0.65 focus:outline-offset-px focus:outline-2 focus:outline-accent bg-surface-subtle rounded-[5px] border border-line-strong text-ink text-xs leading-[1.55] min-h-[57px] py-[9px] px-2.5 resize-y w-full"
+                        class="focus-visible:outline-offset-1 focus-visible:outline-3 focus-visible:outline-[color-mix(in_srgb,_var(--accent)_42%,_transparent)] disabled:opacity-65 focus:outline-offset-px focus:outline-2 focus:outline-accent bg-surface-subtle rounded-[5px] border border-line-strong text-ink text-xs leading-[1.55] min-h-[57px] py-[9px] px-2.5 resize-y w-full"
                     />
                     <div
                         class={cn(
@@ -394,7 +394,7 @@ export function CommandConsole(props: CommandConsoleProps): JSX.Element {
                     <div
                         class={cn(
                             "command-console-secrets",
-                            "max-[560px]:grid-cols-1 grid gap-2.5 grid-cols-[repeat(2, minmax(0, 1fr))] mt-[5px]",
+                            "max-[560px]:grid-cols-1 grid gap-2.5 grid-cols-[repeat(2,_minmax(0,_1fr))] mt-[5px]",
                         )}
                     >
                         <label class="text-ink-soft text-xs font-[650] grid gap-[5px] min-w-0">
@@ -407,7 +407,7 @@ export function CommandConsole(props: CommandConsoleProps): JSX.Element {
                                 value={passphrase()}
                                 disabled={running()}
                                 onInput={(event) => setPassphrase(event.currentTarget.value)}
-                                class="focus-visible:outline-offset-0.5 focus-visible:outline-3 focus-visible:outline-[color-mix(in_srgb,_var(--accent)_42%,_transparent)] disabled:opacity-0.65 focus:outline-offset-px focus:outline-2 focus:outline-accent bg-surface-subtle rounded-[5px] border border-line-strong text-ink text-xs min-h-[33px] py-1.5 px-2 w-full"
+                                class="focus-visible:outline-offset-1 focus-visible:outline-3 focus-visible:outline-[color-mix(in_srgb,_var(--accent)_42%,_transparent)] disabled:opacity-65 focus:outline-offset-px focus:outline-2 focus:outline-accent bg-surface-subtle rounded-[5px] border border-line-strong text-ink text-xs min-h-[33px] py-1.5 px-2 w-full"
                             />
                         </label>
                         <label class="text-ink-soft text-xs font-[650] grid gap-[5px] min-w-0">
@@ -420,7 +420,7 @@ export function CommandConsole(props: CommandConsoleProps): JSX.Element {
                                 value={newPassphrase()}
                                 disabled={running()}
                                 onInput={(event) => setNewPassphrase(event.currentTarget.value)}
-                                class="focus-visible:outline-offset-0.5 focus-visible:outline-3 focus-visible:outline-[color-mix(in_srgb,_var(--accent)_42%,_transparent)] disabled:opacity-0.65 focus:outline-offset-px focus:outline-2 focus:outline-accent bg-surface-subtle rounded-[5px] border border-line-strong text-ink text-xs min-h-[33px] py-1.5 px-2 w-full"
+                                class="focus-visible:outline-offset-1 focus-visible:outline-3 focus-visible:outline-[color-mix(in_srgb,_var(--accent)_42%,_transparent)] disabled:opacity-65 focus:outline-offset-px focus:outline-2 focus:outline-accent bg-surface-subtle rounded-[5px] border border-line-strong text-ink text-xs min-h-[33px] py-1.5 px-2 w-full"
                             />
                         </label>
                     </div>

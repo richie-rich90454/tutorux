@@ -855,7 +855,7 @@ export function SynchronizedRecorder(props: Props) {
         <section
             class={cn(
                 "transcript-capture-panel",
-                "max-[650px]:gap-[11px] max-[650px]:grid-cols-[minmax(0, 1fr)] max-[650px]:p-3.5 min-[651px]:max-[900px]:grid-cols-[minmax(0, 1fr) auto] items-center bg-[color-mix(in_srgb,_var(--accent-soft)_48%,_var(--surface))] rounded-[9px] border border-[color-mix(in_srgb,_var(--accent)_19%,_var(--line))] grid gap-y-[13px] gap-x-4.5 grid-cols-[minmax(220px, 1fr) minmax(210px, auto) auto] mt-0 mr-0 mb-3.5 ml-0 py-[15px] px-[17px]",
+                "max-[650px]:gap-[11px] max-[650px]:grid-cols-[minmax(0,_1fr)] max-[650px]:p-3.5 min-[651px]:max-[900px]:grid-cols-[minmax(0,_1fr)_auto] items-center bg-[color-mix(in_srgb,_var(--accent-soft)_48%,_var(--surface))] rounded-[9px] border border-[color-mix(in_srgb,_var(--accent)_19%,_var(--line))] grid gap-y-[13px] gap-x-4.5 grid-cols-[minmax(220px,_1fr)_minmax(210px,_auto)_auto] mt-0 mr-0 mb-3.5 ml-0 py-[15px] px-[17px]",
             )}
             aria-label="Synchronized audio recording"
         >
@@ -884,7 +884,7 @@ export function SynchronizedRecorder(props: Props) {
                     </p>
                 </Show>
 
-                <label class="items-center text-ink-soft grid text-xs gap-[9px] grid-cols-[auto minmax(120px, 1fr)]">
+                <label class="items-center text-ink-soft grid text-xs gap-[9px] grid-cols-[auto_minmax(120px,_1fr)]">
                     Microphone{" "}
                     <select
                         value={deviceId()}
@@ -893,7 +893,7 @@ export function SynchronizedRecorder(props: Props) {
                             setDeviceId(event.currentTarget.value);
                             resetMicrophonePreflight();
                         }}
-                        class="focus-visible:outline-offset-0.5 focus-visible:outline-3 focus-visible:outline-[color-mix(in_srgb,_var(--accent)_42%,_transparent)] bg-surface rounded-[5px] border border-line text-ink max-w-full min-w-0 py-1.5 px-[9px]"
+                        class="focus-visible:outline-offset-1 focus-visible:outline-3 focus-visible:outline-[color-mix(in_srgb,_var(--accent)_42%,_transparent)] bg-surface rounded-[5px] border border-line text-ink max-w-full min-w-0 py-1.5 px-[9px]"
                     >
                         <Show when={!nativeDesktop()}>
                             <option value="">System default</option>
@@ -905,13 +905,13 @@ export function SynchronizedRecorder(props: Props) {
                 </label>
 
                 <Show when={nativeDesktop()}>
-                    <label class="items-center text-ink-soft grid text-xs gap-[9px] grid-cols-[auto minmax(120px, 1fr)]">
+                    <label class="items-center text-ink-soft grid text-xs gap-[9px] grid-cols-[auto_minmax(120px,_1fr)]">
                         Second audio source{" "}
                         <select
                             value={systemAudioDeviceId()}
                             disabled={state() !== "idle"}
                             onChange={(event) => setSystemAudioDeviceId(event.currentTarget.value)}
-                            class="focus-visible:outline-offset-0.5 focus-visible:outline-3 focus-visible:outline-[color-mix(in_srgb,_var(--accent)_42%,_transparent)] bg-surface rounded-[5px] border border-line text-ink max-w-full min-w-0 py-1.5 px-[9px]"
+                            class="focus-visible:outline-offset-1 focus-visible:outline-3 focus-visible:outline-[color-mix(in_srgb,_var(--accent)_42%,_transparent)] bg-surface rounded-[5px] border border-line text-ink max-w-full min-w-0 py-1.5 px-[9px]"
                         >
                             <option value="">Microphone only</option>
                             <For each={systemAudioDevices()}>
@@ -947,7 +947,7 @@ export function SynchronizedRecorder(props: Props) {
                 <div
                     class={cn(
                         "transcript-capture-preflight",
-                        "items-center grid gap-y-[7px] gap-x-2.5 grid-cols-[auto minmax(80px, 1fr)] mt-1",
+                        "items-center grid gap-y-[7px] gap-x-2.5 grid-cols-[auto_minmax(80px,_1fr)] mt-1",
                     )}
                 >
                     <button
@@ -1004,7 +1004,7 @@ export function SynchronizedRecorder(props: Props) {
                 <label
                     class={cn(
                         "transcript-capture-consent",
-                        "leading-[1.45] items-center text-ink-soft grid text-xs gap-[9px] grid-cols-[auto minmax(120px, 1fr)]",
+                        "leading-[1.45] items-center text-ink-soft grid text-xs gap-[9px] grid-cols-[auto_minmax(120px,_1fr)]",
                     )}
                 >
                     <input
@@ -1012,7 +1012,7 @@ export function SynchronizedRecorder(props: Props) {
                         checked={consent()}
                         disabled={state() !== "idle"}
                         onChange={(event) => setConsent(event.currentTarget.checked)}
-                        class="focus-visible:outline-offset-0.5 focus-visible:outline-3 focus-visible:outline-[color-mix(in_srgb,_var(--accent)_42%,_transparent)] accent-accent flex-none h-[15px] w-[15px]"
+                        class="focus-visible:outline-offset-1 focus-visible:outline-3 focus-visible:outline-[color-mix(in_srgb,_var(--accent)_42%,_transparent)] accent-accent flex-none h-[15px] w-[15px]"
                     />{" "}
                     Everyone being recorded has agreed.
                 </label>
