@@ -1101,7 +1101,11 @@ export async function verifyArchiveFull(
             note(`Index key '${key}': ${error instanceof Error ? error.message : String(error)}`);
             continue;
         }
-        if (key !== primaryIndexKey(latestFrame.type, latestFrame.id)) continue;
+        const expectedKey = primaryIndexKey(latestFrame.type, latestFrame.id);
+        if (key !== expectedKey) {
+            note(`Primary index key '${key}' points at a different record ('${expectedKey}').`);
+            continue;
+        }
         if (currentRecords.has(key)) continue;
         const chain: ArchiveRecord[] = [];
         let offset = latestOffset;
@@ -5647,10 +5651,13 @@ async function commitPublishedEndOffset(
     }
     // Repair tolerates crash bytes between a complete commit and its locator.
     const chunkSize = 64 * 1024;
+    const overlap = LOCATOR_SIZE - 1;
     let position = locatorOffset;
     while (position + BigInt(LOCATOR_SIZE) <= source.size) {
         const remaining = source.size - position;
-        const length = Number(remaining > BigInt(chunkSize) ? BigInt(chunkSize) : remaining);
+        const length = Number(
+            remaining > BigInt(chunkSize + overlap) ? BigInt(chunkSize + overlap) : remaining,
+        );
         const bytes = await source.read(position, length);
         for (let index = 0; index + LOCATOR_SIZE <= bytes.length; index += 1) {
             if (!hasMagic(bytes, index, "TUXLOC1\0")) continue;
@@ -5659,7 +5666,7 @@ async function commitPublishedEndOffset(
                 return position + BigInt(index) + BigInt(LOCATOR_SIZE);
             }
         }
-        position += BigInt(length);
+        position += BigInt(Math.max(1, length - overlap));
     }
     throw new ArchiveFormatError(
         "archive_locator_invalid",
