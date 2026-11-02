@@ -1101,9 +1101,18 @@ export async function verifyArchiveFull(
             note(`Index key '${key}': ${error instanceof Error ? error.message : String(error)}`);
             continue;
         }
-        const expectedKey = primaryIndexKey(latestFrame.type, latestFrame.id);
-        if (key !== expectedKey) {
-            note(`Primary index key '${key}' points at a different record ('${expectedKey}').`);
+        const primaryShaped =
+            separator > 0 &&
+            key.indexOf(":", separator + 1) === -1 &&
+            knownTypeNames.has(key.slice(0, separator)) &&
+            validArchiveUuid(key.slice(separator + 1));
+        if (primaryShaped) {
+            const expectedKey = primaryIndexKey(latestFrame.type, latestFrame.id);
+            if (key !== expectedKey) {
+                note(`Primary index key '${key}' points at a different record ('${expectedKey}').`);
+                continue;
+            }
+        } else {
             continue;
         }
         if (currentRecords.has(key)) continue;
