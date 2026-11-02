@@ -1291,7 +1291,9 @@ function cleanText(
         throw new Error(`${label} contains invalid Unicode text.`);
     }
     if (new TextEncoder().encode(value).byteLength > maximumBytes)
-        throw new Error(`${label} must be ${maximumBytes.toLocaleString()} UTF-8 bytes or fewer.`);
+        throw new Error(
+            `${label} must be ${maximumBytes.toLocaleString("en-US")} UTF-8 bytes or fewer.`,
+        );
     if (containsUnsupportedControl(value, allowLineBreaks)) {
         throw new Error(`${label} contains unsupported control characters.`);
     }
