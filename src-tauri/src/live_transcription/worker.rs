@@ -171,6 +171,13 @@ pub(super) fn start_worker(
                     WorkerMessage::Cancel => break,
                 }
             }
+            // A Cancel can be dequeued before a Finish that was already queued. Answer every
+            // queued Finish so finalization never reports a lost reply or waits forever.
+            while let Ok(message) = receiver.try_recv() {
+                if let WorkerMessage::Finish(reply) = message {
+                    let _ = reply.send(());
+                }
+            }
             windows.samples.fill(0.0);
             if thread_cancelled.load(Ordering::Acquire) {
                 set_terminal(&thread_shared, "cancelled", None);
