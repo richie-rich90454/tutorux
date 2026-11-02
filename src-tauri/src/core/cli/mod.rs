@@ -1,7 +1,45 @@
+use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 use crate::core::error::{CoreError, Result as CoreResult};
+use zeroize::Zeroizing;
+
+thread_local! {
+    static DIRECT_SECRETS: RefCell<BTreeMap<String, Zeroizing<String>>> =
+        const { RefCell::new(BTreeMap::new()) };
+}
+
+pub(crate) fn direct_secret(name: &str) -> Option<Zeroizing<String>> {
+    DIRECT_SECRETS.with(|secrets| secrets.borrow().get(name).cloned())
+}
+
+struct DirectSecretsGuard {
+    names: Vec<String>,
+}
+
+impl Drop for DirectSecretsGuard {
+    fn drop(&mut self) {
+        DIRECT_SECRETS.with(|secrets| {
+            let mut secrets = secrets.borrow_mut();
+            for name in &self.names {
+                secrets.remove(name);
+            }
+        });
+    }
+}
+
+fn install_direct_secrets(secrets: &[(String, Zeroizing<String>)]) -> DirectSecretsGuard {
+    let mut names = Vec::with_capacity(secrets.len());
+    DIRECT_SECRETS.with(|current| {
+        let mut current = current.borrow_mut();
+        for (name, value) in secrets {
+            current.insert(name.clone(), value.clone());
+            names.push(name.clone());
+        }
+    });
+    DirectSecretsGuard { names }
+}
 
 pub mod archive;
 mod cancellation;
@@ -247,6 +285,24 @@ pub fn execute_cli(
     output: &mut dyn CliOutput,
     cancellation: &dyn Cancellation,
 ) -> i32 {
+    execute_cli_result(arguments, output, cancellation)
+}
+
+pub fn execute_cli_with_secrets(
+    arguments: &[String],
+    output: &mut dyn CliOutput,
+    cancellation: &dyn Cancellation,
+    secrets: &[(String, Zeroizing<String>)],
+) -> i32 {
+    let _guard = install_direct_secrets(secrets);
+    execute_cli_result(arguments, output, cancellation)
+}
+
+fn execute_cli_result(
+    arguments: &[String],
+    output: &mut dyn CliOutput,
+    cancellation: &dyn Cancellation,
+) -> i32 {
     match execute_inner(arguments, output, cancellation) {
         Ok(code) => code,
         Err(Failure::Usage(message)) => {
@@ -294,13 +350,17 @@ fn execute_inner(
                 )
                 .into());
             }
-            match std::env::var(&name) {
-                Ok(value) => Some(value),
-                Err(_) => {
-                    return Err(CliError(
-                        "The archive passphrase environment variable is not set.".to_owned(),
-                    )
-                    .into())
+            if let Some(value) = direct_secret(&name) {
+                Some(value.to_string())
+            } else {
+                match std::env::var(&name) {
+                    Ok(value) => Some(value),
+                    Err(_) => {
+                        return Err(CliError(
+                            "The archive passphrase environment variable is not set.".to_owned(),
+                        )
+                        .into())
+                    }
                 }
             }
         }
