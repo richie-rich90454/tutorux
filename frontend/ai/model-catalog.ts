@@ -148,7 +148,7 @@ export async function loadAiModelCatalog(
         return { models, freshness: "fresh" };
     } catch (cause) {
         if (options.signal?.aborted)
-            throw new DOMException("Catalog loading was cancelled.", "AbortError");
+            throw new DOMException("Catalog loading was canceled.", "AbortError");
         if (cached) {
             cache.delete(provider.id);
             cache.set(provider.id, cached);
