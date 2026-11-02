@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use crate::core::cli::{CliError, CliResult};
 use crate::core::error::{CoreError, Result};
 
-pub(crate) fn save_bytes(path: &Path, bytes: &[u8]) -> Result<()> {
+fn stage(path: &Path, bytes: &[u8]) -> Result<tempfile::NamedTempFile> {
     let parent = path
         .parent()
         .filter(|parent| !parent.as_os_str().is_empty())
@@ -37,6 +37,11 @@ pub(crate) fn save_bytes(path: &Path, bytes: &[u8]) -> Result<()> {
             format!("Could not flush the archive: {error}"),
         )
     })?;
+    Ok(staged)
+}
+
+pub(crate) fn save_bytes(path: &Path, bytes: &[u8]) -> Result<()> {
+    let staged = stage(path, bytes)?;
     let persist_error = match staged.persist(path) {
         Ok(_) => return Ok(()),
         Err(error) => error,
@@ -57,6 +62,65 @@ pub(crate) fn save_bytes(path: &Path, bytes: &[u8]) -> Result<()> {
             ),
         )),
     }
+}
+
+/// Replace an existing archive while holding its exclusive lock.
+///
+/// `expected` is the complete archive image observed before the lock was taken. Verification
+/// reads through the locked handle because Windows cannot read the file through a second handle
+/// while the exclusive byte-range lock is held. Publication moves the old file aside and renames
+/// the staged replacement into place, so a locked destination is never overwritten in place.
+pub(crate) fn replace_existing(path: &Path, expected: &[u8], replacement: &[u8]) -> CliResult<()> {
+    let mut archive_lock = crate::archive_lock_support::ArchiveLock::try_acquire(
+        path,
+        crate::archive_lock_support::LockMode::Exclusive,
+    )
+    .map_err(CliError)?;
+    let current = archive_lock.read_archive_bytes().map_err(CliError)?;
+    if current.len() > expected.len() || expected[..current.len()] != current[..] {
+        return Err(CliError(
+            "The archive changed on disk after this operation started. Reopen it and retry; no changes were written."
+                .to_owned(),
+        )
+        .into());
+    }
+
+    let staged = stage(path, replacement)?;
+    let (staged_file, staged_path) = staged.keep().map_err(|error| {
+        CliError(format!(
+            "Could not retain the staged archive: {}",
+            error.error
+        ))
+    })?;
+    drop(staged_file);
+    archive_lock
+        .prepare_replacement_file(&staged_path)
+        .map_err(CliError)?;
+
+    let backup = path.with_file_name(format!(".tutorux-{}.backup", uuid::Uuid::new_v4()));
+    if let Err(error) = std::fs::rename(path, &backup) {
+        let _ = std::fs::remove_file(&staged_path);
+        return Err(CliError(format!(
+            "Could not move the previous archive into its recovery copy: {error}"
+        ))
+        .into());
+    }
+    if let Err(error) = std::fs::rename(&staged_path, path) {
+        let _ = std::fs::remove_file(&staged_path);
+        return Err(match std::fs::rename(&backup, path) {
+            Ok(()) => CliError(format!(
+                "Could not publish the archive: {error}; the previous archive was restored."
+            )),
+            Err(restore) => CliError(format!(
+                "Could not publish the archive: {error}; the previous archive remains at {}: {restore}",
+                backup.display()
+            )),
+        }
+        .into());
+    }
+    archive_lock.adopt_replacement_file().map_err(CliError)?;
+    let _ = std::fs::remove_file(&backup);
+    Ok(())
 }
 
 pub(super) fn write_new_archive(path: &Path, bytes: &[u8]) -> CliResult<()> {
