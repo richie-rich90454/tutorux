@@ -230,7 +230,7 @@ export async function prepareNativeCaptureRecovery(
     const message = completed
         ? `Verified and recovered all ${outcomes.length} native audio track${outcomes.length === 1 ? "" : "s"}.`
         : totals.chunks > 0n
-          ? `Preserved ${totals.chunks.toLocaleString()} verified native audio chunks; one or more tracks remain partial or interrupted.`
+          ? `Preserved ${totals.chunks.toLocaleString("en-US")} verified native audio chunks; one or more tracks remain partial or interrupted.`
           : "No valid committed native audio was available; the recording remains failed.";
 
     return {
