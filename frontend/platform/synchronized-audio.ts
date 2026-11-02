@@ -725,6 +725,9 @@ function configureQueue(
 }
 
 function parseSampleFormat(value: string | undefined): NativeAudioSampleFormat {
+    if (value === undefined) {
+        throw new Error("The native audio source did not report a sample format.");
+    }
     switch (value) {
         case "pcm_u8":
         case "pcm_s16le":

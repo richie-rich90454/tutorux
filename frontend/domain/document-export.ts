@@ -54,6 +54,8 @@ export function renderNoteMarkdown(title: string, blocks: readonly JournalNoteBl
                     .split("\n")
                     .map((line) => `> ${line}`)
                     .join("\n");
+            case "paragraph":
+                return block.text;
             case "code": {
                 const fences = block.text.match(/`+/gu) ?? [];
                 const fence = "`".repeat(
@@ -79,6 +81,8 @@ export function renderNoteHtml(title: string, blocks: readonly JournalNoteBlock[
                     return `<blockquote>${text}</blockquote>`;
                 case "code":
                     return `<pre><code>${text}</code></pre>`;
+                case "paragraph":
+                    return `<p>${text}</p>`;
                 case "bullet-list":
                 case "numbered-list":
                 case "checklist": {

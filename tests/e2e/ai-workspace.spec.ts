@@ -98,7 +98,7 @@ test("reviews, saves, exports, and reopens a private manual AI package", async (
         { filename: "leaf-cell.png", mime_type: "image/png" },
     ]);
     expect(parsed.session.fields["title"]).toBe("Fractions review");
-    expect(page.getByRole("button", { name: "Save reviewed package" })).toBeDisabled();
+    await expect(page.getByRole("button", { name: "Save reviewed package" })).toBeDisabled();
     await page.getByRole("checkbox", { name: /I reviewed the package contents/u }).check();
     await page.getByRole("button", { name: "Save reviewed package" }).click();
     await expect(page.getByText(/Reviewed AI package saved in this archive/u)).toBeVisible();

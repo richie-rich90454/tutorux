@@ -24,7 +24,7 @@ type CryptoWorkerResponse =
     | { success: false; code: string; message: string };
 
 const workerScope = globalThis as unknown as {
-    onmessage: ((event: MessageEvent<CryptoWorkerMessage>) => void) | null;
+    onmessage: ((event: MessageEvent<CryptoWorkerMessage>) => void | Promise<void>) | null;
     postMessage(message: CryptoWorkerResponse, transfer?: Transferable[]): void;
 };
 

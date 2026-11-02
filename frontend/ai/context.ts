@@ -354,6 +354,8 @@ function priorityOf(value: string | undefined): number {
             return 2;
         case "low":
             return 0;
+        case "normal":
+        case undefined:
         default:
             return 1;
     }

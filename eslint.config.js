@@ -20,10 +20,23 @@ export default tseslint.config(
     {
         files: ["frontend/**/*.{ts,tsx}", "scripts/**/*.ts", "tests/e2e/**/*.ts", "*.ts"],
         plugins: { solid },
+        languageOptions: {
+            parserOptions: {
+                projectService: true,
+                tsconfigRootDir: import.meta.dirname,
+            },
+        },
         rules: {
             ...solid.configs.recommended.rules,
             "no-console": ["error", { allow: ["warn", "error"] }],
             "@typescript-eslint/consistent-type-imports": "error",
+            "@typescript-eslint/no-floating-promises": "error",
+            "@typescript-eslint/no-misused-promises": [
+                "error",
+                { checksVoidReturn: { attributes: false } },
+            ],
+            "@typescript-eslint/await-thenable": "error",
+            "@typescript-eslint/switch-exhaustiveness-check": "error",
         },
     },
 );

@@ -27,6 +27,7 @@ import { hasDesktopArchiveCapability, persistMicrophoneArchiveGeneration } from 
 import { platform } from "@platform";
 
 function parseCaptureFormat(value: string | undefined): CaptureSampleFormat {
+    if (value === undefined) return "pcm_s16le";
     switch (value) {
         case "pcm_u8":
         case "pcm_s16le":

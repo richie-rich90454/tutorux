@@ -123,6 +123,8 @@ export function aiModelProtocolFamily(providerId: string, model = ""): string {
 
 function openCodeZenProtocolFamily(protocol: OpenCodeZenProtocol): string {
     switch (protocol) {
+        case "openai-chat":
+            return "openai-chat-completions";
         case "openai-responses":
             return "openai-responses";
         case "anthropic":
