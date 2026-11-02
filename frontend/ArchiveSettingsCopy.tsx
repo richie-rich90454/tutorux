@@ -257,12 +257,14 @@ export function ArchiveSettingsCopy(props: ArchiveSettingsCopyProps): JSX.Elemen
                     onSubmit={(event) => void unlockSource(event)}
                 >
                     <p class={bodyText}>
-                        <strong class="font-semibold text-ink">{sourceName()}</strong>{" "}
-                        is protected with a passphrase. Unlock it to review its ordinary settings.
-                        The passphrase is used only to unlock this review and is never written into
-                        either archive.
+                        <strong class="font-semibold text-ink">{sourceName()}</strong> is protected
+                        with a passphrase. Unlock it to review its ordinary settings. The passphrase
+                        is used only to unlock this review and is never written into either archive.
                     </p>
-                    <label class={cn("form-field", labelBase)} for="settings-copy-source-passphrase">
+                    <label
+                        class={cn("form-field", labelBase)}
+                        for="settings-copy-source-passphrase"
+                    >
                         Source archive passphrase
                         <input
                             ref={(element) => (passphraseInput = element)}
