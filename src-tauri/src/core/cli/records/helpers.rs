@@ -17,6 +17,31 @@ pub(crate) fn load(path: &std::path::Path, context: &CliContext) -> CliResult<Ar
 
 pub(crate) fn save_replacing(path: &std::path::Path, snapshot: &ArchiveSnapshot) -> CliResult<()> {
     let bytes = snapshot.source.read(0, snapshot.source.size() as usize)?;
+    if path.exists() {
+        let mut file = std::fs::File::open(path).map_err(|error| {
+            CliError(format!(
+                "Could not inspect the archive before saving: {error}"
+            ))
+        })?;
+        let mut buffer = vec![0u8; 1024 * 1024];
+        let mut offset = 0usize;
+        loop {
+            let read = std::io::Read::read(&mut file, &mut buffer)
+                .map_err(|error| CliError(format!("Could not inspect the archive: {error}")))?;
+            if read == 0 {
+                break;
+            }
+            let end = offset + read;
+            if end > bytes.len() || bytes[offset..end] != buffer[..read] {
+                return Err(CliError(
+                    "The archive changed on disk after this operation started. Reopen it and retry; no changes were written."
+                        .to_owned(),
+                )
+                .into());
+            }
+            offset = end;
+        }
+    }
     crate::core::cli::archive::save::save_bytes(path, &bytes)?;
     Ok(())
 }
@@ -380,7 +405,7 @@ pub(crate) fn guide_references_entry(guide: &ArchiveRecord, entry_id: &str) -> b
             }
         } else if key.starts_with("section.") && key.ends_with(".text") {
             let mut rest = value.as_str();
-            while let Some(start) = rest.to_lowercase().find("[[source:") {
+            while let Some(start) = rest.to_ascii_lowercase().find("[[source:") {
                 let after = &rest[start + 9..];
                 let Some(end) = after.find("]]") else { break };
                 if after[..end].trim().to_lowercase() == entry_id {
