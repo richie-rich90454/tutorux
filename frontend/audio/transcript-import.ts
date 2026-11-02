@@ -205,25 +205,47 @@ export async function importTranscriptBatches(options: {
     expectedGeneration: bigint;
     commit: TranscriptBatchCommit;
     batchSize?: number;
-}): Promise<{ imported: number; records: ArchiveRecord[]; generation: bigint }> {
+}): Promise<{
+    imported: number;
+    records: ArchiveRecord[];
+    generation: bigint;
+    error?: Error;
+}> {
     let generation = options.expectedGeneration;
     let imported = 0;
     const records: ArchiveRecord[] = [];
-    for await (const cues of transcriptCueBatches(
-        options.source,
-        options.format,
-        options.batchSize,
-    )) {
-        const batch = makeTranscriptRecords(
-            options.sessionId,
-            cues,
+    let commitFailed = false;
+    try {
+        for await (const cues of transcriptCueBatches(
+            options.source,
             options.format,
-            options.filename,
-        );
-        const saved = await options.commit(batch, generation);
-        generation += 1n;
-        records.push(...saved);
-        imported += cues.length;
+            options.batchSize,
+        )) {
+            const batch = makeTranscriptRecords(
+                options.sessionId,
+                cues,
+                options.format,
+                options.filename,
+            );
+            let saved: ArchiveRecord[];
+            try {
+                saved = await options.commit(batch, generation);
+            } catch (error) {
+                commitFailed = true;
+                throw error;
+            }
+            generation += 1n;
+            records.push(...saved);
+            imported += cues.length;
+        }
+    } catch (error) {
+        if (commitFailed || imported === 0) throw error;
+        return {
+            imported,
+            records,
+            generation,
+            error: error instanceof Error ? error : new Error(String(error)),
+        };
     }
     return { imported, records, generation };
 }
