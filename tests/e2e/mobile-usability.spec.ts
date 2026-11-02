@@ -49,7 +49,17 @@ test("creates an archive from the welcome screen and keeps the workspace usable 
 
         await primary.click();
         await expect(page.getByLabel("Entry title")).toBeVisible();
-        await page.keyboard.press("Escape");
+        const entryDialog = page.getByRole("dialog", { name: "New journal entry" });
+        if (viewport.width === 390) {
+            await entryDialog.getByRole("button", { name: "Choose date", exact: true }).click();
+            const calendar = page.getByRole("dialog", { name: "Choose date", exact: true });
+            await expect(calendar).toBeVisible();
+            const calendarBox = await calendar.boundingBox();
+            expect(calendarBox?.x ?? -1).toBeGreaterThanOrEqual(0);
+            expect((calendarBox?.x ?? 0) + (calendarBox?.width ?? 0)).toBeLessThanOrEqual(391);
+            await page.keyboard.press("Escape");
+        }
+        await entryDialog.getByRole("button", { name: "Cancel", exact: true }).click();
         await expect(page.getByLabel("Entry title")).toBeHidden();
     }
 });
