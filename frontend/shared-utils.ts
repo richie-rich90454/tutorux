@@ -4,19 +4,11 @@ export function field(record: ArchiveRecord, name: string, fallback = ""): strin
     return record.fields.get(name) ?? fallback;
 }
 
-export function pluralNoun(
-    count: number,
-    singular: string,
-    plural = `${singular}s`,
-): string {
+export function pluralNoun(count: number, singular: string, plural = `${singular}s`): string {
     return count === 1 ? singular : plural;
 }
 
-export function pluralize(
-    count: number,
-    singular: string,
-    plural = `${singular}s`,
-): string {
+export function pluralize(count: number, singular: string, plural = `${singular}s`): string {
     return `${count.toLocaleString("en-US")} ${pluralNoun(count, singular, plural)}`;
 }
 
