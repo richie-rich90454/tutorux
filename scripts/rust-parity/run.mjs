@@ -3,7 +3,6 @@ import { createHash } from "node:crypto";
 import {
     access,
     copyFile,
-    cp,
     mkdir,
     mkdtemp,
     readFile,
@@ -271,45 +270,33 @@ function checkExpectation(expect, result, context, label) {
     return issues;
 }
 
-async function runSide(side, testCase, seedPath, caseRoot, roots, setupSource = null) {
+async function runSide(testCase, seedPath, caseRoot, roots) {
     const context = {
-        side,
         root: caseRoot,
-        dir: join(caseRoot, side),
-        archive: join(caseRoot, side, "archive.tux"),
+        dir: join(caseRoot, "rust"),
+        archive: join(caseRoot, "rust", "archive.tux"),
         captures: {},
         env: {},
     };
     await mkdir(context.dir, { recursive: true });
-    if (setupSource) {
-        await cp(setupSource.dir, context.dir, { recursive: true });
-        context.captures = Object.fromEntries(
-            Object.entries(setupSource.captures).map(([name, value]) => [
-                name,
-                typeof value === "string" ? value.split(setupSource.dir).join(context.dir) : value,
-            ]),
-        );
-    } else if (testCase.seed !== false) {
+    if (testCase.seed !== false) {
         await copyFile(seedPath, context.archive);
     }
-    if (!setupSource) {
-        for (const [relativePath, contents] of Object.entries(testCase.files ?? {})) {
-            const filePath = join(context.dir, relativePath);
-            await mkdir(dirname(filePath), { recursive: true });
-            await writeFile(filePath, contents, "utf8");
-        }
-        for (const [relativePath, contents] of Object.entries(testCase.filesBase64 ?? {})) {
-            const filePath = join(context.dir, relativePath);
-            await mkdir(dirname(filePath), { recursive: true });
-            await writeFile(filePath, Buffer.from(contents, "base64"));
-        }
+    for (const [relativePath, contents] of Object.entries(testCase.files ?? {})) {
+        const filePath = join(context.dir, relativePath);
+        await mkdir(dirname(filePath), { recursive: true });
+        await writeFile(filePath, contents, "utf8");
+    }
+    for (const [relativePath, contents] of Object.entries(testCase.filesBase64 ?? {})) {
+        const filePath = join(context.dir, relativePath);
+        await mkdir(dirname(filePath), { recursive: true });
+        await writeFile(filePath, Buffer.from(contents, "base64"));
     }
     const caseEnvironment = Object.fromEntries(
         Object.entries(testCase.env ?? {}).map(([name, value]) => [name, String(value)]),
     );
 
-    const setupResults = [];
-    for (const [index, step] of (setupSource ? [] : (testCase.setup ?? [])).entries()) {
+    for (const [index, step] of (testCase.setup ?? []).entries()) {
         const env = { ...caseEnvironment, ...(step.env ?? {}) };
         context.env = env;
         let args;
@@ -318,8 +305,7 @@ async function runSide(side, testCase, seedPath, caseRoot, roots, setupSource = 
         } catch (error) {
             return {
                 context,
-                error: `${side} setup ${index}: ${error.message}`,
-                setupResults,
+                error: `rust setup ${index}: ${error.message}`,
                 results: [],
                 issues: [],
             };
@@ -329,8 +315,7 @@ async function runSide(side, testCase, seedPath, caseRoot, roots, setupSource = 
         if (result.code !== 0) {
             return {
                 context,
-                error: `${side} setup ${index} (${step.id ?? "setup"}) exited ${result.code}: ${normalizeText(result.stderr, [context.archive, context.dir, ...roots])}`,
-                setupResults,
+                error: `rust setup ${index} (${step.id ?? "setup"}) exited ${result.code}: ${normalizeText(result.stderr, [context.archive, context.dir, ...roots])}`,
                 results: [],
                 issues: [],
             };
@@ -340,24 +325,19 @@ async function runSide(side, testCase, seedPath, caseRoot, roots, setupSource = 
             if (captured === undefined) {
                 return {
                     context,
-                    error: `${side} setup ${index} did not return capture \`${name}\` at ${path}`,
-                    setupResults,
+                    error: `rust setup ${index} did not return capture \`${name}\` at ${path}`,
                     results: [],
                     issues: [],
                 };
             }
             context.captures[name] = captured;
         }
-        setupResults.push({ code: result.code, stdout: result.stdout, stderr: result.stderr });
     }
 
     const results = [];
     const issues = [];
-    const setupDir = join(caseRoot, `${side}-setup`);
-    await rm(setupDir, { recursive: true, force: true });
-    await cp(context.dir, setupDir, { recursive: true });
     for (const [index, step] of testCase.steps.entries()) {
-        const label = `${side} step ${index} (${step.id ?? testCase.id})`;
+        const label = `rust step ${index} (${step.id ?? testCase.id})`;
         const capabilities = stepCapabilities(step, testCase);
         let result;
         try {
@@ -396,7 +376,7 @@ async function runSide(side, testCase, seedPath, caseRoot, roots, setupSource = 
             }
         }
     }
-    return { context, setupResults, results, issues, setupDir };
+    return { context, results, issues };
 }
 
 async function loadCorpus() {
@@ -642,7 +622,7 @@ async function main() {
             const capabilities = caseCapabilities(testCase);
             const caseRoot = join(temporaryRoot, testCase.id.replace(/[^A-Za-z0-9_.-]/gu, "_"));
             const roots = [caseRoot, temporaryRoot];
-            const rustSide = await runSide("rust", testCase, seedPath, caseRoot, roots);
+            const rustSide = await runSide(testCase, seedPath, caseRoot, roots);
             if (rustSide.error) {
                 caseIssues.push({
                     step: null,
