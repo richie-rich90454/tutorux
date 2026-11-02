@@ -25,29 +25,44 @@ describe("bounded transcript import", () => {
         expect(batches).toEqual([128, 128, 44]);
     });
 
-    it("keeps earlier committed cues when a later subtitle is malformed", async () => {
+    it("returns the cues committed before a later subtitle is malformed", async () => {
         const valid = Array.from({ length: 129 }, (_, index) => srtCue(index)).join("");
         const malformed = "130\nnot a timestamp --> later\nBroken cue\n";
         const commits: ArchiveRecord[][] = [];
-        await expect(
-            importTranscriptBatches({
-                source: chunksOf(valid + malformed),
-                format: "srt",
-                sessionId: crypto.randomUUID(),
-                filename: "late-failure.srt",
-                expectedGeneration: 1n,
-                batchSize: 128,
-                commit: async (records) => {
-                    commits.push([...records]);
-                    return [...records];
-                },
-            }),
-        ).rejects.toThrow();
+        const result = await importTranscriptBatches({
+            source: chunksOf(valid + malformed),
+            format: "srt",
+            sessionId: crypto.randomUUID(),
+            filename: "late-failure.srt",
+            expectedGeneration: 1n,
+            batchSize: 128,
+            commit: async (records) => {
+                commits.push([...records]);
+                return [...records];
+            },
+        });
 
+        expect(result.error?.message).toContain("Use HH:MM:SS");
+        expect(result.imported).toBe(128);
+        expect(result.records).toHaveLength(128);
         expect(commits).toHaveLength(1);
         expect(commits[0]).toHaveLength(128);
         expect(commits[0]![0]!.fields.get("text")).toBe("Cue 0");
         expect(commits[0]!.at(-1)!.fields.get("text")).toBe("Cue 127");
+    });
+
+    it("still rejects a malformed file when no cue was committed", async () => {
+        await expect(
+            importTranscriptBatches({
+                source: chunksOf("1\nnot a timestamp --> later\nBroken cue\n"),
+                format: "srt",
+                sessionId: crypto.randomUUID(),
+                filename: "failed.srt",
+                expectedGeneration: 1n,
+                batchSize: 128,
+                commit: async (records) => [...records],
+            }),
+        ).rejects.toThrow("Use HH:MM:SS");
     });
 
     it("accepts WebVTT metadata blocks without counting them as cues", async () => {
