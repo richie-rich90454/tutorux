@@ -249,6 +249,27 @@ mod tests {
     use super::base_report;
 
     #[test]
+    fn audio_measurement_reports_availability() {
+        let mut report = serde_json::Map::new();
+        super::measure_audio(&mut report);
+        assert!(matches!(
+            report.get("audio_status").and_then(|value| value.as_str()),
+            Some("checked" | "unavailable")
+        ));
+        assert!(report.contains_key("audio_enumeration_elapsed_us"));
+        if report.get("audio_status").and_then(|value| value.as_str()) == Some("unavailable") {
+            assert_eq!(
+                report.get("audio_devices").and_then(|value| value.as_str()),
+                Some("unavailable")
+            );
+            assert_eq!(
+                report.get("audio_reason").and_then(|value| value.as_str()),
+                Some("Audio endpoint enumeration is unavailable.")
+            );
+        }
+    }
+
+    #[test]
     fn benchmark_report_keeps_legacy_numeric_and_string_scalars() {
         let report = base_report("startup");
         assert_eq!(
