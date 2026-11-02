@@ -181,6 +181,8 @@ async function mixTracksCore(options: {
         );
         let batch: ArchiveRecord[] = [];
         const records: ArchiveRecord[] = [];
+        let committedChunks = 0;
+        let committedFrames = 0;
         const commit = async (batchRecords: readonly ArchiveRecord[]): Promise<ArchiveRecord[]> => {
             if (!options.commit) throw new Error("Mix commit callback is unavailable.");
             const saved = await options.commit(batchRecords, generation);
@@ -190,7 +192,13 @@ async function mixTracksCore(options: {
         const commitBatch = async (force = false): Promise<void> => {
             if (!incremental || !batch.length) return;
             if (!force && batch.length < chunksPerCommit) return;
-            await commit(batch);
+            const pending = batch;
+            await commit(pending);
+            committedChunks += pending.length;
+            committedFrames += pending.reduce(
+                (total, record) => total + Number(record.fields.get("sample_count") ?? "0"),
+                0,
+            );
             batch = [];
         };
         const startFields = makeTrackFields({
@@ -366,6 +374,7 @@ async function mixTracksCore(options: {
             };
         } catch (error) {
             if (incremental) {
+                const committedDurationUs = Math.floor((committedFrames * 1_000_000) / targetRate);
                 try {
                     await commit([
                         makeTrackRecord(
@@ -378,10 +387,10 @@ async function mixTracksCore(options: {
                                 label,
                                 targetRate,
                                 now,
-                                state: sequence ? "partial" : "failed",
-                                frames,
-                                durationUs,
-                                chunkCount: sequence,
+                                state: committedChunks ? "partial" : "failed",
+                                frames: committedFrames,
+                                durationUs: committedChunks ? committedDurationUs : 0,
+                                chunkCount: committedChunks,
                             }),
                         ),
                     ]);
