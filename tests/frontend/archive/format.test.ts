@@ -162,6 +162,32 @@ describe("Tutorux archive v1 encoding", () => {
         expect(compressRecordPayload(noisyPayload)).toEqual({ codec: 0, bytes: noisyPayload });
     });
 
+    it("rejects a truncated LZ4 payload without allocating its declared length", () => {
+        const declaredLength = 200 * 1024 * 1024;
+        const storedPayload = new Uint8Array(10);
+        new DataView(storedPayload.buffer).setBigUint64(0, BigInt(declaredLength), true);
+        storedPayload[8] = 0x00;
+        storedPayload[9] = 0x01;
+
+        const original = globalThis.Uint8Array;
+        const allocations: number[] = [];
+        class TrackingUint8Array extends Uint8Array {
+            constructor(length: number) {
+                super(length);
+                allocations.push(length);
+            }
+        }
+        (globalThis as unknown as { Uint8Array: typeof Uint8Array }).Uint8Array =
+            TrackingUint8Array as unknown as typeof Uint8Array;
+        try {
+            expect(() => decodeLz4Block(storedPayload)).toThrowError(/match offset is truncated/u);
+        } finally {
+            (globalThis as unknown as { Uint8Array: typeof Uint8Array }).Uint8Array = original;
+        }
+
+        expect(Math.max(0, ...allocations)).toBeLessThanOrEqual(64 * 1024);
+    });
+
     it("returns stable typed errors for malformed UUIDs", () => {
         expect(() =>
             encodeArchiveHeader({
