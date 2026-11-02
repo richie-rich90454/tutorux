@@ -115,6 +115,11 @@ export async function runRecordCommand(
             const session = await requireLiveRecord(snapshot, RecordType.session, sessionId);
             packageSnapshot = await createSessionPackage(snapshot, session.id);
             if (args.flags.has("force")) {
+                if (!args.flags.has("confirm-sensitive")) {
+                    throw new CliError(
+                        "--force replaces the destination. Review it and retry with --confirm-sensitive.",
+                    );
+                }
                 await writeSourceAtomically(destinationPath, packageSnapshot);
             } else {
                 await writeSourceToNewFileAtomically(
@@ -370,9 +375,14 @@ export async function runRecordCommand(
                 records = records.filter((record) => field(record, "archived") !== "true");
             }
             if (group === "session") {
-                const studentId = args.options.get("student-id");
-                if (studentId !== undefined) {
-                    records = records.filter((record) => field(record, "student_id") === studentId);
+                const rawStudentId = args.options.get("student-id");
+                if (rawStudentId !== undefined) {
+                    const studentId = canonicalizeProgressUuid(rawStudentId);
+                    if (!studentId) throw new CliError("--student-id must be a valid UUID.");
+                    records = records.filter(
+                        (record) =>
+                            canonicalizeProgressUuid(field(record, "student_id")) === studentId,
+                    );
                 }
                 const rawEntryId = args.options.get("entry-id");
                 if (rawEntryId !== undefined) {
