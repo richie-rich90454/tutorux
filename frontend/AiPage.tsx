@@ -1,5 +1,21 @@
-import { twClasses } from "./tailwind";
-import { jsxTailwindStyles } from "./AiPage.tailwind";
+import {
+    bodyText,
+    buttonOutline,
+    buttonPrimary,
+    buttonQuiet,
+    card,
+    chip,
+    cn,
+    eyebrow,
+    heading1,
+    heading2,
+    heading3,
+    helperText,
+    inputBase,
+    labelBase,
+    selectBase,
+    textareaBase,
+} from "./ui";
 import { For, Show, createEffect, createMemo, createSignal, onCleanup, type JSX } from "solid-js";
 import type { ArchiveRecord } from "./archive/format";
 import {
@@ -472,8 +488,8 @@ export function AiPage(props: AiPageProps): JSX.Element {
             setCatalogModels(result.models);
             setCatalogMessage(
                 result.freshness === "stale-cache-fallback"
-                    ? `${result.models.length.toLocaleString()} cached model records are shown because the catalog could not be reached. Metadata may be stale; verify availability and capabilities with your provider.`
-                    : `${result.models.length.toLocaleString()} public model records loaded. Catalog metadata is informational and may be out of date; verify availability and capabilities with your provider.`,
+                    ? `${result.models.length.toLocaleString("en-US")} cached model records are shown because the catalog could not be reached. Metadata may be stale; verify availability and capabilities with your provider.`
+                    : `${result.models.length.toLocaleString("en-US")} public model records loaded. Catalog metadata is informational and may be out of date; verify availability and capabilities with your provider.`,
             );
         } catch (cause) {
             if (requestVersion !== catalogRequestVersion) return;
@@ -732,7 +748,7 @@ export function AiPage(props: AiPageProps): JSX.Element {
         );
         await cancelEmbeddedAiGeneration().catch((cause: unknown) => {
             setEmbeddedMessage(
-                cause instanceof Error ? cause.message : "Local generation could not be cancelled.",
+                cause instanceof Error ? cause.message : "Local generation could not be canceled.",
             );
         });
     }
@@ -835,20 +851,33 @@ export function AiPage(props: AiPageProps): JSX.Element {
     }
 
     return (
-        <div class={twClasses("page-body ai-page", jsxTailwindStyles, "div")}>
-            <section class={twClasses("record-heading ai-heading", jsxTailwindStyles, "section")}>
-                <div class={twClasses("", jsxTailwindStyles, "div")}>
-                    <span class={twClasses("eyebrow", jsxTailwindStyles, "span")}>
-                        Private by default
-                    </span>
-                    <h1 class={twClasses("", jsxTailwindStyles, "h1")}>AI workspace</h1>
-                    <p class={twClasses("", jsxTailwindStyles, "p")}>
+        <div
+            class={cn(
+                "page-body ai-page",
+                "mx-auto grid w-full max-w-[1120px] gap-5 px-5 pt-5 pb-[78px] sm:px-7 sm:pt-7 sm:pb-8 lg:px-9 lg:pb-10",
+            )}
+        >
+            <section
+                class={cn(
+                    "record-heading ai-heading",
+                    "mb-0 flex flex-wrap items-center justify-between gap-5 max-[760px]:items-start",
+                )}
+            >
+                <div>
+                    <span class={cn("eyebrow", eyebrow, "text-accent")}>Private by default</span>
+                    <h1 class={cn(heading1, "mt-1.5")}>AI workspace</h1>
+                    <p class={cn(bodyText, "mt-2 max-w-[610px] text-muted")}>
                         Prepare a source-linked study-guide handoff. Packages stay in your archive
                         until you choose to export or send them.
                     </p>
                 </div>
-                <div class={twClasses("ai-state-pill", jsxTailwindStyles, "div")}>
-                    <span class={twClasses("", jsxTailwindStyles, "span")} />
+                <div
+                    class={cn(
+                        "ai-state-pill",
+                        "inline-flex items-center gap-2 self-start rounded-[5px] border border-line bg-surface px-2.5 py-2 text-xs font-semibold whitespace-nowrap text-muted",
+                    )}
+                >
+                    <span class={"h-[7px] w-[7px] rounded-full bg-accent"} />
                     {props.execution
                         ? "Response saved"
                         : props.busy && isEmbeddedGgufProvider(currentProvider().id)
@@ -860,20 +889,23 @@ export function AiPage(props: AiPageProps): JSX.Element {
             </section>
 
             <section
-                class={twClasses("ai-intro-card", jsxTailwindStyles, "section")}
+                class={cn("ai-intro-card", card, "flex items-start gap-3.5 px-5 py-[18px]")}
                 aria-label="Package privacy summary"
             >
                 <div
-                    class={twClasses("ai-intro-icon", jsxTailwindStyles, "div")}
+                    class={cn(
+                        "ai-intro-icon",
+                        "grid size-[34px] shrink-0 place-items-center rounded-[5px] bg-accent-soft text-[21px] leading-none text-accent",
+                    )}
                     aria-hidden="true"
                 >
                     ✳
                 </div>
-                <div class={twClasses("", jsxTailwindStyles, "div")}>
-                    <strong class={twClasses("", jsxTailwindStyles, "strong")}>
+                <div>
+                    <strong class={"block text-[13px] font-bold text-ink"}>
                         Review first. Share only when you choose.
                     </strong>
-                    <p class={twClasses("", jsxTailwindStyles, "p")}>
+                    <p class={"mt-1.5 max-w-[830px] text-xs leading-relaxed text-muted"}>
                         A package contains the selected session, its transcripts, observations,
                         evidence, material names, and limited learning-profile context. It excludes
                         private tutor notes and material file bytes. Preparing or saving it makes no
@@ -883,29 +915,45 @@ export function AiPage(props: AiPageProps): JSX.Element {
             </section>
 
             <section
-                class={twClasses("ai-panel ai-provider-panel", jsxTailwindStyles, "section")}
+                class={cn(
+                    "ai-panel ai-provider-panel",
+                    "grid min-w-0 gap-4 rounded-[5px] border border-accent/20 bg-surface p-[22px] max-[520px]:p-[17px]",
+                )}
                 aria-labelledby="ai-provider-title"
             >
-                <div class={twClasses("ai-panel-heading", jsxTailwindStyles, "div")}>
-                    <div class={twClasses("", jsxTailwindStyles, "div")}>
-                        <span class={twClasses("eyebrow", jsxTailwindStyles, "span")}>
-                            Local setup · no connection test
-                        </span>
-                        <h2 id="ai-provider-title" class={twClasses("", jsxTailwindStyles, "h2")}>
+                <div
+                    class={cn(
+                        "ai-panel-heading",
+                        "flex flex-wrap items-start justify-between gap-[18px]",
+                    )}
+                >
+                    <div>
+                        <span class={eyebrow}>Local setup · no connection test</span>
+                        <h2 id="ai-provider-title" class={cn(heading2, "mt-1")}>
                             Provider settings
                         </h2>
                     </div>
-                    <span class={twClasses("ai-provider-status", jsxTailwindStyles, "span")}>
+                    <span
+                        class={cn(
+                            "ai-provider-status",
+                            "rounded-[5px] border border-line bg-surface-subtle px-2.5 py-1.5 text-xs font-semibold whitespace-nowrap text-muted",
+                        )}
+                    >
                         {savedProvider() ? "Configured" : "Not configured"}
                     </span>
                 </div>
-                <p class={twClasses("ai-provider-intro", jsxTailwindStyles, "p")}>
+                <p
+                    class={cn(
+                        "ai-provider-intro",
+                        "max-w-[700px] text-xs leading-relaxed text-muted",
+                    )}
+                >
                     Save a provider and model for a future reviewed request. This setup does not
                     connect to a service or send session data.
                 </p>
-                <div class={twClasses("ai-form-grid", jsxTailwindStyles, "div")}>
-                    <label class={twClasses("ai-field", jsxTailwindStyles, "label")}>
-                        <span class={twClasses("", jsxTailwindStyles, "span")}>Provider</span>
+                <div class={cn("ai-form-grid", "mt-[18px] grid gap-4 min-[761px]:grid-cols-2")}>
+                    <label class={cn("ai-field", labelBase)}>
+                        <span>Provider</span>
                         <select
                             aria-label="AI provider"
                             value={providerId()}
@@ -914,7 +962,7 @@ export function AiPage(props: AiPageProps): JSX.Element {
                                 setProviderMessage("");
                                 setProviderId(event.currentTarget.value);
                             }}
-                            class={twClasses("", jsxTailwindStyles, "select")}
+                            class={selectBase}
                         >
                             <For
                                 each={AI_PROVIDERS.filter(
@@ -926,8 +974,8 @@ export function AiPage(props: AiPageProps): JSX.Element {
                             </For>
                         </select>
                     </label>
-                    <label class={twClasses("ai-field", jsxTailwindStyles, "label")}>
-                        <span class={twClasses("", jsxTailwindStyles, "span")}>Model ID</span>
+                    <label class={cn("ai-field", labelBase)}>
+                        <span>Model ID</span>
                         <input
                             aria-label="AI model ID"
                             type="text"
@@ -950,17 +998,11 @@ export function AiPage(props: AiPageProps): JSX.Element {
                                 setSendConfirmed(false);
                                 props.onClearExecution();
                             }}
-                            class={twClasses("", jsxTailwindStyles, "input")}
+                            class={inputBase}
                         />
                     </label>
-                    <label
-                        class={twClasses(
-                            "ai-field ai-provider-endpoint",
-                            jsxTailwindStyles,
-                            "label",
-                        )}
-                    >
-                        <span class={twClasses("", jsxTailwindStyles, "span")}>Endpoint</span>
+                    <label class={cn("ai-field ai-provider-endpoint", labelBase, "sm:col-span-2")}>
+                        <span>Endpoint</span>
                         <input
                             aria-label="Provider endpoint"
                             type="url"
@@ -983,13 +1025,18 @@ export function AiPage(props: AiPageProps): JSX.Element {
                                 setSendConfirmed(false);
                                 props.onClearExecution();
                             }}
-                            class={twClasses("", jsxTailwindStyles, "input")}
+                            class={inputBase}
                         />
                     </label>
                 </div>
-                <div class={twClasses("ai-review-actions", jsxTailwindStyles, "div")}>
+                <div
+                    class={cn(
+                        "ai-review-actions",
+                        "mt-[18px] flex flex-col-reverse gap-2.5 sm:flex-row sm:justify-end",
+                    )}
+                >
                     <button
-                        class={twClasses("button button-outline", jsxTailwindStyles, "button")}
+                        class={cn("button button-outline", buttonOutline)}
                         type="button"
                         disabled={props.disabled || props.busy || connectionTesting()}
                         onClick={() => void checkProviderConnection()}
@@ -998,7 +1045,7 @@ export function AiPage(props: AiPageProps): JSX.Element {
                     </button>
                     <Show when={currentProvider().id === "ollama"}>
                         <button
-                            class={twClasses("button button-outline", jsxTailwindStyles, "button")}
+                            class={cn("button button-outline", buttonOutline)}
                             type="button"
                             disabled={props.disabled || props.busy || ollamaListing()}
                             onClick={() => void listInstalledOllamaModels()}
@@ -1008,29 +1055,33 @@ export function AiPage(props: AiPageProps): JSX.Element {
                                 : "List installed Ollama models"}
                         </button>
                     </Show>
-                    <span aria-live="polite" class={twClasses("", jsxTailwindStyles, "span")}>
+                    <span aria-live="polite" class={cn(helperText, "self-center")}>
                         {connectionTest()
                             ? connectionTest()!.detail
                             : "Connection checks send no archive data and do not read saved API keys."}
                     </span>
                 </div>
                 <Show when={ollamaModels().length > 0}>
-                    <div class={twClasses("ai-model-catalog-results", jsxTailwindStyles, "div")}>
-                        <div class={twClasses("ai-model-catalog-count", jsxTailwindStyles, "div")}>
+                    <div class={cn("ai-model-catalog-results", "grid gap-2")}>
+                        <div
+                            class={cn("ai-model-catalog-count", "text-xs tabular-nums text-faint")}
+                        >
                             Installed Ollama models · choose one to fill the model ID
                         </div>
                         <div
-                            class={twClasses("ai-model-catalog-list", jsxTailwindStyles, "div")}
+                            class={cn(
+                                "ai-model-catalog-list",
+                                "grid max-h-[380px] gap-1.5 overflow-auto overscroll-contain p-0.5",
+                            )}
                             role="listbox"
                             aria-label="Installed Ollama models"
                         >
                             <For each={ollamaModels()}>
                                 {(model) => (
                                     <button
-                                        class={twClasses(
+                                        class={cn(
                                             "ai-model-catalog-option",
-                                            jsxTailwindStyles,
-                                            "button",
+                                            "grid w-full gap-2 rounded-[5px] border border-line bg-surface px-3 py-[11px] text-left text-ink-soft transition-colors hover:border-accent/50 hover:bg-accent-soft/40 aria-selected:border-accent/50 aria-selected:bg-accent-soft/40 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent",
                                         )}
                                         type="button"
                                         role="option"
@@ -1045,46 +1096,34 @@ export function AiPage(props: AiPageProps): JSX.Element {
                                         }}
                                     >
                                         <span
-                                            class={twClasses(
+                                            class={cn(
                                                 "ai-model-catalog-option-heading",
-                                                jsxTailwindStyles,
-                                                "span",
+                                                "flex min-w-0 flex-wrap items-start justify-between gap-3",
                                             )}
                                         >
                                             <strong
-                                                class={twClasses("", jsxTailwindStyles, "strong")}
+                                                class={"break-words text-xs font-semibold text-ink"}
                                             >
                                                 {model.name}
                                             </strong>
-                                            <span class={twClasses("", jsxTailwindStyles, "span")}>
+                                            <span class={"shrink-0 text-xs text-muted"}>
                                                 {model.family || "unknown family"}
                                             </span>
                                         </span>
                                         <span
-                                            class={twClasses(
+                                            class={cn(
                                                 "ai-model-catalog-tags",
-                                                jsxTailwindStyles,
-                                                "span",
+                                                "flex flex-wrap gap-1.5",
                                             )}
                                         >
                                             <Show when={model.parameterSize}>
-                                                <span
-                                                    class={twClasses("", jsxTailwindStyles, "span")}
-                                                >
-                                                    {model.parameterSize}
-                                                </span>
+                                                <span class={chip}>{model.parameterSize}</span>
                                             </Show>
                                             <Show when={model.quantization}>
-                                                <span
-                                                    class={twClasses("", jsxTailwindStyles, "span")}
-                                                >
-                                                    {model.quantization}
-                                                </span>
+                                                <span class={chip}>{model.quantization}</span>
                                             </Show>
                                             <Show when={model.sizeBytes !== null}>
-                                                <span
-                                                    class={twClasses("", jsxTailwindStyles, "span")}
-                                                >
+                                                <span class={chip}>
                                                     {formatBytes(model.sizeBytes!)}
                                                 </span>
                                             </Show>
@@ -1096,23 +1135,30 @@ export function AiPage(props: AiPageProps): JSX.Element {
                     </div>
                 </Show>
                 <section
-                    class={twClasses("ai-model-catalog", jsxTailwindStyles, "section")}
+                    class={cn(
+                        "ai-model-catalog",
+                        "mt-[17px] grid gap-2.5 rounded-[5px] border border-line-soft bg-surface-subtle p-[15px]",
+                    )}
                     aria-labelledby="ai-model-catalog-title"
                 >
-                    <div class={twClasses("ai-model-catalog-heading", jsxTailwindStyles, "div")}>
-                        <div class={twClasses("", jsxTailwindStyles, "div")}>
-                            <span class={twClasses("eyebrow", jsxTailwindStyles, "span")}>
-                                Optional · public metadata only
-                            </span>
-                            <h3
-                                id="ai-model-catalog-title"
-                                class={twClasses("", jsxTailwindStyles, "h3")}
-                            >
+                    <div
+                        class={cn(
+                            "ai-model-catalog-heading",
+                            "flex flex-wrap items-center justify-between gap-3 max-[520px]:flex-col max-[520px]:items-start",
+                        )}
+                    >
+                        <div>
+                            <span class={eyebrow}>Optional · public metadata only</span>
+                            <h3 id="ai-model-catalog-title" class={cn(heading3, "mt-1")}>
                                 Model catalog
                             </h3>
                         </div>
                         <button
-                            class={twClasses("button button-outline", jsxTailwindStyles, "button")}
+                            class={cn(
+                                "button button-outline",
+                                buttonOutline,
+                                "min-h-[34px] text-xs max-[520px]:w-full",
+                            )}
                             type="button"
                             aria-expanded={catalogVisible()}
                             aria-controls="ai-model-catalog-browser"
@@ -1136,7 +1182,7 @@ export function AiPage(props: AiPageProps): JSX.Element {
                                   : "Catalog unavailable"}
                         </button>
                     </div>
-                    <p class={twClasses("ai-model-catalog-intro", jsxTailwindStyles, "p")}>
+                    <p class={cn("ai-model-catalog-intro", helperText)}>
                         Browse public model metadata from models.dev. This sends only a fixed
                         catalog request: no archive data, session text, endpoint, or API key. You
                         can always enter a model ID above.
@@ -1144,25 +1190,19 @@ export function AiPage(props: AiPageProps): JSX.Element {
                     <Show when={catalogVisible()}>
                         <div
                             id="ai-model-catalog-browser"
-                            class={twClasses("ai-model-catalog-browser", jsxTailwindStyles, "div")}
+                            class={cn(
+                                "ai-model-catalog-browser",
+                                "grid gap-[11px] border-t border-line-soft pt-3",
+                            )}
                         >
                             <div
-                                class={twClasses(
+                                class={cn(
                                     "ai-model-catalog-tools",
-                                    jsxTailwindStyles,
-                                    "div",
+                                    "grid grid-cols-1 items-end gap-2.5 min-[521px]:grid-cols-2 min-[761px]:grid-cols-[minmax(0,1fr)_170px_auto]",
                                 )}
                             >
-                                <label
-                                    class={twClasses(
-                                        "ai-field ai-model-catalog-search",
-                                        jsxTailwindStyles,
-                                        "label",
-                                    )}
-                                >
-                                    <span class={twClasses("", jsxTailwindStyles, "span")}>
-                                        Filter models
-                                    </span>
+                                <label class={cn("ai-field ai-model-catalog-search", labelBase)}>
+                                    <span>Filter models</span>
                                     <input
                                         type="search"
                                         value={catalogQuery()}
@@ -1171,19 +1211,11 @@ export function AiPage(props: AiPageProps): JSX.Element {
                                             setCatalogQuery(event.currentTarget.value)
                                         }
                                         disabled={catalogLoading() || catalogModels().length === 0}
-                                        class={twClasses("", jsxTailwindStyles, "input")}
+                                        class={inputBase}
                                     />
                                 </label>
-                                <label
-                                    class={twClasses(
-                                        "ai-field ai-model-catalog-filter",
-                                        jsxTailwindStyles,
-                                        "label",
-                                    )}
-                                >
-                                    <span class={twClasses("", jsxTailwindStyles, "span")}>
-                                        Capability
-                                    </span>
+                                <label class={cn("ai-field ai-model-catalog-filter", labelBase)}>
+                                    <span>Capability</span>
                                     <select
                                         value={catalogCapability()}
                                         disabled={catalogLoading() || catalogModels().length === 0}
@@ -1195,7 +1227,7 @@ export function AiPage(props: AiPageProps): JSX.Element {
                                                     | "tools",
                                             )
                                         }
-                                        class={twClasses("", jsxTailwindStyles, "select")}
+                                        class={selectBase}
                                     >
                                         <option value="all">All listed models</option>
                                         <option value="vision">Image or video input</option>
@@ -1203,10 +1235,10 @@ export function AiPage(props: AiPageProps): JSX.Element {
                                     </select>
                                 </label>
                                 <button
-                                    class={twClasses(
+                                    class={cn(
                                         "button button-quiet ai-model-catalog-refresh",
-                                        jsxTailwindStyles,
-                                        "button",
+                                        buttonQuiet,
+                                        "min-h-[37px] text-xs",
                                     )}
                                     type="button"
                                     disabled={
@@ -1218,56 +1250,34 @@ export function AiPage(props: AiPageProps): JSX.Element {
                                 </button>
                             </div>
                             <Show when={catalogLoading()}>
-                                <p
-                                    class={twClasses(
-                                        "ai-model-catalog-status",
-                                        jsxTailwindStyles,
-                                        "p",
-                                    )}
-                                    role="status"
-                                >
+                                <p class={cn("ai-model-catalog-status", helperText)} role="status">
                                     Loading public model metadata…
                                 </p>
                             </Show>
                             <Show when={catalogMessage()}>
-                                <p
-                                    class={twClasses(
-                                        "ai-model-catalog-status",
-                                        jsxTailwindStyles,
-                                        "p",
-                                    )}
-                                    role="status"
-                                >
+                                <p class={cn("ai-model-catalog-status", helperText)} role="status">
                                     {catalogMessage()}
                                 </p>
                             </Show>
                             <Show when={catalogModels().length > 0}>
-                                <div
-                                    class={twClasses(
-                                        "ai-model-catalog-results",
-                                        jsxTailwindStyles,
-                                        "div",
-                                    )}
-                                >
+                                <div class={cn("ai-model-catalog-results", "grid gap-2")}>
                                     <div
-                                        class={twClasses(
+                                        class={cn(
                                             "ai-model-catalog-count",
-                                            jsxTailwindStyles,
-                                            "div",
+                                            "text-xs tabular-nums text-faint",
                                         )}
                                         aria-live="polite"
                                     >
-                                        Showing {visibleCatalogModels().length.toLocaleString()} of{" "}
-                                        {catalogModels().length.toLocaleString()} listed models
+                                        Showing {visibleCatalogModels().length.toLocaleString("en-US")} of{" "}
+                                        {catalogModels().length.toLocaleString("en-US")} listed models
                                         {visibleCatalogModels().length === 100
                                             ? " · refine the search to see more"
                                             : ""}
                                     </div>
                                     <div
-                                        class={twClasses(
+                                        class={cn(
                                             "ai-model-catalog-list",
-                                            jsxTailwindStyles,
-                                            "div",
+                                            "grid max-h-[380px] gap-1.5 overflow-auto overscroll-contain p-0.5",
                                         )}
                                         role="listbox"
                                         aria-label="Public provider models"
@@ -1275,10 +1285,9 @@ export function AiPage(props: AiPageProps): JSX.Element {
                                         <For each={visibleCatalogModels()}>
                                             {(model) => (
                                                 <button
-                                                    class={twClasses(
+                                                    class={cn(
                                                         "ai-model-catalog-option",
-                                                        jsxTailwindStyles,
-                                                        "button",
+                                                        "grid w-full gap-2 rounded-[5px] border border-line bg-surface px-3 py-[11px] text-left text-ink-soft transition-colors hover:border-accent/50 hover:bg-accent-soft/40 aria-selected:border-accent/50 aria-selected:bg-accent-soft/40 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent",
                                                     )}
                                                     type="button"
                                                     role="option"
@@ -1286,71 +1295,41 @@ export function AiPage(props: AiPageProps): JSX.Element {
                                                     onClick={() => chooseCatalogModel(model)}
                                                 >
                                                     <span
-                                                        class={twClasses(
+                                                        class={cn(
                                                             "ai-model-catalog-option-heading",
-                                                            jsxTailwindStyles,
-                                                            "span",
+                                                            "flex min-w-0 flex-wrap items-start justify-between gap-3",
                                                         )}
                                                     >
                                                         <strong
-                                                            class={twClasses(
-                                                                "",
-                                                                jsxTailwindStyles,
-                                                                "strong",
-                                                            )}
+                                                            class={
+                                                                "break-words text-xs font-semibold text-ink"
+                                                            }
                                                         >
                                                             {model.id}
                                                         </strong>
-                                                        <span
-                                                            class={twClasses(
-                                                                "",
-                                                                jsxTailwindStyles,
-                                                                "span",
-                                                            )}
-                                                        >
+                                                        <span class={"shrink-0 text-xs text-muted"}>
                                                             {model.owner}
                                                         </span>
                                                     </span>
                                                     <span
-                                                        class={twClasses(
+                                                        class={cn(
                                                             "ai-model-catalog-tags",
-                                                            jsxTailwindStyles,
-                                                            "span",
+                                                            "flex flex-wrap gap-1.5",
                                                         )}
                                                     >
-                                                        <span
-                                                            class={twClasses(
-                                                                "",
-                                                                jsxTailwindStyles,
-                                                                "span",
-                                                            )}
-                                                        >
-                                                            {model.status}
-                                                        </span>
+                                                        <span class={chip}>{model.status}</span>
                                                         <Show when={model.contextWindow}>
                                                             {(tokens) => (
-                                                                <span
-                                                                    class={twClasses(
-                                                                        "",
-                                                                        jsxTailwindStyles,
-                                                                        "span",
-                                                                    )}
-                                                                >
-                                                                    {tokens().toLocaleString()}{" "}
+                                                                <span class={chip}>
+                                                                    {tokens().toLocaleString("en-US")}{" "}
                                                                     context
                                                                 </span>
                                                             )}
                                                         </Show>
                                                         <Show when={model.maximumOutputTokens}>
                                                             {(tokens) => (
-                                                                <span
-                                                                    class={twClasses(
-                                                                        "",
-                                                                        jsxTailwindStyles,
-                                                                        "span",
-                                                                    )}
-                                                                >
-                                                                    {tokens().toLocaleString()} max
+                                                                <span class={chip}>
+                                                                    {tokens().toLocaleString("en-US")} max
                                                                     output
                                                                 </span>
                                                             )}
@@ -1358,13 +1337,7 @@ export function AiPage(props: AiPageProps): JSX.Element {
                                                         <Show
                                                             when={model.inputModalities.length > 0}
                                                         >
-                                                            <span
-                                                                class={twClasses(
-                                                                    "",
-                                                                    jsxTailwindStyles,
-                                                                    "span",
-                                                                )}
-                                                            >
+                                                            <span class={chip}>
                                                                 in:{" "}
                                                                 {model.inputModalities.join(", ")}
                                                             </span>
@@ -1372,27 +1345,13 @@ export function AiPage(props: AiPageProps): JSX.Element {
                                                         <Show
                                                             when={model.outputModalities.length > 0}
                                                         >
-                                                            <span
-                                                                class={twClasses(
-                                                                    "",
-                                                                    jsxTailwindStyles,
-                                                                    "span",
-                                                                )}
-                                                            >
+                                                            <span class={chip}>
                                                                 out:{" "}
                                                                 {model.outputModalities.join(", ")}
                                                             </span>
                                                         </Show>
                                                         <Show when={model.toolSupport === true}>
-                                                            <span
-                                                                class={twClasses(
-                                                                    "",
-                                                                    jsxTailwindStyles,
-                                                                    "span",
-                                                                )}
-                                                            >
-                                                                tool calling
-                                                            </span>
+                                                            <span class={chip}>tool calling</span>
                                                         </Show>
                                                         <Show
                                                             when={
@@ -1400,13 +1359,7 @@ export function AiPage(props: AiPageProps): JSX.Element {
                                                                 model.outputCost !== null
                                                             }
                                                         >
-                                                            <span
-                                                                class={twClasses(
-                                                                    "",
-                                                                    jsxTailwindStyles,
-                                                                    "span",
-                                                                )}
-                                                            >
+                                                            <span class={chip}>
                                                                 Catalog pricing values · in{" "}
                                                                 {formatCatalogPrice(
                                                                     model.inputCost,
@@ -1419,10 +1372,9 @@ export function AiPage(props: AiPageProps): JSX.Element {
                                                         </Show>
                                                     </span>
                                                     <span
-                                                        class={twClasses(
+                                                        class={cn(
                                                             "ai-model-catalog-source",
-                                                            jsxTailwindStyles,
-                                                            "span",
+                                                            "text-xs text-faint",
                                                         )}
                                                     >
                                                         Metadata by models.dev · availability is not
@@ -1433,13 +1385,7 @@ export function AiPage(props: AiPageProps): JSX.Element {
                                         </For>
                                     </div>
                                     <Show when={visibleCatalogModels().length === 0}>
-                                        <p
-                                            class={twClasses(
-                                                "ai-model-catalog-empty",
-                                                jsxTailwindStyles,
-                                                "p",
-                                            )}
-                                        >
+                                        <p class={cn("ai-model-catalog-empty", helperText)}>
                                             No models match these filters. Try a broader search.
                                         </p>
                                     </Show>
@@ -1448,11 +1394,14 @@ export function AiPage(props: AiPageProps): JSX.Element {
                         </div>
                     </Show>
                 </section>
-                <div class={twClasses("ai-provider-protocol", jsxTailwindStyles, "div")}>
-                    <span class={twClasses("", jsxTailwindStyles, "span")}>
-                        {currentProvider().protocol}
-                    </span>
-                    <span class={twClasses("", jsxTailwindStyles, "span")}>
+                <div
+                    class={cn(
+                        "ai-provider-protocol",
+                        "mt-3 flex flex-wrap justify-between gap-3 text-xs text-faint max-[520px]:flex-col max-[520px]:items-start",
+                    )}
+                >
+                    <span>{currentProvider().protocol}</span>
+                    <span>
                         {isEmbeddedGgufProvider(currentProvider().id)
                             ? "On-device only"
                             : currentProvider().local
@@ -1461,12 +1410,15 @@ export function AiPage(props: AiPageProps): JSX.Element {
                     </span>
                 </div>
                 <Show when={!currentProvider().local}>
-                    <div class={twClasses("ai-credential-box", jsxTailwindStyles, "div")}>
-                        <div class={twClasses("ai-credential-copy", jsxTailwindStyles, "div")}>
-                            <strong class={twClasses("", jsxTailwindStyles, "strong")}>
-                                API key
-                            </strong>
-                            <span class={twClasses("", jsxTailwindStyles, "span")}>
+                    <div
+                        class={cn(
+                            "ai-credential-box",
+                            "mt-[17px] flex flex-col gap-[18px] rounded-[5px] border border-line-soft bg-surface-subtle p-[15px] sm:flex-row sm:items-start sm:justify-between",
+                        )}
+                    >
+                        <div class={cn("ai-credential-copy", "grid gap-1.5 sm:basis-[260px]")}>
+                            <strong class={"text-xs font-semibold text-ink-soft"}>API key</strong>
+                            <span class={"text-xs leading-relaxed text-muted"}>
                                 {credentialSaved()
                                     ? credentialStorage() === "system-keychain"
                                         ? "A key is saved in this device’s operating-system credential store. Its value is never shown here."
@@ -1479,17 +1431,20 @@ export function AiPage(props: AiPageProps): JSX.Element {
                             </span>
                         </div>
                         <fieldset
-                            class={twClasses(
+                            class={cn(
                                 "ai-credential-storage",
-                                jsxTailwindStyles,
-                                "fieldset",
+                                "grid gap-2 border-0 p-0 sm:min-w-[190px] sm:basis-[220px] max-[520px]:w-full",
                             )}
                         >
-                            <legend class={twClasses("", jsxTailwindStyles, "legend")}>
+                            <legend class={"text-xs font-semibold text-faint"}>
                                 Store this key in
                             </legend>
                             <Show when={props.systemCredentialStoreAvailable}>
-                                <label class={twClasses("", jsxTailwindStyles, "label")}>
+                                <label
+                                    class={
+                                        "flex items-start gap-2 text-xs leading-snug text-ink-soft"
+                                    }
+                                >
                                     <input
                                         type="radio"
                                         name="ai-credential-storage"
@@ -1497,17 +1452,19 @@ export function AiPage(props: AiPageProps): JSX.Element {
                                         checked={credentialStorage() === "system-keychain"}
                                         disabled={props.disabled || props.busy}
                                         onChange={() => chooseCredentialStorage("system-keychain")}
-                                        class={twClasses("", jsxTailwindStyles, "input")}
+                                        class={"mt-0.5 accent-accent"}
                                     />
-                                    <span class={twClasses("", jsxTailwindStyles, "span")}>
+                                    <span>
                                         System credential store{" "}
-                                        <small class={twClasses("", jsxTailwindStyles, "small")}>
+                                        <small class={"block text-xs text-muted"}>
                                             This device · recommended
                                         </small>
                                     </span>
                                 </label>
                             </Show>
-                            <label class={twClasses("", jsxTailwindStyles, "label")}>
+                            <label
+                                class={"flex items-start gap-2 text-xs leading-snug text-ink-soft"}
+                            >
                                 <input
                                     type="radio"
                                     name="ai-credential-storage"
@@ -1515,11 +1472,11 @@ export function AiPage(props: AiPageProps): JSX.Element {
                                     checked={credentialStorage() === "encrypted-archive"}
                                     disabled={props.disabled || props.busy || !props.encrypted}
                                     onChange={() => chooseCredentialStorage("encrypted-archive")}
-                                    class={twClasses("", jsxTailwindStyles, "input")}
+                                    class={"mt-0.5 accent-accent"}
                                 />
-                                <span class={twClasses("", jsxTailwindStyles, "span")}>
+                                <span>
                                     Encrypted archive{" "}
-                                    <small class={twClasses("", jsxTailwindStyles, "small")}>
+                                    <small class={"block text-xs text-muted"}>
                                         Portable with this archive
                                     </small>
                                 </span>
@@ -1529,10 +1486,9 @@ export function AiPage(props: AiPageProps): JSX.Element {
                             when={credentialSaved()}
                             fallback={
                                 <div
-                                    class={twClasses(
+                                    class={cn(
                                         "ai-credential-editor",
-                                        jsxTailwindStyles,
-                                        "div",
+                                        "grid w-full gap-2.5 sm:max-w-[430px] sm:basis-[430px]",
                                     )}
                                 >
                                     <input
@@ -1549,13 +1505,12 @@ export function AiPage(props: AiPageProps): JSX.Element {
                                         onInput={(event) =>
                                             setCredentialInput(event.currentTarget.value)
                                         }
-                                        class={twClasses("", jsxTailwindStyles, "input")}
+                                        class={inputBase}
                                     />
                                     <label
-                                        class={twClasses(
+                                        class={cn(
                                             "ai-review-consent ai-credential-consent",
-                                            jsxTailwindStyles,
-                                            "label",
+                                            "flex items-start gap-2.5 text-xs leading-relaxed text-ink-soft",
                                         )}
                                     >
                                         <input
@@ -1567,19 +1522,19 @@ export function AiPage(props: AiPageProps): JSX.Element {
                                             onChange={(event) =>
                                                 setCredentialConfirmed(event.currentTarget.checked)
                                             }
-                                            class={twClasses("", jsxTailwindStyles, "input")}
+                                            class={"mt-2 size-[15px] shrink-0 accent-accent"}
                                         />
-                                        <span class={twClasses("", jsxTailwindStyles, "span")}>
+                                        <span>
                                             {credentialStorage() === "system-keychain"
                                                 ? "I understand this key will be stored in the operating-system credential store for this device."
                                                 : "I understand this key will be stored inside the encrypted archive."}
                                         </span>
                                     </label>
                                     <button
-                                        class={twClasses(
+                                        class={cn(
                                             "button button-outline",
-                                            jsxTailwindStyles,
-                                            "button",
+                                            buttonOutline,
+                                            "justify-self-start text-xs",
                                         )}
                                         type="button"
                                         disabled={
@@ -1598,10 +1553,10 @@ export function AiPage(props: AiPageProps): JSX.Element {
                             }
                         >
                             <button
-                                class={twClasses(
+                                class={cn(
                                     "button button-quiet ai-remove-key",
-                                    jsxTailwindStyles,
-                                    "button",
+                                    buttonQuiet,
+                                    "justify-self-start text-xs max-[520px]:w-full",
                                 )}
                                 type="button"
                                 disabled={props.disabled || props.busy}
@@ -1612,14 +1567,23 @@ export function AiPage(props: AiPageProps): JSX.Element {
                         </Show>
                     </div>
                 </Show>
-                <div class={twClasses("ai-provider-footer", jsxTailwindStyles, "div")}>
-                    <p class={twClasses("", jsxTailwindStyles, "p")}>
+                <div
+                    class={cn(
+                        "ai-provider-footer",
+                        "mt-[18px] flex flex-col gap-5 border-t border-line-soft pt-4 sm:flex-row sm:items-center sm:justify-between",
+                    )}
+                >
+                    <p class={"max-w-[620px] text-xs leading-relaxed text-muted"}>
                         {isEmbeddedGgufProvider(currentProvider().id)
                             ? "The model file remains at its selected location. Tutorux stores a local model reference in this archive; model prompts are evaluated inside the desktop process and are never sent to a service."
                             : `${currentProvider().description}. Endpoint and model settings are archive records; API keys use the selected secure store. System-stored keys are available to Tutorux on this device; encrypted-archive keys move with the archive.`}
                     </p>
                     <button
-                        class={twClasses("button button-primary", jsxTailwindStyles, "button")}
+                        class={cn(
+                            "button button-primary",
+                            buttonPrimary,
+                            "shrink-0 self-start sm:self-auto",
+                        )}
                         type="button"
                         disabled={props.disabled || props.busy}
                         onClick={() => void saveProvider()}
@@ -1628,51 +1592,52 @@ export function AiPage(props: AiPageProps): JSX.Element {
                     </button>
                 </div>
                 <Show when={providerMessage()}>
-                    <p class={twClasses("ai-message", jsxTailwindStyles, "p")} role="status">
+                    <p class={cn("ai-message", helperText, "mt-3.5")} role="status">
                         {providerMessage()}
                     </p>
                 </Show>
                 <Show when={embeddedAvailable}>
                     <section
-                        class={twClasses("ai-embedded-model", jsxTailwindStyles, "section")}
+                        class={cn(
+                            "ai-embedded-model",
+                            "mt-5 grid gap-[13px] rounded-[5px] border border-accent/20 bg-accent-soft/40 p-[18px]",
+                        )}
                         aria-labelledby="ai-embedded-model-title"
                     >
-                        <div class={twClasses("ai-panel-heading", jsxTailwindStyles, "div")}>
-                            <div class={twClasses("", jsxTailwindStyles, "div")}>
-                                <span class={twClasses("eyebrow", jsxTailwindStyles, "span")}>
-                                    On this device · no downloads
-                                </span>
-                                <h3
-                                    id="ai-embedded-model-title"
-                                    class={twClasses("", jsxTailwindStyles, "h3")}
-                                >
+                        <div
+                            class={cn(
+                                "ai-panel-heading",
+                                "flex flex-wrap items-start justify-between gap-[18px]",
+                            )}
+                        >
+                            <div>
+                                <span class={eyebrow}>On this device · no downloads</span>
+                                <h3 id="ai-embedded-model-title" class={cn(heading3, "mt-1")}>
                                     In-process GGUF model
                                 </h3>
                             </div>
                             <span
-                                class={twClasses("ai-provider-status", jsxTailwindStyles, "span")}
+                                class={cn(
+                                    "ai-provider-status",
+                                    "rounded-[5px] border border-line bg-surface-subtle px-2.5 py-1.5 text-xs font-semibold whitespace-nowrap text-muted",
+                                )}
                             >
                                 {embeddedStatus()?.loaded ? "Loaded" : "Not loaded"}
                             </span>
                         </div>
-                        <p class={twClasses("", jsxTailwindStyles, "p")}>
+                        <p class={"max-w-[720px] text-xs leading-relaxed text-muted"}>
                             Choose a GGUF file you already have. Tutorux validates the file and
                             keeps inference inside the app. Model memory uses a conservative
                             estimate with a 64 GiB ceiling.
                         </p>
                         <div
-                            class={twClasses(
+                            class={cn(
                                 "ai-embedded-model-controls",
-                                jsxTailwindStyles,
-                                "div",
+                                "flex flex-wrap items-center gap-3",
                             )}
                         >
                             <button
-                                class={twClasses(
-                                    "button button-outline",
-                                    jsxTailwindStyles,
-                                    "button",
-                                )}
+                                class={cn("button button-outline", buttonOutline)}
                                 type="button"
                                 disabled={props.disabled || props.busy || embeddedBusy()}
                                 onClick={() => void chooseEmbeddedModel()}
@@ -1682,21 +1647,20 @@ export function AiPage(props: AiPageProps): JSX.Element {
                             <Show when={embeddedModel()}>
                                 {(model) => (
                                     <div
-                                        class={twClasses(
+                                        class={cn(
                                             "ai-embedded-model-details",
-                                            jsxTailwindStyles,
-                                            "div",
+                                            "grid gap-1 text-xs text-muted sm:min-w-[280px]",
                                         )}
                                     >
-                                        <strong class={twClasses("", jsxTailwindStyles, "strong")}>
+                                        <strong class={"text-xs font-semibold text-ink-soft"}>
                                             {model().name}
                                         </strong>
-                                        <span class={twClasses("", jsxTailwindStyles, "span")}>
+                                        <span>
                                             {model().architecture} ·{" "}
                                             {formatBytes(model().fileSizeBytes)} ·{" "}
-                                            {model().tensorCount.toLocaleString()} tensors
+                                            {model().tensorCount.toLocaleString("en-US")} tensors
                                         </span>
-                                        <span class={twClasses("", jsxTailwindStyles, "span")}>
+                                        <span>
                                             Estimated memory at 4,096 context tokens:{" "}
                                             {formatBytes(model().estimatedMemoryBytes)}
                                         </span>
@@ -1706,16 +1670,13 @@ export function AiPage(props: AiPageProps): JSX.Element {
                         </div>
                         <Show when={embeddedModel()}>
                             <div
-                                class={twClasses(
+                                class={cn(
                                     "ai-form-grid ai-embedded-limits",
-                                    jsxTailwindStyles,
-                                    "div",
+                                    "grid items-end gap-2.5 min-[761px]:grid-cols-[minmax(150px,1fr)_140px_auto]",
                                 )}
                             >
-                                <label class={twClasses("ai-field", jsxTailwindStyles, "label")}>
-                                    <span class={twClasses("", jsxTailwindStyles, "span")}>
-                                        Context tokens (32–32,768)
-                                    </span>
+                                <label class={cn("ai-field", labelBase)}>
+                                    <span>Context tokens (32–32,768)</span>
                                     <input
                                         type="number"
                                         min="32"
@@ -1726,13 +1687,11 @@ export function AiPage(props: AiPageProps): JSX.Element {
                                         onInput={(event) =>
                                             setEmbeddedContextTokens(event.currentTarget.value)
                                         }
-                                        class={twClasses("", jsxTailwindStyles, "input")}
+                                        class={inputBase}
                                     />
                                 </label>
-                                <label class={twClasses("ai-field", jsxTailwindStyles, "label")}>
-                                    <span class={twClasses("", jsxTailwindStyles, "span")}>
-                                        CPU threads (1–16)
-                                    </span>
+                                <label class={cn("ai-field", labelBase)}>
+                                    <span>CPU threads (1–16)</span>
                                     <input
                                         type="number"
                                         min="1"
@@ -1743,14 +1702,14 @@ export function AiPage(props: AiPageProps): JSX.Element {
                                         onInput={(event) =>
                                             setEmbeddedCpuThreads(event.currentTarget.value)
                                         }
-                                        class={twClasses("", jsxTailwindStyles, "input")}
+                                        class={inputBase}
                                     />
                                 </label>
                                 <button
-                                    class={twClasses(
+                                    class={cn(
                                         "button button-primary",
-                                        jsxTailwindStyles,
-                                        "button",
+                                        buttonPrimary,
+                                        "max-[760px]:w-full",
                                     )}
                                     type="button"
                                     disabled={props.disabled || props.busy || embeddedBusy()}
@@ -1762,25 +1721,20 @@ export function AiPage(props: AiPageProps): JSX.Element {
                         </Show>
                         <Show when={embeddedStatus()?.loaded}>
                             <div
-                                class={twClasses(
+                                class={cn(
                                     "ai-embedded-model-active",
-                                    jsxTailwindStyles,
-                                    "div",
+                                    "flex flex-wrap items-center gap-3",
                                 )}
                             >
-                                <span class={twClasses("", jsxTailwindStyles, "span")}>
+                                <span class={"basis-full text-xs leading-relaxed text-muted"}>
                                     {embeddedStatus()?.name} ·{" "}
-                                    {embeddedStatus()?.contextTokens?.toLocaleString()} context ·{" "}
+                                    {embeddedStatus()?.contextTokens?.toLocaleString("en-US")} context ·{" "}
                                     {embeddedStatus()?.cpuThreads} CPU threads ·{" "}
                                     {formatBytes(embeddedStatus()?.memoryEstimateBytes ?? 0)}{" "}
                                     estimated
                                 </span>
                                 <button
-                                    class={twClasses(
-                                        "button button-outline",
-                                        jsxTailwindStyles,
-                                        "button",
-                                    )}
+                                    class={cn("button button-outline", buttonOutline)}
                                     type="button"
                                     disabled={props.disabled || props.busy || embeddedBusy()}
                                     onClick={() => void useEmbeddedModel()}
@@ -1788,11 +1742,7 @@ export function AiPage(props: AiPageProps): JSX.Element {
                                     Use in reviewed AI requests
                                 </button>
                                 <button
-                                    class={twClasses(
-                                        "button button-quiet",
-                                        jsxTailwindStyles,
-                                        "button",
-                                    )}
+                                    class={cn("button button-quiet", buttonQuiet)}
                                     type="button"
                                     disabled={props.busy || embeddedBusy()}
                                     onClick={() => void unloadSelectedEmbeddedModel()}
@@ -1803,10 +1753,10 @@ export function AiPage(props: AiPageProps): JSX.Element {
                         </Show>
                         <Show when={props.busy && isEmbeddedGgufProvider(currentProvider().id)}>
                             <button
-                                class={twClasses(
+                                class={cn(
                                     "button button-quiet ai-embedded-cancel",
-                                    jsxTailwindStyles,
-                                    "button",
+                                    buttonQuiet,
+                                    "justify-self-start text-danger",
                                 )}
                                 type="button"
                                 onClick={() => void cancelLocalGeneration()}
@@ -1815,10 +1765,7 @@ export function AiPage(props: AiPageProps): JSX.Element {
                             </button>
                         </Show>
                         <Show when={embeddedMessage()}>
-                            <p
-                                class={twClasses("ai-message", jsxTailwindStyles, "p")}
-                                role="status"
-                            >
+                            <p class={cn("ai-message", helperText)} role="status">
                                 {embeddedMessage()}
                             </p>
                         </Show>
@@ -1827,26 +1774,39 @@ export function AiPage(props: AiPageProps): JSX.Element {
             </section>
 
             <section
-                class={twClasses("ai-panel", jsxTailwindStyles, "section")}
+                class={cn("ai-panel", card, "grid gap-4 p-[22px] max-[520px]:p-[17px]")}
                 aria-labelledby="ai-prepare-title"
             >
-                <div class={twClasses("ai-panel-heading", jsxTailwindStyles, "div")}>
-                    <div class={twClasses("", jsxTailwindStyles, "div")}>
-                        <span class={twClasses("eyebrow", jsxTailwindStyles, "span")}>
-                            No API key required
-                        </span>
-                        <h2 id="ai-prepare-title" class={twClasses("", jsxTailwindStyles, "h2")}>
+                <div
+                    class={cn(
+                        "ai-panel-heading",
+                        "flex flex-wrap items-start justify-between gap-[18px]",
+                    )}
+                >
+                    <div>
+                        <span class={eyebrow}>No API key required</span>
+                        <h2 id="ai-prepare-title" class={cn(heading2, "mt-1")}>
                             Prepare a guide package
                         </h2>
                     </div>
-                    <span class={twClasses("ai-step-marker", jsxTailwindStyles, "span")}>
-                        01 <i class={twClasses("", jsxTailwindStyles, "i")} /> 02{" "}
-                        <i class={twClasses("", jsxTailwindStyles, "i")} /> 03
+                    <span
+                        class={cn(
+                            "ai-step-marker",
+                            "flex items-center gap-[7px] pt-1 text-xs tracking-[0.08em] tabular-nums text-faint",
+                        )}
+                    >
+                        01 <i class={"h-px w-3.5 bg-line-strong"} /> 02{" "}
+                        <i class={"h-px w-3.5 bg-line-strong"} /> 03
                     </span>
                 </div>
-                <div class={twClasses("ai-form-grid", jsxTailwindStyles, "div")}>
-                    <label class={twClasses("ai-field", jsxTailwindStyles, "label")}>
-                        <span class={twClasses("", jsxTailwindStyles, "span")}>Session</span>
+                <div
+                    class={cn(
+                        "ai-form-grid",
+                        "mt-6 grid gap-4 min-[761px]:grid-cols-[minmax(0,1.2fr)_minmax(270px,0.8fr)]",
+                    )}
+                >
+                    <label class={cn("ai-field", labelBase)}>
+                        <span>Session</span>
                         <select
                             aria-label="Session to prepare"
                             value={sessionId()}
@@ -1860,7 +1820,7 @@ export function AiPage(props: AiPageProps): JSX.Element {
                                 setRequestPreviewMessage("");
                                 setSendConfirmed(false);
                             }}
-                            class={twClasses("", jsxTailwindStyles, "select")}
+                            class={selectBase}
                         >
                             <option value="">Choose a session…</option>
                             <For each={props.sessions}>
@@ -1877,10 +1837,8 @@ export function AiPage(props: AiPageProps): JSX.Element {
                             </For>
                         </select>
                     </label>
-                    <label class={twClasses("ai-field", jsxTailwindStyles, "label")}>
-                        <span class={twClasses("", jsxTailwindStyles, "span")}>
-                            Guide structure
-                        </span>
+                    <label class={cn("ai-field", labelBase)}>
+                        <span>Guide structure</span>
                         <select
                             value={templateId()}
                             disabled={props.disabled || props.busy}
@@ -1892,7 +1850,7 @@ export function AiPage(props: AiPageProps): JSX.Element {
                                 setRequestPreviewMessage("");
                                 setSendConfirmed(false);
                             }}
-                            class={twClasses("", jsxTailwindStyles, "select")}
+                            class={selectBase}
                         >
                             <option value="auto">
                                 Choose from student preference and session subject
@@ -1904,13 +1862,16 @@ export function AiPage(props: AiPageProps): JSX.Element {
                     </label>
                 </div>
                 <fieldset
-                    class={twClasses("ai-image-picker", jsxTailwindStyles, "fieldset")}
+                    class={cn(
+                        "ai-image-picker",
+                        "mt-[18px] grid gap-2.5 rounded-[5px] border border-line bg-surface-subtle p-3.5",
+                    )}
                     disabled={props.disabled || props.busy || !sessionId()}
                 >
-                    <legend class={twClasses("", jsxTailwindStyles, "legend")}>
+                    <legend class={"px-1 text-xs font-bold text-ink-soft"}>
                         Include session images in a reviewed AI request
                     </legend>
-                    <p class={twClasses("", jsxTailwindStyles, "p")}>
+                    <p class={"text-xs leading-relaxed text-muted"}>
                         Images stay in your archive until you review and authorize a provider
                         request. Select up to {MAX_AI_IMAGE_ATTACHMENT_COUNT} PNG, JPEG, or WebP
                         images, {formatBytes(MAX_AI_IMAGE_ATTACHMENT_BYTES)} total. Image requests
@@ -1919,12 +1880,14 @@ export function AiPage(props: AiPageProps): JSX.Element {
                     <Show
                         when={sessionImages().length > 0}
                         fallback={
-                            <span class={twClasses("ai-image-empty", jsxTailwindStyles, "span")}>
+                            <span
+                                class={cn("ai-image-empty", "text-xs leading-relaxed text-muted")}
+                            >
                                 This session has no eligible image materials.
                             </span>
                         }
                     >
-                        <div class={twClasses("ai-image-options", jsxTailwindStyles, "div")}>
+                        <div class={cn("ai-image-options", "grid gap-2 min-[761px]:grid-cols-2")}>
                             <For each={sessionImages()}>
                                 {(asset) => {
                                     const filename =
@@ -1939,10 +1902,9 @@ export function AiPage(props: AiPageProps): JSX.Element {
                                                 MAX_AI_IMAGE_ATTACHMENT_BYTES);
                                     return (
                                         <label
-                                            class={twClasses(
+                                            class={cn(
                                                 "ai-image-option",
-                                                jsxTailwindStyles,
-                                                "label",
+                                                "flex cursor-pointer items-start gap-2.5 rounded-[5px] border border-line bg-surface p-2.5 text-ink-soft transition-colors has-[:checked]:border-accent/60 has-[:checked]:bg-accent-soft/40 has-[:disabled]:cursor-not-allowed has-[:disabled]:opacity-55",
                                             )}
                                         >
                                             <input
@@ -1960,31 +1922,22 @@ export function AiPage(props: AiPageProps): JSX.Element {
                                                     setRequestPreview(null);
                                                     setSendConfirmed(false);
                                                 }}
-                                                class={twClasses("", jsxTailwindStyles, "input")}
+                                                class={"mt-0.5 shrink-0 accent-accent"}
                                             />
                                             <span
-                                                class={twClasses(
+                                                class={cn(
                                                     "ai-image-option-copy",
-                                                    jsxTailwindStyles,
-                                                    "span",
+                                                    "grid min-w-0 gap-[3px]",
                                                 )}
                                             >
                                                 <strong
-                                                    class={twClasses(
-                                                        "",
-                                                        jsxTailwindStyles,
-                                                        "strong",
-                                                    )}
+                                                    class={
+                                                        "truncate text-xs font-semibold text-ink"
+                                                    }
                                                 >
                                                     {filename}
                                                 </strong>
-                                                <small
-                                                    class={twClasses(
-                                                        "",
-                                                        jsxTailwindStyles,
-                                                        "small",
-                                                    )}
-                                                >
+                                                <small class={"truncate text-xs text-muted"}>
                                                     {formatBytes(size)} ·{" "}
                                                     {asset.fields.get("mime_type")}
                                                 </small>
@@ -1996,31 +1949,37 @@ export function AiPage(props: AiPageProps): JSX.Element {
                         </div>
                     </Show>
                     <span
-                        class={twClasses("ai-image-selection-count", jsxTailwindStyles, "span")}
+                        class={cn(
+                            "ai-image-selection-count",
+                            "justify-self-end text-xs tabular-nums text-muted",
+                        )}
                         aria-live="polite"
                     >
                         {selectedImages().length} selected · {formatBytes(selectedImageBytes())}
                     </span>
                 </fieldset>
-                <div class={twClasses("ai-form-footer", jsxTailwindStyles, "div")}>
-                    <p class={twClasses("", jsxTailwindStyles, "p")}>
+                <div
+                    class={cn(
+                        "ai-form-footer",
+                        "mt-5 flex flex-col gap-5 border-t border-line-soft pt-4 sm:flex-row sm:items-center sm:justify-between",
+                    )}
+                >
+                    <p class={"text-xs leading-relaxed text-muted"}>
                         Session source text is treated as untrusted content in the package
                         instructions.
                     </p>
                     <button
-                        class={twClasses("button button-primary", jsxTailwindStyles, "button")}
+                        class={cn("button button-primary", buttonPrimary, "max-[520px]:w-full")}
                         type="button"
                         disabled={props.disabled || props.busy || !sessionId()}
                         onClick={() => void prepare()}
                     >
                         {props.busy ? "Preparing…" : "Prepare for review"}
-                        <span aria-hidden="true" class={twClasses("", jsxTailwindStyles, "span")}>
-                            →
-                        </span>
+                        <span aria-hidden="true">→</span>
                     </button>
                 </div>
                 <Show when={message()}>
-                    <p class={twClasses("ai-message", jsxTailwindStyles, "p")} role="status">
+                    <p class={cn("ai-message", helperText, "mt-3.5")} role="status">
                         {message()}
                     </p>
                 </Show>
@@ -2029,26 +1988,39 @@ export function AiPage(props: AiPageProps): JSX.Element {
             <Show when={review()}>
                 {(summary) => (
                     <section
-                        class={twClasses("ai-review-card", jsxTailwindStyles, "section")}
+                        class={cn(
+                            "ai-review-card",
+                            "grid min-w-0 gap-4 rounded-[5px] border border-accent/30 bg-surface p-[22px] max-[520px]:p-[17px]",
+                        )}
                         aria-labelledby="ai-review-title"
                     >
-                        <div class={twClasses("ai-review-heading", jsxTailwindStyles, "div")}>
-                            <div class={twClasses("", jsxTailwindStyles, "div")}>
-                                <span class={twClasses("eyebrow", jsxTailwindStyles, "span")}>
-                                    Package ready for your review
-                                </span>
-                                <h2
-                                    id="ai-review-title"
-                                    class={twClasses("", jsxTailwindStyles, "h2")}
-                                >
+                        <div
+                            class={cn(
+                                "ai-review-heading",
+                                "flex flex-wrap items-start justify-between gap-[18px]",
+                            )}
+                        >
+                            <div>
+                                <span class={eyebrow}>Package ready for your review</span>
+                                <h2 id="ai-review-title" class={cn(heading2, "mt-1")}>
                                     {summary().guideTemplateName}
                                 </h2>
                             </div>
-                            <span class={twClasses("ai-hash-label", jsxTailwindStyles, "span")}>
+                            <span
+                                class={cn(
+                                    "ai-hash-label",
+                                    "max-w-[240px] truncate text-xs text-muted max-[520px]:max-w-[126px]",
+                                )}
+                            >
                                 SHA-256 · {summary().contentHash.slice(0, 16)}…
                             </span>
                         </div>
-                        <div class={twClasses("ai-review-stats", jsxTailwindStyles, "div")}>
+                        <div
+                            class={cn(
+                                "ai-review-stats",
+                                "my-[21px] grid grid-cols-2 gap-px overflow-hidden rounded-[5px] border border-line bg-line min-[761px]:grid-cols-6",
+                            )}
+                        >
                             <ReviewStat label="Transcript cues" value={summary().transcriptCount} />
                             <ReviewStat label="Observations" value={summary().annotationCount} />
                             <ReviewStat label="Evidence items" value={summary().evidenceCount} />
@@ -2063,12 +2035,14 @@ export function AiPage(props: AiPageProps): JSX.Element {
                             />
                         </div>
                         <details
-                            class={twClasses("ai-json-disclosure", jsxTailwindStyles, "details")}
+                            class={cn("ai-json-disclosure", "border-y border-line-soft")}
                             onToggle={(event) =>
                                 setShowJson((event.currentTarget as HTMLDetailsElement).open)
                             }
                         >
-                            <summary class={twClasses("", jsxTailwindStyles, "summary")}>
+                            <summary
+                                class={"cursor-pointer py-3 text-xs font-semibold text-ink-soft"}
+                            >
                                 Inspect the complete package JSON
                             </summary>
                             <Show when={showJson()}>
@@ -2076,18 +2050,21 @@ export function AiPage(props: AiPageProps): JSX.Element {
                                     aria-label="Complete AI package JSON"
                                     readOnly
                                     value={aiPackageText(summary().job)}
-                                    class={twClasses("", jsxTailwindStyles, "textarea")}
+                                    class={cn(textareaBase, "max-h-[440px] font-sans")}
                                 />
                             </Show>
                         </details>
                         <div
-                            class={twClasses("ai-request-review-callout", jsxTailwindStyles, "div")}
+                            class={cn(
+                                "ai-request-review-callout",
+                                "mt-[15px] flex flex-col gap-[18px] rounded-[5px] border border-line-soft bg-surface-subtle px-[15px] py-3.5 sm:flex-row sm:items-center sm:justify-between",
+                            )}
                         >
-                            <div class={twClasses("", jsxTailwindStyles, "div")}>
-                                <strong class={twClasses("", jsxTailwindStyles, "strong")}>
+                            <div>
+                                <strong class={"text-xs font-semibold text-ink-soft"}>
                                     Provider request review
                                 </strong>
-                                <p class={twClasses("", jsxTailwindStyles, "p")}>
+                                <p class={"mt-1 max-w-[580px] text-xs leading-relaxed text-muted"}>
                                     Build the exact request for the saved provider, including
                                     selected image payloads when present. For Replicate, schema
                                     inspection sends only the saved model ID and API key to
@@ -2097,10 +2074,10 @@ export function AiPage(props: AiPageProps): JSX.Element {
                                 </p>
                             </div>
                             <button
-                                class={twClasses(
+                                class={cn(
                                     "button button-outline",
-                                    jsxTailwindStyles,
-                                    "button",
+                                    buttonOutline,
+                                    "shrink-0 self-start text-xs sm:self-auto",
                                 )}
                                 type="button"
                                 disabled={
@@ -2123,99 +2100,114 @@ export function AiPage(props: AiPageProps): JSX.Element {
                         <Show when={requestPreview()}>
                             {(preview) => (
                                 <section
-                                    class={twClasses(
+                                    class={cn(
                                         "ai-request-preview",
-                                        jsxTailwindStyles,
-                                        "section",
+                                        "mt-[13px] grid gap-4 rounded-[5px] border border-accent/30 bg-accent-soft/30 p-[17px]",
                                     )}
                                     aria-labelledby="ai-request-preview-title"
                                 >
                                     <div
-                                        class={twClasses(
+                                        class={cn(
                                             "ai-request-preview-heading",
-                                            jsxTailwindStyles,
-                                            "div",
+                                            "flex flex-wrap items-start justify-between gap-3.5",
                                         )}
                                     >
-                                        <div class={twClasses("", jsxTailwindStyles, "div")}>
-                                            <span
-                                                class={twClasses(
-                                                    "eyebrow",
-                                                    jsxTailwindStyles,
-                                                    "span",
-                                                )}
-                                            >
+                                        <div>
+                                            <span class={eyebrow}>
                                                 {preview().providerId === "replicate"
                                                     ? "SCHEMA CHECK COMPLETE · PREDICTION NOT SENT"
                                                     : "NO REQUEST SENT"}
                                             </span>
                                             <h3
                                                 id="ai-request-preview-title"
-                                                class={twClasses("", jsxTailwindStyles, "h3")}
+                                                class={cn(heading3, "mt-1")}
                                             >
                                                 Request ready for review
                                             </h3>
                                         </div>
                                         <span
-                                            class={twClasses(
+                                            class={cn(
                                                 "ai-request-protocol",
-                                                jsxTailwindStyles,
-                                                "span",
+                                                "rounded-[5px] border border-line bg-surface px-2 py-1 text-xs whitespace-nowrap text-muted",
                                             )}
                                         >
                                             {preview().providerName}
                                         </span>
                                     </div>
                                     <dl
-                                        class={twClasses(
+                                        class={cn(
                                             "ai-request-facts",
-                                            jsxTailwindStyles,
-                                            "dl",
+                                            "m-0 mt-4 grid gap-3 sm:grid-cols-[minmax(0,1.3fr)_minmax(160px,0.7fr)]",
                                         )}
                                     >
-                                        <div class={twClasses("", jsxTailwindStyles, "div")}>
-                                            <dt class={twClasses("", jsxTailwindStyles, "dt")}>
+                                        <div class={"min-w-0"}>
+                                            <dt
+                                                class={"text-xs font-bold tracking-wide text-faint"}
+                                            >
                                                 Method and endpoint
                                             </dt>
-                                            <dd class={twClasses("", jsxTailwindStyles, "dd")}>
+                                            <dd
+                                                class={
+                                                    "mt-1 break-words text-xs leading-normal text-ink-soft"
+                                                }
+                                            >
                                                 {preview().method} {preview().endpoint}
                                             </dd>
                                         </div>
-                                        <div class={twClasses("", jsxTailwindStyles, "div")}>
-                                            <dt class={twClasses("", jsxTailwindStyles, "dt")}>
+                                        <div class={"min-w-0"}>
+                                            <dt
+                                                class={"text-xs font-bold tracking-wide text-faint"}
+                                            >
                                                 Model
                                             </dt>
-                                            <dd class={twClasses("", jsxTailwindStyles, "dd")}>
+                                            <dd
+                                                class={
+                                                    "mt-1 break-words text-xs leading-normal text-ink-soft"
+                                                }
+                                            >
                                                 {preview().model}
                                             </dd>
                                         </div>
-                                        <div class={twClasses("", jsxTailwindStyles, "div")}>
-                                            <dt class={twClasses("", jsxTailwindStyles, "dt")}>
+                                        <div class={"min-w-0"}>
+                                            <dt
+                                                class={"text-xs font-bold tracking-wide text-faint"}
+                                            >
                                                 Authentication
                                             </dt>
-                                            <dd class={twClasses("", jsxTailwindStyles, "dd")}>
+                                            <dd
+                                                class={
+                                                    "mt-1 break-words text-xs leading-normal text-ink-soft"
+                                                }
+                                            >
                                                 {preview().authentication}
                                             </dd>
                                         </div>
-                                        <div class={twClasses("", jsxTailwindStyles, "div")}>
-                                            <dt class={twClasses("", jsxTailwindStyles, "dt")}>
+                                        <div class={"min-w-0"}>
+                                            <dt
+                                                class={"text-xs font-bold tracking-wide text-faint"}
+                                            >
                                                 Exact body SHA-256
                                             </dt>
                                             <dd
-                                                class={twClasses(
+                                                class={cn(
                                                     "ai-request-hash",
-                                                    jsxTailwindStyles,
-                                                    "dd",
+                                                    "mt-1 break-all text-xs leading-normal text-ink-soft",
                                                 )}
                                             >
                                                 {preview().requestBodyHash}
                                             </dd>
                                         </div>
-                                        <div class={twClasses("", jsxTailwindStyles, "div")}>
-                                            <dt class={twClasses("", jsxTailwindStyles, "dt")}>
+                                        <div class={"min-w-0"}>
+                                            <dt
+                                                class={"text-xs font-bold tracking-wide text-faint"}
+                                            >
                                                 Package and request size
                                             </dt>
-                                            <dd class={twClasses("", jsxTailwindStyles, "dd")}>
+                                            <dd
+                                                class={
+                                                    "mt-1 break-words text-xs leading-normal text-ink-soft"
+                                                }
+                                            >
                                                 {formatBytes(preview().packageBytes)} package ·{" "}
                                                 {formatBytes(preview().requestBytes)} request
                                             </dd>
@@ -2228,16 +2220,13 @@ export function AiPage(props: AiPageProps): JSX.Element {
                                         }
                                     >
                                         <div
-                                            class={twClasses(
+                                            class={cn(
                                                 "ai-request-images",
-                                                jsxTailwindStyles,
-                                                "div",
+                                                "mt-[13px] grid gap-2 rounded-[5px] border border-line-soft bg-surface px-3 py-2.5 text-xs",
                                             )}
                                             aria-label="Attached materials"
                                         >
-                                            <strong
-                                                class={twClasses("", jsxTailwindStyles, "strong")}
-                                            >
+                                            <strong class={"text-xs font-semibold text-ink-soft"}>
                                                 Materials included in this request
                                             </strong>
                                             <For
@@ -2248,19 +2237,11 @@ export function AiPage(props: AiPageProps): JSX.Element {
                                             >
                                                 {(attachment) => (
                                                     <div
-                                                        class={twClasses(
-                                                            "",
-                                                            jsxTailwindStyles,
-                                                            "div",
-                                                        )}
+                                                        class={
+                                                            "flex flex-wrap justify-between gap-x-3 gap-y-1 text-muted"
+                                                        }
                                                     >
-                                                        <span
-                                                            class={twClasses(
-                                                                "",
-                                                                jsxTailwindStyles,
-                                                                "span",
-                                                            )}
-                                                        >
+                                                        <span>
                                                             {attachment.filename} ·{" "}
                                                             {formatBytes(attachment.byteSize)}
                                                             {"kind" in attachment
@@ -2268,11 +2249,9 @@ export function AiPage(props: AiPageProps): JSX.Element {
                                                                 : " · image"}
                                                         </span>
                                                         <code
-                                                            class={twClasses(
-                                                                "",
-                                                                jsxTailwindStyles,
-                                                                "code",
-                                                            )}
+                                                            class={
+                                                                "break-all font-sans text-xs text-faint"
+                                                            }
                                                         >
                                                             SHA-256 · {attachment.contentHash}
                                                         </code>
@@ -2282,28 +2261,19 @@ export function AiPage(props: AiPageProps): JSX.Element {
                                         </div>
                                     </Show>
                                     <div
-                                        class={twClasses(
+                                        class={cn(
                                             "ai-request-headers",
-                                            jsxTailwindStyles,
-                                            "div",
+                                            "mt-[15px] grid gap-1.5 rounded-[5px] border border-line-soft bg-surface px-3 py-2.5 text-xs text-muted",
                                         )}
                                         aria-label="Request headers"
                                     >
-                                        <strong class={twClasses("", jsxTailwindStyles, "strong")}>
+                                        <strong class={"text-xs font-semibold text-ink-soft"}>
                                             Headers sent
                                         </strong>
                                         <For each={preview().headers}>
                                             {(header) => (
-                                                <span
-                                                    class={twClasses("", jsxTailwindStyles, "span")}
-                                                >
-                                                    <code
-                                                        class={twClasses(
-                                                            "",
-                                                            jsxTailwindStyles,
-                                                            "code",
-                                                        )}
-                                                    >
+                                                <span>
+                                                    <code class={"font-sans text-ink"}>
                                                         {header.name}
                                                     </code>{" "}
                                                     {header.valueDescription}
@@ -2317,10 +2287,9 @@ export function AiPage(props: AiPageProps): JSX.Element {
                                         }
                                     >
                                         <p
-                                            class={twClasses(
+                                            class={cn(
                                                 "ai-request-key-missing",
-                                                jsxTailwindStyles,
-                                                "p",
+                                                "mt-3 text-xs leading-relaxed text-danger",
                                             )}
                                             role="status"
                                         >
@@ -2336,10 +2305,9 @@ export function AiPage(props: AiPageProps): JSX.Element {
                                         }
                                         fallback={
                                             <p
-                                                class={twClasses(
+                                                class={cn(
                                                     "ai-image-body-note",
-                                                    jsxTailwindStyles,
-                                                    "p",
+                                                    "mt-3 rounded-[5px] border border-line-soft bg-surface px-3 py-2.5 text-xs leading-relaxed text-muted",
                                                 )}
                                             >
                                                 The exact request body hash covers the package text
@@ -2349,14 +2317,15 @@ export function AiPage(props: AiPageProps): JSX.Element {
                                         }
                                     >
                                         <details
-                                            class={twClasses(
+                                            class={cn(
                                                 "ai-json-disclosure ai-request-body-disclosure",
-                                                jsxTailwindStyles,
-                                                "details",
+                                                "mt-3 border-y border-line-soft",
                                             )}
                                         >
                                             <summary
-                                                class={twClasses("", jsxTailwindStyles, "summary")}
+                                                class={
+                                                    "cursor-pointer py-3 text-xs font-semibold text-ink-soft"
+                                                }
                                             >
                                                 Inspect the exact provider request JSON
                                             </summary>
@@ -2364,15 +2333,14 @@ export function AiPage(props: AiPageProps): JSX.Element {
                                                 aria-label="Exact provider request body"
                                                 readOnly
                                                 value={preview().requestBody}
-                                                class={twClasses("", jsxTailwindStyles, "textarea")}
+                                                class={cn(textareaBase, "max-h-[440px] font-sans")}
                                             />
                                         </details>
                                     </Show>
                                     <p
-                                        class={twClasses(
+                                        class={cn(
                                             "ai-request-privacy-note",
-                                            jsxTailwindStyles,
-                                            "p",
+                                            "mt-3 text-xs leading-relaxed text-muted",
                                         )}
                                     >
                                         The request body contains the reviewed package text
@@ -2387,10 +2355,9 @@ export function AiPage(props: AiPageProps): JSX.Element {
                                     </p>
                                     <Show when={preview().providerId === "replicate"}>
                                         <p
-                                            class={twClasses(
+                                            class={cn(
                                                 "ai-request-privacy-note",
-                                                jsxTailwindStyles,
-                                                "p",
+                                                "mt-3 text-xs leading-relaxed text-muted",
                                             )}
                                         >
                                             The selected input schema is version{" "}
@@ -2400,14 +2367,13 @@ export function AiPage(props: AiPageProps): JSX.Element {
                                                 ? " Tutorux sends the package and system instructions in separate supported fields."
                                                 : " Tutorux combines the system instructions with the package in the prompt."}
                                             {preview().replicateInputSchema?.tokenInput
-                                                ? ` The reviewed request sets ${preview().replicateInputSchema?.tokenInput} to ${preview().maxOutputTokens.toLocaleString()}.`
+                                                ? ` The reviewed request sets ${preview().replicateInputSchema?.tokenInput} to ${preview().maxOutputTokens.toLocaleString("en-US")}.`
                                                 : " This model does not expose a supported output-token limit input."}
                                         </p>
                                         <p
-                                            class={twClasses(
+                                            class={cn(
                                                 "ai-request-privacy-note",
-                                                jsxTailwindStyles,
-                                                "p",
+                                                "mt-3 text-xs leading-relaxed text-muted",
                                             )}
                                         >
                                             Replicate receives one prediction request followed by
@@ -2420,10 +2386,9 @@ export function AiPage(props: AiPageProps): JSX.Element {
                                         </p>
                                     </Show>
                                     <label
-                                        class={twClasses(
+                                        class={cn(
                                             "ai-review-consent ai-send-consent",
-                                            jsxTailwindStyles,
-                                            "label",
+                                            "mt-4 flex items-start gap-2.5 text-xs leading-relaxed text-ink-soft",
                                         )}
                                     >
                                         <input
@@ -2438,9 +2403,9 @@ export function AiPage(props: AiPageProps): JSX.Element {
                                             onChange={(event) =>
                                                 setSendConfirmed(event.currentTarget.checked)
                                             }
-                                            class={twClasses("", jsxTailwindStyles, "input")}
+                                            class={"mt-0.5 size-[15px] shrink-0 accent-accent"}
                                         />
-                                        <span class={twClasses("", jsxTailwindStyles, "span")}>
+                                        <span>
                                             {preview().providerId === "replicate" ? (
                                                 <>
                                                     I authorize a Replicate prediction request
@@ -2449,13 +2414,7 @@ export function AiPage(props: AiPageProps): JSX.Element {
                                                     it. Tutorux will recheck the model schema before
                                                     sending and stop for a fresh review if it
                                                     changed. The initial request is sent to{" "}
-                                                    <code
-                                                        class={twClasses(
-                                                            "",
-                                                            jsxTailwindStyles,
-                                                            "code",
-                                                        )}
-                                                    >
+                                                    <code class={"break-all text-ink"}>
                                                         {preview().endpoint}
                                                     </code>
                                                     .
@@ -2464,20 +2423,14 @@ export function AiPage(props: AiPageProps): JSX.Element {
                                                 <>
                                                     I authorize one POST containing the reviewed
                                                     package to {preview().providerName} at{" "}
-                                                    <code
-                                                        class={twClasses(
-                                                            "",
-                                                            jsxTailwindStyles,
-                                                            "code",
-                                                        )}
-                                                    >
+                                                    <code class={"break-all text-ink"}>
                                                         {preview().endpoint}
                                                     </code>
                                                     .
                                                 </>
                                             )}{" "}
                                             The exact request body hash is{" "}
-                                            <code class={twClasses("", jsxTailwindStyles, "code")}>
+                                            <code class={"break-all text-ink"}>
                                                 {preview().requestBodyHash}
                                             </code>
                                             . The complete response, including error or partial
@@ -2492,18 +2445,13 @@ export function AiPage(props: AiPageProps): JSX.Element {
                                         </span>
                                     </label>
                                     <div
-                                        class={twClasses(
+                                        class={cn(
                                             "ai-send-actions",
-                                            jsxTailwindStyles,
-                                            "div",
+                                            "mt-3 flex flex-col gap-3 sm:flex-row sm:items-center",
                                         )}
                                     >
                                         <button
-                                            class={twClasses(
-                                                "button button-primary",
-                                                jsxTailwindStyles,
-                                                "button",
-                                            )}
+                                            class={cn("button button-primary", buttonPrimary)}
                                             type="button"
                                             disabled={
                                                 props.disabled ||
@@ -2522,7 +2470,7 @@ export function AiPage(props: AiPageProps): JSX.Element {
                                         </button>
                                         <span
                                             aria-live="polite"
-                                            class={twClasses("", jsxTailwindStyles, "span")}
+                                            class={"text-xs leading-normal text-muted"}
                                         >
                                             {cancelRequested()
                                                 ? "Cancellation requested. Waiting for Replicate to confirm the prediction is stopped…"
@@ -2540,11 +2488,7 @@ export function AiPage(props: AiPageProps): JSX.Element {
                                             }
                                         >
                                             <button
-                                                class={twClasses(
-                                                    "button button-quiet",
-                                                    jsxTailwindStyles,
-                                                    "button",
-                                                )}
+                                                class={cn("button button-quiet", buttonQuiet)}
                                                 type="button"
                                                 disabled={cancelRequested()}
                                                 onClick={() => {
@@ -2571,32 +2515,35 @@ export function AiPage(props: AiPageProps): JSX.Element {
                             )}
                         </Show>
                         <Show when={requestPreviewMessage()}>
-                            <p
-                                class={twClasses("ai-message", jsxTailwindStyles, "p")}
-                                role="status"
-                            >
+                            <p class={cn("ai-message", helperText, "mt-3.5")} role="status">
                                 {requestPreviewMessage()}
                             </p>
                         </Show>
-                        <label class={twClasses("ai-review-consent", jsxTailwindStyles, "label")}>
+                        <label
+                            class={cn(
+                                "ai-review-consent",
+                                "mt-[17px] flex items-start gap-2.5 text-xs leading-relaxed text-ink-soft",
+                            )}
+                        >
                             <input
                                 type="checkbox"
                                 checked={reviewed()}
                                 onChange={(event) => setReviewed(event.currentTarget.checked)}
-                                class={twClasses("", jsxTailwindStyles, "input")}
+                                class={"mt-0.5 size-[15px] shrink-0 accent-accent"}
                             />
-                            <span class={twClasses("", jsxTailwindStyles, "span")}>
+                            <span>
                                 I reviewed the package contents and want to store this copy in the
                                 selected archive.
                             </span>
                         </label>
-                        <div class={twClasses("ai-review-actions", jsxTailwindStyles, "div")}>
+                        <div
+                            class={cn(
+                                "ai-review-actions",
+                                "mt-[18px] flex flex-col-reverse gap-2.5 sm:flex-row sm:justify-end",
+                            )}
+                        >
                             <button
-                                class={twClasses(
-                                    "button button-quiet",
-                                    jsxTailwindStyles,
-                                    "button",
-                                )}
+                                class={cn("button button-quiet", buttonQuiet)}
                                 type="button"
                                 onClick={() => {
                                     setReview(null);
@@ -2607,10 +2554,10 @@ export function AiPage(props: AiPageProps): JSX.Element {
                                 Discard draft
                             </button>
                             <button
-                                class={twClasses(
+                                class={cn(
                                     "button button-primary",
-                                    jsxTailwindStyles,
-                                    "button",
+                                    buttonPrimary,
+                                    "max-[520px]:w-full",
                                 )}
                                 type="button"
                                 disabled={!reviewed() || props.busy || props.disabled}
@@ -2626,48 +2573,53 @@ export function AiPage(props: AiPageProps): JSX.Element {
             <Show when={props.execution}>
                 {(result) => (
                     <section
-                        class={twClasses("ai-generation-result", jsxTailwindStyles, "section")}
+                        class={cn(
+                            "ai-generation-result",
+                            "mt-3.5 grid gap-[13px] rounded-[5px] border border-accent/25 bg-accent-soft/20 p-[17px]",
+                        )}
                         aria-labelledby="ai-generation-result-title"
                     >
                         <div
-                            class={twClasses(
+                            class={cn(
                                 "ai-request-preview-heading",
-                                jsxTailwindStyles,
-                                "div",
+                                "flex flex-wrap items-start justify-between gap-3.5",
                             )}
                         >
-                            <div class={twClasses("", jsxTailwindStyles, "div")}>
-                                <span class={twClasses("eyebrow", jsxTailwindStyles, "span")}>
-                                    Response saved · review required
-                                </span>
-                                <h2
-                                    id="ai-generation-result-title"
-                                    class={twClasses("", jsxTailwindStyles, "h2")}
-                                >
+                            <div>
+                                <span class={eyebrow}>Response saved · review required</span>
+                                <h2 id="ai-generation-result-title" class={cn(heading2, "mt-1")}>
                                     {result().guideId
                                         ? "Proposed study guide is ready"
                                         : "Provider response saved for review"}
                                 </h2>
                             </div>
                             <span
-                                class={twClasses("ai-provider-status", jsxTailwindStyles, "span")}
+                                class={cn(
+                                    "ai-provider-status",
+                                    "rounded-[5px] border border-line bg-surface-subtle px-2.5 py-1.5 text-xs font-semibold whitespace-nowrap text-muted",
+                                )}
                             >
                                 {result().status.replaceAll("-", " ")}
                             </span>
                         </div>
-                        <p class={twClasses("", jsxTailwindStyles, "p")}>
+                        <p class={"text-xs leading-relaxed text-muted"}>
                             {result().providerName} · {result().model} ·{" "}
                             {formatBytes(result().responseBytes)}
                             {result().guideId
                                 ? ` · Guide ${result().guideId?.slice(0, 8)} is an unapproved draft in Study guides.`
                                 : " · The exact raw response bytes are saved in this archive for export."}
                         </p>
-                        <dl class={twClasses("ai-request-facts", jsxTailwindStyles, "dl")}>
-                            <div class={twClasses("", jsxTailwindStyles, "div")}>
-                                <dt class={twClasses("", jsxTailwindStyles, "dt")}>
+                        <dl
+                            class={cn(
+                                "ai-request-facts",
+                                "m-0 mt-4 grid gap-3 sm:grid-cols-[minmax(0,1.3fr)_minmax(160px,0.7fr)]",
+                            )}
+                        >
+                            <div class={"min-w-0"}>
+                                <dt class={"text-xs font-bold tracking-wide text-faint"}>
                                     Guide structure
                                 </dt>
-                                <dd class={twClasses("", jsxTailwindStyles, "dd")}>
+                                <dd class={"mt-1 break-words text-xs leading-normal text-ink-soft"}>
                                     {result().guideId
                                         ? result().schemaValid
                                             ? "Structured response"
@@ -2675,27 +2627,34 @@ export function AiPage(props: AiPageProps): JSX.Element {
                                         : "No guide draft created"}
                                 </dd>
                             </div>
-                            <div class={twClasses("", jsxTailwindStyles, "div")}>
-                                <dt class={twClasses("", jsxTailwindStyles, "dt")}>
+                            <div class={"min-w-0"}>
+                                <dt class={"text-xs font-bold tracking-wide text-faint"}>
                                     Source validation
                                 </dt>
-                                <dd class={twClasses("", jsxTailwindStyles, "dd")}>
+                                <dd class={"mt-1 break-words text-xs leading-normal text-ink-soft"}>
                                     {result().sourceValidation}
                                 </dd>
                             </div>
-                            <div class={twClasses("", jsxTailwindStyles, "div")}>
-                                <dt class={twClasses("", jsxTailwindStyles, "dt")}>Archived job</dt>
-                                <dd class={twClasses("ai-request-hash", jsxTailwindStyles, "dd")}>
+                            <div class={"min-w-0"}>
+                                <dt class={"text-xs font-bold tracking-wide text-faint"}>
+                                    Archived job
+                                </dt>
+                                <dd
+                                    class={cn(
+                                        "ai-request-hash",
+                                        "mt-1 break-all text-xs leading-normal text-ink-soft",
+                                    )}
+                                >
                                     {result().jobId}
                                 </dd>
                             </div>
                         </dl>
                         <Show when={!result().guideId}>
                             <button
-                                class={twClasses(
+                                class={cn(
                                     "button button-outline ai-export-button",
-                                    jsxTailwindStyles,
-                                    "button",
+                                    buttonOutline,
+                                    "text-xs",
                                 )}
                                 type="button"
                                 disabled={props.disabled || props.busy}
@@ -2706,28 +2665,28 @@ export function AiPage(props: AiPageProps): JSX.Element {
                         </Show>
                         <Show when={result().warnings.length > 0}>
                             <ul
-                                class={twClasses("ai-generation-warnings", jsxTailwindStyles, "ul")}
+                                class={cn(
+                                    "ai-generation-warnings",
+                                    "m-0 grid list-disc gap-1 pl-5 text-xs leading-relaxed text-muted",
+                                )}
                             >
                                 <For each={result().warnings}>
-                                    {(warning) => (
-                                        <li class={twClasses("", jsxTailwindStyles, "li")}>
-                                            {warning}
-                                        </li>
-                                    )}
+                                    {(warning) => <li>{warning}</li>}
                                 </For>
                             </ul>
                         </Show>
                         <details
-                            class={twClasses(
+                            class={cn(
                                 "ai-json-disclosure ai-response-disclosure",
-                                jsxTailwindStyles,
-                                "details",
+                                "border-y border-line-soft",
                             )}
                             onToggle={(event) =>
                                 setShowResponse((event.currentTarget as HTMLDetailsElement).open)
                             }
                         >
-                            <summary class={twClasses("", jsxTailwindStyles, "summary")}>
+                            <summary
+                                class={"cursor-pointer py-3 text-xs font-semibold text-ink-soft"}
+                            >
                                 Inspect generated text
                             </summary>
                             <Show when={showResponse() && result().guideId}>
@@ -2735,18 +2694,17 @@ export function AiPage(props: AiPageProps): JSX.Element {
                                     aria-label="Generated guide text"
                                     readOnly
                                     value={result().responseText}
-                                    class={twClasses("", jsxTailwindStyles, "textarea")}
+                                    class={cn(textareaBase, "max-h-[480px] font-sans")}
                                 />
                                 <Show when={result().responseTextTruncated}>
                                     <span
-                                        class={twClasses(
+                                        class={cn(
                                             "ai-response-truncated",
-                                            jsxTailwindStyles,
-                                            "span",
+                                            "mt-2 block text-xs leading-normal text-muted",
                                         )}
                                     >
                                         Showing the first{" "}
-                                        {AI_RESPONSE_PREVIEW_CHARACTER_LIMIT.toLocaleString()}{" "}
+                                        {AI_RESPONSE_PREVIEW_CHARACTER_LIMIT.toLocaleString("en-US")}{" "}
                                         characters. The complete provider response is kept in the
                                         archive.
                                     </span>
@@ -2754,7 +2712,12 @@ export function AiPage(props: AiPageProps): JSX.Element {
                             </Show>
                         </details>
                         <Show when={result().guideId}>
-                            <p class={twClasses("ai-request-privacy-note", jsxTailwindStyles, "p")}>
+                            <p
+                                class={cn(
+                                    "ai-request-privacy-note",
+                                    "mt-3 text-xs leading-relaxed text-muted",
+                                )}
+                            >
                                 The generated guide remains a draft. Review every claim,
                                 recommendation, citation, and student-facing detail in Study guides
                                 before approval.
@@ -2765,32 +2728,42 @@ export function AiPage(props: AiPageProps): JSX.Element {
             </Show>
 
             <section
-                class={twClasses("ai-panel", jsxTailwindStyles, "section")}
+                class={cn("ai-panel", card, "grid gap-4 p-[22px] max-[520px]:p-[17px]")}
                 aria-labelledby="ai-import-response-title"
             >
-                <div class={twClasses("ai-panel-heading", jsxTailwindStyles, "div")}>
-                    <div class={twClasses("", jsxTailwindStyles, "div")}>
-                        <span class={twClasses("eyebrow", jsxTailwindStyles, "span")}>
-                            External response
-                        </span>
-                        <h2
-                            id="ai-import-response-title"
-                            class={twClasses("", jsxTailwindStyles, "h2")}
-                        >
+                <div
+                    class={cn(
+                        "ai-panel-heading",
+                        "flex flex-wrap items-start justify-between gap-[18px]",
+                    )}
+                >
+                    <div>
+                        <span class={eyebrow}>External response</span>
+                        <h2 id="ai-import-response-title" class={cn(heading2, "mt-1")}>
                             Import a response
                         </h2>
                     </div>
-                    <span class={twClasses("ai-provider-status", jsxTailwindStyles, "span")}>
+                    <span
+                        class={cn(
+                            "ai-provider-status",
+                            "rounded-[5px] border border-line bg-surface-subtle px-2.5 py-1.5 text-xs font-semibold whitespace-nowrap text-muted",
+                        )}
+                    >
                         Review required
                     </span>
                 </div>
-                <p class={twClasses("ai-provider-intro", jsxTailwindStyles, "p")}>
+                <p
+                    class={cn(
+                        "ai-provider-intro",
+                        "max-w-[700px] text-xs leading-relaxed text-muted",
+                    )}
+                >
                     Import JSON or plain text returned by another AI tool. Tutorux stores the
                     original bytes, creates an unapproved guide draft, and validates source
                     references before review.
                 </p>
-                <label class={twClasses("ai-field", jsxTailwindStyles, "label")}>
-                    <span class={twClasses("", jsxTailwindStyles, "span")}>Response file</span>
+                <label class={cn("ai-field", labelBase)}>
+                    <span>Response file</span>
                     <input
                         type="file"
                         accept=".json,.txt,.md,application/json,text/plain,text/markdown"
@@ -2800,96 +2773,115 @@ export function AiPage(props: AiPageProps): JSX.Element {
                             event.currentTarget.value = "";
                             void importExternalResponse(file);
                         }}
-                        class={twClasses("", jsxTailwindStyles, "input")}
+                        class={inputBase}
                     />
                 </label>
                 <Show when={importingResponse()}>
-                    <p
-                        class={twClasses("ai-model-catalog-status", jsxTailwindStyles, "p")}
-                        role="status"
-                    >
+                    <p class={cn("ai-model-catalog-status", helperText)} role="status">
                         Importing and validating the external response…
                     </p>
                 </Show>
                 <Show when={importMessage()}>
-                    <p class={twClasses("ai-message", jsxTailwindStyles, "p")} role="status">
+                    <p class={cn("ai-message", helperText, "mt-3.5")} role="status">
                         {importMessage()}
                     </p>
                 </Show>
             </section>
 
             <section
-                class={twClasses("ai-panel ai-history", jsxTailwindStyles, "section")}
+                class={cn("ai-panel ai-history", card, "grid gap-4 p-[22px] max-[520px]:p-[17px]")}
                 aria-labelledby="ai-history-title"
             >
-                <div class={twClasses("ai-panel-heading", jsxTailwindStyles, "div")}>
-                    <div class={twClasses("", jsxTailwindStyles, "div")}>
-                        <span class={twClasses("eyebrow", jsxTailwindStyles, "span")}>
-                            Kept with your workspace
-                        </span>
-                        <h2 id="ai-history-title" class={twClasses("", jsxTailwindStyles, "h2")}>
+                <div
+                    class={cn(
+                        "ai-panel-heading",
+                        "flex flex-wrap items-start justify-between gap-[18px]",
+                    )}
+                >
+                    <div>
+                        <span class={eyebrow}>Kept with your workspace</span>
+                        <h2 id="ai-history-title" class={cn(heading2, "mt-1")}>
                             Prepared packages
                         </h2>
                     </div>
-                    <span class={twClasses("ai-history-count", jsxTailwindStyles, "span")}>
+                    <span
+                        class={cn(
+                            "ai-history-count",
+                            "rounded-[5px] border border-line px-2 py-1 text-xs text-muted",
+                        )}
+                    >
                         {latestJobs().length} recent
                     </span>
                 </div>
                 <Show
                     when={latestJobs().length > 0}
                     fallback={
-                        <div class={twClasses("ai-empty-state", jsxTailwindStyles, "div")}>
+                        <div
+                            class={cn(
+                                "ai-empty-state",
+                                "grid justify-items-center px-5 pt-[34px] pb-[22px] text-center",
+                            )}
+                        >
                             <span
                                 aria-hidden="true"
-                                class={twClasses("", jsxTailwindStyles, "span")}
+                                class={
+                                    "grid size-10 place-items-center rounded-[5px] bg-accent-soft text-[23px] text-accent"
+                                }
                             >
                                 ✳
                             </span>
-                            <strong class={twClasses("", jsxTailwindStyles, "strong")}>
+                            <strong class={"mt-3 text-[13px] font-semibold"}>
                                 No packages prepared yet
                             </strong>
-                            <p class={twClasses("", jsxTailwindStyles, "p")}>
+                            <p class={"mt-1.5 text-xs leading-relaxed text-muted"}>
                                 Choose a session above to create a source-linked package for your
                                 review.
                             </p>
                         </div>
                     }
                 >
-                    <div class={twClasses("ai-job-list", jsxTailwindStyles, "div")}>
+                    <div class={cn("ai-job-list", "mt-4 border-t border-line-soft")}>
                         <For each={latestJobs()}>
                             {(job) => (
-                                <div class={twClasses("ai-job-row", jsxTailwindStyles, "div")}>
+                                <div
+                                    class={cn(
+                                        "ai-job-row",
+                                        "flex flex-wrap items-center gap-[13px] border-b border-line-soft py-[13px] max-[520px]:items-start",
+                                    )}
+                                >
                                     <div
-                                        class={twClasses("ai-job-icon", jsxTailwindStyles, "div")}
+                                        class={cn(
+                                            "ai-job-icon",
+                                            "grid size-[34px] shrink-0 place-items-center rounded-[5px] bg-accent-soft text-lg text-accent",
+                                        )}
                                         aria-hidden="true"
                                     >
                                         ✳
                                     </div>
-                                    <div class={twClasses("ai-job-copy", jsxTailwindStyles, "div")}>
-                                        <strong class={twClasses("", jsxTailwindStyles, "strong")}>
+                                    <div class={cn("ai-job-copy", "grid min-w-0 flex-1 gap-[3px]")}>
+                                        <strong class={"truncate text-xs font-semibold"}>
                                             {sessionLabel(
                                                 props.sessions,
                                                 job.fields.get("session_id") ?? "",
                                             )}
                                         </strong>
-                                        <span class={twClasses("", jsxTailwindStyles, "span")}>
+                                        <span class={"truncate text-xs text-muted"}>
                                             Saved{" "}
                                             {formatDate(job.fields.get("created_at_us") ?? "")} ·{" "}
                                             {formatBytes(jobSize(job))}
                                         </span>
                                     </div>
                                     <div
-                                        class={twClasses(
+                                        class={cn(
                                             "ai-job-actions",
-                                            jsxTailwindStyles,
-                                            "div",
+                                            "flex flex-wrap justify-end gap-2 max-[520px]:w-full max-[520px]:justify-start",
                                         )}
                                     >
                                         <button
-                                            class={twClasses(
+                                            class={cn(
                                                 "button button-outline ai-export-button",
-                                                jsxTailwindStyles,
-                                                "button",
+                                                buttonOutline,
+                                                "text-xs",
                                             )}
                                             type="button"
                                             disabled={props.disabled || props.busy}
@@ -2898,10 +2890,10 @@ export function AiPage(props: AiPageProps): JSX.Element {
                                             Export JSON
                                         </button>
                                         <button
-                                            class={twClasses(
+                                            class={cn(
                                                 "button button-outline ai-export-button",
-                                                jsxTailwindStyles,
-                                                "button",
+                                                buttonOutline,
+                                                "text-xs",
                                             )}
                                             type="button"
                                             disabled={props.disabled || props.busy}
@@ -2918,43 +2910,60 @@ export function AiPage(props: AiPageProps): JSX.Element {
             </section>
             <Show when={latestRuns().length > 0}>
                 <section
-                    class={twClasses("ai-panel ai-history", jsxTailwindStyles, "section")}
+                    class={cn(
+                        "ai-panel ai-history",
+                        card,
+                        "grid gap-4 p-[22px] max-[520px]:p-[17px]",
+                    )}
                     aria-labelledby="ai-run-history-title"
                 >
-                    <div class={twClasses("ai-panel-heading", jsxTailwindStyles, "div")}>
-                        <div class={twClasses("", jsxTailwindStyles, "div")}>
-                            <span class={twClasses("eyebrow", jsxTailwindStyles, "span")}>
-                                Review before approval
-                            </span>
-                            <h2
-                                id="ai-run-history-title"
-                                class={twClasses("", jsxTailwindStyles, "h2")}
-                            >
+                    <div
+                        class={cn(
+                            "ai-panel-heading",
+                            "flex flex-wrap items-start justify-between gap-[18px]",
+                        )}
+                    >
+                        <div>
+                            <span class={eyebrow}>Review before approval</span>
+                            <h2 id="ai-run-history-title" class={cn(heading2, "mt-1")}>
                                 Provider responses
                             </h2>
                         </div>
-                        <span class={twClasses("ai-history-count", jsxTailwindStyles, "span")}>
+                        <span
+                            class={cn(
+                                "ai-history-count",
+                                "rounded-[5px] border border-line px-2 py-1 text-xs text-muted",
+                            )}
+                        >
                             {latestRuns().length} recent
                         </span>
                     </div>
-                    <div class={twClasses("ai-job-list", jsxTailwindStyles, "div")}>
+                    <div class={cn("ai-job-list", "mt-4 border-t border-line-soft")}>
                         <For each={latestRuns()}>
                             {(job) => (
-                                <div class={twClasses("ai-job-row", jsxTailwindStyles, "div")}>
+                                <div
+                                    class={cn(
+                                        "ai-job-row",
+                                        "flex flex-wrap items-center gap-[13px] border-b border-line-soft py-[13px] max-[520px]:items-start",
+                                    )}
+                                >
                                     <div
-                                        class={twClasses("ai-job-icon", jsxTailwindStyles, "div")}
+                                        class={cn(
+                                            "ai-job-icon",
+                                            "grid size-[34px] shrink-0 place-items-center rounded-[5px] bg-accent-soft text-lg text-accent",
+                                        )}
                                         aria-hidden="true"
                                     >
                                         ✳
                                     </div>
-                                    <div class={twClasses("ai-job-copy", jsxTailwindStyles, "div")}>
-                                        <strong class={twClasses("", jsxTailwindStyles, "strong")}>
+                                    <div class={cn("ai-job-copy", "grid min-w-0 flex-1 gap-[3px]")}>
+                                        <strong class={"truncate text-xs font-semibold"}>
                                             {sessionLabel(
                                                 props.sessions,
                                                 job.fields.get("session_id") ?? "",
                                             )}
                                         </strong>
-                                        <span class={twClasses("", jsxTailwindStyles, "span")}>
+                                        <span class={"truncate text-xs text-muted"}>
                                             {job.fields.get("provider_id") ?? "Provider"} ·{" "}
                                             {job.fields.get("model_id") ?? "Model unavailable"} ·{" "}
                                             {job.fields.get("status")?.replaceAll("-", " ") ??
@@ -2963,10 +2972,10 @@ export function AiPage(props: AiPageProps): JSX.Element {
                                         </span>
                                     </div>
                                     <button
-                                        class={twClasses(
+                                        class={cn(
                                             "button button-outline ai-export-button",
-                                            jsxTailwindStyles,
-                                            "button",
+                                            buttonOutline,
+                                            "text-xs",
                                         )}
                                         type="button"
                                         disabled={props.disabled || props.busy}
@@ -2986,9 +2995,16 @@ export function AiPage(props: AiPageProps): JSX.Element {
 
 function ReviewStat(props: { label: string; value: string | number }): JSX.Element {
     return (
-        <div class={twClasses("ai-review-stat", jsxTailwindStyles, "div")}>
-            <strong class={twClasses("", jsxTailwindStyles, "strong")}>{props.value}</strong>
-            <span class={twClasses("", jsxTailwindStyles, "span")}>{props.label}</span>
+        <div
+            class={cn(
+                "ai-review-stat",
+                "min-w-0 bg-surface-subtle px-3.5 py-3 max-[760px]:last:col-span-2",
+            )}
+        >
+            <strong class={"block truncate text-[17px] font-semibold tabular-nums text-ink"}>
+                {props.value}
+            </strong>
+            <span class={"mt-1 block truncate text-xs text-muted"}>{props.label}</span>
         </div>
     );
 }
@@ -3012,7 +3028,7 @@ function formatDate(microseconds: string): string {
     try {
         const milliseconds = Number(BigInt(microseconds) / 1000n);
         if (!Number.isFinite(milliseconds) || milliseconds <= 0) return "date unavailable";
-        return new Intl.DateTimeFormat(undefined, { dateStyle: "medium" }).format(
+        return new Intl.DateTimeFormat("en-US", { dateStyle: "medium" }).format(
             new Date(milliseconds),
         );
     } catch {
