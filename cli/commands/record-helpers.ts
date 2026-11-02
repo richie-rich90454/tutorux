@@ -134,7 +134,7 @@ export function validateUpdatedField(fieldName: string, rawValue: string): strin
     const maximum = limits[fieldName] ?? 100_000;
     if (value.length > maximum)
         throw new CliError(
-            `${fieldName.replaceAll("_", " ")} must be ${maximum.toLocaleString()} characters or fewer.`,
+            `${fieldName.replaceAll("_", " ")} must be ${maximum.toLocaleString("en-US")} characters or fewer.`,
         );
     // eslint-disable-next-line no-control-regex -- Prevent control bytes from entering the archive.
     if (/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/u.test(value)) {
@@ -197,9 +197,9 @@ export async function updateRecord(
     args: ParsedArguments,
     fixedFields: Readonly<Record<string, string>> = {},
 ): Promise<ArchiveRecord> {
-    const current = await getLiveRecordAtPath(path, type, id);
+    const { record: current, generation } = await getLiveRecordWithGenerationAtPath(path, type, id);
     const updated = updateFields(current, allowedOptions, args, fixedFields);
-    const [saved] = await mutateArchive(path, [updated]);
+    const [saved] = await mutateArchive(path, [updated], generation);
     return saved ?? updated;
 }
 
@@ -236,6 +236,22 @@ export async function getLiveRecordAtPath(
     const snapshot = await openForCommand(path);
     try {
         return await requireLiveRecord(snapshot, type, id);
+    } finally {
+        await closeSnapshot(snapshot);
+    }
+}
+
+export async function getLiveRecordWithGenerationAtPath(
+    path: string,
+    type: number,
+    id: string,
+): Promise<{ record: ArchiveRecord; generation: bigint }> {
+    const snapshot = await openForCommand(path);
+    try {
+        return {
+            record: await requireLiveRecord(snapshot, type, id),
+            generation: snapshot.commit.generation,
+        };
     } finally {
         await closeSnapshot(snapshot);
     }
