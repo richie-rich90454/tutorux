@@ -262,6 +262,40 @@ describe("reviewed AI generation", () => {
         expect(result.summary.responseBytes).toBe(partial.byteLength);
     });
 
+    it("saves partial output when the transport rejects after emitting chunks", async () => {
+        const session = createSession();
+        const preview = createPreview();
+        const partial = encoder.encode("data: partial provider response");
+        const transportError = new Error("socket hang up");
+        const result = await executeAiGeneration({
+            packageJob: createPackageJob(),
+            expectedTemplateId: "general",
+            preview,
+            confirmedEndpoint: preview.endpoint,
+            confirmedBodyHash: preview.requestBodyHash,
+            credential: "private-provider-key",
+            session,
+            sourceRecords: [session],
+            send: async (_request, onChunk) => {
+                onChunk(partial);
+                throw transportError;
+            },
+            onProgress: () => undefined,
+        });
+
+        expect(result.job.blob).toEqual(partial);
+        expect(result.job.fields.get("status")).toBe("failed");
+        expect(result.job.fields.get("error_code")).toBe("transport_error");
+        expect(result.job.fields.get("error_message")).toContain("socket hang up");
+        expect(result.job.fields.get("response_bytes")).toBe(String(partial.byteLength));
+        expect(result.guide).toBeNull();
+        expect(result.summary.status).toBe("failed");
+        expect(result.summary.responseBytes).toBe(partial.byteLength);
+        expect(result.summary.warnings).toContain(
+            "socket hang up The received partial response was saved for export.",
+        );
+    });
+
     it("keeps decodable partial output as a draft when generation is cancelled", async () => {
         const session = createSession();
         const preview = createPreview();
@@ -317,7 +351,7 @@ describe("reviewed AI generation", () => {
         expect(result.job.fields.get("max_output_tokens")).toBe("4096");
         expect(result.job.fields.get("provider_response_id")).toBe("chatcmpl-cancelled");
         expect(result.summary.warnings).toContain(
-            "Generation was cancelled; the partial response is an unapproved draft that needs review.",
+            "Generation was canceled; the partial response is an unapproved draft that needs review.",
         );
     });
 
