@@ -77,7 +77,7 @@ pub(crate) fn replace_existing(path: &Path, expected: &[u8], replacement: &[u8])
     )
     .map_err(CliError)?;
     let current = archive_lock.read_archive_bytes().map_err(CliError)?;
-    if current.len() > expected.len() || expected[..current.len()] != current[..] {
+    if current != expected {
         return Err(CliError(
             "The archive changed on disk after this operation started. Reopen it and retry; no changes were written."
                 .to_owned(),

@@ -15,9 +15,14 @@ pub(crate) fn load(path: &std::path::Path, context: &CliContext) -> CliResult<Ar
     Ok(snapshot)
 }
 
-pub(crate) fn save_replacing(path: &std::path::Path, snapshot: &ArchiveSnapshot) -> CliResult<()> {
-    let bytes = snapshot.source.read(0, snapshot.source.size() as usize)?;
-    crate::core::cli::archive::save::replace_existing(path, &bytes, &bytes)?;
+pub(crate) fn save_replacing(
+    path: &std::path::Path,
+    current: &ArchiveSnapshot,
+    next: &ArchiveSnapshot,
+) -> CliResult<()> {
+    let expected = current.source.read(0, current.source.size() as usize)?;
+    let bytes = next.source.read(0, next.source.size() as usize)?;
+    crate::core::cli::archive::save::replace_existing(path, &expected, &bytes)?;
     Ok(())
 }
 
@@ -34,7 +39,7 @@ pub(crate) fn mutate(
         normalised.push(record);
     }
     let next = snapshot.append_records(&normalised)?;
-    save_replacing(path, &next)?;
+    save_replacing(path, snapshot, &next)?;
     let mut saved = Vec::new();
     for change in &normalised {
         if let Some(record) = next.get_record(change.record_type, &change.id)? {

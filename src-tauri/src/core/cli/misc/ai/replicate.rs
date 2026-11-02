@@ -250,7 +250,7 @@ pub(super) fn generate(
         .insert("updated_at_us".to_owned(), now_us().to_string());
     updated.blob = response.body;
     let next = snapshot.append_records(&[updated])?;
-    crate::core::cli::records::save_replacing(path, &next)?;
+    crate::core::cli::records::save_replacing(path, snapshot, &next)?;
 
     let mut report = json!({
         "provider": provider.id,

@@ -170,7 +170,7 @@ fn select(
     }
     changes.push(record.clone());
     let next = snapshot.append_records(&changes)?;
-    crate::core::cli::records::save_replacing(path, &next)?;
+    crate::core::cli::records::save_replacing(path, snapshot, &next)?;
     let _ = context;
     emit(
         output,
@@ -201,7 +201,7 @@ fn remove(
         .fields
         .insert("_deleted".to_owned(), "true".to_owned());
     let next = snapshot.append_records(&[record.clone()])?;
-    crate::core::cli::records::save_replacing(path, &next)?;
+    crate::core::cli::records::save_replacing(path, snapshot, &next)?;
     let _ = context;
     emit(
         output,

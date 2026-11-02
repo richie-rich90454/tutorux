@@ -106,9 +106,9 @@ fn capture_run(
         Some(started) => started_with_ffmpeg(started, sources.ffmpeg.as_ref()),
         None => ffmpeg_started(capture_id, sources),
     };
-    let snapshot = open_worker_archive(path, passphrase)?;
-    let (mut writer, mut snapshot) = CaptureWriter::begin(&snapshot, config, &started)?;
-    save_records(path, &snapshot)?;
+    let current = open_worker_archive(path, passphrase)?;
+    let (mut writer, mut snapshot) = CaptureWriter::begin(&current, config, &started)?;
+    save_records(path, &current, &snapshot)?;
     update_status(status, "recording", "Native audio capture is running.");
     if let Some(control) = control.as_mut() {
         control.write("recording", "Audio capture is active.")?;
@@ -261,17 +261,18 @@ fn capture_run(
         }
         if pending.len() >= 64 || last_flush.elapsed() >= Duration::from_millis(750) {
             if !pending.is_empty() {
-                snapshot = writer.write_chunks(&snapshot, &mut pending)?;
-                save_records(path, &snapshot)?;
+                let next = writer.write_chunks(&snapshot, &mut pending)?;
+                save_records(path, &snapshot, &next)?;
+                snapshot = next;
             }
             last_flush = Instant::now();
         }
         if let Some(live) = live.as_mut() {
             let (next, changed) = live.drain_results(&snapshot)?;
-            snapshot = next;
             if changed {
-                save_records(path, &snapshot)?;
+                save_records(path, &snapshot, &next)?;
             }
+            snapshot = next;
         }
         std::thread::sleep(Duration::from_millis(10));
     }
@@ -297,13 +298,15 @@ fn capture_run(
             capture.finish(&mut |chunk| pending.push(chunk)),
         );
     }
-    snapshot = writer.write_chunks(&snapshot, &mut pending)?;
+    let written = writer.write_chunks(&snapshot, &mut pending)?;
     if let Some(live) = live.as_mut() {
-        let (next, changed) = live.finish(&snapshot)?;
-        snapshot = next;
+        let (next, changed) = live.finish(&written)?;
         if changed {
-            save_records(path, &snapshot)?;
+            save_records(path, &written, &next)?;
         }
+        snapshot = next;
+    } else {
+        snapshot = written;
     }
     let (live_segments, live_boundaries, live_error) = live
         .as_ref()
@@ -320,11 +323,13 @@ fn capture_run(
             writer.merge_session(&session);
         }
     }
-    let mut snapshot = writer.finish(&snapshot, &finished, pause_count, paused_duration)?;
+    let finished_snapshot = writer.finish(&snapshot, &finished, pause_count, paused_duration)?;
+    save_records(path, &snapshot, &finished_snapshot)?;
     if config.whisper.is_some() {
-        snapshot = apply_processing_state(&snapshot, &config.session_id, &live_error)?;
+        let processed =
+            apply_processing_state(&finished_snapshot, &config.session_id, &live_error)?;
+        save_records(path, &finished_snapshot, &processed)?;
     }
-    save_records(path, &snapshot)?;
     let mut report = writer.report(config, &finished);
     if report["source"].as_str() != Some("both") {
         report["liveTranscriptSegmentCount"] = json!(live_segments);
@@ -460,8 +465,12 @@ fn open_worker_archive(path: &Path, passphrase: Option<&str>) -> Result<ArchiveS
     Ok(snapshot)
 }
 
-pub(super) fn save_records(path: &Path, snapshot: &ArchiveSnapshot) -> Result<(), String> {
-    crate::core::cli::records::save_replacing(path, snapshot).map_err(|error| match error {
+pub(super) fn save_records(
+    path: &Path,
+    current: &ArchiveSnapshot,
+    next: &ArchiveSnapshot,
+) -> Result<(), String> {
+    crate::core::cli::records::save_replacing(path, current, next).map_err(|error| match error {
         crate::core::cli::Failure::Usage(message) => message,
         crate::core::cli::Failure::Core(error) => error.message,
     })

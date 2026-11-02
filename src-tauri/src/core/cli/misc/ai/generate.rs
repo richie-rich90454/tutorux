@@ -186,7 +186,7 @@ pub(super) fn generate(
         .insert("updated_at_us".to_owned(), now_us().to_string());
     updated.blob = response.body;
     let next = snapshot.append_records(&[updated])?;
-    crate::core::cli::records::save_replacing(path, &next)?;
+    crate::core::cli::records::save_replacing(path, &snapshot, &next)?;
     emit(
         output,
         json!({
@@ -317,7 +317,7 @@ fn generate_embedded(
         .insert("updated_at_us".to_owned(), now_us().to_string());
     updated.blob = response.into_bytes();
     let next = snapshot.append_records(&[updated.clone()])?;
-    crate::core::cli::records::save_replacing(path, &next)?;
+    crate::core::cli::records::save_replacing(path, snapshot, &next)?;
     let destination = args.option("output").map(crate::core::cli::resolve_path);
     if let Some(destination) = &destination {
         crate::core::cli::write_file_atomically(destination, &updated.blob)?;

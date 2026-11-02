@@ -402,6 +402,23 @@ fn cli_mutations_publish_through_the_locked_handle() {
 }
 
 #[test]
+fn replace_existing_rejects_a_truncated_archive_image() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("archive.tux");
+    std::fs::write(&path, b"old archive bytes").unwrap();
+    std::fs::write(&path, b"old archive").unwrap();
+
+    let error = save::replace_existing(&path, b"old archive bytes", b"replacement archive bytes")
+        .unwrap_err();
+
+    let Failure::Usage(message) = error else {
+        panic!("expected a usage failure");
+    };
+    assert!(message.contains("changed on disk"));
+    assert_eq!(std::fs::read(&path).unwrap(), b"old archive");
+}
+
+#[test]
 fn replace_existing_refuses_a_concurrent_exclusive_lock() {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("archive.tux");

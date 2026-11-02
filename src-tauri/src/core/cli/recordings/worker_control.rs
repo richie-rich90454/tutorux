@@ -233,7 +233,7 @@ fn expire(path: &Path, snapshot: &ArchiveSnapshot, session_id: &str) -> CliResul
         .fields
         .insert("updated_at_us".to_owned(), now_us().to_string());
     let next = snapshot.append_records(&[session])?;
-    crate::core::cli::records::save_replacing(path, &next)?;
+    crate::core::cli::records::save_replacing(path, snapshot, &next)?;
     Ok(())
 }
 

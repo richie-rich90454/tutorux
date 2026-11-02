@@ -119,7 +119,7 @@ fn configure(
         ],
     );
     let next = snapshot.append_records(std::slice::from_ref(&record))?;
-    crate::core::cli::records::save_replacing(path, &next)?;
+    crate::core::cli::records::save_replacing(path, &snapshot, &next)?;
     emit(
         output,
         crate::core::cli::records::plain(&record),

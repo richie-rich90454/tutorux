@@ -463,7 +463,7 @@ fn flush_batch(
     let next = current
         .append_records(batch)
         .map_err(|error| CliError(error.message))?;
-    crate::core::cli::records::save_replacing(path, &next).map_err(|error| {
+    crate::core::cli::records::save_replacing(path, current, &next).map_err(|error| {
         CliError(match error {
             crate::core::cli::Failure::Usage(message) => message,
             crate::core::cli::Failure::Core(error) => error.message,
@@ -480,7 +480,7 @@ fn append(
     records: &[ArchiveRecord],
 ) -> CliResult<ArchiveSnapshot> {
     let next = snapshot.append_records(records)?;
-    crate::core::cli::records::save_replacing(path, &next)?;
+    crate::core::cli::records::save_replacing(path, snapshot, &next)?;
     Ok(next)
 }
 

@@ -63,7 +63,7 @@ pub(super) fn take_rename(
     take.fields
         .insert("updated_at_us".to_owned(), now_us().to_string());
     let next = snapshot.append_records(&[take])?;
-    crate::core::cli::records::save_replacing(path, &next)?;
+    crate::core::cli::records::save_replacing(path, &snapshot, &next)?;
     let saved = next
         .get_record(RecordType::ASSET_METADATA, &take_id)?
         .unwrap();
@@ -251,7 +251,7 @@ pub(super) fn set_take_deleted(
         }
     }
     let next = snapshot.append_records(&changes)?;
-    crate::core::cli::records::save_replacing(path, &next)?;
+    crate::core::cli::records::save_replacing(path, &snapshot, &next)?;
     let mut visible_records: BTreeMap<String, ArchiveRecord> = BTreeMap::new();
     for record in next.list_records(RecordType::ASSET_METADATA, true)? {
         visible_records.insert(record.id.to_lowercase(), record);
@@ -300,7 +300,7 @@ pub(super) fn track_rename(
         .fields
         .insert("updated_at_us".to_owned(), now_us().to_string());
     let next = snapshot.append_records(&[track])?;
-    crate::core::cli::records::save_replacing(path, &next)?;
+    crate::core::cli::records::save_replacing(path, &snapshot, &next)?;
     let saved = next
         .get_record(RecordType::ASSET_METADATA, &track_id)?
         .unwrap();

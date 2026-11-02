@@ -90,7 +90,7 @@ pub(super) fn configure(
     }
     if !changes.is_empty() {
         let next = snapshot.append_records(&changes)?;
-        crate::core::cli::records::save_replacing(path, &next)?;
+        crate::core::cli::records::save_replacing(path, &snapshot, &next)?;
     }
     let message = format!(
         "Recording configuration saved in the active archive.\nMicrophone: {}\nPlayback: {}\nDurability: {}",

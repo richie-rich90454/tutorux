@@ -58,7 +58,7 @@ pub(super) fn package(
     job.fields
         .insert("requested_mode".to_owned(), mode.to_owned());
     let next = snapshot.append_records(&[job.clone()])?;
-    crate::core::cli::records::save_replacing(path, &next)?;
+    crate::core::cli::records::save_replacing(path, &snapshot, &next)?;
     let destination = args.option("output").map(crate::core::cli::resolve_path);
     if let Some(destination) = &destination {
         if crate::core::cli::records::same_path_public(destination, path) {
@@ -204,7 +204,7 @@ pub(super) fn import(
         crate::core::cli::records::guide_records_with_entry_links(&guide, None, &scope.records)?;
     changes.push(job.clone());
     let next = snapshot.append_records(&changes)?;
-    crate::core::cli::records::save_replacing(path, &next)?;
+    crate::core::cli::records::save_replacing(path, &snapshot, &next)?;
     emit(
         output,
         json!({
@@ -263,7 +263,7 @@ pub(super) fn cancel(
         .fields
         .insert("status".to_owned(), "cancelled".to_owned());
     let next = snapshot.append_records(&[updated.clone()])?;
-    crate::core::cli::records::save_replacing(path, &next)?;
+    crate::core::cli::records::save_replacing(path, &snapshot, &next)?;
     emit(
         output,
         crate::core::cli::records::plain(&updated),

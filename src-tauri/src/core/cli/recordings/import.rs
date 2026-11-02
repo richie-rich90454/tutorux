@@ -301,7 +301,7 @@ pub(super) fn record_import(
     let track_blob = empty_asset_blob(&track_blob_id, &empty_hash, &timestamp);
     let take_blob = empty_asset_blob(&take_blob_id, &empty_hash, &timestamp);
     let next = snapshot.append_records(&[session, chunk, track, take, track_blob, take_blob])?;
-    crate::core::cli::records::save_replacing(path, &next)?;
+    crate::core::cli::records::save_replacing(path, &snapshot, &next)?;
     emit(
         output,
         json!({

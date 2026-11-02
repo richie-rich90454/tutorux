@@ -308,7 +308,7 @@ pub(super) fn run(
             "source_fingerprint": index.field("source_fingerprint").unwrap_or(""),
         });
         let next = snapshot.append_records(&[index])?;
-        crate::core::cli::records::save_replacing(path, &next)?;
+        crate::core::cli::records::save_replacing(path, &snapshot, &next)?;
         emit(
             output,
             result,
