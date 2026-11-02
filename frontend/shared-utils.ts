@@ -4,6 +4,22 @@ export function field(record: ArchiveRecord, name: string, fallback = ""): strin
     return record.fields.get(name) ?? fallback;
 }
 
+export function pluralNoun(
+    count: number,
+    singular: string,
+    plural = `${singular}s`,
+): string {
+    return count === 1 ? singular : plural;
+}
+
+export function pluralize(
+    count: number,
+    singular: string,
+    plural = `${singular}s`,
+): string {
+    return `${count.toLocaleString("en-US")} ${pluralNoun(count, singular, plural)}`;
+}
+
 export function safeFileName(value: string): string {
     const slug = value
         .trim()
@@ -20,7 +36,7 @@ export function formatTimestamp(value: string): string {
         const microseconds = BigInt(value || "0");
         const milliseconds = Number(microseconds / 1000n);
         if (!Number.isFinite(milliseconds) || milliseconds <= 0) return "Date not set";
-        return new Intl.DateTimeFormat(undefined, { dateStyle: "medium" }).format(
+        return new Intl.DateTimeFormat("en-US", { dateStyle: "medium" }).format(
             new Date(milliseconds),
         );
     } catch {
@@ -76,9 +92,9 @@ export function dateParts(value: string): { day: string; month: string; year: st
     const date = new Date(`${value}T12:00:00`);
     if (Number.isNaN(date.getTime())) return { day: "–", month: "---", year: "" };
     return {
-        day: new Intl.DateTimeFormat(undefined, { day: "2-digit" }).format(date),
-        month: new Intl.DateTimeFormat(undefined, { month: "short" }).format(date).toUpperCase(),
-        year: new Intl.DateTimeFormat(undefined, { year: "numeric" }).format(date),
+        day: new Intl.DateTimeFormat("en-US", { day: "2-digit" }).format(date),
+        month: new Intl.DateTimeFormat("en-US", { month: "short" }).format(date).toUpperCase(),
+        year: new Intl.DateTimeFormat("en-US", { year: "numeric" }).format(date),
     };
 }
 
