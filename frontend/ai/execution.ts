@@ -47,29 +47,45 @@ export async function executeAiGeneration(input: AiExecutionInput): Promise<AiEx
     const chunks: Uint8Array[] = [];
     let receivedBytes = 0;
     let responseTooLarge = false;
-    const transport = await input.send(
-        {
-            providerId: preview.providerId,
-            endpoint: preview.endpoint,
-            confirmedEndpoint: input.confirmedEndpoint,
-            model: preview.model,
-            accept: preview.accept,
-            requestBody: preview.requestBody,
-            requestBodyHash: preview.requestBodyHash,
-            confirmedBodyHash: input.confirmedBodyHash,
-            credentialStorage:
-                input.credentialStorage ?? (preview.localOnly ? "none" : "encrypted-archive"),
-            credential: input.credential,
-        },
-        (chunk) => {
-            const remaining = MAX_RESPONSE_BYTES - receivedBytes;
-            const copy = chunk.subarray(0, Math.max(0, remaining)).slice();
-            chunks.push(copy);
-            receivedBytes += copy.byteLength;
-            if (copy.byteLength < chunk.byteLength) responseTooLarge = true;
-            if (copy.byteLength > 0) input.onProgress(receivedBytes);
-        },
-    );
+    let transport: AiTransportResult;
+    let transportFailure = "";
+    try {
+        transport = await input.send(
+            {
+                providerId: preview.providerId,
+                endpoint: preview.endpoint,
+                confirmedEndpoint: input.confirmedEndpoint,
+                model: preview.model,
+                accept: preview.accept,
+                requestBody: preview.requestBody,
+                requestBodyHash: preview.requestBodyHash,
+                confirmedBodyHash: input.confirmedBodyHash,
+                credentialStorage:
+                    input.credentialStorage ?? (preview.localOnly ? "none" : "encrypted-archive"),
+                credential: input.credential,
+            },
+            (chunk) => {
+                const remaining = MAX_RESPONSE_BYTES - receivedBytes;
+                const copy = chunk.subarray(0, Math.max(0, remaining)).slice();
+                chunks.push(copy);
+                receivedBytes += copy.byteLength;
+                if (copy.byteLength < chunk.byteLength) responseTooLarge = true;
+                if (copy.byteLength > 0) input.onProgress(receivedBytes);
+            },
+        );
+    } catch (error) {
+        transportFailure =
+            error instanceof Error && error.message
+                ? error.message
+                : "The provider transport failed.";
+        transport = {
+            status: 0,
+            contentType: "",
+            responseBytes: receivedBytes,
+            complete: false,
+            errorMessage: transportFailure,
+        };
+    }
     const responseBytes = new Uint8Array(receivedBytes);
     let offset = 0;
     for (const chunk of chunks) {
@@ -265,10 +281,19 @@ export async function executeAiGeneration(input: AiExecutionInput): Promise<AiEx
         };
     };
 
+    if (transportFailure) {
+        return failure(
+            "failed",
+            responseBytes.byteLength > 0
+                ? `${transportFailure} The received partial response was saved for export.`
+                : transportFailure,
+            "transport_error",
+        );
+    }
     if (transport.cancelled) {
         const cancellationMessage =
             transport.errorMessage ??
-            "Generation was cancelled. The received partial response was saved for export.";
+            "Generation was canceled. The received partial response was saved for export.";
         if (responseBytes.byteLength > 0) {
             try {
                 const partialText = extractAiResponseText(
@@ -279,7 +304,7 @@ export async function executeAiGeneration(input: AiExecutionInput): Promise<AiEx
                 );
                 const built = buildGuide(partialText);
                 built.warnings.unshift(
-                    "Generation was cancelled; the partial response is an unapproved draft that needs review.",
+                    "Generation was canceled; the partial response is an unapproved draft that needs review.",
                 );
                 const status = "cancelled-with-partial-output";
                 return {
