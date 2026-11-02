@@ -151,27 +151,38 @@ pub(crate) fn run_asset_import(
         require_live(snapshot, RecordType::SESSION, &session_id)?;
     }
     let capture = capture_options(args, &session_id)?;
-    let mut entries: Vec<std::path::PathBuf> = std::fs::read_dir(&directory)
-        .map_err(|_| CliError("Material directory is unavailable.".to_owned()))?
-        .filter_map(|entry| entry.ok())
-        .map(|entry| entry.path())
-        .filter(|path| {
-            std::fs::symlink_metadata(path)
-                .map(|metadata| {
-                    metadata.file_type().is_file() && !metadata.file_type().is_symlink()
-                })
-                .unwrap_or(false)
-        })
-        .collect();
-    if entries.len() > 10_000 {
-        return Err(
-            CliError("Folder import is limited to 10,000 regular files.".to_owned()).into(),
-        );
+    let mut entries: Vec<std::path::PathBuf> = Vec::new();
+    let mut pending = vec![directory.clone()];
+    while let Some(folder) = pending.pop() {
+        for entry in std::fs::read_dir(&folder)
+            .map_err(|_| CliError("Material directory is unavailable.".to_owned()))?
+            .filter_map(|entry| entry.ok())
+        {
+            let path = entry.path();
+            let metadata = match std::fs::symlink_metadata(&path) {
+                Ok(metadata) => metadata,
+                Err(_) => continue,
+            };
+            if metadata.file_type().is_symlink() {
+                continue;
+            }
+            if metadata.is_dir() {
+                pending.push(path);
+            } else if metadata.is_file() {
+                entries.push(path);
+                if entries.len() > 10_000 {
+                    return Err(CliError(
+                        "Folder import is limited to 10,000 regular files.".to_owned(),
+                    )
+                    .into());
+                }
+            }
+        }
     }
     entries.sort_by(|left, right| {
-        left.file_name()
-            .unwrap_or_default()
-            .cmp(right.file_name().unwrap_or_default())
+        left.strip_prefix(&directory)
+            .unwrap_or(left)
+            .cmp(right.strip_prefix(&directory).unwrap_or(right))
     });
     let mut rows = Vec::new();
     for entry in entries {
