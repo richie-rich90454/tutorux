@@ -113,8 +113,7 @@ pub(crate) fn archive_identity_from_file(
 pub(crate) fn same_path(left: &Path, right: &Path) -> bool {
     #[cfg(any(windows, target_os = "macos"))]
     {
-        left.to_string_lossy()
-            .eq_ignore_ascii_case(&right.to_string_lossy())
+        left.to_string_lossy().to_lowercase() == right.to_string_lossy().to_lowercase()
     }
     #[cfg(not(any(windows, target_os = "macos")))]
     {
