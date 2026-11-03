@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixtures";
 import { fileURLToPath } from "node:url";
 
 test.beforeEach(async ({ page }) => {

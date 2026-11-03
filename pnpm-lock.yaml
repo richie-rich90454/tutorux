@@ -209,6 +209,12 @@ importers:
       '@vitest/coverage-v8':
         specifier: 5.0.5
         version: 5.0.5(vitest@5.0.5)
+      '@vitest/istanbul-lib-coverage':
+        specifier: 1.0.2
+        version: 1.0.2
+      ast-v8-to-istanbul:
+        specifier: 1.0.7
+        version: 1.0.7
       eslint:
         specifier: 10.13.0
         version: 10.13.0(jiti@2.7.0)

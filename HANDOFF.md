@@ -8,7 +8,7 @@ The GUI rewrite is feature-complete. The SolidJS, TypeScript, Tauri, and Rust im
 - Package manager: pnpm 12 (`package.json` `packageManager`; the workflow must not also pin a version)
 - Formatter: oxfmt 0.75 (`.oxfmtrc.json`)
 - Required TypeScript pin: `6.0.3`
-- Measured coverage: 100% statements, branches, functions, and lines for every first-party `frontend/**/*.ts` module, with no coverage-ignore comments or file exclusions; `.tsx` UI is covered behaviorally by Playwright (see `docs/verification.md`)
+- Measured coverage: 100% statements, branches, functions, and lines for every first-party `frontend/**/*.ts` module, with no coverage-ignore comments or file exclusions; `.tsx` UI is covered behaviorally by Playwright, and `pnpm run test:e2e` enforces source-mapped browser-coverage floors (see `docs/verification.md`)
 - CLI entry point: `src-tauri/src/bin/tutorux-cli/main.rs`; command modules live in `src-tauri/src/core/cli/`
 - Desktop host: `src-tauri/src/`
 - Rust package: `src-tauri/Cargo.toml` (desktop binary plus the feature-gated standalone `tutorux-audio-helper`)
@@ -95,7 +95,7 @@ cargo test --locked --manifest-path src-tauri/Cargo.toml --features audio-helper
 node scripts/rust-parity/run.mjs
 ```
 
-Test inventory: 111 Vitest files and 2,128 tests; 24 Playwright tests in 12 files; 221 Rust library tests plus 8 audio-helper tests; 47 CLI contract cases covering 218 registered capabilities. `pnpm run test:coverage` enforces 100% statements, branches, functions, and lines and is the CI unit-test step. CI also runs the browser suite, formatting, Clippy, Rust tests, the contract harness, the static build, and the desktop package on Windows, macOS, and Linux. `pnpm run desktop:build` produces MSI and NSIS installers plus a portable EXE. The release executable is a Windows GUI-subsystem binary and creates no application-data runtime directory. The in-process llama.cpp and whisper.cpp link was verified; real-model inference, live-microphone Whisper, device matrices, and macOS/Linux capture remain release qualification work. `pnpm audit --audit-level high` currently reports no known vulnerabilities.
+Test inventory: 111 Vitest files and 2,128 tests; 34 Playwright tests in 21 files with source-mapped coverage floors; 223 Rust library tests plus 8 audio-helper tests; 47 CLI contract cases covering 218 registered capabilities. `pnpm run test:coverage` enforces 100% statements, branches, functions, and lines and is the CI unit-test step. `pnpm run test:e2e` runs the browser suite and enforces the E2E coverage ratchet. The Rust suite includes a windowless create → authorize → save → re-authorize flow test that exercises the real archive lock registry. CI also runs formatting, Clippy, Rust tests, the contract harness, the static build, and the desktop package on Windows, macOS, and Linux. `pnpm run desktop:build` produces MSI and NSIS installers plus a portable EXE. The release executable is a Windows GUI-subsystem binary and creates no application-data runtime directory. The in-process llama.cpp and whisper.cpp link was verified; real-model inference, live-microphone Whisper, device matrices, and macOS/Linux capture remain release qualification work. `pnpm audit --audit-level high` currently reports no known vulnerabilities.
 
 ## Commit requirements
 

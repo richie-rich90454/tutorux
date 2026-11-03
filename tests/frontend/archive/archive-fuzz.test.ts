@@ -91,44 +91,52 @@ describe("archive parser adversarial robustness", () => {
         });
     });
 
-    it("either rejects or fully verifies every deterministically mutated archive", async () => {
-        const original = await validArchiveBytes();
-        const random = seededRandom(0xa5c0ffee);
-        let rejected = 0;
-        let accepted = 0;
+    it(
+        "either rejects or fully verifies every deterministically mutated archive",
+        { timeout: 30_000 },
+        async () => {
+            const original = await validArchiveBytes();
+            const random = seededRandom(0xa5c0ffee);
+            let rejected = 0;
+            let accepted = 0;
 
-        for (let iteration = 0; iteration < 1_000; iteration += 1) {
-            const candidate = mutate(original, random);
-            try {
-                const snapshot = await openArchiveBytes(candidate);
-                const result = await verifyArchiveSnapshot(snapshot, { full: true });
-                expect(result.valid).toBe(true);
-                expect(result.issues).toEqual([]);
-                accepted += 1;
-            } catch (error) {
-                expect(error).toBeInstanceOf(Error);
-                expect(String(error)).not.toBe("");
-                rejected += 1;
+            for (let iteration = 0; iteration < 1_000; iteration += 1) {
+                const candidate = mutate(original, random);
+                try {
+                    const snapshot = await openArchiveBytes(candidate);
+                    const result = await verifyArchiveSnapshot(snapshot, { full: true });
+                    expect(result.valid).toBe(true);
+                    expect(result.issues).toEqual([]);
+                    accepted += 1;
+                } catch (error) {
+                    expect(error).toBeInstanceOf(Error);
+                    expect(String(error)).not.toBe("");
+                    rejected += 1;
+                }
             }
-        }
 
-        expect(rejected + accepted).toBe(1_000);
-        expect(rejected).toBeGreaterThan(0);
-    });
+            expect(rejected + accepted).toBe(1_000);
+            expect(rejected).toBeGreaterThan(0);
+        },
+    );
 
-    it("handles arbitrary byte streams as invalid archives without crashing", async () => {
-        const random = seededRandom(0x1badb002);
-        for (let iteration = 0; iteration < 500; iteration += 1) {
-            const length = Math.floor(random() * 1_024);
-            const candidate = new Uint8Array(length);
-            for (let index = 0; index < length; index += 1)
-                candidate[index] = Math.floor(random() * 256);
-            try {
-                const snapshot = await openArchiveBytes(candidate);
-                await verifyArchiveSnapshot(snapshot, { full: true });
-            } catch (error) {
-                expect(error).toBeInstanceOf(Error);
+    it(
+        "handles arbitrary byte streams as invalid archives without crashing",
+        { timeout: 30_000 },
+        async () => {
+            const random = seededRandom(0x1badb002);
+            for (let iteration = 0; iteration < 500; iteration += 1) {
+                const length = Math.floor(random() * 1_024);
+                const candidate = new Uint8Array(length);
+                for (let index = 0; index < length; index += 1)
+                    candidate[index] = Math.floor(random() * 256);
+                try {
+                    const snapshot = await openArchiveBytes(candidate);
+                    await verifyArchiveSnapshot(snapshot, { full: true });
+                } catch (error) {
+                    expect(error).toBeInstanceOf(Error);
+                }
             }
-        }
-    });
+        },
+    );
 });

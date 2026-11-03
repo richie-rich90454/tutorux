@@ -3,6 +3,7 @@
 /node_modules/
 /.vite/
 /coverage/
+/coverage-e2e/
 /test-results/
 /playwright-report/
 /src-tauri/target/

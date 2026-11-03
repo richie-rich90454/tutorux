@@ -6,7 +6,7 @@ Last verified: 2026-11-03 · Windows 11 · Node 24 · pnpm 12 · Rust stable
 
 Measured coverage applies to every first-party TypeScript module under `frontend/` (`frontend/**/*.ts`, including `frontend/platform/tauri.ts`). Declaration files are the only exclusion. There are no coverage-ignore comments, file exclusions, skipped tests, or test-only production branches.
 
-React-style `.tsx` SolidJS components and `index.html` are presentation code exercised by the Playwright end-to-end suite (`tests/e2e`, 22 tests) and the static Tailwind-class guard. Their rendering branches are not line-measured; this is the one remaining coverage limitation.
+React-style `.tsx` SolidJS components and `index.html` are presentation code exercised by the Playwright end-to-end suite (`tests/e2e`, 34 tests in 21 files) and the static Tailwind-class guard. `pnpm run test:e2e` also collects real V8 coverage from the browser run, maps it back through the production source maps, and enforces floors over every first-party module in the web bundle (currently 48% statements, 34% branches, 58% functions, 48% lines). The remaining uncovered code is dominated by desktop-only adapters, hardware capture, and network-failure paths that the browser cannot execute; those are covered by the Rust flow tests and the 100% unit suite. The E2E coverage floors are a ratchet: raise them when the suite earns more coverage, never lower them.
 
 ## Commands and results
 
@@ -17,10 +17,10 @@ React-style `.tsx` SolidJS components and `index.html` are presentation code exe
 | `pnpm run format:check` | pass |
 | `pnpm run test:coverage` | **100% statements, branches, functions, lines** |
 | `pnpm exec vitest run` | 111 files, 2128 tests pass |
-| `pnpm exec playwright test` | 22 pass |
+| `pnpm exec playwright test` | 34 pass |
 | `cargo fmt --check` | pass |
 | `cargo clippy --all-targets --all-features --locked -D warnings` | pass |
-| `cargo test --all-features --locked` | 221 lib + 8 helper pass |
+| `cargo test --all-features --locked` | 223 lib + 8 helper pass |
 | `node scripts/rust-parity/run.mjs` | 47/47 cases, 218 capabilities, 0 missing |
 | `pnpm audit --audit-level high` | no known vulnerabilities |
 | `pnpm run build` | pass |
@@ -66,7 +66,7 @@ Representative removals:
 5. The desktop save path compared a destination identity captured before staging against the destination at publication, and each authorization token carried its own identity copy. A concurrent Tutorux save, a re-authorization, or a recording checkpoint could therefore leave a stale identity and report a false "archive changed outside Tutorux" conflict. Identities are now stored once per canonical path and shared by every token; preparation no longer rejects on identity, publication compares against the path identity and accepts an identical re-publication, failed checkpoints roll back to their previous size, and Windows handles are compared by volume/file ID instead of timestamps. Rust regression tests cover the accepted Tutorux advance, stale tokens, idempotent re-publication, and the rejected foreign change; a platform test asserts save/checkpoint ordering.
 6. Recording playback requested the entire track and failed above the 32 MiB preview limit. Playback now loads a 30-second window from the start or the selected cue, matching the UI copy and working for long recordings.
 7. CI failed before any check because `pnpm/action-setup` pinned `version: 12` while `package.json` pins `packageManager: pnpm@12.14.0`. The action now reads the package manager field only.
-8. Windows archive creation succeeded, but opening the new archive failed with `Could not verify archive contents: ... (os error 33)`, and saves could report the same "changed outside" conflict. Windows byte-range locks are mandatory, so hashing the archive through a second handle while the lock was held raised `ERROR_LOCK_VIOLATION`; the save path mapped that error to the conflict message. Authorization, preparation, publication, and recording checkpoints now hash and read only through the handle that owns the lock; the replacement handle is adopted before hashing the published file. Rust tests cover hashing a locked archive.
+8. Windows archive creation succeeded, but opening the new archive failed with `Could not verify archive contents: ... (os error 33)`, and saves could report the same "changed outside" conflict. Windows byte-range locks are mandatory, so hashing the archive through a second handle while the lock was held raised `ERROR_LOCK_VIOLATION`; the save path mapped that error to the conflict message. Authorization, preparation, publication, and recording checkpoints now hash and read only through the handle that owns the lock; the replacement handle is adopted before hashing the published file. A windowless Rust flow test now runs the exact create → authorize → save → re-authorize → save-through-a-stale-token sequence against the real lock registry, so this class of defect cannot return without failing `cargo test`.
 
 ## Unverified environment
 
@@ -74,6 +74,7 @@ Representative removals:
 - Real microphone, system-audio capture, and Whisper hardware were not exercised; the suites use deterministic browser/device fakes.
 - Signing and notarization still require repository secrets; tagged releases fail fast without them.
 - `.tsx` rendering branches are covered behaviorally by E2E, not by line coverage.
+- Browser E2E coverage is enforced as a ratchet over the web bundle; desktop-only adapters and hardware capture are covered by Rust and unit tests instead.
 
 ## Reproduce
 

@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixtures";
 import type { Page } from "@playwright/test";
 import { readFile } from "node:fs/promises";
 import { openArchiveBytes, verifyArchiveSnapshot } from "../../frontend/archive/archive";

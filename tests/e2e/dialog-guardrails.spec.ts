@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixtures";
 import { createArchive, installAppHarness, navigateToSidebarView } from "./helpers/app";
 
 test.beforeEach(async ({ page }) => {

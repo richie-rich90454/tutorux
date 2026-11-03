@@ -16,6 +16,24 @@ use tauri::{AppHandle, Manager, State};
 use tauri_plugin_fs::FsExt;
 use uuid::Uuid;
 
+/// The filesystem-scope operations a save needs. Keeping this seam explicit lets the
+/// full save flow run in tests without a window or a Tauri runtime.
+pub(crate) trait SaveScope {
+    fn allow_file(&self, path: &Path) -> Result<(), String>;
+    fn forbid_file(&self, path: &Path);
+}
+
+impl SaveScope for tauri::fs::Scope {
+    fn allow_file(&self, path: &Path) -> Result<(), String> {
+        <tauri::fs::Scope>::allow_file(self, path)
+            .map_err(|error| format!("Could not authorize the temporary archive: {error}"))
+    }
+
+    fn forbid_file(&self, path: &Path) {
+        let _ = <tauri::fs::Scope>::forbid_file(self, path);
+    }
+}
+
 #[tauri::command]
 pub(crate) async fn prepare_archive_save(
     target_path: String,
@@ -26,19 +44,27 @@ pub(crate) async fn prepare_archive_save(
 ) -> Result<SavePreparation, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<DesktopState>();
-        prepare_archive_save_blocking(target_path, archive_token, create_only, kind, &app, &state)
+        let scope = app.fs_scope();
+        prepare_archive_save_blocking(
+            target_path,
+            archive_token,
+            create_only,
+            kind,
+            &scope,
+            state.inner(),
+        )
     })
     .await
     .map_err(|_| "The archive save could not be prepared.".to_owned())?
 }
 
-fn prepare_archive_save_blocking(
+pub(crate) fn prepare_archive_save_blocking(
     target_path: String,
     archive_token: Option<String>,
     create_only: bool,
     kind: Option<SaveKind>,
-    app: &AppHandle,
-    state: &State<'_, DesktopState>,
+    scope: &impl SaveScope,
+    state: &DesktopState,
 ) -> Result<SavePreparation, String> {
     let source_archive_token = archive_token.clone();
     let kind = kind.unwrap_or_default();
@@ -94,15 +120,13 @@ fn prepare_archive_save_blocking(
 
     let token = Uuid::new_v4().to_string();
     let temporary = parent.join(format!(".tutorux-{token}.partial"));
-    app.fs_scope()
-        .allow_file(&temporary)
-        .map_err(|error| format!("Could not authorize the temporary archive: {error}"))?;
+    scope.allow_file(&temporary)?;
     let mut pending_saves = state
         .pending_saves
         .lock()
         .map_err(|_| "Archive save state is unavailable.".to_owned())?;
     if pending_saves.len() >= 64 {
-        let _ = app.fs_scope().forbid_file(&temporary);
+        scope.forbid_file(&temporary);
         return Err(
             "Too many unfinished archive saves are open. Finish or cancel them before starting another."
                 .to_owned(),
@@ -130,16 +154,17 @@ fn prepare_archive_save_blocking(
 pub(crate) async fn publish_archive_save(token: String, app: AppHandle) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<DesktopState>();
-        publish_archive_save_blocking(token, &app, &state)
+        let scope = app.fs_scope();
+        publish_archive_save_blocking(token, &scope, state.inner())
     })
     .await
     .map_err(|_| "The archive could not be published.".to_owned())?
 }
 
-fn publish_archive_save_blocking(
+pub(crate) fn publish_archive_save_blocking(
     token: String,
-    app: &AppHandle,
-    state: &State<'_, DesktopState>,
+    scope: &impl SaveScope,
+    state: &DesktopState,
 ) -> Result<(), String> {
     let mut pending_saves = state
         .pending_saves
@@ -154,7 +179,7 @@ fn publish_archive_save_blocking(
             .archive_locks
             .for_path(&pending.target, LockMode::Exclusive)?;
         let mut archive_write_lock = state.archive_locks.exclusive_guard(&target_lock)?;
-        let expected_identity = expected_target_identity(&pending, state.inner())?;
+        let expected_identity = expected_target_identity(&pending, state)?;
         let current_identity = if pending.target.exists() {
             let (size, hasher) = archive_write_lock.hash_archive()?;
             Some(ArchiveIdentity {
@@ -177,7 +202,7 @@ fn publish_archive_save_blocking(
             size,
             sha256: format!("{:x}", hasher.clone().finalize()),
         };
-        remember_archive_identity(state.inner(), &pending.target, &identity)?;
+        remember_archive_identity(state, &pending.target, &identity)?;
         if let Some(archive_token) = &pending.source_archive_token {
             let mut opened_archives = state
                 .opened_archives
@@ -202,7 +227,7 @@ fn publish_archive_save_blocking(
     if result.is_err() {
         pending_saves.remove(&token);
         let _ = fs::remove_file(&pending.temporary);
-        let _ = app.fs_scope().forbid_file(&pending.temporary);
+        scope.forbid_file(&pending.temporary);
         let backup_directory = pending
             .target
             .with_file_name(format!(".tutorux-{token}.backup"));
@@ -211,7 +236,7 @@ fn publish_archive_save_blocking(
         }
     } else {
         pending_saves.remove(&token);
-        let _ = app.fs_scope().forbid_file(&pending.temporary);
+        scope.forbid_file(&pending.temporary);
     }
     result
 }

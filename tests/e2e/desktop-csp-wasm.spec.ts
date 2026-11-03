@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixtures";
 
 test("desktop CSP allows WebAssembly compilation without enabling eval", async ({ page }) => {
     const config = JSON.parse(

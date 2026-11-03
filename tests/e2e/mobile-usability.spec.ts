@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixtures";
 import { createArchive, installAppHarness } from "./helpers/app";
 
 test.beforeEach(async ({ page }) => {

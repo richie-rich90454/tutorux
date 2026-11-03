@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./fixtures";
 import { readFile } from "node:fs/promises";
 import { strFromU8, unzipSync } from "fflate";
 import { openArchiveBytes, verifyArchiveSnapshot } from "../../frontend/archive/archive";

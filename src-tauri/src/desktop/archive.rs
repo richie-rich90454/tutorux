@@ -27,9 +27,9 @@ pub(crate) async fn authorize_archive_path(
     .map_err(|_| "The archive could not be authorized.".to_owned())?
 }
 
-fn authorize_archive_path_blocking(
+pub(crate) fn authorize_archive_path_blocking(
     path: &str,
-    state: &State<'_, DesktopState>,
+    state: &DesktopState,
 ) -> Result<ArchiveSelection, String> {
     let location = normalized_location_path(Path::new(path))?;
     let selected =

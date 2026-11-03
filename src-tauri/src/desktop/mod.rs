@@ -7,6 +7,9 @@ pub(crate) mod menu;
 pub(crate) mod save;
 pub(crate) mod state;
 
+#[cfg(test)]
+mod flow_tests;
+
 pub(crate) use identity::{
     archive_identity, archive_identity_and_hasher, resolve_existing_file, same_path,
 };
