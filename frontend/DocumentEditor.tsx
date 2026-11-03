@@ -948,7 +948,7 @@ export function DocumentEditor(props: {
                                 <div
                                     class={cn(
                                         "document-block-heading",
-                                        "items-center bg-[color-mix(in_srgb,_var(--surface-subtle)_68%,_var(--surface))] border-b border-b-line-soft flex gap-[7px] min-h-[34px] pt-1 pr-1.5 pb-1 pl-[9px]",
+                                        "items-center bg-[color-mix(in_srgb,_var(--surface-subtle)_68%,_var(--surface))] border-b border-b-line-soft flex flex-wrap gap-[7px] gap-y-1 min-h-[34px] pt-1 pr-1.5 pb-1 pl-[9px]",
                                     )}
                                 >
                                     <span
@@ -995,7 +995,7 @@ export function DocumentEditor(props: {
                                                 props.blocks.length >= MAX_JOURNAL_NOTE_BLOCKS
                                             }
                                             onClick={() => splitBlock(index)}
-                                            class="focus-visible:outline-offset-1 focus-visible:outline-3 focus-visible:outline-[color-mix(in_srgb,_var(--accent)_42%,_transparent)] disabled:text-line-strong focus-visible:bg-surface focus-visible:text-ink hover:bg-surface hover:text-ink bg-transparent rounded-[5px] border-0 cursor-pointer grid text-xs h-[24px] p-0 place-items-center w-[24px] text-inherit disabled:cursor-not-allowed! disabled:opacity-56"
+                                            class="focus-visible:outline-offset-1 focus-visible:outline-3 focus-visible:outline-[color-mix(in_srgb,_var(--accent)_42%,_transparent)] disabled:text-line-strong focus-visible:bg-surface focus-visible:text-ink hover:bg-surface hover:text-ink bg-transparent rounded-[5px] border-0 cursor-pointer flex-none whitespace-nowrap text-xs h-[24px] px-1.5 place-items-center text-inherit disabled:cursor-not-allowed! disabled:opacity-56"
                                         >
                                             Split
                                         </button>
@@ -1007,7 +1007,7 @@ export function DocumentEditor(props: {
                                                 block().kind !== props.blocks[index + 1]?.kind
                                             }
                                             onClick={() => mergeNextBlock(index)}
-                                            class="focus-visible:outline-offset-1 focus-visible:outline-3 focus-visible:outline-[color-mix(in_srgb,_var(--accent)_42%,_transparent)] disabled:text-line-strong focus-visible:bg-surface focus-visible:text-ink hover:bg-surface hover:text-ink bg-transparent rounded-[5px] border-0 cursor-pointer grid text-xs h-[24px] p-0 place-items-center w-[24px] text-inherit disabled:cursor-not-allowed! disabled:opacity-56"
+                                            class="focus-visible:outline-offset-1 focus-visible:outline-3 focus-visible:outline-[color-mix(in_srgb,_var(--accent)_42%,_transparent)] disabled:text-line-strong focus-visible:bg-surface focus-visible:text-ink hover:bg-surface hover:text-ink bg-transparent rounded-[5px] border-0 cursor-pointer flex-none whitespace-nowrap text-xs h-[24px] px-1.5 place-items-center text-inherit disabled:cursor-not-allowed! disabled:opacity-56"
                                         >
                                             Merge
                                         </button>
@@ -1016,7 +1016,7 @@ export function DocumentEditor(props: {
                                             aria-label={`Move block ${index + 1} up`}
                                             disabled={index === 0}
                                             onClick={() => moveBlock(index, -1)}
-                                            class="focus-visible:outline-offset-1 focus-visible:outline-3 focus-visible:outline-[color-mix(in_srgb,_var(--accent)_42%,_transparent)] disabled:text-line-strong focus-visible:bg-surface focus-visible:text-ink hover:bg-surface hover:text-ink bg-transparent rounded-[5px] border-0 cursor-pointer grid text-xs h-[24px] p-0 place-items-center w-[24px] text-inherit disabled:cursor-not-allowed! disabled:opacity-56"
+                                            class="focus-visible:outline-offset-1 focus-visible:outline-3 focus-visible:outline-[color-mix(in_srgb,_var(--accent)_42%,_transparent)] disabled:text-line-strong focus-visible:bg-surface focus-visible:text-ink hover:bg-surface hover:text-ink bg-transparent rounded-[5px] border-0 cursor-pointer flex-none grid text-xs h-[24px] p-0 place-items-center w-[24px] text-inherit disabled:cursor-not-allowed! disabled:opacity-56"
                                         >
                                             ↑
                                         </button>
@@ -1025,14 +1025,14 @@ export function DocumentEditor(props: {
                                             aria-label={`Move block ${index + 1} down`}
                                             disabled={index === props.blocks.length - 1}
                                             onClick={() => moveBlock(index, 1)}
-                                            class="focus-visible:outline-offset-1 focus-visible:outline-3 focus-visible:outline-[color-mix(in_srgb,_var(--accent)_42%,_transparent)] disabled:text-line-strong focus-visible:bg-surface focus-visible:text-ink hover:bg-surface hover:text-ink bg-transparent rounded-[5px] border-0 cursor-pointer grid text-xs h-[24px] p-0 place-items-center w-[24px] text-inherit disabled:cursor-not-allowed! disabled:opacity-56"
+                                            class="focus-visible:outline-offset-1 focus-visible:outline-3 focus-visible:outline-[color-mix(in_srgb,_var(--accent)_42%,_transparent)] disabled:text-line-strong focus-visible:bg-surface focus-visible:text-ink hover:bg-surface hover:text-ink bg-transparent rounded-[5px] border-0 cursor-pointer flex-none grid text-xs h-[24px] p-0 place-items-center w-[24px] text-inherit disabled:cursor-not-allowed! disabled:opacity-56"
                                         >
                                             ↓
                                         </button>
                                         <button
                                             class={cn(
                                                 "document-block-remove",
-                                                "hover:text-[var(--danger,_#a85343)] focus-visible:outline-offset-1 focus-visible:outline-3 focus-visible:outline-[color-mix(in_srgb,_var(--accent)_42%,_transparent)] disabled:text-line-strong focus-visible:bg-surface focus-visible:text-ink hover:bg-surface hover:text-ink bg-transparent rounded-[5px] border-0 cursor-pointer grid text-xs h-[24px] p-0 place-items-center w-[24px] text-inherit disabled:cursor-not-allowed! disabled:opacity-56",
+                                                "hover:text-[var(--danger,_#a85343)] focus-visible:outline-offset-1 focus-visible:outline-3 focus-visible:outline-[color-mix(in_srgb,_var(--accent)_42%,_transparent)] disabled:text-line-strong focus-visible:bg-surface focus-visible:text-ink hover:bg-surface hover:text-ink bg-transparent rounded-[5px] border-0 cursor-pointer flex-none grid text-xs h-[24px] p-0 place-items-center w-[24px] text-inherit disabled:cursor-not-allowed! disabled:opacity-56",
                                             )}
                                             type="button"
                                             aria-label={`Remove block ${index + 1}`}

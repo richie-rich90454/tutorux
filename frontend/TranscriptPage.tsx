@@ -423,11 +423,13 @@ export function TranscriptPage(props: {
         if (!session || !track) return;
         setPlaybackError("");
         try {
+            const start = BigInt(startTimeUs);
             const preview = await buildAudioPreview(
                 props.snapshot,
                 session.id,
                 track.id,
-                startTimeUs,
+                start,
+                start + 30_000_000n,
             );
             clearAudio();
             const url = URL.createObjectURL(

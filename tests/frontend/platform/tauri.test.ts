@@ -658,6 +658,43 @@ describe("saveArchive", () => {
         expect(lastCall("publish_archive_save").args).toEqual({ token: "save-token" });
     });
 
+    it("serializes saves with recording checkpoints on the same archive", async () => {
+        const opened = await openDesktopArchive("tok-queue", 4n);
+        const events: string[] = [];
+        let releasePublish!: () => void;
+        const publishGate = new Promise<void>((resolve) => {
+            releasePublish = resolve;
+        });
+        setRoutes({
+            read_archive_range: (args) =>
+                new ArrayBuffer(Number((args as { length: number }).length)),
+            prepare_archive_save: () => ({ token: "queued-save", temporaryPath: "C:/tmp/queued" }),
+            publish_archive_save: async () => {
+                events.push("publish:start");
+                await publishGate;
+                events.push("publish:end");
+            },
+            append_audio_archive_generation: (args) => {
+                events.push("append");
+                const { expectedSize, bytes } = args as {
+                    expectedSize: string;
+                    bytes: number[];
+                };
+                return { size: (BigInt(expectedSize) + BigInt(bytes.length)).toString() };
+            },
+        });
+
+        const saving = platform.saveArchive(opened.source, "queued.tux", "C:/queued.tux");
+        await vi.waitFor(() => expect(events).toContain("publish:start"));
+        const appending = persistMicrophoneArchiveGeneration(opened.source, new Uint8Array(32), 1n);
+        await Promise.resolve();
+        expect(events).toEqual(["publish:start"]);
+
+        releasePublish();
+        await Promise.all([saving, appending]);
+        expect(events).toEqual(["publish:start", "publish:end", "append"]);
+    });
+
     it("asks for a destination and returns null when the picker is dismissed", async () => {
         harness.saveResult = null;
         await expect(

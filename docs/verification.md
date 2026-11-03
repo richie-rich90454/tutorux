@@ -62,6 +62,10 @@ Representative removals:
 1. The manifest-attachment test claimed to exercise metadata without `record_role` but passed the unmodified record array to the snapshot; the modified record is now substituted before the preview, and the fallback branch is genuinely executed.
 2. The browser PDF.js branch could not execute under the Node transform because the module-level `let` was constant-folded. The worker source now lives in a small state object, so both the Node legacy build and the browser build are exercised.
 3. The PDF page-limit and worker-source branches had no tests; both now have behavioral tests (513-page fixture, browser fixture with a mocked PDF.js module).
+4. Document block actions were 24 px wide while their "Split" and "Merge" labels were wider, so the labels overflowed into each other. The buttons now size to their labels, the header wraps when narrow, and an E2E test checks text fit, button separation, and page overflow at 1440 px and 390 px.
+5. The desktop save path compared a destination identity captured before staging against the destination at publication. A concurrent Tutorux save or audio checkpoint updates the destination and its recorded identity, so the second operation reported a false "archive changed outside Tutorux" conflict. Publication now compares against the latest identity recorded for an opened archive when the destination is the same file, while foreign changes still fail. Desktop save and checkpoint commands are also serialized, so Tutorux cannot race itself. Rust regression tests cover both the accepted Tutorux advance and the rejected foreign change; a platform test asserts save/checkpoint ordering.
+6. Recording playback requested the entire track and failed above the 32 MiB preview limit. Playback now loads a 30-second window from the start or the selected cue, matching the UI copy and working for long recordings.
+7. CI failed before any check because `pnpm/action-setup` pinned `version: 12` while `package.json` pins `packageManager: pnpm@12.14.0`. The action now reads the package manager field only.
 
 ## Unverified environment
 
