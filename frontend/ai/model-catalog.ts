@@ -141,9 +141,7 @@ export async function loadAiModelCatalog(
         cache.delete(provider.id);
         cache.set(provider.id, { expiresAt: Date.now() + CACHE_TTL_MS, models });
         while (cache.size > MAXIMUM_CACHED_PROVIDERS) {
-            const oldestProvider = cache.keys().next().value;
-            if (oldestProvider === undefined) break;
-            cache.delete(oldestProvider);
+            cache.delete(cache.keys().next().value!);
         }
         return { models, freshness: "fresh" };
     } catch (cause) {

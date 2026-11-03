@@ -331,8 +331,7 @@ async function getSessionAudioChunks(
             const record = await snapshot.getRecord(RecordType.audioChunk, item.id);
             if (!record)
                 throw new Error(`Recording chunk ${item.id} disappeared from the archive.`);
-            if (includeDeleted || field(record, "_deleted") !== "true")
-                chunks.set(record.id.toLowerCase(), record);
+            chunks.set(record.id.toLowerCase(), record);
         }
     }
     return [...chunks.values()];
@@ -505,7 +504,7 @@ function splitReferenceValues(value: string): string[] {
 
 function mergeReference(value: string, id: string): string {
     const references = splitReferenceValues(value);
-    if (!references.some((item) => item.toLowerCase() === id.toLowerCase())) references.push(id);
+    references.push(id);
     return references.join(",");
 }
 

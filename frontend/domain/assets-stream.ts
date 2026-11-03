@@ -269,9 +269,6 @@ export async function prepareStreamingAssetBatchImport(
         ) {
             throw new Error(`${cleanFilename(source.name)} exceeds the 256 MiB per-file limit.`);
         }
-        if (source.size > Number.MAX_SAFE_INTEGER - totalBytes) {
-            throw new Error("The selected materials are too large to import as one batch.");
-        }
         items.push(await prepareStreamingAssetImport(snapshot, source, sessionId, reusableBlobs));
         totalBytes += source.size;
         onProgress?.("checking", index + 1, selected.length);

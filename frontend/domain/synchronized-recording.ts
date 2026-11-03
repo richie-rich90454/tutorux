@@ -234,12 +234,6 @@ export function makeSynchronizedCaptureStartRecords(options: {
     captureSourceBackend: string;
     consentConfirmedBy: string;
 }): ArchiveRecord[] {
-    if (
-        options.session.type !== RecordType.session ||
-        options.session.fields.get("_deleted") === "true"
-    ) {
-        throw new Error("Choose an active tutoring session before recording audio.");
-    }
     if (options.tracks.length === 0)
         throw new Error("No native audio source is available to record.");
     assertTimestamp(options.startedAtUs, "recording start");
@@ -259,7 +253,7 @@ export function makeSynchronizedCaptureStartRecords(options: {
             throw new Error("A native audio source returned an unsupported sample rate.");
         }
     }
-    assertCaptureSession(options.session, options.tracks[0]!.sampleRateHz);
+    assertCaptureSession(options.session);
 
     const timestamp = options.startedAtUs;
     const durability = options.durability ?? "default";
@@ -563,7 +557,7 @@ export async function makeSynchronizedRecordingRecords(options: {
             if (source.kind === "system-audio") fields.set("label", "Shared system audio");
             fields.set("state", partial ? "partial" : "completed");
             fields.set("recording_take_id", takeId);
-        } else if (record.id === takeId) {
+        } else {
             fields.set("track_ids", takeTrackIds.join(","));
             fields.set(
                 "source",
@@ -582,9 +576,6 @@ export async function makeSynchronizedRecordingRecords(options: {
     const sessionFields = new Map(session.fields);
     sessionFields.set("recording_track_ids", trackIds.join(","));
     sessionFields.set("recording_track_count", String(trackIds.length));
-    if (!sessionFields.get("recording_track_id")) {
-        sessionFields.set("recording_track_id", takeTrackIds[0]!);
-    }
     sessionFields.set(
         "recording_source",
         imports.length === 2 ? "microphone+system-audio" : imports[0]!.kind,
@@ -647,20 +638,13 @@ function mergedTrackIds(session: ArchiveRecord, knownTrackIds: readonly string[]
 
 function parseCounter(value: string | undefined): bigint | undefined {
     if (value === undefined || !/^\d+$/u.test(value)) return undefined;
-    try {
-        const parsed = BigInt(value);
-        return parsed <= U64_MAX ? parsed : undefined;
-    } catch {
-        return undefined;
-    }
+    const parsed = BigInt(value);
+    return parsed <= U64_MAX ? parsed : undefined;
 }
 
-function assertCaptureSession(session: ArchiveRecord, sampleRateHz: number): void {
+function assertCaptureSession(session: ArchiveRecord): void {
     if (session.type !== RecordType.session || session.fields.get("_deleted") === "true") {
         throw new Error("Choose an active tutoring session before recording audio.");
-    }
-    if (!Number.isSafeInteger(sampleRateHz) || sampleRateHz < 8_000 || sampleRateHz > 384_000) {
-        throw new Error("A native audio source returned an unsupported sample rate.");
     }
     if (
         ["initializing", "recording", "paused", "finalizing"].includes(
@@ -694,12 +678,8 @@ function makeRecord(
 
 function parseArchiveCounter(value: string | undefined): bigint | undefined {
     if (value === undefined || !/^\d+$/u.test(value)) return undefined;
-    try {
-        const parsed = BigInt(value);
-        return parsed <= U64_MAX ? parsed : undefined;
-    } catch {
-        return undefined;
-    }
+    const parsed = BigInt(value);
+    return parsed <= U64_MAX ? parsed : undefined;
 }
 
 function nowUs(): string {

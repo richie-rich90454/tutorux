@@ -8,7 +8,12 @@ import { newUuid, RecordType, type ArchiveRecord } from "../../../frontend/archi
 import { makeAssetImport } from "../../../frontend/domain/assets";
 import { makeCustomGuideTemplateRecord } from "../../../frontend/domain/templates";
 import { encodeStudentProgress } from "../../../frontend/domain/student-progress";
-import { aiPackageText, createAiPackageRecord } from "../../../frontend/ai/package";
+import {
+    aiPackageText,
+    createAiPackageRecord,
+    isAiImageAttachmentCandidate,
+    parseAiImageAttachmentManifest,
+} from "../../../frontend/ai/package";
 
 function record(type: number, id: string, fields: Record<string, string>): ArchiveRecord {
     return {
@@ -305,5 +310,299 @@ describe("manual AI package preparation", () => {
         await expect(createAiPackageRecord(archive, sessionId)).rejects.toThrow(
             "8 MiB AI package limit",
         );
+    });
+
+    it("requires an active session", async () => {
+        const sessionId = newUuid();
+        const archive = await archiveWith([
+            record(RecordType.session, sessionId, {
+                subject: "Math",
+                student_id: "anonymous",
+                _deleted: "true",
+            }),
+        ]);
+        await expect(createAiPackageRecord(archive, sessionId)).rejects.toThrow(
+            "Choose an active session before preparing an AI package.",
+        );
+        await expect(createAiPackageRecord(archive, newUuid())).rejects.toThrow(
+            "Choose an active session before preparing an AI package.",
+        );
+    });
+
+    it("rejects more than eight selected images", async () => {
+        const sessionId = newUuid();
+        const archive = await archiveWith([
+            record(RecordType.session, sessionId, { subject: "Math", student_id: "anonymous" }),
+        ]);
+        await expect(
+            createAiPackageRecord(
+                archive,
+                sessionId,
+                "auto",
+                Array.from({ length: 9 }, () => newUuid()),
+            ),
+        ).rejects.toThrow("AI requests can include at most 8 images.");
+    });
+
+    it("rejects invalid and duplicate selected image ids", async () => {
+        const sessionId = newUuid();
+        const archive = await archiveWith([
+            record(RecordType.session, sessionId, { subject: "Math", student_id: "anonymous" }),
+        ]);
+        await expect(
+            createAiPackageRecord(archive, sessionId, "auto", ["not-a-uuid"]),
+        ).rejects.toThrow("Choose valid, unique image materials for the AI request.");
+        const id = newUuid();
+        await expect(createAiPackageRecord(archive, sessionId, "auto", [id, id])).rejects.toThrow(
+            "Choose valid, unique image materials for the AI request.",
+        );
+    });
+
+    it("rejects image selections that exceed the total byte budget", async () => {
+        const sessionId = newUuid();
+        const image = () =>
+            record(RecordType.assetMetadata, newUuid(), {
+                session_id: sessionId,
+                filename: "page.png",
+                mime_type: "image/png",
+                byte_size: String(2 * 1024 * 1024),
+                content_hash: "a".repeat(64),
+                blob_id: newUuid(),
+            });
+        const images = [image(), image(), image()];
+        const archive = await archiveWith([
+            record(RecordType.session, sessionId, { subject: "Math", student_id: "anonymous" }),
+            ...images,
+        ]);
+        await expect(
+            createAiPackageRecord(
+                archive,
+                sessionId,
+                "auto",
+                images.map((image) => image.id),
+            ),
+        ).rejects.toThrow("AI image attachments cannot exceed 4 MiB total.");
+    });
+
+    it("rejects non-JSON AI job exports", () => {
+        expect(() =>
+            aiPackageText(record(RecordType.guide, newUuid(), { format: "json" })),
+        ).toThrow("Select a JSON AI package job.");
+        expect(() =>
+            aiPackageText(record(RecordType.aiJob, newUuid(), { format: "markdown" })),
+        ).toThrow("Select a JSON AI package job.");
+    });
+
+    it("resolves templates by name and tolerates empty built-in overrides", async () => {
+        const sessionId = newUuid();
+        const template = makeCustomGuideTemplateRecord({
+            name: "Short reflection",
+            subject: "Math",
+            description: "A concise review.",
+            sections: ["Evidence"],
+            body: "Keep claims source-backed.",
+        });
+        const override = record(RecordType.settings, newUuid(), {
+            record_role: "guide-template",
+            builtin_template_id: "mathematics",
+        });
+        const archive = await archiveWith([
+            template,
+            override,
+            record(RecordType.session, sessionId, {
+                subject: "Mathematics",
+                student_id: "anonymous",
+            }),
+        ]);
+
+        const byName = await createAiPackageRecord(archive, sessionId, "Short reflection");
+        expect(byName.guideTemplateId).toBe(template.id);
+
+        const prepared = await createAiPackageRecord(archive, sessionId, "auto");
+        const json = JSON.parse(aiPackageText(prepared.job)) as {
+            guide_template: {
+                name: string;
+                subject: string;
+                description: string;
+                section_order: { heading: string }[];
+                editorial_guidance: string;
+            };
+        };
+        expect(json.guide_template.name).toBe("Mathematics");
+        expect(json.guide_template.section_order.length).toBeGreaterThan(0);
+        expect(json.guide_template.editorial_guidance.length).toBeGreaterThan(0);
+    });
+
+    it("marks unverified and invalid progress classifications", async () => {
+        const sessionId = newUuid();
+        const studentId = newUuid();
+        const student = record(RecordType.student, studentId, {
+            display_name: "Mina",
+            progress_classifications: encodeStudentProgress([
+                {
+                    skill: "Fractions",
+                    classification: "unverified-improvement",
+                    note: "Tutor impression.",
+                    reviewedBy: "Tutor",
+                    reviewedAtUs: "1",
+                    evidenceSourceIds: [newUuid()],
+                },
+                {
+                    skill: "Decimals",
+                    classification: "recurring",
+                    note: "Cited missing evidence.",
+                    reviewedBy: "Tutor",
+                    reviewedAtUs: "2",
+                    evidenceSourceIds: [newUuid()],
+                },
+            ]),
+        });
+        const archive = await archiveWith([
+            student,
+            record(RecordType.session, sessionId, { student_id: studentId, subject: "Math" }),
+        ]);
+
+        const prepared = await createAiPackageRecord(archive, sessionId);
+        const json = JSON.parse(aiPackageText(prepared.job)) as {
+            student_progress: {
+                progress_classifications: {
+                    claim_label: string;
+                    source_validation: string;
+                }[];
+                associated: boolean;
+            };
+        };
+        expect(json.student_progress.associated).toBe(true);
+        expect(json.student_progress.progress_classifications[0]).toMatchObject({
+            claim_label: "UNVERIFIED CLAIM: improvement is not established",
+            source_validation: "failed",
+        });
+        expect(json.student_progress.progress_classifications[1]).toMatchObject({
+            claim_label: "UNVERIFIED CLAIM: improvement is not established",
+            source_validation: "failed",
+        });
+    });
+
+    it("ignores a linked student record that was moved to Trash", async () => {
+        const sessionId = newUuid();
+        const studentId = newUuid();
+        const archive = await archiveWith([
+            record(RecordType.student, studentId, {
+                _deleted: "true",
+                display_name: "Mina",
+                preferred_guide_template: "science",
+            }),
+            record(RecordType.session, sessionId, {
+                subject: "Mathematics",
+                student_id: studentId,
+            }),
+        ]);
+
+        const prepared = await createAiPackageRecord(archive, sessionId);
+        const json = JSON.parse(aiPackageText(prepared.job)) as {
+            student_progress: { associated: boolean; progress_classifications: unknown[] };
+        };
+
+        expect(prepared.guideTemplateId).toBe("mathematics");
+        expect(json.student_progress).toEqual({
+            associated: false,
+            progress_classifications: [],
+        });
+    });
+});
+
+describe("AI image attachment manifests", () => {
+    const image = (overrides: Record<string, unknown> = {}) => ({
+        id: newUuid(),
+        filename: "photo.png",
+        mime_type: "image/png",
+        content_hash: "a".repeat(64),
+        byte_size: 10,
+        ...overrides,
+    });
+
+    it("parses valid manifests and treats a missing list as empty", () => {
+        expect(parseAiImageAttachmentManifest({})).toEqual([]);
+        expect(parseAiImageAttachmentManifest({ attached_images: [image()] })).toHaveLength(1);
+    });
+
+    it("rejects invalid manifest containers and entries", () => {
+        for (const value of [null, [], 5, "x"]) {
+            expect(() => parseAiImageAttachmentManifest(value)).toThrow(
+                "The AI image attachment manifest is invalid.",
+            );
+        }
+        expect(() => parseAiImageAttachmentManifest({ attached_images: "x" })).toThrow(
+            "The AI image attachment manifest is invalid.",
+        );
+        expect(() =>
+            parseAiImageAttachmentManifest({
+                attached_images: Array.from({ length: 9 }, () => image()),
+            }),
+        ).toThrow("AI requests can include at most 8 images.");
+        expect(() => parseAiImageAttachmentManifest({ attached_images: [5] })).toThrow(
+            "The AI image attachment manifest is invalid.",
+        );
+
+        const invalidEntries = [
+            image({ id: "bad" }),
+            image({ filename: "" }),
+            image({ filename: 5 }),
+            image({ mime_type: "text/plain" }),
+            image({ mime_type: 5 }),
+            image({ content_hash: "short" }),
+            image({ content_hash: 5 }),
+            image({ byte_size: "10" }),
+            image({ byte_size: 1.5 }),
+            image({ byte_size: 0 }),
+            image({ byte_size: 2 * 1024 * 1024 + 1 }),
+        ];
+        for (const entry of invalidEntries) {
+            expect(() => parseAiImageAttachmentManifest({ attached_images: [entry] })).toThrow(
+                "The AI image attachment manifest is invalid.",
+            );
+        }
+    });
+
+    it("rejects duplicate images and totals above four MiB", () => {
+        const id = newUuid();
+        expect(() =>
+            parseAiImageAttachmentManifest({ attached_images: [image({ id }), image({ id })] }),
+        ).toThrow("The AI image attachment manifest contains duplicate files.");
+
+        const large = () => image({ byte_size: 2 * 1024 * 1024 });
+        expect(() =>
+            parseAiImageAttachmentManifest({ attached_images: [large(), large(), large()] }),
+        ).toThrow("AI image attachments exceed the 4 MiB total limit.");
+    });
+
+    it("classifies image attachment candidates", () => {
+        const candidate = (
+            fields: Record<string, string>,
+            type: number = RecordType.assetMetadata,
+        ) => record(type, newUuid(), fields);
+        const valid = {
+            filename: "photo.png",
+            mime_type: "image/png",
+            byte_size: "10",
+            content_hash: "a".repeat(64),
+            blob_id: newUuid(),
+        };
+        expect(isAiImageAttachmentCandidate(candidate(valid))).toBe(true);
+        expect(isAiImageAttachmentCandidate(candidate(valid, RecordType.guide))).toBe(false);
+        expect(isAiImageAttachmentCandidate(candidate({ ...valid, _deleted: "true" }))).toBe(false);
+        expect(
+            isAiImageAttachmentCandidate(candidate({ ...valid, record_role: "waveform-pyramid" })),
+        ).toBe(false);
+        expect(isAiImageAttachmentCandidate(candidate({ ...valid, mime_type: "text/plain" }))).toBe(
+            false,
+        );
+        expect(isAiImageAttachmentCandidate(candidate({ ...valid, byte_size: "0" }))).toBe(false);
+        expect(isAiImageAttachmentCandidate(candidate({ ...valid, filename: "  " }))).toBe(false);
+        expect(isAiImageAttachmentCandidate(candidate({ ...valid, content_hash: "short" }))).toBe(
+            false,
+        );
+        expect(isAiImageAttachmentCandidate(candidate({ ...valid, blob_id: "" }))).toBe(false);
+        expect(isAiImageAttachmentCandidate(candidate({ filename: "photo.png" }))).toBe(false);
     });
 });

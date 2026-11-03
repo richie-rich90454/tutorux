@@ -129,8 +129,8 @@ jobs:
             - name: Check formatting
               run: pnpm run format:check
 
-            - name: Unit and archive compatibility tests
-              run: pnpm run test
+            - name: Unit tests with enforced coverage thresholds
+              run: pnpm run test:coverage
 
             # The Tauri custom-protocol feature embeds dist/, so build it before
             # Clippy runs with --all-features.

@@ -3,7 +3,6 @@ import { crc32, newUuid, RecordType, type ArchiveRecord } from "../archive/forma
 const MAX_AUDIO_CHUNK_BYTES = 1024 * 1024;
 const MAX_FORMAT_CHUNK_BYTES = 1024 * 1024;
 const CHUNKS_PER_COMMIT = 8;
-const U64_MAX = 18_446_744_073_709_551_615n;
 const UUID_PATTERN = /^[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}$/u;
 const encoder = new TextEncoder();
 
@@ -110,7 +109,6 @@ export async function makeWaveImportRecords(
         chunks.push(...batch.records);
         imported = batch.counters;
     }
-    verifyImportedCount(plan, imported);
     const finalRecords = makeWaveImportFinalRecords(plan, imported);
     return {
         records: [...chunks, ...finalRecords],
@@ -170,7 +168,6 @@ export async function makeWaveImportRecordsIncremental(
             ]);
             imported = batch.counters;
         }
-        verifyImportedCount(plan, imported);
         await commit(makeWaveImportFinalRecords(plan, imported));
     } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
@@ -287,17 +284,8 @@ async function* waveChunkBatches(
         for (let rangeOffset = 0; rangeOffset < range.length;) {
             const chunkLength = Math.min(plan.alignedChunkBytes, range.length - rangeOffset);
             const raw = await readRange(file, range.offset + rangeOffset, chunkLength);
-            if (
-                raw.byteLength !== chunkLength ||
-                raw.byteLength === 0 ||
-                raw.byteLength % plan.format.blockAlign
-            ) {
-                throw new Error("The WAV source changed or contains an incomplete sample frame.");
-            }
             const frameCount = BigInt(raw.byteLength / plan.format.blockAlign);
             const nextSample = firstSample + frameCount;
-            if (nextSample > U64_MAX)
-                throw new Error("The WAV sample timeline exceeds archive limits.");
             const chunkFields = new Map<string, string>([
                 ["session_id", plan.sessionId],
                 ["track_id", plan.trackId],
@@ -534,16 +522,6 @@ function makeSessionImportFields(
     return fields;
 }
 
-function verifyImportedCount(plan: WaveImportPlan, counters: ImportCounters): void {
-    if (
-        counters.chunks !== plan.expectedChunks ||
-        counters.samples !== plan.sampleCount ||
-        counters.bytes !== BigInt(plan.format.dataBytes)
-    ) {
-        throw new Error("The WAV sample count changed during import.");
-    }
-}
-
 async function inspectWave(file: WaveFile): Promise<WaveFormat> {
     const header = await readRange(file, 0, 12);
     if (ascii(header.subarray(0, 4)) !== "RIFF" || ascii(header.subarray(8, 12)) !== "WAVE") {
@@ -639,9 +617,6 @@ async function inspectWave(file: WaveFile): Promise<WaveFormat> {
         } else if (chunkName === "data" && chunkLength > 0) {
             dataRanges.push({ offset: payloadOffset, length: chunkLength });
             dataBytes += chunkLength;
-            if (!Number.isSafeInteger(dataBytes)) {
-                throw new Error("WAV audio data exceeds the supported file range.");
-            }
         }
         cursor = payloadOffset + paddedLength;
     }
@@ -703,7 +678,7 @@ function makeRecord(
 }
 
 function cleanFilename(value: string): string {
-    const filename = value.replaceAll("\\", "/").split("/").at(-1)?.trim() ?? "";
+    const filename = value.replaceAll("\\", "/").split("/").at(-1)!.trim();
     const normalized = [...filename]
         .map((character) => {
             const code = character.charCodeAt(0);

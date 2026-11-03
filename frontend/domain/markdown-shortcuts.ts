@@ -150,6 +150,6 @@ function orientedSelection(
         text,
         selectionStart: Math.min(anchor, focus),
         selectionEnd: Math.max(anchor, focus),
-        selectionDirection: anchor === focus ? "none" : anchor <= focus ? "forward" : "backward",
+        selectionDirection: anchor <= focus ? "forward" : "backward",
     };
 }

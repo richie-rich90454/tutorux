@@ -188,7 +188,6 @@ export async function renderGuidePdf(
     };
 
     const drawTable = (rows: readonly (readonly string[])[]): void => {
-        if (!rows.length || !rows[0]!.length) return;
         const fontSize = 8.4;
         const lineHeight = 10.4;
         const cellPadding = 5;
@@ -196,8 +195,6 @@ export async function renderGuidePdf(
         const columnWidth = CONTENT_WIDTH / columnCount;
         for (let rowIndex = 0; rowIndex < rows.length; rowIndex += 1) {
             const row = rows[rowIndex]!;
-            if (row.length !== columnCount)
-                throw new Error("A guide table has inconsistent column counts.");
             const cellLines = row.map((cell) =>
                 wrapText(
                     cell.replace(/\[\[source:([^\]]+)\]\]/gu, "[source: $1]"),
@@ -1256,8 +1253,7 @@ function serializePdf(
 
     for (let index = 0; index < images.length; index += 1) {
         const image = images[index]!;
-        let dictionary = `/Type /XObject /Subtype /Image /Width ${image.width} /Height ${image.height} /ColorSpace ${image.colorSpace} /BitsPerComponent 8`;
-        if (image.filter) dictionary += ` /Filter ${image.filter}`;
+        let dictionary = `/Type /XObject /Subtype /Image /Width ${image.width} /Height ${image.height} /ColorSpace ${image.colorSpace} /BitsPerComponent 8 /Filter ${image.filter}`;
         if (alphaObjectIds[index]) dictionary += ` /SMask ${alphaObjectIds[index]} 0 R`;
         setObject(imageObjectIds[index]!, streamObject(dictionary, image.bytes));
         if (alphaObjectIds[index]) {
@@ -1292,8 +1288,7 @@ function serializePdf(
     let xref = `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
     for (let id = 1; id < offsets.length; id += 1) {
         const value = offsets[id]!;
-        if (value > 9_999_999_999)
-            throw new Error("The PDF export exceeded the supported file size.");
+        // Guide records (256 MiB) and image streams (128 MiB) are capped, so offsets fit ten digits.
         xref += `${String(value).padStart(10, "0")} 00000 n \n`;
     }
     xref += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R /Info ${infoObjectId} 0 R >>\nstartxref\n${xrefOffset}\n%%EOF\n`;

@@ -144,7 +144,7 @@ function curveBetween(
 ): Pick<EvidenceGraphEdgePath, "path" | "labelX" | "labelY"> {
     const deltaX = to.centerX - from.centerX;
     const deltaY = to.centerY - from.centerY;
-    const length = Math.hypot(deltaX, deltaY) || 1;
+    const length = Math.hypot(deltaX, deltaY);
     const boundaryScale =
         1 / Math.max(Math.abs(deltaX) / (CARD_WIDTH / 2), Math.abs(deltaY) / (CARD_HEIGHT / 2));
     const startX = from.centerX + deltaX * boundaryScale;

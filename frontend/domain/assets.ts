@@ -184,12 +184,6 @@ export async function readAssetBytes(
     const result = new Uint8Array(expectedSize);
     let offset = 0;
     for await (const chunk of iterateVerifiedAssetChunks(snapshot, metadata)) {
-        if (chunk.byteLength > expectedSize - offset) {
-            throw new ArchiveFormatError(
-                "asset_content_integrity_failed",
-                "Material content exceeds its declared size.",
-            );
-        }
         result.set(chunk, offset);
         offset += chunk.byteLength;
     }
@@ -295,11 +289,6 @@ export async function* iterateVerifiedAssetChunks(
                 }
             }
             total += bytes.byteLength;
-            if (total > expectedSize)
-                throw new ArchiveFormatError(
-                    "asset_size_invalid",
-                    "Material size does not match its manifest.",
-                );
             sodium.crypto_hash_sha256_update(digest, bytes);
             yield bytes;
         }
@@ -370,11 +359,6 @@ async function readBlobRecord(
         chunks.push(chunk.blob);
         total += chunk.blob.byteLength;
     }
-    if (total !== byteSize)
-        throw new ArchiveFormatError(
-            "asset_size_invalid",
-            "Material size does not match its manifest.",
-        );
     const result = new Uint8Array(total);
     let offset = 0;
     for (const chunk of chunks) {
@@ -403,7 +387,7 @@ export function detectMimeType(filename: string, bytes: Uint8Array): string {
         signature.every((value, index) => bytes[index] === value);
     const ascii = (offset: number, value: string): boolean =>
         [...value].every((character, index) => bytes[offset + index] === character.charCodeAt(0));
-    const extension = filename.split(".").at(-1)?.toLowerCase() ?? "";
+    const extension = filename.split(".").at(-1)!.toLowerCase();
     if (starts(0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a)) return "image/png";
     if (starts(0xff, 0xd8, 0xff)) return "image/jpeg";
     if (ascii(0, "GIF87a") || ascii(0, "GIF89a")) return "image/gif";

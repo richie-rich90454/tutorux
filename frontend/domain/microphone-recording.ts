@@ -375,10 +375,7 @@ export async function makeMicrophoneRecordingRecords(options: {
             fields.delete("source_filename");
             return { ...record, fields };
         }
-        if (
-            record.type === RecordType.assetMetadata &&
-            (record.id === result.trackId || record.id === result.takeId)
-        ) {
+        if (record.type === RecordType.assetMetadata) {
             const fields = new Map(record.fields);
             fields.set("source", source);
             fields.set("capture_source_backend", captureSourceBackend);
@@ -394,31 +391,28 @@ export async function makeMicrophoneRecordingRecords(options: {
             }
             return { ...record, fields };
         }
-        if (record.type === RecordType.session && record.id === options.session.id) {
-            const fields = new Map(record.fields);
-            for (const key of [...fields.keys()]) {
-                if (
-                    key.startsWith("audio_import_") ||
-                    key === "audio_chunks_imported" ||
-                    key === "audio_samples_imported"
-                ) {
-                    const original = options.session.fields.get(key);
-                    if (original === undefined) fields.delete(key);
-                    else fields.set(key, original);
-                }
+        const fields = new Map(record.fields);
+        for (const key of [...fields.keys()]) {
+            if (
+                key.startsWith("audio_import_") ||
+                key === "audio_chunks_imported" ||
+                key === "audio_samples_imported"
+            ) {
+                const original = options.session.fields.get(key);
+                if (original === undefined) fields.delete(key);
+                else fields.set(key, original);
             }
-            if (fields.get("recording_track_id") === result.trackId) {
-                fields.set("recording_source", source);
-                fields.set("recording_source_backend", captureSourceBackend);
-                fields.set("recording_started_at_us", options.startedAtUs);
-            }
-            fields.set("recording_ended_at_us", endedAtUs);
-            fields.set("capture_consent_at_us", options.consentAtUs);
-            fields.set("capture_consent_policy", "1");
-            fields.set("recording_consent_confirmed_by", options.consentConfirmedBy ?? "");
-            return { ...record, fields };
         }
-        return record;
+        if (fields.get("recording_track_id") === result.trackId) {
+            fields.set("recording_source", source);
+            fields.set("recording_source_backend", captureSourceBackend);
+            fields.set("recording_started_at_us", options.startedAtUs);
+        }
+        fields.set("recording_ended_at_us", endedAtUs);
+        fields.set("capture_consent_at_us", options.consentAtUs);
+        fields.set("capture_consent_policy", "1");
+        fields.set("recording_consent_confirmed_by", options.consentConfirmedBy ?? "");
+        return { ...record, fields };
     });
     return { ...result, records };
 }
@@ -478,12 +472,8 @@ function makeRecord(
 
 function parseCounter(value: string | undefined): bigint | undefined {
     if (value === undefined || !/^\d+$/u.test(value)) return undefined;
-    try {
-        const result = BigInt(value);
-        return result <= 18_446_744_073_709_551_615n ? result : undefined;
-    } catch {
-        return undefined;
-    }
+    const result = BigInt(value);
+    return result <= 18_446_744_073_709_551_615n ? result : undefined;
 }
 
 function addCounter(previous: string | undefined, next: number | string): string {

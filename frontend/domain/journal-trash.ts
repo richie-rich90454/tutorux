@@ -207,7 +207,7 @@ function hasBlockers(blockers: JournalEntryDeleteBlockers): boolean {
 }
 
 function joinReasons(reasons: string[]): string {
-    if (reasons.length < 2) return reasons[0] ?? "linked records";
+    if (reasons.length < 2) return reasons[0]!;
     if (reasons.length === 2) return `${reasons[0]} and ${reasons[1]}`;
     return `${reasons.slice(0, -1).join(", ")}, and ${reasons.at(-1)}`;
 }

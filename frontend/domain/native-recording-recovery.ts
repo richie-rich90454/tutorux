@@ -166,14 +166,11 @@ export async function prepareNativeCaptureRecovery(
         const timelineSamples = BigInt(report.timelineSamples);
         const chunkCount = BigInt(report.chunkCount);
         const byteCount = BigInt(report.byteCount);
-        totals.samples = saturatedAdd(totals.samples, sampleCount);
+        totals.samples += sampleCount;
         if (timelineSamples > totals.timelineSamples) totals.timelineSamples = timelineSamples;
-        totals.chunks = saturatedAdd(totals.chunks, chunkCount);
-        totals.bytes = saturatedAdd(totals.bytes, byteCount);
-        totals.discontinuities = saturatedAdd(
-            totals.discontinuities,
-            BigInt(report.discontinuities),
-        );
+        totals.chunks += chunkCount;
+        totals.bytes += byteCount;
+        totals.discontinuities += BigInt(report.discontinuities);
         const duration = BigInt(report.durationUs);
         if (duration > totals.durationUs) totals.durationUs = duration;
         if (report.errorMessage) errors.push(`${report.source || "audio"}: ${report.errorMessage}`);
@@ -294,14 +291,7 @@ async function recoverTrack(
 ): Promise<TrackResult> {
     const source = sourceName(metadata?.fields.get("source"));
     const deviceId = value(metadata ?? session, metadata ? "device_id" : "recording_device_id");
-    const bytesPerSample = BYTES_PER_SAMPLE[format.sampleFormat];
-    if (!bytesPerSample)
-        return failedTrack(
-            trackId,
-            source,
-            new Error("Recording sample format is unsupported."),
-            metadata,
-        );
+    const bytesPerSample = BYTES_PER_SAMPLE[format.sampleFormat]!;
     const blockAlign = bytesPerSample * format.channels;
     const sampleRate = Number(format.sampleRate);
     const maximumTimelineSample =
@@ -493,22 +483,13 @@ function validUuid(value: string | undefined): string | undefined {
 
 function unsignedField(value: string | undefined): bigint | undefined {
     if (value === undefined || !/^\d+$/u.test(value)) return undefined;
-    try {
-        const parsed = BigInt(value);
-        return parsed <= U64_MAX ? parsed : undefined;
-    } catch {
-        return undefined;
-    }
+    const parsed = BigInt(value);
+    return parsed <= U64_MAX ? parsed : undefined;
 }
 
 function samplesToMicroseconds(samples: bigint, sampleRateHz: number): bigint {
-    if (!sampleRateHz) return 0n;
     const rate = BigInt(sampleRateHz);
     return (samples / rate) * 1_000_000n + ((samples % rate) * 1_000_000n) / rate;
-}
-
-function saturatedAdd(left: bigint, right: bigint): bigint {
-    return right > U64_MAX - left ? U64_MAX : left + right;
 }
 
 function recordKey(record: ArchiveRecord): string {

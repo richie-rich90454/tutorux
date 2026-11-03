@@ -156,7 +156,7 @@ function parseSubtitleTimeRange(line: string): [bigint, bigint] {
     }
     const startText = line.slice(0, separator).trim();
     let endText = line.slice(separator + 3).trim();
-    endText = endText.split(/[\t ]/u, 1)[0] ?? "";
+    endText = endText.split(/[\t ]/u, 1)[0]!;
     const start = parseTranscriptTimestamp(startText);
     const end = parseTranscriptTimestamp(endText);
     if (end < start)
@@ -166,7 +166,7 @@ function parseSubtitleTimeRange(line: string): [bigint, bigint] {
 
 function isVttMetadataBlock(lines: readonly string[]): boolean {
     if (lines.some((line) => line.includes("-->"))) return false;
-    const first = lines[0] ?? "";
+    const first = lines[0]!;
     return (
         first === "NOTE" ||
         first.startsWith("NOTE ") ||

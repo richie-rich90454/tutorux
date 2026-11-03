@@ -233,7 +233,7 @@ async function persistRecovery(
     const durationUs = samplesToMicroseconds(summary.samples, summary.sampleRate);
     const message = completed
         ? `Verified ${summary.chunks.toLocaleString("en-US")} audio chunks and marked the WAV import complete.`
-        : `Preserved ${summary.chunks.toLocaleString("en-US")} verified audio chunks as an interrupted import${failureReason ? `: ${failureReason}` : "."}`;
+        : `Preserved ${summary.chunks.toLocaleString("en-US")} verified audio chunks as an interrupted import: ${failureReason}`;
     return {
         records,
         completed,
@@ -253,12 +253,8 @@ function validUuid(value: string | undefined): string | undefined {
 
 function unsignedField(value: string | undefined): bigint | undefined {
     if (!value || !/^\d+$/u.test(value)) return undefined;
-    try {
-        const parsed = BigInt(value);
-        return parsed <= U64_MAX ? parsed : undefined;
-    } catch {
-        return undefined;
-    }
+    const parsed = BigInt(value);
+    return parsed <= U64_MAX ? parsed : undefined;
 }
 
 function samplesToMicroseconds(samples: bigint, sampleRateHz: number): bigint {

@@ -50,7 +50,7 @@ function parseTextLines(lines: string[]): TranscriptCue[] {
 function parseSubtitleLines(lines: string[], format: "srt" | "vtt"): TranscriptCue[] {
     let cursor = 0;
     if (format === "vtt") {
-        const header = lines[0] ?? "";
+        const header = lines[0]!;
         if (
             header !== "WEBVTT" &&
             !header.startsWith("WEBVTT ") &&
@@ -116,7 +116,7 @@ function parseSubtitleLines(lines: string[], format: "srt" | "vtt"): TranscriptC
 
 function isVttMetadataBlock(lines: string[]): boolean {
     if (lines.some((line) => line.includes("-->"))) return false;
-    const first = lines[0] ?? "";
+    const first = lines[0]!;
     return (
         first === "NOTE" ||
         first.startsWith("NOTE ") ||
@@ -133,7 +133,7 @@ function parseSubtitleTimeRange(line: string): [bigint, bigint] {
     }
     const startText = line.slice(0, separator).trim();
     let endText = line.slice(separator + 3).trim();
-    endText = endText.split(/[\t ]/u, 1)[0] ?? "";
+    endText = endText.split(/[\t ]/u, 1)[0]!;
     const start = parseSubtitleTimestamp(startText);
     const end = parseSubtitleTimestamp(endText);
     if (end < start)
@@ -152,7 +152,7 @@ function parseSubtitleTimestamp(value: string): bigint {
     if (minutes > 59n || seconds > 59n)
         throw new Error("Subtitle cue timestamps are invalid or end before they start.");
     const fraction = (match[4] ?? "").padEnd(6, "0");
-    const micros = fraction ? BigInt(fraction) : 0n;
+    const micros = BigInt(fraction);
     const result = hours * 3_600_000_000n + minutes * 60_000_000n + seconds * 1_000_000n + micros;
     if (result > 9_223_372_036_854_775_807n)
         throw new Error("Subtitle cue timestamp exceeds the supported range.");
@@ -167,8 +167,7 @@ export function parseTranscriptTimestamp(value: string): bigint {
         if (seconds > 9_223_372_036_854n) throw new Error("Timestamp exceeds the supported range.");
         return seconds * 1_000_000n;
     }
-    const converted =
-        (normalized.match(/:/gu) ?? []).length === 1 ? `00:${normalized}` : normalized;
+    const converted = normalized.match(/:/gu)!.length === 1 ? `00:${normalized}` : normalized;
     return parseSubtitleTimestamp(converted);
 }
 

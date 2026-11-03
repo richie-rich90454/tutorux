@@ -306,7 +306,6 @@ export function hasSensitiveCredentialMaterial(record: ArchiveRecord): boolean {
 }
 
 function isCredential(record: ArchiveRecord): boolean {
-    if (record.type !== RecordType.settings) return false;
     let foundRole = false;
     for (const [name, value] of record.fields) {
         if (canonicalSettingKey(name) !== "recordrole") continue;
@@ -429,7 +428,7 @@ async function makePlan(snapshot: ArchiveSnapshot, options: NormalizedOptions): 
         recordingChunksBySession: new Map(),
         summary,
     };
-    const records = (type: RecordTypeValue): ArchiveRecord[] => metadata.get(type) ?? [];
+    const records = (type: RecordTypeValue): ArchiveRecord[] => metadata.get(type)!;
 
     const availableStudents = new Set(
         records(RecordType.student)
@@ -909,12 +908,9 @@ function sanitizeRecord(
     source: ArchiveRecord,
     plan: CopyPlan,
     options: NormalizedOptions,
-    sourceManifestId: string,
 ): ArchiveRecord {
     const record = { ...source, fields: new Map(source.fields), revision: 1n, previousOffset: 0n };
     const fields = record.fields as Map<string, string>;
-    if (record.type === RecordType.settings && record.id.toLowerCase() === sourceManifestId)
-        return record;
 
     if (record.type === RecordType.session) {
         const tracks = plan.recordingTracksBySession.get(record.id.toLowerCase());
@@ -937,7 +933,7 @@ function sanitizeRecord(
             fields.set("recording_track_count", tracks.size.toString());
             fields.set(
                 "recording_audio_chunks",
-                (plan.recordingChunksBySession.get(record.id.toLowerCase()) ?? 0).toString(),
+                plan.recordingChunksBySession.get(record.id.toLowerCase())!.toString(),
             );
             const sourceTracks = plan.sourceRecordingTracksBySession.get(record.id.toLowerCase());
             if (sourceTracks && sourceTracks.size > tracks.size) {
@@ -1096,10 +1092,8 @@ export async function createSanitizedCopy(
             const previousSize = output.source.size;
             const previous = output;
             output = await appendRecords(previous, batch);
-            if (output !== previous) {
-                previous.lock();
-                await previous.source.close?.();
-            }
+            previous.lock();
+            await previous.source.close?.();
             output = await persist(output, previousSize);
             batch = [];
             batchBytes = 0;
@@ -1118,7 +1112,6 @@ export async function createSanitizedCopy(
                     updated ? { ...current, fields: updated.fields } : current,
                     plan,
                     normalized,
-                    snapshot.header.id.toLowerCase(),
                 );
                 batch.push(record);
                 batchBytes += record.blob.byteLength;

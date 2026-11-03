@@ -31,7 +31,7 @@ function sampleWidth(format: string): number {
 
 /** Convert source samples with the same scaling as audio preview playback. */
 function sampleToPcm16(view: DataView, offset: number, format: string): number {
-    let value: number;
+    let value = 0;
     switch (format) {
         case "pcm_u8":
             value = (view.getUint8(offset) - 128) / 128;
@@ -56,8 +56,6 @@ function sampleToPcm16(view: DataView, offset: number, format: string): number {
             value = Number.isFinite(sample) ? Math.max(-1, Math.min(1, sample)) : 0;
             break;
         }
-        default:
-            throw new Error("The recording sample format cannot be indexed.");
     }
     if (value <= -1) return -32768;
     if (value >= 1) return 32767;
@@ -213,7 +211,6 @@ async function buildWaveformIndexFromStream(
         throw new Error("The audio timeline is too large to index.");
     const frameCount = Number(timelineFrames);
     const count = Math.min(frameCount, MAX_BUCKETS);
-    if (!count) throw new Error("The audio track is empty.");
     const base: WaveformBucket[] = [];
     let gapIndex = 0;
     for (let index = 0; index < count; index++) {

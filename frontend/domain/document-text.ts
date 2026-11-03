@@ -8,7 +8,7 @@ const PDF_PAGE_LIMIT = 512;
 const PDF_TEXT_ITEM_LIMIT = 200_000;
 const encoder = new TextEncoder();
 const crc32Table = makeCrc32Table();
-let pdfWorkerSource: string | undefined;
+const pdfWorker: { source: string | undefined } = { source: undefined };
 
 export interface DocumentTextExtraction {
     readonly status: "extracted" | "no-text" | "size-limit";
@@ -16,7 +16,7 @@ export interface DocumentTextExtraction {
 }
 
 export function configurePdfWorkerSource(source: string): void {
-    pdfWorkerSource = source;
+    pdfWorker.source = source;
 }
 
 /** Extract bounded text from supported office documents without unpacking unrelated package files. */
@@ -207,12 +207,10 @@ function extractDocxXmlText(xml: string): DocumentTextExtraction {
     let sawDocumentRoot = false;
     let sawRootClose = false;
     let insideWordText = false;
-    let textLimitExceeded = false;
 
     const append = (value: string): boolean => {
         const byteLength = encoder.encode(value).byteLength;
         if (byteLength > DOCUMENT_TEXT_LIMIT - outputBytes) {
-            textLimitExceeded = true;
             return false;
         }
         output.push(value);
@@ -239,8 +237,7 @@ function extractDocxXmlText(xml: string): DocumentTextExtraction {
             break;
         }
         if (insideWordText && !appendXmlText(xml.slice(cursor, tagStart))) {
-            if (textLimitExceeded) return { status: "size-limit", text: "" };
-            throw docxError("DOCX text contains an invalid XML entity.");
+            return { status: "size-limit", text: "" };
         }
 
         if (xml.startsWith("<!--", tagStart)) {
@@ -335,7 +332,6 @@ function extractDocxXmlText(xml: string): DocumentTextExtraction {
     }
     let text = output.join("");
     text = text.replace(/[\r\n]+$/u, "");
-    if (textLimitExceeded) return { status: "size-limit", text: "" };
     return finishExtraction(text);
 }
 
@@ -386,7 +382,7 @@ async function extractPdfText(bytes: Uint8Array): Promise<DocumentTextExtraction
         typeof window === "undefined"
             ? await import(/* @vite-ignore */ "pdfjs-dist/legacy/build/pdf.mjs")
             : await import("pdfjs-dist");
-    if (pdfWorkerSource) pdfjs.GlobalWorkerOptions.workerSrc = pdfWorkerSource;
+    pdfjs.GlobalWorkerOptions.workerSrc = pdfWorker.source ?? pdfjs.GlobalWorkerOptions.workerSrc;
     const loadingTask = pdfjs.getDocument({
         data: new Uint8Array(bytes),
         stopAtErrors: true,
@@ -476,7 +472,7 @@ function finishExtraction(text: string): DocumentTextExtraction {
 }
 
 function lastCharacter(values: readonly string[]): string {
-    return values.at(-1) ?? "";
+    return values.at(-1)!;
 }
 
 function asciiEquals(bytes: Uint8Array, offset: number, length: number, expected: string): boolean {
@@ -489,23 +485,11 @@ function asciiEquals(bytes: Uint8Array, offset: number, length: number, expected
 }
 
 function readLe16(bytes: Uint8Array, offset: number): number {
-    if (!Number.isSafeInteger(offset) || offset < 0 || offset + 2 > bytes.byteLength) {
-        throw docxError("DOCX ZIP structure exceeds its bounds.");
-    }
-    return bytes[offset]! | (bytes[offset + 1]! << 8);
+    return new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).getUint16(offset, true);
 }
 
 function readLe32(bytes: Uint8Array, offset: number): number {
-    if (!Number.isSafeInteger(offset) || offset < 0 || offset + 4 > bytes.byteLength) {
-        throw docxError("DOCX ZIP structure exceeds its bounds.");
-    }
-    return (
-        (bytes[offset]! |
-            (bytes[offset + 1]! << 8) |
-            (bytes[offset + 2]! << 16) |
-            (bytes[offset + 3]! << 24)) >>>
-        0
-    );
+    return new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).getUint32(offset, true);
 }
 
 function calculateCrc32(bytes: Uint8Array): number {

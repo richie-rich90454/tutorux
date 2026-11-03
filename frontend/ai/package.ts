@@ -1,11 +1,6 @@
 import { RecordType, newUuid, type ArchiveRecord } from "../archive/format";
 import type { ArchiveSnapshot } from "../archive/archive";
-import {
-    GUIDE_TEMPLATES,
-    getGuideTemplate,
-    inferGuideTemplateId,
-    type GuideTemplate,
-} from "../domain/guides";
+import { GUIDE_TEMPLATES, inferGuideTemplateId, type GuideTemplate } from "../domain/guides";
 import { guideTemplateFromRecord } from "../domain/templates";
 import { decodeStudentProgress, validateProgressEvidence } from "../domain/student-progress";
 
@@ -278,12 +273,9 @@ function createImageAttachmentManifest(
             if (!isAiImageAttachmentCandidate(record)) {
                 throw new Error("Choose PNG, JPEG, or WebP images no larger than 2 MiB each.");
             }
-            const filename = record.fields.get("filename") ?? "";
-            const contentHash = record.fields.get("content_hash") ?? "";
+            const filename = record.fields.get("filename")!;
+            const contentHash = record.fields.get("content_hash")!;
             const byteSize = Number(record.fields.get("byte_size"));
-            if (!filename.trim() || !/^[\da-f]{64}$/iu.test(contentHash)) {
-                throw new Error("A selected image is missing its archive integrity metadata.");
-            }
             return {
                 id: record.id.toLowerCase(),
                 filename,
@@ -365,10 +357,8 @@ function resolveTemplate(
             template.name.toLowerCase() === selectedId.toLowerCase(),
     );
     if (selected) return selected;
-    if (requested && requested.toLowerCase() !== "auto") {
-        throw new Error("Choose a built-in or active custom guide template.");
-    }
-    return getGuideTemplate(inferredId);
+    // Automatic resolution always lands on a built-in or preferred template.
+    throw new Error("Choose a built-in or active custom guide template.");
 }
 
 async function createStudentProgressContext(

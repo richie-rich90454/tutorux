@@ -143,7 +143,7 @@ export function parseGuideTemplateImport(
 }
 
 function templateNameFromFileName(fileName: string): string {
-    const name = fileName.split(/[\\/]/u).at(-1) ?? "";
+    const name = fileName.split(/[\\/]/u).at(-1)!;
     return name.replace(/\.[^.]+$/u, "").trim() || "Imported template";
 }
 

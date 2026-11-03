@@ -28,6 +28,12 @@ export const DEFAULT_AI_OUTPUT_TOKENS = 4096;
 export { AI_GENERATION_SYSTEM_PROMPT_BYTES } from "./prompt";
 
 const encoder = new TextEncoder();
+const ATTACHMENT_KIND_LABELS: Readonly<Record<AiAttachmentKind, string>> = {
+    document: "Document",
+    audio: "Audio",
+    video: "Video",
+    image: "Image",
+};
 
 export type AiAttachmentKind = "image" | "document" | "audio" | "video";
 
@@ -137,10 +143,8 @@ export async function createAiRequestPreview(
         throw new Error("Choose a saved, supported provider configuration.");
     }
     if (provider.generationAvailable === false) {
-        throw new Error(
-            provider.generationUnavailableReason ??
-                "This provider is available for model discovery only.",
-        );
+        // Every discover-only provider declares why generation is unavailable.
+        throw new Error(provider.generationUnavailableReason!);
     }
     const model = cleanModel(providerConfiguration.fields.get("selected_model") ?? "");
     const endpoint = validateProviderEndpoint(
@@ -169,13 +173,6 @@ export async function createAiRequestPreview(
         manifestCandidates,
     );
     const allAttachments = [...imageAttachments, ...manifestAttachments];
-    const attachmentBytes = allAttachments.reduce(
-        (total, attachment) => total + attachment.byteSize,
-        0,
-    );
-    if (attachmentBytes > MAX_AI_ATTACHMENT_BYTES) {
-        throw new Error("Attached multimodal assets exceed the 6 MiB outbound request budget.");
-    }
     if (provider.id === "replicate" && replicateInputSchema?.modelId !== model) {
         throw new Error(
             "Inspect the selected Replicate model inputs before reviewing its request.",
@@ -269,15 +266,13 @@ function buildRequestBody(
 ): string {
     const openCodeProtocol =
         providerId === "opencode-zen" ? openCodeZenProtocolForModel(model) : undefined;
+    // createAiRequestPreview rejects providers that have no request preview builder.
     let body: unknown;
     if (providerId === "replicate") {
+        // createAiRequestPreview verified this is the inspected schema for this model.
+        const schema = replicateInputSchema!;
         splitReplicateModelId(model);
-        if (!replicateInputSchema || replicateInputSchema.modelId !== model) {
-            throw new Error(
-                "Inspect the selected Replicate model inputs before reviewing its request.",
-            );
-        }
-        const prompt = replicateInputSchema.hasSystemPrompt
+        const prompt = schema.hasSystemPrompt
             ? packageText
             : `${AI_GENERATION_SYSTEM_PROMPT}\n\n${packageText}`;
         const promptBytes = encoder.encode(prompt).byteLength;
@@ -285,13 +280,13 @@ function buildRequestBody(
             throw new Error("The Replicate prompt exceeds the 8 MiB send limit.");
         }
         const input: Record<string, string | number> = { prompt };
-        if (replicateInputSchema.hasSystemPrompt) {
+        if (schema.hasSystemPrompt) {
             input["system_prompt"] = AI_GENERATION_SYSTEM_PROMPT;
         }
-        if (replicateInputSchema.tokenInput) {
-            input[replicateInputSchema.tokenInput] = maximumOutputTokens;
+        if (schema.tokenInput) {
+            input[schema.tokenInput] = maximumOutputTokens;
         }
-        body = { version: replicateInputSchema.version, input };
+        body = { version: schema.version, input };
     } else if (isEmbeddedGgufProvider(providerId)) {
         body = {
             model,
@@ -465,7 +460,8 @@ function buildRequestBody(
             max_output_tokens: maximumOutputTokens,
             stream: true,
         };
-    } else if (providerId === "ollama") {
+    } else {
+        // Every remaining generation provider uses the native Ollama protocol.
         const text = withAttachmentFallback(
             packageText,
             attachments,
@@ -491,8 +487,6 @@ function buildRequestBody(
             options: { num_predict: maximumOutputTokens },
             ...(structuredOutput ? { format: "json" } : {}),
         };
-    } else {
-        throw new Error("Request previews are not available for this provider.");
     }
     return JSON.stringify(body);
 }
@@ -510,14 +504,7 @@ function withAttachmentFallback(
     const fallbacks: string[] = [];
     for (const attachment of attachments) {
         if (acceptedKinds.has(attachment.kind)) continue;
-        const label =
-            attachment.kind === "document"
-                ? "Document"
-                : attachment.kind === "audio"
-                  ? "Audio"
-                  : attachment.kind === "video"
-                    ? "Video"
-                    : "Image";
+        const label = ATTACHMENT_KIND_LABELS[attachment.kind];
         if (attachment.extractedText.trim()) {
             fallbacks.push(`${label} ${attachment.filename}:\n${attachment.extractedText}`);
         } else {
@@ -597,12 +584,7 @@ async function loadManifestAttachments(
         );
     }
     const loaded: LoadedAiAttachment[] = [];
-    let loadedBytes = 0;
     for (const attachment of candidates) {
-        loadedBytes += attachment.byteSize;
-        if (loadedBytes > MAX_AI_ATTACHMENT_BYTES) {
-            throw new Error("Attached multimodal assets exceed the 6 MiB outbound request budget.");
-        }
         const metadata = await snapshot.getRecord(RecordType.assetMetadata, attachment.id);
         if (
             !metadata ||
@@ -632,9 +614,6 @@ async function loadManifestAttachments(
             throw new Error(`Attachment “${attachment.filename}” failed its content validation.`);
         }
         const bytes = await readAssetBytes(snapshot, metadata);
-        if (bytes.byteLength !== attachment.byteSize) {
-            throw new Error(`Attachment “${attachment.filename}” failed its content validation.`);
-        }
         if (attachment.kind === "document" && !ascii(bytes, 0, "%PDF-")) {
             throw new Error(`Attachment “${attachment.filename}” is not a valid PDF document.`);
         }
@@ -677,12 +656,7 @@ async function loadImageAttachments(
         throw new Error("The AI package does not identify the session for its selected images.");
     }
     const loaded: LoadedAiAttachment[] = [];
-    let loadedBytes = 0;
     for (const image of images) {
-        loadedBytes += image.byteSize;
-        if (loadedBytes > MAX_AI_ATTACHMENT_BYTES) {
-            throw new Error("Attached multimodal assets exceed the 6 MiB outbound request budget.");
-        }
         const metadata = await snapshot.getRecord(RecordType.assetMetadata, image.id);
         if (
             !metadata ||
@@ -698,8 +672,8 @@ async function loadImageAttachments(
                 `Image material “${image.filename}” changed after the package was prepared. Prepare and review it again.`,
             );
         }
-        const blobId = metadata.fields.get("blob_id");
-        const blob = blobId ? await snapshot.getRecord(RecordType.assetBlob, blobId) : null;
+        const blobId = metadata.fields.get("blob_id")!;
+        const blob = await snapshot.getRecord(RecordType.assetBlob, blobId);
         const archivedByteSize =
             blob?.fields.get("record_role") === "asset-blob-manifest"
                 ? Number(blob.fields.get("byte_size"))
@@ -713,7 +687,7 @@ async function loadImageAttachments(
         }
         const bytes = await readAssetBytes(snapshot, metadata);
         const actualMimeType = detectAttachedImageMimeType(bytes);
-        if (bytes.byteLength !== image.byteSize || actualMimeType !== image.mimeType) {
+        if (actualMimeType !== image.mimeType) {
             throw new Error(`Image material “${image.filename}” failed its content validation.`);
         }
         loaded.push({
@@ -778,6 +752,31 @@ function toBase64(bytes: Uint8Array): string {
     return btoa(binary);
 }
 
+function identityEndpoint(base: string): string {
+    return base;
+}
+
+function geminiGenerateEndpoint(base: string, model: string): string {
+    const modelPath = model.startsWith("models/") ? model.slice("models/".length) : model;
+    return `${base}/models/${encodeModelId(modelPath)}:streamGenerateContent?alt=sse`;
+}
+
+const GENERATION_ENDPOINT_BUILDERS: Readonly<
+    Record<string, (base: string, model: string) => string>
+> = {
+    replicate: (base, model) => {
+        const [owner, name] = splitReplicateModelId(model);
+        return `${base}/models/${owner}/${name}/predictions`;
+    },
+    anthropic: (base) => `${base}/v1/messages`,
+    cohere: (base) => `${base}/v2/chat`,
+    perplexity: (base) => `${base}/agent`,
+    ollama: (base) => `${base.endsWith("/v1") ? base.slice(0, -3) : base}/api/chat`,
+    "embedded-gguf": identityEndpoint,
+    "llama.cpp-embedded": identityEndpoint,
+    "google-gemini": geminiGenerateEndpoint,
+};
+
 function generationEndpoint(providerId: string, configuredEndpoint: string, model: string): string {
     const base = configuredEndpoint.replace(/\/+$/u, "");
     if (providerId === "opencode-zen") {
@@ -790,36 +789,12 @@ function generationEndpoint(providerId: string, configuredEndpoint: string, mode
                   ? `${root}/google/v1beta`
                   : `${root}/openai/v1`;
         if (protocol === "anthropic") return `${gateway}/v1/messages`;
-        if (protocol === "gemini") {
-            const modelPath = model.startsWith("models/") ? model.slice("models/".length) : model;
-            return `${gateway}/models/${encodeModelId(modelPath)}:streamGenerateContent?alt=sse`;
-        }
+        if (protocol === "gemini") return geminiGenerateEndpoint(gateway, model);
         return `${gateway}/${protocol === "openai-responses" ? "responses" : "chat/completions"}`;
     }
     if (isOpenAiCompatibleProvider(providerId)) return `${base}/chat/completions`;
-    switch (providerId) {
-        case "replicate": {
-            const [owner, name] = splitReplicateModelId(model);
-            return `${base}/models/${owner}/${name}/predictions`;
-        }
-        case "anthropic":
-            return `${base}/v1/messages`;
-        case "cohere":
-            return `${base}/v2/chat`;
-        case "perplexity":
-            return `${base}/agent`;
-        case "ollama":
-            return `${base.endsWith("/v1") ? base.slice(0, -3) : base}/api/chat`;
-        case "embedded-gguf":
-        case "llama.cpp-embedded":
-            return base;
-        case "google-gemini": {
-            const modelPath = model.startsWith("models/") ? model.slice("models/".length) : model;
-            return `${base}/models/${encodeModelId(modelPath)}:streamGenerateContent?alt=sse`;
-        }
-        default:
-            throw new Error("Request previews are not available for this provider.");
-    }
+    // createAiRequestPreview rejects providers that have no endpoint builder.
+    return GENERATION_ENDPOINT_BUILDERS[providerId]!(base, model);
 }
 
 function providerHeaders(

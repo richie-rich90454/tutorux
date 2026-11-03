@@ -207,13 +207,6 @@ export async function packAiContext(
     const omitted: OmittedAiContextItem[] = [];
     let usedTokens = 0;
     for (const candidate of candidates) {
-        if (
-            !Number.isFinite(candidate.confidence) ||
-            candidate.confidence < 0 ||
-            candidate.confidence > 1
-        ) {
-            throw new Error("AI context confidence must be between zero and one.");
-        }
         const characters = codePoints(candidate.content);
         const ranges = splitByTokenLimit(characters, maximumItemTokens, countTokens);
         for (let fragmentIndex = 0; fragmentIndex < ranges.length; fragmentIndex += 1) {
@@ -363,11 +356,7 @@ function priorityOf(value: string | undefined): number {
 
 function parseNonnegativeBigInt(value: string | undefined): bigint {
     if (!/^\d+$/u.test(value ?? "")) return 0n;
-    try {
-        return BigInt(value!);
-    } catch {
-        return 0n;
-    }
+    return BigInt(value!);
 }
 
 function compareBigInt(left: bigint, right: bigint): number {

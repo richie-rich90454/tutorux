@@ -73,4 +73,66 @@ describe("annotation records", () => {
             "Priority must be low, normal, high, or critical",
         );
     });
+
+    it("treats an empty end time as an instantaneous annotation", () => {
+        const created = makeAnnotationRecord({ ...input, end: "" });
+        expect(created.fields.get("end_time_us")).toBe(created.fields.get("start_time_us"));
+        const spaced = makeAnnotationRecord({ ...input, end: "   " });
+        expect(spaced.fields.get("end_time_us")).toBe(spaced.fields.get("start_time_us"));
+
+        const updated = updateAnnotationRecord(created, { ...input, end: "" });
+        expect(updated.fields.get("end_time_us")).toBe(updated.fields.get("start_time_us"));
+
+        expect(() => updateAnnotationRecord(created, { ...input, end: "00:00:00" })).toThrow(
+            "precedes its start",
+        );
+    });
+
+    it("only accepts annotation records", () => {
+        const other = {
+            ...makeAnnotationRecord(input),
+            type: RecordType.settings,
+        };
+        expect(() => updateAnnotationRecord(other, input)).toThrow("Only annotation records");
+        expect(() => removeAnnotationRecord(other)).toThrow("Only annotation records");
+        expect(() => duplicateAnnotationRecord(other)).toThrow("Only annotation records");
+    });
+
+    it("refuses to duplicate a removed annotation", () => {
+        const removed = removeAnnotationRecord(makeAnnotationRecord(input));
+        expect(() => duplicateAnnotationRecord(removed)).toThrow("cannot be duplicated");
+    });
+
+    it("allows tabs and multiline content but rejects other control characters", () => {
+        expect(makeAnnotationRecord({ ...input, title: "a\tb" }).fields.get("title")).toBe("a\tb");
+        expect(
+            makeAnnotationRecord({ ...input, content: "line one\nline two" }).fields.get("content"),
+        ).toBe("line one\nline two");
+        expect(() => makeAnnotationRecord({ ...input, title: "a\nb" })).toThrow(
+            "unsupported control characters",
+        );
+        expect(() => makeAnnotationRecord({ ...input, title: "a\u007fb" })).toThrow(
+            "unsupported control characters",
+        );
+        expect(() => makeAnnotationRecord({ ...input, title: "a\u0001b" })).toThrow(
+            "unsupported control characters",
+        );
+    });
+
+    it("validates Unicode surrogate pairs", () => {
+        expect(makeAnnotationRecord({ ...input, title: "\ud83d\ude00" })).toBeTruthy();
+        expect(() => makeAnnotationRecord({ ...input, title: "\ud800" })).toThrow("valid Unicode");
+        expect(() => makeAnnotationRecord({ ...input, title: "\ud800x" })).toThrow("valid Unicode");
+        expect(() => makeAnnotationRecord({ ...input, title: "\udc00" })).toThrow("valid Unicode");
+    });
+
+    it("enforces the title and content byte limits", () => {
+        expect(makeAnnotationRecord({ ...input, title: "a".repeat(512) })).toBeTruthy();
+        expect(() => makeAnnotationRecord({ ...input, title: "a".repeat(513) })).toThrow(
+            "512 UTF-8 bytes or fewer",
+        );
+        expect(() =>
+            makeAnnotationRecord({ ...input, content: "a".repeat(16 * 1024 * 1024 + 1) }),
+        ).toThrow("UTF-8 bytes or fewer");
+    });
 });

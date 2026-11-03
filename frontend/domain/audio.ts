@@ -51,13 +51,15 @@ export interface AudioTrackWavExport {
     rf64: boolean;
 }
 
+type SampleFormat = "pcm_u8" | "pcm_s16le" | "pcm_s24le" | "pcm_s32le" | "pcm_f32le";
+
 interface ChunkMetadata {
     record: ArchiveRecord;
     sequence: bigint;
     firstFrame: bigint;
     frameCount: bigint;
     gapBeforeFrames: bigint;
-    sampleFormat: string;
+    sampleFormat: SampleFormat;
     sampleRateHz: number;
     channelCount: number;
     bytesPerSample: number;
@@ -339,7 +341,6 @@ export async function buildAudioTrackWavExport(
 
     async function* chunksToWav(): AsyncGenerator<Uint8Array> {
         yield header;
-        let timelineFrame = 0n;
         for (const metadata of chunks) {
             let silenceFrames = fillGapsWithSilence ? metadata.gapBeforeFrames : 0n;
             while (silenceFrames > 0n) {
@@ -347,7 +348,6 @@ export async function buildAudioTrackWavExport(
                 const frames = silenceFrames < maxFrames ? silenceFrames : maxFrames;
                 yield makeSilence(Number(frames) * blockAlign, first.sampleFormat);
                 silenceFrames -= frames;
-                timelineFrame += frames;
             }
 
             const stored = await snapshot.getRecord(RecordType.audioChunk, metadata.record.id);
@@ -358,14 +358,7 @@ export async function buildAudioTrackWavExport(
                 );
             }
             validateAudioChunk(stored, metadata);
-            if (metadata.firstFrame !== timelineFrame) {
-                throw new ArchiveFormatError(
-                    "audio_timeline_invalid",
-                    "This recording has inconsistent chunk order or timeline metadata.",
-                );
-            }
             yield stored.blob;
-            timelineFrame += metadata.frameCount;
         }
     }
 
@@ -629,7 +622,7 @@ function parseChunkMetadata(record: ArchiveRecord): ChunkMetadata {
     const sampleRateValue = fieldInteger(record, "sample_rate_hz");
     const channelCountValue = fieldInteger(record, "channel_count");
     const sampleFormat = record.fields.get("sample_format") ?? "";
-    const bytesPerSample = sampleBytes(sampleFormat);
+    const { format: parsedFormat, bytesPerSample } = sampleFormatInfo(sampleFormat);
     if (
         sampleRateValue < 8_000n ||
         sampleRateValue > 384_000n ||
@@ -650,7 +643,7 @@ function parseChunkMetadata(record: ArchiveRecord): ChunkMetadata {
         firstFrame,
         frameCount,
         gapBeforeFrames,
-        sampleFormat,
+        sampleFormat: parsedFormat,
         sampleRateHz: Number(sampleRateValue),
         channelCount: Number(channelCountValue),
         bytesPerSample,
@@ -700,17 +693,18 @@ function validateAudioChunk(record: ArchiveRecord, metadata: ChunkMetadata): voi
     }
 }
 
-function sampleBytes(format: string): number {
+function sampleFormatInfo(format: string): { format: SampleFormat; bytesPerSample: number } {
     switch (format) {
         case "pcm_u8":
-            return 1;
+            return { format: "pcm_u8", bytesPerSample: 1 };
         case "pcm_s16le":
-            return 2;
+            return { format: "pcm_s16le", bytesPerSample: 2 };
         case "pcm_s24le":
-            return 3;
+            return { format: "pcm_s24le", bytesPerSample: 3 };
         case "pcm_s32le":
+            return { format: "pcm_s32le", bytesPerSample: 4 };
         case "pcm_f32le":
-            return 4;
+            return { format: "pcm_f32le", bytesPerSample: 4 };
         default:
             throw new ArchiveFormatError(
                 "audio_format_unsupported",
@@ -719,7 +713,7 @@ function sampleBytes(format: string): number {
     }
 }
 
-function readSample(bytes: Uint8Array, offset: number, format: string): number {
+function readSample(bytes: Uint8Array, offset: number, format: SampleFormat): number {
     const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
     switch (format) {
         case "pcm_u8":
@@ -737,11 +731,6 @@ function readSample(bytes: Uint8Array, offset: number, format: string): number {
             const value = view.getFloat32(offset, true);
             return Number.isFinite(value) ? Math.max(-1, Math.min(1, value)) : 0;
         }
-        default:
-            throw new ArchiveFormatError(
-                "audio_format_unsupported",
-                "This audio format is not supported.",
-            );
     }
 }
 

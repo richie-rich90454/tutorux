@@ -184,8 +184,7 @@ async function mixTracksCore(options: {
         let committedChunks = 0;
         let committedFrames = 0;
         const commit = async (batchRecords: readonly ArchiveRecord[]): Promise<ArchiveRecord[]> => {
-            if (!options.commit) throw new Error("Mix commit callback is unavailable.");
-            const saved = await options.commit(batchRecords, generation);
+            const saved = await options.commit!(batchRecords, generation);
             generation += 1n;
             return saved;
         };
@@ -307,7 +306,6 @@ async function mixTracksCore(options: {
                 if (active.length >= BLOCK_FRAMES * 2) await flush();
             }
             await flush();
-            if (!sequence) throw new Error("The chosen tracks have no overlapping saved audio.");
             if (incremental) {
                 await commitBatch(true);
                 await commit([

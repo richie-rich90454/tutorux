@@ -329,14 +329,13 @@ function splitTranscriptRecord(
                 "A single transcript character plus its citation metadata exceeds the per-part bounds.",
             );
         }
-        let end = preferTranscriptBoundary(characters, start, low);
-        if (end <= start) end = low;
+        const end = preferTranscriptBoundary(characters, start, low);
         ranges.push([start, end]);
         start = end;
     }
 
     const count = ranges.length;
-    const fragments = ranges.map(([begin, end], index) =>
+    return ranges.map(([begin, end], index) =>
         makeTranscriptFragment(
             row,
             textField.nested,
@@ -347,16 +346,6 @@ function splitTranscriptRecord(
             byteOffsets[end]!,
         ),
     );
-    if (
-        fragments.some(
-            (fragment) => !recordFits(fragment, maximumBytes, maximumTokens, countTokens),
-        )
-    ) {
-        throw new Error(
-            "Transcript fragment metadata could not fit within the configured part bounds.",
-        );
-    }
-    return fragments;
 }
 
 function makeTranscriptFragment(
@@ -433,11 +422,7 @@ function timestampOf(row: Record<string, unknown>, key: string): bigint | null {
     const fields = isObject(row["fields"]) ? row["fields"] : undefined;
     const value = row[key] ?? fields?.[key];
     if (typeof value !== "string" || !/^-?\d+$/u.test(value)) return null;
-    try {
-        return BigInt(value);
-    } catch {
-        return null;
-    }
+    return BigInt(value);
 }
 
 function checkedTokenCount(countTokens: (value: string) => number, value: string): number {
@@ -468,9 +453,7 @@ function byteLength(value: string): number {
 }
 
 function formatMiB(value: number): string {
-    return Number.isSafeInteger(value) && value > 0
-        ? `${(value / (1024 * 1024)).toLocaleString("en-US", { maximumFractionDigits: 2 })} MiB`
-        : "valid";
+    return `${(value / (1024 * 1024)).toLocaleString("en-US", { maximumFractionDigits: 2 })} MiB`;
 }
 
 function utf8CodePointBytes(character: string): number {

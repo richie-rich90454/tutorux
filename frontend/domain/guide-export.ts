@@ -62,7 +62,7 @@ export function renderGuideDocx(
     let nextRelationship = 2;
     let nextDrawing = 1;
     const relationships: string[] = [];
-    const imageDefaults = new Set<string>();
+    const imageDefaults = new Set<"png" | "jpeg" | "gif" | "webp">();
     const paragraphs: string[] = [];
     paragraphs.push(paragraphXml(draft.title, "Title"));
     paragraphs.push(
@@ -386,7 +386,7 @@ function jpegDimensions(bytes: Uint8Array): { width: number; height: number } | 
     return undefined;
 }
 
-function imageExtension(mimeType: string): string {
+function imageExtension(mimeType: string): "png" | "jpeg" | "gif" | "webp" {
     switch (mimeType) {
         case "image/png":
             return "png";
@@ -402,7 +402,7 @@ function imageExtension(mimeType: string): string {
     }
 }
 
-function imageMime(extension: string): string {
+function imageMime(extension: "png" | "jpeg" | "gif" | "webp"): string {
     switch (extension) {
         case "png":
             return "image/png";
@@ -412,8 +412,6 @@ function imageMime(extension: string): string {
             return "image/gif";
         case "webp":
             return "image/webp";
-        default:
-            throw new Error("Unsupported image type in the guide.");
     }
 }
 
@@ -469,5 +467,5 @@ function escapeXml(value: string): string {
 }
 
 function compareText(left: string, right: string): number {
-    return left < right ? -1 : left > right ? 1 : 0;
+    return left < right ? -1 : 1;
 }

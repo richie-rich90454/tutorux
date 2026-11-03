@@ -4,7 +4,9 @@ import { createEvidenceGraphLayout } from "../../../frontend/domain/evidence-gra
 
 const sessionId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 
-function node(id: string, title: string, deleted = false): ArchiveRecord {
+type FixtureRecord = ArchiveRecord & { fields: Map<string, string> };
+
+function node(id: string, title: string, deleted = false): FixtureRecord {
     return {
         type: RecordType.evidenceNode,
         id,
@@ -22,7 +24,7 @@ function node(id: string, title: string, deleted = false): ArchiveRecord {
     };
 }
 
-function edge(id: string, fromId: string, toId: string, relationship: string): ArchiveRecord {
+function edge(id: string, fromId: string, toId: string, relationship: string): FixtureRecord {
     return {
         type: RecordType.evidenceEdge,
         id,
@@ -77,5 +79,56 @@ describe("evidence graph layout", () => {
         expect(repeated.nodes.map(({ x, y }) => [x, y])).toEqual(
             graph.nodes.map(({ x, y }) => [x, y]),
         );
+    });
+
+    it("tolerates sparse and non-edge records", () => {
+        const first = node("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", "First statement");
+        const second = node("cccccccc-cccc-4ccc-8ccc-cccccccccccc", "Second statement");
+        const sparseEdge: ArchiveRecord = {
+            ...edge("99999999-9999-4999-8999-999999999999", "x", "y", "supports"),
+            fields: new Map(),
+        };
+        const graph = createEvidenceGraphLayout(
+            [first, second],
+            [{ ...first, type: RecordType.guide }, sparseEdge],
+        );
+
+        expect(graph.nodes).toHaveLength(2);
+        expect(graph.edges).toHaveLength(0);
+        expect(graph.invalidEdgeCount).toBe(1);
+    });
+
+    it("derives the session scope from connected endpoints for legacy edges", () => {
+        const first = node("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", "First");
+        const second = node("cccccccc-cccc-4ccc-8ccc-cccccccccccc", "Second");
+        const legacy = edge(
+            "11111111-1111-4111-8111-111111111111",
+            first.id,
+            second.id,
+            "supports",
+        );
+        legacy.fields.delete("session_id");
+
+        const graph = createEvidenceGraphLayout([first, second], [legacy]);
+
+        expect(graph.edges).toHaveLength(1);
+        expect(graph.invalidEdgeCount).toBe(0);
+    });
+
+    it("orders multiple contradictions that share a first endpoint", () => {
+        const first = node("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", "First");
+        const second = node("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", "Second");
+        const third = node("cccccccc-cccc-4ccc-8ccc-cccccccccccc", "Third");
+
+        const graph = createEvidenceGraphLayout(
+            [first, second, third],
+            [
+                edge("11111111-1111-4111-8111-111111111111", first.id, third.id, "contradicts"),
+                edge("22222222-2222-4222-8222-222222222222", first.id, second.id, "contradicts"),
+            ],
+        );
+
+        expect(graph.contradictions).toHaveLength(2);
+        expect(graph.contradictions.map((pair) => pair.second.id)).toEqual([second.id, third.id]);
     });
 });

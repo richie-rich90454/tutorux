@@ -1,12 +1,18 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
-    parseTranscriptSource,
+    correctTranscriptRecord,
     formatTranscriptExport,
+    formatTranscriptTimestampUs,
     makeTranscriptRecords,
-    resolveTranscriptFormat,
-    sortTranscriptRecords,
     mergeTranscriptRecords,
+    parseTranscriptSource,
+    parseTranscriptTimestamp,
+    resolveTranscriptFormat,
     setTranscriptLinkedAssets,
+    setTranscriptSpeaker,
+    setTranscriptTimestamp,
+    setTranscriptVerification,
+    sortTranscriptRecords,
     splitTranscriptRecord,
 } from "../../../frontend/domain/transcript";
 import { RecordType, type ArchiveRecord } from "../../../frontend/archive/format";
@@ -65,6 +71,21 @@ describe("transcript source import", () => {
     it("rejects invalid Unicode and unsupported control characters", () => {
         expect(() => parseTranscriptSource("bad\uD800", "text")).toThrow("valid Unicode");
         expect(() => parseTranscriptSource("bad\u0000text", "text")).toThrow("control characters");
+        expect(() => parseTranscriptSource("a\uD800b", "text")).toThrow("valid Unicode");
+        expect(() => parseTranscriptSource("a\uD800\uFFFF", "text")).toThrow("valid Unicode");
+        expect(() => parseTranscriptSource("a\uDC00", "text")).toThrow("valid Unicode");
+    });
+
+    it("rejects sources beyond the 256 MiB limit", () => {
+        const spy = vi
+            .spyOn(TextEncoder.prototype, "encode")
+            .mockReturnValueOnce({ byteLength: 256 * 1024 * 1024 + 1 } as Uint8Array<ArrayBuffer>);
+        expect(() => parseTranscriptSource("small", "text")).toThrow("256 MiB");
+        spy.mockRestore();
+    });
+
+    it("rejects surrogate text when correcting an existing cue", () => {
+        expect(() => correctTranscriptRecord(transcriptCue(), "\uD800")).toThrow("valid Unicode");
     });
 
     it("resolves automatic format from file extensions", () => {
@@ -362,3 +383,366 @@ function material(fields: Record<string, string> = {}): ArchiveRecord {
         blob: new Uint8Array(),
     };
 }
+
+describe("transcript format and parsing edges", () => {
+    it("accepts explicit formats and unknown extensions", () => {
+        expect(resolveTranscriptFormat("text")).toBe("text");
+        expect(resolveTranscriptFormat("srt")).toBe("srt");
+        expect(resolveTranscriptFormat("vtt")).toBe("vtt");
+        expect(resolveTranscriptFormat("auto", "no-extension")).toBe("text");
+        expect(resolveTranscriptFormat("auto", "UPPER.VTT")).toBe("vtt");
+    });
+
+    it("accepts WEBVTT headers and ignores metadata blocks", () => {
+        const bare = parseTranscriptSource("WEBVTT\n\n00:01.000 --> 00:02.000\nHi", "vtt");
+        expect(bare).toHaveLength(1);
+        const tabbed = parseTranscriptSource(
+            "WEBVTT\tcaptions\n\nSTYLE\n::cue { color: red }\n\nREGION\nid:r\n\nNOTE\nnote text\n\n00:01.000 --> 00:02.000\nHi",
+            "vtt",
+        );
+        expect(tabbed).toHaveLength(1);
+        expect(() => parseTranscriptSource("NOPE\n\n00:01.000 --> 00:02.000\nHi", "vtt")).toThrow(
+            "WEBVTT header",
+        );
+    });
+
+    it("rejects subtitle blocks without a usable timing line", () => {
+        expect(() => parseTranscriptSource("no timing here\n", "srt")).toThrow(
+            "optional identifier",
+        );
+        expect(() => parseTranscriptSource("id\nline\n00:01.000 --> 00:02.000\nHi", "srt")).toThrow(
+            "optional identifier",
+        );
+        expect(() => parseTranscriptSource("00:01.000 --> 00:02.000", "srt")).toThrow(
+            "contains no text",
+        );
+        expect(() =>
+            parseTranscriptSource("00:01.000 --> 00:02.000 --> 00:03.000\nHi", "srt"),
+        ).toThrow("exactly one");
+        expect(() => parseTranscriptSource("1 --> 2\nHi", "srt")).toThrow("invalid");
+        expect(() => parseTranscriptSource("00:01.000 --> bad\nHi", "srt")).toThrow("invalid");
+        expect(() =>
+            parseTranscriptSource("9999999999:00:00.000 --> 9999999999:00:01.000\nHi", "srt"),
+        ).toThrow("exceeds the supported range");
+    });
+
+    it("rejects oversized cues at line and cue level", () => {
+        const huge = "a".repeat(16 * 1024 * 1024 + 1);
+        expect(() => parseTranscriptSource(huge, "text")).toThrow("16 MiB");
+        expect(() => parseTranscriptSource(`00:01.000 --> 00:02.000\n${huge}`, "srt")).toThrow(
+            "16 MiB",
+        );
+    });
+
+    it("normalizes timestamps for annotations and subtitles", () => {
+        expect(parseTranscriptTimestamp("90")).toBe(90_000_000n);
+        expect(parseTranscriptTimestamp("1:30")).toBe(90_000_000n);
+        expect(parseTranscriptTimestamp("00:01:30.5")).toBe(90_500_000n);
+        expect(parseTranscriptTimestamp("00:01:30,25")).toBe(90_250_000n);
+        expect(() => parseTranscriptTimestamp("abc")).toThrow("whole seconds");
+        expect(() => parseTranscriptTimestamp("9999999999999")).toThrow("supported range");
+        expect(() => parseTranscriptTimestamp("00:61:00")).toThrow("invalid");
+    });
+
+    it("formats long timestamps for display", () => {
+        expect(formatTranscriptTimestampUs(0n)).toBe("00:00:00");
+        expect(formatTranscriptTimestampUs(3_600_000_000n)).toBe("01:00:00");
+        expect(formatTranscriptTimestampUs(1_234_500n)).toBe("00:00:01.2345");
+    });
+});
+
+describe("transcript record editing", () => {
+    it("corrects text and tracks verification and timestamps", () => {
+        const cue = transcriptCue();
+        const corrected = correctTranscriptRecord(cue, "Corrected");
+        expect(corrected.fields.get("verification_state")).toBe("human-corrected");
+        expect(corrected.fields.get("text")).toBe("Corrected");
+
+        const verified = setTranscriptVerification(corrected, "human-verified");
+        expect(verified.fields.get("verification_state")).toBe("human-verified");
+
+        const timestamped = setTranscriptTimestamp(cue, "00:00:01", "00:00:02");
+        expect(timestamped.fields.get("start_time_us")).toBe("1000000");
+        expect(timestamped.fields.get("end_time_us")).toBe("2000000");
+
+        expect(() => setTranscriptTimestamp(cue, "00:00:02", "00:00:01")).toThrow(
+            "precedes its start",
+        );
+        expect(() => correctTranscriptRecord(cue, "bad\u0001text")).toThrow("unsupported control");
+        expect(() => correctTranscriptRecord({ ...cue, type: RecordType.guide }, "text")).toThrow(
+            "Only transcript segments",
+        );
+    });
+
+    it("assigns speaker labels with unknown fallbacks", () => {
+        const cue = transcriptCue();
+        const labeled = setTranscriptSpeaker(cue, "  Student  ");
+        expect(labeled.fields.get("speaker_label")).toBe("Student");
+        expect(labeled.fields.get("speaker_assignment_state")).toBe("tutor-labeled");
+
+        const cleared = setTranscriptSpeaker(cue, null);
+        expect(cleared.fields.get("speaker_label")).toBe("Unknown speaker");
+        expect(cleared.fields.get("speaker_assignment_state")).toBe("unknown");
+        expect(setTranscriptSpeaker(cue, "   ").fields.get("speaker_label")).toBe(
+            "Unknown speaker",
+        );
+    });
+
+    it("splits untimestamped cues without a split time", () => {
+        const cue = transcriptCue({ text: "First cue", timestamped: false });
+        const [first, second] = splitTranscriptRecord(cue, "First ", "cue");
+        expect(first.fields.get("text")).toBe("First ");
+        expect(second.fields.get("text")).toBe("cue");
+        expect(first.fields.get("timestamp_state")).toBe("not-timestamped");
+    });
+
+    it("requires a split time within timestamped cues", () => {
+        const cue = transcriptCue();
+        expect(() => splitTranscriptRecord(cue, "First ", "cue")).toThrow("Choose a split time");
+        expect(() => splitTranscriptRecord(cue, "First ", "cue", "00:00:04")).toThrow(
+            "strictly inside",
+        );
+        const invalidStart = {
+            ...cue,
+            fields: new Map([...cue.fields, ["start_time_us", "invalid"]]),
+        };
+        expect(() => splitTranscriptRecord(invalidStart, "First ", "cue", "00:00:02")).toThrow(
+            "strictly inside",
+        );
+    });
+});
+
+describe("transcript merge and export edges", () => {
+    it("merges untimestamped cues and preserves separators", () => {
+        const sessionId = crypto.randomUUID();
+        const first = transcriptCue({ sessionId, text: "One", timestamped: false });
+        const second = transcriptCue({ sessionId, text: " Two", timestamped: false });
+        const third = transcriptCue({ sessionId, text: "Three", timestamped: false });
+        const [merged, ...rest] = mergeTranscriptRecords([first, second, third], "");
+        expect(merged!.fields.get("text")).toBe("One TwoThree");
+        expect(rest).toHaveLength(2);
+        expect(merged!.fields.get("start_time_us")).toBe(first.fields.get("start_time_us"));
+    });
+
+    it("rejects invalid merge inputs", () => {
+        const cue = transcriptCue();
+        expect(() => mergeTranscriptRecords([cue])).toThrow("at least two");
+        expect(() => mergeTranscriptRecords([cue, cue])).toThrow("only appear once");
+        const deleted = { ...cue, fields: new Map([...cue.fields, ["_deleted", "true"]]) };
+        expect(() => mergeTranscriptRecords([cue, deleted])).toThrow("Restore a transcript cue");
+        expect(() =>
+            mergeTranscriptRecords([
+                cue,
+                { ...cue, type: RecordType.guide, id: crypto.randomUUID() },
+            ]),
+        ).toThrow("Only transcript segments");
+        expect(() => mergeTranscriptRecords([cue, transcriptCue()], "\u0001")).toThrow(
+            "unsupported control",
+        );
+    });
+
+    it("trims linked asset identifiers while merging", () => {
+        const sessionId = crypto.randomUUID();
+        const first = transcriptCue({ sessionId, text: "A" });
+        const second = transcriptCue({ sessionId, text: "B", startTimeUs: 2_000_000n });
+        const fields = new Map(first.fields);
+        fields.set("linked_asset_ids", " asset-a , ,asset-b ");
+        const secondFields = new Map(second.fields);
+        secondFields.set("linked_asset_ids", "asset-b");
+        const [merged] = mergeTranscriptRecords([
+            { ...first, fields },
+            { ...second, fields: secondFields },
+        ]);
+        expect(merged!.fields.get("linked_asset_ids")).toBe("asset-a,asset-b");
+    });
+
+    it("rejects invalid material links", () => {
+        const cue = transcriptCue();
+        expect(() => setTranscriptLinkedAssets(cue, ["bad"], [])).toThrow("invalid asset ID");
+        expect(() => setTranscriptLinkedAssets(cue, [crypto.randomUUID()], [material()])).toThrow(
+            "exists in the open archive",
+        );
+        const wrongType = { ...material(), type: RecordType.guide };
+        expect(() => setTranscriptLinkedAssets(cue, [wrongType.id], [wrongType])).toThrow(
+            "exists in the open archive",
+        );
+        const deleted = material({ _deleted: "true" });
+        expect(() => setTranscriptLinkedAssets(cue, [deleted.id], [deleted])).toThrow(
+            "exists in the open archive",
+        );
+        const other = material({ session_id: crypto.randomUUID() });
+        expect(() => setTranscriptLinkedAssets(cue, [other.id], [other])).toThrow(
+            "different session",
+        );
+        expect(() => setTranscriptLinkedAssets({ ...cue, type: RecordType.guide }, [], [])).toThrow(
+            "Only transcript segments",
+        );
+    });
+
+    it("orders ties deterministically", () => {
+        const fields = (values: Record<string, string>) => new Map(Object.entries(values));
+        const base = {
+            type: RecordType.transcriptSegment,
+            revision: 0n,
+            previousOffset: 0n,
+            blob: new Uint8Array(),
+        };
+        const a = { ...base, id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", fields: fields({}) };
+        const b = { ...base, id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", fields: fields({}) };
+        expect(sortTranscriptRecords([b, a])[0]!.id).toBe(a.id);
+
+        const importA = {
+            ...a,
+            fields: fields({ source_import_id: "a", source_index: "0" }),
+        };
+        const importB = {
+            ...b,
+            fields: fields({ source_import_id: "b", source_index: "0" }),
+        };
+        expect(sortTranscriptRecords([importB, importA])[0]!.id).toBe(a.id);
+
+        const indexA = { ...a, fields: fields({ source_import_id: "x", source_index: "1" }) };
+        const indexB = { ...b, fields: fields({ source_import_id: "x", source_index: "2" }) };
+        expect(sortTranscriptRecords([indexB, indexA])[0]!.id).toBe(a.id);
+
+        const createdA = { ...a, fields: fields({ created_at_us: "1" }) };
+        const createdB = { ...b, fields: fields({ created_at_us: "2" }) };
+        expect(sortTranscriptRecords([createdB, createdA])[0]!.id).toBe(a.id);
+
+        const endA = {
+            ...a,
+            fields: fields({
+                timestamp_state: "timestamped",
+                start_time_us: "0",
+                end_time_us: "5",
+            }),
+        };
+        const endB = {
+            ...b,
+            fields: fields({
+                timestamp_state: "timestamped",
+                start_time_us: "0",
+                end_time_us: "6",
+            }),
+        };
+        expect(sortTranscriptRecords([endB, endA])[0]!.id).toBe(a.id);
+
+        const untimed = { ...a, fields: fields({ timestamp_state: "not-timestamped" }) };
+        const timed = {
+            ...b,
+            fields: fields({
+                timestamp_state: "timestamped",
+                start_time_us: "1",
+                end_time_us: "2",
+            }),
+        };
+        expect(sortTranscriptRecords([timed, untimed])[0]!.id).toBe(b.id);
+        expect(sortTranscriptRecords([untimed, timed])[0]!.id).toBe(b.id);
+
+        const later = {
+            ...a,
+            fields: fields({
+                timestamp_state: "timestamped",
+                start_time_us: "10",
+                end_time_us: "20",
+            }),
+        };
+        const earlier = {
+            ...b,
+            fields: fields({
+                timestamp_state: "timestamped",
+                start_time_us: "1",
+                end_time_us: "2",
+            }),
+        };
+        expect(sortTranscriptRecords([later, earlier])[0]!.id).toBe(b.id);
+
+        const mk = (id: string, start: string) => ({
+            ...a,
+            id,
+            fields: fields({
+                timestamp_state: "timestamped",
+                start_time_us: start,
+                end_time_us: String(Number(start) + 1),
+            }),
+        });
+        const c = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
+        const d = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
+        const mixed = sortTranscriptRecords([
+            mk(a.id, "10"),
+            mk(b.id, "1"),
+            mk(c, "9"),
+            mk(d, "2"),
+        ]);
+        expect(mixed.map((record) => record.id)).toEqual([b.id, d, c, a.id]);
+    });
+
+    it("exports text without speakers and untimed ranges", () => {
+        const cue = transcriptCue({ text: "Hello", timestamped: false });
+        const output = formatTranscriptExport([cue], "text");
+        expect(output).toContain("[time not provided] Hello");
+
+        const timed = transcriptCue({ text: "Hi", startTimeUs: 2_000_000n, endTimeUs: 2_000_000n });
+        expect(formatTranscriptExport([timed], "text")).toContain("[00:00:02] Hi");
+
+        const named = {
+            ...timed,
+            fields: new Map([...timed.fields, ["speaker_name", "Tutor"]]),
+        };
+        expect(formatTranscriptExport([named], "text")).toContain("Tutor: Hi");
+    });
+
+    it("rejects subtitle export when times are incomplete or zero-length", () => {
+        const untimed = transcriptCue({ text: "Hi", timestamped: false });
+        expect(() => formatTranscriptExport([untimed], "vtt")).toThrow("need valid start");
+        const zero = transcriptCue({ startTimeUs: 1_000_000n, endTimeUs: 1_000_000n });
+        expect(() => formatTranscriptExport([zero], "srt")).toThrow("need valid start");
+    });
+
+    it("omits unsafe WebVTT cue identifiers", () => {
+        const cue = transcriptCue({ text: "Hi" });
+        const unsafe = {
+            ...cue,
+            fields: new Map([...cue.fields, ["source_cue_id", "a-->b"]]),
+        };
+        const output = formatTranscriptExport([unsafe], "vtt");
+        expect(output).not.toContain("a-->b");
+        const multiline = {
+            ...cue,
+            fields: new Map([...cue.fields, ["source_cue_id", "a\nb"]]),
+        };
+        expect(formatTranscriptExport([multiline], "vtt")).not.toContain("a\nb");
+    });
+});
+
+describe("transcript unicode and untimed ordering", () => {
+    it("accepts a complete surrogate pair as transcript text", () => {
+        expect(parseTranscriptSource("😀 maths", "text")).toEqual([
+            expect.objectContaining({ text: "😀 maths" }),
+        ]);
+    });
+
+    it("orders two untimed segments by their import metadata", () => {
+        const base = {
+            type: RecordType.transcriptSegment,
+            revision: 0n,
+            previousOffset: 0n,
+            blob: new Uint8Array(),
+            fields: new Map([
+                ["timestamp_state", "not-timestamped"],
+                ["source_import_id", "same-import"],
+            ]),
+        };
+        const first = {
+            ...base,
+            id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+            fields: new Map([...base.fields, ["source_index", "1"]]),
+        };
+        const second = {
+            ...base,
+            id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+            fields: new Map([...base.fields, ["source_index", "2"]]),
+        };
+        expect(sortTranscriptRecords([second, first])[0]!.id).toBe(first.id);
+    });
+});

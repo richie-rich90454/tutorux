@@ -280,7 +280,6 @@ export async function startNativeSynchronizedAudioCapture(options: {
             Math.min(queue.stagedBytes, requestedBytes) / queue.frameBytes,
         );
         const size = frameAligned * queue.frameBytes;
-        if (size <= 0) return;
         const bytes = new Uint8Array(size);
         let offset = 0;
         let remaining = size;
@@ -477,8 +476,6 @@ export async function startNativeSynchronizedAudioCapture(options: {
                 if (!active || stopped || pausedAt !== undefined) {
                     throw new Error("The synchronized capture cannot be paused now.");
                 }
-                if (nextPauseId >= Number.MAX_SAFE_INTEGER)
-                    throw new Error("Too many pause cycles.");
                 const id = ++nextPauseId;
                 const drained = new Promise<void>((resolve, reject) => {
                     pendingPause = { id, resolve, reject };
@@ -770,9 +767,6 @@ function decodePcm(base64: string): Uint8Array<ArrayBuffer> {
         throw new Error("The native audio event exceeded the supported chunk size.");
     }
     const decoded = atob(base64);
-    if (decoded.length > MAX_NATIVE_EVENT_BYTES) {
-        throw new Error("The native audio event exceeded the supported chunk size.");
-    }
     const bytes = new Uint8Array(decoded.length);
     for (let index = 0; index < decoded.length; index++) bytes[index] = decoded.charCodeAt(index);
     return bytes;
@@ -884,9 +878,6 @@ function reconcileSummary(
         failures[track] =
             "The native audio delivery ended before every chunk reached the archive writer.";
     }
-    if (queue.persistenceFailed && !failures[track]) {
-        failures[track] = "Audio stopped because an archive checkpoint could not be committed.";
-    }
 }
 
 async function withTimeout(
@@ -903,7 +894,7 @@ async function withTimeout(
             }),
         ]);
     } finally {
-        if (timeout !== undefined) clearTimeout(timeout);
+        clearTimeout(timeout);
     }
 }
 

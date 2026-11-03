@@ -145,9 +145,9 @@ export function encodeStudentProgress(items: readonly StudentProgressItem[]): st
     if (items.length > 512) throw new Error("A student may have at most 512 progress items.");
     let output = `TP1;${items.length};`;
     for (const item of items) {
-        const skill = validateText(item.skill, "Skill", 256, false, false);
-        const note = validateText(item.note, "Review note", 4_096, true, false);
-        const reviewedBy = validateText(item.reviewedBy, "Reviewer", 128, false, false);
+        const skill = validateText(item.skill, "Skill", 256, false);
+        const note = validateText(item.note, "Review note", 4_096, true);
+        const reviewedBy = validateText(item.reviewedBy, "Reviewer", 128, false);
         if (!normalizeStudentProgressSkill(skill)) throw new Error("Skill is required.");
         if (!normalizeStudentProgressSkill(reviewedBy)) throw new Error("Reviewer is required.");
         if (!isStudentProgressClassification(item.classification)) {
@@ -178,9 +178,6 @@ export function encodeStudentProgress(items: readonly StudentProgressItem[]): st
             unique.add(id);
             appendString(id);
         }
-    }
-    if (encoder.encode(output).length > MAX_PROGRESS_BYTES) {
-        throw new Error("Student progress data exceeds the 4 MiB limit.");
     }
     return output;
 
@@ -287,11 +284,11 @@ export function reviewStudentProgressRecord(
     if (student.type !== RecordType.student || student.fields.get("_deleted") === "true") {
         throw new Error("Choose an active student before saving a progress review.");
     }
-    const skill = validateText(input.skill, "Skill", 256, false, false);
-    const reviewer = validateText(input.reviewedBy, "Reviewer", 128, false, false);
+    const skill = validateText(input.skill, "Skill", 256, false);
+    const reviewer = validateText(input.reviewedBy, "Reviewer", 128, false);
     if (!normalizeStudentProgressSkill(skill)) throw new Error("Skill is required.");
     if (!normalizeStudentProgressSkill(reviewer)) throw new Error("Reviewer is required.");
-    const note = validateText(input.note, "Review note", 4_096, true, false);
+    const note = validateText(input.note, "Review note", 4_096, true);
     const sources = validateProgressEvidence(
         student.id,
         input.evidenceSourceIds,
@@ -344,19 +341,16 @@ function validateText(
     label: string,
     maximumBytes: number,
     allowLineBreaks: boolean,
-    required: boolean,
 ): string {
-    const value = required ? raw.trim() : raw;
-    if (required && !value) throw new Error(`${label} is required.`);
-    if (encoder.encode(value).length > maximumBytes || hasInvalidControls(value, allowLineBreaks)) {
+    if (encoder.encode(raw).length > maximumBytes || hasInvalidControls(raw, allowLineBreaks)) {
         throw new Error(`${label} is too long or contains unsupported control characters.`);
     }
-    return value;
+    return raw;
 }
 
 function hasInvalidControls(value: string, allowLineBreaks: boolean): boolean {
     for (const character of value) {
-        const code = character.codePointAt(0) ?? 0;
+        const code = character.codePointAt(0)!;
         if (
             code === 0x7f ||
             (code < 0x20 && !(allowLineBreaks && (code === 0x0a || code === 0x09)))

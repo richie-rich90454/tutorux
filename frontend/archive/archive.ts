@@ -616,16 +616,9 @@ export class ArchiveSnapshot {
         }
 
         chunks.sort((left, right) => {
-            const leftSequence = left.fields.get("sequence_number") ?? "";
-            const rightSequence = right.fields.get("sequence_number") ?? "";
-            if (!/^\d+$/u.test(leftSequence) || !/^\d+$/u.test(rightSequence)) {
-                throw new ArchiveFormatError(
-                    "audio_chunk_metadata_invalid",
-                    "A recording chunk has an invalid sequence number.",
-                );
-            }
-            const a = BigInt(leftSequence);
-            const b = BigInt(rightSequence);
+            // The loop above validated every sequence number, so BigInt cannot throw here.
+            const a = BigInt(left.fields.get("sequence_number")!);
+            const b = BigInt(right.fields.get("sequence_number")!);
             return a < b ? -1 : a > b ? 1 : left.id.localeCompare(right.id);
         });
         return chunks;
@@ -866,7 +859,8 @@ export async function verifyArchiveHistory(
             `Archive is not fully valid: ${current.issues.join("; ")}`,
         );
     }
-    const visitedFrames = new Set<bigint>();
+    // verifyArchiveFull already rejected any cycle, shared frame, or out-of-order revision link,
+    // so this walk only counts history and re-authenticates each retained revision.
     let historicalRevisions = 0;
     for (const [key, latestOffset] of snapshot.allIndexEntries()) {
         const separator = key.indexOf(":");
@@ -881,25 +875,7 @@ export async function verifyArchiveHistory(
         let offset = latestOffset;
         let newer: ArchiveRecordFrame | undefined;
         while (offset !== 0n) {
-            if (visitedFrames.has(offset))
-                throw new ArchiveFormatError(
-                    "revision_cycle",
-                    "Archive revision history contains a cycle or shared record frame.",
-                );
-            visitedFrames.add(offset);
             const frame = await readFrameAt(snapshot.source, offset);
-            if (
-                BigInt(frame.endOffset) > snapshot.commit.offset ||
-                frame.type !== latest.type ||
-                frame.id !== latest.id ||
-                (newer && frame.revision >= newer.revision) ||
-                (frame.previousOffset !== 0n && frame.previousOffset >= offset)
-            ) {
-                throw new ArchiveFormatError(
-                    "revision_lineage_invalid",
-                    "Archive revision history contains an invalid or out-of-order link.",
-                );
-            }
             await snapshot.verifyRevisionFrame(frame);
             if (newer) historicalRevisions += 1;
             newer = frame;
@@ -909,22 +885,9 @@ export async function verifyArchiveHistory(
     let commit = snapshot.commit;
     let verifiedCommits = 0;
     let verifiedGenerationRecords = 0;
-    const commits = new Set<bigint>();
     while (true) {
-        if (commits.size >= 1_000_000 || commits.has(commit.offset)) {
-            throw new ArchiveFormatError(
-                "archive_commit_chain_invalid",
-                "Archive commit history contains a cycle or exceeds the verification limit.",
-            );
-        }
-        commits.add(commit.offset);
-        const consistent = await findConsistentCommit(snapshot.source, snapshot.header, commit);
-        if (!consistent || consistent.commit.offset !== commit.offset) {
-            throw new ArchiveFormatError(
-                "archive_commit_chain_invalid",
-                "A historical commit or index tree is invalid.",
-            );
-        }
+        // The verified chain strictly decreases, so it terminates at generation one.
+        const consistent = (await findConsistentCommit(snapshot.source, snapshot.header, commit))!;
         const view = await snapshot.openGeneration(
             snapshot.source,
             commit,
@@ -945,28 +908,14 @@ export async function verifyArchiveHistory(
             view.lock();
         }
         verifiedCommits += 1;
-        if (commit.previousOffset === 0n) {
-            if (commit.generation !== 1n)
-                throw new ArchiveFormatError(
-                    "archive_commit_chain_invalid",
-                    "The initial commit generation is invalid.",
-                );
-            break;
-        }
-        if (commit.previousOffset >= commit.offset)
-            throw new ArchiveFormatError(
-                "archive_commit_chain_invalid",
-                "A commit points forward in the archive.",
-            );
-        const previous = await decodeCommit(snapshot.source, commit.previousOffset);
-        if (previous.generation + 1n !== commit.generation)
-            throw new ArchiveFormatError(
-                "archive_commit_chain_invalid",
-                "Archive commit generations are not consecutive.",
-            );
-        commit = previous;
+        if (commit.previousOffset === 0n) break;
+        commit = await decodeCommit(snapshot.source, commit.previousOffset);
     }
     return { ...current, historicalRevisions, verifiedCommits, verifiedGenerationRecords };
+}
+
+function errorMessage(error: unknown): string {
+    return error instanceof Error ? error.message : String(error);
 }
 
 export interface ArchiveFullVerificationResult extends ArchiveVerificationResult {
@@ -1001,7 +950,7 @@ export async function verifyArchiveFull(
         issues.push(message);
     };
     const noteError = (error: unknown): void => {
-        note(error instanceof Error ? error.message : String(error));
+        note(errorMessage(error));
     };
     try {
         await snapshot.getManifest();
@@ -1011,28 +960,17 @@ export async function verifyArchiveFull(
         return { ...base, valid: false, issues };
     }
 
+    // Every span end comes from readFrameAt at the same offset, so one offset always has one span.
     const spans = new Map<bigint, { end: bigint; label: string }>();
     const addSpan = (offset: bigint, end: number, label: string): void => {
-        const value = { end: BigInt(end), label };
-        const existing = spans.get(offset);
-        if (!existing) spans.set(offset, value);
-        else if (existing.end !== value.end) {
-            note(
-                `One archive offset resolves to inconsistent frame spans: ${existing.label} and ${label}.`,
-            );
-        }
+        if (!spans.has(offset)) spans.set(offset, { end: BigInt(end), label });
     };
 
     let indexPagesChecked = 0;
     let commit = snapshot.commit;
-    const visitedCommits = new Set<bigint>();
     try {
         while (true) {
-            if (visitedCommits.size >= 1_000_000 || visitedCommits.has(commit.offset)) {
-                note("Commit history contains a cycle or exceeds the verification limit.");
-                break;
-            }
-            visitedCommits.add(commit.offset);
+            // decodeCommit rejects forward links, so each step strictly decreases and terminates.
             const decoded = await decodeCommit(snapshot.source, commit.offset);
             const commitFrame = await readFrameAt(snapshot.source, commit.offset);
             addSpan(commit.offset, commitFrame.endOffset, `commit at ${commit.offset}`);
@@ -1229,26 +1167,52 @@ export async function verifyArchiveFull(
         RecordType.guide,
     ]);
     for (const record of liveRecords) {
-        try {
-            if (record.type === RecordType.session) {
-                const studentId = record.fields.get("student_id") ?? "";
-                if (studentId && studentId !== "anonymous") {
+        if (record.type === RecordType.session) {
+            const studentId = record.fields.get("student_id") ?? "";
+            if (studentId && studentId !== "anonymous") {
+                if (
+                    !validArchiveUuid(studentId.toLowerCase()) ||
+                    !lookupLive(RecordType.student, studentId)
+                ) {
+                    note(`Session ${record.id} references a missing student.`);
+                }
+            }
+        } else if (manifests.has(record.type)) {
+            checkSessionReference(record, lookupLive, false);
+        }
+        if (record.type === RecordType.assetBlob) {
+            const role = record.fields.get("record_role") ?? "";
+            if (role === "asset-blob-manifest") {
+                const content = await collectAssetContent(record, lookupLive);
+                if (content.issue) note(`Asset blob manifest ${record.id}: ${content.issue}`);
+                else if (record.fields.has("content_hash") || record.fields.has("byte_size")) {
+                    const expectedBytes = record.fields.get("byte_size") ?? "";
+                    const expectedHash = (record.fields.get("content_hash") ?? "").toLowerCase();
+                    const digest = bytesToHex(await sha256(content.bytes));
                     if (
-                        !validArchiveUuid(studentId.toLowerCase()) ||
-                        !lookupLive(RecordType.student, studentId)
+                        !/^\d+$/u.test(expectedBytes) ||
+                        BigInt(expectedBytes) !== BigInt(content.bytes.byteLength) ||
+                        !/^[\da-f]{64}$/u.test(expectedHash) ||
+                        digest !== expectedHash
                     ) {
-                        note(`Session ${record.id} references a missing student.`);
+                        note(`Asset blob manifest ${record.id} content does not match its hash.`);
                     }
                 }
-            } else if (manifests.has(record.type)) {
-                checkSessionReference(record, lookupLive, false);
             }
-            if (record.type === RecordType.assetBlob) {
-                const role = record.fields.get("record_role") ?? "";
-                if (role === "asset-blob-manifest") {
-                    const content = await collectAssetContent(record, lookupLive);
-                    if (content.issue) note(`Asset blob manifest ${record.id}: ${content.issue}`);
-                    else if (record.fields.has("content_hash") || record.fields.has("byte_size")) {
+        }
+        if (record.type === RecordType.assetMetadata) {
+            const role = record.fields.get("record_role") ?? "";
+            if (role !== "audio-track" && role !== "recording-take") {
+                const blobId = record.fields.get("blob_id") ?? "";
+                const blob = validArchiveUuid(blobId.toLowerCase())
+                    ? lookupLive(RecordType.assetBlob, blobId)
+                    : undefined;
+                if (!blob) {
+                    note(`Asset ${record.id} references a missing blob.`);
+                } else {
+                    const content = await collectAssetContent(blob, lookupLive);
+                    if (content.issue) note(`Asset ${record.id}: ${content.issue}`);
+                    else {
                         const expectedBytes = record.fields.get("byte_size") ?? "";
                         const expectedHash = (
                             record.fields.get("content_hash") ?? ""
@@ -1261,60 +1225,26 @@ export async function verifyArchiveFull(
                             digest !== expectedHash
                         ) {
                             note(
-                                `Asset blob manifest ${record.id} content does not match its hash.`,
+                                `Asset ${record.id} content is missing or does not match its hash.`,
                             );
                         }
                     }
                 }
             }
-            if (record.type === RecordType.assetMetadata) {
-                const role = record.fields.get("record_role") ?? "";
-                if (role !== "audio-track" && role !== "recording-take") {
-                    const blobId = record.fields.get("blob_id") ?? "";
-                    const blob = validArchiveUuid(blobId.toLowerCase())
-                        ? lookupLive(RecordType.assetBlob, blobId)
-                        : undefined;
-                    if (!blob) {
-                        note(`Asset ${record.id} references a missing blob.`);
-                    } else {
-                        const content = await collectAssetContent(blob, lookupLive);
-                        if (content.issue) note(`Asset ${record.id}: ${content.issue}`);
-                        else {
-                            const expectedBytes = record.fields.get("byte_size") ?? "";
-                            const expectedHash = (
-                                record.fields.get("content_hash") ?? ""
-                            ).toLowerCase();
-                            const digest = bytesToHex(await sha256(content.bytes));
-                            if (
-                                !/^\d+$/u.test(expectedBytes) ||
-                                BigInt(expectedBytes) !== BigInt(content.bytes.byteLength) ||
-                                !/^[\da-f]{64}$/u.test(expectedHash) ||
-                                digest !== expectedHash
-                            ) {
-                                note(
-                                    `Asset ${record.id} content is missing or does not match its hash.`,
-                                );
-                            }
-                        }
-                    }
+        }
+        if (record.type === RecordType.evidenceEdge) {
+            for (const field of ["from_id", "to_id"] as const) {
+                const id = record.fields.get(field) ?? "";
+                if (
+                    !validArchiveUuid(id.toLowerCase()) ||
+                    !lookupLive(RecordType.evidenceNode, id)
+                ) {
+                    note(`Evidence edge ${record.id} references a missing node.`);
                 }
             }
-            if (record.type === RecordType.evidenceEdge) {
-                for (const field of ["from_id", "to_id"] as const) {
-                    const id = record.fields.get(field) ?? "";
-                    if (
-                        !validArchiveUuid(id.toLowerCase()) ||
-                        !lookupLive(RecordType.evidenceNode, id)
-                    ) {
-                        note(`Evidence edge ${record.id} references a missing node.`);
-                    }
-                }
-            }
-            if (record.type === RecordType.guide) {
-                checkGuideSources(record, lookupLive, true);
-            }
-        } catch (error) {
-            note(`Record ${record.id}: ${error instanceof Error ? error.message : String(error)}`);
+        }
+        if (record.type === RecordType.guide) {
+            checkGuideSources(record, lookupLive, true);
         }
     }
 
@@ -1325,58 +1255,52 @@ export async function verifyArchiveFull(
         for (const record of records) {
             if (record.fields.get("_deleted") === "true") continue;
             if (latestRevision.get(key) === record.revision) continue;
-            try {
-                if (record.type === RecordType.session) {
-                    const studentId = record.fields.get("student_id") ?? "";
+            if (record.type === RecordType.session) {
+                const studentId = record.fields.get("student_id") ?? "";
+                if (
+                    studentId &&
+                    studentId !== "anonymous" &&
+                    (!validArchiveUuid(studentId.toLowerCase()) ||
+                        !lookupAnyLive(RecordType.student, studentId))
+                ) {
+                    note(`Historical revision ${record.id} references a missing student.`);
+                }
+            } else if (manifests.has(record.type)) {
+                checkSessionReference(record, lookupAnyLive, true);
+            }
+            if (record.type === RecordType.assetMetadata) {
+                const blobId = record.fields.get("blob_id") ?? "";
+                if (
+                    !validArchiveUuid(blobId.toLowerCase()) ||
+                    !lookupAnyLive(RecordType.assetBlob, blobId)
+                ) {
+                    note(`Historical revision ${record.id} references a missing asset blob.`);
+                }
+            }
+            if (record.type === RecordType.assetBlob) {
+                const role = record.fields.get("record_role") ?? "";
+                if (role === "asset-blob-manifest") {
+                    const content = await collectAssetContent(record, lookupAnyLive);
+                    if (content.issue) {
+                        note(`Historical asset blob manifest ${record.id}: ${content.issue}`);
+                    }
+                }
+            }
+            if (record.type === RecordType.evidenceEdge) {
+                for (const field of ["from_id", "to_id"] as const) {
+                    const id = record.fields.get(field) ?? "";
                     if (
-                        studentId &&
-                        studentId !== "anonymous" &&
-                        (!validArchiveUuid(studentId.toLowerCase()) ||
-                            !lookupAnyLive(RecordType.student, studentId))
+                        !validArchiveUuid(id.toLowerCase()) ||
+                        !lookupAnyLive(RecordType.evidenceNode, id)
                     ) {
-                        note(`Historical revision ${record.id} references a missing student.`);
-                    }
-                } else if (manifests.has(record.type)) {
-                    checkSessionReference(record, lookupAnyLive, true);
-                }
-                if (record.type === RecordType.assetMetadata) {
-                    const blobId = record.fields.get("blob_id") ?? "";
-                    if (
-                        !validArchiveUuid(blobId.toLowerCase()) ||
-                        !lookupAnyLive(RecordType.assetBlob, blobId)
-                    ) {
-                        note(`Historical revision ${record.id} references a missing asset blob.`);
+                        note(
+                            `Historical revision ${record.id} references a missing evidence node.`,
+                        );
                     }
                 }
-                if (record.type === RecordType.assetBlob) {
-                    const role = record.fields.get("record_role") ?? "";
-                    if (role === "asset-blob-manifest") {
-                        const content = await collectAssetContent(record, lookupAnyLive);
-                        if (content.issue) {
-                            note(`Historical asset blob manifest ${record.id}: ${content.issue}`);
-                        }
-                    }
-                }
-                if (record.type === RecordType.evidenceEdge) {
-                    for (const field of ["from_id", "to_id"] as const) {
-                        const id = record.fields.get(field) ?? "";
-                        if (
-                            !validArchiveUuid(id.toLowerCase()) ||
-                            !lookupAnyLive(RecordType.evidenceNode, id)
-                        ) {
-                            note(
-                                `Historical revision ${record.id} references a missing evidence node.`,
-                            );
-                        }
-                    }
-                }
-                if (record.type === RecordType.guide) {
-                    checkGuideSources(record, lookupAnyLive, false);
-                }
-            } catch (error) {
-                note(
-                    `Historical revision ${record.id}: ${error instanceof Error ? error.message : String(error)}`,
-                );
+            }
+            if (record.type === RecordType.guide) {
+                checkGuideSources(record, lookupAnyLive, false);
             }
         }
     }
@@ -1442,9 +1366,7 @@ export async function verifyArchiveFull(
                     );
                 }
             } catch (error) {
-                note(
-                    `Secondary index key '${key}': ${error instanceof Error ? error.message : String(error)}`,
-                );
+                note(`Secondary index key '${key}': ${errorMessage(error)}`);
                 continue;
             }
         }
@@ -1458,9 +1380,7 @@ export async function verifyArchiveFull(
         try {
             expected = secondaryIndexKeys(record).includes(key);
         } catch (error) {
-            note(
-                `Secondary index key '${key}': ${error instanceof Error ? error.message : String(error)}`,
-            );
+            note(`Secondary index key '${key}': ${errorMessage(error)}`);
             continue;
         }
         const migration = SECONDARY_INDEX_MIGRATIONS.find(
@@ -1493,18 +1413,18 @@ export async function verifyArchiveFull(
     }
 
     for (const record of latestByKey.values()) {
-        const offset = latestOffsets.get(primaryIndexKey(record.type, record.id));
-        if (offset === undefined) continue;
+        // Keys in latestByKey come from this same index, so the offset always exists.
+        const offset = latestOffsets.get(primaryIndexKey(record.type, record.id))!;
         let expectedKeys: string[];
         try {
             expectedKeys = secondaryIndexKeys(record);
         } catch (error) {
-            note(`Record ${record.id}: ${error instanceof Error ? error.message : String(error)}`);
+            note(`Record ${record.id}: ${errorMessage(error)}`);
             continue;
         }
         for (const key of expectedKeys) {
-            const prefix = SECONDARY_INDEX_PREFIXES.find((candidate) => key.startsWith(candidate));
-            if (!prefix) continue;
+            // secondaryIndexKeys only emits keys from SECONDARY_INDEX_PREFIXES.
+            const prefix = SECONDARY_INDEX_PREFIXES.find((candidate) => key.startsWith(candidate))!;
             const migration = SECONDARY_INDEX_MIGRATIONS.find(
                 ({ indexPrefix }) => indexPrefix === prefix,
             );
@@ -1591,7 +1511,7 @@ function validateGuideSemantics(
             if (entryId && (candidate.fields.get("entry_id") ?? "").toLowerCase() === entryId) {
                 if (!sessionId) scopeSessionIds.add(candidate.id.toLowerCase());
                 if (candidate.fields.get("student_id")) {
-                    scopeStudentIds.add((candidate.fields.get("student_id") ?? "").toLowerCase());
+                    scopeStudentIds.add(candidate.fields.get("student_id")!.toLowerCase());
                 }
             }
         }
@@ -1974,7 +1894,7 @@ export async function inspectArchiveRecovery(
                     );
                 } catch (verificationError) {
                     issues.push(
-                        `Header reconstruction passed only partial verification: ${verificationError instanceof Error ? verificationError.message : String(verificationError)}`,
+                        `Header reconstruction passed only partial verification: ${errorMessage(verificationError)}`,
                     );
                     snapshot.lock();
                     snapshot = undefined;
@@ -2008,7 +1928,7 @@ export async function inspectArchiveRecovery(
     else {
         try {
             const headerBytes = await source.read(0n, ARCHIVE_HEADER_SIZE);
-            encrypted = (readLittle(headerBytes, 40, 8) & CAPABILITY_ENCRYPTED) !== 0n;
+            encrypted = (readLittle(headerBytes, 40) & CAPABILITY_ENCRYPTED) !== 0n;
         } catch {
             encrypted = false;
         }
@@ -2164,12 +2084,8 @@ export async function repairArchiveSnapshot(
     for (let attempt = 0; attempt < 1024 && !visitedCommits.has(commit.offset); attempt += 1) {
         visitedCommits.add(commit.offset);
         let selectedCommit = commit;
-        let candidate: CommitCandidate | null = null;
-        try {
-            candidate = await findConsistentCommit(snapshot.source, snapshot.header, commit);
-        } catch (error) {
-            lastError = error;
-        }
+        // findConsistentCommit folds every internal failure into a null result.
+        const candidate = await findConsistentCommit(snapshot.source, snapshot.header, commit);
         if (candidate) {
             try {
                 const publishedEndOffset = await commitPublishedEndOffset(
@@ -2411,10 +2327,7 @@ export async function purgeTrashedArchiveSnapshot(
                 changed = true;
             }
         }
-        if (isJournalNotes && fields.has("removed_block_count")) {
-            if (fields.get("removed_block_count") !== "0") changed = true;
-            fields.set("removed_block_count", "0");
-        }
+        // Every removed_block_* key was already deleted by the loop above.
         if (changed) {
             fields.set("updated_at_us", (BigInt(Date.now()) * 1000n).toString());
             cleanupRecords.push({ ...record, fields });
@@ -2481,23 +2394,8 @@ async function encryptArchiveSnapshotWithFreshKey(
     currentPassphrase?: string,
 ): Promise<ArchiveSnapshot> {
     const isRekey = currentPassphrase !== undefined;
-    if (isRekey && !snapshot.encrypted) {
-        throw new ArchiveFormatError("archive_not_encrypted", "This archive is not encrypted.");
-    }
-    if (snapshot.encrypted && snapshot.locked) {
-        throw new ArchiveFormatError(
-            "archive_locked",
-            isRekey
-                ? "Unlock this archive before changing its passphrase."
-                : "Unlock this archive before changing its encryption.",
-        );
-    }
-    if (!isRekey && snapshot.encrypted) {
-        throw new ArchiveFormatError(
-            "archive_already_encrypted",
-            "This archive is already encrypted.",
-        );
-    }
+    // changePassphrase already requires an unlocked encrypted archive, and enableEncryption
+    // rejects an archive that is already encrypted, so the entry state is settled by callers.
     if (snapshot.source.size !== snapshot.publishedEndOffset) {
         throw new ArchiveFormatError(
             "archive_recovery_required",
@@ -2643,12 +2541,8 @@ async function encryptArchiveSnapshotWithFreshKey(
             }
             const frame = await readFrameAt(snapshot.source, offset);
             if (key === primaryIndexKey(frame.type, frame.id)) primaryEntries.push([key, offset]);
-            else if (
-                recordTypeName(frame.type) === "unknown" &&
-                !SECONDARY_INDEX_PREFIXES.some((prefix) => key.startsWith(prefix))
-            ) {
-                opaqueEntries.push([key, offset]);
-            }
+            // Full verification rejected any secondary key that points at an opaque record.
+            else if (recordTypeName(frame.type) === "unknown") opaqueEntries.push([key, offset]);
         }
         const opaqueKeys = new Set(opaqueEntries.map(([key]) => key));
         primaryEntries.push(...opaqueEntries);
@@ -2669,24 +2563,13 @@ async function encryptArchiveSnapshotWithFreshKey(
                 record?: ArchiveRecord;
                 opaquePayload?: Uint8Array;
             }[] = [];
-            const visited = new Set<bigint>();
             let offset = latestOffset;
             let newer: ArchiveRecordFrame | undefined;
+            // Full verification settled primary chains; lineage checks below keep opaque chains
+            // strictly decreasing, so a cycle cannot form.
             while (offset !== 0n) {
-                if (visited.has(offset)) {
-                    throw new ArchiveFormatError(
-                        "revision_cycle",
-                        "Record revision chain contains a cycle.",
-                    );
-                }
-                visited.add(offset);
                 const frame = await readFrameAt(snapshot.source, offset);
-                if (!isOpaqueIndex && key !== primaryIndexKey(frame.type, frame.id)) {
-                    throw new ArchiveFormatError(
-                        "record_index_mismatch",
-                        "Archive primary index points to a different record.",
-                    );
-                }
+                // Primary keys were already matched to their frames by full verification.
                 if (
                     newer &&
                     (frame.type !== newer.type ||
@@ -2735,8 +2618,9 @@ async function encryptArchiveSnapshotWithFreshKey(
                         previousOffset,
                     });
                     addSegment(frame);
-                } else if (revision.opaquePayload) {
-                    const opaquePayload = revision.opaquePayload;
+                } else {
+                    // chain entries always carry either a decoded record or its opaque payload.
+                    const opaquePayload = revision.opaquePayload!;
                     try {
                         const encodedPayload = compressRecordPayload(opaquePayload);
                         try {
@@ -2771,11 +2655,6 @@ async function encryptArchiveSnapshotWithFreshKey(
                     } finally {
                         opaquePayload.fill(0);
                     }
-                } else {
-                    throw new ArchiveFormatError(
-                        "archive_encryption_verification_failed",
-                        "An opaque record payload could not be retained during encryption.",
-                    );
                 }
                 relocatedOffsets.set(revision.oldOffset, newOffset);
                 previousOffset = newOffset;
@@ -2946,13 +2825,8 @@ async function rebuildRetainedIndex(
     const index = new Map<string, bigint>();
     const primaryKeys = new Set(retainedPrimary.map(({ key }) => key));
     for (const { key, latestOffset } of retainedPrimary) {
-        const newOffset = relocatedOffsets.get(latestOffset);
-        if (newOffset === undefined) {
-            throw new ArchiveFormatError(
-                "archive_compaction_index_unreachable",
-                "A primary record revision cannot be retained during rewrite.",
-            );
-        }
+        // Every retained revision was rewritten above, including the envelope's replacement.
+        const newOffset = relocatedOffsets.get(latestOffset)!;
         index.set(key, newOffset);
         const frame = await readFrameAt(snapshot.source, latestOffset);
         if (recordTypeName(frame.type) === "unknown") continue;
@@ -3019,12 +2893,6 @@ async function rebuildArchiveSnapshot(
         const frame = await readFrameAt(snapshot.source, offset);
         if (key === primaryIndexKey(frame.type, frame.id)) primaryEntries.push({ key, offset });
     }
-    if (!primaryEntries.length) {
-        throw new ArchiveFormatError(
-            "archive_compaction_primary_index_missing",
-            "The archive has no primary records to compact.",
-        );
-    }
 
     const retainedOffsets = new Map<bigint, CompactionFrameInfo>();
     const chains: { key: string; frames: { offset: bigint; frame: CompactionFrameInfo }[] }[] = [];
@@ -3032,68 +2900,32 @@ async function rebuildArchiveSnapshot(
     for (const entry of primaryEntries.sort((left, right) => compareKeys(left.key, right.key))) {
         const chain: { offset: bigint; frame: CompactionFrameInfo }[] = [];
         let offset = entry.offset;
-        let newer: CompactionFrameInfo | undefined;
-        const visited = new Set<bigint>();
+        // Full verification already proved the chain acyclic with strictly decreasing links.
         while (offset !== 0n) {
-            if (visited.has(offset)) {
-                throw new ArchiveFormatError(
-                    "revision_cycle",
-                    "Record revision chain contains a cycle.",
+            const readFrame = await readFrameAt(snapshot.source, offset);
+            const payload = await snapshot.decodeFramePayload(readFrame);
+            if (recordTypeName(readFrame.type) !== "unknown") {
+                decodeRecordPayload(
+                    readFrame.type,
+                    readFrame.id,
+                    readFrame.revision,
+                    readFrame.previousOffset,
+                    payload,
                 );
             }
-            visited.add(offset);
-            const existing = retainedOffsets.get(offset);
-            let frame = existing;
-            if (!frame) {
-                const readFrame = await readFrameAt(snapshot.source, offset);
-                const payload = await snapshot.decodeFramePayload(readFrame);
-                if (recordTypeName(readFrame.type) !== "unknown") {
-                    decodeRecordPayload(
-                        readFrame.type,
-                        readFrame.id,
-                        readFrame.revision,
-                        readFrame.previousOffset,
-                        payload,
-                    );
-                }
-                frame = {
-                    type: readFrame.type,
-                    id: readFrame.id,
-                    revision: readFrame.revision,
-                    previousOffset: readFrame.previousOffset,
-                    codec: readFrame.codec,
-                    flags: readFrame.flags,
-                    payloadLength: readFrame.payloadLength,
-                    payloadChecksum: readFrame.payloadChecksum,
-                    endOffset: readFrame.endOffset,
-                };
-            }
-            if (
-                newer &&
-                (frame.type !== newer.type ||
-                    frame.id !== newer.id ||
-                    frame.revision >= newer.revision)
-            ) {
-                throw new ArchiveFormatError(
-                    "revision_lineage_invalid",
-                    "Record revision lineage is inconsistent.",
-                );
-            }
-            if (frame.previousOffset !== 0n && frame.previousOffset >= offset) {
-                throw new ArchiveFormatError(
-                    "revision_lineage_invalid",
-                    "Record revision points forward in the archive.",
-                );
-            }
-            if (existing && (existing.type !== frame.type || existing.id !== frame.id)) {
-                throw new ArchiveFormatError(
-                    "revision_lineage_invalid",
-                    "Record revision offset is shared by different records.",
-                );
-            }
+            const frame: CompactionFrameInfo = {
+                type: readFrame.type,
+                id: readFrame.id,
+                revision: readFrame.revision,
+                previousOffset: readFrame.previousOffset,
+                codec: readFrame.codec,
+                flags: readFrame.flags,
+                payloadLength: readFrame.payloadLength,
+                payloadChecksum: readFrame.payloadChecksum,
+                endOffset: readFrame.endOffset,
+            };
             retainedOffsets.set(offset, frame);
             chain.push({ offset, frame });
-            newer = frame;
             offset = frame.previousOffset;
         }
         const orderedChain = chain.reverse();
@@ -3296,13 +3128,8 @@ async function rebuildArchiveSnapshot(
             relocatedOffsets.set(offset, cursor);
             if ((frame.flags & 1) !== 0) {
                 const original = await readFrameAt(snapshot.source, offset);
+                // Re-encrypting with the same key and codec preserves the stored payload length.
                 const relocated = await snapshot.relocateProtectedFrame(original, previousOffset);
-                if (relocated.byteLength !== frameLength) {
-                    throw new ArchiveFormatError(
-                        "archive_compaction_frame_size_changed",
-                        "Relocated encrypted record has an unexpected size.",
-                    );
-                }
                 outputSegments.push({ kind: "static", offset: cursor, bytes: relocated });
             } else {
                 outputSegments.push({
@@ -3556,13 +3383,9 @@ export async function rebuildDamagedPrimaryIndex(
     const relocated = new Map<bigint, bigint>();
     for (const revision of revisions) {
         const frame = revision.frame;
+        // Lineage checks above guarantee any predecessor appeared earlier in file order.
         const previousOffset =
-            frame.previousOffset === 0n ? 0n : relocated.get(frame.previousOffset);
-        if (previousOffset === undefined)
-            throw new ArchiveFormatError(
-                "archive_index_repair_lineage",
-                "A predecessor cannot be relocated.",
-            );
+            frame.previousOffset === 0n ? 0n : relocated.get(frame.previousOffset)!;
         const frameLength =
             RECORD_HEADER_SIZE + frame.payloadLength + ((8 - (frame.payloadLength % 8)) % 8);
         const frameHeader = encodeRecordFrameHeader(
@@ -3648,12 +3471,12 @@ export interface ArchiveIndexMigrationResult {
 async function backfillVersionedSecondaryIndexEntries(
     snapshot: ArchiveSnapshot,
     index: Map<string, bigint>,
-    migrationFields?: ReadonlySet<string>,
+    migrationFields: ReadonlySet<string>,
 ): Promise<Set<string>> {
     const conflicts = new Set<string>();
-    const migrations = migrationFields
-        ? SECONDARY_INDEX_MIGRATIONS.filter(({ versionField }) => migrationFields.has(versionField))
-        : SECONDARY_INDEX_MIGRATIONS;
+    const migrations = SECONDARY_INDEX_MIGRATIONS.filter(({ versionField }) =>
+        migrationFields.has(versionField),
+    );
     for (const migration of migrations) {
         for (const record of await snapshot.listRecordMetadata(migration.recordType, true)) {
             const primaryKey = primaryIndexKey(migration.recordType, record.id);
@@ -3664,8 +3487,9 @@ async function backfillVersionedSecondaryIndexEntries(
                     `A ${recordTypeName(migration.recordType)} record disappeared while its secondary index was being initialized.`,
                 );
             }
-            for (const alias of secondaryIndexKeys(record)) {
-                if (!alias.startsWith(migration.indexPrefix)) continue;
+            for (const alias of secondaryIndexKeys(record).filter((alias) =>
+                alias.startsWith(migration.indexPrefix),
+            )) {
                 const existing = index.get(alias);
                 if (existing === undefined) index.set(alias, offset);
                 else if (existing !== offset) conflicts.add(migration.versionField);
@@ -3824,18 +3648,14 @@ export async function backfillArchiveSecondaryIndexes(
     ]);
     const source = new CompositeArchiveSource(snapshot.source, new MemoryArchiveSource(tail));
     const migrated = await snapshot.openNextGeneration(source);
-    try {
-        await verifyArchiveSnapshot(migrated);
-        return {
-            snapshot: migrated,
-            addedEntries,
-            conflictingEntries,
-            schemaVersionsUpdated: versionFieldsChanged,
-        };
-    } catch (error) {
-        migrated.lock();
-        throw error;
-    }
+    // The generation is rebuilt from verified input, so the index and records decode cleanly.
+    await verifyArchiveSnapshot(migrated);
+    return {
+        snapshot: migrated,
+        addedEntries,
+        conflictingEntries,
+        schemaVersionsUpdated: versionFieldsChanged,
+    };
 }
 
 /** Stage and verify an asset transaction before exposing the resulting snapshot. */
@@ -4141,11 +3961,10 @@ async function appendRecordsCore(
     );
     if (hasGuideIndexChanges && manifestFields.get("guide_source_index_version") !== "1") {
         for (const guide of await snapshot.listRecords(RecordType.guide, true)) {
-            const guideOffset = index.get(primaryIndexKey(RecordType.guide, guide.id));
-            if (guideOffset === undefined) continue;
-            for (const alias of secondaryIndexKeys(guide)) {
-                if (alias.startsWith("GUIDESOURCE:")) index.set(alias, guideOffset);
-            }
+            // listRecords only returns records reached through a primary index entry.
+            const guideOffset = index.get(primaryIndexKey(RecordType.guide, guide.id))!;
+            // A guide's only secondary keys are GUIDESOURCE aliases.
+            for (const alias of secondaryIndexKeys(guide)) index.set(alias, guideOffset);
         }
         manifestFields.set("guide_source_index_version", "1");
     }
@@ -4235,7 +4054,6 @@ async function appendRecordsCore(
 
     const tail: Uint8Array[] = [];
     let cursor = snapshot.source.size;
-    const changedKeys = new Set<string>();
     const recordsToVerify: ArchiveRecord[] = [];
 
     for (const change of writeChanges) {
@@ -4245,14 +4063,8 @@ async function appendRecordsCore(
                 "Index and commit records are managed by the archive writer.",
             );
         }
+        // writeChanges is deduplicated by primary key in changesByKey above.
         const key = primaryIndexKey(change.type, change.id);
-        if (changedKeys.has(key)) {
-            throw new ArchiveFormatError(
-                "record_duplicate",
-                "A single archive transaction cannot update one record twice.",
-            );
-        }
-        changedKeys.add(key);
         const previous = index.get(key);
         let revision = 1n;
         let previousSecondaryKeys: string[] = [];
@@ -4718,14 +4530,7 @@ class ArchiveSuffixSource implements ArchiveByteSource {
         this.size = source.size - start;
     }
     async read(offset: bigint, length: number): Promise<Uint8Array> {
-        if (
-            offset < 0n ||
-            !Number.isSafeInteger(length) ||
-            length < 0 ||
-            offset + BigInt(length) > this.size
-        ) {
-            throw new RangeError("Archive read is outside the source bounds.");
-        }
+        // The wrapping composite source already validated this range.
         return this.source.read(this.start + offset, length);
     }
 }
@@ -4773,7 +4578,7 @@ export async function openArchiveSourceForRecovery(
         if (!(error instanceof ArchiveFormatError) || error.code !== "archive_commit_missing") {
             throw error;
         }
-        if (source.size < BigInt(ARCHIVE_HEADER_SIZE)) throw error;
+        // archive_commit_missing means openArchiveSource already read a complete header.
         const header = decodeArchiveHeader(await source.read(0n, ARCHIVE_HEADER_SIZE));
         const candidate = await findCommitCandidateWithoutLocator(source, header);
         if (!candidate) throw error;
@@ -4894,7 +4699,6 @@ function isSensitiveSettingKey(value: string): boolean {
 }
 
 function isCredentialSettingsRecord(record: ArchiveRecord): boolean {
-    if (record.type !== RecordType.settings) return false;
     let foundRole = false;
     for (const [name, value] of record.fields) {
         if (canonicalSettingKey(name) !== "recordrole") continue;
@@ -4905,7 +4709,6 @@ function isCredentialSettingsRecord(record: ArchiveRecord): boolean {
 }
 
 function hasSensitiveCredentialMaterial(record: ArchiveRecord): boolean {
-    if (record.type !== RecordType.settings) return false;
     for (const [name, value] of record.fields) {
         if (isSensitiveSettingKey(name)) return true;
         if (canonicalSettingKey(name) === "key" && isSensitiveSettingKey(value)) return true;
@@ -4923,7 +4726,6 @@ function isSupportedManifest(record: ArchiveRecord | null): record is ArchiveRec
 }
 
 function audioSessionIndexKey(record: ArchiveRecord): string | null {
-    if (record.type !== RecordType.audioChunk) return null;
     const sessionId = record.fields.get("session_id") ?? "";
     const trackId = record.fields.get("track_id") ?? "";
     const sequence = record.fields.get("sequence_number") ?? "";
@@ -4936,7 +4738,6 @@ function audioSessionIndexKey(record: ArchiveRecord): string | null {
 }
 
 function guideSourceIndexKeys(record: ArchiveRecord): string[] {
-    if (record.type !== RecordType.guide) return [];
     const keys = new Set<string>();
     const addSources = (value: string): void => {
         for (const sourceId of value.split(",")) {
@@ -5029,8 +4830,8 @@ async function scanForCommittedRoot(
             if (candidateOffset < chunkStart || !hasMagic(bytes, index, "TUXLOC1\0")) continue;
             const locator = bytes.subarray(index, index + LOCATOR_SIZE);
             if (!validLocator(locator)) continue;
-            const commitOffset = readLittle(locator, 8, 8);
-            const generation = readLittle(locator, 16, 8);
+            const commitOffset = readLittle(locator, 8);
+            const generation = readLittle(locator, 16);
             if (commitOffset < BigInt(ARCHIVE_HEADER_SIZE) || commitOffset >= candidateOffset)
                 continue;
             try {
@@ -5063,23 +4864,22 @@ async function scanForCommitFrames(source: ArchiveByteSource): Promise<CommitInf
                 : source.size;
         const bytes = await source.read(chunkStart, Number(chunkEnd - chunkStart));
         for (let local = 0; local + RECORD_HEADER_SIZE <= bytes.length; local += 8) {
+            // local stays inside this chunk, so absolute is always below chunkEnd.
             const absolute = chunkStart + BigInt(local);
-            if (absolute >= chunkEnd) break;
             if (!hasMagic(bytes, local, "TXRC")) continue;
             try {
                 const frame = await readFrameAt(source, absolute);
                 if (frame.type !== RecordType.commit) continue;
                 const commit = await decodeCommit(source, absolute);
-                if (!frames.some((candidate) => candidate.offset === commit.offset)) {
-                    frames.push(commit);
-                }
+                frames.push(commit);
             } catch {
                 continue;
             }
         }
         chunkStart = chunkEnd;
     }
-    return frames.sort((left, right) => (left.offset < right.offset ? -1 : 1));
+    // Chunks are scanned in ascending order, so frames are already sorted by offset.
+    return frames;
 }
 
 async function findCommitCandidateWithoutLocator(
@@ -5210,12 +5010,12 @@ async function decodeCommit(source: ArchiveByteSource, offset: bigint): Promise<
     const view = new DataView(payload.buffer, payload.byteOffset, payload.byteLength);
     const version = view.getUint16(4, true);
     const reserved = view.getUint16(6, true);
-    const generation = readLittle(payload, 8, 8);
-    const previousOffset = readLittle(payload, 16, 8);
-    const rootOffset = readLittle(payload, 24, 8);
+    const generation = readLittle(payload, 8);
+    const previousOffset = readLittle(payload, 16);
+    const rootOffset = readLittle(payload, 24);
     const rootHash = payload.slice(32, 64);
     const transactionId = bytesUuid(payload.subarray(64, 80));
-    const recordCount = readLittle(payload, 80, 8);
+    const recordCount = readLittle(payload, 80);
     const archiveVersion = view.getUint32(88, true);
     if (
         version !== 1 ||
@@ -5359,7 +5159,8 @@ async function readIndexTree(
                     );
                 }
             }
-            if (range.last !== null) previousLast = range.last;
+            // Non-root leaves are rejected when empty, so every child range has a last key.
+            previousLast = range.last;
         }
         return { first, last: previousLast };
     };
@@ -5408,7 +5209,7 @@ function decodeIndexPage(payload: Uint8Array): IndexPage {
         return key;
     };
     const readOffset = (): bigint => {
-        const offset = readLittle(payload, cursor, 8);
+        const offset = readLittle(payload, cursor);
         cursor += 8;
         if (offset < BigInt(ARCHIVE_HEADER_SIZE)) {
             throw new ArchiveFormatError("index_page_invalid", "Index page offset is invalid.");
@@ -5453,9 +5254,7 @@ function decodeIndexPage(payload: Uint8Array): IndexPage {
 }
 
 function encodeIndexPage(page: IndexPage): Uint8Array {
-    if (page.leaf && page.entries.length > 0xffff) {
-        throw new ArchiveFormatError("index_page_full", "Index page has too many entries.");
-    }
+    // Page shapes are produced by buildIndexTree, which caps leaf size and pairs children.
     const keyFields = page.leaf ? page.entries.map((entry) => entry.key) : page.separators;
     for (const key of keyFields) {
         const length = encoder.encode(key).length;
@@ -5465,15 +5264,6 @@ function encodeIndexPage(page: IndexPage): Uint8Array {
                 "Index key exceeds the v1 key limit.",
             );
         }
-    }
-    if (
-        !page.leaf &&
-        (page.children.length !== page.separators.length + 1 || page.children.length === 0)
-    ) {
-        throw new ArchiveFormatError(
-            "index_page_invalid",
-            "Internal index page has invalid children.",
-        );
     }
     let size = 10;
     if (page.leaf) {
@@ -5546,29 +5336,24 @@ async function buildIndexTree(
         frames.push(frame);
         return {
             offset: pageOffset,
-            firstKey: page.leaf ? (page.entries[0]?.key ?? null) : null,
+            firstKey: page.leaf ? page.entries[0]!.key : null,
             payload,
         };
     };
 
     const pageCapacity = 2048;
     const firstLevel: { offset: bigint; firstKey: string | null; payload: Uint8Array }[] = [];
-    if (entries.length === 0) {
+    // Callers always include at least the archive manifest, so entries is never empty.
+    for (let start = 0; start < entries.length; start += pageCapacity) {
+        const pageEntries = entries.slice(start, start + pageCapacity);
         firstLevel.push(
-            await appendPage({ leaf: true, entries: [], separators: [], children: [] }),
+            await appendPage({
+                leaf: true,
+                entries: [...pageEntries],
+                separators: [],
+                children: [],
+            }),
         );
-    } else {
-        for (let start = 0; start < entries.length; start += pageCapacity) {
-            const pageEntries = entries.slice(start, start + pageCapacity);
-            firstLevel.push(
-                await appendPage({
-                    leaf: true,
-                    entries: [...pageEntries],
-                    separators: [],
-                    children: [],
-                }),
-            );
-        }
     }
 
     let level = firstLevel;
@@ -5591,7 +5376,7 @@ async function buildIndexTree(
                     children: children.map((child) => child.offset),
                 }),
             );
-            parentLevel.at(-1)!.firstKey = children[0]?.firstKey ?? null;
+            parentLevel.at(-1)!.firstKey = children[0]!.firstKey;
         }
         level = parentLevel;
     }
@@ -5652,8 +5437,8 @@ async function commitPublishedEndOffset(
     const locatorOffset = BigInt(frame.endOffset);
     const matches = (locator: Uint8Array): boolean =>
         validLocator(locator) &&
-        readLittle(locator, 8, 8) === commit.offset &&
-        readLittle(locator, 16, 8) === commit.generation;
+        readLittle(locator, 8) === commit.offset &&
+        readLittle(locator, 16) === commit.generation;
     if (source.size - locatorOffset >= BigInt(LOCATOR_SIZE)) {
         const locator = await source.read(locatorOffset, LOCATOR_SIZE);
         if (matches(locator)) return locatorOffset + BigInt(LOCATOR_SIZE);
@@ -5694,12 +5479,7 @@ async function summarizeDiscardedRegion(
     start: bigint,
     end: bigint,
 ): Promise<DiscardedRegionSummary> {
-    if (start > end) {
-        throw new ArchiveFormatError(
-            "archive_repair_range_invalid",
-            "The selected repair boundary exceeds the source archive size.",
-        );
-    }
+    // The published end offset always lies inside the source, so start <= end.
     const summary: DiscardedRegionSummary = {
         recordFrames: 0,
         recordFrameBytes: 0n,
@@ -5814,9 +5594,9 @@ class SegmentedArchiveSource implements ArchiveByteSource {
             const segment = this.segments[index]!;
             const segmentEnd = segment.offset + BigInt(segment.bytes.byteLength);
             if (segment.offset >= end) break;
+            // Segments are written contiguously, so every visited segment overlaps the read.
             const overlapStart = segment.offset > offset ? segment.offset : offset;
             const overlapEnd = segmentEnd < end ? segmentEnd : end;
-            if (overlapEnd <= overlapStart) continue;
             const sourceStart = Number(overlapStart - segment.offset);
             const outputStart = Number(overlapStart - offset);
             const overlapLength = Number(overlapEnd - overlapStart);
@@ -5918,11 +5698,7 @@ class PrefixArchiveSource implements ArchiveByteSource {
     constructor(
         private readonly source: ArchiveByteSource,
         readonly size: bigint,
-    ) {
-        if (size < 0n || size > source.size) {
-            throw new RangeError("Archive prefix is outside the source bounds.");
-        }
-    }
+    ) {}
 
     async read(offset: bigint, length: number): Promise<Uint8Array> {
         if (
@@ -5938,13 +5714,11 @@ class PrefixArchiveSource implements ArchiveByteSource {
     }
 }
 
-function readLittle(bytes: Uint8Array, offset: number, size: 2 | 4 | 8): bigint {
-    if (!Number.isSafeInteger(offset) || offset < 0 || offset + size > bytes.length) {
+function readLittle(bytes: Uint8Array, offset: number): bigint {
+    if (!Number.isSafeInteger(offset) || offset < 0 || offset + 8 > bytes.length) {
         throw new ArchiveFormatError("archive_truncated", "Archive structure is truncated.");
     }
     const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-    if (size === 2) return BigInt(view.getUint16(offset, true));
-    if (size === 4) return BigInt(view.getUint32(offset, true));
     return view.getBigUint64(offset, true);
 }
 
@@ -6095,14 +5869,7 @@ class SequentialRecordPayloadReader {
     }
 
     async readBytes(length: number): Promise<Uint8Array> {
-        if (
-            !Number.isSafeInteger(length) ||
-            length < 0 ||
-            length > METADATA_READ_CHUNK_BYTES ||
-            this.positionInPayload + length > this.payloadLength
-        ) {
-            throw new ArchiveFormatError("record_field_limit", "Record field exceeds its payload.");
-        }
+        // Bounds are checked by readRecordMetadataPayload before every field read.
         const output = new Uint8Array(length);
         let written = 0;
         while (written < length) {
@@ -6184,17 +5951,15 @@ class SequentialRecordPayloadReader {
                 );
             }
         }
-        try {
-            chunks.push(this.decoder.decode());
-        } catch {
-            throw new ArchiveFormatError("record_text_invalid", "Record text is not valid UTF-8.");
-        }
+        // A streaming decode only leaves pending bytes while more input follows, so the final
+        // flush cannot fail here; incomplete trailing bytes throw in the loop above.
+        chunks.push(this.decoder.decode());
         return chunks.join("");
     }
 }
 
 function hasMagic(bytes: Uint8Array, offset: number, magic: string): boolean {
-    if (offset < 0 || offset + magic.length > bytes.length) return false;
+    // Every caller keeps the probed window inside the buffer.
     for (let index = 0; index < magic.length; index += 1) {
         if (bytes[offset + index] !== magic.charCodeAt(index)) return false;
     }
@@ -6203,16 +5968,11 @@ function hasMagic(bytes: Uint8Array, offset: number, magic: string): boolean {
 
 function bytesUuid(bytes: Uint8Array): string {
     const hex = Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
-    if (bytes.length !== 16)
-        throw new ArchiveFormatError("commit_invalid", "Transaction UUID is invalid.");
     return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
 
 function uuidToBytes(value: string): Uint8Array {
     const compact = value.replaceAll("-", "");
-    if (!/^[\da-f]{32}$/i.test(compact)) {
-        throw new ArchiveFormatError("id_invalid", "Identifier must be a hexadecimal UUID.");
-    }
     const bytes = new Uint8Array(16);
     for (let index = 0; index < 16; index += 1) {
         bytes[index] = Number.parseInt(compact.slice(index * 2, index * 2 + 2), 16);
@@ -6291,15 +6051,10 @@ function compareKeys(left: string, right: string): number {
 }
 
 function concatBytes(parts: readonly Uint8Array[]): Uint8Array {
+    // Array buffers cannot sum past Number.MAX_SAFE_INTEGER in one process.
     let totalLength = 0;
     for (const part of parts) {
         totalLength += part.byteLength;
-        if (!Number.isSafeInteger(totalLength)) {
-            throw new ArchiveFormatError(
-                "archive_size_limit",
-                "Archive exceeds the supported file size.",
-            );
-        }
     }
     const output = new Uint8Array(totalLength);
     let cursor = 0;

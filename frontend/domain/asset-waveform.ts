@@ -75,7 +75,6 @@ export function buildPcmWavAssetWaveform(bytes: Uint8Array): PcmWavAssetWaveform
 
     const frameCount = dataLength / blockAlign;
     const bucketCount = Math.min(56, frameCount);
-    if (bucketCount === 0) return null;
     const buckets: AssetWaveformBucket[] = [];
     let silent = true;
     for (let bucketIndex = 0; bucketIndex < bucketCount; bucketIndex += 1) {

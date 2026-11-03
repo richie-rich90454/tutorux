@@ -94,5 +94,18 @@ export default defineConfig(({ mode }) => ({
     test: {
         environment: "node",
         include: ["tests/**/*.test.ts", "tests/**/*.test.tsx"],
+        coverage: {
+            provider: "v8",
+            include: ["frontend/**/*.ts"],
+            exclude: ["frontend/**/*.d.ts"],
+            reporter: ["text-summary", "json-summary", "json"],
+            reportsDirectory: "coverage",
+            thresholds: {
+                statements: 100,
+                branches: 100,
+                functions: 100,
+                lines: 100,
+            },
+        },
     },
 }));

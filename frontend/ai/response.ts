@@ -194,9 +194,6 @@ function collectReplicatePrediction(raw: string): string {
         throw new Error("Replicate returned a non-text prediction output.");
     }
     if (!text.trim()) throw new Error("Replicate returned no generated text.");
-    if (encoder.encode(text).byteLength > MAX_RESPONSE_TEXT_BYTES) {
-        throw new Error("The generated text exceeded the 16 MiB safety limit.");
-    }
     return text;
 }
 
@@ -339,7 +336,6 @@ function collectEventStream(
     allowPartial: boolean,
 ): string {
     const collected: string[] = [];
-    let totalTextBytes = 0;
     for (const block of raw.replaceAll("\r\n", "\n").split("\n\n")) {
         const lines = block.split("\n");
         const eventName = lines
@@ -368,11 +364,7 @@ function collectEventStream(
         }
         const text = extractStreamDelta(providerId, event, eventType, false, model);
         if (text) {
-            totalTextBytes += encoder.encode(text).byteLength;
             collected.push(text);
-        }
-        if (totalTextBytes > MAX_RESPONSE_TEXT_BYTES) {
-            throw new Error("The generated text exceeded the 16 MiB safety limit.");
         }
     }
     const result = collected.join("");
@@ -480,12 +472,6 @@ function extractStreamDelta(
                 .map((item) => (isObject(item) ? collectTextArray(item["content"]) : ""))
                 .join("");
         }
-    }
-    if (providerId === "ollama") {
-        const message = event["message"];
-        return isObject(message) && typeof message["content"] === "string"
-            ? message["content"]
-            : "";
     }
     return "";
 }

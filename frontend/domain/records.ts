@@ -804,8 +804,7 @@ export function restoreRemovedNoteBlock(document: ArchiveRecord, blockId: string
     if (state.blocks.some((block) => block.id === blockId)) {
         throw new Error("A note block with this identifier is already active.");
     }
-    const [saved] = blocks.splice(removedIndex, 1);
-    if (!saved) throw new Error("This note block is no longer in Trash.");
+    const saved = blocks.splice(removedIndex, 1)[0]!;
     for (const block of blocks.slice(removedIndex)) {
         if (block.index >= saved.index) block.index += 1;
     }

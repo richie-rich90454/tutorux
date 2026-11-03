@@ -206,7 +206,7 @@ export async function executeAiGeneration(input: AiExecutionInput): Promise<AiEx
                 schemaValid,
                 sourceValidation,
                 warnings,
-                errorCode || responseMetadata.errorCode,
+                errorCode,
                 errorMessage,
                 retryAfter,
             ),

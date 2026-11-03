@@ -289,7 +289,7 @@ export const platform: ArchivePlatform = {
         contents: string,
         mimeType: string,
     ): Promise<string | null> {
-        const extension = suggestedName.split(".").at(-1) ?? "txt";
+        const extension = suggestedName.split(".").at(-1)!;
         const isJson = mimeType.startsWith("application/json");
         const isHtml = mimeType.startsWith("text/html");
         const title = isJson
@@ -316,7 +316,7 @@ export const platform: ArchivePlatform = {
         const isWav = mimeType === "audio/wav";
         const isDocx =
             mimeType === "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
-        const extension = suggestedName.split(".").at(-1) ?? "bin";
+        const extension = suggestedName.split(".").at(-1)!;
         const path = await save({
             title: isWav
                 ? "Export audio track"

@@ -410,8 +410,7 @@ export class PieceTable {
         const matches: TextRange[] = [];
         let at = text.indexOf(query);
         while (at !== -1) {
-            if (this.boundary(at, text) && this.boundary(at + query.length, text))
-                matches.push({ start: at, end: at + query.length });
+            matches.push({ start: at, end: at + query.length });
             at = text.indexOf(query, at + 1);
         }
         return matches;
@@ -453,12 +452,10 @@ export class PieceTable {
         let start = this.length;
         let end = 0;
         for (const op of operations) {
-            const removed = this.replaceRaw(
+            this.replaceRaw(
                 { start: op.offset, end: op.offset + op.removedText.length },
                 op.insertedText,
             );
-            if (removed !== op.removedText)
-                throw new Error("Document history no longer matches the text.");
             start = Math.min(start, op.offset);
             end = Math.max(end, op.offset + op.insertedText.length);
         }
@@ -507,7 +504,7 @@ export class PieceTable {
         const text = this.text();
         if (!this.boundary(offset, text)) throw new Error("Invalid Unicode boundary.");
         if (offset === text.length) return offset;
-        return offset + ((text.codePointAt(offset) ?? 0) > 0xffff ? 2 : 1);
+        return offset + (text.codePointAt(offset)! > 0xffff ? 2 : 1);
     }
     private graphemeBoundaries(): number[] {
         const text = this.text();

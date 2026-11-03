@@ -749,7 +749,6 @@ export function generateGuideDraftFromEntry(
         const generated = generatedSessions[index]!;
         const sessionTitle = field(session, "title", "Tutoring session");
         for (const section of generated.sections) {
-            if (!section.blocks.length) continue;
             sections.push({
                 ...section,
                 id: `${session.id}-${section.id}`,
@@ -900,7 +899,7 @@ export function validateGuideForExport(record: ArchiveRecord, scope?: GuideSourc
                 throw new Error(`Guide block kind “${block.kind}” is not supported for export.`);
             }
             cleanText(block.text, `Block ${blockIndex + 1} text`, 16 * 1024 * 1024, true);
-            const origin = block.origin || "unknown";
+            const origin = block.origin;
             if (!(GUIDE_BLOCK_ORIGINS as readonly string[]).includes(origin)) {
                 throw new Error(
                     `Guide block provenance “${block.origin}” is not supported for export.`,
@@ -997,9 +996,7 @@ function addStudentProgress(
             ? ` (human-reviewed; ${verifiedSources.length} evidence record(s) across ${evidenceSessionCount} session(s))`
             : " (source evidence is missing or invalid; do not treat improvement as established)";
         if (item.note) text += `\nTutor note: ${item.note}`;
-        if (item.evidenceSourceIds.length) {
-            text += `\nEvidence record IDs: ${item.evidenceSourceIds.join(", ")}`;
-        }
+        text += `\nEvidence record IDs: ${item.evidenceSourceIds.join(", ")}`;
         section.blocks.push({
             kind: "list-item",
             text,
@@ -1008,7 +1005,7 @@ function addStudentProgress(
             origin: unverified ? "uncertain" : "tutor-authored",
         });
     }
-    if (section.blocks.length) draft.sections.push(section);
+    draft.sections.push(section);
 }
 
 function getOrAddGuideSection(draft: GuideDraft, heading: string): GuideSectionDraft {
@@ -1113,12 +1110,7 @@ function evidenceSourcesAreCurrentFromRecords(
 function parseGuideRevision(value: string): bigint | undefined | null {
     if (!value) return undefined;
     if (!/^\d+$/u.test(value)) return null;
-    try {
-        const revision = BigInt(value);
-        return revision >= 0n ? revision : null;
-    } catch {
-        return null;
-    }
+    return BigInt(value);
 }
 
 function parseGuideRevisionMap(value: string): Map<string, bigint> | null {
@@ -1153,11 +1145,7 @@ function compareGuideRecordTime(left: ArchiveRecord, right: ArchiveRecord): numb
 
 function parseGuideInteger(value: string): bigint {
     if (!/^-?\d+$/u.test(value)) return 0n;
-    try {
-        return BigInt(value);
-    } catch {
-        return 0n;
-    }
+    return BigInt(value);
 }
 
 function truncateGuideHeading(value: string): string {
@@ -1954,8 +1942,7 @@ export function guideBlockLabel(kind: GuideBlockKind, origin: GuideBlockOrigin):
         if (kind === "recommendation") return "AI recommendation";
         if (kind === "instruction") return "AI-drafted instruction";
         if (kind === "example" || kind === "worked-example") return "AI-generated example";
-        const semantic = guideBlockLabel(kind, "tutor-authored");
-        return semantic ? `AI-generated ${semantic.toLowerCase()}` : "AI-generated content";
+        return "AI-generated content";
     }
     if (origin === "human-edited") {
         if (kind === "instruction") return "Tutor-edited instruction";

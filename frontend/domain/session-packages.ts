@@ -108,7 +108,7 @@ export async function importSessionPackage(
     );
     const idMap = makeIdentifierMap(
         records,
-        sourceSessionId,
+        sourceSession,
         field(packageManifest, "source_student_id") || field(sourceSession, "student_id"),
         mappedStudentId,
     );
@@ -140,9 +140,7 @@ export async function importSessionPackage(
         };
     });
 
-    const importedSessionId = idMap.get(sourceSessionId);
-    if (!importedSessionId)
-        throw new Error("The package session identifier could not be remapped.");
+    const importedSessionId = idMap.get(sourceSessionId)!;
     const withJournalLinks = await ensureJournalLinks(destination, imported, importedSessionId);
     return { sessionId: importedSessionId, records: withJournalLinks };
 }
@@ -262,8 +260,7 @@ async function collectSessionRecords(
         previousOffset: 0n,
         fields: new Map(record.fields),
     }));
-    const packagedSession = output.find((record) => record.type === RecordType.session);
-    if (!packagedSession) throw new Error("Session package assembly lost its session record.");
+    const packagedSession = output.find((record) => record.type === RecordType.session)!;
     packagedSession.fields.set("student_id", "anonymous");
     validateSessionRecords(output, sessionId);
     return output;
@@ -296,8 +293,7 @@ async function ensureJournalLinks(
     sessionId: string,
 ): Promise<ArchiveRecord[]> {
     const output = new Map(records.map((record) => [recordKey(record), record]));
-    const session = output.get(recordKey({ type: RecordType.session, id: sessionId }));
-    if (!session) throw new Error("Imported session is missing from its package.");
+    const session = output.get(recordKey({ type: RecordType.session, id: sessionId }))!;
     const sessionFields = new Map(session.fields);
     const timestamp = nowUs();
     const settings = new Map(
@@ -383,7 +379,7 @@ async function ensureJournalLinks(
 
 function makeIdentifierMap(
     records: readonly ArchiveRecord[],
-    sourceSessionId: string,
+    sourceSession: ArchiveRecord,
     sourceStudentId: string,
     mappedStudentId: string | undefined,
 ): Map<string, string> {
@@ -415,11 +411,6 @@ function makeIdentifierMap(
     if (sourceStudentId && sourceStudentId !== "anonymous") {
         historicalStudentIds.add(sourceStudentId.toLowerCase());
     }
-    const sourceSession = records.find(
-        (record) =>
-            record.type === RecordType.session && record.id.toLowerCase() === sourceSessionId,
-    );
-    if (!sourceSession) throw new Error("The package session record is missing.");
     const sessionStudentId = field(sourceSession, "student_id").toLowerCase();
     if (sessionStudentId && sessionStudentId !== "anonymous") {
         historicalStudentIds.add(sessionStudentId);

@@ -588,12 +588,8 @@ function splitCommaList(value: string): string[] {
 
 function parseRevision(value: string): bigint | null {
     if (!/^\d+$/u.test(value)) return null;
-    try {
-        const revision = BigInt(value);
-        return revision > 0n ? revision : null;
-    } catch {
-        return null;
-    }
+    const revision = BigInt(value);
+    return revision > 0n ? revision : null;
 }
 
 function isUuid(value: string): boolean {

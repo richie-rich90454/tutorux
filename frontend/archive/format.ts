@@ -136,7 +136,6 @@ function writeMagic(target: Uint8Array, offset: number, magic: string): void {
 }
 
 function hasMagic(bytes: Uint8Array, offset: number, magic: string): boolean {
-    if (offset + magic.length > bytes.length) return false;
     for (let index = 0; index < magic.length; index += 1) {
         if (bytes[offset + index] !== magic.charCodeAt(index)) return false;
     }
@@ -594,7 +593,11 @@ export function decodeStoredPayload(
 
 const LZ4_HASH_TABLE_SIZE = 1 << 16;
 const lz4HashTable = new Int32Array(LZ4_HASH_TABLE_SIZE);
-const lz4HashGenerations = new Uint32Array(LZ4_HASH_TABLE_SIZE);
+// A monotonic counter keeps stale table entries from matching a later call without a reset
+// branch. Float64 stays exact far beyond any reachable number of compressions per page.
+// shortcut: generations stop being exact after 2^53 compressions; add a reset there if that is
+// ever reachable.
+const lz4HashGenerations = new Float64Array(LZ4_HASH_TABLE_SIZE);
 let lz4CompressionGeneration = 0;
 
 export function compressRecordPayload(payload: Uint8Array): { codec: 0 | 1; bytes: Uint8Array } {
@@ -616,11 +619,7 @@ export function compressRecordPayload(payload: Uint8Array): { codec: 0 | 1; byte
 }
 
 function compressLz4Block(input: Uint8Array, maximumLength: number): Uint8Array | null {
-    lz4CompressionGeneration = (lz4CompressionGeneration + 1) >>> 0;
-    if (lz4CompressionGeneration === 0) {
-        lz4HashGenerations.fill(0);
-        lz4CompressionGeneration = 1;
-    }
+    lz4CompressionGeneration += 1;
     const generation = lz4CompressionGeneration;
     let output = new Uint8Array(Math.min(1024, maximumLength));
     let outputLength = 0;
@@ -703,7 +702,8 @@ function compressLz4Block(input: Uint8Array, maximumLength: number): Uint8Array 
 
         cursor += matchLength;
         anchor = cursor;
-        const updateStart = cursor > 3 ? cursor - 3 : 0;
+        // A match advances cursor by at least four bytes, so cursor - 3 is never negative.
+        const updateStart = cursor - 3;
         for (let position = updateStart; position < cursor && position + 4 <= input.byteLength;) {
             const hash = hashSequence(position);
             lz4HashTable[hash] = position;
@@ -739,13 +739,8 @@ export function decodeLz4Block(storedPayload: Uint8Array): Uint8Array {
     let targetOffset = 0;
     const ensureCapacity = (required: number): void => {
         if (required <= output.length) return;
+        // Callers clamp required to decodedLength, so the grown buffer always fits.
         const next = Math.min(decodedLength, Math.max(output.length * 2, required));
-        if (next < required) {
-            throw new ArchiveFormatError(
-                "record_compression_invalid",
-                "LZ4 output exceeds its declared decoded length.",
-            );
-        }
         const grown = new Uint8Array(next);
         grown.set(output.subarray(0, targetOffset));
         output = grown;

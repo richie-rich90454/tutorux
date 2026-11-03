@@ -388,3 +388,353 @@ describe("reviewed AI generation", () => {
         );
     });
 });
+
+function previewWith(overrides: Partial<AiRequestPreview> = {}): AiRequestPreview {
+    return { ...createPreview(), ...overrides };
+}
+
+function inputWith(
+    preview: AiRequestPreview,
+    send: (
+        request: import("../../../frontend/platform/types").AiTransportRequest,
+        onChunk: (chunk: Uint8Array) => void,
+    ) => Promise<import("../../../frontend/platform/types").AiTransportResult>,
+    overrides: Record<string, unknown> = {},
+) {
+    return {
+        packageJob: createPackageJob(),
+        expectedTemplateId: "general",
+        preview,
+        confirmedEndpoint: preview.endpoint,
+        confirmedBodyHash: preview.requestBodyHash,
+        credential: "private-provider-key",
+        session: createSession(),
+        sourceRecords: [],
+        send,
+        onProgress: () => undefined,
+        ...overrides,
+    };
+}
+
+function plainResponse(text: string): Uint8Array {
+    return encoder.encode(JSON.stringify({ choices: [{ message: { content: text } }] }));
+}
+
+describe("reviewed AI generation edge cases", () => {
+    it("rejects a changed confirmed endpoint", async () => {
+        const session = createSession();
+        await expect(
+            executeAiGeneration({
+                ...inputWith(createPreview(), vi.fn()),
+                session,
+                confirmedEndpoint: "https://example.com/other",
+            }),
+        ).rejects.toThrow("Confirm the exact provider endpoint before sending.");
+    });
+
+    it("ignores empty transport chunks", async () => {
+        const session = createSession();
+        const chunk = responseChunk(session.id);
+        const result = await executeAiGeneration(
+            inputWith(
+                createPreview(),
+                async (_request, onChunk) => {
+                    onChunk(new Uint8Array());
+                    onChunk(chunk);
+                    return {
+                        status: 200,
+                        contentType: "text/event-stream",
+                        responseBytes: chunk.byteLength,
+                        complete: true,
+                    };
+                },
+                { session },
+            ),
+        );
+        expect(result.summary.status).toBe("response-needs-review");
+        expect(result.job.blob).toEqual(chunk);
+    });
+
+    it("defaults transport failure messages for empty or non-Error rejections", async () => {
+        const emptyError = await executeAiGeneration(
+            inputWith(createPreview(), () => Promise.reject(new Error(""))),
+        );
+        expect(emptyError.summary.warnings).toEqual(["The provider transport failed."]);
+        expect(emptyError.job.fields.get("error_code")).toBe("transport_error");
+
+        const thrown = await executeAiGeneration(
+            inputWith(createPreview(), () => Promise.reject("boom")),
+        );
+        expect(thrown.summary.warnings).toEqual(["The provider transport failed."]);
+    });
+
+    it("flags responses that exceed the 16 MiB limit", async () => {
+        const huge = new Uint8Array(16 * 1024 * 1024 + 1);
+        const result = await executeAiGeneration(
+            inputWith(createPreview(), async (_request, onChunk) => {
+                onChunk(huge);
+                return {
+                    status: 200,
+                    contentType: "text/event-stream",
+                    responseBytes: huge.byteLength,
+                    complete: true,
+                };
+            }),
+        );
+        expect(result.summary.status).toBe("response-partial");
+        expect(result.job.fields.get("error_code")).toBe("response_too_large");
+        expect(result.job.fields.get("response_complete")).toBe("false");
+        expect(result.job.blob.byteLength).toBe(16 * 1024 * 1024);
+    });
+
+    it("reports a response byte-count mismatch as partial", async () => {
+        const chunk = responseChunk(createSession().id);
+        const result = await executeAiGeneration(
+            inputWith(createPreview(), async (_request, onChunk) => {
+                onChunk(chunk);
+                return {
+                    status: 200,
+                    contentType: "text/event-stream",
+                    responseBytes: chunk.byteLength + 1,
+                    complete: true,
+                };
+            }),
+        );
+        expect(result.summary.status).toBe("response-partial");
+        expect(result.job.fields.get("error_code")).toBe("response_partial");
+    });
+
+    it("reports cancellations with and without readable partial output", async () => {
+        const noOutput = await executeAiGeneration(
+            inputWith(createPreview(), async () => ({
+                status: 200,
+                contentType: "text/event-stream",
+                responseBytes: 0,
+                complete: false,
+                cancelled: true,
+            })),
+        );
+        expect(noOutput.summary.status).toBe("cancelled");
+        expect(noOutput.summary.warnings).toEqual([
+            "Generation was canceled. The received partial response was saved for export.",
+        ]);
+
+        const withMessage = await executeAiGeneration(
+            inputWith(createPreview(), async () => ({
+                status: 200,
+                contentType: "text/event-stream",
+                responseBytes: 0,
+                complete: false,
+                cancelled: true,
+                errorMessage: "Stopped by the tutor.",
+            })),
+        );
+        expect(withMessage.summary.warnings).toEqual(["Stopped by the tutor."]);
+
+        const garbage = encoder.encode("not a provider response");
+        const undecodable = await executeAiGeneration(
+            inputWith(createPreview(), async (_request, onChunk) => {
+                onChunk(garbage);
+                return {
+                    status: 200,
+                    contentType: "text/event-stream",
+                    responseBytes: garbage.byteLength,
+                    complete: false,
+                    cancelled: true,
+                };
+            }),
+        );
+        expect(undecodable.summary.status).toBe("cancelled");
+        expect(undecodable.job.fields.get("error_code")).toBe("operation_cancelled");
+        expect(undecodable.job.blob).toEqual(garbage);
+    });
+
+    it("rejects unsupported content types and undecodable responses", async () => {
+        const unsupported = await executeAiGeneration(
+            inputWith(createPreview(), async () => ({
+                status: 200,
+                contentType: "text/plain",
+                responseBytes: 0,
+                complete: true,
+            })),
+        );
+        expect(unsupported.summary.status).toBe("response-needs-correction");
+        expect(unsupported.job.fields.get("error_code")).toBe("response_content_type_unsupported");
+
+        const body = encoder.encode("not a provider response");
+        const undecodable = await executeAiGeneration(
+            inputWith(previewWith({ accept: "application/json" }), async (_request, onChunk) => {
+                onChunk(body);
+                return {
+                    status: 200,
+                    contentType: "application/json",
+                    responseBytes: body.byteLength,
+                    complete: true,
+                };
+            }),
+        );
+        expect(undecodable.summary.status).toBe("response-needs-correction");
+        expect(undecodable.job.fields.get("error_code")).toBe("response_decode_failed");
+        expect(undecodable.summary.warnings[0]).toContain(
+            "The provider response contained invalid JSON data.",
+        );
+    });
+
+    it("adds a missing-evidence warning to a guide without citations", async () => {
+        const session = createSession();
+        const guideText = JSON.stringify({
+            title: "No citations",
+            template_id: "general",
+            sections: [
+                {
+                    heading: "Section",
+                    blocks: [{ kind: "paragraph", text: "Uncited claim.", source_ids: [] }],
+                },
+            ],
+        });
+        const body = plainResponse(guideText);
+        const result = await executeAiGeneration(
+            inputWith(
+                previewWith({ accept: "application/json" }),
+                async (_request, onChunk) => {
+                    onChunk(body);
+                    return {
+                        status: 200,
+                        contentType: "application/json",
+                        responseBytes: body.byteLength,
+                        complete: true,
+                    };
+                },
+                { session, sourceRecords: [session] },
+            ),
+        );
+        expect(result.summary.sourceValidation).toBe("missing-evidence");
+        expect(result.summary.warnings).toContain(
+            "The guide has no source references. Add evidence links before approval.",
+        );
+        expect(result.summary.status).toBe("response-needs-correction");
+    });
+
+    it("truncates very long response previews", async () => {
+        const body = plainResponse("x".repeat(45_000));
+        const result = await executeAiGeneration(
+            inputWith(previewWith({ accept: "application/json" }), async (_request, onChunk) => {
+                onChunk(body);
+                return {
+                    status: 200,
+                    contentType: "application/json",
+                    responseBytes: body.byteLength,
+                    complete: true,
+                };
+            }),
+        );
+        expect(result.summary.responseText).toHaveLength(40_000);
+        expect(result.summary.responseTextTruncated).toBe(true);
+        expect(result.summary.responseBytes).toBe(body.byteLength);
+    });
+
+    it("stores Replicate consent and schema metadata", async () => {
+        const session = createSession();
+        const preview = previewWith({
+            providerId: "replicate",
+            accept: "application/json",
+            localOnly: false,
+            replicateInputSchema: {
+                modelId: "owner/model",
+                version: "version-9",
+                hasSystemPrompt: false,
+                tokenInput: null,
+            },
+        });
+        const guideText = JSON.stringify({
+            title: "Guide",
+            template_id: "general",
+            sections: [
+                {
+                    heading: "Section",
+                    blocks: [{ kind: "paragraph", text: "Text.", source_ids: [session.id] }],
+                },
+            ],
+        });
+        const body = encoder.encode(JSON.stringify({ status: "succeeded", output: guideText }));
+        const result = await executeAiGeneration({
+            ...inputWith(
+                preview,
+                async (_request, onChunk) => {
+                    onChunk(body);
+                    return {
+                        status: 200,
+                        contentType: "application/json",
+                        responseBytes: body.byteLength,
+                        complete: true,
+                    };
+                },
+                { session, sourceRecords: [session], expectedTemplateId: "general" },
+            ),
+            confirmedEndpoint: preview.endpoint,
+            confirmedBodyHash: preview.requestBodyHash,
+        });
+
+        expect(result.job.fields.get("outbound_consent_method")).toBe(
+            "explicit-replicate-prediction-lifecycle",
+        );
+        expect(result.job.fields.get("replicate_model_schema_version")).toBe("version-9");
+        expect(result.job.fields.get("mode")).toBe("byok");
+        expect(result.job.fields.get("processing_boundary")).toBe("remote-provider");
+    });
+
+    it("explains Replicate HTTP failures", async () => {
+        const cases: Array<[number, string]> = [
+            [
+                401,
+                "Replicate rejected the API token or model access. Its raw response was saved for export.",
+            ],
+            [429, "Replicate rate limited the prediction. Its raw response was saved for export."],
+            [
+                408,
+                "Replicate prediction exceeded the five-minute wait limit. Its latest raw response was saved for export.",
+            ],
+            [500, "The provider returned HTTP 500. Its raw response was saved for export."],
+        ];
+        for (const [status, message] of cases) {
+            const body = encoder.encode("{}");
+            const result = await executeAiGeneration(
+                inputWith(
+                    previewWith({ providerId: "replicate", accept: "application/json" }),
+                    async (_request, onChunk) => {
+                        onChunk(body);
+                        return {
+                            status,
+                            contentType: "application/json",
+                            responseBytes: body.byteLength,
+                            complete: true,
+                        };
+                    },
+                ),
+            );
+            expect(result.summary.warnings).toEqual([message]);
+            expect(result.job.fields.get("error_code")).toBe(`provider_http_${status}`);
+        }
+    });
+
+    it("keeps a local preview free of outbound consent fields", async () => {
+        const send = vi.fn(async (_request: unknown, onChunk: (chunk: Uint8Array) => void) => {
+            onChunk(plainResponse("plain text"));
+            return {
+                status: 200,
+                contentType: "application/json",
+                responseBytes: plainResponse("plain text").byteLength,
+                complete: true,
+            };
+        });
+        const result = await executeAiGeneration(
+            inputWith(previewWith({ localOnly: true, accept: "application/json" }), send as never),
+        );
+        expect(result.job.fields.has("outbound_consent_hash")).toBe(false);
+        expect(result.job.fields.get("mode")).toBe("local");
+        expect(result.job.fields.get("processing_boundary")).toBe("loopback-only");
+        expect((send.mock.calls[0]?.[0] as { credentialStorage: string }).credentialStorage).toBe(
+            "none",
+        );
+    });
+});

@@ -161,7 +161,7 @@ export async function sendReplicateAiRequest(
         }
         return finish(emptyResult(), onChunk, false, errorMessage(cause));
     } finally {
-        if (activeBrowserPrediction === active) activeBrowserPrediction = null;
+        activeBrowserPrediction = null;
     }
 }
 
@@ -291,10 +291,7 @@ function splitReplicateModelId(model: string): [string, string] {
         throw new Error("Replicate models must use the owner/model form from the public catalog.");
     }
     const [, owner, name] = match;
-    if (!owner || !name) {
-        throw new Error("Replicate models must use the owner/model form from the public catalog.");
-    }
-    return [owner, name];
+    return [owner!, name!];
 }
 
 async function requestJson(
@@ -325,9 +322,10 @@ async function requestJson(
             referrerPolicy: "no-referrer",
             signal: controller.signal,
         });
-        const contentType =
-            (response.headers.get("content-type") ?? "").split(";", 1)[0]?.trim().toLowerCase() ??
-            "";
+        const contentType = (response.headers.get("content-type") ?? "")
+            .split(";", 1)[0]!
+            .trim()
+            .toLowerCase();
         const bytes = await readBoundedBody(response, controller.signal);
         return {
             status: response.status,
@@ -401,8 +399,7 @@ async function readBoundedBody(
 async function cancelRemotePrediction(
     predictionId: string,
     credential: string,
-): Promise<BoundedResponse | null> {
-    if (!isPredictionId(predictionId)) return null;
+): Promise<BoundedResponse> {
     return requestJson(
         `${REPLICATE_API_ROOT}/predictions/${predictionId}/cancel`,
         "POST",
@@ -470,24 +467,21 @@ function finish(
 }
 
 function finishCancellation(
-    response: BoundedResponse | null,
+    response: BoundedResponse,
     fallback: BoundedResponse,
     onChunk: (chunk: Uint8Array) => void,
     originalError?: string,
 ): AiTransportResult {
-    const confirmed =
-        !!response && response.status >= 200 && response.status < 300 && response.complete;
+    const confirmed = response.status >= 200 && response.status < 300 && response.complete;
     const responseToSave =
-        response && response.bytes.byteLength > 0
+        response.bytes.byteLength > 0
             ? response
-            : response
-              ? {
-                    ...response,
-                    contentType: fallback.contentType,
-                    bytes: fallback.bytes,
-                    complete: fallback.complete,
-                }
-              : fallback;
+            : {
+                  ...response,
+                  contentType: fallback.contentType,
+                  bytes: fallback.bytes,
+                  complete: fallback.complete,
+              };
     return finish(
         responseToSave,
         onChunk,
@@ -495,7 +489,7 @@ function finishCancellation(
         confirmed
             ? undefined
             : (originalError ??
-                  response?.transportError ??
+                  response.transportError ??
                   "Replicate did not confirm prediction cancellation. The latest response was saved for review."),
     );
 }
