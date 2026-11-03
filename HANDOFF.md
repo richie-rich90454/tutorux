@@ -5,9 +5,10 @@
 The GUI rewrite is feature-complete. The SolidJS, TypeScript, Tauri, and Rust implementation is the only application in the repository. The retired C++/Slint sources, CMake build, legacy CI workflows, and obsolete documentation have been removed. The in-app command console runs the Rust CLI router in-process.
 
 - Branch: `tauri-rewrite`
-- Package manager: pnpm 12 (`pnpm-lock.yaml`)
+- Package manager: pnpm 12 (`package.json` `packageManager`; the workflow must not also pin a version)
 - Formatter: oxfmt 0.75 (`.oxfmtrc.json`)
 - Required TypeScript pin: `6.0.3`
+- Measured coverage: 100% statements, branches, functions, and lines for every first-party `frontend/**/*.ts` module, with no coverage-ignore comments or file exclusions; `.tsx` UI is covered behaviorally by Playwright (see `docs/verification.md`)
 - CLI entry point: `src-tauri/src/bin/tutorux-cli/main.rs`; command modules live in `src-tauri/src/core/cli/`
 - Desktop host: `src-tauri/src/`
 - Rust package: `src-tauri/Cargo.toml` (desktop binary plus the feature-gated standalone `tutorux-audio-helper`)
@@ -52,6 +53,13 @@ The GUI rewrite is feature-complete. The SolidJS, TypeScript, Tauri, and Rust im
 - Native-rate synchronized capture with channel/format metadata, gap and discontinuity markers, compressed desktop import, FFmpeg fallback, continuous cue playback, and waveform cache reuse.
 - Multimodal AI attachments, Ollama model listing/reachability checks, and external response import.
 
+### Reliability fixes
+
+- Desktop saves compare against the latest identity recorded for the opened archive when the destination is the same file, so Tutorux's own save or audio checkpoint is not reported as an external change. Foreign writes still fail. Save and checkpoint commands are serialized in the adapter, and the Rust save path has regression tests for both outcomes.
+- Recording playback loads a bounded 30-second window from the start or the selected cue, so tracks above the 32 MiB preview cap remain playable.
+- Document block actions size to their labels and the header wraps on narrow widths; a Playwright regression checks label fit, button separation, and page overflow at 1440 px and 390 px.
+- The pnpm setup step reads `packageManager` only. Pinning `version: 12` there conflicted with `pnpm@12.14.0` and failed all CI jobs before installation.
+
 ## Dependency and build state
 
 - The desktop host and the feature-gated standalone audio helper are one first-party Rust package in `src-tauri`; the vendored `flexaudio-mic` patch keeps Linux on one ALSA sys crate.
@@ -73,7 +81,7 @@ Run with pnpm:
 pnpm run typecheck
 pnpm run lint
 pnpm run format:check
-pnpm run test
+pnpm run test:coverage
 pnpm run test:e2e
 pnpm run build
 pnpm run build:audio-helper
@@ -82,11 +90,12 @@ node scripts/collect-release.mjs --check-versions
 cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check
 cargo clippy --locked --manifest-path src-tauri/Cargo.toml --all-targets --all-features -- -D warnings
 cargo check --locked --manifest-path src-tauri/Cargo.toml --bins
-cargo test --locked --manifest-path src-tauri/Cargo.toml --features cli
+cargo test --locked --manifest-path src-tauri/Cargo.toml --all-features
 cargo test --locked --manifest-path src-tauri/Cargo.toml --features audio-helper --bin tutorux-audio-helper
+node scripts/rust-parity/run.mjs
 ```
 
-Test inventory: `pnpm run test` collects 40 files and 248 tests; `pnpm exec playwright test --list` reports 15 tests in 6 files. CI runs those suites plus the Rust formatting, Clippy, unit, audio-helper, and CLI parity gates. `pnpm run desktop:build` produces MSI and NSIS installers; both contain only `tutorux-desktop.exe`. The release executable is a Windows GUI-subsystem binary and creates no application-data runtime directory. The in-process llama.cpp and whisper.cpp link was verified; real-model inference, live-microphone Whisper, and device matrices remain release qualification work. `pnpm audit` still reports advisories through `node-llama-cpp@3.22.2` -> `simple-git@3.36.0` / `@simple-git/argv-parser`; the suggested fix downgrades to `node-llama-cpp@2.0.0`, which is not acceptable. Track an upstream release instead of forcing an override.
+Test inventory: 111 Vitest files and 2,128 tests; 24 Playwright tests in 12 files; 216 Rust library tests plus 7 audio-helper tests; 47 CLI contract cases covering 218 registered capabilities. `pnpm run test:coverage` enforces 100% statements, branches, functions, and lines and is the CI unit-test step. CI also runs the browser suite, formatting, Clippy, Rust tests, the contract harness, the static build, and the desktop package on Windows, macOS, and Linux. `pnpm run desktop:build` produces MSI and NSIS installers plus a portable EXE. The release executable is a Windows GUI-subsystem binary and creates no application-data runtime directory. The in-process llama.cpp and whisper.cpp link was verified; real-model inference, live-microphone Whisper, device matrices, and macOS/Linux capture remain release qualification work. `pnpm audit --audit-level high` currently reports no known vulnerabilities.
 
 ## Commit requirements
 
@@ -95,6 +104,7 @@ One changed file per commit with a detailed Conventional Commit message. Do not 
 ## High-value references
 
 - `docs/migration/feature-inventory.md` — completed coverage and remaining release checks
+- `docs/verification.md` — measured coverage, action traceability, dead-branch removals, and known limitations
 - `docs/ARCHITECTURE.md` — current module boundaries
 - `docs/archive-format/TUX-FORMAT-V1.md` — wire format, indexes, locking, and recovery
 - `frontend/archive/archive.ts` — archive engine, verification, recovery, and maintenance
