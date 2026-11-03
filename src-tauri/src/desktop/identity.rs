@@ -1,4 +1,5 @@
-use super::state::ArchiveIdentity;
+use super::state::{ArchiveIdentity, DesktopState};
+use crate::archive_lock_support::archive_lock_key;
 use sha2::{Digest, Sha256};
 use std::{
     fs::{self, File},
@@ -55,6 +56,36 @@ pub(crate) fn resolve_existing_file(path: &Path) -> Result<Option<PathBuf>, Stri
 
 pub(crate) fn archive_identity(path: &Path) -> Result<ArchiveIdentity, String> {
     archive_identity_and_hasher(path).map(|(identity, _)| identity)
+}
+
+/// Record the last identity Tutorux itself observed for a canonical archive path.
+/// Every token and every write path for the same file shares this value, so a
+/// re-authorization or a stale token cannot report Tutorux's own write as external.
+pub(crate) fn remember_archive_identity(
+    state: &DesktopState,
+    path: &Path,
+    identity: &ArchiveIdentity,
+) -> Result<(), String> {
+    let key = archive_lock_key(path)?;
+    state
+        .archive_identities
+        .lock()
+        .map_err(|_| "Archive identity state is unavailable.".to_owned())?
+        .insert(key, identity.clone());
+    Ok(())
+}
+
+pub(crate) fn known_archive_identity(
+    state: &DesktopState,
+    path: &Path,
+) -> Result<Option<ArchiveIdentity>, String> {
+    let key = archive_lock_key(path)?;
+    Ok(state
+        .archive_identities
+        .lock()
+        .map_err(|_| "Archive identity state is unavailable.".to_owned())?
+        .get(&key)
+        .cloned())
 }
 
 pub(crate) fn archive_identity_and_hasher(
@@ -137,10 +168,37 @@ pub(crate) fn same_open_file(path: &Path, file: &File) -> Result<bool, String> {
     }
     #[cfg(windows)]
     {
-        Ok(opened.len() == named.len()
-            && opened.created().ok() == named.created().ok()
-            && opened.modified().ok() == named.modified().ok())
+        let named_file = File::open(path)
+            .map_err(|error| format!("Could not inspect the authorized archive: {error}"))?;
+        // File IDs identify the same file object. Timestamps are not reliable here:
+        // our own append changes them and NTFS granularity differs between handles.
+        Ok(
+            match (
+                windows_file_identity(file),
+                windows_file_identity(&named_file),
+            ) {
+                (Some(left), Some(right)) => left == right,
+                _ => opened.len() == named.len(),
+            },
+        )
     }
+}
+
+#[cfg(windows)]
+fn windows_file_identity(file: &File) -> Option<(u32, u64)> {
+    use std::os::windows::io::AsRawHandle;
+    use windows_sys::Win32::Storage::FileSystem::{
+        GetFileInformationByHandle, BY_HANDLE_FILE_INFORMATION,
+    };
+
+    let mut information = unsafe { std::mem::zeroed::<BY_HANDLE_FILE_INFORMATION>() };
+    let result = unsafe { GetFileInformationByHandle(file.as_raw_handle() as _, &mut information) };
+    (result != 0).then(|| {
+        (
+            information.dwVolumeSerialNumber,
+            (u64::from(information.nFileIndexHigh) << 32) | u64::from(information.nFileIndexLow),
+        )
+    })
 }
 
 pub(crate) fn archive_changed_message() -> String {
@@ -206,8 +264,43 @@ pub(crate) fn move_file_without_replacing(source: &Path, target: &Path) -> std::
 
 #[cfg(test)]
 mod tests {
-    use super::{move_file_without_replacing, normalized_save_location, preserve_backup_error};
+    use super::{
+        known_archive_identity, move_file_without_replacing, normalized_save_location,
+        preserve_backup_error, remember_archive_identity, same_open_file,
+    };
+    use crate::desktop::state::{ArchiveIdentity, DesktopState};
     use std::fs;
+
+    #[test]
+    fn an_open_handle_matches_its_named_path() {
+        let root = tempfile::tempdir().expect("temporary directory");
+        let path = root.path().join("lesson.tux");
+        fs::write(&path, b"archive").expect("write archive");
+        let file = fs::File::open(&path).expect("open archive");
+        assert!(same_open_file(&path, &file).expect("compare archive handle"));
+    }
+
+    #[test]
+    fn identities_are_shared_by_canonical_path() {
+        let root = tempfile::tempdir().expect("temporary directory");
+        let path = root.path().join("lesson.tux");
+        fs::write(&path, b"archive").expect("write archive");
+        let state = DesktopState::default();
+        let identity = ArchiveIdentity {
+            size: 7,
+            sha256: "ab".repeat(32),
+        };
+
+        assert_eq!(
+            known_archive_identity(&state, &path).expect("read identity"),
+            None
+        );
+        remember_archive_identity(&state, &path, &identity).expect("remember identity");
+        assert_eq!(
+            known_archive_identity(&state, &path).expect("read identity"),
+            Some(identity)
+        );
+    }
 
     #[test]
     fn save_location_creates_missing_folders() {

@@ -1,5 +1,5 @@
 use super::{
-    identity::{archive_identity_and_hasher, normalized_location_path},
+    identity::{archive_identity_and_hasher, normalized_location_path, remember_archive_identity},
     state::{ArchiveSelection, AuthorizedArchive, DesktopState},
 };
 use crate::archive_lock_support::LockMode;
@@ -58,6 +58,7 @@ fn authorize_archive_path_blocking(
     let _archive_read_lock = state.archive_locks.shared_guard(&archive_lock)?;
     let (identity, hasher) = archive_identity_and_hasher(&selected)?;
     drop(_archive_read_lock);
+    remember_archive_identity(state, &selected, &identity)?;
     let token = Uuid::new_v4().to_string();
     let name = selected
         .file_name()

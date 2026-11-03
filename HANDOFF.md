@@ -55,7 +55,7 @@ The GUI rewrite is feature-complete. The SolidJS, TypeScript, Tauri, and Rust im
 
 ### Reliability fixes
 
-- Desktop saves compare against the latest identity recorded for the opened archive when the destination is the same file, so Tutorux's own save or audio checkpoint is not reported as an external change. Foreign writes still fail. Save and checkpoint commands are serialized in the adapter, and the Rust save path has regression tests for both outcomes.
+- Desktop archive identity is tracked by canonical path and shared across every authorization token. Saves and recording checkpoints compare against that identity, failed checkpoints roll back to the previous size, and Windows handles are compared by volume/file ID instead of timestamps. A stale token or a concurrent Tutorux write can no longer be reported as an external change; foreign writes still fail. Rust regression tests cover the accepted Tutorux advance, stale tokens, idempotent re-publication, and the rejected foreign write.
 - Recording playback loads a bounded 30-second window from the start or the selected cue, so tracks above the 32 MiB preview cap remain playable.
 - Document block actions size to their labels and the header wraps on narrow widths; a Playwright regression checks label fit, button separation, and page overflow at 1440 px and 390 px.
 - The pnpm setup step reads `packageManager` only. Pinning `version: 12` there conflicted with `pnpm@12.14.0` and failed all CI jobs before installation.
@@ -95,7 +95,7 @@ cargo test --locked --manifest-path src-tauri/Cargo.toml --features audio-helper
 node scripts/rust-parity/run.mjs
 ```
 
-Test inventory: 111 Vitest files and 2,128 tests; 24 Playwright tests in 12 files; 216 Rust library tests plus 7 audio-helper tests; 47 CLI contract cases covering 218 registered capabilities. `pnpm run test:coverage` enforces 100% statements, branches, functions, and lines and is the CI unit-test step. CI also runs the browser suite, formatting, Clippy, Rust tests, the contract harness, the static build, and the desktop package on Windows, macOS, and Linux. `pnpm run desktop:build` produces MSI and NSIS installers plus a portable EXE. The release executable is a Windows GUI-subsystem binary and creates no application-data runtime directory. The in-process llama.cpp and whisper.cpp link was verified; real-model inference, live-microphone Whisper, device matrices, and macOS/Linux capture remain release qualification work. `pnpm audit --audit-level high` currently reports no known vulnerabilities.
+Test inventory: 111 Vitest files and 2,128 tests; 24 Playwright tests in 12 files; 220 Rust library tests plus 7 audio-helper tests; 47 CLI contract cases covering 218 registered capabilities. `pnpm run test:coverage` enforces 100% statements, branches, functions, and lines and is the CI unit-test step. CI also runs the browser suite, formatting, Clippy, Rust tests, the contract harness, the static build, and the desktop package on Windows, macOS, and Linux. `pnpm run desktop:build` produces MSI and NSIS installers plus a portable EXE. The release executable is a Windows GUI-subsystem binary and creates no application-data runtime directory. The in-process llama.cpp and whisper.cpp link was verified; real-model inference, live-microphone Whisper, device matrices, and macOS/Linux capture remain release qualification work. `pnpm audit --audit-level high` currently reports no known vulnerabilities.
 
 ## Commit requirements
 

@@ -1,8 +1,9 @@
 use super::{
     identity::{
         archive_changed_message, archive_identity, archive_identity_and_hasher,
-        archive_location_changed_message, move_file_without_replacing, normalized_save_location,
-        preserve_backup_error, resolve_existing_file, same_path,
+        archive_location_changed_message, known_archive_identity, move_file_without_replacing,
+        normalized_save_location, preserve_backup_error, remember_archive_identity,
+        resolve_existing_file, same_path,
     },
     state::{ArchiveIdentity, DesktopState, PendingSave, SaveKind, SavePreparation},
 };
@@ -74,15 +75,11 @@ fn prepare_archive_save_blocking(
             .ok_or_else(|| {
                 "Archive access has expired. Reopen the file before saving.".to_owned()
             })?;
-        let same_location = same_path(&target_location, &archive.location);
-        let same_file = same_path(&target, &archive.path);
-        if same_location || same_file {
-            if same_location && !same_file {
-                return Err(archive_location_changed_message());
-            }
-            if !same_file || target_identity.as_ref() != Some(&archive.identity) {
-                return Err(archive_changed_message());
-            }
+        // The destination identity is revalidated at publication with the latest
+        // path identity. Checking it here would reject Tutorux's own concurrent save
+        // or audio checkpoint, which advances the file after this preparation.
+        if same_path(&target_location, &archive.location) && !same_path(&target, &archive.path) {
+            return Err(archive_location_changed_message());
         }
     }
 
@@ -153,13 +150,14 @@ fn publish_archive_save_blocking(
             .archive_locks
             .for_path(&pending.target, LockMode::Exclusive)?;
         let mut archive_write_lock = state.archive_locks.exclusive_guard(&target_lock)?;
-        let expected_identity = expected_target_identity(&pending, state)?;
+        let expected_identity = expected_target_identity(&pending, state.inner())?;
         validate_staged_archive_file(&pending, expected_identity.as_ref())?;
         archive_write_lock.prepare_replacement_file(&pending.temporary)?;
         let backup = publish_staged_archive_file(&pending, &token, expected_identity.as_ref())?;
         archive_write_lock.adopt_replacement_file()?;
+        let (identity, hasher) = archive_identity_and_hasher(&pending.target)?;
+        remember_archive_identity(state.inner(), &pending.target, &identity)?;
         if let Some(archive_token) = &pending.source_archive_token {
-            let (identity, hasher) = archive_identity_and_hasher(&pending.target)?;
             let mut opened_archives = state
                 .opened_archives
                 .lock()
@@ -197,13 +195,16 @@ fn publish_archive_save_blocking(
     result
 }
 
-/// The latest identity Tutorux knows for the destination. A concurrent save or audio
-/// checkpoint advances the opened archive's identity while the same file stays selected;
-/// using that value avoids reporting Tutorux's own write as an external change.
+/// The latest identity Tutorux knows for the destination. Identities are keyed by
+/// canonical path so every authorization token for the same file agrees, and a
+/// concurrent save or audio checkpoint cannot leave a stale token behind.
 fn expected_target_identity(
     pending: &PendingSave,
-    state: &State<'_, DesktopState>,
+    state: &DesktopState,
 ) -> Result<Option<ArchiveIdentity>, String> {
+    if let Some(known) = known_archive_identity(state, &pending.target)? {
+        return Ok(Some(known));
+    }
     if let Some(token) = &pending.source_archive_token {
         let archives = state
             .opened_archives
@@ -255,7 +256,13 @@ fn validate_staged_archive_file(
     if let Some(expected) = expected {
         let current = archive_identity(&pending.target).map_err(|_| archive_changed_message())?;
         if &current != expected {
-            return Err(archive_changed_message());
+            // A concurrent duplicate save may have published exactly these bytes already.
+            // Accept that idempotent case instead of reporting Tutorux's own write as external.
+            let staged =
+                archive_identity(&pending.temporary).map_err(|_| archive_changed_message())?;
+            if current != staged {
+                return Err(archive_changed_message());
+            }
         }
     }
 
@@ -444,6 +451,59 @@ mod tests {
         let error = validate_staged_archive_file(&pending, Some(&advanced))
             .expect_err("reject an external change after Tutorux advanced the file");
         assert!(error.contains("changed outside Tutorux"));
+    }
+
+    #[test]
+    fn stale_authorization_tokens_use_the_latest_identity_for_the_path() {
+        use crate::desktop::{
+            identity::remember_archive_identity,
+            state::{ArchiveIdentity, DesktopState},
+        };
+
+        let root = tempfile::tempdir().expect("temporary directory");
+        let target = root.path().join("lesson.tux");
+        let temporary = root.path().join(".staged-archive.partial");
+        fs::write(&target, b"archive after Tutorux save").expect("write advanced archive");
+        fs::write(&temporary, b"next update").expect("write staged archive");
+        let advanced = archive_identity(&target).expect("identify advanced archive");
+        let state = DesktopState::default();
+        remember_archive_identity(&state, &target, &advanced).expect("remember identity");
+
+        // A token authorized before the advanced save still carries the older identity.
+        let pending = pending_save(
+            &target,
+            &temporary,
+            Some(ArchiveIdentity {
+                size: 1,
+                sha256: "00".repeat(32),
+            }),
+        );
+        let expected =
+            super::expected_target_identity(&pending, &state).expect("resolve expected identity");
+        assert_eq!(expected, Some(advanced.clone()));
+
+        validate_staged_archive_file(&pending, expected.as_ref())
+            .expect("accept Tutorux's own advanced destination");
+    }
+
+    #[test]
+    fn save_accepts_a_destination_that_already_matches_the_staged_bytes() {
+        let root = tempfile::tempdir().expect("temporary directory");
+        let target = root.path().join("lesson.tux");
+        let temporary = root.path().join(".staged-archive.partial");
+        fs::write(&target, b"staged update").expect("write published archive");
+        fs::write(&temporary, b"staged update").expect("write staged archive");
+        let stale = archive_identity(&target).expect("identify archive");
+        let pending = pending_save(&target, &temporary, Some(stale));
+
+        // Simulate a destination identity captured before a duplicate save published
+        // exactly these bytes: the publication is idempotent, not an external change.
+        let other = crate::desktop::state::ArchiveIdentity {
+            size: 1,
+            sha256: "00".repeat(32),
+        };
+        validate_staged_archive_file(&pending, Some(&other))
+            .expect("accept an identical destination");
     }
 
     #[test]

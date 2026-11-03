@@ -16,17 +16,17 @@ React-style `.tsx` SolidJS components and `index.html` are presentation code exe
 | `pnpm run lint` | pass |
 | `pnpm run format:check` | pass |
 | `pnpm run test:coverage` | **100% statements, branches, functions, lines** |
-| `pnpm exec vitest run` | 111 files, 2127 tests pass |
+| `pnpm exec vitest run` | 111 files, 2128 tests pass |
 | `pnpm exec playwright test` | 22 pass |
 | `cargo fmt --check` | pass |
 | `cargo clippy --all-targets --all-features --locked -D warnings` | pass |
-| `cargo test --all-features --locked` | 215 lib + 7 helper pass |
+| `cargo test --all-features --locked` | 220 lib + 7 helper pass |
 | `node scripts/rust-parity/run.mjs` | 47/47 cases, 218 capabilities, 0 missing |
 | `pnpm audit --audit-level high` | no known vulnerabilities |
 | `pnpm run build` | pass |
 | `pnpm run desktop:build` | MSI, NSIS, portable EXE built |
 
-Coverage totals from the last run: 15,258 statements, 11,446 branches, 1,844 functions, 13,863 lines, all covered. Thresholds are enforced in `vite.config.ts` and CI runs `pnpm run test:coverage`.
+Coverage totals from the last run: 15,266 statements, 11,446 branches, 1,849 functions, 13,871 lines, all covered. Thresholds are enforced in `vite.config.ts` and CI runs `pnpm run test:coverage`.
 
 ## Action traceability
 
@@ -63,7 +63,7 @@ Representative removals:
 2. The browser PDF.js branch could not execute under the Node transform because the module-level `let` was constant-folded. The worker source now lives in a small state object, so both the Node legacy build and the browser build are exercised.
 3. The PDF page-limit and worker-source branches had no tests; both now have behavioral tests (513-page fixture, browser fixture with a mocked PDF.js module).
 4. Document block actions were 24 px wide while their "Split" and "Merge" labels were wider, so the labels overflowed into each other. The buttons now size to their labels, the header wraps when narrow, and an E2E test checks text fit, button separation, and page overflow at 1440 px and 390 px.
-5. The desktop save path compared a destination identity captured before staging against the destination at publication. A concurrent Tutorux save or audio checkpoint updates the destination and its recorded identity, so the second operation reported a false "archive changed outside Tutorux" conflict. Publication now compares against the latest identity recorded for an opened archive when the destination is the same file, while foreign changes still fail. Desktop save and checkpoint commands are also serialized, so Tutorux cannot race itself. Rust regression tests cover both the accepted Tutorux advance and the rejected foreign change; a platform test asserts save/checkpoint ordering.
+5. The desktop save path compared a destination identity captured before staging against the destination at publication, and each authorization token carried its own identity copy. A concurrent Tutorux save, a re-authorization, or a recording checkpoint could therefore leave a stale identity and report a false "archive changed outside Tutorux" conflict. Identities are now stored once per canonical path and shared by every token; preparation no longer rejects on identity, publication compares against the path identity and accepts an identical re-publication, failed checkpoints roll back to their previous size, and Windows handles are compared by volume/file ID instead of timestamps. Rust regression tests cover the accepted Tutorux advance, stale tokens, idempotent re-publication, and the rejected foreign change; a platform test asserts save/checkpoint ordering.
 6. Recording playback requested the entire track and failed above the 32 MiB preview limit. Playback now loads a 30-second window from the start or the selected cue, matching the UI copy and working for long recordings.
 7. CI failed before any check because `pnpm/action-setup` pinned `version: 12` while `package.json` pins `packageManager: pnpm@12.14.0`. The action now reads the package manager field only.
 

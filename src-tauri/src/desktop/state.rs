@@ -25,6 +25,7 @@ pub(crate) struct AuthorizedArchive {
 #[derive(Default)]
 pub(crate) struct DesktopState {
     pub(crate) opened_archives: Mutex<HashMap<String, AuthorizedArchive>>,
+    pub(crate) archive_identities: Mutex<HashMap<String, ArchiveIdentity>>,
     pub(crate) archive_locks: ArchiveLockRegistry,
     pub(crate) pending_saves: Mutex<HashMap<String, PendingSave>>,
     pub(crate) pending_open: Mutex<VecDeque<PathBuf>>,

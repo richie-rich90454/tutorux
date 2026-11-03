@@ -1,7 +1,8 @@
 use super::{
     identity::{
         archive_changed_message, archive_identity_from_file, archive_location_changed_message,
-        resolve_existing_file, same_open_file, same_path,
+        known_archive_identity, remember_archive_identity, resolve_existing_file, same_open_file,
+        same_path,
     },
     state::{ArchiveAppendResult, ArchiveIdentity, ArchiveLocator, DesktopState},
 };
@@ -31,7 +32,7 @@ pub(crate) fn append_audio_archive_generation(
                 .to_owned(),
         );
     }
-    let expected_size = expected_size
+    let requested_size = expected_size
         .parse::<u64>()
         .map_err(|_| "The microphone archive size is invalid.".to_owned())?;
     let generation = generation
@@ -74,9 +75,17 @@ pub(crate) fn append_audio_archive_generation(
         return Err(archive_changed_message());
     }
     let (current_identity, mut hasher) = archive_identity_from_file(&mut file)?;
-    if current_identity != archive.identity || current_identity.size != expected_size {
+    let known_identity = known_archive_identity(state.inner(), &archive.path)?;
+    let expected_identity = known_identity.as_ref().unwrap_or(&archive.identity);
+    if &current_identity != expected_identity {
         return Err(archive_changed_message());
     }
+    if requested_size > current_identity.size {
+        return Err("The microphone checkpoint is based on a stale archive generation.".into());
+    }
+    // The on-disk size is authoritative under the exclusive lock. A queued save or
+    // checkpoint may have advanced it after the caller captured its expected size.
+    let expected_size = current_identity.size;
     let mut previous_locator = [0_u8; ARCHIVE_LOCATOR_BYTES];
     file.seek(SeekFrom::End(-(ARCHIVE_LOCATOR_BYTES as i64)))
         .map_err(|_| {
@@ -94,34 +103,44 @@ pub(crate) fn append_audio_archive_generation(
         .ok_or_else(|| "The archive size exceeds the supported range.".to_owned())?;
 
     let locator_offset = bytes.len() - ARCHIVE_LOCATOR_BYTES;
-    file.seek(SeekFrom::End(0))
-        .map_err(|error| format!("Could not seek to the archive end: {error}"))?;
-    file.write_all(&bytes[..locator_offset])
-        .map_err(|error| format!("Could not append the microphone checkpoint: {error}"))?;
-    file.sync_all()
-        .map_err(|error| format!("Could not flush microphone checkpoint data: {error}"))?;
-    file.write_all(&bytes[locator_offset..])
-        .map_err(|error| format!("Could not publish the microphone checkpoint: {error}"))?;
-    file.sync_all().map_err(|error| {
-        format!("Could not flush the microphone checkpoint publication: {error}")
-    })?;
-    verify_audio_archive_append(&mut file, expected_size, &bytes)?;
+    let result = (|| -> Result<(), String> {
+        file.seek(SeekFrom::End(0))
+            .map_err(|error| format!("Could not seek to the archive end: {error}"))?;
+        file.write_all(&bytes[..locator_offset])
+            .map_err(|error| format!("Could not append the microphone checkpoint: {error}"))?;
+        file.sync_all()
+            .map_err(|error| format!("Could not flush microphone checkpoint data: {error}"))?;
+        file.write_all(&bytes[locator_offset..])
+            .map_err(|error| format!("Could not publish the microphone checkpoint: {error}"))?;
+        file.sync_all().map_err(|error| {
+            format!("Could not flush the microphone checkpoint publication: {error}")
+        })?;
+        verify_audio_archive_append(&mut file, expected_size, &bytes)?;
 
-    if file
-        .metadata()
-        .map_err(|error| format!("Could not inspect the updated archive: {error}"))?
-        .len()
-        != expected_new_size
-    {
-        return Err("The microphone checkpoint ended at an unexpected archive size.".into());
-    }
-    if !same_open_file(&archive.path, &file)? {
-        return Err(archive_changed_message());
-    }
-    match resolve_existing_file(&archive.location)? {
-        Some(path) if same_path(&path, &archive.path) => {}
-        Some(_) => return Err(archive_location_changed_message()),
-        None => return Err(archive_changed_message()),
+        if file
+            .metadata()
+            .map_err(|error| format!("Could not inspect the updated archive: {error}"))?
+            .len()
+            != expected_new_size
+        {
+            return Err("The microphone checkpoint ended at an unexpected archive size.".into());
+        }
+        if !same_open_file(&archive.path, &file)? {
+            return Err(archive_changed_message());
+        }
+        match resolve_existing_file(&archive.location)? {
+            Some(path) if same_path(&path, &archive.path) => {}
+            Some(_) => return Err(archive_location_changed_message()),
+            None => return Err(archive_changed_message()),
+        }
+        Ok(())
+    })();
+    if let Err(error) = result {
+        // Never leave a partial generation behind. A failed append used to change the
+        // file without advancing its identity, so every later save reported an external edit.
+        let _ = file.set_len(expected_size);
+        let _ = file.sync_all();
+        return Err(error);
     }
     hasher.update(&*bytes);
     archive.identity = ArchiveIdentity {
@@ -129,6 +148,7 @@ pub(crate) fn append_audio_archive_generation(
         sha256: format!("{:x}", hasher.clone().finalize()),
     };
     archive.hasher = hasher;
+    remember_archive_identity(state.inner(), &archive.path, &archive.identity)?;
     Ok(ArchiveAppendResult {
         size: expected_new_size.to_string(),
     })
