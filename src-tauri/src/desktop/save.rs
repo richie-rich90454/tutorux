@@ -1,13 +1,13 @@
 use super::{
     identity::{
-        archive_changed_message, archive_identity, archive_identity_and_hasher,
-        archive_location_changed_message, known_archive_identity, move_file_without_replacing,
-        normalized_save_location, preserve_backup_error, remember_archive_identity,
-        resolve_existing_file, same_path,
+        archive_changed_message, archive_identity, archive_location_changed_message,
+        known_archive_identity, move_file_without_replacing, normalized_save_location,
+        preserve_backup_error, remember_archive_identity, resolve_existing_file, same_path,
     },
     state::{ArchiveIdentity, DesktopState, PendingSave, SaveKind, SavePreparation},
 };
 use crate::archive_lock_support::LockMode;
+use sha2::Digest;
 use std::{
     fs::{self, OpenOptions},
     path::Path,
@@ -57,9 +57,13 @@ fn prepare_archive_save_blocking(
         );
     }
     let target_lock = state.archive_locks.for_path(&target, LockMode::Shared)?;
-    let _target_read_lock = state.archive_locks.shared_guard(&target_lock)?;
+    let mut _target_read_lock = state.archive_locks.shared_guard(&target_lock)?;
     let target_identity = if target.exists() {
-        Some(archive_identity(&target)?)
+        let (size, hasher) = _target_read_lock.hash_archive()?;
+        Some(ArchiveIdentity {
+            size,
+            sha256: format!("{:x}", hasher.clone().finalize()),
+        })
     } else {
         None
     };
@@ -151,11 +155,28 @@ fn publish_archive_save_blocking(
             .for_path(&pending.target, LockMode::Exclusive)?;
         let mut archive_write_lock = state.archive_locks.exclusive_guard(&target_lock)?;
         let expected_identity = expected_target_identity(&pending, state.inner())?;
-        validate_staged_archive_file(&pending, expected_identity.as_ref())?;
+        let current_identity = if pending.target.exists() {
+            let (size, hasher) = archive_write_lock.hash_archive()?;
+            Some(ArchiveIdentity {
+                size,
+                sha256: format!("{:x}", hasher.clone().finalize()),
+            })
+        } else {
+            None
+        };
+        validate_staged_archive_file(
+            &pending,
+            expected_identity.as_ref(),
+            current_identity.as_ref(),
+        )?;
         archive_write_lock.prepare_replacement_file(&pending.temporary)?;
-        let backup = publish_staged_archive_file(&pending, &token, expected_identity.as_ref())?;
+        let backup = publish_staged_archive_file(&pending, &token)?;
         archive_write_lock.adopt_replacement_file()?;
-        let (identity, hasher) = archive_identity_and_hasher(&pending.target)?;
+        let (size, hasher) = archive_write_lock.hash_archive()?;
+        let identity = ArchiveIdentity {
+            size,
+            sha256: format!("{:x}", hasher.clone().finalize()),
+        };
         remember_archive_identity(state.inner(), &pending.target, &identity)?;
         if let Some(archive_token) = &pending.source_archive_token {
             let mut opened_archives = state
@@ -223,6 +244,7 @@ fn expected_target_identity(
 fn validate_staged_archive_file(
     pending: &PendingSave,
     expected: Option<&ArchiveIdentity>,
+    current: Option<&ArchiveIdentity>,
 ) -> Result<(), String> {
     OpenOptions::new()
         .write(true)
@@ -254,13 +276,15 @@ fn validate_staged_archive_file(
     }
 
     if let Some(expected) = expected {
-        let current = archive_identity(&pending.target).map_err(|_| archive_changed_message())?;
-        if &current != expected {
+        let Some(current) = current else {
+            return Err(archive_changed_message());
+        };
+        if current != expected {
             // A concurrent duplicate save may have published exactly these bytes already.
             // Accept that idempotent case instead of reporting Tutorux's own write as external.
             let staged =
                 archive_identity(&pending.temporary).map_err(|_| archive_changed_message())?;
-            if current != staged {
+            if current != &staged {
                 return Err(archive_changed_message());
             }
         }
@@ -274,7 +298,6 @@ fn validate_staged_archive_file(
 fn publish_staged_archive_file(
     pending: &PendingSave,
     token: &str,
-    expected: Option<&ArchiveIdentity>,
 ) -> Result<Option<(std::path::PathBuf, std::path::PathBuf)>, String> {
     let backup_directory = pending
         .target
@@ -289,23 +312,9 @@ fn publish_staged_archive_file(
                 "Could not move the previous archive into its recovery copy: {error}"
             ));
         }
-        let moved_identity = match archive_identity(&backup) {
-            Ok(identity) => identity,
-            Err(error) => {
-                return Err(preserve_backup_error(
-                    &backup,
-                    &pending.target,
-                    format!("Could not verify the moved archive: {error}"),
-                ));
-            }
-        };
-        if Some(&moved_identity) != expected {
-            return Err(preserve_backup_error(
-                &backup,
-                &pending.target,
-                archive_changed_message(),
-            ));
-        }
+        // The destination identity was verified immediately before this atomic rename
+        // under the exclusive lock. Hashing the moved file would require a second
+        // handle and fails with ERROR_LOCK_VIOLATION on Windows.
     }
 
     let publish = move_file_without_replacing(&pending.temporary, &pending.target);
@@ -384,12 +393,12 @@ mod tests {
         pending.kind = SaveKind::Archive;
 
         fs::write(&temporary, b"").expect("write empty staged archive");
-        let error = validate_staged_archive_file(&pending, pending.target_identity.as_ref())
+        let error = validate_staged_archive_file(&pending, pending.target_identity.as_ref(), None)
             .expect_err("reject empty archive");
         assert!(error.contains("empty"));
 
         fs::write(&temporary, b"not an archive").expect("write truncated staged archive");
-        let error = validate_staged_archive_file(&pending, pending.target_identity.as_ref())
+        let error = validate_staged_archive_file(&pending, pending.target_identity.as_ref(), None)
             .expect_err("reject truncated archive");
         assert!(error.contains("failed validation"));
     }
@@ -404,12 +413,12 @@ mod tests {
         let expected = archive_identity(&target).expect("identify existing archive");
         let pending = pending_save(&target, &temporary, Some(expected));
 
-        validate_staged_archive_file(&pending, pending.target_identity.as_ref())
+        let current = archive_identity(&target).expect("identify current archive");
+        validate_staged_archive_file(&pending, pending.target_identity.as_ref(), Some(&current))
             .expect("validate existing destination");
-        let (backup_directory, backup) =
-            publish_staged_archive_file(&pending, "save-test", pending.target_identity.as_ref())
-                .expect("publish updated archive")
-                .expect("existing destination backup");
+        let (backup_directory, backup) = publish_staged_archive_file(&pending, "save-test")
+            .expect("publish updated archive")
+            .expect("existing destination backup");
 
         assert_eq!(
             fs::read(&target).expect("read updated archive"),
@@ -443,12 +452,13 @@ mod tests {
         // Tutorux's own save or audio checkpoint moved the destination forward.
         fs::write(&target, b"tutorux advanced archive").expect("simulate Tutorux write");
         let advanced = archive_identity(&target).expect("identify advanced archive");
-        validate_staged_archive_file(&pending, Some(&advanced))
+        validate_staged_archive_file(&pending, Some(&advanced), Some(&advanced))
             .expect("accept the destination identity Tutorux last wrote");
 
         // A different writer changed it instead.
         fs::write(&target, b"foreign write").expect("simulate external write");
-        let error = validate_staged_archive_file(&pending, Some(&advanced))
+        let foreign = archive_identity(&target).expect("identify foreign archive");
+        let error = validate_staged_archive_file(&pending, Some(&advanced), Some(&foreign))
             .expect_err("reject an external change after Tutorux advanced the file");
         assert!(error.contains("changed outside Tutorux"));
     }
@@ -482,7 +492,7 @@ mod tests {
             super::expected_target_identity(&pending, &state).expect("resolve expected identity");
         assert_eq!(expected, Some(advanced.clone()));
 
-        validate_staged_archive_file(&pending, expected.as_ref())
+        validate_staged_archive_file(&pending, expected.as_ref(), Some(&advanced))
             .expect("accept Tutorux's own advanced destination");
     }
 
@@ -494,7 +504,7 @@ mod tests {
         fs::write(&target, b"staged update").expect("write published archive");
         fs::write(&temporary, b"staged update").expect("write staged archive");
         let stale = archive_identity(&target).expect("identify archive");
-        let pending = pending_save(&target, &temporary, Some(stale));
+        let pending = pending_save(&target, &temporary, Some(stale.clone()));
 
         // Simulate a destination identity captured before a duplicate save published
         // exactly these bytes: the publication is idempotent, not an external change.
@@ -502,7 +512,7 @@ mod tests {
             size: 1,
             sha256: "00".repeat(32),
         };
-        validate_staged_archive_file(&pending, Some(&other))
+        validate_staged_archive_file(&pending, Some(&other), Some(&stale))
             .expect("accept an identical destination");
     }
 
@@ -516,9 +526,14 @@ mod tests {
         fs::write(&temporary, b"updated archive").expect("write staged archive");
         fs::write(&target, b"external edit").expect("simulate external edit");
         let pending = pending_save(&target, &temporary, Some(expected));
+        let current = archive_identity(&target).expect("identify external archive");
 
-        let error = validate_staged_archive_file(&pending, pending.target_identity.as_ref())
-            .expect_err("reject stale save");
+        let error = validate_staged_archive_file(
+            &pending,
+            pending.target_identity.as_ref(),
+            Some(&current),
+        )
+        .expect_err("reject stale save");
 
         assert!(error.contains("changed outside Tutorux"));
         assert_eq!(
@@ -539,11 +554,10 @@ mod tests {
         fs::write(&temporary, b"new archive").expect("write staged archive");
         let pending = pending_save(&target, &temporary, None);
 
-        validate_staged_archive_file(&pending, pending.target_identity.as_ref())
+        validate_staged_archive_file(&pending, pending.target_identity.as_ref(), None)
             .expect("validate new destination");
         let backup =
-            publish_staged_archive_file(&pending, "save-as-test", pending.target_identity.as_ref())
-                .expect("publish new archive");
+            publish_staged_archive_file(&pending, "save-as-test").expect("publish new archive");
 
         assert!(backup.is_none());
         assert_eq!(fs::read(&target).expect("read new archive"), b"new archive");
@@ -564,15 +578,11 @@ mod tests {
         fs::write(&temporary, b"new archive").expect("write staged archive");
         let pending = pending_save(&target, &temporary, None);
 
-        validate_staged_archive_file(&pending, pending.target_identity.as_ref())
+        validate_staged_archive_file(&pending, pending.target_identity.as_ref(), None)
             .expect("validate new destination");
         fs::write(&target, b"external archive").expect("simulate racing destination");
-        let error = publish_staged_archive_file(
-            &pending,
-            "save-as-race-test",
-            pending.target_identity.as_ref(),
-        )
-        .expect_err("do not replace a destination created after validation");
+        let error = publish_staged_archive_file(&pending, "save-as-race-test")
+            .expect_err("do not replace a destination created after validation");
 
         assert!(error.contains("without replacing"));
         assert_eq!(

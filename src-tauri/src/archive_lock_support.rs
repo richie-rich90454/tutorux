@@ -86,6 +86,44 @@ impl ArchiveLock {
         Ok(bytes)
     }
 
+    /// Hash the archive through the handle that owns the file lock.
+    ///
+    /// Windows byte-range locks are mandatory, so opening a second handle to the same
+    /// file fails with ERROR_LOCK_VIOLATION (os error 33). Every read of a locked
+    /// archive must use this handle.
+    pub fn hash_archive(&mut self) -> Result<(u64, Sha256), String> {
+        use std::io::{Read, Seek, SeekFrom};
+        let file = self
+            .archive_file
+            .as_mut()
+            .ok_or_else(|| "The archive no longer exists at the locked path.".to_owned())?;
+        file.seek(SeekFrom::Start(0))
+            .map_err(|error| format!("Could not seek in the locked archive: {error}"))?;
+        let mut hasher = Sha256::new();
+        let mut buffer = vec![0_u8; 8 * 1024 * 1024];
+        let mut size = 0_u64;
+        loop {
+            let count = file
+                .read(&mut buffer)
+                .map_err(|error| format!("Could not verify archive contents: {error}"))?;
+            if count == 0 {
+                break;
+            }
+            size = size
+                .checked_add(count as u64)
+                .ok_or_else(|| "Archive is too large to verify safely.".to_owned())?;
+            hasher.update(&buffer[..count]);
+        }
+        Ok((size, hasher))
+    }
+
+    /// Borrow the handle that owns the file lock for positional reads and appends.
+    pub fn file_mut(&mut self) -> Result<&mut File, String> {
+        self.archive_file
+            .as_mut()
+            .ok_or_else(|| "The archive no longer exists at the locked path.".to_owned())
+    }
+
     pub fn try_reacquire(&mut self, mode: LockMode) -> Result<(), String> {
         if self.mode.is_some() {
             return Err(
@@ -510,6 +548,24 @@ mod tests {
         let path = directory.path().join("lesson.tux");
         std::fs::write(&path, b"archive").expect("write archive");
         path
+    }
+
+    #[test]
+    fn hashing_reads_through_the_locking_handle() {
+        use sha2::{Digest, Sha256};
+
+        let directory = tempfile::tempdir().expect("temporary directory");
+        let path = archive(&directory);
+        let mut lock =
+            ArchiveLock::try_acquire(&path, LockMode::Exclusive).expect("exclusive lock");
+
+        let (size, hasher) = lock.hash_archive().expect("hash the locked archive");
+
+        assert_eq!(size, 7);
+        assert_eq!(
+            format!("{:x}", hasher.finalize()),
+            format!("{:x}", Sha256::digest(b"archive"))
+        );
     }
 
     #[test]

@@ -1,8 +1,9 @@
 use super::{
-    identity::{archive_identity_and_hasher, normalized_location_path, remember_archive_identity},
-    state::{ArchiveSelection, AuthorizedArchive, DesktopState},
+    identity::{normalized_location_path, remember_archive_identity},
+    state::{ArchiveIdentity, ArchiveSelection, AuthorizedArchive, DesktopState},
 };
 use crate::archive_lock_support::LockMode;
+use sha2::Digest;
 use std::{
     fs::{self, File},
     io::{Read, Seek, SeekFrom},
@@ -55,9 +56,13 @@ fn authorize_archive_path_blocking(
         }
     }
     let archive_lock = state.archive_locks.for_path(&selected, LockMode::Shared)?;
-    let _archive_read_lock = state.archive_locks.shared_guard(&archive_lock)?;
-    let (identity, hasher) = archive_identity_and_hasher(&selected)?;
-    drop(_archive_read_lock);
+    let mut archive_read_lock = state.archive_locks.shared_guard(&archive_lock)?;
+    let (size, hasher) = archive_read_lock.hash_archive()?;
+    let identity = ArchiveIdentity {
+        size,
+        sha256: format!("{:x}", hasher.clone().finalize()),
+    };
+    drop(archive_read_lock);
     remember_archive_identity(state, &selected, &identity)?;
     let token = Uuid::new_v4().to_string();
     let name = selected

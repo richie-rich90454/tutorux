@@ -20,7 +20,7 @@ React-style `.tsx` SolidJS components and `index.html` are presentation code exe
 | `pnpm exec playwright test` | 22 pass |
 | `cargo fmt --check` | pass |
 | `cargo clippy --all-targets --all-features --locked -D warnings` | pass |
-| `cargo test --all-features --locked` | 220 lib + 7 helper pass |
+| `cargo test --all-features --locked` | 221 lib + 8 helper pass |
 | `node scripts/rust-parity/run.mjs` | 47/47 cases, 218 capabilities, 0 missing |
 | `pnpm audit --audit-level high` | no known vulnerabilities |
 | `pnpm run build` | pass |
@@ -66,6 +66,7 @@ Representative removals:
 5. The desktop save path compared a destination identity captured before staging against the destination at publication, and each authorization token carried its own identity copy. A concurrent Tutorux save, a re-authorization, or a recording checkpoint could therefore leave a stale identity and report a false "archive changed outside Tutorux" conflict. Identities are now stored once per canonical path and shared by every token; preparation no longer rejects on identity, publication compares against the path identity and accepts an identical re-publication, failed checkpoints roll back to their previous size, and Windows handles are compared by volume/file ID instead of timestamps. Rust regression tests cover the accepted Tutorux advance, stale tokens, idempotent re-publication, and the rejected foreign change; a platform test asserts save/checkpoint ordering.
 6. Recording playback requested the entire track and failed above the 32 MiB preview limit. Playback now loads a 30-second window from the start or the selected cue, matching the UI copy and working for long recordings.
 7. CI failed before any check because `pnpm/action-setup` pinned `version: 12` while `package.json` pins `packageManager: pnpm@12.14.0`. The action now reads the package manager field only.
+8. Windows archive creation succeeded, but opening the new archive failed with `Could not verify archive contents: ... (os error 33)`, and saves could report the same "changed outside" conflict. Windows byte-range locks are mandatory, so hashing the archive through a second handle while the lock was held raised `ERROR_LOCK_VIOLATION`; the save path mapped that error to the conflict message. Authorization, preparation, publication, and recording checkpoints now hash and read only through the handle that owns the lock; the replacement handle is adopted before hashing the published file. Rust tests cover hashing a locked archive.
 
 ## Unverified environment
 

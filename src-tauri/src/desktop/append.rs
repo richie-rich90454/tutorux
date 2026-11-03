@@ -8,7 +8,7 @@ use super::{
 };
 use sha2::Digest;
 use std::{
-    fs::{File, OpenOptions},
+    fs::File,
     io::{Read, Seek, SeekFrom, Write},
 };
 use tauri::State;
@@ -52,7 +52,7 @@ pub(crate) fn append_audio_archive_generation(
         .ok_or_else(|| {
             "Archive access has expired. Reopen the file before recording.".to_owned()
         })?;
-    let _archive_write_lock = state.archive_locks.exclusive_guard(&archive_lock)?;
+    let mut archive_write_lock = state.archive_locks.exclusive_guard(&archive_lock)?;
     let mut archives = state
         .opened_archives
         .lock()
@@ -66,15 +66,11 @@ pub(crate) fn append_audio_archive_generation(
         None => return Err(archive_changed_message()),
     }
 
-    let mut file = OpenOptions::new()
-        .read(true)
-        .append(true)
-        .open(&archive.path)
-        .map_err(|error| format!("Could not open the authorized archive for recording: {error}"))?;
-    if !same_open_file(&archive.path, &file)? {
+    let file = archive_write_lock.file_mut()?;
+    if !same_open_file(&archive.path, file)? {
         return Err(archive_changed_message());
     }
-    let (current_identity, mut hasher) = archive_identity_from_file(&mut file)?;
+    let (current_identity, mut hasher) = archive_identity_from_file(file)?;
     let known_identity = known_archive_identity(state.inner(), &archive.path)?;
     let expected_identity = known_identity.as_ref().unwrap_or(&archive.identity);
     if &current_identity != expected_identity {
@@ -115,7 +111,7 @@ pub(crate) fn append_audio_archive_generation(
         file.sync_all().map_err(|error| {
             format!("Could not flush the microphone checkpoint publication: {error}")
         })?;
-        verify_audio_archive_append(&mut file, expected_size, &bytes)?;
+        verify_audio_archive_append(file, expected_size, &bytes)?;
 
         if file
             .metadata()
@@ -125,7 +121,7 @@ pub(crate) fn append_audio_archive_generation(
         {
             return Err("The microphone checkpoint ended at an unexpected archive size.".into());
         }
-        if !same_open_file(&archive.path, &file)? {
+        if !same_open_file(&archive.path, file)? {
             return Err(archive_changed_message());
         }
         match resolve_existing_file(&archive.location)? {
