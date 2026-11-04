@@ -124,6 +124,15 @@ impl TransportPolicy {
 
 #[tauri::command]
 pub async fn send_ai_request(
+    window: tauri::WebviewWindow,
+    request: AiTransportRequest,
+    on_chunk: Channel<AiTransportEvent>,
+) -> Result<AiTransportResult, String> {
+    crate::desktop::window::ensure_main_window(&window)?;
+    send_ai_request_core(request, on_chunk).await
+}
+
+pub(crate) async fn send_ai_request_core(
     request: AiTransportRequest,
     on_chunk: Channel<AiTransportEvent>,
 ) -> Result<AiTransportResult, String> {
