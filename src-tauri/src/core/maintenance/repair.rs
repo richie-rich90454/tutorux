@@ -153,7 +153,7 @@ pub fn repair_archive_result(snapshot: &ArchiveSnapshot) -> Result<ArchiveRepair
         }
         match decode_commit(snapshot.source.as_ref(), selected_commit.previous_offset) {
             Ok(previous) => {
-                if previous.generation + 1 != selected_commit.generation {
+                if previous.generation.checked_add(1) != Some(selected_commit.generation) {
                     last_error = Some(CoreError::new(
                         "archive_repair_commit_chain_invalid",
                         "Previous commit generation is not consecutive.",
