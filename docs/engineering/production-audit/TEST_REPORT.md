@@ -14,7 +14,7 @@ Environment: Windows 11, Node 24, pnpm 12, Rust stable 1.97, Tauri 2. All browse
 | `cargo fmt --check` | PASS | after formatting |
 | `cargo clippy --locked --offline --all-targets --all-features -D warnings` | PASS | no warnings |
 | `cargo check --locked --offline --all-features --bins` | PASS | desktop and CLI targets |
-| `cargo test --locked --offline --all-features` | PASS | 245 library tests + 8 audio-helper tests, 0 failed |
+| `cargo test --locked --offline --all-features` | PASS | 246 library tests + 8 audio-helper tests, 0 failed |
 | Instrumented Rust coverage | PARTIAL | 59.83% lines / 54.72% functions; unreachable host/hardware categories and method are in `RUST-COVERAGE.md` |
 | `node scripts/rust-parity/run.mjs` | PASS | 47/47 cases, 218 capabilities, 0 missing |
 | `pnpm run build` | PASS | web build |
