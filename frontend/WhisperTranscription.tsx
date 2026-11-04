@@ -175,7 +175,7 @@ export function WhisperTranscription(props: Props) {
                 if (wholeTrack) {
                     await commitChanges();
                     setMessage(
-                        `Saved ${committedWindows} completed audio window(s); ${savedRecords} cue change(s) durable so far.`,
+                        `Saved ${committedWindows} completed audio window(s); ${savedRecords} cue change(s) saved in the workspace so far.`,
                     );
                 }
             } while (wholeTrack && cursor < endUs);
