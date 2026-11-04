@@ -103,7 +103,20 @@ pub(super) fn same_path(left: &Path, right: &Path) -> bool {
 }
 
 pub(super) fn read_bytes(snapshot: &ArchiveSnapshot) -> Result<Vec<u8>> {
-    snapshot.source.read(0, snapshot.source.size() as usize)
+    let bytes = snapshot.source.read(0, snapshot.source.size() as usize)?;
+    // A file source can silently reflect an in-place external rewrite between loading
+    // and publication. Re-parse the image and require the snapshot's commit identity.
+    let parsed = ArchiveSnapshot::open_bytes(bytes.clone())?;
+    if parsed.header.id != snapshot.header.id
+        || parsed.commit.offset != snapshot.commit.offset
+        || parsed.commit.generation != snapshot.commit.generation
+    {
+        return crate::core::error::err(
+            "archive_changed",
+            "The archive changed on disk after this operation started. Reopen it and retry; no changes were written.",
+        );
+    }
+    Ok(bytes)
 }
 
 fn revision_counts(snapshot: &ArchiveSnapshot) -> Result<(usize, usize)> {
