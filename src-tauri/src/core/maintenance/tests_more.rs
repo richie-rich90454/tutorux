@@ -279,6 +279,91 @@ fn compaction_prunes_unreferenced_asset_chains() {
 }
 
 #[test]
+fn compaction_keeps_placeholder_blobs_referenced_by_audio_metadata() {
+    let archive =
+        ArchiveSnapshot::open_bytes(create_archive_bytes("Audio refs", "", 1).unwrap()).unwrap();
+    let track_blob = new_uuid();
+    let take_blob = new_uuid();
+    let empty_hash = hex::encode(crate::core::archive::sha256(&[]));
+    let archive = archive
+        .append_records(&[
+            with_blob(
+                record(
+                    RecordType::ASSET_BLOB,
+                    &track_blob,
+                    fields! {"record_role" => "asset-blob-manifest", "content_hash" => empty_hash.clone(), "byte_size" => "0", "chunk_count" => "0", "chunk_ids" => ""},
+                ),
+                Vec::new(),
+            ),
+            with_blob(
+                record(
+                    RecordType::ASSET_BLOB,
+                    &take_blob,
+                    fields! {"record_role" => "asset-blob-manifest", "content_hash" => empty_hash, "byte_size" => "0", "chunk_count" => "0", "chunk_ids" => ""},
+                ),
+                Vec::new(),
+            ),
+            record(
+                RecordType::ASSET_METADATA,
+                &new_uuid(),
+                fields! {"record_role" => "audio-track", "blob_id" => track_blob},
+            ),
+            record(
+                RecordType::ASSET_METADATA,
+                &new_uuid(),
+                fields! {"record_role" => "recording-take", "blob_id" => take_blob},
+            ),
+        ])
+        .unwrap();
+    let result = compact_archive_with_options(
+        &archive,
+        &CompactionOptions {
+            prune_unreferenced_assets: true,
+            purge_deleted_records: false,
+        },
+    )
+    .unwrap();
+    let compacted = ArchiveSnapshot::open_bytes(result.bytes).unwrap();
+    assert!(compacted
+        .get_record(RecordType::ASSET_BLOB, &track_blob)
+        .unwrap()
+        .is_some());
+    assert!(compacted
+        .get_record(RecordType::ASSET_BLOB, &take_blob)
+        .unwrap()
+        .is_some());
+}
+
+#[test]
+fn compaction_accepts_duplicate_content_hash_aliases() {
+    let archive =
+        ArchiveSnapshot::open_bytes(create_archive_bytes("Blob alias", "", 1).unwrap()).unwrap();
+    let empty_hash = hex::encode(crate::core::archive::sha256(&[]));
+    let archive = archive
+        .append_records(&[
+            record(
+                RecordType::ASSET_BLOB,
+                &new_uuid(),
+                fields! {"record_role" => "asset-blob-manifest", "content_hash" => empty_hash.clone(), "byte_size" => "0", "chunk_count" => "0", "chunk_ids" => ""},
+            ),
+            record(
+                RecordType::ASSET_BLOB,
+                &new_uuid(),
+                fields! {"record_role" => "asset-blob-manifest", "content_hash" => empty_hash, "byte_size" => "0", "chunk_count" => "0", "chunk_ids" => ""},
+            ),
+        ])
+        .unwrap();
+    compact_archive_with_options(
+        &archive,
+        &CompactionOptions {
+            prune_unreferenced_assets: false,
+            purge_deleted_records: false,
+        },
+    )
+    .expect("identical content hashes share a BLOB alias");
+}
+
+#[test]
 fn compaction_refuses_pruning_with_unknown_records() {
     let archive =
         ArchiveSnapshot::open_bytes(create_archive_bytes("Prune unknown", "", 1).unwrap()).unwrap();
