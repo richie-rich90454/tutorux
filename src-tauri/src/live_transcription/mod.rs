@@ -29,7 +29,7 @@ const MAX_THREADS: u32 = 64;
 const MAX_AUDIO_CHUNK_BYTES: usize = 32 * 1024;
 const MAX_PENDING_CUES: usize = 2_048;
 const MAX_PENDING_CUE_TEXT_BYTES: usize = 2 * 1024 * 1024;
-const WORK_QUEUE_CHUNKS: usize = 16;
+const WORK_QUEUE_CHUNKS: usize = 64;
 const MAX_CUES_PER_POLL: usize = 128;
 
 static LIVE_SESSIONS: OnceLock<Mutex<HashMap<Uuid, Arc<LiveWhisperHandle>>>> = OnceLock::new();
