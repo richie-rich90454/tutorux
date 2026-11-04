@@ -1,12 +1,14 @@
 # Verification status
 
-Last verified: 2026-11-03 · Windows 11 · Node 24 · pnpm 12 · Rust stable
+Last verified: 2026-11-04 · Windows 11 · Node 24 · pnpm 12 · Rust stable
 
 ## Scope
 
+The 2026-11-04 production audit ledger is in `docs/engineering/production-audit/`. It records the corrected defects, their regressions, and the remaining external verification limits.
+
 Measured coverage applies to every first-party TypeScript module under `frontend/` (`frontend/**/*.ts`, including `frontend/platform/tauri.ts`). Declaration files are the only exclusion. There are no coverage-ignore comments, file exclusions, skipped tests, or test-only production branches.
 
-React-style `.tsx` SolidJS components and `index.html` are presentation code exercised by the Playwright end-to-end suite (`tests/e2e`, 34 tests in 21 files) and the static Tailwind-class guard. `pnpm run test:e2e` also collects real V8 coverage from the browser run, maps it back through the production source maps, and enforces floors over every first-party module in the web bundle (currently 48% statements, 34% branches, 58% functions, 48% lines). The remaining uncovered code is dominated by desktop-only adapters, hardware capture, and network-failure paths that the browser cannot execute; those are covered by the Rust flow tests and the 100% unit suite. The E2E coverage floors are a ratchet: raise them when the suite earns more coverage, never lower them.
+React-style `.tsx` SolidJS components and `index.html` are presentation code exercised by the Playwright end-to-end suite (`tests/e2e`, 35 tests in 21 files) and the static Tailwind-class guard. `pnpm run test:e2e` also collects real V8 coverage from the browser run, maps it back through the production source maps, and enforces floors over every first-party module in the web bundle (currently 48% statements, 34% branches, 58% functions, 48% lines). The remaining uncovered code is dominated by desktop-only adapters, hardware capture, and network-failure paths that the browser cannot execute; those are covered by the Rust flow tests and the 100% unit suite. The E2E coverage floors are a ratchet: raise them when the suite earns more coverage, never lower them.
 
 ## Commands and results
 
@@ -16,17 +18,17 @@ React-style `.tsx` SolidJS components and `index.html` are presentation code exe
 | `pnpm run lint` | pass |
 | `pnpm run format:check` | pass |
 | `pnpm run test:coverage` | **100% statements, branches, functions, lines** |
-| `pnpm exec vitest run` | 111 files, 2128 tests pass |
-| `pnpm exec playwright test` | 34 pass |
+| `pnpm exec vitest run` | 111 files, 2130 tests pass |
+| `pnpm exec playwright test` | 35 pass |
 | `cargo fmt --check` | pass |
 | `cargo clippy --all-targets --all-features --locked -D warnings` | pass |
-| `cargo test --all-features --locked` | 223 lib + 8 helper pass |
+| `cargo test --all-features --locked` | 234 lib + 8 helper pass |
 | `node scripts/rust-parity/run.mjs` | 47/47 cases, 218 capabilities, 0 missing |
 | `pnpm audit --audit-level high` | no known vulnerabilities |
 | `pnpm run build` | pass |
 | `pnpm run desktop:build` | MSI, NSIS, portable EXE built |
 
-Coverage totals from the last run: 15,266 statements, 11,446 branches, 1,849 functions, 13,871 lines, all covered. Thresholds are enforced in `vite.config.ts` and CI runs `pnpm run test:coverage`.
+Coverage totals from the last run: 15,273 statements, 11,456 branches, 1,849 functions, 13,879 lines, all covered. Thresholds are enforced in `vite.config.ts` and CI runs `pnpm run test:coverage`.
 
 ## Action traceability
 
