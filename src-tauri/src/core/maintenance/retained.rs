@@ -123,7 +123,7 @@ fn collect_chain(
         if let Some(newer) = &newer {
             if frame.record_type != newer.0
                 || !frame.id.eq_ignore_ascii_case(&newer.1)
-                || frame.revision + 1 != newer.2
+                || frame.revision.checked_add(1) != Some(newer.2)
             {
                 return err(
                     "revision_lineage_invalid",
@@ -222,16 +222,19 @@ pub(crate) fn prune_unreferenced_assets(
             .and_then(|revision| revision.record.as_ref());
         let Some(latest) = latest else { continue };
         let role = latest.field("record_role");
-        if role == Some("audio-track") || role == Some("recording-take") {
-            continue;
-        }
+        let audio_role = role == Some("audio-track") || role == Some("recording-take");
         for revision in &chain.revisions {
             if let Some(record) = &revision.record {
-                add_reference(
-                    &mut pending,
-                    record.field("blob_id").unwrap_or(""),
-                    "Material metadata",
-                )?;
+                let blob_id = record.field("blob_id").unwrap_or("").to_lowercase();
+                // Audio metadata may predate the empty placeholder manifest or carry a
+                // legacy locator; retain it when present instead of failing compaction.
+                if audio_role {
+                    if valid_uuid(&blob_id) && blob_chains.contains_key(&blob_id) {
+                        pending.push(blob_id);
+                    }
+                } else {
+                    add_reference(&mut pending, &blob_id, "Material metadata")?;
+                }
             }
         }
     }
