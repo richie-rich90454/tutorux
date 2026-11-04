@@ -284,6 +284,14 @@ pub(super) fn resolve_credential(
         .or_else(|| provider.credential_key.map(str::to_owned));
     if let Some(name) = env_name {
         if !name.is_empty() {
+            if let Some(expected) = provider.credential_key {
+                if name != expected {
+                    return Err(CliError(format!(
+                        "This provider reads its API key from {expected}; --api-key-env cannot select another variable."
+                    ))
+                    .into());
+                }
+            }
             if !name.bytes().enumerate().all(|(index, byte)| {
                 byte == b'_' || byte.is_ascii_alphabetic() || (index > 0 && byte.is_ascii_digit())
             }) {
@@ -309,7 +317,7 @@ pub(super) fn resolve_credential(
             }
         }
     }
-    if provider.credential_key.is_some() {
+    if provider.credential_key.is_some() && provider.id != "openai-compatible" {
         if let Ok(value) = crate::credentials::load(provider.id) {
             return Ok(value.to_string());
         }
